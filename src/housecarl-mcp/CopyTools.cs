@@ -45,7 +45,11 @@ public static class CopyTools
          "link SURVIVES it needs a plugin the patch can master: with target=, pruning a record that is NOT in " +
          "your active load order is refused up front, because an artifact cannot master a plugin the game does " +
          "not load. With new_editorid= the clone's strip removes links into the source anyway, so a pruned " +
-         "off-order record is not refused there — unless one survives the strip, which is refused the same way.\n\n" +
+         "off-order record is not refused there — unless one survives the strip. Any off-order link the finished " +
+         "patch still carries refuses, and the refusal names WHICH cause: your 'stop', a field seed_paths never " +
+         "named so the copy carried the link across, or a record an earlier call already put in the patch you are " +
+         "extending. Every element of exclude_types must name a type; a blank entry is refused rather than " +
+         "dropped, because dropping one silently applies fewer exclusions than you passed.\n\n" +
          "FROM WHERE — from_source= is an ORDERED LIST of sources, tried in order, FIRST HIT WINS. Each element is " +
          "either 'winner' (the active load order's winning version of each record) or a plugin FILENAME, which " +
          "resolves whether that plugin is active OR sitting on disk in a DISABLED mod. Naming several is how you " +
@@ -62,9 +66,10 @@ public static class CopyTools
          "with it (a script adapter, say), which the report says out loud. A link the record model REQUIRES " +
          "cannot be stripped, so that refuses loud rather than writing an invented null or silently mastering " +
          "the source.\n\n" +
-         "A copy whose source is defined in a BASE-GAME master is reported as an appearance transplant rather " +
-         "than a standalone-ization: an always-loaded master is not being removed from anything, so links to it " +
-         "are kept and mastered normally.\n\n" +
+         "When NOTHING is being copied away from — the source is a base-game master and every source you named " +
+         "is one too — the result is reported as an appearance transplant rather than a standalone-ization, " +
+         "because an always-loaded master is not being removed from anything. Name a MOD in from_source= and that " +
+         "mod IS being copied away from, so the ordinary standalone report applies even for a base-game FormID.\n\n" +
          "Writes a NEW plugin (folder-per-patch) or extends one with into=. Originals are never touched, and a " +
          "refusal writes nothing.")]
     public static string Copy(
@@ -75,7 +80,7 @@ public static class CopyTools
             string[]? from_source = null,
         [Description("The field paths to start the walk from, e.g. ['HeadParts','WornArmor']. Each must be a record link or a list of record links, judged on the field's declared type; anything else is refused by name. A path the source leaves unset or empty CLEARS the target's, and says so.")]
             string[]? seed_paths = null,
-        [Description("Optional. Record types the walk must not enter: 'Type:stop' prunes it (the link is kept), 'Type:refuse' fails the whole copy. E.g. ['Race:refuse'].")]
+        [Description("Optional. Record types the walk must not enter: 'Type:stop' prunes it (the link is kept), 'Type:refuse' fails the whole copy. E.g. ['Race:refuse']. A blank entry is refused, not dropped.")]
             string[]? exclude_types = null,
         [Description("DESTINATION: copy onto this EXISTING record, 'XXXXXX:Plugin.esp'. An active record, or one in the patch itself (with into=). Pass this OR new_editorid.")]
             string? target = null,
@@ -122,7 +127,16 @@ public static class CopyTools
         var exclusions = new List<WalkExclusion>();
         foreach (var raw in exclude_types ?? Array.Empty<string>())
         {
-            if (string.IsNullOrWhiteSpace(raw)) continue;
+            // REFUSED, not skipped — the same rule seed_paths and from_source already apply one loop up and one
+            // loop down. Continuing here ran the whole copy with NO exclusions at all when a templating slip left
+            // one blank entry: a 'Race:refuse' the caller believed they had passed never fired, the walk entered
+            // the Race, and nothing in the response said an entry had been dropped. A blank has no index to shift
+            // here, so it refuses by CONTENT rather than by index (Aaron's review).
+            if (string.IsNullOrWhiteSpace(raw))
+                return "error: exclude_types has a blank entry. Every element must name a record type as " +
+                       "'Type:stop' (prune it, keep the link) or 'Type:refuse' (fail the copy) — remove the empty " +
+                       "entry rather than leaving it, because running with it dropped would silently apply FEWER " +
+                       "exclusions than you passed.";
             var parts = raw.Split(':', 2);
             var type = parts[0].Trim();
             var sev = parts.Length > 1 ? parts[1].Trim().ToLowerInvariant() : "refuse";
@@ -187,11 +201,12 @@ public static class CopyTools
         {
             sb.Append(WriteSentences.Masters(o.Masters));
             // THREE arms, not two (inventory F24). The alarm goes first and unconditionally: a bound plugin among
-            // the masters is worth shouting about whatever the source was. Then the base-game arm, because for an
-            // always-loaded master "standalone" is the wrong frame and the two-way pair could only answer it by
-            // denying a claim computed over a set base masters are deliberately excluded from.
+            // the masters is worth shouting about whatever the source was. Then the transplant note, which belongs
+            // strictly to NOTHING BEING BOUND — F24's own condition. A base-game FormID read through an ordered
+            // from_source= that names a mod still binds that mod, and there the copy really is a standalone-ization
+            // of it: claiming a transplant printed "links are kept and mastered normally" above the strip list.
             sb.Append(o.SourceAmongMasters ? WriteSentences.CopySourceMastered
-                      : o.SourceIsBaseGame ? WriteSentences.CopySourceBaseGame
+                      : o.NothingBound ? WriteSentences.CopySourceBaseGame
                       : WriteSentences.CopyStandalone).Append('\n');
         }
 
@@ -273,6 +288,10 @@ public static class CopyTools
         CopyRefusalKind.UnwritableTarget => c.Detail + WriteSentences.CopyUnwritableTargetRoute,
         CopyRefusalKind.StopOffOrder =>
             $"the walk pruned a record in '{c.Detail}'. That plugin" + WriteSentences.CopyStopOffOrderRoute,
+        CopyRefusalKind.PatchOffOrderLink =>
+            $"{c.Field} references {c.Key}, whose plugin '{c.Detail}'" + WriteSentences.CopyPatchOffOrderRoute,
+        CopyRefusalKind.CopiedOffOrderLink =>
+            $"the copied record {c.Field} references {c.Key}, whose plugin '{c.Detail}'" + WriteSentences.CopyCopiedOffOrderRoute,
         CopyRefusalKind.UnsupportedTargetShape =>
             $"the target {c.Key} ({c.Detail})" + WriteSentences.CopyTargetShapeRoute,
         CopyRefusalKind.DonorLeak when c.Field == ClosureCopy.ExclusionLeakMarker =>

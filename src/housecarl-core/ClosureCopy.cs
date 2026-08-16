@@ -77,6 +77,17 @@ public enum CopyRefusalKind
     /// <summary>The target record lives in a NESTED group (a placed reference, a cell, a dialog response). Ordinary
     /// caller input, so it is a typed refusal naming the shape — not a throw rendered as an internal fault.</summary>
     UnsupportedTargetShape,
+    /// <summary>A record ALREADY in the patch — put there by an earlier call, reached through <c>into=</c> — links
+    /// to a plugin the active order does not carry, so the patch cannot be serialized. Nothing this call did caused
+    /// it, which is why it cannot borrow <see cref="StopOffOrder"/>'s sentence: that one names an
+    /// <c>exclude_types</c> prune the caller never asked for and a remedy about an argument they never passed
+    /// (Aaron's review).</summary>
+    PatchOffOrderLink,
+    /// <summary>A record THIS call copied carries a link to a plugin the active order does not carry, and the link
+    /// is not one an exclusion pruned — it sits on a field <c>seed_paths</c> never named, so the walk never saw it
+    /// and it was duplicated across as-is. Distinct again, because the remedy is the caller's seed set rather than
+    /// their exclusions or their patch.</summary>
+    CopiedOffOrderLink,
     /// <summary>The seed's shape is SUPPORTED and the TARGET's property cannot take it — unset and read-only, or a
     /// required link that cannot be cleared. A distinct kind because it needs a distinct remedy: these three used
     /// <see cref="UnsupportedSeedShape"/>, so the render appended the shape route and told a caller whose seed path
@@ -479,7 +490,7 @@ public static class ClosureCopy
         WalkResult walk, IReadOnlyList<string> seedPaths,
         FormKey? targetKey, IMajorRecordGetter? targetActiveBody,
         string? newEditorid,
-        Func<FormKey, bool> isBound, IReadOnlySet<ModKey> boundPlugins, bool sourceIsBaseGame,
+        Func<FormKey, bool> isBound, IReadOnlySet<ModKey> boundPlugins, bool nothingBound,
         Func<ModKey, bool> isOnOrder,
         Func<string, IReadOnlyList<ISkyrimModGetter>> mastersFor,
         IReadOnlyList<string> consulted,
@@ -606,16 +617,28 @@ public static class ClosureCopy
         // therefore cannot master" — rather than the walk-level proxy, which could not tell a boundary the strip
         // removed from one it never touched (a boundary reached from an INTERNALIZED record is not on the clone,
         // so the strip never sees it, and that one does still have to be mastered).
-        // (FormKey is a struct, so FirstOrDefault yields FormKey.Null when nothing matches — and CollectLinks never
-        // stores a null key, so the IsNull test is exactly "no match", not a second condition on a real one.)
-        var liveLinks = cloneLane ? CollectLinks(patch) : null;
-        if (liveLinks is not null &&
-            liveLinks.FirstOrDefault(k => k.ModKey != patchModKey && !isOnOrder(k.ModKey)) is { } survivingOffOrder
-            && !survivingOffOrder.IsNull)
+        // The measurement stays artifact-level — it predicts a real serialization failure, including for records a
+        // previous call left in an extended patch — but the RENDER now splits by CAUSE. Attributing every hit to
+        // `Type:stop` told a caller who passed no exclusions to change an exclude_types argument they never wrote,
+        // which is the "a true sentence about the wrong cause" class the exclusion-leak marker exists to fix
+        // (Aaron's review). Three causes, three refusals:
+        //   the key is a boundary an exclusion pruned  -> StopOffOrder, the caller's own 'stop'
+        //   the carrier is not a record this call added -> PatchOffOrderLink, pre-existing, this call innocent
+        //   the carrier IS ours, link never pruned      -> CopiedOffOrderLink, an unseeded field carried across
+        var (liveLinks, offender) = cloneLane
+            ? ScanPatchLinks(patch, patchModKey, isOnOrder)
+            : (null, null);
+        if (offender is { } hit)
+        {
+            var excludedBoundary = walk.Kept.Any(k => k.Excluded && k.Key == hit.Link);
+            var addedThisCall = copy.Copied.Any(c => c.NewKey == hit.Carrier) || hit.Carrier == newKey;
+            var kind = excludedBoundary ? CopyRefusalKind.StopOffOrder
+                     : addedThisCall ? CopyRefusalKind.CopiedOffOrderLink
+                     : CopyRefusalKind.PatchOffOrderLink;
             return ClosureCopyOutcome.Fail(
-                copy: new CopyRefusal(CopyRefusalKind.StopOffOrder,
-                    survivingOffOrder.ModKey.FileName.String, Key: survivingOffOrder),
+                copy: new CopyRefusal(kind, hit.Link.ModKey.FileName.String, hit.CarrierLabel, hit.Link),
                 sources: consulted);
+        }
 
         // …and the same measurement answers what the response may CLAIM was kept. An exclusion "keeps" a link, but
         // in the clone lane the strip may have removed it — reporting it as kept beside the strip list made one
@@ -676,18 +699,38 @@ public static class ClosureCopy
             // R2: every internalized record names the arm that produced it, and the record the caller ASKED for
             // did not — which is the single body an ordered source list exists to disambiguate.
             srcHit.Arm.Spelling, assetPaths,
-            masters, sourceAmong, sourceIsBaseGame, bytes, warning);
+            masters, sourceAmong, nothingBound, bytes, warning);
     }
 
-    /// <summary>Every distinct link key the built patch carries. Used to ask the ARTIFACT what survived rather than
-    /// inferring it from the walk — the two disagree in the clone lane, where the strip runs between them.</summary>
-    static HashSet<FormKey> CollectLinks(SkyrimMod patch)
+    /// <summary>One link in the built patch that names a plugin the active order does not carry, together with the
+    /// record CARRYING it — which is what decides whose fault it is, and so which refusal the caller reads.</summary>
+    readonly record struct OffOrderHit(FormKey Link, FormKey Carrier, string CarrierLabel);
+
+    /// <summary>One pass over the built patch: every distinct link key it carries, and the FIRST link naming a
+    /// plugin the active order does not have. Asks the ARTIFACT what survived rather than inferring it from the
+    /// walk — the two disagree in the clone lane, where the strip runs between them.
+    /// <para>The cast is guarded, not asserted. <see cref="ClosureWalk.Run"/> treats this same cast as fallible, and
+    /// the two files must not disagree about that: if a record can fail it, asserting it here throws out of
+    /// BuildAndWrite AFTER the internalize, which <c>Guard.Tool</c> renders as an internal houseCARL failure rather
+    /// than as anything the caller can act on (Aaron's review).</para></summary>
+    static (HashSet<FormKey> Live, OffOrderHit? Offender) ScanPatchLinks(
+        SkyrimMod patch, ModKey patchModKey, Func<ModKey, bool> isOnOrder)
     {
         var live = new HashSet<FormKey>();
+        OffOrderHit? offender = null;
         foreach (var rec in patch.EnumerateMajorRecords())
-            foreach (var l in ((IFormLinkContainerGetter)rec).EnumerateFormLinks())
-                if (!l.FormKey.IsNull) live.Add(l.FormKey);
-        return live;
+        {
+            if (rec is not IFormLinkContainerGetter flc) continue;
+            foreach (var l in flc.EnumerateFormLinks())
+            {
+                if (l.FormKey.IsNull) continue;
+                live.Add(l.FormKey);
+                if (offender is null && l.FormKey.ModKey != patchModKey && !isOnOrder(l.FormKey.ModKey))
+                    offender = new OffOrderHit(l.FormKey, rec.FormKey,
+                        $"{RecordNaming.StripOverlay(rec.GetType().Name)} '{rec.EditorID ?? "<no editorid>"}' ({rec.FormKey})");
+            }
+        }
+        return (live, offender);
     }
 
     /// <summary>The belt-and-braces check after an attach: nothing pointing into the BOUND universe may survive on
@@ -696,9 +739,13 @@ public static class ClosureCopy
     /// that does not resolve" — also catches a target's PRE-EXISTING dangling reference (mod-update dirt whose
     /// master is still declared), which is not this operation's defect and must not block a legitimate copy. The
     /// check exists to prove the artifact does not master the source, so it asks exactly that.</para></summary>
+    /// <para>The cast is guarded for the same reason <see cref="ScanPatchLinks"/>'s is: the walk already treats it
+    /// as fallible, and a record that fails it must not throw out of a written copy as an internal fault. A record
+    /// carrying no link container carries no links, so there is nothing here for it to leak.</para>
     public static FormKey? FindBoundLeak(IMajorRecordGetter record, Func<FormKey, bool> isBound)
     {
-        foreach (var l in ((IFormLinkContainerGetter)record).EnumerateFormLinks())
+        if (record is not IFormLinkContainerGetter flc) return null;
+        foreach (var l in flc.EnumerateFormLinks())
             if (!l.FormKey.IsNull && isBound(l.FormKey)) return l.FormKey;
         return null;
     }
@@ -722,7 +769,7 @@ public sealed record ClosureCopyOutcome(
     IReadOnlyList<string> SourcesConsulted,
     string FromArmSpelling,
     IReadOnlyList<string> AssetPaths,
-    IReadOnlyList<string> Masters, bool SourceAmongMasters, bool SourceIsBaseGame,
+    IReadOnlyList<string> Masters, bool SourceAmongMasters, bool NothingBound,
     long Bytes, string? ReadBackWarning)
 {
     static readonly IReadOnlyList<CopiedRecord> NoRecords = Array.Empty<CopiedRecord>();

@@ -2512,13 +2512,13 @@ public static class WriteSurfaceGuardProbe
         ClosureCopyOutcome Make(bool mastered, string? warning, IReadOnlyList<StripEntry> strips,
                                IReadOnlyList<StripEntry>? attach = null, IReadOnlyList<WalkBoundary>? kept = null,
                                IReadOnlyList<string>? assets = null, IReadOnlyList<string>? srcs = null,
-                               bool baseGame = false) => new(
+                               bool nothingBound = false) => new(
             true, null, null, null, strips.Count > 0 ? "clone" : "attach",
             new FormKey(src, 0x803), new FormKey(patch, 0x900), outPath, false,
             copied, kept ?? Array.Empty<WalkBoundary>(), Array.Empty<WalkCycle>(),
             attach ?? Array.Empty<StripEntry>(), strips, srcs ?? sources,
             "CopySrc.esp", assets ?? Array.Empty<string>(),
-            new[] { "Skyrim.esm" }, mastered, baseGame, 1234, warning);
+            new[] { "Skyrim.esm" }, mastered, nothingBound, 1234, warning);
 
         var keptBoth = new List<WalkBoundary>
         {
@@ -2576,7 +2576,7 @@ public static class WriteSurfaceGuardProbe
                 sources: sources)),
             // Inventory F24 — the THIRD arm of the standalone render. A base-game donor is never bound, so the
             // two-way pair could only answer it by denying a claim computed over an emptied set.
-            CopyTools.Render(Make(false, null, Array.Empty<StripEntry>(), baseGame: true)),
+            CopyTools.Render(Make(false, null, Array.Empty<StripEntry>(), nothingBound: true)),
             // A strip that nulled a WHOLE property, which the count alone described as one reference.
             CopyTools.Render(Make(false, null,
                 new List<StripEntry> { new("VirtualMachineAdapter", new FormKey(src, 0x826).ToString(), WholeProperty: true) })),
@@ -2584,6 +2584,17 @@ public static class WriteSurfaceGuardProbe
             CopyTools.Render(ClosureCopyOutcome.Fail(
                 copy: new CopyRefusal(CopyRefusalKind.UnwritableTarget,
                     "'WornArmor' is a record link on the source but the target's is not writable", "WornArmor"),
+                sources: sources)),
+            // The off-order refusal's two NON-'stop' causes. CopiedOffOrderLink is driven end to end by
+            // copy-service-guard arm 7i; PatchOffOrderLink is render-only and says so there — into= only accepts a
+            // patch houseCARL wrote, and a call that left an off-order link in one would itself have been refused.
+            CopyTools.Render(ClosureCopyOutcome.Fail(
+                copy: new CopyRefusal(CopyRefusalKind.PatchOffOrderLink, "Ghost.esp",
+                    "Npc 'OlderClone' (000801:CopyPatch.esp)", new FormKey(new ModKey("Ghost", ModType.Plugin), 0x800)),
+                sources: sources)),
+            CopyTools.Render(ClosureCopyOutcome.Fail(
+                copy: new CopyRefusal(CopyRefusalKind.CopiedOffOrderLink, "Ghost.esp",
+                    "Npc 'WideNpc' (000804:CopySrc.esp)", new FormKey(new ModKey("Ghost", ModType.Plugin), 0x800)),
                 sources: sources)),
             // …and the NoSeeds refusal, which now names the templated-donor cause R4 attributes to it.
             CopyTools.Render(ClosureCopyOutcome.Fail(
