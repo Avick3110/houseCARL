@@ -248,19 +248,22 @@ public sealed class CorpusRulebook
         // (3a) verb legal for this cardinality?
         if (VerbLegality(leaf, req) is { } verbErr) return verbErr;
 
-        // (3a-owned) …and the one verb whose cardinality answer is wrong for an OWNED CHILD RECORD (#335). Remove on a
+        // (3a-owned) …and the verb whose cardinality answer is wrong for an OWNED CHILD RECORD (#335). Remove on a
         // nullable substruct clears a sub-object; on a leaf that holds a record it deletes the record itself and
-        // everything under it (a Worldspace's TopCell takes its persistent references with it), in one keyless call,
-        // with no way back through this tool — the same branch refuses to materialize an absent child. Every LIST of
-        // owned children already refuses a keyless whole-collection Remove and says to remove one by index; the
-        // singular child is the same family and answers the same way. Asked of SchemaClassifier so the notion has one
-        // home rather than a cardinality test per rule.
+        // everything under it — a Worldspace's TopCell takes its persistent references with it.
+        //
+        // The ground is CONSEQUENCE and TARGETING, not family precedent: the list form of the same family does delete
+        // an owned child (Cell.Persistent Remove key=0 removes that PlacedObject), but by INDEX — the caller names
+        // which one. A keyless clear of a singular child deletes a whole subtree implicitly, in one call, with no
+        // backup on the in-place lane. And deliberate owned-child deletion is exactly the capability gap #350 files:
+        // legalizing it as a side effect of a classification fix would be a capability call nobody made.
         if (string.Equals(req.Verb, "Remove", StringComparison.Ordinal)
             && SchemaClassifier.IsOwnedChildRecord(leaf, _corpus))
-            return $"'{leaf.Name}' on '{leafOwner.Name}' holds an owned child RECORD ({leaf.TypeRef}), not a sub-object: " +
-                   "clearing it would delete that record and every record under it, and houseCARL will not drop a " +
-                   "record as a side effect of clearing a field. Deleting an owned child record outright is not " +
-                   "supported today on any lane — so this is a boundary, not a detour around a shortcut.";
+            return $"'{leaf.Name}' on '{leafOwner.Name}' holds an owned child RECORD ({leaf.TypeRef}): clearing the " +
+                   "field deletes that record and every record under it, implicitly and in one call. The list form of " +
+                   "this family deletes a child too, but by INDEX — you name which one; there is no such target here. " +
+                   "Deliberate deletion of an owned child record is an open gap (#350), not something clearing a " +
+                   "field decides.";
 
         // (3b) record identity (FormKey/ModKey) is a flat, honest reject regardless of Mutagen's setter (plan §3 P-DISC).
         if (leaf.IsIdentity)
@@ -367,6 +370,11 @@ public sealed class CorpusRulebook
             return $"composes= appends/replaces a LIST of modeled elements — use it with Add (append each) or " +
                    $"ReplaceAll (clear, then append each), not {req.Verb}. (For one element use compose=; to overwrite " +
                    "one index use SetAtIndex with compose=.)";
+        // The owned-child answer comes FIRST, because the generic cardinality sentence below ends by pointing at
+        // compose= / value= — and on this shape both of those refuse too (#335). That is the loop the singular
+        // Set arm was written to close, reached through a third door.
+        if (SchemaClassifier.IsOwnedChildRecord(leaf, _corpus))
+            return OwnedChildSetRefusal(leaf);
         if (leaf.Cardinality != "list")
             return $"composes= builds a LIST of modeled elements, but '{leaf.Name}' on '{owner.Name}' is a " +
                    $"{leaf.Cardinality}. (A dict takes keyed entries, not a positional list; a substruct/scalar takes " +
@@ -386,17 +394,34 @@ public sealed class CorpusRulebook
         return null;
     }
 
-    /// <summary>P8b — validate a CopyFrom target leaf: writable, not record identity, and a TRANSPLANTABLE kind. The one
-    /// non-transplantable kind is an owned-child record collection (Cell.Persistent, DialogTopic.Responses, …) — CopyFrom
-    /// copies a FIELD's value, not owned child records; refuse by name and redirect to forward_record (whole record) or
-    /// the record axis (create_record). Everything else — scalar/enum/value, formlink, formlink/modeled list, sub-struct,
-    /// polymorphic arm — WriteEngine.CopyField transplants by construction. The SAME record-element predicate the write
-    /// verbs use (step 4-rec), so gate and apply can't drift on what counts as an owned child.</summary>
+    /// <summary>P8b — validate a CopyFrom target leaf: writable, not record identity, and a TRANSPLANTABLE kind. The
+    /// non-transplantable kind is an owned-child record, in EITHER shape — a collection of them (Cell.Persistent,
+    /// DialogTopic.Responses, …) or the SINGULAR one #335 gave the corpus (Cell.Landscape, Worldspace.TopCell). CopyFrom
+    /// copies a FIELD's value, not owned child records; refuse by name. Everything else — scalar/enum/value, formlink,
+    /// formlink/modeled list, sub-struct, polymorphic arm — WriteEngine.CopyField transplants by construction.
+    /// <para/>
+    /// The singular arm is not a variant of the collection arm's wording, because the two shapes have different
+    /// remedies and a refusal may only name one that works. MEASURED on both: <c>housecarl_forward_record</c> carries
+    /// the child record itself from another plugin (a LAND and a worldspace's top cell both forward), while
+    /// <c>create_record parent=</c> — which the collection arm can honestly offer — is refused for a singular child
+    /// ("that parent models no child-collection that holds it"), so it is named for the list and NOT for the singular
+    /// case, which routes to the lifecycle gap instead (#350).
+    /// <para/>
+    /// Left ungated, this was the one door still open after #335 closed Set / compose / composes / Remove: measured, a
+    /// CopyFrom on <c>Worldspace.TopCell</c> deep-copied the source's whole CELL — its own FormKey, its persistent
+    /// references and all — into the destination's worldspace, which is the silent child-record import
+    /// <see cref="WriteEngine.RestoreChildGroup"/> refuses by name on the forward path.</summary>
     string? CopyFromLegality(FieldSchema leaf, TypeSchema owner)
     {
         if (leaf.IsIdentity)
             return $"'{leaf.Name}' on '{owner.Name}' is record identity (FormKey/ModKey), not a copyable content field.";
         if (!leaf.Writable) return WritabilityRejection(owner, leaf);
+        if (SchemaClassifier.IsOwnedChildRecord(leaf, _corpus))
+            return $"'{leaf.Name}' on '{owner.Name}' holds an owned child RECORD ({leaf.TypeRef}); CopyFrom copies a " +
+                   "FIELD's value, not a record — copying it here would write another plugin's record, with its own " +
+                   "FormID and everything under it, in as this parent's child. To carry that record across from " +
+                   "another plugin use housecarl_forward_record on the CHILD record itself. Giving a parent a child it " +
+                   "does not have is not supported (gap #350).";
         if (leaf.Cardinality is "list" or "dict" && SchemaClassifier.ClassifyElement(leaf, _corpus) == ElementKind.Record)
             return $"'{leaf.Name}' on '{owner.Name}' holds owned child records ({leaf.ElementTypeRef}); CopyFrom copies a " +
                    "FIELD's value, not owned child records. To carry the WHOLE record from another plugin use " +
@@ -406,6 +431,22 @@ public sealed class CorpusRulebook
                    "sub-struct fields — a dict isn't transplanted yet. Set its entries individually, or forward the whole record.";
         return null;
     }
+
+    /// <summary>The ONE sentence every value-shaped Set at an owned child record gets — <c>value=</c>, <c>compose=</c>
+    /// and <c>composes=</c> alike (#335). Shared rather than phrased per door because the three doors previously gave
+    /// three answers that pointed at each other: compose= said "use a plain value", value= said "navigate into it",
+    /// and composes= said "a substruct takes compose= / value=" — all three refused.
+    /// <para/>
+    /// The remedy it names is the MEASURED one: addressing the child record by its own FormID writes and reads back on
+    /// the default lane. The descent clause is stated conditionally on purpose — a path through the parent reaches a
+    /// child only when the copy being written already carries one, and a patch's override of a parent never does
+    /// (Mutagen's override copy leaves the children behind), so an unconditional "descend into it" would send a caller
+    /// at a state the default lane cannot produce.</summary>
+    static string OwnedChildSetRefusal(FieldSchema leaf) =>
+        $"'{leaf.Name}' holds an owned child RECORD ({leaf.TypeRef}): a record is not a part of its parent, so it is " +
+        "neither built from parts (compose= / composes=) nor set from a value (value=). Address the child record " +
+        "itself by its own FormID — a path through the parent reaches a child only when the copy being written " +
+        "already carries one, which a patch's fresh override of a parent never does (gap #350).";
 
     // ---- writability rejection (plan §3 P-DISC) ----
     static string WritabilityRejection(TypeSchema owner, FieldSchema leaf)
@@ -564,10 +605,7 @@ public sealed class CorpusRulebook
             // following the sentence lands back here. Say what is true of a record instead. compose is for a
             // build-from-parts struct/dict/polymorphic field only.
             if (SchemaClassifier.IsOwnedChildRecord(leaf, _corpus))
-                return $"'{leaf.Name}' holds an owned child RECORD ({leaf.TypeRef}) — it is neither built from parts " +
-                       "(compose=) nor set from a value (value=): a record is not a sub-object of its parent. Edit the " +
-                       "child record itself, addressed by its own FormID, or descend to a sub-field of the one this " +
-                       "parent already carries.";
+                return OwnedChildSetRefusal(leaf);
             if (req.Value is null)
                 return req.Struct is not null
                     ? $"'{leaf.Name}' is set from a plain value (value=…), not a compose spec."

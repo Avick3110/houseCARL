@@ -165,7 +165,12 @@ public static class WriteCensus
                 // does not coerce); the reclassification moved it out of "scalarish" and the exclusion has to move
                 // with it, or the correction silently buys a leaf. What IS writable is the child record itself, on
                 // its own axis, and that record's own leaves are counted under its own type.
-                if (b == TODAY && SchemaClassifier.IsOwnedChildRecord(f, corpus))
+                // NOT gated on the TODAY bucket, unlike the coercion clause above. Bucket is a property of the leaf's
+                // OWNER (Worldspace is flat → TODAY; Cell is nested → wave_nested), and the two owned-child leaves are
+                // the same field kind in different owners. Gating on TODAY subtracted Worldspace.TopCell and left
+                // Cell.Landscape sitting in the nested-wave bucket — promised to a wave that will never make it
+                // writable, since no wave changes the answer for a field that holds a record. Same kind, same line.
+                if (SchemaClassifier.IsOwnedChildRecord(f, corpus))
                 {
                     ownedChildLeaves.Add($"{t.Name}.{f.Name} ({f.TypeRef})");
                     continue;

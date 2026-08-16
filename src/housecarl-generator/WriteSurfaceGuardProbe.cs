@@ -70,8 +70,13 @@ public static class WriteSurfaceGuardProbe
     }
     static string Trim(string s) => s.Length <= 400 ? s.Replace("\n", " | ") : s[..400].Replace("\n", " | ") + " …";
 
-    /// <summary>The pre-flight gate, over the same corpus the fixture resolved (RunGuard sets CorpusPath before any
-    /// arm runs) — for arms whose subject is what the GATE says, with no lane or file involved.</summary>
+    /// <summary>The pre-flight gate, for arms whose subject is what the GATE says, with no lane or file involved.
+    /// <para/>
+    /// It loads from whatever <c>CorpusRulebook.CorpusPath</c> points at when the first such arm runs:
+    /// <see cref="Fixture.Build"/> repoints it at a freshly generated corpus ONLY when the ambient one fails to load,
+    /// so an ambient <c>generated/corpus.json</c> is what these arms read on a normal run. That fails in the safe
+    /// direction — a stale ambient corpus turns these arms red rather than green — but it is worth stating plainly,
+    /// because these arms are #335's acceptance evidence and a reader should know which corpus answered them.</para></summary>
     static CorpusRulebook Rules => _rules ??= CorpusRulebook.Load();
     static CorpusRulebook? _rules;
 
@@ -1405,39 +1410,115 @@ public static class WriteSurfaceGuardProbe
         Check("…and the remedy it DOES name works: the child record, addressed on its own axis, takes the write",
             byFormKey is null && landOverride.EditorID == "W335Direct", byFormKey ?? $"EditorID={landOverride.EditorID}");
 
-        // --- REMOVE, THE VERB THE RECLASSIFICATION QUIETLY OPENED. Nullability came with the substruct branch (the
-        //     formlink branch never read the getter's NRT annotation), and Remove's legality is "is the leaf
-        //     nullable?" — so clearing the field became legal, and clearing it drops the whole child record and
-        //     everything under it in one keyless call, on a lane whose banner says there is no backup. Every LIST of
-        //     owned children already refuses a keyless whole-collection Remove; the singular child answers the same.
-        Check("Remove on an owned child record is refused, naming what it would have deleted",
-            Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Remove" })
-                is { } remMsg && remMsg.Contains("owned child RECORD", StringComparison.Ordinal)
-                && remMsg.Contains("every record under it", StringComparison.Ordinal),
-            Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Remove" }) ?? "(accepted)");
-        Check("…while Remove on an ordinary nullable substruct still clears it (the carve-out is the record, not the cardinality)",
-            Rules.Validate(new WriteRequest { RecordType = "Book", Path = new[] { "Model" }, Verb = "Remove" }) is null,
-            Rules.Validate(new WriteRequest { RecordType = "Book", Path = new[] { "Model" }, Verb = "Remove" }) ?? "(accepted)");
+        // --- THE DISPOSITION TABLE. Every op verb the write surface exposes, against the owned-child shape, with the
+        //     answer it must give — in ONE place, so "which door did we miss" is a CI question instead of a review
+        //     hope. It exists because #335 was a classification fix that quietly changed behaviour: correcting the
+        //     two fields put a shape into the corpus that no rule had ever seen (before it, no field was a substruct
+        //     whose TypeRef is a record), and each rule keyed on "substruct" answered as if it were an ordinary
+        //     sub-object. Two review rounds found four such doors one at a time — Set/value, compose, composes,
+        //     Remove — and a fifth, CopyFrom, only after the first four were closed and the docs already claimed
+        //     completeness. A per-door arm set would have kept that going. A table enumerates the verbs instead.
+        //
+        //     Each row is (what a caller does) -> (accepted, or refused with these words). The CONTROL column is the
+        //     same verb on a leaf one step away — an ordinary nullable substruct, or the LIST form of the same
+        //     owned-child family — so a clause that widens past the record shape turns a control row red rather than
+        //     passing quietly. Sabotage evidence for the rows this branch owns is in the PR body.
+        var ownedChild = new (string What, WriteRequest Req, string? MustSay)[]
+        {
+            ("Set value= (a FormID, the shape the old formlink classification invited)",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Set", Value = "000800:Skyrim.esm" },
+                "owned child RECORD"),
+            ("Set compose= (build the child from parts)",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Set",
+                    Struct = new StructSpec { Type = "Landscape", Fields = new Dictionary<string, string> { ["EditorID"] = "X" } } },
+                "owned child RECORD"),
+            ("Add composes= (the third door: a LIST of built elements)",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Add",
+                    Structs = new[] { new StructSpec { Type = "Landscape", Fields = new Dictionary<string, string> { ["EditorID"] = "X" } } } },
+                "owned child RECORD"),
+            ("Remove, keyless (clear the field — deletes the record and its subtree)",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Remove" },
+                "owned child RECORD"),
+            ("Remove with a key (there is no element to name on a singular child)",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Remove", Key = "0" },
+                "owned child RECORD"),
+            ("CopyFrom (transplant the field's value from another plugin's version)",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "CopyFrom" },
+                "owned child RECORD"),
+            ("CopyFrom on the other owned-child field, so the answer is the shape's, not one field's",
+                new WriteRequest { RecordType = "Worldspace", Path = new[] { "TopCell" }, Verb = "CopyFrom" },
+                "owned child RECORD"),
+            ("Add a plain value (a collection verb on a singular leaf)",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Add", Value = "x" },
+                "Add is only valid"),
+            ("ReplaceAll", new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "ReplaceAll", Values = new[] { "x" } },
+                "ReplaceAll is only valid"),
+            ("SetAtIndex", new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "SetAtIndex", Key = "0", Value = "x" },
+                "SetAtIndex is only valid"),
+            ("Merge", new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Merge",
+                    Entries = new Dictionary<string, string> { ["k"] = "v" } },
+                "Merge is only valid"),
+            ("descend to a sub-field of the child (the gate cannot know if one is there — live state)",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape", "EditorID" }, Verb = "Set", Value = "W335" },
+                null),
+            // CONTROLS — the same verbs one step away. These are what a widening clause breaks first.
+            ("CONTROL an ordinary nullable substruct still clears",
+                new WriteRequest { RecordType = "Book", Path = new[] { "Model" }, Verb = "Remove" }, null),
+            ("CONTROL an ordinary substruct still composes",
+                new WriteRequest { RecordType = "Book", Path = new[] { "Model" }, Verb = "Set",
+                    Struct = new StructSpec { Type = "Model", Fields = new Dictionary<string, string> { ["File"] = @"probe\b.nif" } } }, null),
+            ("CONTROL the LIST form of the family still deletes one child BY INDEX",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Persistent" }, Verb = "Remove", Key = "0" }, null),
+            ("CONTROL the LIST form still refuses CopyFrom in its own words",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Persistent" }, Verb = "CopyFrom" },
+                "holds owned child records"),
+            // The composes= control has to be an ordinary SUBSTRUCT, not an ordinary list: the record clause sits
+            // immediately before the "composes= builds a LIST … but this is a {cardinality}" sentence, so only a
+            // non-record substruct crosses the same branch and proves the clause did not widen. (Added after the
+            // widening sabotage below turned every OTHER control red and left this door's untested.)
+            ("CONTROL composes= on an ordinary substruct keeps the generic LIST sentence",
+                new WriteRequest { RecordType = "Book", Path = new[] { "Model" }, Verb = "Add",
+                    Structs = new[] { new StructSpec { Type = "Model", Fields = new Dictionary<string, string> { ["File"] = @"probe\b.nif" } } } },
+                "composes= builds a LIST"),
+        };
+        foreach (var (what, req, mustSay) in ownedChild)
+        {
+            var got = Rules.Validate(req);
+            Check($"disposition · {what}",
+                mustSay is null ? got is null : got is not null && got.Contains(mustSay, StringComparison.Ordinal),
+                got ?? "(accepted)");
+        }
 
-        // …and the Set family on the same leaf: one sentence that names the record, rather than the compose/plain-value
-        // pair that sent a caller between two contradictory refusals (compose said "use value=", value said "navigate
-        // in"). Both shapes, since a caller reaches this leaf either way.
-        var composeMsg = Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Set",
-            Struct = new StructSpec { Type = "Landscape", Fields = new Dictionary<string, string> { ["EditorID"] = "X" } } });
-        var valueMsg = Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Set", Value = "000800:Skyrim.esm" });
-        Check("a Set on an owned child record refuses the SAME way for compose= and value=, naming neither as the way in",
-            composeMsg is not null && valueMsg is not null
-            && composeMsg.Contains("owned child RECORD", StringComparison.Ordinal)
-            && valueMsg.Contains("owned child RECORD", StringComparison.Ordinal)
-            && !composeMsg.Contains("set from a plain value", StringComparison.Ordinal)
-            && !valueMsg.Contains("substruct — a direct Set", StringComparison.Ordinal),
-            $"compose=[{composeMsg ?? "(accepted)"}] value=[{valueMsg ?? "(accepted)"}]");
-        // …and the branch it was carved out of: an ordinary substruct still composes. The record clause sits in the
-        // Set path every composable substruct crosses, so this is the arm that keeps it from widening.
-        var ordinaryCompose = Rules.Validate(new WriteRequest { RecordType = "Book", Path = new[] { "Model" }, Verb = "Set",
-            Struct = new StructSpec { Type = "Model", Fields = new Dictionary<string, string> { ["File"] = @"probe\b.nif" } } });
-        Check("…while an ordinary substruct still takes a compose= Set",
-            ordinaryCompose is null, ordinaryCompose ?? "(accepted)");
+        // …and the one claim no row can carry, because it is about what the refusals DON'T say: the three Set-shaped
+        // doors give the SAME sentence. They used to give three that pointed at each other — compose= said "use a
+        // plain value", value= said "navigate into it", composes= said "a substruct takes compose= / value=" — a
+        // caller following any one of them arrived at another refusal.
+        var setDoors = new[]
+        {
+            Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Set", Value = "000800:Skyrim.esm" }),
+            Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Set",
+                Struct = new StructSpec { Type = "Landscape", Fields = new Dictionary<string, string> { ["EditorID"] = "X" } } }),
+            Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Add",
+                Structs = new[] { new StructSpec { Type = "Landscape", Fields = new Dictionary<string, string> { ["EditorID"] = "X" } } } }),
+        };
+        Check("…and the three Set-shaped doors give ONE sentence, not three that point at each other",
+            setDoors.All(s => s is not null) && setDoors.Distinct(StringComparer.Ordinal).Count() == 1,
+            string.Join(" || ", setDoors.Select(s => s ?? "(accepted)")));
+
+        // The two refusals that route a caller to the lifecycle gap name it by NUMBER — the gap is what makes them
+        // honest rather than blank walls, so a renumber or a silent drop should fail here.
+        Check("the refusals that have no remedy route to the lifecycle gap by number (#350)",
+            Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Remove" })!.Contains("#350", StringComparison.Ordinal)
+            && Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "CopyFrom" })!.Contains("#350", StringComparison.Ordinal),
+            Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Remove" })!);
+
+        // …and CopyFrom names the remedy that was MEASURED to work for this shape, not the one the list twin can
+        // honestly offer: forward_record carries a LAND and a worldspace's top cell; create_record parent= is refused
+        // for a singular child ("that parent models no child-collection that holds it"), so it must not appear here.
+        var copyMsg = Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "CopyFrom" })!;
+        Check("…and CopyFrom's refusal names forward_record (measured) and NOT create_record parent= (measured refused)",
+            copyMsg.Contains("housecarl_forward_record", StringComparison.Ordinal)
+            && !copyMsg.Contains("create_record", StringComparison.Ordinal), copyMsg);
 
         // --- THE REFUSALS, RENDERED. All three arms of RestoreChildGroup are user-facing sentences that no arm had
         //     ever produced (round-1 review [low]) — and this file's own standing lesson is that a message shipped
