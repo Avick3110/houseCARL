@@ -41,9 +41,11 @@ public static class CopyTools
          "target's, and says so — the result is the source's look, not a mixture of both. " +
          "exclude_types= names record types the walk must not enter, each as 'Type:stop' (prune it, keep the link) " +
          "or 'Type:refuse' (fail the whole copy) — a RACE is the standing 'refuse' case, since a race pulls " +
-         "skeletons and sibling races rather than an appearance subtree. 'stop' KEEPS the link, so it needs a " +
-         "plugin the patch can master: pruning a record that is NOT in your active load order is refused up " +
-         "front, because an artifact cannot master a plugin the game does not load.\n\n" +
+         "skeletons and sibling races rather than an appearance subtree. 'stop' KEEPS the link, so wherever the " +
+         "link SURVIVES it needs a plugin the patch can master: with target=, pruning a record that is NOT in " +
+         "your active load order is refused up front, because an artifact cannot master a plugin the game does " +
+         "not load. With new_editorid= the clone's strip removes links into the source anyway, so a pruned " +
+         "off-order record is not refused there — unless one survives the strip, which is refused the same way.\n\n" +
          "FROM WHERE — from_source= is an ORDERED LIST of sources, tried in order, FIRST HIT WINS. Each element is " +
          "either 'winner' (the active load order's winning version of each record) or a plugin FILENAME, which " +
          "resolves whether that plugin is active OR sitting on disk in a DISABLED mod. Naming several is how you " +
@@ -56,8 +58,13 @@ public static class CopyTools
          "TWO DESTINATIONS (pass exactly one): target= copies onto an EXISTING record — an active one, or a record " +
          "in the patch itself when you pass into=; the seed fields are set on it pointing at the internalized " +
          "copies. new_editorid= mints a CLONE of the source record instead, and every link on it still pointing " +
-         "into the source is STRIPPED and reported by name — a link the record model REQUIRES cannot be stripped, " +
-         "so that refuses loud rather than writing an invented null or silently mastering the source.\n\n" +
+         "into the source is STRIPPED and reported by name — including when clearing one takes a WHOLE property " +
+         "with it (a script adapter, say), which the report says out loud. A link the record model REQUIRES " +
+         "cannot be stripped, so that refuses loud rather than writing an invented null or silently mastering " +
+         "the source.\n\n" +
+         "A copy whose source is defined in a BASE-GAME master is reported as an appearance transplant rather " +
+         "than a standalone-ization: an always-loaded master is not being removed from anything, so links to it " +
+         "are kept and mastered normally.\n\n" +
          "Writes a NEW plugin (folder-per-patch) or extends one with into=. Originals are never touched, and a " +
          "refusal writes nothing.")]
     public static string Copy(
@@ -179,7 +186,13 @@ public static class CopyTools
         else
         {
             sb.Append(WriteSentences.Masters(o.Masters));
-            sb.Append(o.SourceAmongMasters ? WriteSentences.CopySourceMastered : WriteSentences.CopyStandalone).Append('\n');
+            // THREE arms, not two (inventory F24). The alarm goes first and unconditionally: a bound plugin among
+            // the masters is worth shouting about whatever the source was. Then the base-game arm, because for an
+            // always-loaded master "standalone" is the wrong frame and the two-way pair could only answer it by
+            // denying a claim computed over a set base masters are deliberately excluded from.
+            sb.Append(o.SourceAmongMasters ? WriteSentences.CopySourceMastered
+                      : o.SourceIsBaseGame ? WriteSentences.CopySourceBaseGame
+                      : WriteSentences.CopyStandalone).Append('\n');
         }
 
         if (o.Copied.Count > 0)
@@ -217,7 +230,11 @@ public static class CopyTools
         if (o.Stripped.Count > 0)
         {
             sb.Append($"\nSTRIPPED {o.Stripped.Count} reference(s) that still pointed into the source:\n");
-            foreach (var s in o.Stripped) sb.Append($"  - {s.Field}  (was {s.Removed})\n");
+            foreach (var s in o.Stripped)
+            {
+                sb.Append($"  - {s.Field}  (was {s.Removed})\n");
+                if (s.WholeProperty) sb.Append(WriteSentences.CopyStripWholeProperty).Append('\n');
+            }
             sb.Append(WriteSentences.CopyStripConsequence).Append('\n');
         }
         return sb.ToString().TrimEnd();
@@ -230,8 +247,7 @@ public static class CopyTools
             $"{w.Key}", w.Fault?.Arm.Spelling ?? "a source", w.Detail),
         WalkRefusalKind.UnknownSeedPath =>
             $"{w.Detail}. seed_paths must name link-bearing fields on the record being copied.",
-        WalkRefusalKind.NoSeeds =>
-            "the seed fields carry no record links, so this copy would produce nothing. Check seed_paths= against the record.",
+        WalkRefusalKind.NoSeeds => WriteSentences.CopyNoSeeds,
         WalkRefusalKind.UnsupportedSeedShape => w.Detail + WriteSentences.CopySeedShapeRoute,
         WalkRefusalKind.Excluded =>
             $"the walk reached {w.Key} ({w.Exclusion?.TypeName}), which exclude_types= marks 'refuse'. " +
@@ -254,6 +270,7 @@ public static class CopyTools
         CopyRefusalKind.UnclearableSubstruct =>
             $"the field '{c.Field}' carries a reference into the source and cannot be cleared. Use target= instead.",
         CopyRefusalKind.UnsupportedSeedShape => c.Detail + WriteSentences.CopySeedShapeRoute,
+        CopyRefusalKind.UnwritableTarget => c.Detail + WriteSentences.CopyUnwritableTargetRoute,
         CopyRefusalKind.StopOffOrder =>
             $"the walk pruned a record in '{c.Detail}'. That plugin" + WriteSentences.CopyStopOffOrderRoute,
         CopyRefusalKind.UnsupportedTargetShape =>

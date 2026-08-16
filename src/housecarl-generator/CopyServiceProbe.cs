@@ -113,6 +113,22 @@ public static class CopyServiceProbe
             shadowMod.Npcs.Add(shadowNpc);
             WriteModDirect(mods, "ShadowMod", shadowMod, baseMod, extraMod);
 
+            // A donor defined in a real BASE-GAME master (F24). The plugin is named Dawnguard.esm because that is
+            // what makes the test real: Mutagen's implicit base-master set is what the copy path consults, so a
+            // stand-in name would exercise a different branch than the one shipping. ACTIVE, so its head part
+            // resolves in the order and is kept as a mastered link — which is exactly the shape that printed
+            // "standalone: the source is NOT a master" under a masters list naming it.
+            var dgKey = new ModKey("Dawnguard", ModType.Master);
+            var dgHpFk = new FormKey(dgKey, 0x800);
+            var dgNpcFk = new FormKey(dgKey, 0x801);
+            var dgMod = new SkyrimMod(dgKey, SkyrimRelease.SkyrimSE);
+            dgMod.HeadParts.Add(new HeadPart(dgHpFk, SkyrimRelease.SkyrimSE) { EditorID = "DgBrow" });
+            var dgNpc = new Npc(dgNpcFk, SkyrimRelease.SkyrimSE) { EditorID = "DgNpc" };
+            dgNpc.Race.SetTo(raceFk);
+            dgNpc.HeadParts.Add(dgHpFk);
+            dgMod.Npcs.Add(dgNpc);
+            WriteModDirect(mods, "DgMod", dgMod, baseMod);
+
             var srcKey = new ModKey("Src", ModType.Plugin);
             var txstFk = new FormKey(srcKey, 0x800);
             var hpFk = new FormKey(srcKey, 0x801);
@@ -135,6 +151,19 @@ public static class CopyServiceProbe
             srcNpc.HeadParts.Add(hpFk);
             srcNpc.Factions.Add(new RankPlacement { Faction = new FormLink<IFactionGetter>(factionFk), Rank = 0 });
             srcMod.Npcs.Add(srcNpc);
+            // R5's donor, and the ONLY fixture shape that can falsify the "every NAMED arm binds" loop. `from` must
+            // live in plugin A while the arm under test names plugin B != A: the previous version seeded from a
+            // record in Shadow.esp and named Shadow.esp, so `bound.Add(sourceKey.ModKey)` bound it whatever the R5
+            // loop did and deleting that loop left ci-all ALL PASS (measured, review round 3). Here `from` is in
+            // Src.esp, the arm under test is Shadow.esp, and the reached head part is DEFINED by Shadow.esp — which
+            // is also ACTIVE, so the scope predicate's second disjunct cannot expand it either. Being NAMED is then
+            // the only thing that puts it in the closure, and deleting the R5 loop must go RED.
+            var r5NpcFk = new FormKey(srcKey, 0x805);
+            var r5Npc = new Npc(r5NpcFk, SkyrimRelease.SkyrimSE) { EditorID = "R5Npc" };
+            r5Npc.Race.SetTo(raceFk);
+            r5Npc.HeadParts.Add(hpFk);
+            r5Npc.HeadParts.Add(shadowHpFk);
+            srcMod.Npcs.Add(r5Npc);
             // A SECOND donor, carrying only the links arms 4-8 need. Kept off the first donor so the lanes those
             // arms were written for keep testing what they were written for.
             var wideNpcFk = new FormKey(srcKey, 0x804);
@@ -144,12 +173,12 @@ public static class CopyServiceProbe
             wideNpc.HeadParts.Add(extraHpFk);         // only the SECOND arm has this one
             wideNpc.HeadTexture.SetTo(ghostTexFk);    // only reachable via the not-active-anywhere disjunct
             srcMod.Npcs.Add(wideNpc);
-            WriteModDirect(mods, "SrcMod", srcMod, baseMod, extraMod, ghostMod);
+            WriteModDirect(mods, "SrcMod", srcMod, baseMod, extraMod, ghostMod, shadowMod);
 
             // SrcMod is switched OFF: the whole run goes through the off-order file arm.
-            File.WriteAllText(Path.Combine(prof, "modlist.txt"), "+ShadowMod\r\n+FollowerMod\r\n+BaseMod\r\n-SrcMod\r\n-ExtraMod\r\n-GhostMod\r\n");
-            File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "HcBase.esm\r\nFollower.esp\r\nShadow.esp\r\n");
-            File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*HcBase.esm\r\n*Follower.esp\r\n*Shadow.esp\r\n");
+            File.WriteAllText(Path.Combine(prof, "modlist.txt"), "+ShadowMod\r\n+DgMod\r\n+FollowerMod\r\n+BaseMod\r\n-SrcMod\r\n-ExtraMod\r\n-GhostMod\r\n");
+            File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "HcBase.esm\r\nDawnguard.esm\r\nFollower.esp\r\nShadow.esp\r\n");
+            File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*HcBase.esm\r\n*Dawnguard.esm\r\n*Follower.esp\r\n*Shadow.esp\r\n");
             File.WriteAllText(Path.Combine(prof, "Skyrim.ini"), "[General]\r\n");
 
             using var svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(root, "user.json")));
@@ -262,18 +291,48 @@ public static class CopyServiceProbe
             Check(leak.CopyRefusal?.Field == ClosureCopy.ExclusionLeakMarker,
                 "…and the refusal carries WHY, so the render blames the exclusion rather than the caller's target");
 
-            // ---- 7c. RULING 2 — an ACTIVE named source is BOUND ---------------------------------------------
-            // Same call without the exclusion: Shadow.esp is enabled, so it used to take the ActiveOrder arm, stay
-            // unbound, and be MASTERED — while the response asserted "standalone: the source is NOT a master".
-            var activeNamed = svc.CopyClosure(shadowNpcFk, new[] { "Shadow.esp" }, new[] { "HeadParts" },
+            // ---- 7c. RULING 5 — every arm the caller NAMES joins the bound universe -------------------------
+            // `from` is in Src.esp; the arm under test is Shadow.esp, which is ENABLED and DEFINES the second head
+            // part this donor reaches. So: `bound.Add(sourceKey.ModKey)` cannot bind it (different ModKey), and the
+            // scope predicate's second disjunct cannot expand it (it resolves actively). Only the R5 loop can — and
+            // deleting that loop takes these four arms RED, which the previous fixture could not do.
+            var activeNamed = svc.CopyClosure(r5NpcFk, new[] { "Src.esp", "Shadow.esp" }, new[] { "HeadParts" },
                 noExcl, null, "ActiveNamedClone", "ActiveNamedPatch", null);
             Check(activeNamed.Success, $"an ENABLED plugin named in from_source= copies ({activeNamed.EngineError ?? activeNamed.WalkRefusal?.Detail ?? activeNamed.CopyRefusal?.Detail})");
             Check(activeNamed.Copied.Any(c => c.EditorId == "ShadowBrow"),
-                "…its records are INTERNALIZED, not kept as mastered links — naming a plugin binds it whatever its kind");
+                "…a record DEFINED by that plugin is INTERNALIZED, not kept as a mastered link — naming a plugin binds it whatever its kind");
             Check(!activeNamed.Masters.Any(m => m.Equals("Shadow.esp", StringComparison.OrdinalIgnoreCase)),
-                "…so it is NOT among the masters…");
+                "…so the NAMED plugin, which `from` does not live in, is NOT among the masters…");
             Check(!activeNamed.SourceAmongMasters,
                 "…and the standalone claim is computed over the same corrected set");
+
+            // ---- 7f. …and the SAME exclusion in the CLONE lane WRITES ---------------------------------------
+            // The clone lane strips every bound link, so the pruned link is gone before the writer sees it and no
+            // master is needed — the up-front refusal was refusing a copy that would have written cleanly. The
+            // second arm is the other half of the same finding: with the link stripped, the response must stop
+            // ALSO reporting it as kept, which had one response claiming kept + standalone + stripped at once.
+            var stopClone = svc.CopyClosure(srcNpcFk, new[] { "Src.esp" }, new[] { "HeadParts" },
+                stopExcl, null, "StopCloneEid", "StopClonePatch", null);
+            Check(stopClone.Success,
+                $"'stop' on an off-order record WRITES in the clone lane — the strip removes the link, so nothing needs mastering ({stopClone.CopyRefusal?.Kind.ToString() ?? stopClone.WalkRefusal?.Kind.ToString() ?? stopClone.EngineError})");
+            Check(!CopyTools.Render(stopClone).Contains("pruned by exclude_types", StringComparison.Ordinal),
+                "…and the response does NOT also report it as kept — a link cannot be kept, stripped, and standalone at once");
+            Check(stopClone.Stripped.Any(s => s.Field.StartsWith("HeadParts", StringComparison.Ordinal)),
+                "…the strip list is where that link is reported instead");
+
+            // ---- 7g. INVENTORY F24 — a BASE-GAME donor is not a standalone-ization ---------------------------
+            // `bound` deliberately excludes base masters, and the standalone claim is computed over that same set —
+            // so for a base-game donor it was asserted from a set emptied on purpose, printing "the source is NOT a
+            // master" directly under a masters list naming it. The third render arm says what the copy IS instead.
+            var baseGame = svc.CopyClosure(dgNpcFk, new[] { "Dawnguard.esm" }, new[] { "HeadParts" },
+                noExcl, null, "BaseGameClone", "BaseGamePatch", null);
+            Check(baseGame.Success, $"a donor defined in a BASE-GAME master copies ({baseGame.EngineError ?? baseGame.WalkRefusal?.Detail ?? baseGame.CopyRefusal?.Detail})");
+            Check(baseGame.SourceIsBaseGame, "…and the service carries the fact rather than throwing it away with the branch");
+            var baseGameText = CopyTools.Render(baseGame);
+            Check(baseGameText.Contains("appearance transplant", StringComparison.Ordinal),
+                "…so the render says what the copy IS — an appearance transplant, not a standalone-ization");
+            Check(!baseGameText.Contains("the source is NOT a master", StringComparison.Ordinal),
+                "…and NOT the standalone claim, which would be asserted from a deliberately emptied set");
 
             // ---- 7d. THE SHAPE CLASSIFIER — the four misbehaviours round 2 measured, as arms ----------------
             // Each of these was a site deciding the shape for itself off the runtime VALUE. Mutagen declares these
@@ -310,6 +369,16 @@ public static class CopyServiceProbe
             Check(clearList.Success, $"(c) an UNSET source LIST copies ({clearList.EngineError ?? clearList.WalkRefusal?.Detail ?? clearList.CopyRefusal?.Detail})");
             Check(clearList.Attached.Any(a => a.Field == "Keywords" && a.Cleared),
                 "…clearing the target's list, which is a state of the shape and not a different shape");
+            // …ON DISK. The link shape had this pin and the LIST shape did not, so reporting `cleared` while
+            // leaving the target's keywords intact in the written file stayed green (review round 3).
+            if (clearList.OutPath is { } lp && File.Exists(lp))
+            {
+                using var d4 = OpenDisposable(lp, out var back4);
+                var t4 = back4.Npcs.FirstOrDefault(n => n.FormKey == targetFk);
+                Check(t4 is not null && (t4.Keywords is null || t4.Keywords.Count == 0),
+                    "…in the WRITTEN FILE — the target's own keywords are gone, not merely reported gone");
+            }
+            else Check(false, "…and the patch was written");
             Check(CopyTools.Render(clearList).Contains("housecarl_apply", StringComparison.Ordinal) == false,
                 "(d) …and a SUPPORTED field is never routed to housecarl_apply's zip");
 

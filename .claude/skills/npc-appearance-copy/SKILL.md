@@ -46,7 +46,7 @@ housecarl_copy(
 **`Race:refuse`** is there because a race is not an appearance subtree. Walking into one pulls the skeleton, the sibling races, the whole racial frame — so a race is either kept as an ordinary link or the copy stops and tells you. The exclusion only fires when the race is *inside the source universe*: defined in the donor plugin itself, or not resolving in your active load order.
 
 - **Race defined in the donor plugin, `target=` lane, donor ENABLED** → the donor's look depends on its own race and this copy cannot free it from that. Re-run with `Race:stop`, which prunes the walk and keeps the link; the readback then says plainly that those links still point into the source and the patch masters it. That is the truth, and it is a choice you can make.
-- **… donor DISABLED** → `Race:stop` is refused up front, and rightly: keeping the link means the patch must master a plugin the game does not load, which cannot be written at all. Enable the mod if you want the link kept, or use `Race:refuse` and take a different route.
+- **… donor DISABLED** → `Race:stop` is refused up front in this lane, and rightly: the pruned link is attached to your target and kept, so the patch would have to master a plugin the game does not load, which cannot be written at all. Enable the mod if you want the link kept, or use `Race:refuse` and take a different route. (The refusal is scoped to the lane that keeps the link — a clone strips it instead, and refuses on its own grounds, below.)
 - **Race defined in the donor plugin, `new_editorid=` lane** → `Race:stop` does **not** help here, and the tool will tell you so: an NPC's `Race` is a link the record model *requires*, so the clone's strip refuses on it whatever the exclusion says. Copy onto a record that already has its own race with `target=`, or use a donor whose race you can keep installed.
 - Race not resolving at all → the race mod is disabled or missing. Enable it; nothing here can invent it.
 
@@ -149,6 +149,7 @@ The destination is computed from the new FormID and the source is the donor's ow
 ## Verification
 
 1. The copy's readback says **standalone: the source is NOT a master**. If it instead alarms that the source *is* among the masters, the operation did not do the one thing it exists to do — read the kept-link list and find out what still points at the donor.
+   **A donor defined in a base-game master (`Skyrim.esm`, `Dawnguard.esm`, …) reads differently, and should:** the readback calls it an **appearance transplant, not a standalone-ization**. Nothing is being removed from an always-loaded master, so links to it are kept and mastered normally — that is the correct outcome, not a failed standalone. Reach for "standalone" only when the donor lives in a mod you are copying away from.
 2. The strip list has been dealt with, not just read.
 3. Both FaceGen placements landed.
 4. Enable and sort the new mod in MO2. Nothing houseCARL writes wins anything until it does — the read-backs describe the file, not the load order.

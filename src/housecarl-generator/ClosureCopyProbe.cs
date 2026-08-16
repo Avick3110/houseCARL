@@ -35,7 +35,21 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class ClosureCopyProbe
 {
+    /// <summary>A throw out of an arm is a FAILURE, not a crash that skips the summary — same reasoning as the walk
+    /// guard's: without it, a sabotage that made the copy throw exited before the tally and read as infrastructure.</summary>
     public static int RunGuard(string[] args)
+    {
+        try { return Body(args); }
+        catch (Exception ex)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"  FAIL  the guard THREW rather than reporting: {ex.GetType().Name}: {ex.Message}");
+            Console.WriteLine("1 FAILURE(S)");
+            return 1;
+        }
+    }
+
+    static int Body(string[] args)
     {
         Console.WriteLine("################  CLOSURE COPY guard (internalize · strip · leak)  ################");
         Console.WriteLine();

@@ -37,7 +37,22 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class ClosureWalkProbe
 {
+    /// <summary>A throw out of an arm is a FAILURE, not a crash that skips the summary. Without this the guard's
+    /// own note — "an arm that throws under sabotage lies about severity" — did not apply to the guard itself: a
+    /// sabotage that made the walk throw exited before the tally and read as an infrastructure problem.</summary>
     public static int RunGuard(string[] args)
+    {
+        try { return Body(args); }
+        catch (Exception ex)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"  FAIL  the guard THREW rather than reporting: {ex.GetType().Name}: {ex.Message}");
+            Console.WriteLine("1 FAILURE(S)");
+            return 1;
+        }
+    }
+
+    static int Body(string[] args)
     {
         Console.WriteLine("################  CLOSURE WALK guard (SPEC §3 — the generic walk)  ################");
         Console.WriteLine();
@@ -211,7 +226,9 @@ public static class ClosureWalkProbe
         var rCap = ClosureWalk.Run(seeds, OneArm(), scope, noExcl, nodeCap: 2);
         Check(!rCap.Success && rCap.Refusal?.Kind == WalkRefusalKind.NodeCap, "a node-cap breach REFUSES");
         Check(rCap.Refusal?.Cap == 2, "…naming the cap that was breached");
-        Check(rCap.Refusal?.Key != default && rCap.Refusal?.PulledBy.Length > 0,
+        // `Key != default` only re-asserted that a refusal object exists, which the line above already checked.
+        // The claim worth pinning is that the refusal names the record it stopped AT — one the walk really reached.
+        Check(rCap.Refusal?.Key.ModKey == modKey && rCap.Refusal?.PulledBy.Length > 0,
             "…naming the LAST PULL (the record it was reaching for, and what pulled it)");
         Check(rCap.Refusal?.Chain.Count >= 2 && rCap.Refusal?.Chain[^1] == rCap.Refusal?.Key,
             $"…and its FULL CHAIN, ending at that record ({rCap.Refusal?.Chain.Count} long) — not just that a cap fired");
