@@ -104,7 +104,7 @@ public static class WriteTools
          "per-op read-back.")]
     public static string BulkApply(
         LoadOrderService svc,
-        [Description("The edits to apply, all into one patch. Each: {formid, field_path, verb, value?, key?, values?, entries?, compose?}. Pass this INLINE array or from_file= — exactly one of the two.")]
+        [Description("The edits to apply, all into one patch. Each: {formid, field_path, verb, value?, key?, values?, entries?, compose?, composes?, from_plugin?}. Pass this INLINE array or from_file= — exactly one of the two.")]
             BulkOp[]? operations = null,
         [Description("Optional. ABSOLUTE path to a JSON manifest FILE holding the operations array — the SAME shape as operations=, just read from disk: [{formid, field_path, verb, ...}, ...]. The big-batch lane: generate the manifest once, validate the WHOLE file with dry_run=true before the first write, then apply it in one call (and re-run the SAME file to recover an interrupted write). Mutually exclusive with operations= (pass exactly one). The path must be ABSOLUTE (the server resolves relative paths against its OWN working directory, not yours). The file is read at CALL time — a dry run validates the manifest as it is NOW, so if you edit the file afterwards, dry-run it again before the real write. Refused NAMED with nothing written (Q3) if the file is unreadable, not valid JSON (the refusal carries the line + position), not a top-level array, an empty array, or any op carries a member the shape doesn't declare (a misspelled 'field_path' is named at its element, never silently dropped).")]
             string? from_file = null,
@@ -331,7 +331,7 @@ public static class WriteTools
          "Returns each new record's FormID + editorid, the patch path, and its (derived) masters.")]
     public static string BulkCreate(
         LoadOrderService svc,
-        [Description("The records to create, all into one patch. Each: {record_type, editorid, operations?, parent?, collection?}. For a nested one-shot, declare the parent (e.g. a DialogTopic) BEFORE the children whose parent= names its editorid.")]
+        [Description("The records to create, all into one patch. Each: {record_type, editorid, operations?, parent?, collection?, grid?}. For a nested one-shot, declare the parent (e.g. a DialogTopic) BEFORE the children whose parent= names its editorid.")]
             CreateOp[] records,
         [Description("Optional. Base filename for the new patch (default 'Patch'); auto-suffixed if taken. Ignored if into= is given.")]
             string patch_name = "Patch",
@@ -1529,7 +1529,7 @@ public sealed record StructInput
     [JsonPropertyName("ctor_args"), Description("Positional constructor args, for struct types that require them.")]
     public string[]? CtorArgs { get; init; }
 
-    [JsonPropertyName("sets"), Description("Nested edits applied to the built struct (paths rooted at it), e.g. {path:'Data.Reference', value:'<FormID>'}.")]
+    [JsonPropertyName("sets"), Description("Nested edits applied to the built struct (paths rooted at it), each {path, verb?, value?, key?, compose?} — e.g. {path:'Data.Reference', value:'<FormID>'}.")]
     public NestedSet[]? Sets { get; init; }
 }
 
