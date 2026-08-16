@@ -64,3 +64,17 @@ This is why "where are we" lives in the **latest handoff** (ARCHIVE, one per ses
 ## 5. The one rule that prevents the most staleness
 
 **Supersede, don't edit; and update LIVING docs in the same commit as the change.** Most doc rot comes from two moves this standard forbids: editing an archive to "fix" history (which makes the record untrustworthy), and deferring a LIVING-doc update to "later" (which never comes). A change that retires a tool, renames a skill, or moves a path updates its LIVING docs *now*, in the same commit — or it isn't done.
+
+---
+
+## 6. One home per fact
+
+**State a fact where it's authoritative; everywhere else, point.** A sentence that paraphrases another doc's fact is a future stale sentence — §5's same-commit discipline can only lose to a structure that multiplies the copies it has to chase. Most cross-doc rot is a paraphrase quietly outliving the fact it copied.
+
+Concretely:
+
+- **Pointer docs (a STATUS, an index) carry zero state predicates** — no dates, PR numbers, "done"s, or summaries of the docs they route to. If a sentence in a pointer doc can rot, the sentence is the bug: replace it with a link to the fact's home.
+- **Each kind of fact gets exactly one home** — tactical state in the newest handoff, standing order/plan in its LIVING doc, contract text and its amendments in the contract's own header, and so on. A fact with no good home gets a home, never a copy in each doc that wants it.
+- Before writing a sentence that restates another doc's fact, link instead.
+
+Adopted 2026-08-16 from the tool-surface-2.0 doc-space audit: the sub-project's STATUS paraphrased the handoffs, charter, and SPEC it pointed at, and every paraphrase eventually contradicted its source. This is the same one-source-per-sentence rule PR #337 applied to code renders, applied to documentation.
