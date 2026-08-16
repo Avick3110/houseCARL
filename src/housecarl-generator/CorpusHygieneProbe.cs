@@ -48,8 +48,8 @@ namespace HousecarlGenerator;
 ///          fields to a reflection miss. (RED: a synthetic zero-field struct.)
 ///   INV6 — AN OWNED CHILD RECORD IS NOT A LINK. Every property that OWNS a record — the set
 ///          <c>WriteEngine.ChildBearingProperties</c> finds, over the same all-concrete-types sweep
-///          write-surface-guard pins (#334) — is cataloged with an OWNERSHIP cardinality (substruct / list /
-///          dict) whose ref chain reaches a record entry, never <c>formlink</c>. The defect this locks (#335):
+///          write-surface-guard pins (#334) — is cataloged with an OWNERSHIP cardinality (substruct /
+///          polymorphic / list / dict) whose ref chain reaches a record entry, never <c>formlink</c>. The defect this locks (#335):
 ///          <c>IMajorRecordGetter</c> carries <c>IFormLinkIdentifier</c> (a record identifies itself the same
 ///          way a link identifies its target), so the classifier's bare-link rule claimed
 ///          <c>Cell.Landscape</c> and <c>Worldspace.TopCell</c> as FormLinks — and a caller trusting that
@@ -58,7 +58,11 @@ namespace HousecarlGenerator;
 ///          forward and the reference a caller READS before writing must agree about which fields own one.
 ///          (RED: a synthetic corpus classifying Cell.Landscape as a formlink; RED2: one whose ownership
 ///          cardinality reaches no record. Both classifier branches are also driven directly — a major-record
-///          getter and a bare FormLink type — so neither can quietly stop firing.)
+///          getter and a bare FormLink type — so neither can quietly stop firing. The SHAPE arms cover the
+///          singular case Mutagen does not model yet: a field typed as a record POLYMORPHIC BASE catalogs as
+///          "polymorphic", not "substruct", so the predicate reads the TypeRef's Kind across both ownership
+///          cardinalities, and this walk follows a field's ARMS as well as its ref — without which a type whose
+///          only record path is a polymorphic field reports "reaches no record" on a correct corpus.)
 ///
 /// Run: dotnet run --project src/housecarl-generator -- corpus-hygiene-guard
 /// </summary>
@@ -223,6 +227,43 @@ public static class CorpusHygieneProbe
                 Check("INV6-CLASSIFIER …and a bare FormLink type still classifies as a formlink",
                     bare.Cardinality == "formlink" && bare.Type == "FormLink",
                     new List<string> { $"IFormLinkGetter → c='{bare.Cardinality}' t='{bare.Type}'" });
+
+                // The SHAPE that does not exist yet, both halves. Mutagen 0.53.1 models no singular field typed as a
+                // record polymorphic base, so neither of these can be driven off the real corpus — they are the arms
+                // that keep the predicate and the walk answering for it before one appears at a bump.
+                var polyOwned = NewCorpus(
+                    new TypeSchema { Name = "Placed", Kind = "polymorphic-base", GetterInterface = "Mutagen.Bethesda.Skyrim.IPlacedGetter",
+                        Arms = new List<string> { "PlacedObject", "PlacedNpc" } },
+                    RecordStub("PlacedObject"), RecordStub("PlacedNpc"));
+                var polyField = new FieldSchema { Name = "Anchor", Type = "IPlacedGetter", Cardinality = "polymorphic",
+                    TypeRef = "Placed", Arms = new List<string> { "PlacedObject", "PlacedNpc" }, Writable = true };
+                Check("INV6-SHAPE  a SINGULAR polymorphic field whose arms are records reads as an owned child record",
+                    SchemaClassifier.IsOwnedChildRecord(polyField, polyOwned),
+                    new List<string> { "IsOwnedChildRecord said false — a compose on it would route to ArmLegality and throw at apply" });
+                var polyStructArms = NewCorpus(
+                    new TypeSchema { Name = "ScriptProperty", Kind = "polymorphic-base", GetterInterface = "Mutagen.Bethesda.Skyrim.IScriptPropertyGetter",
+                        Arms = new List<string> { "ScriptObjectProperty" } },
+                    new TypeSchema { Name = "ScriptObjectProperty", Kind = "arm", GetterInterface = "Mutagen.Bethesda.Skyrim.IScriptObjectPropertyGetter",
+                        Fields = { new FieldSchema { Name = "Object", Type = "FormLink<ISkyrimMajorRecordGetter>", Cardinality = "formlink", Writable = true } } });
+                Check("INV6-SHAPE  …and a polymorphic field whose arms are STRUCTS does not (the carve-out is records, not polymorphism)",
+                    !SchemaClassifier.IsOwnedChildRecord(
+                        new FieldSchema { Name = "P", Type = "IScriptPropertyGetter", Cardinality = "polymorphic", TypeRef = "ScriptProperty",
+                            Arms = new List<string> { "ScriptObjectProperty" }, Writable = true }, polyStructArms),
+                    new List<string> { "IsOwnedChildRecord said true for a struct-armed polymorphic field" });
+
+                // …and the walk half: a type whose ONLY path to a record is a polymorphic FIELD. Before the gates
+                // widened, this reported "reaches no record" on a correct corpus — a false red pointing at the
+                // classifier instead of at the walk.
+                var viaPolyField = NewCorpus(
+                    new TypeSchema { Name = "Holder", Kind = "struct", GetterInterface = "Mutagen.Bethesda.Skyrim.IHolderGetter",
+                        Fields = { polyField } },
+                    new TypeSchema { Name = "Placed", Kind = "polymorphic-base", GetterInterface = "Mutagen.Bethesda.Skyrim.IPlacedGetter",
+                        Arms = new List<string> { "PlacedObject" } },
+                    RecordStub("PlacedObject"));
+                Check("INV6-SHAPE  …and the reach walk follows a polymorphic FIELD's arms to a record",
+                    OwnershipReachesRecord(viaPolyField, new FieldSchema
+                        { Name = "Held", Type = "IHolderGetter", Cardinality = "substruct", TypeRef = "Holder", Writable = true }),
+                    new List<string> { "the walk called a type linkless whose only record path is a polymorphic field" });
             }
         }
         catch (Exception ex)
@@ -432,11 +473,17 @@ public static class CorpusHygieneProbe
                     v.Add($"{t.Name}.{p.Name} owns child records but is absent from the corpus entirely");
                     continue;
                 }
-                if (f.Cardinality is not ("substruct" or "list" or "dict"))
+                if (f.Cardinality is not ("substruct" or "polymorphic" or "list" or "dict"))
                     v.Add($"{t.Name}.{p.Name} owns child records but is cataloged '{f.Cardinality}' (t='{f.Type}') " +
                           "— a link references a record, it does not own one");
                 else if (!OwnershipReachesRecord(c, f))
-                    v.Add($"{t.Name}.{p.Name} owns child records but its cataloged shape " +
+                    // Two shapes reach here and they need different fixes, so they get different sentences: a
+                    // polymorphic field's records live on its ARMS, and reporting it as a bad ref would send the
+                    // reader at the classifier's ref instead of at the arm set that failed to resolve.
+                    v.Add(f.Cardinality == "polymorphic"
+                        ? $"{t.Name}.{p.Name} owns child records but its cataloged arms " +
+                          $"([{string.Join(", ", f.Arms ?? new List<string>())}] under '{f.TypeRef ?? "(no ref)"}') resolve to no record entry"
+                        : $"{t.Name}.{p.Name} owns child records but its cataloged shape " +
                           $"('{f.Cardinality}' → '{f.ElementTypeRef ?? f.TypeRef ?? "(no ref)"}') reaches no record entry");
             }
         }
@@ -458,7 +505,11 @@ public static class CorpusHygieneProbe
     }
 
     /// <summary>…and the same question about a catalog ENTRY: it is a record, one of its arms reaches one, or one
-    /// of its own ownership fields does.</summary>
+    /// of its own ownership fields does. <c>polymorphic</c> counts as an ownership cardinality here for the same
+    /// reason it does in the caller — a field's records can live on its ARMS rather than behind its ref, and gating
+    /// this recursion on substruct/list/dict alone made <see cref="OwnershipReachesRecord"/>'s field-level arm term
+    /// unreachable: entry-level arms are covered above, field-level arms were covered nowhere, so a type reaching its
+    /// records only through a polymorphic field reported "reaches no record" on a corpus that was correct.</summary>
     static bool EntryReachesRecord(Corpus c, string name, HashSet<string> seen)
     {
         if (!seen.Add(name) || !c.Types.TryGetValue(name, out var t)) return false;
@@ -466,7 +517,7 @@ public static class CorpusHygieneProbe
         foreach (var arm in t.Arms ?? new List<string>())
             if (EntryReachesRecord(c, arm, seen)) return true;
         foreach (var f in t.Fields)
-            if (f.Cardinality is "substruct" or "list" or "dict" && OwnershipReachesRecord(c, f, seen)) return true;
+            if (f.Cardinality is "substruct" or "polymorphic" or "list" or "dict" && OwnershipReachesRecord(c, f, seen)) return true;
         return false;
     }
 

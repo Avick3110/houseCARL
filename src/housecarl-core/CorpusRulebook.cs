@@ -119,12 +119,18 @@ public sealed class CorpusRulebook
         // (2) walk the path, validating each intermediate hop's existence + descendability. A plain hop descends a
         // substruct; a bracketed hop (Effects[0]) steps INTO a collection element (wave-1 collection-nav).
         var current = root;
+        // …remembering whether any HOP was an owned child record (#335). The leaf is not the whole story once a
+        // record can sit mid-path: the hops through it are where a verb acts on a record the call never named.
+        FieldSchema? ownedChildHop = null;
+        TypeSchema? ownedChildHopOwner = null;
         for (int i = 0; i < req.Path.Length - 1; i++)
         {
             if (!TrySeg(req.Path[i], out var segName, out var segKey, out var segErr)) return segErr;
             var field = FindField(current, segName, out _, out var polyErr);
             if (polyErr is not null) return polyErr;
             if (field is null) return FieldNotFound(current, segName);
+            if (ownedChildHop is null && SchemaClassifier.IsOwnedChildRecord(field, _corpus))
+                (ownedChildHop, ownedChildHopOwner) = (field, current);
 
             if (segKey is null)
             {
@@ -243,7 +249,7 @@ public sealed class CorpusRulebook
         // SOURCE resolution (is from_plugin in the order / does it define the record) is the cleave's Phase 1. The one
         // non-transplantable kind is an owned-child record collection — refused by name (forward the whole record).
         if (string.Equals(req.Verb, "CopyFrom", StringComparison.Ordinal))
-            return CopyFromLegality(leaf, leafOwner);
+            return CopyFromLegality(leaf, leafOwner, ownedChildHop, ownedChildHopOwner);
 
         // (3a) verb legal for this cardinality?
         if (VerbLegality(leaf, req) is { } verbErr) return verbErr;
@@ -263,7 +269,8 @@ public sealed class CorpusRulebook
                    "field deletes that record and every record under it, implicitly and in one call. The list form of " +
                    "this family deletes a child too, but by INDEX — you name which one; there is no such target here. " +
                    "Deliberate deletion of an owned child record is an open gap (#350), not something clearing a " +
-                   "field decides.";
+                   $"field decides. (To see which record this is: read the parent at depth=2 — the '{leaf.Name}' " +
+                   "field shows the child's FormID.)";
 
         // (3b) record identity (FormKey/ModKey) is a flat, honest reject regardless of Mutagen's setter (plan §3 P-DISC).
         if (leaf.IsIdentity)
@@ -411,17 +418,35 @@ public sealed class CorpusRulebook
     /// CopyFrom on <c>Worldspace.TopCell</c> deep-copied the source's whole CELL — its own FormKey, its persistent
     /// references and all — into the destination's worldspace, which is the silent child-record import
     /// <see cref="WriteEngine.RestoreChildGroup"/> refuses by name on the forward path.</summary>
-    string? CopyFromLegality(FieldSchema leaf, TypeSchema owner)
+    string? CopyFromLegality(FieldSchema leaf, TypeSchema owner, FieldSchema? ownedChildHop = null, TypeSchema? hopOwner = null)
     {
         if (leaf.IsIdentity)
             return $"'{leaf.Name}' on '{owner.Name}' is record identity (FormKey/ModKey), not a copyable content field.";
         if (!leaf.Writable) return WritabilityRejection(owner, leaf);
+        // TRANSPLANT REFUSES AT ANY DEPTH. A leaf-only test passes a path that merely runs THROUGH an owned child —
+        // apply then walks the source's child record and the destination's, and writes one record's field into the
+        // other: two child records, neither named by the caller, reported as an edit to the parent. That is the same
+        // act the leaf clause forbids, one hop further down.
+        //
+        // The in-place verbs through the same hop (Set / Remove / Add / SetAtIndex at a leaf UNDER the child) stay
+        // ACCEPTED, and the split is deliberate rather than unexamined: those edit the child this record already
+        // carries, in place — the descent the table's accept row covers, and the one way to edit a carried child at
+        // all. What CopyFrom adds is a SECOND record, from another plugin, as the source of the value; that is the
+        // transplant this refuses, and it refuses wherever in the path the child sits.
+        if (ownedChildHop is not null)
+            return $"the path runs through '{ownedChildHop.Name}' on '{hopOwner?.Name ?? owner.Name}', which holds an " +
+                   $"owned child RECORD ({ownedChildHop.TypeRef}); CopyFrom would read one plugin's child record and " +
+                   $"write into another's, with neither named by this call — reported as an edit to " +
+                   $"'{hopOwner?.Name ?? owner.Name}'. Copy at the CHILD record itself, addressed by its own FormID " +
+                   "(read the parent at depth=2 — the field shows it), or carry the whole record across with " +
+                   "housecarl_forward_record.";
         if (SchemaClassifier.IsOwnedChildRecord(leaf, _corpus))
             return $"'{leaf.Name}' on '{owner.Name}' holds an owned child RECORD ({leaf.TypeRef}); CopyFrom copies a " +
                    "FIELD's value, not a record — copying it here would write another plugin's record, with its own " +
                    "FormID and everything under it, in as this parent's child. To carry that record across from " +
-                   "another plugin use housecarl_forward_record on the CHILD record itself. Giving a parent a child it " +
-                   "does not have is not supported (gap #350).";
+                   "another plugin use housecarl_forward_record on the CHILD record itself; read the parent at " +
+                   $"depth=2 and the '{leaf.Name}' field shows the child's FormID. Giving a parent a child it does " +
+                   "not have is an open gap (#350).";
         if (leaf.Cardinality is "list" or "dict" && SchemaClassifier.ClassifyElement(leaf, _corpus) == ElementKind.Record)
             return $"'{leaf.Name}' on '{owner.Name}' holds owned child records ({leaf.ElementTypeRef}); CopyFrom copies a " +
                    "FIELD's value, not owned child records. To carry the WHOLE record from another plugin use " +
@@ -445,8 +470,9 @@ public sealed class CorpusRulebook
     static string OwnedChildSetRefusal(FieldSchema leaf) =>
         $"'{leaf.Name}' holds an owned child RECORD ({leaf.TypeRef}): a record is not a part of its parent, so it is " +
         "neither built from parts (compose= / composes=) nor set from a value (value=). Address the child record " +
-        "itself by its own FormID — a path through the parent reaches a child only when the copy being written " +
-        "already carries one, which a patch's fresh override of a parent never does (gap #350).";
+        $"itself by its own FormID — read the parent at depth=2 and the '{leaf.Name}' field shows it. A path through " +
+        "the parent reaches a child only when the record being written already carries one, which a patch's fresh " +
+        "override of a parent never does; giving a parent a child it lacks is an open gap (#350).";
 
     // ---- writability rejection (plan §3 P-DISC) ----
     static string WritabilityRejection(TypeSchema owner, FieldSchema leaf)

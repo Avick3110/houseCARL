@@ -1423,6 +1423,14 @@ public static class WriteSurfaceGuardProbe
         //     same verb on a leaf one step away — an ordinary nullable substruct, or the LIST form of the same
         //     owned-child family — so a clause that widens past the record shape turns a control row red rather than
         //     passing quietly. Sabotage evidence for the rows this branch owns is in the PR body.
+        //
+        //     WHAT THE TABLE PINS, PRECISELY: leaf dispositions, plus the path rows below. Aaron's review walked the
+        //     leaf surface independently (every verb x every input slot — Value / Values / Entries / Key / Struct /
+        //     Structs, the @editorid same-call branch, the unknown-verb default) and found no leaf door the rows
+        //     miss. Both real gaps it did find were OFF-leaf: a path running THROUGH the child, and the shape that
+        //     never becomes "substruct" at all (a singular field typed as a record polymorphic base — closed in
+        //     SchemaClassifier, pinned by corpus-hygiene-guard's INV6-SHAPE arms). So the dimension a row covers is
+        //     the leaf; the path dimension needed rows of its own, and they are marked as such.
         var ownedChild = new (string What, WriteRequest Req, string? MustSay)[]
         {
             ("Set value= (a FormID, the shape the old formlink classification invited)",
@@ -1480,6 +1488,30 @@ public static class WriteSurfaceGuardProbe
                 new WriteRequest { RecordType = "Book", Path = new[] { "Model" }, Verb = "Add",
                     Structs = new[] { new StructSpec { Type = "Model", Fields = new Dictionary<string, string> { ["File"] = @"probe\b.nif" } } } },
                 "composes= builds a LIST"),
+            ("ReplaceAll composes=[…] (the other verb that reaches the composes clause)",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "ReplaceAll",
+                    Structs = new[] { new StructSpec { Type = "Landscape", Fields = new Dictionary<string, string> { ["EditorID"] = "X" } } } },
+                "owned child RECORD"),
+            ("ReplaceAll composes=[] (the modeled-list CLEAR — the other door to deleting the child)",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "ReplaceAll",
+                    Structs = Array.Empty<StructSpec>() },
+                "owned child RECORD"),
+            // THE PATH DIMENSION. The rows above are LEAF dispositions; a record can now also sit MID-path, and the
+            // two verbs split there. Transplant refuses at any depth…
+            ("CopyFrom THROUGH the child (a leaf under it) — transplant refuses at any depth",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape", "EditorID" }, Verb = "CopyFrom" },
+                "runs through 'Landscape'"),
+            ("CopyFrom through the other owned-child field, so the answer is the shape's",
+                new WriteRequest { RecordType = "Worldspace", Path = new[] { "TopCell", "EditorID" }, Verb = "CopyFrom" },
+                "runs through 'TopCell'"),
+            // …while the in-place verbs through the same hop stay ACCEPTED: they edit the child this record already
+            // carries, which is the descend row's territory and the only way to edit a carried child at all.
+            ("mid-path Set under the child stays accepted (in-place descent, not transplant)",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape", "EditorID" }, Verb = "Set", Value = "x" }, null),
+            ("mid-path Remove under the child stays accepted (clears a field OF the carried child, not the child)",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape", "VertexHeightMap" }, Verb = "Remove" }, null),
+            ("CONTROL CopyFrom through an ORDINARY substruct path is still accepted",
+                new WriteRequest { RecordType = "Book", Path = new[] { "Model", "File" }, Verb = "CopyFrom" }, null),
         };
         foreach (var (what, req, mustSay) in ownedChild)
         {
@@ -1507,10 +1539,27 @@ public static class WriteSurfaceGuardProbe
 
         // The two refusals that route a caller to the lifecycle gap name it by NUMBER — the gap is what makes them
         // honest rather than blank walls, so a renumber or a silent drop should fail here.
-        Check("the refusals that have no remedy route to the lifecycle gap by number (#350)",
-            Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Remove" })!.Contains("#350", StringComparison.Ordinal)
-            && Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "CopyFrom" })!.Contains("#350", StringComparison.Ordinal),
-            Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Remove" })!);
+        Check("the refusals that have no remedy route to the lifecycle gap by number (#350) — all THREE of them",
+            new[]
+            {
+                Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Remove" }),
+                Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "CopyFrom" }),
+                Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Set", Value = "000800:Skyrim.esm" }),
+            }.All(s => s is not null && s.Contains("#350", StringComparison.Ordinal)),
+            Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Set", Value = "000800:Skyrim.esm" })!);
+
+        // …and every one of the three tells the caller where the FormID it asks for comes from. MEASURED before it
+        // was written: a depth-1 read renders "Landscape = [Landscape] — pass depth=2 to expand" and no id; depth 2
+        // renders "[Landscape 000801:… editorid=…]". Without the depth the remedy is another dead end, which is the
+        // shape these sentences exist to remove.
+        Check("…and each names where the child's FormID comes from, with the depth that actually shows it",
+            new[]
+            {
+                Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Remove" }),
+                Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "CopyFrom" }),
+                Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Set", Value = "000800:Skyrim.esm" }),
+            }.All(s => s is not null && s.Contains("depth=2", StringComparison.Ordinal)),
+            Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "CopyFrom" })!);
 
         // …and CopyFrom names the remedy that was MEASURED to work for this shape, not the one the list twin can
         // honestly offer: forward_record carries a LAND and a worldspace's top cell; create_record parent= is refused
