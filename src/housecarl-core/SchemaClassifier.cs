@@ -109,18 +109,32 @@ public static class SchemaClassifier
     public static bool IsStructElement(FieldSchema f, Corpus corpus) =>
         ClassifyElement(f, corpus) == ElementKind.Struct;
 
-    /// <summary>True iff a SUBSTRUCT leaf holds an OWNED CHILD RECORD — the parent carries the record itself, rather
+    /// <summary>True iff a SINGULAR leaf holds an OWNED CHILD RECORD — the parent carries the record itself, rather
     /// than a link to one (<c>Cell.Landscape</c>, <c>Worldspace.TopCell</c>). The singular twin of
     /// <see cref="ElementKind.Record"/>, and the ONE home for the question: until #335 corrected their classification
-    /// no field in the corpus was a substruct whose TypeRef is a record, so every rule keyed on "substruct" was written
-    /// when this could not occur and reads such a leaf as an ordinary navigable sub-object. It is not one. A record has
-    /// its own FormKey and its own children, so it cannot be built from parts, cannot be materialized into an absent
-    /// slot, and must not be dropped as a side effect of clearing a field. Rules that would otherwise inherit the
-    /// sub-object answer ask HERE, so a later consumer meets one named predicate rather than re-deriving the test —
-    /// corpus-derived (Kind), never a list of field names (cornerstone §3).</summary>
-    public static bool IsOwnedChildRecord(FieldSchema f, Corpus corpus) =>
-        f.Cardinality == "substruct" && f.TypeRef is { } tr
-        && corpus.Types.GetValueOrDefault(tr)?.Kind == "record";
+    /// no field in the corpus held a record singularly, so every rule keyed on "substruct" was written when this could
+    /// not occur and reads such a leaf as an ordinary navigable sub-object. It is not one. A record has its own FormKey
+    /// and its own children, so it cannot be built from parts, cannot be materialized into an absent slot, and must not
+    /// be dropped as a side effect of clearing a field. Rules that would otherwise inherit the sub-object answer ask
+    /// HERE, so a later consumer meets one named predicate rather than re-deriving the test.
+    /// <para/>
+    /// Keyed on the TypeRef's <b>Kind</b>, across BOTH singular ownership cardinalities — not on "substruct" alone.
+    /// <see cref="CorpusGenerator"/>'s classifier emits <c>polymorphic</c> instead of <c>substruct</c> whenever the
+    /// field's getter interface has more than one concrete arm, so a singular field typed as a record POLYMORPHIC BASE
+    /// (<c>IPlacedGetter</c>, <c>IGameSettingGetter</c>, …) would catalog as <c>polymorphic</c> with record arms and
+    /// slip past a substruct-only test — every clause keyed on this predicate skipped, and a compose routed to
+    /// ArmLegality, accepted, then thrown at BuildStruct: #335's own accept-then-throw, one shape over. No such field
+    /// exists in Mutagen 0.53.1's Skyrim model (the regenerated corpus moves exactly two fields, both substructs), so
+    /// this arm is latent — which is the reason to close it here rather than at the next bump, where it would arrive
+    /// as a live defect. <see cref="PolyBaseElementKind"/> already answers "are this base's arms records?" for
+    /// elements; the singular case asks it the same way, so the two cannot drift.</summary>
+    public static bool IsOwnedChildRecord(FieldSchema f, Corpus corpus)
+    {
+        if (f.Cardinality is not ("substruct" or "polymorphic") || f.TypeRef is not { } tr) return false;
+        var kind = corpus.Types.GetValueOrDefault(tr)?.Kind;
+        return kind == "record"
+            || (kind == "polymorphic-base" && PolyBaseElementKind(tr, corpus) == ElementKind.Record);
+    }
 
     /// <summary>True iff a scalar SUBSTRUCT leaf can be Set by composing its whole value FROM PARTS (a StructSpec) — the
     /// LEAF twin of <see cref="IsStructElement"/>, keyed on the leaf's own <see cref="FieldSchema.TypeRef"/> instead of an
