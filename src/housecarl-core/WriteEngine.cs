@@ -2744,11 +2744,12 @@ public static class WriteEngine
         // deliver it. Say what is actually true instead: houseCARL does not invent records as sub-objects.
         if (typeof(IMajorRecordGetter).IsAssignableFrom(prop.PropertyType))
             throw new ExpectedApplyRejectionException(
-                $"'{segment}' holds an owned child RECORD ({Pretty(prop.PropertyType)}) and the copy being written " +
+                $"'{segment}' holds an owned child RECORD ({Pretty(prop.PropertyType)}) and the record being written " +
                 "carries none, so there is nothing to write into. houseCARL will not synthesize a record as a " +
-                "sub-object — a record exists only with its own FormKey. Note that a patch's override of a parent does " +
-                "NOT bring the parent's child records with it, so this is what you get even when the original carries " +
-                $"one: address that child record directly, by its own FormID, instead of through '{segment}'.");
+                "sub-object — a record exists only with its own FormKey, and giving a parent a child it lacks is an " +
+                "open gap (#350). Address the child record by its own FormID instead. If the version you are patching " +
+                "does carry one, note that a patch's fresh override of a parent does not bring the parent's child " +
+                "records with it — the record axis reaches it, this path does not.");
         object made;
         try { made = Instantiate(prop.PropertyType, null); }
         catch (CompositionRequiredException) { throw new CompositionRequiredException(segment, prop.PropertyType); }  // re-stamp with the path segment

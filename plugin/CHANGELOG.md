@@ -15,17 +15,23 @@ when it changes.
   the schema the `mutagen-reference` skill serves classified both as links to one. Following that, you would have
   set a FormID on a field that holds a whole record: accepted at the pre-flight check, then thrown at write time.
   Both now read as what they are, pointing at the child's own record entry, and every way of writing *at* the field
-  is refused in one voice that names it a record: a FormID, a composed value, and clearing it. To edit the child,
-  address **that record by its own FormID** — which works, and is what the refusals now tell you. Two things worth
-  knowing, because they are what the old classification hid: a patch's override of a parent does **not** bring the
-  parent's child records with it, so a path *through* the parent finds nothing there even when the original carries
-  one; and clearing the field would have deleted the whole child record and everything under it (a worldspace's top
-  cell takes its persistent references with it), which is why it is refused rather than quietly allowed.
+  answers in one voice that names it a record: a FormID, a composed value, a list of composed values, clearing it,
+  and copying it across from another plugin. To edit the child, address **that record by its own FormID** — which
+  works, and is what the refusals tell you. Three things worth knowing, because they are what the old classification
+  hid. A patch's override of a parent does **not** bring the parent's child records with it, so a path *through* the
+  parent finds nothing there even when the original carries one. Clearing the field would have deleted the whole
+  child record and everything under it — a worldspace's top cell takes its persistent references with it — with no
+  element named, where the list form of the same family makes you name which child by index. And copying the field
+  from another plugin would have written *that* plugin's record, with its own FormID and its own children, in as
+  this parent's child; to carry a child record across, `housecarl_forward_record` takes it directly. Giving a parent
+  a child it does not have, and deleting one outright, are both open gaps — the refusals say so and point at the
+  issue rather than pretending a way exists.
 
   The classifier confused the two because a record identifies itself (FormID plus type) exactly the way a link
   identifies its target. A build check now compares the classification the generator produces against the
   independent walk that preserves child records across a record replace, over every record type the library models
-  — so the two can no longer disagree about which fields own a record.
+  — so the two can no longer disagree about which fields own a record. A second check lists every write verb against
+  this shape with the answer it must give, so a verb cannot be left behind again.
 
 - **Fixed: several list inputs didn't name every member of the object they take.** `housecarl_bulk_apply`'s `operations=` didn't mention `composes` or `from_plugin`; `housecarl_bulk_create`'s `records=` didn't mention `grid`; the `operations=` on both create tools didn't mention `composes`; the `sets=` list inside a `compose=` named two of its five members; and `housecarl_bulk_place_asset`'s `assets=` didn't mention `source_provider` (the member's own description was published all along, so it was discoverable — just not where you'd look for the element shape). Every one of these worked already; the gap was in what you were told. Separately, `source_provider` now spells out that it applies with **no** `source=` as well: there it says whose copy of the *destination* path to place, and is what resolves the contention an omitted source is otherwise refused for.
 
