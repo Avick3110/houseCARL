@@ -310,6 +310,18 @@ public static class CopyDifferentialHarness
         // ---- records: a vanilla donor is a transplant in BOTH tools, so the patches should still match ----
         DiffPatches("contested vanilla (records)", FindPatch(mods, "F3Old"), newPatch);
 
+        // ---- the RESPONSE half, which Project() is blind to by construction (inventory F24) --------------
+        // Project() compares plugin bytes and the masters list and never the two tools' prose, so a render-level
+        // divergence was invisible to this harness — which is how a base-master donor kept getting a false
+        // standalone claim through three review rounds while every fixture reported NO DIFF. This donor lives in
+        // Dawnguard.esm, so it is exactly that case, and the two renders are compared directly.
+        Check(oldOut.Contains("appearance transplant", StringComparison.Ordinal),
+            "the ANCESTOR calls a base-master donor an appearance transplant rather than a standalone-ization");
+        Check(newOut.Contains("appearance transplant", StringComparison.Ordinal),
+            "…and so does the SUCCESSOR — the render arm the inventory codes F24, which shipped missing");
+        Check(!newOut.Contains("the source is NOT a master", StringComparison.Ordinal),
+            "…so neither response claims standalone from a set base masters are deliberately excluded from");
+
         // ---- the divergence itself -------------------------------------------------------------------
         var oldFace = FindPlacedFacegen(FindPatchFolder(mods, "F3Old"));
         var newFace = FindPlacedFacegen(FindPatchFolder(mods, "F3New"));
@@ -356,8 +368,11 @@ public static class CopyDifferentialHarness
         }
         var a = Project(oldPath);
         var b = Project(newPath);
-        var only = a.Except(b).ToList();
-        var extra = b.Except(a).ToList();
+        // MULTISET, not set. Except() collapses duplicates, so a patch carrying the SAME projected line twice —
+        // exactly what a double-internalize produces — diffed clean against one carrying it once. The count is the
+        // half that catches a stray duplicate, and this branch had one (a walk that came back round to `from`).
+        var only = Excess(a, b);
+        var extra = Excess(b, a);
         if (only.Count == 0 && extra.Count == 0)
         {
             Check(true, $"{label}: NO DIFF beyond FormID allocation — {a.Count} projected line(s) identical");
@@ -367,6 +382,22 @@ public static class CopyDifferentialHarness
         foreach (var l in only.Take(40)) Console.WriteLine("    - " + l);
         foreach (var l in extra.Take(40)) Console.WriteLine("    + " + l);
         if (only.Count > 40 || extra.Count > 40) Console.WriteLine($"    … ({only.Count + extra.Count} total; truncated at 80)");
+    }
+
+    /// <summary>The lines <paramref name="a"/> carries MORE times than <paramref name="b"/> does, each repeated by
+    /// how many times over — set difference cannot see a duplicate, which is the one thing a copy can emit by
+    /// accident.</summary>
+    static List<string> Excess(List<string> a, List<string> b)
+    {
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var l in b) counts[l] = counts.TryGetValue(l, out var n) ? n + 1 : 1;
+        var excess = new List<string>();
+        foreach (var l in a)
+        {
+            if (counts.TryGetValue(l, out var n) && n > 0) counts[l] = n - 1;
+            else excess.Add(l);
+        }
+        return excess;
     }
 
     /// <summary>One patch as allocation-order-independent text.</summary>

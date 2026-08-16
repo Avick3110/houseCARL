@@ -163,6 +163,18 @@ internal static class WriteSentences
     internal const string CopySourceMastered =
         "!! the source IS among the masters — this copy is NOT standalone. Nothing was silently fixed; inspect the patch before relying on it.";
 
+    /// <summary>The THIRD arm (inventory F24): the source record is defined in a base-game master. Those are never
+    /// bound — copying a vanilla-defined record must not internalize vanilla — so the standalone claim above would
+    /// be computed over a set deliberately emptied, and asserted "the source is NOT a master" three lines under a
+    /// masters list naming it. "Standalone" is simply the wrong frame here: an always-loaded master is not being
+    /// removed from anything, so the honest sentence says what the copy IS instead of denying something no caller
+    /// asked. Carried over from the ancestor, which had this arm; the successor shipped without it until review
+    /// round 3, and it lands on the appearance skill's own headline query.</summary>
+    [MustState("base-game master", "appearance transplant", "not a standalone-ization")]
+    internal const string CopySourceBaseGame =
+        "note: the source is defined in a base-game master (always loaded) — nothing is being \"removed\", so links " +
+        "to it are kept and mastered normally; this copy is an appearance transplant, not a standalone-ization.";
+
     /// <summary>Read-back failed: the patch is on disk, so the masters/standalone facts are UNKNOWN rather than
     /// false. Asserting them from default-empty values would report a source-mastered patch as standalone on
     /// exactly the path where verification broke.</summary>
@@ -214,9 +226,16 @@ internal static class WriteSentences
 
     /// <summary>The miss remedy. Names, not paths (the standing refusal-remedy rule): a path invites a paste-back
     /// into the next call, and a source is named by plugin.</summary>
-    [MustState("from_source=", "'winner'")]
+    /// <para>Both causes get a remedy, because they need different ones. The Description calls a DANGLING link the
+    /// typical cause of a miss, and for that one no plugin exists to name — so a remedy offering only "add a source"
+    /// sent the caller looking for a file that was never there (review round 3). The exclusion routes are the real
+    /// answer in that case, and they are named here rather than left to be inferred.</para>
+    [MustState("from_source=", "'winner'", "dangling link", "'Type:refuse'")]
     internal const string CopySourceMissRemedy =
-        ". Name the plugin that defines it in from_source=, or 'winner' for the active load order's winning version.";
+        ". Name the plugin that defines it in from_source=, or 'winner' for the active load order's winning version. " +
+        "If the record exists NOWHERE — a dangling link, which is the typical cause — no source will produce it: " +
+        "exclude its record type instead, with 'Type:refuse' to stop the copy at it, or 'Type:stop' to prune the " +
+        "link and keep it (which needs its plugin in your active load order).";
 
     /// <summary>The fault refusal's claim — a source HAS the record and could not read it.</summary>
     [MustState("could not be read")]
@@ -256,6 +275,32 @@ internal static class WriteSentences
         "entries carry links INSIDE them is a field-bundle copy: use housecarl_apply's bundle=/assignments= zip, " +
         "where op=Merge and op=ReplaceAll are your choice between merging into the target's entries and replacing " +
         "them. Nothing was written.";
+
+    /// <summary>The seed's shape is SUPPORTED and the TARGET cannot take it. A separate route from the shape one
+    /// above, because these three refusals used to borrow it: the caller was told <c>seed_paths</c> does not accept
+    /// their field and routed to <c>housecarl_apply</c>'s zip, when the path was legal and the target's property was
+    /// the problem — so the remedy names the target, which is where the fix is (review round 3).</summary>
+    [MustState("the TARGET's", "not the seed path", "target=")]
+    internal const string CopyUnwritableTargetRoute =
+        " — the seed path is fine; it is the TARGET's property that cannot be written, not the seed path. Copy onto " +
+        "a record of the same type that carries its own, or mint a clone with new_editorid= instead of target=. " +
+        "Nothing was written.";
+
+    /// <summary>The walk found no links at all under the seed paths. The cause R4 attributes to it is named, because
+    /// "check seed_paths" sends a caller to re-read a field list that was correct — a TEMPLATED record's appearance
+    /// fields are empty BY DESIGN, and the fix is to copy the template, not to fix the paths (review round 3).</summary>
+    [MustState("carry no record links", "TEMPLATED", "the template it points at")]
+    internal const string CopyNoSeeds =
+        "the seed fields carry no record links, so this copy would produce nothing. The usual cause is a TEMPLATED " +
+        "record — one whose template flags hand these fields to another record, leaving its own empty by design; " +
+        "copy the template it points at instead. Otherwise check seed_paths= against the record.";
+
+    /// <summary>Appended to a strip line that nulled a WHOLE property. The count alone ("STRIPPED 1 reference(s)")
+    /// described the link that forced the removal and not what the removal cost: nulling VirtualMachineAdapter to
+    /// clear one bound script property drops every script on the clone (review round 3).</summary>
+    [MustState("the ENTIRE property was cleared", "not only the link")]
+    internal const string CopyStripWholeProperty =
+        "   <- the ENTIRE property was cleared to remove this, not only the link(s) named — everything else it carried is gone too.";
 
     /// <summary>A seed the source does not carry. The target's copy is ASSIGNED FROM the source anyway — cleared —
     /// because a copy that leaves the target's own value in place produces a face assembled from two records, which

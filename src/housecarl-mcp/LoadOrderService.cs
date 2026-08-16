@@ -4916,6 +4916,12 @@ public sealed class LoadOrderService : IDisposable
             return message;
         }
 
+        // Every refusal path routes through Fail, but a THROW out of the loop bypassed all of them and leaked the
+        // overlays opened so far — the caller's finally only disposes what reached `overlays`, which happens on the
+        // last line. A leaked overlay holds a plugin file handle open, which is exactly what MO2 and xEdit must be
+        // free to move (review round 3).
+        try
+        {
         for (int i = 0; i < poles.Count; i++)
         {
             var spelling = (poles[i] ?? "").Trim();
@@ -5023,6 +5029,8 @@ public sealed class LoadOrderService : IDisposable
 
         overlays.AddRange(openedHere);
         return new SourceChain(arms);
+        }
+        catch { foreach (var d in openedHere) { try { d.Dispose(); } catch { } } throw; }
     }
 
     /// <summary>The 2.0 closure-copy operation (the `copy` verb's service half): resolve the ordered source
@@ -5067,7 +5075,13 @@ public sealed class LoadOrderService : IDisposable
                 // classify vanilla as "the source" and wholesale-internalize it.
                 var baseMasters = Mutagen.Bethesda.Plugins.Implicits.Get(Mutagen.Bethesda.GameRelease.SkyrimSE).BaseMasters;
                 var bound = new HashSet<ModKey>();
-                if (!baseMasters.Contains(sourceKey.ModKey)) bound.Add(sourceKey.ModKey);
+                // Kept as a FACT rather than discarded with the branch: the record's own plugin being a base master
+                // is what makes "standalone" the wrong frame for this copy, and the render needs to say so. It used
+                // to be tested here and thrown away, so the response asserted the standalone claim from a `bound`
+                // set base masters are deliberately excluded from — an assertion off a deliberately emptied set
+                // (inventory F24, review round 3).
+                var sourceIsBaseGame = baseMasters.Contains(sourceKey.ModKey);
+                if (!sourceIsBaseGame) bound.Add(sourceKey.ModKey);
                 // EVERY arm the caller NAMED, whatever kind it resolved to (Aaron-go 2026-08-15). Binding only the
                 // File arms made the artifact depend on an MO2 checkbox: name an ENABLED override and its records
                 // were kept as mastered links, while the same call against the same plugin disabled internalized
@@ -5122,7 +5136,7 @@ public sealed class LoadOrderService : IDisposable
                 {
                 var outcome = ClosureCopy.BuildAndWrite(
                     outPath, extend, sourceKey, srcHit, walk, seedPaths,
-                    targetKey, targetActiveBody, newEditorid, IsBound, bound,
+                    targetKey, targetActiveBody, newEditorid, IsBound, bound, sourceIsBaseGame,
                     mk => view.ContainsPlugin(mk.FileName.String),
                     pf => { session.ReleaseOverlay(pf); return session.AllMastersExcept(pf); },
                     consulted,
