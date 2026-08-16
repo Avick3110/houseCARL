@@ -202,8 +202,11 @@ public static class WriteTools
 
     /// <summary>Manifest parse options: property names case-insensitive like the SDK's inline binder (Web defaults),
     /// comments + trailing commas tolerated (hand-generated files), and an unknown member REFUSED by name — the
-    /// deliberate strictness documented on <see cref="ReadOpsManifest"/>.</summary>
-    static readonly JsonSerializerOptions ManifestJson = new()
+    /// deliberate strictness documented on <see cref="ReadOpsManifest"/>.
+    /// <para>Internal so <c>wire-names-guard</c> can drive it: this is a THIRD options object reading the same spec
+    /// objects (from_file='s manifest lane), configured like <c>ListParams.Strict</c> but separately, so it can drift
+    /// from it without anything noticing (#341).</para></summary>
+    internal static readonly JsonSerializerOptions ManifestJson = new()
     {
         PropertyNameCaseInsensitive = true,
         ReadCommentHandling = JsonCommentHandling.Skip,
@@ -350,7 +353,7 @@ public static class WriteTools
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (records is null || records.Length == 0)
-            return "error: records is empty. Pass one or more {record_type, editorid, operations?, parent?, collection?} specs.";
+            return "error: records is empty. Pass one or more {record_type, editorid, operations?, parent?, collection?, grid?} specs.";
         return RenderCreate(svc.CreateRecordsBatch(records, patch_name, into, full_readback, target, in_place, acknowledge), max_chars, full_readback);
     });
 

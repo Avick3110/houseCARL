@@ -88,7 +88,7 @@ public static class PlaceAssetTools
          "(reported back).")]
     public static string BulkPlaceAsset(
         LoadOrderService svc,
-        [Description("The assets to place, all into one mod folder. Each: { formid?: 'XXXXXX:Plugin.esp', kind?: 'mesh'|'tint' (omit with formid to place BOTH), asset_path?: 'meshes/...', source?: '<loose path>' | '<archive.bsa>|<entry>' | '<archive.bsa>' | '<Data-relative path>', source_provider?: 'SomeMod' | 'X - Textures.bsa' | '" + AssetSourceChoice.WinnerToken + "' }. source_provider names WHOSE copy to read, per asset — with a Data-relative source=, or with NO source=, where it picks among the DESTINATION path's providers and is the way to resolve the contention an omitted source is otherwise refused for (that is the lane a formid with no kind takes: placing both FaceGen slots refuses an explicit Data-relative source=, since one path cannot serve two files).")]
+        [Description("The assets to place, all into one mod folder. Each: { formid?: 'XXXXXX:Plugin.esp', kind?: 'mesh'|'tint' (omit with formid to place BOTH), asset_path?: 'meshes/...', source?: '<loose path>' | '<archive.bsa>|<entry>' | '<archive.bsa>' | '<Data-relative path>', source_provider?: 'SomeMod' | 'X - Textures.bsa' | '" + AssetSourceChoice.WinnerToken + "' }. Each member's own description says what it takes.")]
             PlaceAssetSpec[] assets,
         [Description("Optional. Base name for the NEW houseCARL mod folder (default 'houseCARL_Assets'); auto-suffixed if taken.")]
             string? patch_name = null,
@@ -264,6 +264,8 @@ public sealed record PlaceAssetSpec
     [JsonPropertyName("source_provider"), Description("Whose copy to read for a VFS-resolved source: "
         + AssetSourceChoice.WinnerToken + " for the current VFS winner, or the provider's NAME ALONE (a mod folder, 'overwrite', "
         + "'Data', or a BSA filename) — not asset_status's ' (loose)' / ' (BSA)' annotation. A bare name always means a provider "
-        + "of that name. Omit for the sole provider (contention is refused). Not valid with an on-disk source.")]
+        + "of that name. Applies BOTH with a Data-relative source= (whose copy to read it FROM) and with NO source= at all "
+        + "(whose copy of the DESTINATION path to place) — in the second case it is what resolves the contention an omitted "
+        + "source is otherwise refused for. Omit for the sole provider (contention is refused). Not valid with an on-disk source.")]
     public string? SourceProvider { get; init; }
 }
