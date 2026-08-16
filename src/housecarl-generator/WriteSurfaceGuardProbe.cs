@@ -70,6 +70,14 @@ public static class WriteSurfaceGuardProbe
     }
     static string Trim(string s) => s.Length <= 400 ? s.Replace("\n", " | ") : s[..400].Replace("\n", " | ") + " …";
 
+    /// <summary>The message <paramref name="act"/> threw, or null if it completed — so an arm can assert on a
+    /// refusal's WORDS and on the accepted path with the same shape.</summary>
+    static string? Throws(Action act)
+    {
+        try { act(); return null; }
+        catch (Exception ex) { return ex.Message; }
+    }
+
     static JsonElement Json(string raw) => JsonDocument.Parse(raw).RootElement.Clone();
 
     public static int RunGuard(string[] args)
@@ -1328,6 +1336,39 @@ public static class WriteSurfaceGuardProbe
             string.Join(",", owners) == "Cell,DialogTopic,Worldspace",
             $"{ConcreteRecordTypes().Count} concrete record types · owners=[{string.Join(", ", owners)}]");
 
+        // --- WRITING AT A SINGULAR OWNED CHILD (#335). The reference now calls Cell.Landscape / Worldspace.TopCell
+        //     what they are — owned child records, not FormLinks — and corpus-hygiene-guard's INV6 pins that
+        //     classification against the very set pinned above. What the classification CHANGES for a caller is the
+        //     write path: a descent that the gate used to refuse as a formlink now reaches MaterializeSubstruct, so
+        //     the two states an owned child can be in are measured here rather than assumed. ABSENT is the one that
+        //     needed its own arm: a record has no parameterless ctor because a FormKey identifies it, and the
+        //     composition deferral it would otherwise inherit names the wrong gap and a wave that will never deliver
+        //     it. PRESENT is the positive the refusal's own remedy sentence promises.
+        var landless = new Cell(FormKey.Factory("123480:HcW2Master.esm"), SkyrimRelease.SkyrimSE);
+        var absentMsg = Throws(() => WriteEngine.ApplyVerb(landless,
+            new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape", "EditorID" }, Verb = "Set", Value = "W335" }));
+        Check("an absent owned child record refuses in its OWN words, not as a composition deferral",
+            absentMsg is not null && absentMsg.Contains("owned child RECORD", StringComparison.Ordinal)
+            && absentMsg.Contains("its own FormKey", StringComparison.Ordinal)
+            && !absentMsg.Contains("COMPOSITION type", StringComparison.Ordinal), absentMsg ?? "(accepted)");
+
+        var landed = new Cell(FormKey.Factory("123481:HcW2Master.esm"), SkyrimRelease.SkyrimSE)
+            { Landscape = new Landscape(FormKey.Factory("123482:HcW2Master.esm"), SkyrimRelease.SkyrimSE) };
+        var presentMsg = Throws(() => WriteEngine.ApplyVerb(landed,
+            new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape", "EditorID" }, Verb = "Set", Value = "W335" }));
+        Check("…and the remedy it names works: a sub-field write lands on a cell that already carries one",
+            presentMsg is null && landed.Landscape?.EditorID == "W335",
+            presentMsg ?? $"EditorID={landed.Landscape?.EditorID ?? "(none)"}");
+
+        // The OTHER arm of that branch: a genuinely composition-typed absent substruct keeps the composition
+        // deferral. Without this, the record clause could grow to swallow the case it was carved out of.
+        var bareLand = new Landscape(FormKey.Factory("123483:HcW2Master.esm"), SkyrimRelease.SkyrimSE);
+        var compMsg = Throws(() => WriteEngine.ApplyVerb(bareLand,
+            new WriteRequest { RecordType = "Landscape", Path = new[] { "VertexColors", "X" }, Verb = "Set", Value = "1" }));
+        Check("…while an absent COMPOSITION substruct still gets the composition deferral, unchanged",
+            compMsg is not null && compMsg.Contains("COMPOSITION type", StringComparison.Ordinal)
+            && !compMsg.Contains("owned child RECORD", StringComparison.Ordinal), compMsg ?? "(accepted)");
+
         // --- THE REFUSALS, RENDERED. All three arms of RestoreChildGroup are user-facing sentences that no arm had
         //     ever produced (round-1 review [low]) — and this file's own standing lesson is that a message shipped
         //     through green guards is an unmeasured claim. Driven directly, because the states they report are ones
@@ -1410,8 +1451,10 @@ public static class WriteSurfaceGuardProbe
             .SelectMany(s => s.Cells ?? Enumerable.Empty<ICellGetter>());
 
     /// <summary>Every concrete major-record type Mutagen models for Skyrim — the NestedProbe enumeration, reused so
-    /// the child-property pin is a by-construction sweep rather than a list of names someone remembered.</summary>
-    static List<Type> ConcreteRecordTypes() => typeof(Weapon).Assembly.GetTypes()
+    /// the child-property pin is a by-construction sweep rather than a list of names someone remembered. Internal
+    /// because corpus-hygiene-guard's INV6 sweeps the SAME set to check the shipped reference's classification
+    /// against this walk (#335): two guards over one enumeration cannot drift apart the way two lists would.</summary>
+    internal static List<Type> ConcreteRecordTypes() => typeof(Weapon).Assembly.GetTypes()
         .Where(t => t.IsClass && !t.IsAbstract && !t.Name.EndsWith("BinaryOverlay", StringComparison.Ordinal)
                     && typeof(IMajorRecord).IsAssignableFrom(t))
         .ToList();

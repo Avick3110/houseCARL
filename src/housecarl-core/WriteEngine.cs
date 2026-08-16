@@ -2737,6 +2737,16 @@ public static class WriteEngine
     {
         if (!prop.CanWrite)
             throw new InvalidOperationException($"Absent substruct '{segment}' ({Pretty(prop.PropertyType)}) is not settable — cannot materialize.");
+        // An absent OWNED CHILD RECORD (Cell.Landscape, Worldspace.TopCell) reaches here only since #335 corrected
+        // their classification — before it, the gate refused the descent as a formlink. A record has no parameterless
+        // ctor because it is identified by a FormKey, NOT because it is one of Mutagen's composition types, so falling
+        // through would name the wrong gap ("buildable only from its parts") and point at a wave that will never
+        // deliver it. Say what is actually true instead: houseCARL does not invent records as sub-objects.
+        if (typeof(IMajorRecordGetter).IsAssignableFrom(prop.PropertyType))
+            throw new ExpectedApplyRejectionException(
+                $"'{segment}' holds an owned child RECORD ({Pretty(prop.PropertyType)}) and this one carries none, so " +
+                "there is nothing to write into. houseCARL will not synthesize a record as a sub-object — a record " +
+                "exists only with its own FormKey — and a sub-field write needs a parent that already carries the child.");
         object made;
         try { made = Instantiate(prop.PropertyType, null); }
         catch (CompositionRequiredException) { throw new CompositionRequiredException(segment, prop.PropertyType); }  // re-stamp with the path segment
