@@ -2321,11 +2321,11 @@ public sealed class LoadOrderService : IDisposable
         }
 
         var record = ReadEngine.ReadFields(rec, fields, depth, containerHint);   // materialise while the session (overlay) is open
-        record = AnnotateOwnedChildContent(record, rec, view, fk, out bool childNoted);   // #342 cheap tier — index only, DISPLAY-ONLY
+        record = AnnotateOwnedChildContent(record, rec, view, fk, out var childFields);   // #342 cheap tier — index only, DISPLAY-ONLY
         if (resolveNames) record = AnnotateLinks(record, view, session, linkMemo ?? new());   // P7: identity of every FormLink token, DISPLAY-ONLY (same open session)
         var touching = conflictTree ? view.TouchingPlugins(fk) : null;
         return new ReadOutcome(fk, record, source, winner.Value.WinnerPlugin, winner.Value.OverrideDepth, touching, null)
-               { OwnedChildNoted = childNoted };
+               { OwnedChildFields = childFields };
     }
 
     /// <summary>resolve_names (P7): annotate every field whose <see cref="FieldValue.Token"/> is a form reference (a
@@ -2384,9 +2384,10 @@ public sealed class LoadOrderService : IDisposable
     /// the write surface, the read-proof oracle and the conflict diff — and it reaches the text render, the json
     /// fields array and the dense cells through that one carrier.</para></summary>
     static RecordFields AnnotateOwnedChildContent(RecordFields rf, IMajorRecordGetter body,
-                                                  LoadOrderResolver.IndexView view, FormKey fk, out bool noted)
+                                                  LoadOrderResolver.IndexView view, FormKey fk,
+                                                  out IReadOnlyDictionary<string, OwnedChildShape>? annotated)
     {
-        noted = false;
+        annotated = null;
         // The pinned field set (write-surface-guard's own sweep, reached from a getter) — empty for all but three
         // record types, so this is where the overwhelming majority of reads leave, before any index lookup.
         var owning = OwnedChildContent.Fields(body);
@@ -2410,11 +2411,18 @@ public sealed class LoadOrderService : IDisposable
         // conflict-tree lane, which has already paid for every body, states which ones do.
         var note = ReadSentences.NotReadNote(touching.Count - 1);
         var rebuilt = new List<FieldValue>(rf.Fields);
+        // The ANNOTATED paths and their shapes travel with the outcome, because the render decides its
+        // response-level clause off the fields it actually emitted — a path that never reaches the medium (a cap
+        // hit inside the field loop, a truncated json array, a manifest-only spill) must not earn a clause.
+        var map = new Dictionary<string, OwnedChildShape>(hits.Count, StringComparer.Ordinal);
         foreach (var i in hits)
+        {
             // These fields are containers and owned records; the only other producer of Display is the flags
             // decode, which fires on [Flags] enum leaves alone — so there is no annotation here to displace.
             rebuilt[i] = rebuilt[i] with { Display = note };
-        noted = true;
+            map[rebuilt[i].Path] = owning[rebuilt[i].Path];
+        }
+        annotated = map;
         return rf with { Fields = rebuilt };
     }
 
@@ -8434,11 +8442,20 @@ public sealed record ReadOutcome(
     /// the cross-query fills closes the single-read/batch tree fills identically). Internal render plumbing.</summary>
     internal LoadOrderService.ViewPin? Pin { get; init; }
 
-    /// <summary>True when at least one field in <see cref="Record"/> carries the owned-child declarer annotation
-    /// (#342), so a response render can state the invariant clause ONCE. Carried STRUCTURALLY rather than
-    /// recovered by scanning the rendered prose for a marker: deciding a fact from note text is #308's shape, and
-    /// it is what this annotation exists to stop callers doing.</summary>
-    public bool OwnedChildNoted { get; init; }
+    /// <summary>WHICH fields in <see cref="Record"/> carry the owned-child annotation (#342), each with its
+    /// <see cref="OwnedChildShape"/> — so a response render can state the invariant clause ONCE, over the fields it
+    /// ACTUALLY EMITTED, and name them. Null when this read annotated nothing.
+    ///
+    /// <para>Carried STRUCTURALLY rather than recovered by scanning the rendered prose for a marker: deciding a
+    /// fact from note text is #308's shape, and it is what this annotation exists to stop callers doing. It carries
+    /// the paths rather than a bool because a clause that merely knows "something was annotated" cannot tell
+    /// whether that something survived the medium's own truncation — the stranded-clause defect Aaron's review
+    /// found on three transports at once.</para></summary>
+    public IReadOnlyDictionary<string, OwnedChildShape>? OwnedChildFields { get; init; }
+
+    /// <summary>Did this read annotate anything at all — the cheap question, for callers that only need to know
+    /// whether a clause is POSSIBLE (the budget reservation) rather than which fields it would name.</summary>
+    public bool OwnedChildNoted => OwnedChildFields is { Count: > 0 };
 
     public static ReadOutcome Fail(FormKey fk, string error) => new(fk, null, null, null, 0, null, error);
 }

@@ -136,7 +136,7 @@ internal static class Artifacts
         string[] schema;
         string? identity;
         string sort;
-        bool annotated = false;   // #342: did any ROW carry the owned-child annotation
+        var annotated = new SortedSet<string>(StringComparer.Ordinal);   // #342: which fields the ROWS carry annotated
 
         if (q.Groups is not null)                                             // group_by= → count-table rows
         {
@@ -158,7 +158,8 @@ internal static class Artifacts
                 string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
                 var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, depth,
                                           resolveNames: resolveNames, linkMemo: linkMemo);
-                annotated |= o.OwnedChildNoted;   // #342: the rows' labels need their clause on line 1
+                if (o.Error is null && o.OwnedChildFields is { } af)   // #342: the rows' labels need their clause on line 1
+                    foreach (var annotatedPath in af.Keys) annotated.Add(annotatedPath);
                 if (o.Error is not null)
                     writer.WriteRow((w, _) =>
                     {
@@ -194,12 +195,25 @@ internal static class Artifacts
     /// conversation attached, so a row's "N other plugins touch this record; their declarations were not read"
     /// label has to travel with the sentence that says what a child record is and where the precise answer lives.
     /// Only the CHEAP tier ever reaches a file: the artifact lanes read with conflict_tree off (it is a text-only
-    /// diff view), so a row can only ever carry the cheap note.</summary>
-    static IReadOnlyList<string>? OwnedChildNotes(bool annotated) =>
-        annotated ? new[] { ReadSentences.NotReadClause } : null;
+    /// diff view), so a row can only ever carry the cheap note.
+    ///
+    /// <para>The manifest is LINE 1 and the annotated rows are lines 2..N, so the clause's old "an annotated field
+    /// above" pointed the wrong way for exactly the reader it was added for (Aaron's finding 2). It now names the
+    /// annotated fields instead of pointing at them, which is true from line 1 and from anywhere else.</para></summary>
+    static IReadOnlyList<string>? OwnedChildNotes(IReadOnlyCollection<string> annotatedFields) =>
+        annotatedFields.Count == 0 ? null : new[] { ReadSentences.NotReadClause(annotatedFields) };
 
-    static IReadOnlyList<string>? OwnedChildNotes(IReadOnlyList<ReadOutcome> outcomes) =>
-        OwnedChildNotes(outcomes.Any(o => o.OwnedChildNoted));
+    /// <summary>The annotated field paths an artifact's rows CARRY. Rows are written uncapped (the file is the
+    /// answer), so every annotated field of every row reaches the file — but the set is collected from the rows all
+    /// the same, so the manifest cannot state a clause over an annotation no row wrote.</summary>
+    static SortedSet<string> AnnotatedFields(IEnumerable<ReadOutcome> outcomes)
+    {
+        var s = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var o in outcomes)
+            if (o.Error is null && o.OwnedChildFields is { } f)
+                foreach (var path in f.Keys) s.Add(path);
+        return s;
+    }
 
     /// <summary>Build + save the artifact for a batch_record_detail result — one row per input, in input order,
     /// exactly the rows the json render emits (per-item errors included: the artifact is the complete answer, and
@@ -220,7 +234,7 @@ internal static class Artifacts
         var epoch = outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch ?? "";
         var (manifest, err) = writer.Save(path, "housecarl_batch_record_detail", query, "formid",
                                           new[] { "formid", "type", "editorid", "winner", "override_depth", "source", "fields" },
-                                          "input order", outcomes.Count, epoch, OwnedChildNotes(outcomes));
+                                          "input order", outcomes.Count, epoch, OwnedChildNotes(AnnotatedFields(outcomes)));
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
     }
 

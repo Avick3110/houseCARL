@@ -786,23 +786,67 @@ static class Wire
         return sb.ToString().TrimEnd('\n');
     }
 
-    /// <summary>Which #342 clauses this response has earned — accumulated across the rows it actually RENDERED, so
-    /// a clause is never stated over a response whose annotated rows were truncated away or spilled to a file.
-    /// Three independent facts, because the tiers and the shapes say different things and a response can mix
-    /// them.</summary>
+    /// <summary>Which #342 clause a rendered field earns. The tier decides it: the cheap tier can only say "not
+    /// read"; the precise tier says what is true of the field's SHAPE.</summary>
+    internal enum ChildClause { NotRead, Collection, Singular }
+
+    /// <summary>Which #342 clauses this response has earned, and over WHICH fields — accumulated at EMISSION, as
+    /// each annotated field line is written, never where the annotation was decided.
+    ///
+    /// <para>That distinction is the whole fix. A response can annotate a field and then not show it: the field
+    /// loop hits <c>max_chars</c> before reaching it, the json fields array truncates, a <c>to_file</c> spill sends
+    /// the rows to a file. A clause committed when the annotation was DECIDED then describes a field the caller
+    /// cannot see. Registering at emission makes that unrepresentable — no field line, no clause.</para>
+    ///
+    /// <para><see cref="May"/> is the other half, and it runs the other way: it is set BEFORE a record's fields
+    /// render, so the clauses that record could still earn are RESERVED out of the caller's budget rather than
+    /// appended past it. Reserve decides a clause FITS; emission decides it is STATED.</para></summary>
     internal sealed class ChildNotes
     {
-        public bool NotRead, Collection, Singular;
-        public bool Any => NotRead || Collection || Singular;
+        readonly SortedSet<string> _notRead = new(StringComparer.Ordinal);
+        readonly SortedSet<string> _collection = new(StringComparer.Ordinal);
+        readonly SortedSet<string> _singular = new(StringComparer.Ordinal);
+        bool _mayNotRead, _mayCollection, _maySingular;
+
+        /// <summary>A clause kind this response may still state — reserved from here on.</summary>
+        public void May(ChildClause c)
+        {
+            if (c == ChildClause.NotRead) _mayNotRead = true;
+            else if (c == ChildClause.Collection) _mayCollection = true;
+            else _maySingular = true;
+        }
+
+        /// <summary>An annotated field line just went into the medium: this clause is now STATED, over this
+        /// field.</summary>
+        public void Emitted(ChildClause c, string field)
+        {
+            May(c);
+            (c == ChildClause.NotRead ? _notRead : c == ChildClause.Collection ? _collection : _singular).Add(field);
+        }
+
+        /// <summary>The chars to hold back from <c>max_chars</c> for the clauses this response may still state.</summary>
+        public int Reserve => ReadSentences.ClauseReserve(_mayNotRead, _mayCollection, _maySingular);
+
+        internal IReadOnlyCollection<string> Fields(ChildClause c) =>
+            c == ChildClause.NotRead ? _notRead : c == ChildClause.Collection ? _collection : _singular;
     }
 
     /// <summary>The #342 clauses, stated ONCE per response after the body — never per field, which cost ~275
-    /// identical chars on every annotated row and pushed real rows out of a bulk response's budget.</summary>
+    /// identical chars on every annotated row and pushed real rows out of a bulk response's budget. Each clause
+    /// NAMES the fields it was earned over, so it claims nothing about where in the response they are.</summary>
     internal static void AppendOwnedChildNotes(StringBuilder sb, ChildNotes n)
     {
-        if (n.NotRead) sb.Append('\n').Append(ReadSentences.NotReadClause).Append('\n');
-        if (n.Collection) sb.Append('\n').Append(ReadSentences.MergeCollection).Append('\n');
-        if (n.Singular) sb.Append('\n').Append(ReadSentences.SingleResolved).Append('\n');
+        foreach (var c in new[] { ChildClause.NotRead, ChildClause.Collection, ChildClause.Singular })
+        {
+            var fields = n.Fields(c);
+            if (fields.Count == 0) continue;
+            sb.Append('\n').Append(c switch
+            {
+                ChildClause.NotRead => ReadSentences.NotReadClause(fields),
+                ChildClause.Collection => ReadSentences.MergeCollection(fields),
+                _ => ReadSentences.SingleResolved(fields),
+            }).Append('\n');
+        }
     }
 
     /// <summary>Render one record, and its conflict tree when asked — fetching the tree ONCE and using it for both
@@ -813,6 +857,7 @@ static class Wire
     {
         var outcome = o;
         LoadOrderService.TreeFill? fill = null;
+        bool precise = false;
         // A tree fetch is one whole-overlay enumeration per touching plugin, so the prefetch takes the tree render's
         // own skips with it. SOLE TOUCHER is the one that mattered: measured on a real order, hoisting the fetch
         // above `tp.Count <= 1` took a conflict_tree read of an uncontested record from ~133 ms to ~273 ms, on a
@@ -822,33 +867,48 @@ static class Wire
         // The limit, stated because it is real: this cannot foresee a cap hit DURING this record's own field
         // render. A single read with a cap so tight that the fields themselves exhaust it still pays for the tree
         // and then truncates the diff — base skipped that fetch. Closing it would mean rendering the record twice
-        // or guessing its rendered size, and the annotation has to land BEFORE the fields are written.
+        // or guessing its rendered size. (What it no longer costs is a WRONG SENTENCE: the clause is stated off the
+        // field lines this render emitted, so a truncated annotation states nothing — Aaron's finding 1.)
         if (conflictTree && o.Pin is { } pin && o.Record is { } rec
-            && o.TouchingPlugins is { Count: > 1 } && sb.Length < cap)
+            && o.TouchingPlugins is { Count: > 1 } && sb.Length < cap - notes.Reserve)
         {
             fill = svc.ResolveTreeFill(pin, o.FormKey, fields, o.SourcePlugin, rec.Fields.Select(f => f.Path).ToList());
-            if (fill is { ByField.Count: > 0 }) outcome = ApplyPreciseChildNotes(o, rec, fill, notes);
+            if (fill is { ByField.Count: > 0 }) { outcome = ApplyPreciseChildNotes(o, rec, fill); precise = true; }
         }
-        if (outcome.OwnedChildNoted && fill is null) notes.NotRead = true;   // cheap tier stands
-        AppendRecord(sb, outcome, cap);
-        if (conflictTree) AppendConflictTree(sb, svc, outcome, fields, cap, fill?.View);
+        // Hold back the clauses this record could earn BEFORE its fields render, so an annotated response answers
+        // inside the caller's max_chars instead of overrunning it by up to three clauses (finding 6). Only a record
+        // that CAN annotate pays: one with no child-bearing field reserves nothing.
+        if (outcome.OwnedChildFields is { } annotated)
+            foreach (var shape in annotated.Values) notes.May(ClauseOf(shape, precise));
+        // The RESERVE is held back from the budget, never from the number the render QUOTES: a cut that told the
+        // caller "at max_chars=1124" when they passed 2000 would be a wrong sentence of its own.
+        AppendRecord(sb, outcome, cap, notes.Reserve, precise, notes);
+        if (conflictTree) AppendConflictTree(sb, svc, outcome, fields, cap, fill?.View, notes.Reserve);
     }
+
+    /// <summary>Which clause an annotated field earns: the cheap tier knows only that other plugins were not read,
+    /// whatever the field's shape; the precise tier knows what is true of the SHAPE.</summary>
+    static ChildClause ClauseOf(HousecarlCore.OwnedChildShape shape, bool precise) =>
+        !precise ? ChildClause.NotRead
+        : shape == HousecarlCore.OwnedChildShape.Singular ? ChildClause.Singular : ChildClause.Collection;
 
     /// <summary>Replace the cheap "not read" note on every child-bearing field with what the tree's bodies
     /// actually say — including replacing it with NOTHING when no other plugin declares content there, which the
-    /// cheap tier could not know.</summary>
-    static ReadOutcome ApplyPreciseChildNotes(ReadOutcome o, RecordFields rec, LoadOrderService.TreeFill fill, ChildNotes notes)
+    /// cheap tier could not know. The returned outcome's <see cref="ReadOutcome.OwnedChildFields"/> is rebuilt to
+    /// the fields that still carry an annotation, so the render states a clause only over one it emits.</summary>
+    static ReadOutcome ApplyPreciseChildNotes(ReadOutcome o, RecordFields rec, LoadOrderService.TreeFill fill)
     {
         var rebuilt = new List<FieldValue>(rec.Fields);
+        var annotated = new Dictionary<string, HousecarlCore.OwnedChildShape>(StringComparer.Ordinal);
         for (int i = 0; i < rebuilt.Count; i++)
         {
             if (!fill.ByField.TryGetValue(rebuilt[i].Path, out var d)) continue;
             var note = ReadSentences.DeclarersNote(d.Shape, d.Declaring, d.Unreadable);
             rebuilt[i] = rebuilt[i] with { Display = note };
             if (note is null) continue;
-            if (d.Shape == HousecarlCore.OwnedChildShape.Singular) notes.Singular = true; else notes.Collection = true;
+            annotated[rebuilt[i].Path] = d.Shape;
         }
-        return o with { Record = rec with { Fields = rebuilt } };
+        return o with { Record = rec with { Fields = rebuilt }, OwnedChildFields = annotated };
     }
 
     // ---- housecarl_batch_record_detail --------------------------------------------------------------
@@ -871,7 +931,7 @@ static class Wire
         foreach (var o in outcomes)
         {
             if (spill?.ManifestOnly ?? false) break;   // to_file: only the manifest renders — the rows are the FILE
-            if (sb.Length >= cap)
+            if (sb.Length >= cap - notes.Reserve)      // the clauses this response has already earned are SPOKEN FOR
             {
                 truncated = true;
                 sb.Append("... [truncated: rendered ").Append(rendered).Append(" of ").Append(outcomes.Count)
@@ -947,7 +1007,7 @@ static class Wire
         var notes = new ChildNotes();   // #342: accumulated over the rows actually rendered
         for (int i = 0; i < q.Keys.Count && !(spill?.ManifestOnly ?? false); i++)   // to_file: only the manifest renders — the rows are the FILE
         {
-            if (sb.Length >= cap)
+            if (sb.Length >= cap - notes.Reserve)      // the clauses this response has already earned are SPOKEN FOR
             {
                 truncated = true;
                 sb.Append("... [truncated: rendered ").Append(rendered).Append(" of ").Append(q.Keys.Count)
@@ -1359,7 +1419,12 @@ static class Wire
 
     // ---- shared building blocks ---------------------------------------------------------------------
 
-    static void AppendRecord(StringBuilder sb, ReadOutcome o, int cap)
+    /// <summary><paramref name="notes"/> (with <paramref name="precise"/> naming the #342 tier) registers a clause
+    /// as each ANNOTATED field line is written — so a field the cap truncates away earns nothing. Both are null on
+    /// the lanes that render a record outside a #342-annotated response (readback, verify).</summary>
+    /// <param name="reserve">Chars held back for the response-level clauses this render may still state: the field
+    /// loop stops that much earlier, while the notice still quotes the caller's own <paramref name="cap"/>.</param>
+    static void AppendRecord(StringBuilder sb, ReadOutcome o, int cap, int reserve = 0, bool precise = false, ChildNotes? notes = null)
     {
         var r = o.Record!;
         sb.Append("type=").Append(r.Type)
@@ -1370,7 +1435,7 @@ static class Wire
         sb.Append("fields (from ").Append(o.SourcePlugin).Append("):\n");
         for (int i = 0; i < r.Fields.Count; i++)
         {
-            if (sb.Length >= cap)                                          // depth= can produce many lines — cap them (Q3)
+            if (sb.Length >= cap - reserve)                                 // depth= can produce many lines — cap them (Q3)
             {
                 sb.Append("  ... [truncated: showing ").Append(i).Append(" of ").Append(r.Fields.Count)
                   .Append(" field lines at max_chars=").Append(cap)
@@ -1382,6 +1447,9 @@ static class Wire
             if (f.Display is not null) sb.Append("   (").Append(f.Display).Append(')');   // display-only annotation (e.g. decoded biped slots) — never the round-trip token
             if (f.Link is not null) sb.Append("   (").Append(LinkText(f.Link)).Append(')');   // resolve_names: target identity, DISPLAY-ONLY — never the round-trip token
             sb.Append('\n');
+            // The #342 clause is earned HERE, by a line that reached the caller — not where the annotation was decided.
+            if (notes is not null && o.OwnedChildFields is { } ann && ann.TryGetValue(f.Path, out var shape))
+                notes.Emitted(ClauseOf(shape, precise), f.Path);
         }
     }
 
@@ -1398,8 +1466,10 @@ static class Wire
     /// winner-relative field diff — each other plugin's only-the-fields-that-differ, as `path=theirs (winner X)`.
     /// Bodies come from <see cref="LoadOrderService.ResolveTree"/> (on-demand fetch, held by nothing). The diff
     /// is char-budget-bounded: over <paramref name="cap"/> it stops with an explicit notice (Q3).</summary>
+    /// <param name="reserve">Chars held back for the #342 response-level clauses — the same split
+    /// <see cref="AppendRecord"/> makes: budget against <c>cap - reserve</c>, quote <c>cap</c>.</param>
     static void AppendConflictTree(StringBuilder sb, LoadOrderService svc, ReadOutcome o, IReadOnlyList<string>? fields, int cap,
-                                   ConflictTreeView? prefetched = null)
+                                   ConflictTreeView? prefetched = null, int reserve = 0)
     {
         var tp = o.TouchingPlugins;
         if (tp is null) return;
@@ -1407,7 +1477,7 @@ static class Wire
           .Append(" this record (load order, winner last):\n");
         for (int i = 0; i < tp.Count; i++)
         {
-            if (sb.Length >= cap && i < tp.Count - 1)                      // budget gone mid-list — name the rest + the winner, stop
+            if (sb.Length >= cap - reserve && i < tp.Count - 1)            // budget gone mid-list — name the rest + the winner, stop
             {
                 sb.Append("  ... [").Append(tp.Count - i).Append(" more plugins omitted at max_chars=").Append(cap)
                   .Append("; winner (last in load order) = ").Append(tp[^1]).Append("; raise max_chars or narrow with fields=]\n");
@@ -1440,7 +1510,7 @@ static class Wire
           .Append("; identical fields omitted; list contents compared by content, element reorders flagged):\n");
         for (int n = 0; n < tree.Nodes.Count - 1; n++)                      // every node except the winner
         {
-            if (sb.Length >= cap)
+            if (sb.Length >= cap - reserve)
             {
                 sb.Append("  ... [truncated: response hit max_chars=").Append(cap)
                   .Append("; pass fields= to narrow the diff or raise max_chars]\n");
@@ -1463,7 +1533,7 @@ static class Wire
                     : "(no differences found, but the comparison was TRUNCATED at the expansion cap — NOT a verified ITM; narrow with fields= to fully compare)";
             // One node's joined deltas are unbounded (two divergent deep reads can carry thousands); slice
             // against the remaining char budget with the same explicit notice the other cuts use (Q3).
-            int room = cap - sb.Length;
+            int room = cap - reserve - sb.Length;
             if (line.Length > room)
                 line = string.Concat(line.AsSpan(0, Math.Max(0, room)),
                     " ... [delta line truncated at max_chars; narrow with fields= or raise max_chars]");

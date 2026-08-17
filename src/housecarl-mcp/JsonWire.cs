@@ -261,7 +261,11 @@ static class JsonWire
     /// BUDGET-AWARE: a fat record (deep list expansion) is field-truncated the same way the text render caps field
     /// lines — a sentinel field names the cut and the array closes, so the document stays valid JSON (never silently
     /// over budget — Q3).</summary>
-    static void WriteFieldsArray(Utf8JsonWriter w, RecordFields r, MemoryStream ms, int cap)
+    /// <param name="annotated">The #342 owned-child fields this outcome annotated, if any.</param>
+    /// <param name="emitted">Collects the annotated paths this array ACTUALLY carried — the response-level clause is
+    /// stated over these, so a field the truncation above dropped states nothing (Aaron's finding 1, json twin).</param>
+    static void WriteFieldsArray(Utf8JsonWriter w, RecordFields r, MemoryStream ms, int cap,
+                                 IReadOnlyDictionary<string, OwnedChildShape>? annotated = null, ICollection<string>? emitted = null)
     {
         w.WriteStartArray("fields");
         for (int i = 0; i < r.Fields.Count; i++)
@@ -294,6 +298,7 @@ static class JsonWire
                 w.WriteEndObject();
             }
             w.WriteEndObject();
+            if (annotated is not null && emitted is not null && annotated.ContainsKey(f.Path)) emitted.Add(f.Path);
         }
         w.WriteEndArray();
     }
@@ -301,15 +306,18 @@ static class JsonWire
     /// <summary>Serialize a resolved record: identity + winner/override_depth/source + the fields array. Shared by
     /// read_record, batch_record_detail, and the cross_plugin_query detail path (one shape, no drift). <paramref
     /// name="matches"/> carries the multi-target references= un-merge when present.</summary>
+    /// <param name="childFields">Collects the #342-annotated field paths this record's array carried, for the
+    /// response-level clause. Batch/query lanes pass ONE set across their rows and state the clause after the
+    /// records array; the single read passes its own and states it here.</param>
+    /// <param name="stateChildNote">Single-read lane only: this record object IS the response, so the clause
+    /// belongs on it — written AFTER <c>fields</c> and only over what <c>fields</c> carried. It used to be the
+    /// object's second key, ahead of the very array it described (Aaron's finding 3).</param>
     internal static void WriteReadRecord(Utf8JsonWriter w, ReadOutcome o, MemoryStream ms, int cap, string? matches = null,
-                                         string? epoch = null, bool ownedChildNote = false)
+                                         string? epoch = null, ICollection<string>? childFields = null, bool stateChildNote = false)
     {
         var r = o.Record!;
         w.WriteStartObject();
         if (epoch is not null) w.WriteString("epoch", epoch);   // single-read top level ONLY — see RenderRecord
-        // The single-read record object IS the response, so the #342 clause belongs on it; batch/query rows never
-        // repeat it per row (the caller passes false and the response object states it once), exactly as epoch does.
-        WriteOwnedChildNote(w, ownedChildNote);
         w.WriteString("formid", r.FormKey);
         w.WriteString("type", r.Type);
         WriteNullable(w, "editorid", r.EditorId);
@@ -317,7 +325,8 @@ static class JsonWire
         w.WriteNumber("override_depth", o.OverrideDepth);
         WriteNullable(w, "source", o.SourcePlugin);   // the body these field VALUES came from (scoped plugin vs winner)
         if (matches is not null) w.WriteString("matches", matches);
-        WriteFieldsArray(w, r, ms, cap);
+        WriteFieldsArray(w, r, ms, cap, o.OwnedChildFields, childFields);
+        if (stateChildNote && childFields is IReadOnlyCollection<string> { Count: > 0 } stated) WriteOwnedChildNote(w, stated);
         w.WriteEndObject();
     }
 
@@ -337,21 +346,22 @@ static class JsonWire
                 // A stamped refusal carries its stamp on the wire too (PR #305 review) — same contract as text.
                 w.WriteStartObject(); w.WriteString("error", o.Error); WriteNullable(w, "epoch", o.Epoch); w.WriteEndObject();
             }
-            else WriteReadRecord(w, o, ms, cap, epoch: o.Epoch, ownedChildNote: o.OwnedChildNoted);
+            else WriteReadRecord(w, o, ms, cap, epoch: o.Epoch,
+                                 childFields: new SortedSet<string>(StringComparer.Ordinal), stateChildNote: true);
         }
         return Finish(ms);
     }
 
-    /// <summary>The #342 clause on the json lane, written ONCE per response when a rendered record carries the
-    /// annotation — the same const the text lane states, so the two transports cannot drift. Gated on the
-    /// outcome's structural flag, never on the prose.
+    /// <summary>The #342 clause on the json lane, written ONCE per response over the annotated fields the document
+    /// actually CARRIES — the same source the text lane states, so the two transports cannot drift. Gated on the
+    /// paths that were written, never on the prose.
     ///
     /// <para>json only ever states the CHEAP tier's clause: <c>conflict_tree=true</c> is refused in json mode (a
     /// text-only diff view), so the lane that has the bodies to name declarers does not exist here. A json caller
     /// who wants the precise answer takes the same route the clause names — the text lane.</para></summary>
-    static void WriteOwnedChildNote(Utf8JsonWriter w, bool noted)
+    static void WriteOwnedChildNote(Utf8JsonWriter w, IReadOnlyCollection<string> fields)
     {
-        if (noted) w.WriteString("owned_child_note", ReadSentences.NotReadClause);
+        if (fields.Count > 0) w.WriteString("owned_child_note", ReadSentences.NotReadClause(fields));
     }
 
     // ---- housecarl_batch_record_detail (P6) ---------------------------------------------------------
@@ -377,23 +387,24 @@ static class JsonWire
             // (a malformed-FormID row never consulted a view and carries none).
             WriteNullable(w, "epoch", outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch);
             w.WriteStartArray("records");
-            int rendered = 0; bool rowsTruncated = false; bool childNoted = false;   // #342: over rows RENDERED
+            int rendered = 0; bool rowsTruncated = false;
+            var childFields = new SortedSet<string>(StringComparer.Ordinal);   // #342: the fields the rows RENDERED carried
             foreach (var o in outcomes)
             {
                 if (manifestOnly) break;   // to_file: the rows are the FILE
                 w.Flush();
                 if (ms.Length >= cap) { rowsTruncated = true; break; }
                 if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", o.FormKey.ToString()); w.WriteString("error", o.Error); w.WriteEndObject(); }
-                else { WriteReadRecord(w, o, ms, cap); childNoted |= o.OwnedChildNoted; }
+                else WriteReadRecord(w, o, ms, cap, childFields: childFields);
                 rendered++;
             }
             w.WriteEndArray();
             w.WriteNumber("rendered", rendered);
             w.WriteBoolean("truncated", rowsTruncated);
-            // Over the rows this document actually carries — never the input list. A manifest-only (to_file) or
-            // truncated response renders no annotated field, and a clause pointing at "an annotated field above"
-            // with nothing above it is the text lane's own guarded mistake, one transport over.
-            WriteOwnedChildNote(w, childNoted);
+            // Over the annotated fields this document actually carries — never the input list, and never a field
+            // some row's own truncation dropped. A manifest-only (to_file) or truncated response carries none, and
+            // states none.
+            WriteOwnedChildNote(w, childFields);
             truncated = rowsTruncated;
             if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
             w.WriteEndObject();
@@ -979,7 +990,8 @@ static class JsonWire
                 WriteNotes(w, q, p5);
                 var linkMemo = resolveNames && detail ? new Dictionary<FormKey, ResolvedRef>() : null;
                 w.WriteStartArray("matches");
-                int rendered = 0; bool rowsTruncated = false; bool childNoted = false;   // #342: the clause once, after the rows
+                int rendered = 0; bool rowsTruncated = false;
+                var childFields = new SortedSet<string>(StringComparer.Ordinal);   // #342: the clause once, over the fields the rows carried
                 for (int i = 0; i < q.Keys.Count && !manifestOnly; i++)      // to_file: the rows are the FILE
                 {
                     w.Flush();
@@ -993,8 +1005,7 @@ static class JsonWire
                         // Pinned to the scan's build (PR #305 review) — the document's epoch names ONE build.
                         var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, depth, resolveNames: resolveNames, linkMemo: linkMemo);
                         if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", fk.ToString()); w.WriteString("error", o.Error); if (matches is not null) w.WriteString("matches", matches); w.WriteEndObject(); }
-                        else WriteReadRecord(w, o, ms, cap, matches);
-                        childNoted |= o.OwnedChildNoted;
+                        else WriteReadRecord(w, o, ms, cap, matches, childFields: childFields);
                     }
                     else
                     {
@@ -1006,7 +1017,7 @@ static class JsonWire
                 w.WriteEndArray();
                 w.WriteNumber("rendered", rendered);
                 w.WriteBoolean("truncated", rowsTruncated);
-                WriteOwnedChildNote(w, childNoted);
+                WriteOwnedChildNote(w, childFields);
                 truncated = rowsTruncated;
             }
             if (spill is not null && q.Error is null) Artifacts.WriteSpillStateJson(w, spill);
@@ -1092,7 +1103,8 @@ static class JsonWire
 
                 var linkMemo = resolveNames && detail ? new Dictionary<FormKey, ResolvedRef>() : null;
                 List<(string Formid, string Error)>? errors = null;
-                int rendered = 0; bool rowsTruncated = false; bool childNoted = false;   // #342: the clause once, after the rows
+                int rendered = 0; bool rowsTruncated = false;
+                var childFields = new SortedSet<string>(StringComparer.Ordinal);   // #342: the clause once, over the cells the rows carried
                 w.WriteStartArray("rows");
                 for (int i = 0; i < q.Keys.Count && !manifestOnly; i++)      // to_file: the rows are the FILE
                 {
@@ -1109,11 +1121,17 @@ static class JsonWire
                         w.WriteStartArray();
                         w.WriteStringValue(r.FormKey);
                         WriteCell(w, r.EditorId);
-                        foreach (var f in r.Fields) WriteCell(w, DenseCell(f));
+                        foreach (var f in r.Fields)
+                        {
+                            WriteCell(w, DenseCell(f));
+                            // A dense row writes every requested cell or none, so an annotated cell that reaches the
+                            // document is exactly one whose row was written — registered here all the same, so the
+                            // clause is earned at EMISSION on this lane too rather than from the outcome's intent.
+                            if (o.OwnedChildFields?.ContainsKey(f.Path) == true) childFields.Add(f.Path);
+                        }
                         if (anyScoped) WriteCell(w, o.SourcePlugin);          // the body this row's values were read from (winner_fields=true → the winner)
                         if (hasMatches) WriteCell(w, matches);
                         w.WriteEndArray();
-                        childNoted |= o.OwnedChildNoted;
                     }
                     else
                     {
@@ -1140,7 +1158,7 @@ static class JsonWire
                 }
                 w.WriteNumber("rendered", rendered);
                 w.WriteBoolean("truncated", rowsTruncated);
-                WriteOwnedChildNote(w, childNoted);
+                WriteOwnedChildNote(w, childFields);
                 truncated = rowsTruncated;
             }
             if (spill is not null && q.Error is null) Artifacts.WriteSpillStateJson(w, spill);

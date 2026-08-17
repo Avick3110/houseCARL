@@ -218,9 +218,24 @@ public static class OwnedChildContentProbe
                 FieldLine(aWinner, "NavigationMeshes") is { } c2 && c2.Contains(ReadSentences.NotRead, StringComparison.Ordinal),
                 FieldLine(aWinner, "NavigationMeshes"));
             Check("CHEAP: the response states the not-read clause ONCE, and names the lane that answers precisely",
-                Occurrences(aWinner, ReadSentences.NotReadClause) == 1
-                && ReadSentences.NotReadClause.Contains("conflict_tree=true", StringComparison.Ordinal),
-                $"clause={Occurrences(aWinner, ReadSentences.NotReadClause)}");
+                Occurrences(aWinner, ClauseHead(ReadSentences.NotReadFraming)) == 1
+                && ClauseLine(aWinner, ReadSentences.NotReadFraming) is { } cc
+                && cc.Contains("conflict_tree=true", StringComparison.Ordinal),
+                $"clause={Occurrences(aWinner, ClauseHead(ReadSentences.NotReadFraming))}");
+            // The clause NAMES its fields rather than pointing at them — the fix for a positional claim three
+            // transports independently falsified (manifest line 1, json's second key, a truncated field loop).
+            Check("CLAUSE-NAMES: the clause names the annotated fields, and points at no position at all",
+                ClauseLine(aWinner, ReadSentences.NotReadFraming) is { } cn
+                && cn.Contains("Temporary", StringComparison.Ordinal)
+                && cn.Contains("Persistent", StringComparison.Ordinal)
+                && !cn.Contains("above", StringComparison.OrdinalIgnoreCase)
+                && !cn.Contains("below", StringComparison.OrdinalIgnoreCase),
+                ClauseLine(aWinner, ReadSentences.NotReadFraming) ?? "(no clause)");
+            Check("CLAUSE-NAMES: the names are DERIVED — every field named is one the response annotated",
+                ClauseLine(aWinner, ReadSentences.NotReadFraming) is { } cd
+                && NamedFields(cd, ReadSentences.NotReadFraming).All(f => FieldLine(aWinner, f) is { } fl
+                                                                          && fl.Contains(ReadSentences.NotRead, StringComparison.Ordinal)),
+                ClauseLine(aWinner, ReadSentences.NotReadFraming) ?? "(no clause)");
             Check("CHEAP: the cheap tier CANNOT read a body — its signature takes no overlay session",
                 typeof(LoadOrderService)
                     .GetMethod("AnnotateOwnedChildContent", BindingFlags.NonPublic | BindingFlags.Static)!
@@ -234,7 +249,7 @@ public static class OwnedChildContentProbe
             var aNarrow = Read(cellA, fields: new[] { "EditorID" });
             Check("UNREQUESTED: fields=[EditorID] carries no annotation and no clause",
                 !aNarrow.Contains(ReadSentences.NotRead, StringComparison.Ordinal)
-                && !aNarrow.Contains(ReadSentences.NotReadClause, StringComparison.Ordinal), Trim(aNarrow));
+                && ClauseLine(aNarrow, ReadSentences.NotReadFraming) is null, Trim(aNarrow));
             var weapRead = Read(weapon);
             Check("NO-CHILDREN: a 3-toucher weapon read carries no annotation, and its field set is EMPTY",
                 weapRead.Contains("winner=HcOcTop.esp", StringComparison.Ordinal)
@@ -266,12 +281,24 @@ public static class OwnedChildContentProbe
                 && s1.Contains($"{ReadSentences.CarriedBy} 1 other plugin(s)", StringComparison.Ordinal)
                 && !s1.Contains(ReadSentences.DeclaredBy, StringComparison.Ordinal),
                 FieldLine(aTree, "Landscape"));
-            Check("SINGULAR: the response carries the singly-resolved clause for that shape",
-                Occurrences(aTree, ReadSentences.SingleResolved) == 1,
-                $"singular={Occurrences(aTree, ReadSentences.SingleResolved)}");
-            Check("COLLECTION: the response also carries the additive clause, once, for the list-shaped fields",
-                Occurrences(aTree, ReadSentences.MergeCollection) == 1,
-                $"collection={Occurrences(aTree, ReadSentences.MergeCollection)}");
+            Check("SINGULAR: the response carries the singly-resolved clause for that shape, naming its field",
+                Occurrences(aTree, ClauseHead(ReadSentences.SingleResolvedFraming)) == 1
+                && ClauseLine(aTree, ReadSentences.SingleResolvedFraming) is { } sc
+                && NamedFields(sc, ReadSentences.SingleResolvedFraming).SequenceEqual(new[] { "Landscape" }),
+                ClauseLine(aTree, ReadSentences.SingleResolvedFraming) ?? "(no singular clause)");
+            Check("COLLECTION: the response also carries the additive clause, once, naming the list-shaped fields",
+                Occurrences(aTree, ClauseHead(ReadSentences.MergeCollectionFraming)) == 1
+                && ClauseLine(aTree, ReadSentences.MergeCollectionFraming) is { } mc
+                && NamedFields(mc, ReadSentences.MergeCollectionFraming).SequenceEqual(new[] { "Persistent", "Temporary" }),
+                ClauseLine(aTree, ReadSentences.MergeCollectionFraming) ?? "(no collection clause)");
+            // FINDING 5 — the flagship: a winner carrying NOTHING, beside plugins that declare. "also declared by"
+            // asserted that this body declares too, which is false in exactly the case the feature exists for.
+            Check("LABEL: on a winner carrying 0 items the declarer label does NOT assert this body declares too",
+                FieldLine(aTree, "Temporary") is { } fs
+                && fs.Contains("0 item(s)", StringComparison.Ordinal)
+                && fs.Contains(By(baseKey), StringComparison.Ordinal)
+                && !fs.Contains("also ", StringComparison.OrdinalIgnoreCase),
+                FieldLine(aTree, "Temporary"));
             Check("SHAPE: the classifier answers the two shapes off the TYPE, before any body is read",
                 ShapeOn(topDir, topKey, cellA, "Landscape") == OwnedChildShape.Singular
                 && ShapeOn(topDir, topKey, cellA, "Temporary") == OwnedChildShape.Collection
@@ -280,9 +307,10 @@ public static class OwnedChildContentProbe
                 $"Landscape={ShapeOn(topDir, topKey, cellA, "Landscape")} SubCells={ShapeOn(baseDir, baseKey, wrld, "SubCells")}");
             var dOnly = ReadCt(cellD);
             Check("SHAPE: a response with only COLLECTION fields annotated states only the additive clause",
-                Occurrences(dOnly, ReadSentences.MergeCollection) == 1
-                && Occurrences(dOnly, ReadSentences.SingleResolved) == 0,
-                $"collection={Occurrences(dOnly, ReadSentences.MergeCollection)} singular={Occurrences(dOnly, ReadSentences.SingleResolved)}");
+                Occurrences(dOnly, ClauseHead(ReadSentences.MergeCollectionFraming)) == 1
+                && Occurrences(dOnly, ClauseHead(ReadSentences.SingleResolvedFraming)) == 0,
+                $"collection={Occurrences(dOnly, ClauseHead(ReadSentences.MergeCollectionFraming))} "
+                + $"singular={Occurrences(dOnly, ClauseHead(ReadSentences.SingleResolvedFraming))}");
 
             // ---- REACH-NOT-ELEMENT: empty block scaffolding is not a declaration of cells ----
             var wsBase = ReadCt(wrld, plugin: baseKey.FileName.String);
@@ -342,10 +370,57 @@ public static class OwnedChildContentProbe
                 FieldLine(aDeep, "Temporary"));
             var batch = ReadTools.BatchRecordDetail(svc, new[] { cellA.ToString(), cellB.ToString() });
             Check("RESPONSE-ONCE (batch): two annotated records, still ONE clause",
-                Occurrences(batch, ReadSentences.NotReadClause) == 1, $"clause={Occurrences(batch, ReadSentences.NotReadClause)}");
+                Occurrences(batch, ClauseHead(ReadSentences.NotReadFraming)) == 1,
+                $"clause={Occurrences(batch, ClauseHead(ReadSentences.NotReadFraming))}");
             var cleanBatch = ReadTools.BatchRecordDetail(svc, new[] { weapon.ToString() });
             Check("RESPONSE-ONCE: a response with nothing annotated carries NO clause",
-                Occurrences(cleanBatch, ReadSentences.NotReadClause) == 0, Trim(cleanBatch));
+                Occurrences(cleanBatch, ClauseHead(ReadSentences.NotReadFraming)) == 0, Trim(cleanBatch));
+
+            // ---- EMISSION (text): the clause is earned by a field LINE, not by the decision to annotate ----
+            // A cap that stops the field loop before the annotated field leaves a clause describing something the
+            // caller cannot see. Both directions, on the same record, moved only by max_chars.
+            var tightText = ReadTools.ReadRecord(svc, cellA.ToString(), null, null, 1, false, false, null, max_chars: 300);
+            Check("EMISSION (text): a cap that truncates the annotated field away states NO clause over it",
+                tightText.Contains("truncated: showing", StringComparison.Ordinal)
+                && !tightText.Contains(ReadSentences.NotRead, StringComparison.Ordinal)
+                && ClauseLine(tightText, ReadSentences.NotReadFraming) is null, Trim(tightText));
+            Check("EMISSION (text): …and the SAME read with room for the field states it, over that field",
+                aWinner.Contains(ReadSentences.NotRead, StringComparison.Ordinal)
+                && ClauseLine(aWinner, ReadSentences.NotReadFraming) is not null, Trim(aWinner));
+
+            // ---- RESERVE: the clauses come OUT of max_chars, not on top of it (finding 6) ----
+            // Measured on the SINGLE read, because the bulk lanes auto-spill when they truncate and that manifest
+            // block is appended outside any cap — a total-length claim there would be measuring the spill. Here the
+            // ceiling is tight: every cut is checked before a line is appended, so the response can exceed
+            // max_chars by its own longest line and by nothing else. fields= puts the annotated fields FIRST so
+            // they survive the cut (otherwise the emission gate correctly states nothing and there is no clause to
+            // budget for), with filler behind them to make the body outgrow the cap either way.
+            var padded = new[] { "Temporary", "Persistent", "Landscape", "NavigationMeshes" }
+                .Concat(Enumerable.Repeat(new[] { "Name", "Flags", "Grid", "Lighting", "OcclusionData", "MaxHeightData",
+                                                  "LightingTemplate", "WaterHeight", "Regions", "Location", "Water",
+                                                  "Owner", "FactionRank", "LockList" }, 4).SelectMany(x => x)).ToArray();
+            var cappedCheap = ReadTools.ReadRecord(svc, cellA.ToString(), null, padded, 1, false, false, null, 1400);
+            int longestLine = cappedCheap.Split('\n').Max(l => l.Length + 1);
+            Check("RESERVE: an annotated response answers INSIDE its max_chars — the clause is reserved, not appended",
+                cappedCheap.Contains("truncated: showing", StringComparison.Ordinal)
+                && ClauseLine(cappedCheap, ReadSentences.NotReadFraming) is not null
+                && cappedCheap.Length <= 1400 + longestLine,
+                $"len={cappedCheap.Length} cap=1400 longest-line={longestLine}");
+            Check("RESERVE: the cut still quotes the caller's OWN max_chars, not the reduced budget",
+                cappedCheap.Contains("max_chars=1400", StringComparison.Ordinal)
+                && !cappedCheap.Contains("max_chars=" + (1400 - ReadSentences.ClauseReserve(true, false, false)), StringComparison.Ordinal),
+                Trim(cappedCheap));
+            // The conflict_tree lane is Aaron's own repro. Its diff block cuts per NODE rather than per line, so its
+            // pre-existing slack is wider than one line and a total-length claim there would be measuring the diff,
+            // not this fix. What IS this fix on that lane: what the clauses actually cost fits what was held back.
+            var cappedTree = ReadTools.BatchRecordDetail(svc, new[] { cellA.ToString(), cellB.ToString() },
+                                                         conflict_tree: true, max_chars: 2000);
+            int clauseChars = new[] { ReadSentences.MergeCollectionFraming, ReadSentences.SingleResolvedFraming }
+                .Select(f => ClauseLine(cappedTree, f))
+                .Where(l => l is not null).Sum(l => l!.Length + 2);   // each clause is written as "\n" + clause + "\n"
+            Check("RESERVE: on the conflict_tree lane the stated clauses fit inside the chars reserved for them",
+                clauseChars > 0 && clauseChars <= ReadSentences.ClauseReserve(false, true, true),
+                $"clauses={clauseChars} reserve={ReadSentences.ClauseReserve(false, true, true)}");
 
             var aJson = Read(cellA, format: "json");
             string? jsonDisplay = null, jsonNote = null;
@@ -359,8 +434,23 @@ public static class OwnedChildContentProbe
                     }
                 Check("JSON: the clause is a response-level member, from the same source as text",
                     doc.RootElement.TryGetProperty("owned_child_note", out var ocn)
-                    && ocn.GetString() == ReadSentences.NotReadClause, "owned_child_note missing or drifted");
+                    && ocn.GetString() is { } s
+                    && s.StartsWith(ClauseHead(ReadSentences.NotReadFraming), StringComparison.Ordinal)
+                    && NamedFields(s, ReadSentences.NotReadFraming).Contains("Temporary"),
+                    "owned_child_note missing or drifted");
             }
+            // The single-read json object writes the clause AFTER the array it describes, and only over what that
+            // array carried — it used to be the object's SECOND key, ahead of `fields` (Aaron's finding 3).
+            Check("JSON: the clause is written after the fields array it is about, never ahead of it",
+                aJson.IndexOf("\"owned_child_note\"", StringComparison.Ordinal)
+                    > aJson.IndexOf("\"fields\"", StringComparison.Ordinal),
+                $"note-at={aJson.IndexOf("\"owned_child_note\"", StringComparison.Ordinal)} fields-at={aJson.IndexOf("\"fields\"", StringComparison.Ordinal)}");
+            var aJsonTight = ReadTools.ReadRecord(svc, cellA.ToString(), null, null, 1, false, false, "json", 300);
+            using (var doc = JsonDocument.Parse(aJsonTight))
+                Check("EMISSION (json single): a fields array truncated before the annotated field states NO clause",
+                    doc.RootElement.GetProperty("fields").EnumerateArray()
+                       .Any(f => f.TryGetProperty("note", out var n) && n.GetString()!.StartsWith("[truncated at max_chars", StringComparison.Ordinal))
+                    && !doc.RootElement.TryGetProperty("owned_child_note", out _), Trim(aJsonTight));
             Check("JSON: the per-field half rides `display`",
                 jsonDisplay is not null && jsonDisplay.Contains(ReadSentences.NotRead, StringComparison.Ordinal),
                 jsonDisplay ?? "(no display)");
@@ -379,10 +469,20 @@ public static class OwnedChildContentProbe
             var fileDecoded = JsonStrings(File.ReadAllLines(artifact)[0]);
             Check("ARTIFACT: the annotation reaches the FILE's rows, and its clause reaches the manifest",
                 fileText.Contains(ReadSentences.NotRead, StringComparison.Ordinal)
-                && fileDecoded.Contains(ReadSentences.NotReadClause, StringComparison.Ordinal),
-                $"note={fileText.Contains(ReadSentences.NotRead, StringComparison.Ordinal)} clause-in-manifest={fileDecoded.Contains(ReadSentences.NotReadClause, StringComparison.Ordinal)}");
+                && fileDecoded.Contains(ClauseHead(ReadSentences.NotReadFraming), StringComparison.Ordinal),
+                $"note={fileText.Contains(ReadSentences.NotRead, StringComparison.Ordinal)} "
+                + $"clause-in-manifest={fileDecoded.Contains(ClauseHead(ReadSentences.NotReadFraming), StringComparison.Ordinal)}");
+            // The manifest is line 1 and the rows are lines 2..N, so a clause that pointed "above" pointed away from
+            // its own subject for the one reader it was written for — an artifact re-opened with no conversation
+            // attached (Aaron's finding 2). It names the fields instead, which is true from line 1.
+            Check("ARTIFACT: the manifest clause names the annotated fields and claims no position",
+                ClauseLine(fileDecoded, ReadSentences.NotReadFraming) is { } ml
+                && NamedFields(ml, ReadSentences.NotReadFraming).Contains("Temporary")
+                && !ml.Contains("above", StringComparison.OrdinalIgnoreCase)
+                && !ml.Contains("below", StringComparison.OrdinalIgnoreCase),
+                ClauseLine(fileDecoded, ReadSentences.NotReadFraming) ?? "(no manifest clause)");
             Check("ARTIFACT: the manifest-only response does NOT state a clause over rows it did not render",
-                !inline.Contains(ReadSentences.NotReadClause, StringComparison.Ordinal), Trim(inline));
+                ClauseLine(inline, ReadSentences.NotReadFraming) is null, Trim(inline));
 
             // ---- THE PRECISE TIER INHERITS THE TREE RENDER'S SKIPS ----
             // A tree fetch is one whole-overlay enumeration per touching plugin. The annotation must never buy
@@ -569,6 +669,31 @@ public static class OwnedChildContentProbe
         using var doc = JsonDocument.Parse(json);
         Walk(doc.RootElement);
         return sb.ToString();
+    }
+
+    /// <summary>A response-level clause's field-INDEPENDENT head, up to the "{0}" its derived field list fills.
+    /// "Is this clause stated, and how often" is a question about the clause; WHICH fields it names is a separate
+    /// question with its own arms, so counting on the head keeps the two from masking each other.</summary>
+    static string ClauseHead(string framing) => framing[..framing.IndexOf("{0}", StringComparison.Ordinal)];
+
+    /// <summary>The rendered clause line for one framing, or null when the response does not state it.</summary>
+    static string? ClauseLine(string render, string framing)
+    {
+        var head = ClauseHead(framing);
+        foreach (var line in render.Split('\n'))
+            if (line.StartsWith(head, StringComparison.Ordinal)) return line;
+        return null;
+    }
+
+    /// <summary>The field names a rendered clause actually derived — the "({0})" list, parsed back out.</summary>
+    static IReadOnlyList<string> NamedFields(string clauseLine, string framing)
+    {
+        var rest = clauseLine[ClauseHead(framing).Length..];
+        int close = rest.IndexOf(')');
+        return close < 0
+            ? Array.Empty<string>()
+            : rest[..close].Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                           .Where(s => s != "…").ToList();
     }
 
     static int Occurrences(string haystack, string needle)
