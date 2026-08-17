@@ -782,7 +782,17 @@ static class Wire
         if (o.Epoch is not null) sb.Append("epoch=").Append(o.Epoch).Append('\n');   // §2.1.1: the build this read answered from
         AppendRecord(sb, o, Cap(maxChars));
         if (conflictTree) AppendConflictTree(sb, svc, o, fields, Cap(maxChars));
+        AppendOwnedChildNote(sb, o.OwnedChildNoted);
         return sb.ToString().TrimEnd('\n');
+    }
+
+    /// <summary>The #342 invariant clause, stated ONCE per response when any rendered record carries a per-field
+    /// declarer annotation — never per field, which cost ~275 identical chars on every annotated row and pushed
+    /// real rows out of a bulk response's budget. Emitted AFTER the body so it reads as a footnote to the fields
+    /// it explains, and gated on the outcome's structural flag rather than on the rendered text.</summary>
+    static void AppendOwnedChildNote(StringBuilder sb, bool noted)
+    {
+        if (noted) sb.Append('\n').Append(ReadSentences.OwnedChildMerge).Append('\n');
     }
 
     // ---- housecarl_batch_record_detail --------------------------------------------------------------
@@ -817,6 +827,7 @@ static class Wire
             else { AppendRecord(sb, o, cap); if (conflictTree) AppendConflictTree(sb, svc, o, fields, cap); }
             rendered++;
         }
+        AppendOwnedChildNote(sb, outcomes.Any(o => o.OwnedChildNoted));
         if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
         return sb.ToString().TrimEnd('\n');
     }
@@ -876,6 +887,7 @@ static class Wire
         if (anyScoped) sb.Append("note: ").Append(JsonWire.ScopedFieldsNote(winnerFields, q.WhereWinner)).Append('\n');
 
         int rendered = 0;
+        bool childNoted = false;   // #342: any detail row annotated → the invariant clause once, at the end
         for (int i = 0; i < q.Keys.Count && !(spill?.ManifestOnly ?? false); i++)   // to_file: only the manifest renders — the rows are the FILE
         {
             if (sb.Length >= cap)
@@ -899,6 +911,7 @@ static class Wire
                 if (matches is not null) sb.Append("  ").Append(fk).Append("  matches=").Append(matches).Append('\n');
                 if (o.Error is not null) sb.Append(fk).Append(": error: ").Append(o.Error).Append('\n');
                 else { AppendRecord(sb, o, cap); if (conflictTree) AppendConflictTree(sb, svc, o, fields, cap); }   // o carries the scan's pin
+                childNoted |= o.OwnedChildNoted;
             }
             else
             {
@@ -915,6 +928,7 @@ static class Wire
             }
             rendered++;
         }
+        AppendOwnedChildNote(sb, childNoted);
         if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
         return sb.ToString().TrimEnd('\n');
     }
