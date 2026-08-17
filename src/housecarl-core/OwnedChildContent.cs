@@ -25,7 +25,9 @@ namespace HousecarlCore;
 /// <para>The read engine hands this a getter — an overlay body, not the settable class the write walk reflects
 /// over — so <see cref="FieldNames"/> maps getter → concrete through the engine's own
 /// <see cref="WriteEngine.PrimaryGetter"/> / <see cref="WriteEngine.ConcreteOf"/> pair rather than a second
-/// name mapping of its own.</para>
+/// name mapping of its own. That hop is load-bearing and its cost is measured, not assumed: asking the overlay
+/// type directly answers correctly for the LIST children and silently drops the SINGULAR ones (see the comment
+/// on the walk), which the guard's Landscape arm holds.</para>
 /// </summary>
 public static class OwnedChildContent
 {
@@ -36,10 +38,13 @@ public static class OwnedChildContent
     public static IReadOnlyList<string> FieldNames(IMajorRecordGetter body) =>
         _byType.GetOrAdd(body.GetType(), static t =>
         {
-            // A binary-overlay getter's properties are all read-only, and ChildBearingProperties requires a
-            // SETTABLE property (it exists to lift children off a record and put them back). Asking it about the
-            // overlay type directly would answer "nothing owns children" for every record in the load order — so
-            // the getter is mapped to the concrete settable class first, through the engine's own mapper.
+            // ChildBearingProperties requires a SETTABLE property (it exists to lift children off a record and put
+            // them back), and an overlay body is not the type it was written against. Measured on Mutagen 0.53.1:
+            // CellBinaryOverlay answers [NavigationMeshes, Persistent, Temporary] but NOT Landscape — the overlay
+            // exposes the LIST children settably and the SINGULAR one read-only. So asking the runtime type
+            // directly loses exactly the singular owned children (Cell.Landscape, Worldspace.TopCell — #335's
+            // shape) while looking correct on the common ones, which is the worst way for it to be wrong. The
+            // getter is mapped to the concrete settable class first, through the engine's own mapper.
             var getter = WriteEngine.PrimaryGetter(t);
             var concrete = getter is null ? null : WriteEngine.ConcreteOf(getter);
             return concrete is null
