@@ -31,10 +31,12 @@ namespace HousecarlGenerator;
 ///                  disambiguator (Q3 — never guess). Then into=&lt;a folder name&gt; picks one unambiguously.
 ///   MULTI-PLUGIN — into=&lt;a folder holding 2+ plugins&gt; (no &lt;stem&gt;.esp to single out) refuses, naming each plugin.
 ///   NOT-FOUND    — into= a name nothing holds/answers to → refuse, naming both places searched + "create it fresh".
-///   REMEDY       — that refusal's fresh-write escape NAMES patch=&lt;the guessed name&gt; on the RECORD lane (#343: the
-///                  bare "omit into=" it used to offer is the call that yields a generically-named Patch.esp), the
-///                  named call is then MADE to prove the sentence true, and the RIDER lane's copy still does NOT
-///                  name patch= (on bsa_repack that spelling binds to archive_name — the .bsa, not the patch).
+///   REMEDY       — that refusal's fresh-write escape NAMES patch=&lt;the guessed name&gt; for the callers whose patch=
+///                  really does name a fresh patch (#343: the bare "omit into=" it used to offer is the call that
+///                  yields a generically-named Patch.esp), and the named call is then MADE to prove the sentence
+///                  true rather than read. The two arms that keep it honest are negative: the RIDER lane does NOT
+///                  get it (on bsa_repack patch= binds to archive_name — the .bsa), and neither does the REMOVAL
+///                  lane, which shares the record branch but whose patch= names an EXISTING patch.
 ///   FOREIGN      — a "houseCARL - X" folder with NO marker is still REFUSED (originals untouched, Q3) and left byte-intact.
 ///   ORIGINALS    — the master plugin is byte-untouched throughout (extends only ever wrote the patch folder).
 /// </summary>
@@ -238,11 +240,11 @@ internal static class ExtendResolveProbe
             }
 
             // ---- 8c: the RIDER lane keeps the older tail — it must NOT name patch= ----
-            //      Measured, not assumed: patch= is the new patch's name on every RECORD-lane tool, but on
+            //      Measured, not assumed: patch= is the new patch's name on the record-lane write tools, but on
             //      housecarl_bsa_repack — a rider — it binds to archive_name (the .bsa), because that tool declares
             //      both spellings and §5.3 routes patch= to the artifact. Telling a rider caller to pass patch=
-            //      would rename their archive and leave the mod folder defaulted, so the record lane's sentence
-            //      stops at the record lane. This arm is what makes that a decision rather than an oversight.
+            //      would rename their archive and leave the mod folder defaulted, so the naming sentence does not
+            //      reach this lane. This arm is what makes that a decision rather than an oversight.
             Console.WriteLine();
             Console.WriteLine("--- 8c: the rider lane's refusal does not name patch= ---");
             {
@@ -254,6 +256,23 @@ internal static class ExtendResolveProbe
                       "the rider lane still refuses, naming the .esp searched + 'create it fresh'");
                 Check(!riderErr.Contains("patch=", StringComparison.Ordinal),
                       "…and does NOT name patch= (on bsa_repack it names the .bsa, not the patch)");
+            }
+
+            // ---- 8d: the REMOVAL lane must not get the naming sentence either ----
+            //      Removal reaches the same refusal through ResolveOutputPath — the SAME branch arm 8 covers — so the
+            //      lane bit does not separate them; only the caller's own patchNamesFresh does. For housecarl_remove
+            //      the naming sentence would be actively wrong twice over: patch= there names an EXISTING patch (it
+            //      IS the into= slot), so "pass patch=<the name you just passed>" re-issues the failing call, and
+            //      removal cannot create a patch at all, so the cost clause would be false as well. Withholding it is
+            //      the fix for a defect this branch briefly shipped; this arm is what stops it coming back.
+            Console.WriteLine();
+            Console.WriteLine("--- 8d: the removal lane's refusal does not name patch= ---");
+            {
+                var r = svc.RemoveRecords(new[] { fid }, "GhostRemove");
+                Check(!r.Success && r.Error is not null && r.Error.Contains("GhostRemove.esp", StringComparison.Ordinal),
+                      "housecarl_remove into a patch that does not exist still refuses, naming the .esp searched");
+                Check(r.Error is not null && !r.Error.Contains("patch=", StringComparison.Ordinal),
+                      "…and does NOT name patch= (there it names an EXISTING patch — the remedy would loop)");
             }
 
             // ---- 9: FOREIGN — an un-owned "houseCARL - X" folder stays REFUSED + byte-untouched (Q3) ----
