@@ -31,6 +31,10 @@ namespace HousecarlGenerator;
 ///                  disambiguator (Q3 — never guess). Then into=&lt;a folder name&gt; picks one unambiguously.
 ///   MULTI-PLUGIN — into=&lt;a folder holding 2+ plugins&gt; (no &lt;stem&gt;.esp to single out) refuses, naming each plugin.
 ///   NOT-FOUND    — into= a name nothing holds/answers to → refuse, naming both places searched + "create it fresh".
+///   REMEDY       — that refusal's fresh-write escape NAMES patch=&lt;the guessed name&gt; on the RECORD lane (#343: the
+///                  bare "omit into=" it used to offer is the call that yields a generically-named Patch.esp), the
+///                  named call is then MADE to prove the sentence true, and the RIDER lane's copy still does NOT
+///                  name patch= (on bsa_repack that spelling binds to archive_name — the .bsa, not the patch).
 ///   FOREIGN      — a "houseCARL - X" folder with NO marker is still REFUSED (originals untouched, Q3) and left byte-intact.
 ///   ORIGINALS    — the master plugin is byte-untouched throughout (extends only ever wrote the patch folder).
 /// </summary>
@@ -210,6 +214,46 @@ internal static class ExtendResolveProbe
                     && r.Error.Contains("houseCARL - GhostPatch", StringComparison.Ordinal)
                     && r.Error.Contains("create it fresh", StringComparison.OrdinalIgnoreCase);
                 Check(!r.Success && named, "into=\"GhostPatch\" refuses, naming the .esp + the folder searched + 'create it fresh'");
+
+                // #343: the fresh-write escape must NAME the parameter that gives the new patch a name, with the
+                // caller's own guessed name already in it — the bare "omit into=" it used to offer is precisely the
+                // call that produces a generically-named Patch.esp. Both halves of the sentence are asserted because
+                // both were measured before it was written: patch="GhostPatch" writes GhostPatch.esp (arm 8b below
+                // re-proves it end to end), and omitting both lanes writes Patch.esp.
+                bool remedy = r.Error is not null
+                    && r.Error.Contains("pass patch=\"GhostPatch\"", StringComparison.Ordinal)
+                    && r.Error.Contains("houseCARL names it \"Patch\"", StringComparison.Ordinal);
+                Check(remedy, "…and the remedy names patch=\"GhostPatch\" + what omitting it costs (#343)");
+            }
+
+            // ---- 8b: the remedy is TRUE — following it produces the patch the caller asked for ----
+            //      A remedy is a claim about what a call does, so it is checked by making the call, not by reading
+            //      the sentence (#343 is itself the class where a plausible remedy sent callers the wrong way).
+            Console.WriteLine();
+            Console.WriteLine("--- 8b: following the remedy produces GhostPatch.esp, not Patch.esp ---");
+            {
+                var r = svc.ApplyEdits(new[] { Wgt(2) }, "GhostPatch", null);
+                Check(r.Success && Ends(r.OutputPath, "houseCARL - GhostPatch", "GhostPatch.esp"),
+                      $"patch=\"GhostPatch\" writes the patch under that name ({Path.GetFileName(r.OutputPath)})");
+            }
+
+            // ---- 8c: the RIDER lane keeps the older tail — it must NOT name patch= ----
+            //      Measured, not assumed: patch= is the new patch's name on every RECORD-lane tool, but on
+            //      housecarl_bsa_repack — a rider — it binds to archive_name (the .bsa), because that tool declares
+            //      both spellings and §5.3 routes patch= to the artifact. Telling a rider caller to pass patch=
+            //      would rename their archive and leave the mod folder defaulted, so the record lane's sentence
+            //      stops at the record lane. This arm is what makes that a decision rather than an oversight.
+            Console.WriteLine();
+            Console.WriteLine("--- 8c: the rider lane's refusal does not name patch= ---");
+            {
+                string riderErr = "";
+                try { svc.ResolvePatchModFolder(null, "GhostRider", "houseCARL_Archive"); }
+                catch (InvalidOperationException ex) { riderErr = ex.Message; }
+                Check(riderErr.Contains("GhostRider.esp", StringComparison.Ordinal)
+                      && riderErr.Contains("create it fresh", StringComparison.OrdinalIgnoreCase),
+                      "the rider lane still refuses, naming the .esp searched + 'create it fresh'");
+                Check(!riderErr.Contains("patch=", StringComparison.Ordinal),
+                      "…and does NOT name patch= (on bsa_repack it names the .bsa, not the patch)");
             }
 
             // ---- 9: FOREIGN — an un-owned "houseCARL - X" folder stays REFUSED + byte-untouched (Q3) ----
