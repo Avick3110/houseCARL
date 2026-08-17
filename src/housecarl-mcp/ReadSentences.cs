@@ -40,14 +40,23 @@ internal static class ReadSentences
     [MustState("were not read")]
     internal const string NotRead = "other plugin(s) touch this record; their declarations for this field were not read";
 
-    /// <summary>The response-level half of the cheap tier, naming the lane that answers precisely. The remedy is
-    /// named only because it was RUN: <c>conflict_tree=true</c> fetches every touching body and states which
-    /// plugins declare content for these fields, measured on the same order the cost figures came from.</summary>
-    [MustState("declared per plugin", "conflict_tree=true")]
+    /// <summary>The response-level half of the cheap tier, naming the lane that answers precisely.
+    ///
+    /// <para><b>The remedy names the tool AND the format, because a bare parameter name is not runnable from most
+    /// of the surfaces that receive this sentence.</b> The clause ships from every lane that renders record fields.
+    /// <c>housecarl_records</c> has no <c>conflict_tree</c> parameter at all (and its
+    /// <c>project={"form":"tree"}</c> carries no declarer names either); <c>format=json</c> and <c>format=dense</c>
+    /// refuse <c>conflict_tree=true</c> as a text-only diff view; so does <c>to_file=</c>, which means every
+    /// artifact manifest carries this clause to a caller who cannot use a bare "pass conflict_tree=true" without a
+    /// refusal. Naming the two tools and the text mode is what makes the sentence executable from where it is
+    /// actually read — the remedy-never-run mistake is naming a spelling the recipient's surface rejects.</para></summary>
+    [MustState("declared per plugin", "conflict_tree=true", "housecarl_read_record", "text mode")]
     internal const string NotReadClause =
         "note: an annotated field above holds CHILD RECORDS, which are declared per plugin — so what one plugin's " +
         "body carries is not the whole story for that field. This read did not open the other plugins' bodies to " +
-        "see what they declare; pass conflict_tree=true for a read that does, and names them.";
+        "see what they declare. To get a read that does, and names them: housecarl_read_record or " +
+        "housecarl_batch_record_detail in text mode (the default) with conflict_tree=true — it is a text-only view, " +
+        "so json, dense and to_file reads refuse it.";
 
     /// <summary>The cheap tier's per-field line: the count the index knows, and the honest limit.</summary>
     internal static string NotReadNote(int others) => $"{others} {NotRead}";

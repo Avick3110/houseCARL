@@ -30,7 +30,7 @@ namespace HousecarlGenerator;
 ///                  and a Landscape. Each is annotated, naming the declarer. The pre-fix hazard is asserted first
 ///                  — a fixture that stopped exhibiting it would make every arm below vacuous.
 ///   SINGULAR     — Cell.Landscape is a SINGULAR owned child, not a list.
-///   NOT-A-CELL   — DialogTopic.Responses, because the field set is <see cref="OwnedChildContent.FieldNames"/>
+///   NOT-A-CELL   — DialogTopic.Responses, because the field set is <see cref="OwnedChildContent.Fields"/>
 ///                  over the write surface's pinned authority, never a hand list of cell fields.
 ///   SOLE / SELF  — one declarer: no annotation, and the read body is never named among the "others".
 ///   UNREQUESTED  — fields=[EditorID]: no annotation (the walk is gated on the read's own field lines).
@@ -383,6 +383,38 @@ public static class OwnedChildContentProbe
                 $"note={fileText.Contains(ReadSentences.NotRead, StringComparison.Ordinal)} clause-in-manifest={fileDecoded.Contains(ReadSentences.NotReadClause, StringComparison.Ordinal)}");
             Check("ARTIFACT: the manifest-only response does NOT state a clause over rows it did not render",
                 !inline.Contains(ReadSentences.NotReadClause, StringComparison.Ordinal), Trim(inline));
+
+            // ---- THE PRECISE TIER INHERITS THE TREE RENDER'S SKIPS ----
+            // A tree fetch is one whole-overlay enumeration per touching plugin. The annotation must never buy
+            // those bodies where the diff itself would not: on a record nothing else touches (nothing to diff), or
+            // on a response already over budget (the diff is skipped and the bodies thrown away).
+            var soleCt = ReadCt(cellC);
+            Check("SKIP: conflict_tree on a SOLE-toucher record does not fetch a tree — nothing to diff, nothing to name",
+                !soleCt.Contains("diff (field deltas", StringComparison.Ordinal)
+                && FieldLine(soleCt, "Temporary") is { } sk1
+                && !sk1.Contains(ReadSentences.DeclaredBy, StringComparison.Ordinal)
+                && !sk1.Contains(ReadSentences.NotRead, StringComparison.Ordinal), FieldLine(soleCt, "Temporary"));
+            // The over-budget half of that skip is NOT pinned, and the code says why: the prefetch runs before the
+            // record's own fields are rendered, so it cannot foresee a cap hit during them. What IS pinned is that
+            // a bulk lane whose buffer is already full renders no further rows at all, so those rows pay nothing.
+            var capped = ReadTools.BatchRecordDetail(svc, new[] { cellA.ToString(), cellB.ToString() },
+                                                     conflict_tree: true, max_chars: 400);
+            Check("SKIP: a bulk response past its budget stops rendering rows, so the rows past it buy no bodies",
+                capped.Contains("truncated: rendered", StringComparison.Ordinal), Trim(capped));
+
+            // ---- JSON gates the clause on rows RENDERED, exactly as the text lane does ----
+            var jsonTrunc = ReadTools.BatchRecordDetail(svc, new[] { weapon.ToString(), cellA.ToString() },
+                                                        format: "json", max_chars: 400);
+            using (var doc = JsonDocument.Parse(jsonTrunc))
+                Check("JSON: a batch truncated before its only annotated row states NO clause",
+                    doc.RootElement.GetProperty("truncated").GetBoolean()
+                    && !doc.RootElement.TryGetProperty("owned_child_note", out _),
+                    $"rendered={doc.RootElement.GetProperty("rendered").GetInt32()} clause={doc.RootElement.TryGetProperty("owned_child_note", out _)}");
+            var jsonSpill = ReadTools.BatchRecordDetail(svc, new[] { cellA.ToString() }, format: "json",
+                                                        to_file: Path.Combine(root, "spill.jsonl"));
+            using (var doc = JsonDocument.Parse(jsonSpill))
+                Check("JSON: a manifest-only response states NO clause over rows it did not render",
+                    !doc.RootElement.TryGetProperty("owned_child_note", out _), Trim(jsonSpill));
 
             // ---- UNREADABLE: a toucher whose body cannot be read is NAMED, not dropped ----
             CheckUnreadable(root, mods, baseDir, baseKey, topKey, cellA);

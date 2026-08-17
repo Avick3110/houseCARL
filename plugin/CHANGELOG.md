@@ -15,9 +15,10 @@ when it changes.
   exterior cell read 0 references at its winner while the game loads the 201 that `Skyrim.esm` declares.
 
   `housecarl_read_record`, `housecarl_batch_record_detail` and `housecarl_cross_plugin_query` now say so, in two
-  tiers. **Every read** of a field that owns child records notes how many other plugins touch that record and that
-  this read did not open them — free, because it comes from the load-order index rather than from opening
-  anything. **`conflict_tree=true`**, which already fetches every touching plugin's body, additionally **names
+  tiers. **A load-order read** of a field that owns child records notes how many other plugins touch that record
+  and that this read did not open them — free, because it comes from the load-order index rather than from opening
+  anything. (Two lanes deliberately stay silent, because a load-order statement would be wrong there: a read
+  scoped to a file outside the load order, and the SkyPatcher overlay pole.) **`conflict_tree=true`**, which already fetches every touching plugin's body, additionally **names
   which of them declare content** for each field, at no extra cost. The split is deliberate: naming the plugins
   requires reading their bodies, and doing that on every read took a single Dawnstar cell read from 27 ms to
   588 ms, a worldspace read to 2.5 seconds, and a whole-order cell catalogue past ten minutes.
