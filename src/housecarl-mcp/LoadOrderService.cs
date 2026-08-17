@@ -7843,11 +7843,23 @@ public sealed class LoadOrderService : IDisposable
                     $"cannot extend: mod folder '{cand}' exists but was NOT created by houseCARL (no marker) — " +
                     "refusing to write into a folder houseCARL doesn't own (originals untouched, Q3). Use a different patch name.");
         }
+        // The fresh-write remedy differs BY LANE, and only because it was measured to (#343). "Omit into= to create
+        // it fresh" was the whole remedy, and it is exactly the call that yields a generically-named Patch.esp —
+        // while patch=, the way to name a new patch, appeared in nothing a caller reads. On the RECORD lane every
+        // tool spells that name patch= (§5.3; on the not-yet-renamed ones patch= binds to their declared
+        // patch_name=), so the remedy hands back the working call with the caller's own guessed name in it. The
+        // RIDER lane (needEsp:false — place_asset / compile / decompile / bsa_repack / nif_set / copy_npc_appearance)
+        // keeps the older, weaker, still-true tail: on housecarl_bsa_repack patch= binds to archive_name — the .bsa,
+        // not the mod folder, because that tool declares both spellings — so naming patch= there would rename the
+        // caller's archive and leave the folder defaulted. A sentence true on one lane is not shipped to the other.
         throw new InvalidOperationException(
             $"cannot extend: no houseCARL plugin '{espName}' in any houseCARL folder, and no houseCARL folder named " +
             $"'{ModFolderName(stem)}'" +
             (string.Equals(bareName, ModFolderName(stem), StringComparison.OrdinalIgnoreCase) ? "" : $" or '{bareName}'") +
-            ". Omit into= to create it fresh, or check the name.");
+            ". " + (needEsp
+                ? $"Omit into= and pass patch=\"{stem}\" to create it fresh under that name "
+                  + "(omit both and houseCARL names it \"Patch\"), or check the name."
+                : "Omit into= to create it fresh, or check the name."));
     }
 
     /// <summary>houseCARL-OWNED mod folders under ModsDir holding a plugin file named <paramref name="espFileName"/> at
