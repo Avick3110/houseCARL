@@ -377,20 +377,23 @@ static class JsonWire
             // (a malformed-FormID row never consulted a view and carries none).
             WriteNullable(w, "epoch", outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch);
             w.WriteStartArray("records");
-            int rendered = 0; bool rowsTruncated = false;
+            int rendered = 0; bool rowsTruncated = false; bool childNoted = false;   // #342: over rows RENDERED
             foreach (var o in outcomes)
             {
                 if (manifestOnly) break;   // to_file: the rows are the FILE
                 w.Flush();
                 if (ms.Length >= cap) { rowsTruncated = true; break; }
                 if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", o.FormKey.ToString()); w.WriteString("error", o.Error); w.WriteEndObject(); }
-                else WriteReadRecord(w, o, ms, cap);
+                else { WriteReadRecord(w, o, ms, cap); childNoted |= o.OwnedChildNoted; }
                 rendered++;
             }
             w.WriteEndArray();
             w.WriteNumber("rendered", rendered);
             w.WriteBoolean("truncated", rowsTruncated);
-            WriteOwnedChildNote(w, outcomes.Any(o => o.OwnedChildNoted));
+            // Over the rows this document actually carries — never the input list. A manifest-only (to_file) or
+            // truncated response renders no annotated field, and a clause pointing at "an annotated field above"
+            // with nothing above it is the text lane's own guarded mistake, one transport over.
+            WriteOwnedChildNote(w, childNoted);
             truncated = rowsTruncated;
             if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
             w.WriteEndObject();
@@ -451,7 +454,7 @@ static class JsonWire
             w.WriteNumber("count", outcomes.Count);
             WriteNullable(w, "epoch", outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch);
             w.WriteStartArray("records");
-            int rendered = 0; bool rowsTruncated = false;
+            int rendered = 0; bool rowsTruncated = false;   // summary rows carry no fields, so no #342 annotation
             foreach (var o in outcomes)
             {
                 if (manifestOnly) break;

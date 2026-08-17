@@ -248,6 +248,14 @@ public static class ResultArtifact
                 typeCounts = new(StringComparer.Ordinal);
                 foreach (var p in tc.EnumerateObject()) typeCounts[p.Name] = p.Value.GetInt32();
             }
+            // Parsed back for the same reason it is written: a note explains what the ROWS mean. A parse that
+            // dropped it would let a round-trip quietly strip the sentence the rows depend on.
+            List<string>? notes = null;
+            if (r.TryGetProperty("notes", out var nt) && nt.ValueKind == JsonValueKind.Array)
+            {
+                notes = new List<string>();
+                foreach (var n in nt.EnumerateArray()) if (n.ValueKind == JsonValueKind.String) notes.Add(n.GetString()!);
+            }
             return (new Manifest(
                         r.TryGetProperty("tool", out var t) ? t.GetString() ?? "?" : "?",
                         query,
@@ -258,7 +266,8 @@ public static class ResultArtifact
                         r.TryGetProperty("total", out var tot) ? tot.GetInt32() : 0,
                         typeCounts,
                         r.TryGetProperty("epoch", out var e) ? e.GetString() ?? "?" : "?",
-                        r.TryGetProperty("created", out var cr) ? cr.GetString() ?? "?" : "?"),
+                        r.TryGetProperty("created", out var cr) ? cr.GetString() ?? "?" : "?",
+                        notes),
                     null);
         }
         catch (Exception ex) when (ex is JsonException or FormatException or InvalidOperationException)

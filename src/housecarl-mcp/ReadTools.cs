@@ -813,7 +813,18 @@ static class Wire
     {
         var outcome = o;
         LoadOrderService.TreeFill? fill = null;
-        if (conflictTree && o.Pin is { } pin && o.Record is { } rec)
+        // A tree fetch is one whole-overlay enumeration per touching plugin, so the prefetch takes the tree render's
+        // own skips with it. SOLE TOUCHER is the one that mattered: measured on a real order, hoisting the fetch
+        // above `tp.Count <= 1` took a conflict_tree read of an uncontested record from ~133 ms to ~273 ms, on a
+        // record type where there is nothing to diff and nothing to name. ALREADY over budget is free to check and
+        // does fire on the bulk lanes, where earlier rows have filled the buffer.
+        //
+        // The limit, stated because it is real: this cannot foresee a cap hit DURING this record's own field
+        // render. A single read with a cap so tight that the fields themselves exhaust it still pays for the tree
+        // and then truncates the diff — base skipped that fetch. Closing it would mean rendering the record twice
+        // or guessing its rendered size, and the annotation has to land BEFORE the fields are written.
+        if (conflictTree && o.Pin is { } pin && o.Record is { } rec
+            && o.TouchingPlugins is { Count: > 1 } && sb.Length < cap)
         {
             fill = svc.ResolveTreeFill(pin, o.FormKey, fields, o.SourcePlugin, rec.Fields.Select(f => f.Path).ToList());
             if (fill is { ByField.Count: > 0 }) outcome = ApplyPreciseChildNotes(o, rec, fill, notes);
