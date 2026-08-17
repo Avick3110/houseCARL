@@ -2321,6 +2321,7 @@ public sealed class LoadOrderService : IDisposable
         }
 
         var record = ReadEngine.ReadFields(rec, fields, depth, containerHint);   // materialise while the session (overlay) is open
+        record = AnnotateOwnedChildContent(record, rec, view, session, fk, source);           // #342: the additive-merge fact, DISPLAY-ONLY (same open session)
         if (resolveNames) record = AnnotateLinks(record, view, session, linkMemo ?? new());   // P7: identity of every FormLink token, DISPLAY-ONLY (same open session)
         var touching = conflictTree ? view.TouchingPlugins(fk) : null;
         return new ReadOutcome(fk, record, source, winner.Value.WinnerPlugin, winner.Value.OverrideDepth, touching, null);
@@ -2347,6 +2348,95 @@ public sealed class LoadOrderService : IDisposable
                 rebuilt ??= new List<FieldValue>(rf.Fields);
                 rebuilt[i] = f with { Link = ResolveRefOne(view, session, fk, memo) };
             }
+        }
+        return rebuilt is null ? rf : rf with { Fields = rebuilt };
+    }
+
+    /// <summary>#342 — annotate a read of a field that OWNS CHILD RECORDS when another plugin touching the record
+    /// declares more of them than the body being read does.
+    ///
+    /// <para><b>The wrong answer this exists to stop.</b> Placed references, a topic's INFOs and a worldspace's cells
+    /// are declared per plugin and assembled by the game from every plugin that declares them. An override that
+    /// touches a cell for an unrelated reason (occlusion, lighting, music) carries no references and deletes none —
+    /// so reading its <c>Persistent</c>/<c>Temporary</c> reports an empty cell that the game fills. Reproduced:
+    /// <c>008EB5:Skyrim.esm</c> reads Temporary 0 at its winner (<c>Occlusion.esp</c>, override depth 42) while
+    /// <c>Skyrim.esm</c>'s own body carries 201. A caller auditing "what is in this cell" through the winner got a
+    /// silent wrong answer, which is the Q3 class.</para>
+    ///
+    /// <para><b>What it does NOT do.</b> It does not union anything. The read that answers "what is actually live in
+    /// this parent" — every child at its own winner, minus the deleted and initially-disabled — is separate design
+    /// work; naive concatenation would multi-count the children that overlapping overrides both declare. This states
+    /// the fact and leaves the value exactly as the body declares it.</para>
+    ///
+    /// <para><b>Cost.</b> Nothing happens on a read whose record type owns no children — every type but Cell,
+    /// DialogTopic and Worldspace — and nothing happens on one whose requested fields miss the owning set. When it
+    /// does run it fetches each other touching body ONCE (not once per field) and reads a count off it, which is
+    /// strictly cheaper than the conflict tree's deep read of the same bodies.</para>
+    ///
+    /// <para><b>Every other toucher, not just the lower ones.</b> The additive assembly is over the whole touching
+    /// set, so a <c>plugin=</c>-scoped read of a base master — the workaround this bug's reporter reached for —
+    /// gets the same annotation when later plugins declare content it cannot see. For the default winner read the
+    /// two readings coincide: the winner is last, so every other toucher is below it.</para>
+    ///
+    /// <para>DISPLAY-ONLY, like the biped-slot decode and the resolve_names link it sits beside: it rides
+    /// <see cref="FieldValue.Display"/>, never the round-trip <see cref="FieldValue.Token"/>, so it is invisible to
+    /// the write surface, the read-proof oracle and the conflict diff — and it reaches the text render, the json
+    /// fields array and the dense cells through that one carrier.</para></summary>
+    static RecordFields AnnotateOwnedChildContent(RecordFields rf, IMajorRecordGetter body,
+                                                  LoadOrderResolver.IndexView view,
+                                                  LoadOrderResolver.OverlaySession session, FormKey fk, string source)
+    {
+        // The pinned field set (write-surface-guard's own sweep, reached from a getter) — empty for all but three
+        // record types, so this is where the overwhelming majority of reads leave, before any index lookup.
+        var owning = OwnedChildContent.FieldNames(body);
+        if (owning.Count == 0) return rf;
+
+        // …and of the lines THIS read produced, which are those fields. A depth>=2 read emits the same summary line
+        // at the bare field path before expanding its children, so the annotation lands in one place either way.
+        List<int>? hits = null;
+        for (int i = 0; i < rf.Fields.Count; i++)
+            if (owning.Contains(rf.Fields[i].Path, StringComparer.Ordinal)) (hits ??= new List<int>()).Add(i);
+        if (hits is null) return rf;
+
+        var touching = view.TouchingPlugins(fk);
+        if (touching is null || touching.Count <= 1) return rf;   // sole declarer: its own list IS the whole set
+
+        var mine = new int?[hits.Count];
+        for (int h = 0; h < hits.Count; h++) mine[h] = OwnedChildContent.DeclaredCount(body, rf.Fields[hits[h]].Path);
+
+        var others = new int[hits.Count];            // how many OTHER touchers declare any content for this field
+        var most = new int[hits.Count];              // …and the largest such declaration, with the plugin that made it
+        var mostPlugin = new string?[hits.Count];
+        foreach (var p in touching)
+        {
+            if (string.Equals(p, source, StringComparison.OrdinalIgnoreCase)) continue;
+            // Same view the touching list came from, so a plugin it names resolves here; a null is the excluded-
+            // plugin shape the view already vets and there is nothing to compare against. The field's own value is
+            // untouched either way — this annotation only ever ADDS a statement.
+            var other = view.GetRecord(session, p, fk);
+            if (other is null) continue;
+            for (int h = 0; h < hits.Count; h++)
+            {
+                if (OwnedChildContent.DeclaredCount(other, rf.Fields[hits[h]].Path) is not { } c || c == 0) continue;
+                others[h]++;
+                if (c > most[h]) { most[h] = c; mostPlugin[h] = p; }
+            }
+        }
+
+        List<FieldValue>? rebuilt = null;
+        for (int h = 0; h < hits.Count; h++)
+        {
+            // Fires only when another body declares MORE than this one does. An unreadable count on THIS body
+            // (null) is not zero — it is "I could not look", and comparing it would manufacture the annotation out
+            // of a failed read rather than out of a real difference.
+            if (mine[h] is not { } m || most[h] <= m || mostPlugin[h] is not { } mp) continue;
+            rebuilt ??= new List<FieldValue>(rf.Fields);
+            rebuilt[hits[h]] = rebuilt[hits[h]] with
+            {
+                // These fields are containers and owned records; the only other producer of Display is the flags
+                // decode, which fires on [Flags] enum leaves alone — so there is no annotation here to displace.
+                Display = ReadSentences.OwnedChildContentNote(rf.Fields[hits[h]].Path, others[h], most[h], mp),
+            };
         }
         return rebuilt is null ? rf : rf with { Fields = rebuilt };
     }

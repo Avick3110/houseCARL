@@ -6,6 +6,25 @@ when it changes.
 
 ## Unreleased
 
+- **Fixed: reading a cell's placed references could report an empty cell the game fills.** Placed references, a
+  topic's INFO lines and a worldspace's cells are declared **per plugin**, and the game assembles a parent's
+  children from every plugin that declares them. So a plugin that overrides a cell for an unrelated reason —
+  occlusion planes, lighting, music — carries no references and deletes none either, yet reading that winner's
+  `Persistent` / `Temporary` showed you its own empty list. Anyone auditing "what is in this cell" through the
+  winner got a plausible, confident, wrong answer: on one order, Dawnstar's exterior cell read 0 references at its
+  winner while the game loads the 201 that `Skyrim.esm` declares. `housecarl_read_record`,
+  `housecarl_batch_record_detail` and `housecarl_cross_plugin_query` now state the fact on the field itself —
+  how many other plugins touching the record declare content for it, the largest such declaration and which plugin
+  made it — whenever another plugin declares more than the body you are reading. It fires on every field that owns
+  child records, taken from the same list the write surface uses to preserve them (a cell's `Persistent`,
+  `Temporary`, `Landscape` and `NavigationMeshes`, a topic's `Responses`, a worldspace's cells), never a hand-kept
+  set of cell fields, and it costs nothing on a read of any other record type. Reading a specific plugin's version
+  is annotated too, because that body is not the whole set either — the plugins **above** it declare children it
+  cannot see. The value itself is untouched: the annotation is added beside it, and a write can still reuse the
+  token verbatim. Note what this is not — houseCARL does not yet have a read that answers "what is actually live in
+  this cell" (every child at its own winner, minus the deleted and disabled ones); that is separate work, and this
+  annotation deliberately promises nothing about it.
+
 - **`housecarl_copy`** — copy a record together with the records it depends on (its link closure) into a patch under new FormIDs, so the result no longer masters the plugin you copied from. The walk starts from the link-bearing fields you name (`seed_paths=`) and is bounded by the record types you exclude (`exclude_types=`), so the tool stays generic and the domain knowledge is yours to supply. `from_source=` is an ordered list of sources tried first-hit-wins — `winner` for the load order's winning version, or a plugin filename, active or sitting in a disabled mod — and the result names which source produced each copied record. Destination is either an existing record (`target=`) or a fresh clone (`new_editorid=`), whose remaining links into the source are stripped and reported by name — including when clearing one takes a whole property with it. When nothing is being copied away from at all — the source and every named source are base-game masters — the result is reported as an appearance transplant rather than a standalone-ization, because an always-loaded master is not being removed from anything. An off-order link the finished patch still carries is refused, and the refusal names which cause: your own `Type:stop`, a field `seed_paths` never named, or a record an earlier call left in the patch you are extending.
 
 - **New skill: `npc-appearance-copy`** — the domain half of `housecarl_copy` for NPC faces, carried as data and flow rather than as tool code: which four link-bearing fields seed the walk, why a Race is excluded rather than walked into, which inline fields (tints, morphs, `TextureLighting`, weight) ride `housecarl_apply`'s copy zip instead, and how the FaceGen mesh + tint are placed under the new FormID from the **named donor** rather than the VFS winner. Also states the two things the split costs: three calls means three refusal surfaces, and a donor sitting in a disabled MO2 mod is a records-only job until its files can be named.
