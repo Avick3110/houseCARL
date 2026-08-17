@@ -7867,17 +7867,20 @@ public sealed class LoadOrderService : IDisposable
         // patch=, meaning the EXISTING patch — where the sentence would tell the caller to re-issue the call that
         // just failed). (2) It creates one but names it something else: copy and copy_npc_appearance default their
         // stem to the new EditorID or houseCARL_NpcCopy, and every RIDER lane defaults to the stem its own call site
-        // passes (houseCARL_Scripts / _Assets / _SEQ / _Archive), never "Patch". (3) The spelling means a different
-        // artifact on that tool: on housecarl_bsa_repack a bare patch= binds to archive_name — the .bsa, not the mod
-        // folder — because it declares both and §5.3 routes patch= to the artifact.
+        // passes, never "Patch" — deliberately not listed here, because a list of them is what keeps going stale;
+        // the call sites are the authority. (3) The spelling means a different artifact on that tool: on
+        // housecarl_bsa_repack a bare patch= binds to archive_name — the .bsa, not the mod folder — because it
+        // declares both and §5.3 routes patch= to the artifact.
         //
         // Hence the default is FALSE and the tail is the weaker, always-true one: a caller added later without a
         // thought about any of this gets a sentence that is merely less helpful, never wrong.
         //
-        // Note what the sentence does NOT do: predict the resulting filename. UniqueStem auto-suffixes a stem whose
-        // .esp is already an active plugin — and that is the correlated case, since a caller guessing into= usually
-        // guessed it off a plugin name in their load order. The qualifier scopes BOTH names the sentence mentions,
-        // the chosen one and the "Patch" default, because the same arm falsifies either.
+        // Note what the sentence does NOT do: predict the resulting filename. UniqueStem takes a stem only when it
+        // is free on BOTH of IsStemFree's tests — no "houseCARL - <stem>" folder already exists, AND no active
+        // plugin is named "<stem>.esp" — and suffixes it otherwise. Either trigger is ordinary: the folder arm is
+        // the repeat caller who passes patch= again instead of into=, the active-plugin arm the caller who guessed
+        // into= off a name in their load order. The qualifier scopes BOTH names the sentence mentions, the chosen
+        // one and the "Patch" default, because either can be suffixed by either trigger.
         throw new InvalidOperationException(
             $"cannot extend: no houseCARL plugin '{espName}' in any houseCARL folder, and no houseCARL folder named " +
             $"'{ModFolderName(stem)}'" +
