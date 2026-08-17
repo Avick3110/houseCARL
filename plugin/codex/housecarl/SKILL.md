@@ -21,7 +21,7 @@ Use this skill for data-layer Skyrim Special Edition modding through the configu
    - `housecarl_bulk_apply` for several edits in one patch, dict merges, leveled-list entries, effects, or other composed structs.
    - `housecarl_create_record` (or `housecarl_bulk_create` for many at once) for a new top-level record — it needs an EditorID.
    - `housecarl_remove_record` only to drop a record or override from a houseCARL-owned patch — never from a source mod.
-4. Name the patch on the **first** write with `patch=<name>` — omit it and houseCARL names it `Patch`. After that, accumulate related edits into it with `into=<patch filename>`.
+4. Name the patch on the **first** write with `patch=<name>` — omit it and houseCARL names it `Patch`. Either way the name is auto-suffixed if it is already taken, so read the patch name back off the response. After that, accumulate related edits into it with `into=<patch filename>`.
 5. Prefer runtime, no-ESP INI systems when they fit the user's intent — `skypatcher-authoring`, `spid-authoring`, `kid-authoring` (see the helper skills below).
 
 ## The full tool surface
