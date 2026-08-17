@@ -2321,10 +2321,11 @@ public sealed class LoadOrderService : IDisposable
         }
 
         var record = ReadEngine.ReadFields(rec, fields, depth, containerHint);   // materialise while the session (overlay) is open
-        record = AnnotateOwnedChildContent(record, rec, view, session, fk, source);           // #342: the additive-merge fact, DISPLAY-ONLY (same open session)
+        record = AnnotateOwnedChildContent(record, rec, view, session, fk, source, out bool childNoted);   // #342, DISPLAY-ONLY (same open session)
         if (resolveNames) record = AnnotateLinks(record, view, session, linkMemo ?? new());   // P7: identity of every FormLink token, DISPLAY-ONLY (same open session)
         var touching = conflictTree ? view.TouchingPlugins(fk) : null;
-        return new ReadOutcome(fk, record, source, winner.Value.WinnerPlugin, winner.Value.OverrideDepth, touching, null);
+        return new ReadOutcome(fk, record, source, winner.Value.WinnerPlugin, winner.Value.OverrideDepth, touching, null)
+               { OwnedChildNoted = childNoted };
     }
 
     /// <summary>resolve_names (P7): annotate every field whose <see cref="FieldValue.Token"/> is a form reference (a
@@ -2384,8 +2385,10 @@ public sealed class LoadOrderService : IDisposable
     /// fields array and the dense cells through that one carrier.</para></summary>
     static RecordFields AnnotateOwnedChildContent(RecordFields rf, IMajorRecordGetter body,
                                                   LoadOrderResolver.IndexView view,
-                                                  LoadOrderResolver.OverlaySession session, FormKey fk, string source)
+                                                  LoadOrderResolver.OverlaySession session, FormKey fk, string source,
+                                                  out bool noted)
     {
+        noted = false;
         // The pinned field set (write-surface-guard's own sweep, reached from a getter) — empty for all but three
         // record types, so this is where the overwhelming majority of reads leave, before any index lookup.
         var owning = OwnedChildContent.FieldNames(body);
@@ -2399,44 +2402,47 @@ public sealed class LoadOrderService : IDisposable
         if (hits is null) return rf;
 
         var touching = view.TouchingPlugins(fk);
-        if (touching is null || touching.Count <= 1) return rf;   // sole declarer: its own list IS the whole set
+        if (touching is null || touching.Count <= 1) return rf;   // sole declarer: its own body IS the whole set
 
-        var mine = new int?[hits.Count];
-        for (int h = 0; h < hits.Count; h++) mine[h] = OwnedChildContent.DeclaredCount(body, rf.Fields[hits[h]].Path);
+        // The question is a BOOLEAN about the OTHER bodies — "does anyone else declare children here" — not a
+        // comparison against this one. A count comparison was tried and rejected: it reported the wrong plugin as
+        // the largest declarer wherever children are container-nested (Worldspace.SubCells counts blocks), and it
+        // said nothing at all when this body simply held the biggest single list while another declared a DISJOINT
+        // set the game also loads. Both are the silent-wrong-answer class the annotation exists to close.
+        var declarers = new List<string>[hits.Count];
+        var unreadable = new List<string>[hits.Count];
+        for (int h = 0; h < hits.Count; h++) { declarers[h] = new List<string>(); unreadable[h] = new List<string>(); }
 
-        var others = new int[hits.Count];            // how many OTHER touchers declare any content for this field
-        var most = new int[hits.Count];              // …and the largest such declaration, with the plugin that made it
-        var mostPlugin = new string?[hits.Count];
         foreach (var p in touching)
         {
-            if (string.Equals(p, source, StringComparison.OrdinalIgnoreCase)) continue;
-            // Same view the touching list came from, so a plugin it names resolves here; a null is the excluded-
-            // plugin shape the view already vets and there is nothing to compare against. The field's own value is
-            // untouched either way — this annotation only ever ADDS a statement.
-            var other = view.GetRecord(session, p, fk);
-            if (other is null) continue;
+            if (string.Equals(p, source, StringComparison.OrdinalIgnoreCase)) continue;   // this body is not an "other"
+            // A body we cannot fetch is UNKNOWN, never "declares nothing" (#308's rule, one level down): dropping
+            // it silently would render as "nobody else declares content here", which is the wrong answer this
+            // annotation exists to prevent. The fetch is caught for the same reason it is not caught on the
+            // conflict-tree path — there, a fault fails a view the caller asked for; here it would fail a whole
+            // read over an ADDITIVE note, so it is named instead.
+            IMajorRecordGetter? other;
+            try { other = view.GetRecord(session, p, fk); } catch { other = null; }
             for (int h = 0; h < hits.Count; h++)
             {
-                if (OwnedChildContent.DeclaredCount(other, rf.Fields[hits[h]].Path) is not { } c || c == 0) continue;
-                others[h]++;
-                if (c > most[h]) { most[h] = c; mostPlugin[h] = p; }
+                var d = other is null ? null : OwnedChildContent.DeclaresChild(other, rf.Fields[hits[h]].Path);
+                if (d == true) declarers[h].Add(p);
+                else if (d is null) unreadable[h].Add(p);
             }
         }
 
         List<FieldValue>? rebuilt = null;
         for (int h = 0; h < hits.Count; h++)
         {
-            // Fires only when another body declares MORE than this one does. An unreadable count on THIS body
-            // (null) is not zero — it is "I could not look", and comparing it would manufacture the annotation out
-            // of a failed read rather than out of a real difference.
-            if (mine[h] is not { } m || most[h] <= m || mostPlugin[h] is not { } mp) continue;
+            if (ReadSentences.OwnedChildDeclarers(declarers[h], unreadable[h]) is not { } note) continue;
             rebuilt ??= new List<FieldValue>(rf.Fields);
             rebuilt[hits[h]] = rebuilt[hits[h]] with
             {
                 // These fields are containers and owned records; the only other producer of Display is the flags
                 // decode, which fires on [Flags] enum leaves alone — so there is no annotation here to displace.
-                Display = ReadSentences.OwnedChildContentNote(rf.Fields[hits[h]].Path, others[h], most[h], mp),
+                Display = note,
             };
+            noted = true;
         }
         return rebuilt is null ? rf : rf with { Fields = rebuilt };
     }
@@ -8406,6 +8412,12 @@ public sealed record ReadOutcome(
     /// RENDER's conflict-tree fill reads the SAME build the stamp names (PR #305 re-review; the pin that closed
     /// the cross-query fills closes the single-read/batch tree fills identically). Internal render plumbing.</summary>
     internal LoadOrderService.ViewPin? Pin { get; init; }
+
+    /// <summary>True when at least one field in <see cref="Record"/> carries the owned-child declarer annotation
+    /// (#342), so a response render can state the invariant clause ONCE. Carried STRUCTURALLY rather than
+    /// recovered by scanning the rendered prose for a marker: deciding a fact from note text is #308's shape, and
+    /// it is what this annotation exists to stop callers doing.</summary>
+    public bool OwnedChildNoted { get; init; }
 
     public static ReadOutcome Fail(FormKey fk, string error) => new(fk, null, null, null, 0, null, error);
 }

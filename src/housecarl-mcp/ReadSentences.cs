@@ -10,17 +10,20 @@ namespace HousecarlMcp;
 /// literal is a sentence that gets copied and then drifts. So it is born here instead, with the same two nets
 /// the write sentences have: the CONTENT net (<see cref="MustStateAttribute"/> — the phrases whose loss changes
 /// what the caller is told, declared beside the sentence) and a REACH net in the probe that owns the feature
-/// (the sentence is observed coming out of a real render, on both transports).</para>
+/// (every const observed coming out of a real render, on both transports).</para>
 ///
-/// <para>There is no <c>Twins</c> nested class here and no lane bookkeeping: a read annotation reaches both
-/// transports through ONE carrier — <see cref="HousecarlCore.FieldValue.Display"/>, which the text render, the
-/// json fields array and the dense cells all read off the same field — so "both lanes state it" is a property of
-/// the carrier rather than a claim two independent renders have to keep agreeing on.</para>
+/// <para><b>The response/field split.</b> The invariant half — what a child record IS — is a fact about the
+/// response, not about one field, so it is stated ONCE per response. Carrying it per field cost 288 chars per
+/// annotated field per record, ~275 of them identical on every row: a 500-row cell query spent ~280 KB of an
+/// ~80 k budget restating the same sentence, and the rows that got truncated to make room were real data. The
+/// per-field annotation therefore carries only what differs per field — WHICH other plugins declare content —
+/// and the response carries the meaning.</para>
 /// </summary>
 internal static class ReadSentences
 {
-    /// <summary>The engine fact behind #342's annotation, and the part a caller acts on: what they are looking at
-    /// is ONE plugin's declaration of a parent's children, and the game does not treat it as the whole set.
+    /// <summary>The response-level fact behind #342's annotation, and the part a caller acts on: an annotated
+    /// field shows ONE plugin's declaration of a parent's children, and the game does not treat it as the whole
+    /// set.
     ///
     /// <para>Deliberately names NO remedy. The read that would answer "what is actually live in this parent"
     /// (a FormKey-keyed union with each child taken at its own winner) does not exist yet, and the obvious
@@ -29,14 +32,41 @@ internal static class ReadSentences
     /// surface does not have, so this one states the fact and stops.</para></summary>
     [MustState("declared per plugin", "not the merged total")]
     internal const string OwnedChildMerge =
-        "child records are declared per plugin and the game assembles them from every plugin that declares them, " +
-        "so the value shown here is one plugin's own declaration, not the merged total";
+        "note: an annotated field above holds CHILD RECORDS — a cell's placed references, a topic's INFO lines, " +
+        "a worldspace's cells. Those are declared per plugin and the game assembles them from every plugin that " +
+        "declares them, so the value shown is one plugin's own declaration, not the merged total.";
 
-    /// <summary>The #342 annotation: the fact above, in front of the counted evidence for THIS field on THIS
-    /// record. <paramref name="others"/> is how many other plugins touching the record declare any content for the
-    /// field; <paramref name="most"/>/<paramref name="mostPlugin"/> the largest such declaration — the number that
-    /// makes a false-empty read obvious at a glance (a winner reading 0 beside "most: 201 in Skyrim.esm").</summary>
-    internal static string OwnedChildContentNote(string field, int others, int most, string mostPlugin) =>
-        $"{others} other plugin(s) touching this record also declare {field} content " +
-        $"(most: {most} in {mostPlugin}) — {OwnedChildMerge}";
+    /// <summary>The per-field half's label. A pure label: on its own it asserts nothing a caller acts on — the
+    /// claim is the plugin names that follow it, and its meaning is <see cref="OwnedChildMerge"/>.</summary>
+    [NoClaims("a label; the claim is the plugin names it introduces, and their meaning is OwnedChildMerge")]
+    internal const string DeclaredBy = "also declared by";
+
+    /// <summary>The Q3 half: a plugin touching this record whose body or field could not be read. Stated, never
+    /// dropped — an unreadable body silently missing from the list would read as "nobody else declares", which is
+    /// the same wrong answer this annotation exists to prevent, one level down.</summary>
+    [MustState("could NOT be read")]
+    internal const string CouldNotRead = "could NOT be read";
+
+    /// <summary>How many declaring plugins the per-field annotation names before it summarises the rest. Three
+    /// names is enough to go look at; the rest are a count, because this rides EVERY annotated field of every row
+    /// in a bulk response.</summary>
+    internal const int DeclarerNameCap = 3;
+
+    /// <summary>The per-field annotation: which OTHER plugins touching this record declare child content for this
+    /// field, capped, plus any that could not be read. Returns null when there is nothing to say — no declarers
+    /// and nothing unreadable — so the caller has one place to decide, not two.</summary>
+    internal static string? OwnedChildDeclarers(IReadOnlyList<string> declarers, IReadOnlyList<string> unreadable)
+    {
+        if (declarers.Count == 0 && unreadable.Count == 0) return null;
+        var head = declarers.Count == 0
+            ? null
+            : $"{DeclaredBy} {string.Join(", ", declarers.Take(DeclarerNameCap))}"
+              + (declarers.Count > DeclarerNameCap ? $" (+{declarers.Count - DeclarerNameCap} more)" : "");
+        var tail = unreadable.Count == 0
+            ? null
+            : $"{unreadable.Count} other plugin(s) touching this record {CouldNotRead} "
+              + $"({string.Join(", ", unreadable.Take(DeclarerNameCap))}"
+              + (unreadable.Count > DeclarerNameCap ? ", …" : "") + ")";
+        return head is null ? tail : tail is null ? head : $"{head}; {tail}";
+    }
 }

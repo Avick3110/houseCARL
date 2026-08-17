@@ -301,11 +301,15 @@ static class JsonWire
     /// <summary>Serialize a resolved record: identity + winner/override_depth/source + the fields array. Shared by
     /// read_record, batch_record_detail, and the cross_plugin_query detail path (one shape, no drift). <paramref
     /// name="matches"/> carries the multi-target references= un-merge when present.</summary>
-    internal static void WriteReadRecord(Utf8JsonWriter w, ReadOutcome o, MemoryStream ms, int cap, string? matches = null, string? epoch = null)
+    internal static void WriteReadRecord(Utf8JsonWriter w, ReadOutcome o, MemoryStream ms, int cap, string? matches = null,
+                                         string? epoch = null, bool ownedChildNote = false)
     {
         var r = o.Record!;
         w.WriteStartObject();
         if (epoch is not null) w.WriteString("epoch", epoch);   // single-read top level ONLY — see RenderRecord
+        // The single-read record object IS the response, so the #342 clause belongs on it; batch/query rows never
+        // repeat it per row (the caller passes false and the response object states it once), exactly as epoch does.
+        WriteOwnedChildNote(w, ownedChildNote);
         w.WriteString("formid", r.FormKey);
         w.WriteString("type", r.Type);
         WriteNullable(w, "editorid", r.EditorId);
@@ -333,9 +337,17 @@ static class JsonWire
                 // A stamped refusal carries its stamp on the wire too (PR #305 review) — same contract as text.
                 w.WriteStartObject(); w.WriteString("error", o.Error); WriteNullable(w, "epoch", o.Epoch); w.WriteEndObject();
             }
-            else WriteReadRecord(w, o, ms, cap, epoch: o.Epoch);
+            else WriteReadRecord(w, o, ms, cap, epoch: o.Epoch, ownedChildNote: o.OwnedChildNoted);
         }
         return Finish(ms);
+    }
+
+    /// <summary>The #342 invariant clause on the json lane, written ONCE per response when any rendered record
+    /// carries a per-field declarer annotation — the same const the text lane states, so the two transports
+    /// cannot drift on what a child record is. Gated on the outcome's structural flag, never on the prose.</summary>
+    static void WriteOwnedChildNote(Utf8JsonWriter w, bool noted)
+    {
+        if (noted) w.WriteString("owned_child_note", ReadSentences.OwnedChildMerge);
     }
 
     // ---- housecarl_batch_record_detail (P6) ---------------------------------------------------------
@@ -374,6 +386,7 @@ static class JsonWire
             w.WriteEndArray();
             w.WriteNumber("rendered", rendered);
             w.WriteBoolean("truncated", rowsTruncated);
+            WriteOwnedChildNote(w, outcomes.Any(o => o.OwnedChildNoted));
             truncated = rowsTruncated;
             if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
             w.WriteEndObject();
@@ -959,7 +972,7 @@ static class JsonWire
                 WriteNotes(w, q, p5);
                 var linkMemo = resolveNames && detail ? new Dictionary<FormKey, ResolvedRef>() : null;
                 w.WriteStartArray("matches");
-                int rendered = 0; bool rowsTruncated = false;
+                int rendered = 0; bool rowsTruncated = false; bool childNoted = false;   // #342: the clause once, after the rows
                 for (int i = 0; i < q.Keys.Count && !manifestOnly; i++)      // to_file: the rows are the FILE
                 {
                     w.Flush();
@@ -974,6 +987,7 @@ static class JsonWire
                         var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, depth, resolveNames: resolveNames, linkMemo: linkMemo);
                         if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", fk.ToString()); w.WriteString("error", o.Error); if (matches is not null) w.WriteString("matches", matches); w.WriteEndObject(); }
                         else WriteReadRecord(w, o, ms, cap, matches);
+                        childNoted |= o.OwnedChildNoted;
                     }
                     else
                     {
@@ -985,6 +999,7 @@ static class JsonWire
                 w.WriteEndArray();
                 w.WriteNumber("rendered", rendered);
                 w.WriteBoolean("truncated", rowsTruncated);
+                WriteOwnedChildNote(w, childNoted);
                 truncated = rowsTruncated;
             }
             if (spill is not null && q.Error is null) Artifacts.WriteSpillStateJson(w, spill);
@@ -1070,7 +1085,7 @@ static class JsonWire
 
                 var linkMemo = resolveNames && detail ? new Dictionary<FormKey, ResolvedRef>() : null;
                 List<(string Formid, string Error)>? errors = null;
-                int rendered = 0; bool rowsTruncated = false;
+                int rendered = 0; bool rowsTruncated = false; bool childNoted = false;   // #342: the clause once, after the rows
                 w.WriteStartArray("rows");
                 for (int i = 0; i < q.Keys.Count && !manifestOnly; i++)      // to_file: the rows are the FILE
                 {
@@ -1091,6 +1106,7 @@ static class JsonWire
                         if (anyScoped) WriteCell(w, o.SourcePlugin);          // the body this row's values were read from (winner_fields=true → the winner)
                         if (hasMatches) WriteCell(w, matches);
                         w.WriteEndArray();
+                        childNoted |= o.OwnedChildNoted;
                     }
                     else
                     {
@@ -1117,6 +1133,7 @@ static class JsonWire
                 }
                 w.WriteNumber("rendered", rendered);
                 w.WriteBoolean("truncated", rowsTruncated);
+                WriteOwnedChildNote(w, childNoted);
                 truncated = rowsTruncated;
             }
             if (spill is not null && q.Error is null) Artifacts.WriteSpillStateJson(w, spill);

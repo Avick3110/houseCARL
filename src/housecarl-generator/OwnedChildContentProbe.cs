@@ -12,33 +12,34 @@ namespace HousecarlGenerator;
 /// #342 stage 1 — GUARD for the owned-child content annotation, over a synthetic MO2 instance driven through the
 /// REAL read tool (<c>housecarl_read_record</c>, both transports).
 ///
-/// The bug: a parent's child records — placed references under a cell, INFOs under a topic — are declared per
-/// plugin and assembled by the game from every plugin that declares them. An override that touches the parent for
-/// an unrelated reason carries none and deletes none, so reading the winner reports an empty cell the game fills.
-/// Reproduced on a real order at <c>008EB5:Skyrim.esm</c>: winner Temporary 0, <c>Skyrim.esm</c>'s own body 201.
+/// The bug: a parent's child records — placed references under a cell, INFOs under a topic, cells under a
+/// worldspace — are declared per plugin and assembled by the game from every plugin that declares them. An
+/// override that touches the parent for an unrelated reason carries none and deletes none, so reading the winner
+/// reports an empty cell the game fills. Reproduced on a real order at <c>008EB5:Skyrim.esm</c>: winner
+/// Temporary 0, <c>Skyrim.esm</c>'s own body 201.
 ///
-/// The fixture reproduces that shape and its neighbours, so every branch of the trigger has an arm:
-///   FALSE-EMPTY  — the winner touches cell A carrying no children; a lower plugin declares 3 Temporary,
-///                  1 Persistent and a Landscape. The annotation fires on each, naming the count and the plugin.
-///                  The pre-fix hazard is asserted first (the winner really does read 0) — a fixture that stopped
-///                  exhibiting it would make every arm below vacuous.
-///   SINGULAR     — Cell.Landscape is a SINGULAR owned child, not a list; present/absent is its count.
-///   NOT-A-CELL   — the same annotation on DialogTopic.Responses, because the field set is
-///                  <see cref="OwnedChildContent.FieldNames"/> over the write surface's pinned authority, never a
-///                  hand list of cell fields.
-///   WINNER-WINS  — cell B's winner declares MORE than the plugin below it: no annotation (the trigger is "another
-///                  body declares more", not "more than one plugin touches this").
-///   SOLE         — cell C is declared by one plugin: no annotation, no walk.
-///   UNREQUESTED  — fields=[EditorID] on cell A: no annotation (the walk is gated on the read's own field lines).
-///   NO-CHILDREN  — a weapon with three touchers: no annotation, and the field set for its type is EMPTY, which is
-///                  what makes this free on every read that is not one of the three owning types.
-///   OTHER-NOT-LOWER — a plugin=-scoped read of the BASE's cell B, where a HIGHER plugin declares more. The
-///                  additive assembly is over the whole touching set, so the workaround this bug's reporter reached
-///                  for is annotated too.
-///   TOKEN        — the annotation is display-only: the field's round-trip token/note is byte-identical to what it
-///                  was, on both transports.
-///   SENTENCE     — the content net over <see cref="ReadSentences"/>: every const decides ([MustState] phrases or
-///                  [NoClaims] with a reason) and still states the phrases it declares.
+/// The trigger is a BOOLEAN — does any OTHER plugin touching this record declare at least one child record for
+/// this field — and two arms exist because the cheaper questions both produce wrong answers:
+///   REACH-NOT-ELEMENT — "has a top-level element" is true of a worldspace holding empty block scaffolding, whose
+///                  cells sit two container levels down. WRLD-SCAFFOLD holds that an empty-scaffold plugin is NOT
+///                  named a declarer while a real one is.
+///   DISJOINT     — "declares MORE than this body" says nothing when this body holds the biggest single list and
+///                  another declares a disjoint set the game also loads. DISJOINT + EQUAL hold that both annotate.
+/// The rest:
+///   FALSE-EMPTY  — the winner touches cell A carrying no children; a lower plugin declares Temporary, Persistent
+///                  and a Landscape. Each is annotated, naming the declarer. The pre-fix hazard is asserted first
+///                  — a fixture that stopped exhibiting it would make every arm below vacuous.
+///   SINGULAR     — Cell.Landscape is a SINGULAR owned child, not a list.
+///   NOT-A-CELL   — DialogTopic.Responses, because the field set is <see cref="OwnedChildContent.FieldNames"/>
+///                  over the write surface's pinned authority, never a hand list of cell fields.
+///   SOLE / SELF  — one declarer: no annotation, and the read body is never named among the "others".
+///   UNREQUESTED  — fields=[EditorID]: no annotation (the walk is gated on the read's own field lines).
+///   NO-CHILDREN  — a weapon with three touchers: no annotation, and the field set for its type is EMPTY.
+///   RESPONSE-ONCE— the invariant clause is stated ONCE per response, not per annotated field, on both lanes.
+///   UNREADABLE   — a toucher whose body cannot be read is NAMED, never silently dropped (a missing declarer
+///                  reads as "nobody else declares", the same wrong answer one level down).
+///   TOKEN        — display-only: the field's round-trip token/note is what it was, on both transports.
+///   SENTENCE     — the content net over <see cref="ReadSentences"/>, consts AND the composed per-field note.
 ///
 /// Run: <c>dotnet run --project src/housecarl-generator -- owned-child-content-guard</c>
 /// </summary>
@@ -66,10 +67,13 @@ public static class OwnedChildContentProbe
             // ---- BASE: the plugin that declares the children (Skyrim.esm's role in the report) ----
             var baseKey = new ModKey("HcOcBase", ModType.Master);
             var cellA = new FormKey(baseKey, 0xC01);      // the false-empty cell
-            var cellB = new FormKey(baseKey, 0xC02);      // the winner-declares-more cell
+            var cellB = new FormKey(baseKey, 0xC02);      // DISJOINT: both bodies declare, no overlap
             var cellC = new FormKey(baseKey, 0xC03);      // declared by exactly one plugin
+            var cellD = new FormKey(baseKey, 0xC04);      // EQUAL: both declare one reference
+            var cellE = new FormKey(baseKey, 0xC05);      // SELF: only the winner declares
             var topic = new FormKey(baseKey, 0xD01);
             var weapon = new FormKey(baseKey, 0xE01);
+            var wrld = new FormKey(baseKey, 0xF01);       // WRLD-SCAFFOLD: real cells vs empty blocks
             var baseDir = Path.Combine(mods, "BaseMod"); Directory.CreateDirectory(baseDir);
             {
                 var m = new SkyrimMod(baseKey, SkyrimRelease.SkyrimSE);
@@ -80,6 +84,8 @@ public static class OwnedChildContentProbe
                 a.Landscape = new Landscape(new FormKey(baseKey, 0xC1B), SkyrimRelease.SkyrimSE) { EditorID = "HcOcLand" };
                 FileInterior(m, a);
 
+                // DISJOINT: base declares 1, the winner will declare 4 OTHER references — the live set is 5, and a
+                // count comparison ("does anyone declare MORE than this body") said nothing at all here.
                 var b = new Cell(cellB, SkyrimRelease.SkyrimSE) { EditorID = "HcOcCellB", Flags = Cell.Flag.IsInteriorCell };
                 b.Temporary.Add(new PlacedObject(new FormKey(baseKey, 0xC20), SkyrimRelease.SkyrimSE) { EditorID = "HcOcBTemp0" });
                 FileInterior(m, b);
@@ -87,6 +93,14 @@ public static class OwnedChildContentProbe
                 var c = new Cell(cellC, SkyrimRelease.SkyrimSE) { EditorID = "HcOcCellC", Flags = Cell.Flag.IsInteriorCell };
                 c.Temporary.Add(new PlacedObject(new FormKey(baseKey, 0xC30), SkyrimRelease.SkyrimSE) { EditorID = "HcOcCTemp0" });
                 FileInterior(m, c);
+
+                // EQUAL: one reference each side — the count comparison's blind spot at parity.
+                var dCell = new Cell(cellD, SkyrimRelease.SkyrimSE) { EditorID = "HcOcCellD", Flags = Cell.Flag.IsInteriorCell };
+                dCell.Temporary.Add(new PlacedObject(new FormKey(baseKey, 0xC40), SkyrimRelease.SkyrimSE) { EditorID = "HcOcDTemp0" });
+                FileInterior(m, dCell);
+
+                // SELF: the base touches the cell declaring NOTHING; only the winner declares.
+                FileInterior(m, new Cell(cellE, SkyrimRelease.SkyrimSE) { EditorID = "HcOcCellE", Flags = Cell.Flag.IsInteriorCell });
 
                 var t = new DialogTopic(topic, SkyrimRelease.SkyrimSE) { EditorID = "HcOcTopic" };
                 for (int i = 0; i < 2; i++)
@@ -99,10 +113,20 @@ public static class OwnedChildContentProbe
 
                 m.Weapons.Add(new Weapon(weapon, SkyrimRelease.SkyrimSE)
                     { EditorID = "HcOcWeap", BasicStats = new WeaponBasicStats { Damage = 5 } });
+
+                // WRLD: ONE block holding THREE cells — real children, two container levels down.
+                var ws = new Worldspace(wrld, SkyrimRelease.SkyrimSE) { EditorID = "HcOcWrld" };
+                var blk = new WorldspaceBlock { BlockNumberX = 0, BlockNumberY = 0, GroupType = GroupTypeEnum.ExteriorCellBlock };
+                var sub = new WorldspaceSubBlock { BlockNumberX = 0, BlockNumberY = 0, GroupType = GroupTypeEnum.ExteriorCellSubBlock };
+                for (int i = 0; i < 3; i++)
+                    sub.Items.Add(new Cell(new FormKey(baseKey, (uint)(0xF10 + i)), SkyrimRelease.SkyrimSE) { EditorID = $"HcOcWsCell{i}" });
+                blk.Items.Add(sub); ws.SubCells.Add(blk);
+                m.Worldspaces.Add(ws);
+
                 m.BeginWrite.ToPath(Path.Combine(baseDir, baseKey.FileName.String)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
             }
 
-            // ---- MID: a second toucher of cell A that also declares no children (so "other plugins" is a count,
+            // ---- MID: a second toucher of cell A that also declares no children (so "other plugins" is a list,
             //      not a synonym for "the master") ----
             var midKey = new ModKey("HcOcMid", ModType.Plugin);
             var midDir = Path.Combine(mods, "MidMod"); Directory.CreateDirectory(midDir);
@@ -114,8 +138,8 @@ public static class OwnedChildContentProbe
                 m.BeginWrite.ToPath(Path.Combine(midDir, midKey.FileName.String)).WithLoadOrder(new ISkyrimModGetter[] { baseOv }).Write();
             }
 
-            // ---- TOP (the winner): the Occlusion.esp shape on cell A — touches the cell, carries no children.
-            //      On cell B it declares MORE than the base. On the topic it re-lists one INFO of two. ----
+            // ---- TOP (the winner): the Occlusion.esp shape on cell A. On the worldspace it declares TWO blocks
+            //      holding ZERO cells — the scaffolding an element-level answer would call a declarer. ----
             var topKey = new ModKey("HcOcTop", ModType.Plugin);
             var topDir = Path.Combine(mods, "TopMod"); Directory.CreateDirectory(topDir);
             {
@@ -128,11 +152,28 @@ public static class OwnedChildContentProbe
                     b.Temporary.Add(new PlacedObject(new FormKey(topKey, (uint)(0xB10 + i)), SkyrimRelease.SkyrimSE) { EditorID = $"HcOcTopTemp{i}" });
                 FileInterior(m, b);
 
+                var dCell = new Cell(cellD, SkyrimRelease.SkyrimSE) { EditorID = "HcOcCellD", Flags = Cell.Flag.IsInteriorCell };
+                dCell.Temporary.Add(new PlacedObject(new FormKey(topKey, 0xB40), SkyrimRelease.SkyrimSE) { EditorID = "HcOcTopDTemp0" });
+                FileInterior(m, dCell);
+
+                var e = new Cell(cellE, SkyrimRelease.SkyrimSE) { EditorID = "HcOcCellE", Flags = Cell.Flag.IsInteriorCell };
+                e.Temporary.Add(new PlacedObject(new FormKey(topKey, 0xB50), SkyrimRelease.SkyrimSE) { EditorID = "HcOcTopETemp0" });
+                FileInterior(m, e);
+
                 var t = new DialogTopic(topic, SkyrimRelease.SkyrimSE) { EditorID = "HcOcTopic" };
                 var only = new DialogResponses(new FormKey(baseKey, 0xD10), SkyrimRelease.SkyrimSE);
                 only.Responses.Add(new DialogResponse { Text = "patched line 0" });
                 t.Responses.Add(only);
                 m.DialogTopics.Add(t);
+
+                var ws = new Worldspace(wrld, SkyrimRelease.SkyrimSE) { EditorID = "HcOcWrld" };
+                for (int bx = 0; bx < 2; bx++)   // TWO blocks, each with a sub-block, holding NO cells at all
+                {
+                    var eb = new WorldspaceBlock { BlockNumberX = (short)bx, BlockNumberY = 0, GroupType = GroupTypeEnum.ExteriorCellBlock };
+                    eb.Items.Add(new WorldspaceSubBlock { BlockNumberX = (short)bx, BlockNumberY = 0, GroupType = GroupTypeEnum.ExteriorCellSubBlock });
+                    ws.SubCells.Add(eb);
+                }
+                m.Worldspaces.Add(ws);
 
                 m.Weapons.GetOrAddAsOverride(baseOv.Weapons.First(w => w.FormKey == weapon)).BasicStats!.Damage = 9;
                 m.BeginWrite.ToPath(Path.Combine(topDir, topKey.FileName.String)).WithLoadOrder(new ISkyrimModGetter[] { baseOv }).Write();
@@ -150,6 +191,7 @@ public static class OwnedChildContentProbe
 
             string Read(FormKey fk, string? plugin = null, string[]? fields = null, int depth = 1, string? format = null)
                 => ReadTools.ReadRecord(svc, fk.ToString(), plugin, fields, depth, false, false, format);
+            string By(ModKey k) => $"{ReadSentences.DeclaredBy} {k.FileName}";
 
             // ---- the pre-fix hazard, asserted before anything is claimed about the annotation ----
             var aWinner = Read(cellA);
@@ -158,105 +200,137 @@ public static class OwnedChildContentProbe
                 && FieldLine(aWinner, "Temporary") is { } tw && tw.Contains("0 item(s)", StringComparison.Ordinal),
                 FieldLine(aWinner, "Temporary"));
             var aBase = Read(cellA, plugin: baseKey.FileName.String);
-            Check("…and the base's own body carries 3 — the count the winner does not show",
+            Check("…and the base's own body carries 3 — the content the winner does not show",
                 FieldLine(aBase, "Temporary") is { } tb && tb.Contains("3 item(s)", StringComparison.Ordinal),
                 FieldLine(aBase, "Temporary"));
 
-            // ---- FALSE-EMPTY: the annotation on each of the three fields the base declares ----
-            Check("Temporary is annotated: 1 other plugin declares content, most 3, named",
-                FieldLine(aWinner, "Temporary") is { } t1
-                && t1.Contains("1 other plugin(s) touching this record also declare Temporary content", StringComparison.Ordinal)
-                && t1.Contains("(most: 3 in HcOcBase.esm)", StringComparison.Ordinal)
-                && t1.Contains(ReadSentences.OwnedChildMerge, StringComparison.Ordinal),
+            // ---- FALSE-EMPTY: the annotation on each field the base declares, naming the declarer ----
+            Check("Temporary is annotated, naming the declaring plugin",
+                FieldLine(aWinner, "Temporary") is { } t1 && t1.Contains(By(baseKey), StringComparison.Ordinal),
                 FieldLine(aWinner, "Temporary"));
-            Check("Persistent is annotated too (most: 1) — the annotation is per FIELD, not per record",
-                FieldLine(aWinner, "Persistent") is { } p1
-                && p1.Contains("also declare Persistent content", StringComparison.Ordinal)
-                && p1.Contains("(most: 1 in HcOcBase.esm)", StringComparison.Ordinal),
+            Check("Persistent is annotated too — the annotation is per FIELD, not per record",
+                FieldLine(aWinner, "Persistent") is { } p1 && p1.Contains(By(baseKey), StringComparison.Ordinal),
                 FieldLine(aWinner, "Persistent"));
-            // SINGULAR: Landscape holds ONE owned child record, not a list — present/absent is its count.
-            Check("SINGULAR: Landscape is annotated (most: 1) — a singular owned child, not a list",
-                FieldLine(aWinner, "Landscape") is { } l1
-                && l1.Contains("also declare Landscape content", StringComparison.Ordinal)
-                && l1.Contains("(most: 1 in HcOcBase.esm)", StringComparison.Ordinal),
+            Check("SINGULAR: Landscape is annotated — a singular owned child, not a list",
+                FieldLine(aWinner, "Landscape") is { } l1 && l1.Contains(By(baseKey), StringComparison.Ordinal),
                 FieldLine(aWinner, "Landscape"));
             Check("NavigationMeshes — an owning field NOBODY declares — is NOT annotated",
-                FieldLine(aWinner, "NavigationMeshes") is { } n1 && !n1.Contains("also declare", StringComparison.Ordinal),
+                FieldLine(aWinner, "NavigationMeshes") is { } n1 && !n1.Contains(ReadSentences.DeclaredBy, StringComparison.Ordinal),
                 FieldLine(aWinner, "NavigationMeshes"));
-
-            // ---- TOKEN: display-only. The value half of the line is exactly what it was before the annotation. ----
-            Check("TOKEN: the annotated line still carries the leaf's own unchanged summary, annotation appended after it",
-                FieldLine(aWinner, "Temporary") is { } t2
-                && t2.StartsWith("Temporary = [list: 0 item(s)]" + ReadEngine.DepthExpandHint + "   (", StringComparison.Ordinal),
+            Check("…and the plugin that touches the cell declaring NOTHING is not named a declarer",
+                FieldLine(aWinner, "Temporary") is { } t1b && !t1b.Contains("HcOcMid.esp", StringComparison.Ordinal),
                 FieldLine(aWinner, "Temporary"));
 
-            // ---- NOT-A-CELL: the same annotation on a topic's INFOs (the field set is the pinned authority) ----
+            // ---- REACH-NOT-ELEMENT: empty block scaffolding is not a declaration of cells ----
+            var wsBase = Read(wrld, plugin: baseKey.FileName.String);
+            Check("WRLD-SCAFFOLD: a worldspace declaring 2 EMPTY blocks is NOT named as declaring SubCells content",
+                FieldLine(wsBase, "SubCells") is { } w1 && !w1.Contains(ReadSentences.DeclaredBy, StringComparison.Ordinal),
+                FieldLine(wsBase, "SubCells"));
+            var wsWinner = Read(wrld);
+            Check("…while the winner (2 empty blocks) IS annotated by the base's 1 block holding 3 real cells",
+                FieldLine(wsWinner, "SubCells") is { } w2 && w2.Contains(By(baseKey), StringComparison.Ordinal),
+                FieldLine(wsWinner, "SubCells"));
+            Check("REACH: DeclaresChild answers the CHILD question, not the element question, on both worldspace bodies",
+                DeclaresOn(baseDir, baseKey, wrld, "SubCells") == true
+                && DeclaresOn(topDir, topKey, wrld, "SubCells") == false,
+                $"base={DeclaresOn(baseDir, baseKey, wrld, "SubCells")} top={DeclaresOn(topDir, topKey, wrld, "SubCells")}");
+
+            // ---- DISJOINT / EQUAL: the two shapes a count comparison stayed silent on ----
+            var bWinner = Read(cellB);
+            Check("DISJOINT: the winner declaring 4 of its OWN references is still annotated by the base's 1",
+                FieldLine(bWinner, "Temporary") is { } t3
+                && t3.Contains("4 item(s)", StringComparison.Ordinal) && t3.Contains(By(baseKey), StringComparison.Ordinal),
+                FieldLine(bWinner, "Temporary"));
+            var dWinner = Read(cellD);
+            Check("EQUAL: one reference each side — both bodies declare, so the read is annotated",
+                FieldLine(dWinner, "Temporary") is { } t7 && t7.Contains(By(baseKey), StringComparison.Ordinal),
+                FieldLine(dWinner, "Temporary"));
+
+            // ---- SELF: the read body is never among its own "other plugins" ----
+            var eWinner = Read(cellE);
+            Check("SELF: a body that is the ONLY declarer is not annotated, and never names itself",
+                FieldLine(eWinner, "Temporary") is { } t8
+                && t8.Contains("1 item(s)", StringComparison.Ordinal)
+                && !t8.Contains(ReadSentences.DeclaredBy, StringComparison.Ordinal),
+                FieldLine(eWinner, "Temporary"));
+
+            // ---- NOT-A-CELL / SOLE / UNREQUESTED / NO-CHILDREN ----
             var topicRead = Read(topic);
             Check("NOT-A-CELL: DialogTopic.Responses is annotated (winner re-lists 1 of the base's 2)",
-                FieldLine(topicRead, "Responses") is { } r1
-                && r1.Contains("also declare Responses content", StringComparison.Ordinal)
-                && r1.Contains("(most: 2 in HcOcBase.esm)", StringComparison.Ordinal),
+                FieldLine(topicRead, "Responses") is { } r1 && r1.Contains(By(baseKey), StringComparison.Ordinal),
                 FieldLine(topicRead, "Responses"));
-
-            // ---- WINNER-WINS: cell B's winner declares MORE than the plugin below it ----
-            var bWinner = Read(cellB);
-            Check("WINNER-WINS: no annotation when the read body declares the most (4 vs the base's 1)",
-                FieldLine(bWinner, "Temporary") is { } t3
-                && t3.Contains("4 item(s)", StringComparison.Ordinal)
-                && !t3.Contains("also declare", StringComparison.Ordinal),
-                FieldLine(bWinner, "Temporary"));
-
-            // ---- OTHER-NOT-LOWER: the plugin=-scoped read of the base sees the HIGHER plugin's declaration ----
-            var bBase = Read(cellB, plugin: baseKey.FileName.String);
-            Check("OTHER-NOT-LOWER: a plugin=-scoped read is annotated by a HIGHER plugin's declaration (most: 4 in HcOcTop.esp)",
-                FieldLine(bBase, "Temporary") is { } t4
-                && t4.Contains("also declare Temporary content", StringComparison.Ordinal)
-                && t4.Contains("(most: 4 in HcOcTop.esp)", StringComparison.Ordinal),
-                FieldLine(bBase, "Temporary"));
-
-            // ---- SOLE: one declarer, nothing to compare against ----
             var cRead = Read(cellC);
             Check("SOLE: a record only one plugin touches is not annotated",
-                FieldLine(cRead, "Temporary") is { } t5 && !t5.Contains("also declare", StringComparison.Ordinal),
+                FieldLine(cRead, "Temporary") is { } t5 && !t5.Contains(ReadSentences.DeclaredBy, StringComparison.Ordinal),
                 FieldLine(cRead, "Temporary"));
-
-            // ---- UNREQUESTED: the walk is gated on the read's own field lines ----
             var aNarrow = Read(cellA, fields: new[] { "EditorID" });
-            Check("UNREQUESTED: fields=[EditorID] on the same cell carries no annotation",
-                !aNarrow.Contains("also declare", StringComparison.Ordinal), Trim(aNarrow));
-
-            // ---- NO-CHILDREN: the type that owns nothing — the free path ----
+            Check("UNREQUESTED: fields=[EditorID] on the same cell carries no annotation and no response clause",
+                !aNarrow.Contains(ReadSentences.DeclaredBy, StringComparison.Ordinal)
+                && !aNarrow.Contains(ReadSentences.OwnedChildMerge, StringComparison.Ordinal), Trim(aNarrow));
             var weapRead = Read(weapon);
-            Check("NO-CHILDREN: a 3-toucher weapon read carries no annotation",
+            Check("NO-CHILDREN: a 3-toucher weapon read carries no annotation, and its field set is EMPTY",
                 weapRead.Contains("winner=HcOcTop.esp", StringComparison.Ordinal)
-                && !weapRead.Contains("also declare", StringComparison.Ordinal), Trim(weapRead));
+                && !weapRead.Contains(ReadSentences.DeclaredBy, StringComparison.Ordinal)
+                && FieldNamesOn(topDir, topKey, weapon).Count == 0, Trim(weapRead));
 
-            // ---- DEPTH: the summary line still carries it when the container is expanded ----
+            // ---- DEPTH ----
             var aDeep = Read(cellA, depth: 2);
             Check("DEPTH: at depth=2 the container's own summary line still carries the annotation",
-                FieldLine(aDeep, "Temporary") is { } t6 && t6.Contains("also declare Temporary content", StringComparison.Ordinal),
+                FieldLine(aDeep, "Temporary") is { } t6 && t6.Contains(ReadSentences.DeclaredBy, StringComparison.Ordinal),
                 FieldLine(aDeep, "Temporary"));
 
-            // ---- BOTH TRANSPORTS: one carrier (FieldValue.Display) — json states it as `display`, token untouched ----
+            // ---- RESPONSE-ONCE: the invariant clause is stated once, not per annotated field ----
+            Check("RESPONSE-ONCE (text): three annotated fields, ONE invariant clause in the response",
+                Occurrences(aWinner, ReadSentences.OwnedChildMerge) == 1
+                && Occurrences(aWinner, ReadSentences.DeclaredBy) == 3,
+                $"clause={Occurrences(aWinner, ReadSentences.OwnedChildMerge)} fields={Occurrences(aWinner, ReadSentences.DeclaredBy)}");
+            var batch = ReadTools.BatchRecordDetail(svc, new[] { cellA.ToString(), cellB.ToString() });
+            Check("RESPONSE-ONCE (batch): two annotated records, still ONE invariant clause",
+                Occurrences(batch, ReadSentences.OwnedChildMerge) == 1, $"clause={Occurrences(batch, ReadSentences.OwnedChildMerge)}");
+            var cleanBatch = ReadTools.BatchRecordDetail(svc, new[] { weapon.ToString() });
+            Check("RESPONSE-ONCE: a response with nothing annotated carries NO clause",
+                Occurrences(cleanBatch, ReadSentences.OwnedChildMerge) == 0, Trim(cleanBatch));
+
+            // ---- BOTH TRANSPORTS ----
             var aJson = Read(cellA, format: "json");
             string? jsonDisplay = null, jsonNote = null;
             using (var doc = JsonDocument.Parse(aJson))
+            {
                 foreach (var f in doc.RootElement.GetProperty("fields").EnumerateArray())
                     if (f.GetProperty("path").GetString() == "Temporary")
                     {
                         jsonDisplay = f.TryGetProperty("display", out var d) ? d.GetString() : null;
                         jsonNote = f.TryGetProperty("note", out var n) ? n.GetString() : null;
                     }
-            Check("JSON: the same sentence rides the json lane's `display`, from the same source",
-                jsonDisplay is not null && jsonDisplay.Contains(ReadSentences.OwnedChildMerge, StringComparison.Ordinal)
-                && jsonDisplay.Contains("(most: 3 in HcOcBase.esm)", StringComparison.Ordinal), jsonDisplay ?? "(no display)");
-            Check("JSON: the leaf's own note is unchanged — the annotation never replaces the value half",
-                jsonNote is not null && jsonNote.StartsWith("[list: 0 item(s)]", StringComparison.Ordinal), jsonNote ?? "(no note)");
+                Check("JSON: the invariant clause is a response-level member, from the same source as text",
+                    doc.RootElement.TryGetProperty("owned_child_note", out var ocn)
+                    && ocn.GetString() == ReadSentences.OwnedChildMerge, "owned_child_note missing or drifted");
+            }
+            Check("JSON: the per-field half rides `display`, naming the declarer",
+                jsonDisplay is not null && jsonDisplay.Contains(By(baseKey), StringComparison.Ordinal),
+                jsonDisplay ?? "(no display)");
+            Check("TOKEN: the leaf's own note is unchanged on both lanes — the annotation never replaces the value half",
+                jsonNote is not null && jsonNote.StartsWith("[list: 0 item(s)]", StringComparison.Ordinal)
+                && FieldLine(aWinner, "Temporary")!.StartsWith(
+                       "Temporary = [list: 0 item(s)]" + ReadEngine.DepthExpandHint + "   (", StringComparison.Ordinal),
+                jsonNote ?? "(no note)");
 
-            // ---- SENTENCE: the content net over ReadSentences ----
+            // ---- UNREADABLE: a toucher whose body cannot be read is NAMED, not dropped ----
+            CheckUnreadable(root, mods, baseDir, baseKey, topKey, cellA);
+
+            // ---- SENTENCE: the content net over ReadSentences, consts AND the composed note ----
             var sentenceBad = SentenceViolations();
             Check("SENTENCE: every ReadSentences const decides ([MustState] phrases or [NoClaims] with a reason) and states them",
                 sentenceBad.Count == 0, string.Join(" | ", sentenceBad));
+            var composed = ReadSentences.OwnedChildDeclarers(new[] { "A.esp", "B.esp", "C.esp", "D.esp" }, new[] { "E.esp" });
+            Check("SENTENCE: the composed per-field note is built from the SAME consts the net covers, and caps its names",
+                composed is not null
+                && composed.Contains(ReadSentences.DeclaredBy, StringComparison.Ordinal)
+                && composed.Contains(ReadSentences.CouldNotRead, StringComparison.Ordinal)
+                && composed.Contains("(+1 more)", StringComparison.Ordinal)
+                && !composed.Contains("D.esp", StringComparison.Ordinal), composed ?? "(null)");
+            Check("SENTENCE: nothing to say → null, so the caller has ONE place to decide",
+                ReadSentences.OwnedChildDeclarers(Array.Empty<string>(), Array.Empty<string>()) is null);
 
             Console.WriteLine();
             Console.WriteLine($"=== owned-child-content-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
@@ -264,6 +338,90 @@ public static class OwnedChildContentProbe
         }
         catch (Exception ex) { Console.WriteLine($"   FAIL (unexpected): {ex.GetType().Name}: {ex.Message}"); return 1; }
         finally { try { Directory.Delete(root, recursive: true); } catch { } }
+    }
+
+    /// <summary>UNREADABLE — the "could not look is not nothing there" rule, at the two ends where it is honestly
+    /// observable, plus the measured account of what happens when a declaring plugin stops being readable at all.
+    ///
+    /// <para>The end-to-end shape this started as does NOT exist, and finding that out is what the fixture is for.
+    /// Corrupting a declaring plugin after the index is built does not leave it a named-but-unfetchable toucher:
+    /// the next read's freshness re-check rebuilds, the plugin is EXCLUDED from the order (named in
+    /// <c>Stats().loadFailures</c>), the record's override depth drops and it is no longer a toucher at all — so
+    /// the annotation stops naming it because the ORDER changed, not because a read failed silently. That is the
+    /// load-order layer's existing, named behaviour and the arms below pin it rather than pretending otherwise.
+    /// The residual hazard the unknown-arm exists for — a plugin that opens at header level but faults while its
+    /// child group is walked — is not reachable from outside the process, so it is pinned at its two ends: the
+    /// unit answer (null, never false) and the sentence that names it.</para></summary>
+    static void CheckUnreadable(string root, string mods, string baseDir, ModKey baseKey, ModKey topKey, FormKey cellA)
+    {
+        var inst2 = Path.Combine(root, "unreadable");
+        var prof2 = Path.Combine(inst2, "profiles", "Default");
+        var mods2 = Path.Combine(inst2, "mods");
+        foreach (var d in new[] { prof2, mods2, Path.Combine(root, "game2", "Data") }) Directory.CreateDirectory(d);
+        File.WriteAllText(Path.Combine(inst2, "ModOrganizer.ini"),
+            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+            + Path.Combine(root, "game2").Replace(@"\", @"\\") + ")\r\n");
+        foreach (var (src, name) in new[] { (baseDir, "BaseMod"), (Path.Combine(mods, "TopMod"), "TopMod") })
+        {
+            var dst = Path.Combine(mods2, name); Directory.CreateDirectory(dst);
+            foreach (var f in Directory.GetFiles(src)) File.Copy(f, Path.Combine(dst, Path.GetFileName(f)));
+        }
+        File.WriteAllText(Path.Combine(prof2, "loadorder.txt"), "# header\r\n" + baseKey.FileName + "\r\n" + topKey.FileName + "\r\n");
+        File.WriteAllText(Path.Combine(prof2, "plugins.txt"), "*" + baseKey.FileName + "\r\n*" + topKey.FileName + "\r\n");
+        File.WriteAllText(Path.Combine(prof2, "modlist.txt"), "# header\r\n+TopMod\r\n+BaseMod\r\n");
+
+        using var svc = LoadOrderService.WithInstance(inst2, 0, new UserConfigStore(Path.Combine(root, "unreadable.user.json")));
+        svc.Stats();                                                   // index built off the INTACT files
+        var before = ReadTools.ReadRecord(svc, cellA.ToString());
+        bool intact = FieldLine(before, "Temporary") is { } l
+                      && l.Contains($"{ReadSentences.DeclaredBy} {baseKey.FileName}", StringComparison.Ordinal);
+        Check("UNREADABLE: the fixture's intact read names the declarer (so the corrupted read has something to lose)",
+              intact, FieldLine(before, "Temporary"));
+
+        // Corrupt the declaring plugin AFTER the index knows it touches the record, then read again.
+        File.WriteAllBytes(Path.Combine(mods2, "BaseMod", baseKey.FileName.String), new byte[] { 0x00, 0x01, 0x02, 0x03 });
+        string after;
+        try { after = ReadTools.ReadRecord(svc, cellA.ToString()); }
+        catch (Exception ex) { after = "THREW " + ex.GetType().Name + ": " + ex.Message; }
+        var line = FieldLine(after, "Temporary");
+        var stats = svc.Stats();
+
+        // What actually happens, measured: the plugin leaves the ORDER. The annotation must then stop naming it —
+        // it no longer declares anything the game loads from this order — but the disappearance must be ACCOUNTED
+        // for where a caller can see it, which is the load-failure list, not swallowed in silence.
+        Check("UNREADABLE: an unopenable declarer leaves the order, and the load-order layer NAMES the failure",
+            stats.loadFailures.Any(f => f.Contains(baseKey.FileName.String, StringComparison.OrdinalIgnoreCase)),
+            $"loadFailures=[{string.Join(" | ", stats.loadFailures)}]");
+        Check("…and the annotation follows the order rather than naming a plugin that is no longer in it",
+            line is not null && !line.Contains(baseKey.FileName.String, StringComparison.OrdinalIgnoreCase),
+            line ?? Trim(after));
+
+        // The null rule, at the unit end: a field the body does not have is "I could not look", never "nothing
+        // there". This is the answer the service turns into a NAMED could-not-read plugin.
+        using var ov = SkyrimMod.CreateFromBinaryOverlay(Path.Combine(mods2, "TopMod", topKey.FileName.String), SkyrimRelease.SkyrimSE);
+        var topBody = ov.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == cellA);
+        Check("UNREADABLE: DeclaresChild on a field the body does not have answers NULL, never false",
+            topBody is not null && OwnedChildContent.DeclaresChild(topBody, "NoSuchFieldHere") is null,
+            $"{OwnedChildContent.DeclaresChild(topBody!, "NoSuchFieldHere")}");
+        Check("…and a body that HAS the field but declares nothing answers false, so the two stay distinguishable",
+            topBody is not null && OwnedChildContent.DeclaresChild(topBody, "Temporary") == false,
+            $"{OwnedChildContent.DeclaresChild(topBody!, "Temporary")}");
+    }
+
+    /// <summary>Ask <see cref="OwnedChildContent.DeclaresChild"/> directly of ONE plugin's own body — the unit-level
+    /// answer behind the WRLD arms, so a render change cannot make them pass for the wrong reason.</summary>
+    static bool? DeclaresOn(string dir, ModKey key, FormKey fk, string field)
+    {
+        using var ov = SkyrimMod.CreateFromBinaryOverlay(Path.Combine(dir, key.FileName.String), SkyrimRelease.SkyrimSE);
+        var body = ov.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == fk);
+        return body is null ? null : OwnedChildContent.DeclaresChild(body, field);
+    }
+
+    static IReadOnlyList<string> FieldNamesOn(string dir, ModKey key, FormKey fk)
+    {
+        using var ov = SkyrimMod.CreateFromBinaryOverlay(Path.Combine(dir, key.FileName.String), SkyrimRelease.SkyrimSE);
+        var body = ov.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == fk);
+        return body is null ? Array.Empty<string>() : OwnedChildContent.FieldNames(body);
     }
 
     /// <summary>The rendered line for one field path, trimmed — the text lane's "  Path = value   (annotation)".</summary>
@@ -277,6 +435,14 @@ public static class OwnedChildContentProbe
         return null;
     }
 
+    static int Occurrences(string haystack, string needle)
+    {
+        int n = 0;
+        for (int i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+             i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal)) n++;
+        return n;
+    }
+
     /// <summary>The content half of the response-layer net, over <see cref="ReadSentences"/>: every const must
     /// DECIDE — declared phrases, or a stated reason there are none — and a sentence that declares a phrase must
     /// still contain it. The write surface's own arm is the model; this owner is the read surface's, and an
@@ -286,7 +452,8 @@ public static class OwnedChildContentProbe
         var bad = new List<string>();
         foreach (var f in typeof(ReadSentences).GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
         {
-            if (!f.IsLiteral || f.FieldType != typeof(string)) { bad.Add($"{f.Name}: not a string const (unreadable to this net)"); continue; }
+            if (!f.IsLiteral) { bad.Add($"{f.Name}: not a const (unreadable to this net)"); continue; }
+            if (f.FieldType != typeof(string)) continue;   // a non-prose const (a cap) carries no sentence to check
             var text = (string?)f.GetRawConstantValue() ?? "";
             var must = f.GetCustomAttribute<MustStateAttribute>();
             var none = f.GetCustomAttribute<NoClaimsAttribute>();
