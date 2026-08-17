@@ -7856,21 +7856,36 @@ public sealed class LoadOrderService : IDisposable
         // The fresh-write remedy is the CALLER'S to authorize (#343). "Omit into= to create it fresh" was the whole
         // remedy, and it is exactly the call that yields a generically-named Patch.esp — while patch=, the way to
         // name a new patch, was in no doc a caller reads. The stronger sentence names patch= and hands back the
-        // working call with the caller's own guessed name in it. It is NOT inferable here, because "patch= names the
-        // fresh patch, defaulting to Patch" is true of some callers of this resolver and false of others, and the
-        // lane bit does not separate them: housecarl_remove takes no into= at all and its patch= names an EXISTING
-        // patch, so this sentence would tell it to re-issue the call that just failed; copy and copy_npc_appearance
-        // DO create fresh, but default their stem to the new EditorID / houseCARL_NpcCopy rather than to Patch; and
-        // on the rider housecarl_bsa_repack patch= binds to archive_name — the .bsa, not the mod folder. So each
-        // caller states whether the sentence is true of it, and the DEFAULT is the weaker, always-true tail: a
-        // caller added later without a thought about this gets a sentence that is merely less helpful, never wrong.
+        // working call with the caller's own guessed name in it.
+        //
+        // THE RULE, not a roster: it reaches exactly the operations whose patch= names a NEW patch defaulting to
+        // "Patch", and each states that for itself, because it is not inferable here and the lane bit does not
+        // separate it. Three independent ways it goes false — which is why an enumeration was the wrong shape, and
+        // why this comment's own list of tools was wrong twice before it became a rule. (1) The operation does not
+        // create a patch at all: a REMOVAL edits an artifact that already exists, so both halves are false there
+        // whichever spelling that tool gives the lane (2.0's housecarl_remove says into=; 1.x remove_record says
+        // patch=, meaning the EXISTING patch — where the sentence would tell the caller to re-issue the call that
+        // just failed). (2) It creates one but names it something else: copy and copy_npc_appearance default their
+        // stem to the new EditorID or houseCARL_NpcCopy, and every RIDER lane defaults to the stem its own call site
+        // passes (houseCARL_Scripts / _Assets / _SEQ / _Archive), never "Patch". (3) The spelling means a different
+        // artifact on that tool: on housecarl_bsa_repack a bare patch= binds to archive_name — the .bsa, not the mod
+        // folder — because it declares both and §5.3 routes patch= to the artifact.
+        //
+        // Hence the default is FALSE and the tail is the weaker, always-true one: a caller added later without a
+        // thought about any of this gets a sentence that is merely less helpful, never wrong.
+        //
+        // Note what the sentence does NOT do: predict the resulting filename. UniqueStem auto-suffixes a stem whose
+        // .esp is already an active plugin — and that is the correlated case, since a caller guessing into= usually
+        // guessed it off a plugin name in their load order. The qualifier scopes BOTH names the sentence mentions,
+        // the chosen one and the "Patch" default, because the same arm falsifies either.
         throw new InvalidOperationException(
             $"cannot extend: no houseCARL plugin '{espName}' in any houseCARL folder, and no houseCARL folder named " +
             $"'{ModFolderName(stem)}'" +
             (string.Equals(bareName, ModFolderName(stem), StringComparison.OrdinalIgnoreCase) ? "" : $" or '{bareName}'") +
             ". " + (patchNamesFresh
-                ? $"Omit into= and pass patch=\"{stem}\" to create it fresh under that name "
-                  + "(omit patch= too and houseCARL names it \"Patch\"), or check the name."
+                ? $"Omit into= and pass patch=\"{stem}\" to create it fresh under a name you choose, or omit patch= "
+                  + "too and houseCARL names it \"Patch\" — either name auto-suffixed if already taken. "
+                  + "Or check the name."
                 : "Omit into= to create it fresh, or check the name."));
     }
 
