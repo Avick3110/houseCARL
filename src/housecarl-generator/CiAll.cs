@@ -55,6 +55,12 @@ public static class CiAll
         // decimal, losing the known bits) now hangs a DISPLAY-ONLY "<names> (+unknown bits 0x…)" decode — the token
         // (bare decimal, Enum.Parse-round-trippable) is untouched; biped-slot flags keep their own slot decode.
         ("flag-bits-display-guard", FlagBitsDisplayProbe.RunGuard),
+        // owned-child content annotation (#342 stage 1): a parent's child records are declared PER PLUGIN and the
+        // game assembles them from every plugin that declares them, so a winner that touched the parent for an
+        // unrelated reason reports an empty cell the game fills. A read of an owning field (the write surface's
+        // pinned child-bearing set, not a cell hand-list) now states the fact when another toucher declares more.
+        // Display-only, per-field, and free on every read whose type owns no children.
+        ("owned-child-content-guard", OwnedChildContentProbe.RunGuard),
         ("floi-read-guard", FloiReadProbe.RunGuard),
         ("floi-fields-guard", FloiFieldsProbe.RunGuard),
         ("forward-from-plugin-guard", ForwardFromPluginProbe.RunGuard),
