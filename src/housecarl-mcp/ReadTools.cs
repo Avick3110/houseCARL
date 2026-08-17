@@ -780,19 +780,64 @@ static class Wire
         // Header line, like every other text lane — and BEFORE the cap-bounded body, so a capped record never
         // overruns its budget to fit the stamp (third-round note).
         if (o.Epoch is not null) sb.Append("epoch=").Append(o.Epoch).Append('\n');   // §2.1.1: the build this read answered from
-        AppendRecord(sb, o, Cap(maxChars));
-        if (conflictTree) AppendConflictTree(sb, svc, o, fields, Cap(maxChars));
-        AppendOwnedChildNote(sb, o.OwnedChildNoted);
+        var notes = new ChildNotes();
+        AppendRecordBlock(sb, svc, o, fields, conflictTree, Cap(maxChars), notes);
+        AppendOwnedChildNotes(sb, notes);
         return sb.ToString().TrimEnd('\n');
     }
 
-    /// <summary>The #342 invariant clause, stated ONCE per response when any rendered record carries a per-field
-    /// declarer annotation — never per field, which cost ~275 identical chars on every annotated row and pushed
-    /// real rows out of a bulk response's budget. Emitted AFTER the body so it reads as a footnote to the fields
-    /// it explains, and gated on the outcome's structural flag rather than on the rendered text.</summary>
-    static void AppendOwnedChildNote(StringBuilder sb, bool noted)
+    /// <summary>Which #342 clauses this response has earned — accumulated across the rows it actually RENDERED, so
+    /// a clause is never stated over a response whose annotated rows were truncated away or spilled to a file.
+    /// Three independent facts, because the tiers and the shapes say different things and a response can mix
+    /// them.</summary>
+    internal sealed class ChildNotes
     {
-        if (noted) sb.Append('\n').Append(ReadSentences.OwnedChildMerge).Append('\n');
+        public bool NotRead, Collection, Singular;
+        public bool Any => NotRead || Collection || Singular;
+    }
+
+    /// <summary>The #342 clauses, stated ONCE per response after the body — never per field, which cost ~275
+    /// identical chars on every annotated row and pushed real rows out of a bulk response's budget.</summary>
+    internal static void AppendOwnedChildNotes(StringBuilder sb, ChildNotes n)
+    {
+        if (n.NotRead) sb.Append('\n').Append(ReadSentences.NotReadClause).Append('\n');
+        if (n.Collection) sb.Append('\n').Append(ReadSentences.MergeCollection).Append('\n');
+        if (n.Singular) sb.Append('\n').Append(ReadSentences.SingleResolved).Append('\n');
+    }
+
+    /// <summary>Render one record, and its conflict tree when asked — fetching the tree ONCE and using it for both
+    /// the diff view and the #342 precise tier, so the annotation costs no record fetch of its own. Without
+    /// conflict_tree the outcome keeps the cheap index-only annotation the service already put on it.</summary>
+    static void AppendRecordBlock(StringBuilder sb, LoadOrderService svc, ReadOutcome o, IReadOnlyList<string>? fields,
+                                  bool conflictTree, int cap, ChildNotes notes)
+    {
+        var outcome = o;
+        LoadOrderService.TreeFill? fill = null;
+        if (conflictTree && o.Pin is { } pin && o.Record is { } rec)
+        {
+            fill = svc.ResolveTreeFill(pin, o.FormKey, fields, o.SourcePlugin, rec.Fields.Select(f => f.Path).ToList());
+            if (fill is { ByField.Count: > 0 }) outcome = ApplyPreciseChildNotes(o, rec, fill, notes);
+        }
+        if (outcome.OwnedChildNoted && fill is null) notes.NotRead = true;   // cheap tier stands
+        AppendRecord(sb, outcome, cap);
+        if (conflictTree) AppendConflictTree(sb, svc, outcome, fields, cap, fill?.View);
+    }
+
+    /// <summary>Replace the cheap "not read" note on every child-bearing field with what the tree's bodies
+    /// actually say — including replacing it with NOTHING when no other plugin declares content there, which the
+    /// cheap tier could not know.</summary>
+    static ReadOutcome ApplyPreciseChildNotes(ReadOutcome o, RecordFields rec, LoadOrderService.TreeFill fill, ChildNotes notes)
+    {
+        var rebuilt = new List<FieldValue>(rec.Fields);
+        for (int i = 0; i < rebuilt.Count; i++)
+        {
+            if (!fill.ByField.TryGetValue(rebuilt[i].Path, out var d)) continue;
+            var note = ReadSentences.DeclarersNote(d.Shape, d.Declaring, d.Unreadable);
+            rebuilt[i] = rebuilt[i] with { Display = note };
+            if (note is null) continue;
+            if (d.Shape == HousecarlCore.OwnedChildShape.Singular) notes.Singular = true; else notes.Collection = true;
+        }
+        return o with { Record = rec with { Fields = rebuilt } };
     }
 
     // ---- housecarl_batch_record_detail --------------------------------------------------------------
@@ -804,6 +849,7 @@ static class Wire
     {
         truncated = false;
         int cap = Cap(maxChars);
+        var notes = new ChildNotes();   // #342: accumulated over the rows actually rendered, not over the input list
         var sb = new StringBuilder();
         sb.Append("batch: ").Append(outcomes.Count).Append(outcomes.Count == 1 ? " record" : " records");
         // The whole batch reads ONE captured build (ResolveBatch), so its epoch is response-level accounting —
@@ -824,10 +870,10 @@ static class Wire
             }
             sb.Append('\n');
             if (o.Error is not null) sb.Append("error: ").Append(o.Error).Append('\n');
-            else { AppendRecord(sb, o, cap); if (conflictTree) AppendConflictTree(sb, svc, o, fields, cap); }
+            else AppendRecordBlock(sb, svc, o, fields, conflictTree, cap, notes);
             rendered++;
         }
-        AppendOwnedChildNote(sb, outcomes.Any(o => o.OwnedChildNoted));
+        AppendOwnedChildNotes(sb, notes);
         if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
         return sb.ToString().TrimEnd('\n');
     }
@@ -887,7 +933,7 @@ static class Wire
         if (anyScoped) sb.Append("note: ").Append(JsonWire.ScopedFieldsNote(winnerFields, q.WhereWinner)).Append('\n');
 
         int rendered = 0;
-        bool childNoted = false;   // #342: any detail row annotated → the invariant clause once, at the end
+        var notes = new ChildNotes();   // #342: accumulated over the rows actually rendered
         for (int i = 0; i < q.Keys.Count && !(spill?.ManifestOnly ?? false); i++)   // to_file: only the manifest renders — the rows are the FILE
         {
             if (sb.Length >= cap)
@@ -910,8 +956,7 @@ static class Wire
                 sb.Append('\n');
                 if (matches is not null) sb.Append("  ").Append(fk).Append("  matches=").Append(matches).Append('\n');
                 if (o.Error is not null) sb.Append(fk).Append(": error: ").Append(o.Error).Append('\n');
-                else { AppendRecord(sb, o, cap); if (conflictTree) AppendConflictTree(sb, svc, o, fields, cap); }   // o carries the scan's pin
-                childNoted |= o.OwnedChildNoted;
+                else AppendRecordBlock(sb, svc, o, fields, conflictTree, cap, notes);   // o carries the scan's pin
             }
             else
             {
@@ -928,7 +973,7 @@ static class Wire
             }
             rendered++;
         }
-        AppendOwnedChildNote(sb, childNoted);
+        AppendOwnedChildNotes(sb, notes);
         if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
         return sb.ToString().TrimEnd('\n');
     }
@@ -1342,7 +1387,8 @@ static class Wire
     /// winner-relative field diff — each other plugin's only-the-fields-that-differ, as `path=theirs (winner X)`.
     /// Bodies come from <see cref="LoadOrderService.ResolveTree"/> (on-demand fetch, held by nothing). The diff
     /// is char-budget-bounded: over <paramref name="cap"/> it stops with an explicit notice (Q3).</summary>
-    static void AppendConflictTree(StringBuilder sb, LoadOrderService svc, ReadOutcome o, IReadOnlyList<string>? fields, int cap)
+    static void AppendConflictTree(StringBuilder sb, LoadOrderService svc, ReadOutcome o, IReadOnlyList<string>? fields, int cap,
+                                   ConflictTreeView? prefetched = null)
     {
         var tp = o.TouchingPlugins;
         if (tp is null) return;
@@ -1364,8 +1410,11 @@ static class Wire
         // item, cross-query detail row — carries the (resolver, view) it was answered from, so the tree fill and
         // the response's epoch stamp name the same build. The unpinned fallback exists only for a hand-built
         // outcome (guards).
-        var tree = o.Pin is { } p ? svc.ResolveTreePinned(p, o.FormKey, fields)
-                                  : svc.ResolveTree(o.FormKey, fields);    // materialised (no live overlay) — Option B
+        // The block helper already fetched this tree to answer #342's precise tier off the same bodies; re-fetching
+        // would double every touching plugin's overlay enumeration, which is the cost that tier exists to avoid.
+        var tree = prefetched
+                   ?? (o.Pin is { } p ? svc.ResolveTreePinned(p, o.FormKey, fields)
+                                      : svc.ResolveTree(o.FormKey, fields));   // materialised (no live overlay) — Option B
         if (tree is null || tree.Nodes.Count <= 1) return;
 
         var winnerNode = tree.Winner;                                       // Nodes[^1] = highest priority = the winner

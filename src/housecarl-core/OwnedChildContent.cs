@@ -4,16 +4,34 @@ using Mutagen.Bethesda.Plugins.Records;
 
 namespace HousecarlCore;
 
+/// <summary>How a field holds its owned child records — the distinction that decides what is TRUE of it.
+///
+/// <para>A <see cref="Collection"/> field (a cell's Persistent/Temporary/NavigationMeshes, a topic's Responses, a
+/// worldspace's SubCells) holds MANY children, each with its own FormKey, and the game assembles them from every
+/// plugin that declares any — so one plugin's list is not the total. A <see cref="Singular"/> field
+/// (Cell.Landscape, Worldspace.TopCell) holds ONE child record: several plugins declaring it are OVERRIDING one
+/// record, resolved by load order, not contributing to a merge. Saying "not the merged total" about a singular
+/// child is simply false, which is why this distinction is structural rather than a wording choice.</para></summary>
+public enum OwnedChildShape
+{
+    /// <summary>The field is not one that owns child records, or its shape could not be determined.</summary>
+    None,
+    /// <summary>ONE owned child record — declarers override each other (Cell.Landscape, Worldspace.TopCell).</summary>
+    Singular,
+    /// <summary>MANY owned child records — declarers contribute additively (Persistent, Temporary, Responses, …).</summary>
+    Collection,
+}
+
 /// <summary>
 /// The READ side's view of the fields that own child records — the same question
 /// <see cref="WriteEngine.ChildBearingProperties"/> answers for the write surface, asked of a body the read
 /// engine just fetched.
 ///
-/// <para><b>Why the read side asks it at all (#342).</b> An owned child record is declared PER PLUGIN and the
-/// game assembles a parent's children from every plugin that declares them — a cell override that touches the
-/// record for an unrelated reason (occlusion data, lighting, music) carries no placed references and deletes
-/// none either. Reading such a winner's <c>Temporary</c> therefore reports an empty list for a cell the game
-/// fills with hundreds of references. Measured: <c>008EB5:Skyrim.esm</c> (Dawnstar exterior) reads
+/// <para><b>Why the read side asks it at all (#342).</b> An owned child record is declared PER PLUGIN, and for a
+/// COLLECTION field the game assembles a parent's children from every plugin that declares them — a cell override
+/// that touches the record for an unrelated reason (occlusion data, lighting, music) carries no placed references
+/// and deletes none either. Reading such a winner's <c>Temporary</c> therefore reports an empty list for a cell
+/// the game fills with hundreds of references. Measured: <c>008EB5:Skyrim.esm</c> (Dawnstar exterior) reads
 /// Persistent 0 / Temporary 0 at its winner while <c>Skyrim.esm</c>'s own body carries 201 Temporary.</para>
 ///
 /// <para><b>The field set is not a hand list.</b> It is <see cref="WriteEngine.ChildBearingProperties"/> — the
@@ -24,19 +42,20 @@ namespace HousecarlCore;
 /// SubCells), and a Mutagen bump that grows one is annotated without an edit here.</para>
 ///
 /// <para>The read engine hands this a getter — an overlay body, not the settable class the write walk reflects
-/// over — so <see cref="FieldNames"/> maps getter → concrete through the engine's own
-/// <see cref="WriteEngine.PrimaryGetter"/> / <see cref="WriteEngine.ConcreteOf"/> pair rather than a second
-/// name mapping of its own. That hop is load-bearing and its cost is measured, not assumed: asking the overlay
-/// type directly answers correctly for the LIST children and silently drops the SINGULAR ones (see the comment
-/// on the walk), which the guard's Landscape arm holds.</para>
+/// over — so the field set maps getter → concrete through the engine's own <see cref="WriteEngine.PrimaryGetter"/>
+/// / <see cref="WriteEngine.ConcreteOf"/> pair rather than a second name mapping of its own. That hop is
+/// load-bearing and its cost is measured, not assumed: asking the overlay type directly answers correctly for the
+/// LIST children and silently drops the SINGULAR ones, which the guard holds in both a Landscape arm and a
+/// type-level arm over every concrete child-bearing type.</para>
 /// </summary>
 public static class OwnedChildContent
 {
-    /// <summary>The names of <paramref name="body"/>'s fields that own child records, memoized per runtime type
-    /// (the <see cref="WriteEngine.ChildBearingProperties"/> precedent — reflection metadata, constant for the
-    /// process lifetime, and this is asked on every record read). EMPTY for every record type but the three that
-    /// own children, which is what makes the caller's walk free on the reads that don't touch this shape.</summary>
-    public static IReadOnlyList<string> FieldNames(IMajorRecordGetter body) =>
+    /// <summary>The child-bearing fields of <paramref name="body"/>'s type, each with its
+    /// <see cref="OwnedChildShape"/> — memoized per runtime type (the
+    /// <see cref="WriteEngine.ChildBearingProperties"/> precedent: reflection metadata, constant for the process
+    /// lifetime, asked on every record read). EMPTY for every record type but the three that own children, which
+    /// is what makes a caller's walk free on the reads that don't touch this shape.</summary>
+    public static IReadOnlyDictionary<string, OwnedChildShape> Fields(IMajorRecordGetter body) =>
         _byType.GetOrAdd(body.GetType(), static t =>
         {
             // ChildBearingProperties requires a SETTABLE property (it exists to lift children off a record and put
@@ -44,16 +63,26 @@ public static class OwnedChildContent
             // CellBinaryOverlay answers [NavigationMeshes, Persistent, Temporary] but NOT Landscape — the overlay
             // exposes the LIST children settably and the SINGULAR one read-only. So asking the runtime type
             // directly loses exactly the singular owned children (Cell.Landscape, Worldspace.TopCell — #335's
-            // shape) while looking correct on the common ones, which is the worst way for it to be wrong. The
-            // getter is mapped to the concrete settable class first, through the engine's own mapper.
+            // shape) while looking correct on the common ones, which is the worst way for it to be wrong.
             var getter = WriteEngine.PrimaryGetter(t);
             var concrete = getter is null ? null : WriteEngine.ConcreteOf(getter);
-            return concrete is null
-                ? Array.Empty<string>()
-                : WriteEngine.ChildBearingProperties(concrete).Select(p => p.Name).ToArray();
+            var map = new Dictionary<string, OwnedChildShape>(StringComparer.Ordinal);
+            if (concrete is null) return map;
+            foreach (var p in WriteEngine.ChildBearingProperties(concrete))
+                // The shape is a fact about the PROPERTY, not about any one body's value — so it is answered here,
+                // off the type, and is available to a caller that has read no bodies at all.
+                map[p.Name] = typeof(IMajorRecordGetter).IsAssignableFrom(p.PropertyType)
+                    ? OwnedChildShape.Singular
+                    : OwnedChildShape.Collection;
+            return map;
         });
 
-    static readonly ConcurrentDictionary<Type, IReadOnlyList<string>> _byType = new();
+    static readonly ConcurrentDictionary<Type, IReadOnlyDictionary<string, OwnedChildShape>> _byType = new();
+
+    /// <summary>The shape of one field on <paramref name="body"/>'s type, or <see cref="OwnedChildShape.None"/>
+    /// when the field owns no children.</summary>
+    public static OwnedChildShape ShapeOf(IMajorRecordGetter body, string field) =>
+        Fields(body).TryGetValue(field, out var s) ? s : OwnedChildShape.None;
 
     /// <summary>Does <paramref name="body"/>'s own <paramref name="field"/> DECLARE at least one child record?
     ///
@@ -73,7 +102,12 @@ public static class OwnedChildContent
     ///
     /// <para>NULL means the field could not be READ — never false. "I could not look" is not evidence of "there
     /// is nothing there" (the #308 rule the read engine's own <see cref="ReadEngine.LeafRead.Unreadable"/> exists
-    /// for), and a caller must not report an unreadable body as one that declares nothing.</para></summary>
+    /// for), and a caller must not report an unreadable body as one that declares nothing.</para>
+    ///
+    /// <para><b>This reads a BODY, and reading a body is not free</b> — the resolver fetches one by enumerating a
+    /// whole overlay, so a caller asking this of every plugin touching a record pays per plugin. Only the lane
+    /// that has already fetched those bodies (the conflict tree) asks it; the default read answers the cheaper
+    /// question the index alone can settle.</para></summary>
     public static bool? DeclaresChild(IMajorRecordGetter body, string field)
     {
         try
