@@ -6,6 +6,17 @@ when it changes.
 
 ## Unreleased
 
+- **Fixed: the refusal for "no such patch to extend" now says how to give a new patch a name.** Guessing
+  `into="My Cool Patch.esp"` for a patch you have not created yet is refused, correctly — but the only remedy it
+  offered was to omit `into=` and create the patch fresh, which is precisely the call that produces a generically
+  named `Patch.esp`. The parameter that names a new patch, `patch=`, appeared in nothing you read. The refusal now
+  hands back the call you meant, with your own guessed name already in it — `pass patch="My Cool Patch"` — and says
+  what omitting it costs. This matters more than a wording nit because there is no rename primitive: the name you
+  get on the first write is the name you keep. `patch=` is now documented as well, in the core workflow beside
+  `into=`. The file-placing tools (`place_asset`, `compile_script`, `decompile_script`, `bsa_repack`, `nif_set`,
+  `copy_npc_appearance`) keep the shorter remedy on purpose: on `housecarl_bsa_repack`, `patch=` names the `.bsa`
+  rather than the mod folder, so pointing every caller at it would be wrong for that one.
+
 - **Fixed: reading a cell's placed references could report an empty cell the game fills.** Placed references, a
   topic's INFO lines and a worldspace's cells are declared **per plugin**, and the game assembles a parent's
   children from every plugin that declares them. So a plugin that overrides a cell for an unrelated reason —
