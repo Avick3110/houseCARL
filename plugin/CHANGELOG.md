@@ -15,17 +15,16 @@ when it changes.
   than a wording nit because there is no rename primitive: the name you get on the first write is the name you
   keep. `patch=` is now documented as well, in the core workflow beside `into=`.
 
-  It offers the name without promising the filename, because houseCARL auto-suffixes a name already taken by an
-  active plugin — and that is the likely case, since the name you guessed at `into=` is usually one you saw in your
-  load order. Both names the sentence mentions carry that qualifier, the one you choose and the `Patch` default.
+  It offers the name without promising the filename, because houseCARL auto-suffixes a name that is already taken —
+  either by a mod folder it already made under that name, or by an active plugin. **Read the patch name back off
+  the response**; both names the sentence mentions carry that qualifier, the one you choose and the `Patch` default.
 
   The rule for which tools say it: exactly those whose `patch=` names a **new** patch defaulting to `Patch` — the
   field-write, record-creation and forward lanes. Everywhere else the shorter, always-true remedy stands, because
   the naming sentence would be false there: a removal edits a patch that already exists and cannot create one; a
   closure copy or an appearance copy names its fresh patch after the new EditorID; and the tools that place a file
-  into a patch folder each default to their own stem (`houseCARL_Scripts`, `houseCARL_Assets`, `houseCARL_SEQ`,
-  `houseCARL_Archive`) rather than to `Patch` — with `bsa_repack` a further case, where `patch=` names the `.bsa`
-  itself rather than the mod folder.
+  into a patch folder each default to their own stem, never to `Patch` — with `bsa_repack` a further case, where
+  `patch=` names the `.bsa` itself rather than the mod folder.
 
 - **Fixed: reading a cell's placed references could report an empty cell the game fills.** Placed references, a
   topic's INFO lines and a worldspace's cells are declared **per plugin**, and the game assembles a parent's

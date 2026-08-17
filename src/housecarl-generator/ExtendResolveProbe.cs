@@ -272,8 +272,21 @@ internal static class ExtendResolveProbe
                 var followed = svc.ApplyEdits(new[] { Wgt(4) }, "GhostActive", null);
                 Check(followed.Success && Ends(followed.OutputPath, "houseCARL - GhostActive_001", "GhostActive_001.esp"),
                       $"…and following it auto-suffixes off the active plugin ({Path.GetFileName(followed.OutputPath)})");
-                Check(r.Error is not null && !r.Error.Contains("under that name", StringComparison.Ordinal),
-                      "…which is why the sentence promises no filename — it says 'a name you choose', not 'that name'");
+
+                // The negative is pinned to what the CURRENT sentence must not contain, not to a phrase only an old
+                // one did: the refusal must not name the file the write actually produces. Its predecessor pinned
+                // the superseded wording, so it reddened for exactly one sabotage — restoring that wording — and
+                // would have stayed green on any new way of predicting the filename.
+                //
+                // Its reach, stated rather than implied: it catches a wording that echoes the name that really gets
+                // written (the suffixed stem). It does NOT catch one predicting the UNSUFFIXED name, because the
+                // refusal legitimately quotes "<stem>.esp" already as the plugin it searched for — no string test
+                // can tell that occurrence from a prediction. The property's real load is carried by the positive
+                // pin above plus the `followed` call, which make the collision observable; this is a second net,
+                // not the proof.
+                var written = Path.GetFileNameWithoutExtension(followed.OutputPath);      // "GhostActive_001"
+                Check(r.Error is not null && !r.Error.Contains(written, StringComparison.OrdinalIgnoreCase),
+                      $"…and the refusal never names the file the write produces ('{written}') — it promises no filename");
             }
 
             // ---- 8c: the RIDER lane keeps the older tail — it must NOT name patch= ----
