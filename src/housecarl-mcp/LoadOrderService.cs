@@ -2321,7 +2321,7 @@ public sealed class LoadOrderService : IDisposable
         }
 
         var record = ReadEngine.ReadFields(rec, fields, depth, containerHint);   // materialise while the session (overlay) is open
-        record = AnnotateOwnedChildContent(record, rec, view, session, fk, source, out bool childNoted);   // #342, DISPLAY-ONLY (same open session)
+        record = AnnotateOwnedChildContent(record, rec, view, fk, out bool childNoted);   // #342 cheap tier — index only, DISPLAY-ONLY
         if (resolveNames) record = AnnotateLinks(record, view, session, linkMemo ?? new());   // P7: identity of every FormLink token, DISPLAY-ONLY (same open session)
         var touching = conflictTree ? view.TouchingPlugins(fk) : null;
         return new ReadOutcome(fk, record, source, winner.Value.WinnerPlugin, winner.Value.OverrideDepth, touching, null)
@@ -2353,8 +2353,8 @@ public sealed class LoadOrderService : IDisposable
         return rebuilt is null ? rf : rf with { Fields = rebuilt };
     }
 
-    /// <summary>#342 — annotate a read of a field that OWNS CHILD RECORDS when another plugin touching the record
-    /// declares more of them than the body being read does.
+    /// <summary>#342 CHEAP TIER — on a read of a field that OWNS CHILD RECORDS, say that other plugins touch this
+    /// record and that this read did not open them. Index only; no body is fetched.
     ///
     /// <para><b>The wrong answer this exists to stop.</b> Placed references, a topic's INFOs and a worldspace's cells
     /// are declared per plugin and assembled by the game from every plugin that declares them. An override that
@@ -2364,87 +2364,108 @@ public sealed class LoadOrderService : IDisposable
     /// <c>Skyrim.esm</c>'s own body carries 201. A caller auditing "what is in this cell" through the winner got a
     /// silent wrong answer, which is the Q3 class.</para>
     ///
-    /// <para><b>What it does NOT do.</b> It does not union anything. The read that answers "what is actually live in
-    /// this parent" — every child at its own winner, minus the deleted and initially-disabled — is separate design
-    /// work; naive concatenation would multi-count the children that overlapping overrides both declare. This states
-    /// the fact and leaves the value exactly as the body declares it.</para>
+    /// <para><b>Why this tier claims so little.</b> Naming WHICH plugins declare children requires their bodies,
+    /// and <see cref="LoadOrderResolver.GetRecord"/> fetches one by enumerating a whole overlay. Doing that per
+    /// toucher was built, measured on a real load order, and withdrawn: 27 ms → 588 ms for one Dawnstar cell,
+    /// 21 ms → 1.3 s for Tamriel, 6.3 s → 126 s for a 200-cell query, and an artifact job that never finished.
+    /// So this tier states only what the index settles for free, and <see cref="ResolveTreeFill"/> — the lane that
+    /// has already paid for every body — states which plugins actually declare.</para>
     ///
-    /// <para><b>Cost.</b> Nothing happens on a read whose record type owns no children — every type but Cell,
-    /// DialogTopic and Worldspace — and nothing happens on one whose requested fields miss the owning set. When it
-    /// does run it fetches each other touching body ONCE (not once per field) and reads a count off it, which is
-    /// strictly cheaper than the conflict tree's deep read of the same bodies.</para>
+    /// <para><b>What neither tier does.</b> Union anything. The read that answers "what is actually live in this
+    /// parent" — every child at its own winner, minus the deleted and initially-disabled — is separate design work;
+    /// naive concatenation would multi-count the children overlapping overrides both declare.</para>
     ///
-    /// <para><b>Every other toucher, not just the lower ones.</b> The additive assembly is over the whole touching
-    /// set, so a <c>plugin=</c>-scoped read of a base master — the workaround this bug's reporter reached for —
-    /// gets the same annotation when later plugins declare content it cannot see. For the default winner read the
-    /// two readings coincide: the winner is last, so every other toucher is below it.</para>
+    /// <para><b>Every other toucher, not just the lower ones.</b> Assembly is over the whole touching set, so a
+    /// <c>plugin=</c>-scoped read of a base master — the workaround this bug's reporter reached for — is annotated
+    /// too: the plugins ABOVE it declare children it cannot see.</para>
     ///
     /// <para>DISPLAY-ONLY, like the biped-slot decode and the resolve_names link it sits beside: it rides
     /// <see cref="FieldValue.Display"/>, never the round-trip <see cref="FieldValue.Token"/>, so it is invisible to
     /// the write surface, the read-proof oracle and the conflict diff — and it reaches the text render, the json
     /// fields array and the dense cells through that one carrier.</para></summary>
     static RecordFields AnnotateOwnedChildContent(RecordFields rf, IMajorRecordGetter body,
-                                                  LoadOrderResolver.IndexView view,
-                                                  LoadOrderResolver.OverlaySession session, FormKey fk, string source,
-                                                  out bool noted)
+                                                  LoadOrderResolver.IndexView view, FormKey fk, out bool noted)
     {
         noted = false;
         // The pinned field set (write-surface-guard's own sweep, reached from a getter) — empty for all but three
         // record types, so this is where the overwhelming majority of reads leave, before any index lookup.
-        var owning = OwnedChildContent.FieldNames(body);
+        var owning = OwnedChildContent.Fields(body);
         if (owning.Count == 0) return rf;
 
         // …and of the lines THIS read produced, which are those fields. A depth>=2 read emits the same summary line
         // at the bare field path before expanding its children, so the annotation lands in one place either way.
         List<int>? hits = null;
         for (int i = 0; i < rf.Fields.Count; i++)
-            if (owning.Contains(rf.Fields[i].Path, StringComparer.Ordinal)) (hits ??= new List<int>()).Add(i);
+            if (owning.ContainsKey(rf.Fields[i].Path)) (hits ??= new List<int>()).Add(i);
         if (hits is null) return rf;
 
         var touching = view.TouchingPlugins(fk);
-        if (touching is null || touching.Count <= 1) return rf;   // sole declarer: its own body IS the whole set
+        if (touching is null || touching.Count <= 1) return rf;   // sole toucher: its own body IS the whole story
 
-        // The question is a BOOLEAN about the OTHER bodies — "does anyone else declare children here" — not a
-        // comparison against this one. A count comparison was tried and rejected: it reported the wrong plugin as
-        // the largest declarer wherever children are container-nested (Worldspace.SubCells counts blocks), and it
-        // said nothing at all when this body simply held the biggest single list while another declared a DISJOINT
-        // set the game also loads. Both are the silent-wrong-answer class the annotation exists to close.
-        var declarers = new List<string>[hits.Count];
-        var unreadable = new List<string>[hits.Count];
-        for (int h = 0; h < hits.Count; h++) { declarers[h] = new List<string>(); unreadable[h] = new List<string>(); }
+        // INDEX ONLY — no body is opened here. Naming WHICH plugins declare children means fetching their bodies,
+        // and the resolver fetches one by enumerating a whole overlay: measured on a real load order, doing that
+        // per toucher took one Dawnstar cell read from 27 ms to 588 ms, a worldspace read to 2.5 s, and an
+        // unbounded artifact job past ten minutes. So the default read states only what the index settles for
+        // free — that other plugins touch this record and this read did not look at what they declare — and the
+        // conflict-tree lane, which has already paid for every body, states which ones do.
+        var note = ReadSentences.NotReadNote(touching.Count - 1);
+        var rebuilt = new List<FieldValue>(rf.Fields);
+        foreach (var i in hits)
+            // These fields are containers and owned records; the only other producer of Display is the flags
+            // decode, which fires on [Flags] enum leaves alone — so there is no annotation here to displace.
+            rebuilt[i] = rebuilt[i] with { Display = note };
+        noted = true;
+        return rf with { Fields = rebuilt };
+    }
 
-        foreach (var p in touching)
+    /// <summary>The PRECISE tier (#342): which other plugins actually declare child records for each annotated
+    /// field, computed off the bodies the conflict tree HAS ALREADY FETCHED.
+    ///
+    /// <para>This adds no record fetch of its own — that is the whole point. <see cref="ResolveTreeFill"/> walks
+    /// <c>tree.Nodes</c>, which <see cref="LoadOrderResolver.ResolveTree"/> materialised, and asks each body a
+    /// question it can answer in hand. A version that fetched its own bodies was measured and rejected (see the
+    /// cheap tier's comment).</para></summary>
+    public sealed record ChildDeclarers(OwnedChildShape Shape, IReadOnlyList<string> Declaring, IReadOnlyList<string> Unreadable);
+
+    /// <summary>A conflict-tree fill plus the per-field declarer answer read off the SAME bodies.</summary>
+    internal sealed record TreeFill(ConflictTreeView View, IReadOnlyDictionary<string, ChildDeclarers> ByField);
+
+    /// <summary>Fill the conflict tree AND, from the same nodes, answer which other plugins declare child records
+    /// for each of <paramref name="renderedPaths"/> that owns any. One session, one fetch per touching plugin —
+    /// the tree's own — serving both the diff view and the annotation.</summary>
+    internal TreeFill? ResolveTreeFill(ViewPin p, FormKey fk, IReadOnlyList<string>? fields,
+                                       string? sourcePlugin, IReadOnlyList<string> renderedPaths)
+    {
+        using var session = p.Resolver.OpenSession();
+        var tree = p.View.ResolveTree(session, fk);
+        if (tree is null) return null;
+
+        var owning = tree.Nodes.Count > 0 ? OwnedChildContent.Fields(tree.Nodes[0].Record) : null;
+        var wanted = owning is null || owning.Count == 0
+            ? new List<string>()
+            : renderedPaths.Where(owning.ContainsKey).Distinct(StringComparer.Ordinal).ToList();
+        var declaring = wanted.ToDictionary(f => f, _ => new List<string>(), StringComparer.Ordinal);
+        var unreadable = wanted.ToDictionary(f => f, _ => new List<string>(), StringComparer.Ordinal);
+
+        var nodes = new List<ConflictNodeView>(tree.Nodes.Count);
+        foreach (var n in tree.Nodes)
         {
-            if (string.Equals(p, source, StringComparison.OrdinalIgnoreCase)) continue;   // this body is not an "other"
-            // A body we cannot fetch is UNKNOWN, never "declares nothing" (#308's rule, one level down): dropping
-            // it silently would render as "nobody else declares content here", which is the wrong answer this
-            // annotation exists to prevent. The fetch is caught for the same reason it is not caught on the
-            // conflict-tree path — there, a fault fails a view the caller asked for; here it would fail a whole
-            // read over an ADDITIVE note, so it is named instead.
-            IMajorRecordGetter? other;
-            try { other = view.GetRecord(session, p, fk); } catch { other = null; }
-            for (int h = 0; h < hits.Count; h++)
+            nodes.Add(new ConflictNodeView(n.Plugin, ReadEngine.ReadFields(n.Record, fields, ConflictDiffDepth)));   // materialise while open
+            if (wanted.Count == 0 || string.Equals(n.Plugin, sourcePlugin, StringComparison.OrdinalIgnoreCase)) continue;
+            foreach (var f in wanted)
             {
-                var d = other is null ? null : OwnedChildContent.DeclaresChild(other, rf.Fields[hits[h]].Path);
-                if (d == true) declarers[h].Add(p);
-                else if (d is null) unreadable[h].Add(p);
+                // NULL is "I could not look", never "declares nothing" (#308's rule one level down): a body dropped
+                // in silence would render as "nobody else declares content here".
+                var d = OwnedChildContent.DeclaresChild(n.Record, f);
+                if (d == true) declaring[f].Add(n.Plugin);
+                else if (d is null) unreadable[f].Add(n.Plugin);
             }
         }
 
-        List<FieldValue>? rebuilt = null;
-        for (int h = 0; h < hits.Count; h++)
-        {
-            if (ReadSentences.OwnedChildDeclarers(declarers[h], unreadable[h]) is not { } note) continue;
-            rebuilt ??= new List<FieldValue>(rf.Fields);
-            rebuilt[hits[h]] = rebuilt[hits[h]] with
-            {
-                // These fields are containers and owned records; the only other producer of Display is the flags
-                // decode, which fires on [Flags] enum leaves alone — so there is no annotation here to displace.
-                Display = note,
-            };
-            noted = true;
-        }
-        return rebuilt is null ? rf : rf with { Fields = rebuilt };
+        var byField = new Dictionary<string, ChildDeclarers>(StringComparer.Ordinal);
+        foreach (var f in wanted)
+            byField[f] = new ChildDeclarers(owning![f], declaring[f], unreadable[f]);
+        return new TreeFill(new ConflictTreeView(nodes), byField);
     }
 
     /// <summary>How deep the conflict diff reads each touching body. The diff must compare CONTENT, not the

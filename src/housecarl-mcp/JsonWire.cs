@@ -342,12 +342,16 @@ static class JsonWire
         return Finish(ms);
     }
 
-    /// <summary>The #342 invariant clause on the json lane, written ONCE per response when any rendered record
-    /// carries a per-field declarer annotation — the same const the text lane states, so the two transports
-    /// cannot drift on what a child record is. Gated on the outcome's structural flag, never on the prose.</summary>
+    /// <summary>The #342 clause on the json lane, written ONCE per response when a rendered record carries the
+    /// annotation — the same const the text lane states, so the two transports cannot drift. Gated on the
+    /// outcome's structural flag, never on the prose.
+    ///
+    /// <para>json only ever states the CHEAP tier's clause: <c>conflict_tree=true</c> is refused in json mode (a
+    /// text-only diff view), so the lane that has the bodies to name declarers does not exist here. A json caller
+    /// who wants the precise answer takes the same route the clause names — the text lane.</para></summary>
     static void WriteOwnedChildNote(Utf8JsonWriter w, bool noted)
     {
-        if (noted) w.WriteString("owned_child_note", ReadSentences.OwnedChildMerge);
+        if (noted) w.WriteString("owned_child_note", ReadSentences.NotReadClause);
     }
 
     // ---- housecarl_batch_record_detail (P6) ---------------------------------------------------------

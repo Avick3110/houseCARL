@@ -60,13 +60,20 @@ public static class ResultArtifact
         /// IO failure (the caller renders it; Q3). <paramref name="total"/> is the TRUE result total; it equals
         /// <see cref="RowCount"/> unless the producing lane deliberately windowed (an auto-spill of an explicit
         /// limit= window writes the window and says so via total &gt; row_count).</summary>
+        /// <param name="notes">Response-level statements the ROWS depend on for their meaning — a note a row's own
+        /// annotation would otherwise leave unexplained. An artifact is re-entered later with no conversation
+        /// attached, so a label that ships without its meaning ships as noise (#342: rows carrying "also declared
+        /// by X" need the sentence that says what a child record is). Stated once here rather than per row, which
+        /// on a 100k-row artifact would be megabytes of one repeated sentence.</param>
         public (Manifest? Manifest, string? Error) Save(
             string path, string tool, IReadOnlyList<KeyValuePair<string, string>> query, string? identity,
-            IReadOnlyList<string> rowSchema, string sort, int total, string epoch)
+            IReadOnlyList<string> rowSchema, string sort, int total, string epoch,
+            IReadOnlyList<string>? notes = null)
         {
             var manifest = new Manifest(tool, query, identity, rowSchema, sort, _rowCount, total,
                                         _typeCounts.Count > 0 ? _typeCounts : null, epoch,
-                                        DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"));
+                                        DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
+                                        notes is { Count: > 0 } ? notes : null);
             string? tmp = null;
             try
             {
@@ -113,7 +120,8 @@ public static class ResultArtifact
         int Total,
         IReadOnlyDictionary<string, int>? TypeCounts,
         string Epoch,
-        string Created)
+        string Created,
+        IReadOnlyList<string>? Notes = null)
     {
         internal void WriteTo(Utf8JsonWriter w)
         {
@@ -139,6 +147,12 @@ public static class ResultArtifact
             }
             w.WriteString("epoch", Epoch);
             w.WriteString("created", Created);
+            if (Notes is { Count: > 0 })   // response-level statements the rows' own annotations rely on (#342)
+            {
+                w.WriteStartArray("notes");
+                foreach (var n in Notes) w.WriteStringValue(n);
+                w.WriteEndArray();
+            }
             w.WriteEndObject();
         }
     }
