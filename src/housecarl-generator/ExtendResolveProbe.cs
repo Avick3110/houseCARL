@@ -226,6 +226,12 @@ internal static class ExtendResolveProbe
                     && r.Error.Contains("pass patch=\"GhostPatch\"", StringComparison.Ordinal)
                     && r.Error.Contains("houseCARL names it \"Patch\"", StringComparison.Ordinal);
                 Check(remedy, "…and the remedy names patch=\"GhostPatch\" + what omitting it costs (#343)");
+
+                // The qualifier is load-bearing, not padding: it is the only thing keeping the sentence true in the
+                // collision case arm 8b2 exercises, and it must cover BOTH names the sentence mentions — the chosen
+                // one and the "Patch" default — because the same auto-suffix arm falsifies either.
+                Check(r.Error is not null && r.Error.Contains("either name auto-suffixed if already taken", StringComparison.Ordinal),
+                      "…and qualifies BOTH names it offers with the auto-suffix, rather than promising a filename");
             }
 
             // ---- 8b: the remedy is TRUE — following it produces the patch the caller asked for ----
@@ -237,6 +243,37 @@ internal static class ExtendResolveProbe
                 var r = svc.ApplyEdits(new[] { Wgt(2) }, "GhostPatch", null);
                 Check(r.Success && Ends(r.OutputPath, "houseCARL - GhostPatch", "GhostPatch.esp"),
                       $"patch=\"GhostPatch\" writes the patch under that name ({Path.GetFileName(r.OutputPath)})");
+            }
+
+            // ---- 8b2: the COLLISION case — the one the remedy used to mispromise ----
+            //      An ACTIVE plugin whose mod folder is named something else is exactly what a caller guesses into=
+            //      from, because the plugin name is what they saw in their load order. Nothing houseCARL owns answers
+            //      to it, so the not-found remedy fires — and the fresh write then auto-suffixes off the active
+            //      plugin, so a remedy promising the guessed name "under that name" was false precisely here. The
+            //      sentence now offers the name without promising the filename; this arm holds it to that.
+            Console.WriteLine();
+            Console.WriteLine("--- 8b2: an active plugin of the same name → the remedy must not promise the filename ---");
+            {
+                var oddDir = Path.Combine(mods, "OddlyNamedMod");
+                Directory.CreateDirectory(oddDir);
+                new SkyrimMod(new ModKey("GhostActive", ModType.Plugin), SkyrimRelease.SkyrimSE)
+                    .BeginWrite.ToPath(Path.Combine(oddDir, "GhostActive.esp"))
+                    .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+                File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + mKey.FileName + "\r\nGhostActive.esp\r\n");
+                File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + mKey.FileName + "\r\n*GhostActive.esp\r\n");
+                File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+OddlyNamedMod\r\n+MasterMod\r\n");
+                svc.Stats();                                                   // let the resolver see the changed order
+
+                var r = svc.ApplyEdits(new[] { Wgt(4) }, null, "GhostActive");
+                Check(!r.Success && r.Error is not null
+                      && r.Error.Contains("pass patch=\"GhostActive\"", StringComparison.Ordinal),
+                      "into=\"GhostActive\" (an active plugin, foreign folder) still refuses with the naming remedy");
+
+                var followed = svc.ApplyEdits(new[] { Wgt(4) }, "GhostActive", null);
+                Check(followed.Success && Ends(followed.OutputPath, "houseCARL - GhostActive_001", "GhostActive_001.esp"),
+                      $"…and following it auto-suffixes off the active plugin ({Path.GetFileName(followed.OutputPath)})");
+                Check(r.Error is not null && !r.Error.Contains("under that name", StringComparison.Ordinal),
+                      "…which is why the sentence promises no filename — it says 'a name you choose', not 'that name'");
             }
 
             // ---- 8c: the RIDER lane keeps the older tail — it must NOT name patch= ----
@@ -260,11 +297,12 @@ internal static class ExtendResolveProbe
 
             // ---- 8d: the REMOVAL lane must not get the naming sentence either ----
             //      Removal reaches the same refusal through ResolveOutputPath — the SAME branch arm 8 covers — so the
-            //      lane bit does not separate them; only the caller's own patchNamesFresh does. For housecarl_remove
-            //      the naming sentence would be actively wrong twice over: patch= there names an EXISTING patch (it
-            //      IS the into= slot), so "pass patch=<the name you just passed>" re-issues the failing call, and
-            //      removal cannot create a patch at all, so the cost clause would be false as well. Withholding it is
-            //      the fix for a defect this branch briefly shipped; this arm is what stops it coming back.
+            //      lane bit does not separate them; only the caller's own patchNamesFresh does. A removal edits an
+            //      artifact that already exists, so it cannot create a patch and the cost clause is false whichever
+            //      spelling the tool gives the lane: 2.0's housecarl_remove calls it into=, while 1.x remove_record
+            //      calls it patch= and means the EXISTING patch — there "pass patch=<the name you just passed>" would
+            //      re-issue the very call that failed. Withholding it is the fix for a defect this branch briefly
+            //      shipped; this arm is what stops it coming back.
             Console.WriteLine();
             Console.WriteLine("--- 8d: the removal lane's refusal does not name patch= ---");
             {
@@ -272,7 +310,7 @@ internal static class ExtendResolveProbe
                 Check(!r.Success && r.Error is not null && r.Error.Contains("GhostRemove.esp", StringComparison.Ordinal),
                       "housecarl_remove into a patch that does not exist still refuses, naming the .esp searched");
                 Check(r.Error is not null && !r.Error.Contains("patch=", StringComparison.Ordinal),
-                      "…and does NOT name patch= (there it names an EXISTING patch — the remedy would loop)");
+                      "…and does NOT name patch= (a removal cannot create a patch — the remedy would be false)");
             }
 
             // ---- 9: FOREIGN — an un-owned "houseCARL - X" folder stays REFUSED + byte-untouched (Q3) ----
