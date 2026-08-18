@@ -135,9 +135,12 @@ internal static class WriteSentences
     //
     // THE CLAIM RULE, and why these two sentences are so bare.
     //
-    // Every clause below states EITHER (i) something this tool itself did or did not do, OR (ii) a break ENTAILED by
-    // what this operation did, scoped by the addressed line's own content. Nothing describes an external grammar.
-    // No quoted syntax, no addressing-model taxonomy, no "each in its own spelling" exhaustiveness.
+    // Every clause below states ONE of exactly three things:
+    //   (i)   something this tool itself did or did not do;
+    //   (ii)  a break ENTAILED by what this operation did, scoped by the addressed line's own content;
+    //   (iii) a per-system fact, stated ONLY where a bundled skill states it verbatim, cited by file and line beside
+    //         the constant — quoted, never derived, and never generalised to the systems whose skills are silent.
+    // Nothing else. No quoted syntax, no addressing-model taxonomy, no exhaustiveness.
     //
     // That rule exists because the earlier drafts kept getting the grammars wrong, one layer at a time. The first
     // claimed all four address a record as <plugin>|<FormID> — true of SkyPatcher alone; SPID and KID are
@@ -155,14 +158,41 @@ internal static class WriteSentences
     // and that no bundled skill documents a fallback keeping such a line matched once that plugin deactivates —
     // SkyPatcher's skill states the opposite outright, that a form it cannot resolve is silently skipped.
 
-    /// <summary>Merge's reminder. The break is entailed by the swap this same report instructs: deactivating a donor
-    /// is what stops a line that NAMES that donor from matching. Deliberately no override/master carve-out — a line
-    /// addressing a record the donor merely overrode names the MASTER, so "names a donor" already excludes it by
-    /// construction, and spelling that out would be a claim about addressing rather than about this operation.</summary>
-    [MustState("Nothing here rewrites those files", "stops matching once you deactivate that donor at the swap")]
+    /// <summary>Merge's reminder.
+    ///
+    /// <para>The middle clause says the records MOVED, and stops there. It used to say a line naming a donor "stops
+    /// matching", which was wrong twice over. Factually: for a line that names the donor as an EXCLUSION — SPID's
+    /// plain-plugin-name Form filter under the <c>-</c> modifier
+    /// (<c>spid-authoring/references/filters.md:97-107</c>), SkyPatcher's <c>filterByModNamesExcluded</c>
+    /// (<c>skypatcher-authoring/references/grammar-core.md:204</c>) — the line does not go dead, its scope WIDENS, and
+    /// the donor's records start receiving exactly what they were excluded from. Over-application is the harder of the
+    /// two symptoms to notice, and the caller was being sent to look for the other one. And structurally: "stops
+    /// matching" is a claim about how those systems EVALUATE a line whose named plugin is gone, which is rule (iii)
+    /// territory with no skill behind it — none documents unresolvable-filter semantics, so the pre-commit check that
+    /// found no fallback was absence of evidence and never reached the exclusion shape at all.</para>
+    ///
+    /// <para>What survives is the operation's own fact: the records now live under the merged plugin's name, so a line
+    /// naming a donor no longer describes them. Direction-neutral by construction — it names neither a dead line nor an
+    /// over-applying one, because which of those a caller gets depends on the system and on the line, and the skills own
+    /// that. Both line shapes are covered on purpose: addressing a record IN the donor and filtering ON the donor are
+    /// the same fact from this side, since both name the plugin the records no longer belong to. Still no override/master
+    /// carve-out — a line naming a record the donor merely overrode names the MASTER, which the scoping excludes already.</para>
+    ///
+    /// <para>The third clause is the only rule-(iii) claim on the surface, and it is SkyPatcher-only for a reason: its
+    /// skill states the filename gate verbatim — <c>Plugin.esm.ini</c> / <c>Plugin.esp.ini</c> load "<i>Only</i> when
+    /// that plugin is active in the load order; otherwise skipped" (<c>grammar-core.md:93</c>, restated at 218-219 as
+    /// deciding "whether the file loads at all"). The generalised form — "any config file named for the donor" — was
+    /// considered and REFUSED: SPID and KID document filename rules with no activity gate, so the general claim is
+    /// underivable from our sources and would be wrong-shaped for a SPID file that merely happens to be named after a
+    /// donor. It earns its place because it is the one break the rest of the sentence cannot reach: every line in that
+    /// file goes dark, including the lines that never mention a donor at all.</para></summary>
+    [MustState("Nothing here rewrites those files", "no longer describes those records", "stops loading at the swap")]
     internal const string MergeRuntimeConfigs =
-        "Nothing here rewrites those files. A line in one of them that names a donor stops matching once you " +
-        "deactivate that donor at the swap.\n";
+        "Nothing here rewrites those files. After the swap a donor's records live under the merged plugin's name, so a " +
+        "line that names a donor — whether to address a record in it or to filter on it — no longer describes those " +
+        "records. Separately, a SkyPatcher config file whose NAME is a donor's filename (Plugin.esp.ini) is read only " +
+        "while that plugin is active, so it stops loading at the swap: every line in it, including the lines that never " +
+        "name a donor.\n";
 
     /// <summary>Compact's. The plugin name survives a compaction, so the half that moves is the object id — and only
     /// the ids this run actually moved, which the accounting above states. "once the compacted plugin is the one
