@@ -575,17 +575,17 @@ public static class CheckErrorsProbe
             && tightText.Contains("2 were NOT listed", StringComparison.Ordinal),
             $"omitted=[{string.Join(",", (tight.ListingOmitted ?? new List<SweepCount>()).Select(c => $"{c.Key}:{c.Count}"))}]");
 
-        Check("BASELINE-SUMMARY: the split is stated (3 of 5 from base masters, 2 from the rest) and NAMES the plugins it counted as baseline",
-            tight.BaselineDangling == 3 && tight.BaseMastersInScope
-            && tightText.Contains("baseline: 3 of 5 dangling ref(s) come from the base-game masters", StringComparison.Ordinal)
-            && ErrorCheck.BaseMasters.All(m => tightText.Contains(m, StringComparison.Ordinal))
+        Check("BASELINE-SUMMARY: the split is stated (3 of 5, 2 from the rest) and names ONLY the base master this sweep actually opened — the four it never touched are not named (round-1 review: two reviewers, independently)",
+            tight.BaselineDangling == 3 && tight.BaseMastersSwept is { Count: 1 } sw && sw[0] == "Skyrim.esm"
+            && tightText.Contains("baseline: 3 of 5 dangling ref(s) come from the base-game master(s) this sweep covered (Skyrim.esm)", StringComparison.Ordinal)
+            && ErrorCheck.BaseMasters.Where(m => m != "Skyrim.esm").All(m => !tightText.Contains(m, StringComparison.Ordinal))
             && tightText.Contains("2 come from the rest of the swept scope", StringComparison.Ordinal),
-            $"baseline={tight.BaselineDangling} inScope={tight.BaseMastersInScope}");
+            $"baseline={tight.BaselineDangling} swept=[{string.Join(",", tight.BaseMastersSwept ?? Array.Empty<string>())}]");
 
         Check("BASELINE-NOT-IN-SCOPE: a sweep that never looked at a base master says nothing about baseline — 'none found' and 'never checked' must not read alike (Q3)",
-            !modOnly.BaseMastersInScope && modOnly.BaselineDangling == 0
+            modOnly.BaseMastersSwept is { Count: 0 } && modOnly.BaselineDangling == 0
             && !modOnlyText.Contains("baseline:", StringComparison.Ordinal),
-            $"inScope={modOnly.BaseMastersInScope} text-has-line={modOnlyText.Contains("baseline:", StringComparison.Ordinal)}");
+            $"swept={modOnly.BaseMastersSwept?.Count} text-has-line={modOnlyText.Contains("baseline:", StringComparison.Ordinal)}");
 
         Check("BASELINE-PHASE-CLAUSE-ONLY-WHEN-IT-BIT: the budget-order sentence appears on the capped sweep and NOT on the sweep that listed everything it found",
             tightText.Contains("the listing budget (limit=) is spent on every other plugin BEFORE those", StringComparison.Ordinal)
@@ -614,12 +614,69 @@ public static class CheckErrorsProbe
             baseCounts.ListingOmitted is null && !baseCounts.Capped,
             $"omitted={(baseCounts.ListingOmitted is null ? "null" : "present")} capped={baseCounts.Capped}");
 
-        Check("BASE-SET-BY-CONSTRUCTION: the baseline set IS Mutagen's Implicits.BaseMasters, not a list kept here (#344 settled decision 2)",
+        // REACH (round-1 review, partially refused): this arm holds the set's CONTENTS — that it equals Mutagen's for
+        // this release, matches case-insensitively, and excludes Creation Club / _ResourcePack. It does NOT hold
+        // PROVENANCE: a hand-kept literal matching today's five names would pass it. Holding provenance needs an
+        // assertion over ErrorCheck.cs's source text, an idiom this repo does not have anywhere; introducing one for
+        // this is a guard-design call, not a fold. The label says contents, so it cannot be read as more.
+        Check("BASE-SET-CONTENTS: the baseline set equals Mutagen's Implicits.BaseMasters for this release, case-insensitively, and excludes CC / _ResourcePack (#344 settled decision 2 — contents, not provenance; see the comment above)",
             ErrorCheck.BaseMasters.SequenceEqual(
                 Mutagen.Bethesda.Plugins.Implicits.Get(Mutagen.Bethesda.GameRelease.SkyrimSE).BaseMasters.Select(m => m.FileName.String))
             && ErrorCheck.IsBaseMaster("skyrim.esm") && !ErrorCheck.IsBaseMaster("_ResourcePack.esl")
             && !ErrorCheck.IsBaseMaster("ccBGSSSE001-Fish.esm"),
             $"set=[{string.Join(",", ErrorCheck.BaseMasters)}]");
+
+        // ---- the class gate on the baseline line: with the walk skipped there is no split to state, and "0 of 0 come
+        //      from the base-game masters" two lines under "dangling refs NOT CHECKED" is a skipped check reading as a
+        //      clean one — the exact Q3 break this tool exists to catch (round-1 review: the gate was hollow).
+        Check("BASELINE-CLASS-GATE: findings=[missing_masters] prints NO baseline line — a class nobody looked for must not come back as 0 of 0",
+            !Wire.RenderCheckErrors(baseNoWalk, 0).Contains("baseline:", StringComparison.Ordinal)
+            && baseNoWalk.BaselineDangling == 0,
+            $"text-has-line={Wire.RenderCheckErrors(baseNoWalk, 0).Contains("baseline:", StringComparison.Ordinal)}");
+
+        // ---- the OFF-ORDER lane's contribution to both new fields. The pre-enable verify lane is the only place
+        //      off-order files exist, and nothing tied it to the source axis or to the swept-baseline subset.
+        var offSrc = ErrorCheck.Run(r, new[] { "HcCeBad.esp" }, 1000, new[] { ("HcCePatch.esp", patchPath) },
+                                    null, ErrorFindingClass.All, countsOnly: true);
+        Check("OFF-ORDER-SOURCE-AXIS: an off-order file's dangling refs are tallied by SOURCE under that file's own name — a table that silently omitted them would be wrong, not merely absent",
+            offSrc.DanglingBySource is { } os && os.Any(c => c.Key == "HcCePatch.esp" && c.Count == 2)
+            && os.Sum(c => c.Count) == offSrc.TotalDangling,
+            offSrc.DanglingBySource is null ? "<null>" : string.Join(",", offSrc.DanglingBySource.Select(c => $"{c.Key}:{c.Count}")));
+
+        var offBase = ErrorCheck.Run(r, new[] { "HcCeBad.esp" }, 1000, new[] { ("Skyrim.esm", baseSkyrimPath) });
+        Check("OFF-ORDER-BASELINE-SWEPT: a base master swept as a FILE counts as baseline — BaselineDangling and the swept set agree, rather than one saying vanilla was measured and the other saying it was never opened",
+            offBase.BaseMastersSwept is { Count: 1 } obs && obs[0] == "Skyrim.esm" && offBase.BaselineDangling == 3
+            && Wire.RenderCheckErrors(offBase, 0).Contains("this sweep covered (Skyrim.esm)", StringComparison.Ordinal),
+            $"swept=[{string.Join(",", offBase.BaseMastersSwept ?? Array.Empty<string>())}] baseline={offBase.BaselineDangling}");
+
+        // ---- the headline scenario itself: a plugin whose WHOLE set is dropped, which therefore has no section at all.
+        //      At limit=2 the mod takes the entire budget and Skyrim.esm gets nothing — the shape the rendered sentence
+        //      describes, which no fixture previously produced (round-1 review).
+        var whole = ErrorCheck.Run(rb, null, 2);
+        var wholeText = Wire.RenderCheckErrors(whole, 0);
+        Check("BASELINE-WHOLE-SET-DROPPED: a plugin that loses its ENTIRE set has no section, and the omissions list is the only place it appears — the sentence the render prints, produced",
+            whole.Reports.All(p => p.Plugin != "Skyrim.esm")
+            && whole.ListingOmitted is { } wo && wo.Any(c => c.Key == "Skyrim.esm" && c.Count == 3)
+            && wholeText.Contains("Skyrim.esm (3)", StringComparison.Ordinal)
+            && wholeText.Contains("has no section above", StringComparison.Ordinal),
+            $"sections=[{string.Join(",", whole.Reports.Select(p => p.Plugin))}] omitted=[{string.Join(",", (whole.ListingOmitted ?? new List<SweepCount>()).Select(c => $"{c.Key}:{c.Count}"))}]");
+
+        // ---- a duplicated plugins= name is swept twice (pre-existing on main). The omissions table must not read the
+        //      second sweep's section as the whole of what was listed and report the first sweep's findings as dropped
+        //      by a budget that never ran out (round-1 review).
+        var dup = ErrorCheck.Run(rb, new[] { "HcCeBaseMod.esp", "HcCeBaseMod.esp" }, 1000);
+        Check("OMITTED-NO-PHANTOM-ON-DUPLICATE-SCOPE: an uncapped sweep reports NOTHING omitted even when a plugin is named twice — a budget that never ran out cannot have dropped anything",
+            !dup.Capped && dup.ListingOmitted is { Count: 0 },
+            $"capped={dup.Capped} omitted=[{string.Join(",", (dup.ListingOmitted ?? new List<SweepCount>()).Select(c => $"{c.Key}:{c.Count}"))}]");
+
+        // ---- json's omissions table must not be capped by limit=, the knob that caused the omissions: the tighter the
+        //      budget, the more plugins lose entries and the fewer json would have named (round-1 review).
+        var tiny = ErrorCheck.Run(rb, null, 1);
+        var tinyJson = JsonWire.RenderCheckErrors(tiny, 0);
+        Check("OMITTED-JSON-NOT-LIMIT-CAPPED: at limit=1 the json still names BOTH plugins that lost entries — the omissions roster does not shrink as the budget does",
+            JsonDocument.Parse(tinyJson).RootElement.GetProperty("dangling_not_listed_by_source") is var t
+            && t.GetProperty("distinct").GetInt32() == 2 && t.GetProperty("rows").GetArrayLength() == 2,
+            tinyJson.Contains("dangling_not_listed_by_source", StringComparison.Ordinal) ? "see json" : "<field missing>");
 
         var tightJson = JsonWire.RenderCheckErrors(tight, 0);
         var countsJson = JsonWire.RenderCheckErrors(baseCounts, 0);
@@ -629,10 +686,102 @@ public static class CheckErrorsProbe
             && JsonHasHistogram(tightJson, "dangling_not_listed_by_source")
             && JsonHasHistogram(countsJson, "dangling_by_source_plugin")
             && JsonNull(noWalkBaseJson, "baseline_dangling")
-            && JsonDocument.Parse(tightJson).RootElement.GetProperty("base_masters_in_scope").GetBoolean()
-            && !JsonDocument.Parse(JsonWire.RenderCheckErrors(modOnly, 0)).RootElement.GetProperty("base_masters_in_scope").GetBoolean()
+            && JsonDocument.Parse(tightJson).RootElement.GetProperty("base_masters_swept").GetArrayLength() == 1
+            && JsonDocument.Parse(JsonWire.RenderCheckErrors(modOnly, 0)).RootElement.GetProperty("base_masters_swept").GetArrayLength() == 0
             && JsonDocument.Parse(tightJson).RootElement.GetProperty("base_masters").GetArrayLength() == ErrorCheck.BaseMasters.Count,
             "see json render");
+
+
+        // ---- MANY-OMITTED fixture: the roster's own truncation. Twelve mod plugins with three dangling refs each, so a
+        //      tight budget drops entries across more plugins than the capped line names. The line must SAY it did not
+        //      name them all — a truncated roster claiming to be the only place those plugins appear is this very
+        //      defect rebuilt one level down (round-1 review; on the real order 45 plugins lost entries).
+        string manyDir = Path.Combine(tmpDir, "many");
+        Directory.CreateDirectory(manyDir);
+        var manyPaths = new List<string>();
+        try
+        {
+            var skyMany = new SkyrimMod(new ModKey("Skyrim", ModType.Master), SkyrimRelease.SkyrimSE);
+            skyMany.Races.AddNew();
+            string skyManyPath = Path.Combine(manyDir, "Skyrim.esm");
+            skyMany.BeginWrite.ToPath(skyManyPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            manyPaths.Add(skyManyPath);
+            using var skyManyOv = SkyrimMod.CreateFromBinaryOverlay(skyManyPath, SkyrimRelease.SkyrimSE);
+            for (int i = 0; i < 12; i++)
+            {
+                var m = new SkyrimMod(new ModKey($"HcCeMany{i:00}", ModType.Plugin), SkyrimRelease.SkyrimSE);
+                for (int k = 0; k < 3; k++) { var n = m.Npcs.AddNew(); n.EditorID = $"HcCeMany{i:00}Npc{k}"; n.Race.SetTo(baseDeadFk); }
+                string mp = Path.Combine(manyDir, $"HcCeMany{i:00}.esp");
+                m.BeginWrite.ToPath(mp).WithLoadOrder(new ISkyrimModGetter[] { skyManyOv }).Write();
+                manyPaths.Add(mp);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"error: could not synthesize the many-omitted fixture: {ex.GetType().Name}: {(ex.InnerException ?? ex).Message}");
+            return 1;
+        }
+
+        using var rm = LoadOrderResolver.Build(manyPaths);
+        var many = ErrorCheck.Run(rm, null, 4);
+        var manyText = Wire.RenderCheckErrors(many, 0);
+        // Count names in the CAPPED LINE, not the whole render: every listed dangling entry also prints its source as
+        // "000800:HcCeMany00.esp (Npc ...", so a whole-text match counts plugins the roster never named.
+        string cappedLine = manyText.Split('\n').FirstOrDefault(l => l.Contains("capped at limit", StringComparison.Ordinal)) ?? "";
+        int namedInText = many.ListingOmitted!.Count(c => cappedLine.Contains(c.Key + " (", StringComparison.Ordinal));
+        Check("OMITTED-ROSTER-STATES-ITS-TRUNCATION: with more plugins losing entries than the line names, it says how many it did NOT name and never claims to be the only place they appear",
+            many.ListingOmitted is { Count: > 10 }
+            && namedInText == 10
+            && manyText.Contains("the 10 largest of " + many.ListingOmitted.Count, StringComparison.Ordinal)
+            && manyText.Contains("the rest are not named here", StringComparison.Ordinal)
+            && !manyText.Contains("this list is the only place", StringComparison.Ordinal),
+            $"omitted={many.ListingOmitted?.Count} namedInText={namedInText} line=[{cappedLine}]");
+
+        Check("OMITTED-REMEDY-DOES-NOT-PROMISE-SCOPING: the remedy qualifies scoping instead of asserting it reads a set in full — a plugin whose own set exceeds limit= would loop the caller back to this line",
+            manyText.Contains("Raise limit= to list more", StringComparison.Ordinal)
+            && manyText.Contains("unless that set is itself larger than limit=", StringComparison.Ordinal),
+            manyText.Split('\n').FirstOrDefault(l => l.Contains("capped at limit", StringComparison.Ordinal)) ?? "<no capped line>");
+
+        // ---- CLEAN-BASELINE fixture: a base master with NO dangling refs, on a sweep the budget still caps. The
+        //      phase-order sentence talks about baseline findings crowding the list; with none found there is nothing
+        //      for it to describe, and only this fixture exercises that half of the conditional (round-1 review).
+        string cleanDir = Path.Combine(tmpDir, "cleanbase");
+        Directory.CreateDirectory(cleanDir);
+        string cleanSkyPath = Path.Combine(cleanDir, "Skyrim.esm");
+        string cleanModPath = Path.Combine(cleanDir, "HcCeCleanBaseMod.esp");
+        try
+        {
+            var sky = new SkyrimMod(new ModKey("Skyrim", ModType.Master), SkyrimRelease.SkyrimSE);
+            sky.Races.AddNew();                                  // no dangling refs of its own
+            sky.BeginWrite.ToPath(cleanSkyPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            using var skyOv = SkyrimMod.CreateFromBinaryOverlay(cleanSkyPath, SkyrimRelease.SkyrimSE);
+            var m = new SkyrimMod(new ModKey("HcCeCleanBaseMod", ModType.Plugin), SkyrimRelease.SkyrimSE);
+            for (int k = 0; k < 3; k++) { var n = m.Npcs.AddNew(); n.EditorID = $"HcCeCleanBaseNpc{k}"; n.Race.SetTo(baseDeadFk); }
+            m.BeginWrite.ToPath(cleanModPath).WithLoadOrder(new ISkyrimModGetter[] { skyOv }).Write();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"error: could not synthesize the clean-baseline fixture: {ex.GetType().Name}: {(ex.InnerException ?? ex).Message}");
+            return 1;
+        }
+
+        using var rc = LoadOrderResolver.Build(new[] { cleanSkyPath, cleanModPath });
+        var cleanBase = ErrorCheck.Run(rc, null, 2);
+        var cleanBaseText = Wire.RenderCheckErrors(cleanBase, 0);
+        Check("BASELINE-PHASE-CLAUSE-NEEDS-BASELINE-FINDINGS: a capped sweep whose baseline came back CLEAN states the split but not the phase-order sentence — there were no baseline findings for it to be about",
+            cleanBase.Capped && cleanBase.BaselineDangling == 0 && cleanBase.BaseMastersSwept is { Count: 1 }
+            && cleanBaseText.Contains("baseline: 0 of 3", StringComparison.Ordinal)
+            && !cleanBaseText.Contains("the listing budget (limit=) is spent", StringComparison.Ordinal),
+            $"capped={cleanBase.Capped} baseline={cleanBase.BaselineDangling}");
+
+        // ---- both axes empty: they must be tellable apart. Two identical untitled "nothing to tally" lines said
+        //      neither which axis was which nor that a second one had been computed (round-1 review).
+        var cleanCounts = ErrorCheck.Run(r, new[] { "HcCeClean.esp" }, 1000, null, null, ErrorFindingClass.All, countsOnly: true);
+        var cleanCountsText = Wire.RenderCheckErrors(cleanCounts, 0);
+        Check("EMPTY-AXES-TITLED: when both histograms come back empty, each empty line still names its own axis",
+            cleanCountsText.Contains("by TARGET plugin (the plugin the broken refs point INTO): nothing to tally", StringComparison.Ordinal)
+            && cleanCountsText.Contains("by SOURCE plugin (the plugin the broken refs come FROM): nothing to tally", StringComparison.Ordinal),
+            cleanCountsText);
 
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "check-errors-guard: ALL PASS" : $"check-errors-guard: {failures} FAILURE(S)");

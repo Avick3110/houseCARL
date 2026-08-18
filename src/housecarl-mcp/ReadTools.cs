@@ -1228,14 +1228,15 @@ static class Wire
     /// plugins it counted as baseline rather than saying "base-game", because that word is the whole claim — houseCARL's
     /// own load-order status groups Creation Club plugins WITH the base masters as "implicit", and the set here is
     /// Mutagen's <c>BaseMasters</c>, which does not contain them.
-    /// <para>Printed only when a base master was actually SWEPT (<see cref="ErrorCheckResult.BaseMastersInScope"/>) —
-    /// "0 of 12 are vanilla" over a scope that never included vanilla is a true sentence that teaches something
-    /// false.</para></summary>
+    /// <para>Printed only when a base master was actually SWEPT, and it names THAT subset
+    /// (<see cref="ErrorCheckResult.BaseMastersSwept"/>) rather than the whole definition: "0 of 12 are vanilla" over
+    /// a scope that never included vanilla is a true sentence that teaches something false — and so is a "3 of 3"
+    /// naming five plugins when the sweep opened one (round-1 review, found independently by two reviewers).</para></summary>
     static void AppendBaselineSplit(StringBuilder sb, ErrorCheckResult r)
     {
-        if (!r.Classes.HasFlag(ErrorFindingClass.Dangling) || !r.BaseMastersInScope) return;
+        if (!r.Classes.HasFlag(ErrorFindingClass.Dangling) || r.BaseMastersSwept is not { Count: > 0 } swept) return;
         sb.Append("baseline: ").Append(r.BaselineDangling).Append(" of ").Append(r.TotalDangling)
-          .Append(" dangling ref(s) come from the base-game masters (").Append(string.Join(", ", ErrorCheck.BaseMasters))
+          .Append(" dangling ref(s) come from the base-game master(s) this sweep covered (").Append(string.Join(", ", swept))
           .Append(") — vanilla leftovers rather than anything this load order introduced; ")
           .Append(r.TotalDangling - r.BaselineDangling).Append(" come from the rest of the swept scope.").Append('\n');
         // The phase-order sentence only where the phase order DECIDED something. Nothing was crowded out of a sweep
@@ -1246,7 +1247,10 @@ static class Wire
               .Append("cannot crowd the rest out of the list; the sections below stay in load order.").Append('\n');
     }
 
-    /// <summary>How many omitted-by-plugin rows the capped line names before it summarises the tail.</summary>
+    /// <summary>How many omitted-by-plugin rows the capped line names before it says how many it did NOT name. The
+    /// unnamed count is stated, never implied: on a large order dozens of plugins lose entries, and a roster that
+    /// truncates while claiming to be the only place those plugins appear rebuilds the very hole this fix closes,
+    /// one level down (round-1 review).</summary>
     const int OmittedPluginsShown = 10;
 
     /// <summary>#344 — the capped line. It used to state the true total and stop, which said that entries were dropped
@@ -1255,13 +1259,18 @@ static class Wire
     /// answer, not an omission the caller is expected to infer.</summary>
     static void AppendCappedLine(StringBuilder sb, ErrorCheckResult r)
     {
+        // A capped sweep always dropped at least one ref (capped is set only where the budget hit 0 with a finding
+        // in hand), so the count is stated flat rather than behind a test that cannot fail.
         int notListed = r.ListingOmitted?.Sum(c => c.Count) ?? 0;
-        sb.Append('\n').Append("[dangling list capped at limit; true total = ").Append(r.TotalDangling);
-        if (notListed > 0) sb.Append(", of which ").Append(notListed).Append(" were NOT listed");
-        sb.Append('.');
+        sb.Append('\n').Append("[dangling list capped at limit; true total = ").Append(r.TotalDangling)
+          .Append(", of which ").Append(notListed).Append(" were NOT listed");
         if (r.ListingOmitted is { Count: > 0 } omitted)
         {
-            sb.Append(" Not listed, by SOURCE plugin: ");
+            sb.Append(", across ").Append(omitted.Count).Append(" plugin(s). Largest losses by SOURCE plugin");
+            if (omitted.Count > OmittedPluginsShown)
+                sb.Append(" (the ").Append(OmittedPluginsShown).Append(" largest of ").Append(omitted.Count)
+                  .Append("; the rest are not named here)");
+            sb.Append(": ");
             int shown = 0;
             foreach (var row in omitted)
             {
@@ -1270,11 +1279,16 @@ static class Wire
                 sb.Append(row.Key).Append(" (").Append(row.Count).Append(')');
                 shown++;
             }
-            if (shown < omitted.Count) sb.Append(", +").Append(omitted.Count - shown).Append(" more plugin(s)");
-            sb.Append(". A plugin that lost its whole set and had nothing else to report has no section above — ")
-              .Append("this list is the only place it appears.");
+            sb.Append(". A plugin that lost its whole set and had nothing else to report has no section above.");
         }
-        sb.Append(" Raise limit=, or scope plugins= to one of the plugins named, to read a set in full.]").Append('\n');
+        else sb.Append('.');
+        // The remedy is a claim about a call that has not happened. Raising limit= always works; scoping re-spends
+        // the WHOLE budget on the named plugin, which is enough unless that plugin's own set is larger than limit=
+        // — on a real order the biggest single source ran to 2591 refs against a default of 1000, so an unqualified
+        // "scope to it" would loop the caller back to this same line (round-1 review, measured).
+        sb.Append(" Raise limit= to list more; scoping plugins= to one of these re-spends the whole budget on that ")
+          .Append("plugin, which lists its set in full unless that set is itself larger than limit=. counts_only=true ")
+          .Append("returns the by-source tally for every plugin, capped only in how many ROWS it prints.]").Append('\n');
     }
 
     static void AppendCheckErrorsBoundary(StringBuilder sb)
@@ -1309,7 +1323,9 @@ static class Wire
     {
         if (note is not null) sb.Append('\n').Append(note).Append('\n');
         if (rows is null) { if (notComputed is not null) sb.Append(notComputed).Append('\n'); return; }
-        if (rows.Count == 0) { sb.Append("\nnothing to tally — no findings in the swept scope.\n"); return; }
+        // The title rides the empty case too: two axes that both came back empty rendered as two identical untitled
+        // sentences, with no way to tell which was which — or that a second axis existed at all (round-1 review).
+        if (rows.Count == 0) { sb.Append("\n").Append(title).Append(": nothing to tally — no findings in the swept scope.\n"); return; }
         sb.Append('\n').Append(title).Append(" (").Append(rows.Count).Append(" distinct):\n");
         int shown = 0;
         foreach (var row in rows)

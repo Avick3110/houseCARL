@@ -1257,7 +1257,11 @@ static class JsonWire
                 w.WriteNumber("non_baseline_dangling", r.TotalDangling - r.BaselineDangling);
             }
             else { w.WriteNull("baseline_dangling"); w.WriteNull("non_baseline_dangling"); }
-            w.WriteBoolean("base_masters_in_scope", r.BaseMastersInScope);
+            // base_masters_swept = the ones this sweep actually opened (empty = none); base_masters = what houseCARL
+            // counts as baseline at all. Both, deliberately: the first is a fact about THIS sweep, the second a
+            // definition a consumer needs in order to know that Creation Club plugins are not in it. The definition
+            // is written even when the walk did not run, because it is true either way.
+            WriteStringArray(w, "base_masters_swept", r.BaseMastersSwept ?? Array.Empty<string>());
             WriteStringArray(w, "base_masters", HousecarlCore.ErrorCheck.BaseMasters);
 
             if (r.CountsOnly)
@@ -1271,7 +1275,10 @@ static class JsonWire
                 w.WriteBoolean("capped", r.Capped);
                 // #344 — WHICH plugins lost entries to the budget. Absent (not empty) when nothing was listed at all,
                 // matching the histograms' null-means-not-computed rule; empty rows mean nothing was dropped.
-                WriteHistogram(w, "dangling_not_listed_by_source", r.ListingOmitted, histogramLimit);
+                // NOT histogramLimit: that is limit=, the very knob whose smallness caused the omissions — the tighter
+                // the budget, the more plugins lose entries and the fewer of them json would have named (round-1
+                // review). Its own cap, with distinct/rendered disclosing any truncation.
+                WriteHistogram(w, "dangling_not_listed_by_source", r.ListingOmitted, OmittedSourceRows);
                 w.WriteStartArray("plugins");
                 int rendered = 0; bool truncated = false;
                 foreach (var p in r.Reports)
@@ -1454,6 +1461,9 @@ static class JsonWire
     // ---- shared sweep writers (#282) ---------------------------------------------------------------
     /// <summary>A counts_only histogram: <c>{distinct, rows:[{key,count}], rendered}</c>. Absent when the mode was not
     /// requested; PRESENT with an empty <c>rows</c> when the sweep genuinely found nothing — the two must not look alike.</summary>
+    /// <summary>Row cap for the budget-omissions table — independent of limit=, which is what caused the omissions.</summary>
+    const int OmittedSourceRows = 200;
+
     static void WriteHistogram(Utf8JsonWriter w, string name, IReadOnlyList<SweepCount>? rows, int rowLimit)
     {
         if (rows is null) return;
