@@ -1182,6 +1182,7 @@ static class Wire
 
         bool truncated = false;
         int sections = 0;
+        int entries = 0;    // dangling entries actually appended, in the unit the budget line uses
         foreach (var p in r.Reports)
         {
             if (sb.Length >= cap)
@@ -1191,10 +1192,18 @@ static class Wire
                 // what it emitted — and it says nothing about the listing budget, whose own omissions the capped
                 // line below reports in its own terms. The two truncators are independent and do not sum: crossing
                 // that seam is what made rounds 1 and 2 a single class (advisor ruling, 2026-08-18).
+                // The entry count is stated in the BUDGET LINE'S unit, so a reader can answer "how many findings can
+                // I actually see" without subtracting two figures that count different things; it replaces a "may be
+                // partial" hedge that existed only because the loop was counting sections (Aaron's PR #360 review).
+                // REACH: this notice fires where the section loop breaks — at a section BOUNDARY. A cut landing
+                // inside the LAST section ends the inner loop instead, leaving truncated unset and this sentence
+                // unprinted; that path is #361, pre-existing and untouched here.
                 sb.Append("\n... [truncated at max_chars=").Append(cap).Append(": ")
                   .Append(r.Reports.Count - sections).Append(" of ").Append(r.Reports.Count)
-                  .Append(" plugin section(s) were not rendered, and the last one rendered may be partial; ")
-                  .Append("this is the response being cut, separate from any limit= omission reported below. ")
+                  .Append(" plugin section(s) were not rendered; ").Append(entries).Append(" of the ")
+                  .Append(r.Reports.Sum(x => x.Dangling.Count))
+                  .Append(" budget-listed dangling entries appear above. ")
+                  .Append("This is the response being cut, separate from any limit= omission reported below. ")
                   .Append(SweepNarrowHint).Append("]\n");
                 truncated = true;
                 break;
@@ -1212,6 +1221,7 @@ static class Wire
                 foreach (var d in p.Dangling)
                 {
                     if (sb.Length >= cap) break;
+                    entries++;   // counted where one is actually appended: a section total would lie about a partial section
                     sb.Append("    ").Append(d.Source).Append(" (").Append(d.SourceType);
                     if (!string.IsNullOrEmpty(d.SourceEditorId)) sb.Append(" '").Append(d.SourceEditorId).Append('\'');
                     sb.Append(") -> ").Append(d.Target).Append("   [target not defined by any active plugin]\n");
@@ -1259,8 +1269,11 @@ static class Wire
         // (Capped is never set under counts_only — that mode lists nothing — so it carries the mode gate too.)
         // "spent on every other plugin BEFORE those" is a statement about an ordering between two groups, so it needs
         // both groups to exist: on a sweep scoped to base masters alone there is no "every other plugin", and what the
-        // budget dropped is the caller's own requested findings (round-2 review).
-        if (r.Capped && r.BaselineDangling > 0 && r.PluginsScanned > (r.BaseMastersSwept?.Count ?? 0))
+        // budget dropped is the caller's own requested findings (round-2 review). NonBaseInScope is that fact, computed
+        // in the sweep from the resolved targets — comparing PluginsScanned against the swept-base count subtracts two
+        // numbers that measure different things and prints this sentence over a base-only scope whenever they diverge
+        // (Aaron's PR #360 review: a record scope that filters a base master out, or a repeated plugins= name).
+        if (r.Capped && r.BaselineDangling > 0 && r.NonBaseInScope)
             sb.Append("  the listing budget (limit=) is spent on every other plugin BEFORE those, so baseline findings ")
               .Append("cannot crowd the rest out of the list; the sections below stay in load order.").Append('\n');
     }
