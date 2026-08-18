@@ -505,7 +505,7 @@ public static class ReadTools
             bool counts_only = false,
         [Description("Optional. 'text' (default) or 'json' — the machine-readable twin carrying the same data, with the totals/capped/truncated accounting in-band.")]
             string? format = null,
-        [Description("Optional. Max dangling references to list across the whole sweep (default 1000). The TRUE total is always reported; over the cap it says so AND names which source plugins lost entries, with how many each. Spent on every other plugin before the base-game masters, so a large order's vanilla baseline cannot consume it before your mods are reached. Master-table findings are always listed in full (they are few). Under counts_only=true this caps the histogram ROWS instead.")]
+        [Description("Optional. Max dangling references to list across the whole sweep (default 1000). The TRUE total is always reported; over the cap it says so, says how many plugins lost entries, names the ones that lost the most (a count each), and states how many it did not name — and the omissions list is never itself capped by limit=. Spent on every other plugin before the base-game masters, so a large order's vanilla baseline cannot consume it before your mods are reached. Master-table findings are always listed in full (they are few). Under counts_only=true this caps the histogram ROWS instead.")]
             int limit = 1000,
         [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool("housecarl_check_errors", () =>

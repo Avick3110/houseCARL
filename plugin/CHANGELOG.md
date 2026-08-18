@@ -12,7 +12,8 @@ when it changes.
   report altogether, so its broken references were not merely buried — they were unreachable, and the only trace was a
   global "capped at limit" line that named no plugin. The budget is now spent on every other plugin **before** the
   base-game masters, whose dangling references are permanent vanilla leftovers no load order can fix, and a capped
-  listing now names which source plugins lost entries and how many each.
+  listing now says how many plugins lost entries, names the ones that lost the most with a count each, and states
+  how many it did not name.
 
   The response also splits the dangling total ("N of M come from the base-game masters ...; K from the rest"), and
   `counts_only=true` adds a **by-SOURCE-plugin** histogram beside the existing by-TARGET one: the target axis names the
@@ -24,7 +25,8 @@ when it changes.
   On a very large order this frees the budget without making every finding listable: measured on a 3800-plugin order,
   the base masters account for 398 of 4996 dangling references. That is what the named omissions and the source
   histogram are for — they tell you which plugin to scope `plugins=` to next, instead of leaving you to guess that
-  anything was missing at all.
+  anything was missing at all. Scoping to one plugin re-spends the whole budget on it, which lists its set in full
+  unless that one set is itself larger than `limit=`.
 
 - **Fixed: the refusal for "no such patch to extend" now says how to give a new patch a name.** Guessing
   `into="My Cool Patch.esp"` for a patch you have not created yet is refused, correctly — but the only remedy it
