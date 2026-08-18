@@ -774,6 +774,11 @@ public static class CheckErrorsProbe
             && !cleanBaseText.Contains("the listing budget (limit=) is spent", StringComparison.Ordinal),
             $"capped={cleanBase.Capped} baseline={cleanBase.BaselineDangling}");
 
+        Check("NO-SECTION-SENTENCE-ONLY-WHEN-TRUE: a capped sweep where every omitted plugin still HAS a section does not explain a missing one — the reader would go looking for a plugin that is right there",
+            !cleanBaseText.Contains("has no section above", StringComparison.Ordinal)
+            && wholeText.Contains("has no section above", StringComparison.Ordinal),
+            $"clean-has={cleanBaseText.Contains("has no section above", StringComparison.Ordinal)} dropped-has={wholeText.Contains("has no section above", StringComparison.Ordinal)}");
+
         // ---- both axes empty: they must be tellable apart. Two identical untitled "nothing to tally" lines said
         //      neither which axis was which nor that a second one had been computed (round-1 review).
         var cleanCounts = ErrorCheck.Run(r, new[] { "HcCeClean.esp" }, 1000, null, null, ErrorFindingClass.All, countsOnly: true);

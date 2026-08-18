@@ -1279,7 +1279,12 @@ static class Wire
                 sb.Append(row.Key).Append(" (").Append(row.Count).Append(')');
                 shown++;
             }
-            sb.Append(". A plugin that lost its whole set and had nothing else to report has no section above.");
+            sb.Append('.');
+            // Only where it is true of THIS response: the sentence explains a plugin the reader will not find above,
+            // and printing it when every omitted plugin still has a section sends them hunting for one that is there
+            // (found by measuring the reworded line rather than by reading it).
+            if (omitted.Any(o => r.Reports.All(p => !string.Equals(p.Plugin, o.Key, StringComparison.OrdinalIgnoreCase))))
+                sb.Append(" A plugin that lost its whole set and had nothing else to report has no section above.");
         }
         else sb.Append('.');
         // The remedy is a claim about a call that has not happened. Raising limit= always works; scoping re-spends
