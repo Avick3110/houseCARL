@@ -1246,14 +1246,32 @@ static class JsonWire
             WriteExcluded(w, r.ExcludedPlugins);
             w.WriteBoolean("counts_only", r.CountsOnly);
 
+            // #344 — the baseline split as DATA (the text render's baseline line). base_masters names the set that was
+            // counted, because "baseline" is the whole claim and Mutagen's base set is not the same as the engine's
+            // force-loaded implicit set (Creation Club plugins are in the latter, not the former).
+            // base_masters_in_scope distinguishes "the baseline came back clean" from "no baseline was swept"; a
+            // consumer reading baseline_dangling==0 without it would draw the wrong conclusion on a scoped sweep.
+            if (didDangling)
+            {
+                w.WriteNumber("baseline_dangling", r.BaselineDangling);
+                w.WriteNumber("non_baseline_dangling", r.TotalDangling - r.BaselineDangling);
+            }
+            else { w.WriteNull("baseline_dangling"); w.WriteNull("non_baseline_dangling"); }
+            w.WriteBoolean("base_masters_in_scope", r.BaseMastersInScope);
+            WriteStringArray(w, "base_masters", HousecarlCore.ErrorCheck.BaseMasters);
+
             if (r.CountsOnly)
             {
                 WriteHistogram(w, "dangling_by_target_plugin", r.Histogram, histogramLimit);
+                WriteHistogram(w, "dangling_by_source_plugin", r.DanglingBySource, histogramLimit);   // #344 — the new axis
                 WriteUnreadPlugins(w, r.Reports, ms, cap);
             }
             else
             {
                 w.WriteBoolean("capped", r.Capped);
+                // #344 — WHICH plugins lost entries to the budget. Absent (not empty) when nothing was listed at all,
+                // matching the histograms' null-means-not-computed rule; empty rows mean nothing was dropped.
+                WriteHistogram(w, "dangling_not_listed_by_source", r.ListingOmitted, histogramLimit);
                 w.WriteStartArray("plugins");
                 int rendered = 0; bool truncated = false;
                 foreach (var p in r.Reports)

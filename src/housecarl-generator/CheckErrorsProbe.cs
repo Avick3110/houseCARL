@@ -75,6 +75,23 @@ namespace HousecarlGenerator;
 ///   CLAIM-ONLY-WHEN-SCOPED — findings= alone lists the filter WITHOUT the not-the-whole-plugin claim: that total IS the
 ///                     complete whole-order figure, so the claim would be false about the number it sits under. A record
 ///                     scope brings the claim back (PR #288 RE-review, finding 3).
+///   BASELINE-REACHABLE — with limit= consumable by the base-game baseline, the MOD plugin still appears WITH its
+///                     findings listed (#344 — the acceptance shape: before the fix it vanished from Reports entirely).
+///   BASELINE-TOTALS-EXACT / -SECTIONS-LOAD-ORDER — the totals still count everything and Capped still fires; the base
+///                     master is swept last for BUDGET but its section still renders in load-order position.
+///   BASELINE-OMITTED-NAMED — the cap names WHICH plugin lost entries and how many, in the result and the render (Q3:
+///                     a plugin that lost its whole set has no section to read the loss off).
+///   BASELINE-SUMMARY / -NOT-IN-SCOPE — the split is stated and NAMES the plugins counted as baseline; a sweep that
+///                     never looked at one says nothing about baseline ("clean" and "never checked" must not read alike).
+///   BASELINE-PHASE-CLAUSE-ONLY-WHEN-IT-BIT / -AMPLE-BUDGET-UNCHANGED — the budget-order sentence appears only where the
+///                     order decided something, and an ample budget lists every finding exactly as before.
+///   SOURCE-HISTOGRAM / -NOT-COMPUTED — counts_only tallies by SOURCE plugin beside the TARGET axis; with the walk
+///                     skipped BOTH are null and the render says so (an absent axis must not read as an empty one).
+///   OMITTED-NULL-UNDER-COUNTS-ONLY — counts_only lists nothing by design, so it reports no omissions rather than
+///                     reporting the entire sweep as dropped.
+///   BASE-SET-BY-CONSTRUCTION — the baseline set IS Mutagen's Implicits.BaseMasters, never a list kept here (#344).
+///   BASELINE-JSON-PARITY — the json carries the same split, names the base set, flags whether one was in scope, and
+///                     carries both new tables; an unchecked class emits null, not 0.
 ///
 /// OWNER FIXTURE (#207, its own order): HcCeMaster.esm also defines a Faction; HcCeOwner.esp masters [HcCeMaster, HcCeGhost]
 ///   and carries two owned containers — one owned by the PRESENT master's faction (rank -1 → must not dangle) and one owned by a
@@ -492,6 +509,130 @@ public static class CheckErrorsProbe
 
         Check("OWNER-RANK-TOTAL: exactly 1 dangling across the owner order (both RequiredRank words exempt; only the broken owner form)",
             ownerRes.TotalDangling == 1, $"total={ownerRes.TotalDangling}");
+
+        // ---- BASELINE (#344): the LISTING BUDGET's phase order. limit= is ONE counter spent plugin by plugin in LOAD
+        //      ORDER, and the base-game masters sit at index 0 — so once the vanilla baseline reaches the budget, a mod
+        //      plugin's findings collect an EMPTY list, fail the report-inclusion test, and vanish from the output
+        //      altogether (the reported defect: not "buried", unreachable). Its own order, built to that exact shape:
+        //        • Skyrim.esm      — a base-game master (Mutagen's Implicits set matches by FILENAME, so a synthesized
+        //          stub of that name IS the baseline here), 3 NPCs whose Race points at a dead id in its own space.
+        //        • HcCeBaseMod.esp — masters [Skyrim], 2 NPCs pointing at that same dead id.
+        //      Swept at limit=3 the baseline alone exhausts the budget, which is the whole point of the fixture.
+        string baseDir = Path.Combine(tmpDir, "baseline");
+        Directory.CreateDirectory(baseDir);
+        string baseSkyrimPath = Path.Combine(baseDir, "Skyrim.esm");
+        string baseModPath = Path.Combine(baseDir, "HcCeBaseMod.esp");
+        var baseDeadFk = FormKey.Factory("0E0E0E:Skyrim.esm");   // an id the stub Skyrim.esm does NOT define
+        try
+        {
+            var sky = new SkyrimMod(new ModKey("Skyrim", ModType.Master), SkyrimRelease.SkyrimSE);
+            for (int i = 0; i < 3; i++) { var n = sky.Npcs.AddNew(); n.EditorID = $"HcCeVanillaNpc{i}"; n.Race.SetTo(baseDeadFk); }
+            sky.BeginWrite.ToPath(baseSkyrimPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+            using var skyOv = SkyrimMod.CreateFromBinaryOverlay(baseSkyrimPath, SkyrimRelease.SkyrimSE);
+            var baseMod = new SkyrimMod(new ModKey("HcCeBaseMod", ModType.Plugin), SkyrimRelease.SkyrimSE);
+            for (int i = 0; i < 2; i++) { var n = baseMod.Npcs.AddNew(); n.EditorID = $"HcCeModNpc{i}"; n.Race.SetTo(baseDeadFk); }
+            baseMod.BeginWrite.ToPath(baseModPath).WithLoadOrder(new ISkyrimModGetter[] { skyOv }).Write();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"error: could not synthesize the baseline fixture: {ex.GetType().Name}: {(ex.InnerException ?? ex).Message}");
+            return 1;
+        }
+
+        using var rb = LoadOrderResolver.Build(new[] { baseSkyrimPath, baseModPath });
+        var tight = ErrorCheck.Run(rb, null, 3);
+        if (!tight.Success) { Console.Error.WriteLine($"error: baseline sweep failed: {tight.Error}"); return 1; }
+        var baseModRep = tight.Reports.FirstOrDefault(p => p.Plugin == "HcCeBaseMod.esp");
+        var vanillaRep = tight.Reports.FirstOrDefault(p => p.Plugin == "Skyrim.esm");
+
+        Check("BASELINE-REACHABLE: with limit= fully consumable by the base-game baseline, the MOD plugin still appears with BOTH its dangling refs listed (#344)",
+            baseModRep is not null && baseModRep.Dangling.Count == 2,
+            baseModRep is null
+                ? $"<no report for HcCeBaseMod.esp — it vanished from the sweep> reports=[{string.Join(",", tight.Reports.Select(p => p.Plugin))}] total={tight.TotalDangling}"
+                : $"listed={baseModRep.Dangling.Count} of {tight.TotalDangling} total");
+
+        Check("BASELINE-TOTALS-EXACT: the totals still count every dangling ref (5) and the sweep still reports Capped",
+            tight.TotalDangling == 5 && tight.Capped,
+            $"total={tight.TotalDangling} capped={tight.Capped} vanillaListed={(vanillaRep is null ? -1 : vanillaRep.Dangling.Count)}");
+
+        var tightText = Wire.RenderCheckErrors(tight, 0);
+        var ample = ErrorCheck.Run(rb, null, 1000);
+        var ampleText = Wire.RenderCheckErrors(ample, 0);
+        var modOnly = ErrorCheck.Run(rb, new[] { "HcCeBaseMod.esp" }, 1000);
+        var modOnlyText = Wire.RenderCheckErrors(modOnly, 0);
+        var baseCounts = ErrorCheck.Run(rb, null, 1000, null, null, ErrorFindingClass.All, countsOnly: true);
+        var baseCountsText = Wire.RenderCheckErrors(baseCounts, 0);
+        var baseNoWalk = ErrorCheck.Run(rb, null, 1000, null, null, ErrorFindingClass.MissingMasters, countsOnly: true);
+
+        Check("BASELINE-SECTIONS-LOAD-ORDER: the base master is swept LAST for budget but its section still renders in LOAD-ORDER position (the phase is not visible as a reordered report)",
+            tight.Reports.Count == 2 && tight.Reports[0].Plugin == "Skyrim.esm" && tight.Reports[1].Plugin == "HcCeBaseMod.esp",
+            $"sections=[{string.Join(",", tight.Reports.Select(p => p.Plugin))}]");
+
+        Check("BASELINE-OMITTED-NAMED: the cap names WHICH plugin lost entries and how many — Skyrim.esm (2) — in the result AND in the rendered line (Q3)",
+            tight.ListingOmitted is { Count: 1 } om && om[0].Key == "Skyrim.esm" && om[0].Count == 2
+            && tightText.Contains("Skyrim.esm (2)", StringComparison.Ordinal)
+            && tightText.Contains("2 were NOT listed", StringComparison.Ordinal),
+            $"omitted=[{string.Join(",", (tight.ListingOmitted ?? new List<SweepCount>()).Select(c => $"{c.Key}:{c.Count}"))}]");
+
+        Check("BASELINE-SUMMARY: the split is stated (3 of 5 from base masters, 2 from the rest) and NAMES the plugins it counted as baseline",
+            tight.BaselineDangling == 3 && tight.BaseMastersInScope
+            && tightText.Contains("baseline: 3 of 5 dangling ref(s) come from the base-game masters", StringComparison.Ordinal)
+            && ErrorCheck.BaseMasters.All(m => tightText.Contains(m, StringComparison.Ordinal))
+            && tightText.Contains("2 come from the rest of the swept scope", StringComparison.Ordinal),
+            $"baseline={tight.BaselineDangling} inScope={tight.BaseMastersInScope}");
+
+        Check("BASELINE-NOT-IN-SCOPE: a sweep that never looked at a base master says nothing about baseline — 'none found' and 'never checked' must not read alike (Q3)",
+            !modOnly.BaseMastersInScope && modOnly.BaselineDangling == 0
+            && !modOnlyText.Contains("baseline:", StringComparison.Ordinal),
+            $"inScope={modOnly.BaseMastersInScope} text-has-line={modOnlyText.Contains("baseline:", StringComparison.Ordinal)}");
+
+        Check("BASELINE-PHASE-CLAUSE-ONLY-WHEN-IT-BIT: the budget-order sentence appears on the capped sweep and NOT on the sweep that listed everything it found",
+            tightText.Contains("the listing budget (limit=) is spent on every other plugin BEFORE those", StringComparison.Ordinal)
+            && !ampleText.Contains("the listing budget (limit=) is spent", StringComparison.Ordinal)
+            && ampleText.Contains("baseline: 3 of 5", StringComparison.Ordinal),
+            $"capped-has={tightText.Contains("BEFORE those", StringComparison.Ordinal)} ample-has={ampleText.Contains("the listing budget (limit=) is spent", StringComparison.Ordinal)}");
+
+        Check("BASELINE-AMPLE-BUDGET-UNCHANGED: with limit= ample, EVERY plugin's findings are listed in full and nothing is reported omitted (the phase order costs nothing when the budget is not scarce)",
+            !ample.Capped && ample.ListingOmitted is { Count: 0 }
+            && ample.Reports.Sum(p => p.Dangling.Count) == 5,
+            $"capped={ample.Capped} omitted={(ample.ListingOmitted is null ? "<null>" : ample.ListingOmitted.Count.ToString())} listed={ample.Reports.Sum(p => p.Dangling.Count)}");
+
+        Check("SOURCE-HISTOGRAM: counts_only tallies dangling refs by SOURCE plugin (3 vanilla, 2 mod) beside the existing TARGET axis, and renders both",
+            baseCounts.DanglingBySource is { Count: 2 } src
+            && src.First(c => c.Key == "Skyrim.esm").Count == 3 && src.First(c => c.Key == "HcCeBaseMod.esp").Count == 2
+            && baseCountsText.Contains("by SOURCE plugin", StringComparison.Ordinal)
+            && baseCountsText.Contains("by TARGET plugin", StringComparison.Ordinal),
+            baseCounts.DanglingBySource is null ? "<null>" : string.Join(",", baseCounts.DanglingBySource.Select(c => $"{c.Key}:{c.Count}")));
+
+        Check("SOURCE-HISTOGRAM-NOT-COMPUTED: findings=[missing_masters] leaves BOTH axes null and the render says the walk was not run — an absent axis must not read as an empty one (Q3)",
+            baseNoWalk.DanglingBySource is null && baseNoWalk.Histogram is null
+            && Wire.RenderCheckErrors(baseNoWalk, 0).Contains("by target or by source — the link walk was not run", StringComparison.Ordinal),
+            $"source={(baseNoWalk.DanglingBySource is null ? "null" : "present")} target={(baseNoWalk.Histogram is null ? "null" : "present")}");
+
+        Check("OMITTED-NULL-UNDER-COUNTS-ONLY: counts_only lists nothing BY DESIGN, so it reports no omissions rather than reporting the whole sweep as dropped",
+            baseCounts.ListingOmitted is null && !baseCounts.Capped,
+            $"omitted={(baseCounts.ListingOmitted is null ? "null" : "present")} capped={baseCounts.Capped}");
+
+        Check("BASE-SET-BY-CONSTRUCTION: the baseline set IS Mutagen's Implicits.BaseMasters, not a list kept here (#344 settled decision 2)",
+            ErrorCheck.BaseMasters.SequenceEqual(
+                Mutagen.Bethesda.Plugins.Implicits.Get(Mutagen.Bethesda.GameRelease.SkyrimSE).BaseMasters.Select(m => m.FileName.String))
+            && ErrorCheck.IsBaseMaster("skyrim.esm") && !ErrorCheck.IsBaseMaster("_ResourcePack.esl")
+            && !ErrorCheck.IsBaseMaster("ccBGSSSE001-Fish.esm"),
+            $"set=[{string.Join(",", ErrorCheck.BaseMasters)}]");
+
+        var tightJson = JsonWire.RenderCheckErrors(tight, 0);
+        var countsJson = JsonWire.RenderCheckErrors(baseCounts, 0);
+        var noWalkBaseJson = JsonWire.RenderCheckErrors(baseNoWalk, 0);
+        Check("BASELINE-JSON-PARITY: the json carries the same split, names the base set, flags scope, and carries both new tables; an unchecked class emits null (not 0)",
+            JsonMatches(tightJson, "baseline_dangling", 3) && JsonMatches(tightJson, "non_baseline_dangling", 2)
+            && JsonHasHistogram(tightJson, "dangling_not_listed_by_source")
+            && JsonHasHistogram(countsJson, "dangling_by_source_plugin")
+            && JsonNull(noWalkBaseJson, "baseline_dangling")
+            && JsonDocument.Parse(tightJson).RootElement.GetProperty("base_masters_in_scope").GetBoolean()
+            && !JsonDocument.Parse(JsonWire.RenderCheckErrors(modOnly, 0)).RootElement.GetProperty("base_masters_in_scope").GetBoolean()
+            && JsonDocument.Parse(tightJson).RootElement.GetProperty("base_masters").GetArrayLength() == ErrorCheck.BaseMasters.Count,
+            "see json render");
 
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "check-errors-guard: ALL PASS" : $"check-errors-guard: {failures} FAILURE(S)");

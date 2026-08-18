@@ -484,8 +484,11 @@ public static class ReadTools
          "(a FormLink scan cannot prove a master is unused), and does NOT link-check an owned item's ownership 'variable' " +
          "word (a rank/global Mutagen cannot type on an override without a link cache). NARROWING: beyond plugins= it takes " +
          "a record scope (type= / formids= / editorid_contains=), a findings= class filter, counts_only=true for just the " +
-         "totals plus a dangling-by-TARGET-plugin histogram, and format='json'. Narrowing narrows the COUNTS too — they are " +
-         "always the counts for the scope actually swept, and the response says so. Results cap at limit= and max_chars (both overruns explicit).")]
+         "totals plus dangling-by-TARGET-plugin and dangling-by-SOURCE-plugin histograms, and format='json'. Narrowing narrows " +
+         "the COUNTS too — they are always the counts for the scope actually swept, and the response says so. BASELINE: the " +
+         "base-game masters carry permanent vanilla dangling refs no load order can fix, so the response splits them out of the " +
+         "total and spends limit= on every other plugin FIRST — vanilla can no longer crowd mod findings out of the listing. " +
+         "Results cap at limit= and max_chars (both overruns explicit); a capped listing NAMES which source plugins lost entries.")]
     public static string CheckErrorsTool(
         LoadOrderService svc,
         [Description("Optional. Plugin filenames to check (e.g. 'MyMod.esp'). A name not in the active order is resolved on disk (a fresh houseCARL patch, a disabled mod) and swept OFF-ORDER; found nowhere (or in several folders) it is an error. Omit to sweep the WHOLE active order (every non-excluded plugin) — thorough but heavier; scope to one plugin for a fast, focused check like the CK's per-plugin 'Check For Errors'.")]
@@ -498,11 +501,11 @@ public static class ReadTools
             string? editorid_contains = null,
         [Description("Optional. Which error classes to look for: 'dangling' and/or 'missing_masters' (default both). Excluding 'dangling' SKIPS the per-record link walk entirely — that is how you ask 'is any master missing anywhere in my order' without paying for a full sweep. An excluded class renders as 'not checked', never as 0. Unscannable records and scan errors are ALWAYS reported and cannot be filtered out (a suppressed 'could not read' would read as clean).")]
             string[]? findings = null,
-        [Description("Optional. true = return ONLY the header totals plus a dangling-by-TARGET-plugin histogram (which plugin the broken refs point INTO — the one absent dependency behind a wall of findings), with no per-plugin listing. The cheap before/after-a-fix comparison; totals stay exact (never limit-capped) and limit= caps the histogram ROWS instead.")]
+        [Description("Optional. true = return ONLY the header totals plus two histograms, with no per-plugin listing: dangling-by-TARGET-plugin (which plugin the broken refs point INTO — the one absent dependency behind a wall of findings) and dangling-by-SOURCE-plugin (which plugin they come FROM — how much of the total is vanilla baseline and how much your mods introduced). The cheap before/after-a-fix comparison; totals stay exact (never limit-capped) and limit= caps the histogram ROWS instead.")]
             bool counts_only = false,
         [Description("Optional. 'text' (default) or 'json' — the machine-readable twin carrying the same data, with the totals/capped/truncated accounting in-band.")]
             string? format = null,
-        [Description("Optional. Max dangling references to list across the whole sweep (default 1000). The TRUE total is always reported; over the cap it says so. Master-table findings are always listed in full (they are few). Under counts_only=true this caps the histogram ROWS instead.")]
+        [Description("Optional. Max dangling references to list across the whole sweep (default 1000). The TRUE total is always reported; over the cap it says so AND names which source plugins lost entries, with how many each. Spent on every other plugin before the base-game masters, so a large order's vanilla baseline cannot consume it before your mods are reached. Master-table findings are always listed in full (they are few). Under counts_only=true this caps the histogram ROWS instead.")]
             int limit = 1000,
         [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool("housecarl_check_errors", () =>
@@ -1155,12 +1158,19 @@ static class Wire
         if (r.OffOrderScanned is { Count: > 0 } off)
             sb.Append("swept OFF-ORDER (on disk, not in the active load order): ").Append(string.Join(", ", off))
               .Append("   [the file's own records; links resolved against the active order + the file's own definitions]\n");
+        AppendBaselineSplit(sb, r);   // #344 — how much of the dangling total is vanilla baseline
 
         if (r.CountsOnly)
         {
             AppendHistogram(sb, r.Histogram, histogramLimit, "dangling ref(s) by TARGET plugin (the plugin the broken refs point INTO)",
                             "counts_only=true — totals above are exact; no per-plugin listing was built.",
-                            notComputed: "no dangling histogram — the link walk was not run (findings= excluded 'dangling').");
+                            notComputed: "no dangling histogram, by target or by source — the link walk was not run (findings= excluded 'dangling').");
+            // #344 — the SOURCE axis: which plugin the broken refs come FROM. The target axis names the absent
+            // dependency behind a wall of findings; only this one answers "how much of this is vanilla, and how much
+            // did the mods introduce". No note and no not-computed line of its own — both would repeat what the
+            // target histogram directly above has just said.
+            AppendHistogram(sb, r.DanglingBySource, histogramLimit,
+                            "dangling ref(s) by SOURCE plugin (the plugin the broken refs come FROM)", note: null);
             AppendScanErrorTail(sb, r.Reports, cap);
             AppendExcludedPlugins(sb, r.ExcludedPlugins, cap);   // #288 review finding 5: the NAMES, not just the header count
             AppendCheckErrorsBoundary(sb);
@@ -1204,13 +1214,67 @@ static class Wire
             }
         }
 
-        if (r.Capped)
-            sb.Append("\n[dangling list capped at limit; true total = ").Append(r.TotalDangling).Append(" — raise limit= to see all]\n");
+        if (r.Capped) AppendCappedLine(sb, r);   // #344 — Q3: a cap that does not say WHICH plugins lost entries is the silent half of the defect
 
         if (!truncated) AppendExcludedPlugins(sb, r.ExcludedPlugins, cap);
 
         AppendCheckErrorsBoundary(sb);
         return sb.ToString().TrimEnd('\n');
+    }
+
+    /// <summary>#344 — the baseline split: how much of the dangling total came from the base-game masters, and how
+    /// much from everything else. The sweep's one number ("4996 dangling refs") cannot be acted on without it: the
+    /// vanilla leftovers are permanent, present in every install, and nothing a load order can fix. The line NAMES the
+    /// plugins it counted as baseline rather than saying "base-game", because that word is the whole claim — houseCARL's
+    /// own load-order status groups Creation Club plugins WITH the base masters as "implicit", and the set here is
+    /// Mutagen's <c>BaseMasters</c>, which does not contain them.
+    /// <para>Printed only when a base master was actually SWEPT (<see cref="ErrorCheckResult.BaseMastersInScope"/>) —
+    /// "0 of 12 are vanilla" over a scope that never included vanilla is a true sentence that teaches something
+    /// false.</para></summary>
+    static void AppendBaselineSplit(StringBuilder sb, ErrorCheckResult r)
+    {
+        if (!r.Classes.HasFlag(ErrorFindingClass.Dangling) || !r.BaseMastersInScope) return;
+        sb.Append("baseline: ").Append(r.BaselineDangling).Append(" of ").Append(r.TotalDangling)
+          .Append(" dangling ref(s) come from the base-game masters (").Append(string.Join(", ", ErrorCheck.BaseMasters))
+          .Append(") — vanilla leftovers rather than anything this load order introduced; ")
+          .Append(r.TotalDangling - r.BaselineDangling).Append(" come from the rest of the swept scope.").Append('\n');
+        // The phase-order sentence only where the phase order DECIDED something. Nothing was crowded out of a sweep
+        // that listed everything it found, and saying so there explains a mechanism the reader did not just hit.
+        // (Capped is never set under counts_only — that mode lists nothing — so it carries the mode gate too.)
+        if (r.Capped && r.BaselineDangling > 0)
+            sb.Append("  the listing budget (limit=) is spent on every other plugin BEFORE those, so baseline findings ")
+              .Append("cannot crowd the rest out of the list; the sections below stay in load order.").Append('\n');
+    }
+
+    /// <summary>How many omitted-by-plugin rows the capped line names before it summarises the tail.</summary>
+    const int OmittedPluginsShown = 10;
+
+    /// <summary>#344 — the capped line. It used to state the true total and stop, which said that entries were dropped
+    /// but never WHICH plugin lost them; a plugin that lost its whole set, and had nothing else to report, has no
+    /// section above at all, so the report gave a reader no way to find it. Q3: what a cap dropped is part of the
+    /// answer, not an omission the caller is expected to infer.</summary>
+    static void AppendCappedLine(StringBuilder sb, ErrorCheckResult r)
+    {
+        int notListed = r.ListingOmitted?.Sum(c => c.Count) ?? 0;
+        sb.Append('\n').Append("[dangling list capped at limit; true total = ").Append(r.TotalDangling);
+        if (notListed > 0) sb.Append(", of which ").Append(notListed).Append(" were NOT listed");
+        sb.Append('.');
+        if (r.ListingOmitted is { Count: > 0 } omitted)
+        {
+            sb.Append(" Not listed, by SOURCE plugin: ");
+            int shown = 0;
+            foreach (var row in omitted)
+            {
+                if (shown >= OmittedPluginsShown) break;
+                if (shown > 0) sb.Append(", ");
+                sb.Append(row.Key).Append(" (").Append(row.Count).Append(')');
+                shown++;
+            }
+            if (shown < omitted.Count) sb.Append(", +").Append(omitted.Count - shown).Append(" more plugin(s)");
+            sb.Append(". A plugin that lost its whole set and had nothing else to report has no section above — ")
+              .Append("this list is the only place it appears.");
+        }
+        sb.Append(" Raise limit=, or scope plugins= to one of the plugins named, to read a set in full.]").Append('\n');
     }
 
     static void AppendCheckErrorsBoundary(StringBuilder sb)
@@ -1240,10 +1304,10 @@ static class Wire
     /// <summary>Render a <c>counts_only=</c> histogram, capped at <paramref name="rowLimit"/> with the true distinct-key
     /// count always stated. A null histogram means the mode was not requested; an EMPTY one means the sweep genuinely
     /// found nothing, and the two read differently (Q3).</summary>
-    static void AppendHistogram(StringBuilder sb, IReadOnlyList<SweepCount>? rows, int rowLimit, string title, string note,
+    static void AppendHistogram(StringBuilder sb, IReadOnlyList<SweepCount>? rows, int rowLimit, string title, string? note,
                                 string? notComputed = null)
     {
-        sb.Append('\n').Append(note).Append('\n');
+        if (note is not null) sb.Append('\n').Append(note).Append('\n');
         if (rows is null) { if (notComputed is not null) sb.Append(notComputed).Append('\n'); return; }
         if (rows.Count == 0) { sb.Append("\nnothing to tally — no findings in the swept scope.\n"); return; }
         sb.Append('\n').Append(title).Append(" (").Append(rows.Count).Append(" distinct):\n");
