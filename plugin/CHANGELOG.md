@@ -6,6 +6,26 @@ when it changes.
 
 ## Unreleased
 
+- **Fixed: on a large load order, a mod's broken references could vanish from `housecarl_check_errors` entirely.**
+  The dangling-reference listing budget (`limit=`, default 1000) is one counter spent plugin by plugin in load order,
+  and the base-game masters sit at index 0. A plugin whose findings collected an empty list was then dropped from the
+  report altogether, so its broken references were not merely buried — they were unreachable, and the only trace was a
+  global "capped at limit" line that named no plugin. The budget is now spent on every other plugin **before** the
+  base-game masters, whose dangling references are permanent vanilla leftovers no load order can fix, and a capped
+  listing now names which source plugins lost entries and how many each.
+
+  The response also splits the dangling total ("N of M come from the base-game masters ...; K from the rest"), and
+  `counts_only=true` adds a **by-SOURCE-plugin** histogram beside the existing by-TARGET one: the target axis names the
+  absent dependency behind a wall of findings, the source axis answers how much of the wall is vanilla and how much
+  your mods introduced. Baseline means Mutagen's own base-master set — Skyrim, Update, Dawnguard, HearthFires,
+  Dragonborn — and the response names them rather than leaving "base-game" to interpretation; Creation Club plugins are
+  not in that set and still count as part of your load order.
+
+  On a very large order this frees the budget without making every finding listable: measured on a 3800-plugin order,
+  the base masters account for 398 of 4996 dangling references. That is what the named omissions and the source
+  histogram are for — they tell you which plugin to scope `plugins=` to next, instead of leaving you to guess that
+  anything was missing at all.
+
 - **Fixed: the refusal for "no such patch to extend" now says how to give a new patch a name.** Guessing
   `into="My Cool Patch.esp"` for a patch you have not created yet is refused, correctly — but the only remedy it
   offered was to omit `into=` and create the patch fresh, which is precisely the call that produces a generically
