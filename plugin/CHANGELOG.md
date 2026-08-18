@@ -7,12 +7,20 @@ when it changes.
 ## Unreleased
 
 - **`housecarl_merge_plugins` and `housecarl_compact_plugin` now say what they cost the runtime distributor layer.**
-  SPID, KID, SkyPatcher and OAR configs address a record as `<plugin>|<FormID>` — an addressing model neither verb
-  leaves intact, and one no plugin scan can see, since those lines live in `.ini` files rather than in any record. The
-  merge report already said the identify pass does not read them; it now also says what follows from that, which is
-  that a line naming a donor stops matching the moment you deactivate that donor at the swap. The compact report said
-  neither, and now says both — with the half that applies to it, since a compaction keeps the plugin name and moves
-  the object ids instead. Neither verb rewrites those files, and neither claims to have looked at them. (#364)
+  SPID, KID and SkyPatcher `.ini` lines, and Open Animation Replacer `.json` conditions, all address a record through
+  the plugin that defines it — an addressing model neither verb leaves intact, and one no plugin scan can see, because
+  those lines live in config files rather than in any record. The merge report already said the identify pass does not
+  read them; it now also says what follows from that, which is that a line naming a donor stops matching once you
+  deactivate that donor at the swap. The compact report said neither, and now says both — with the half that applies
+  to it, since a compaction keeps the plugin name and moves the object ids instead.
+
+  Both reports state the addressing *model* and quote no single spelling, because the four systems do not share one:
+  SkyPatcher is prefix-pipe, SPID and KID are suffix-tilde, and OAR is a JSON field pair. Naming the file kinds is what
+  makes the advice actionable; quoting one syntax for all of them would send you grepping for a string three of the
+  four never contain. Merge's sentence is also scoped to the records that actually changed identity — a record a donor
+  merely *overrode* keeps its master's FormID, so a config line addressing it is untouched, and the report says so
+  rather than telling you to rewrite a line that still works. Neither verb rewrites those files, and neither claims to
+  have looked at them. (#364)
 
 - **Fixed: `housecarl_merge_plugins` and `housecarl_compact_plugin` blanked every localized name and description.**
   Both verbs opened their donor / source plugins with an overlay that looks for `Strings\` only in the plugin's own
@@ -22,8 +30,9 @@ when it changes.
   blanks baked in. Nothing failed and nothing warned: the result loaded, and the loss was visible only in game or by
   diffing. Both opens now go through the same strings-aware path the rest of houseCARL reads with, which falls back to
   the game `Data` folder when the plugin's own folder carries no strings source and leaves plugins that do carry one
-  untouched. A plugin whose strings are in *neither* place still reads empty — there is nowhere left to look — and
-  that case is unchanged by this fix. (#362)
+  untouched. This fix closes the case where the strings exist but were being looked for in the wrong folder. It does
+  not change what happens when the lookup finds nothing wherever it looks — a plugin whose strings are in *neither*
+  place, for instance — and such a plugin still reads, and writes, empty. (#362)
 
 - **`housecarl_merge_plugins` now accepts a single donor, which renames a plugin.** Merging one plugin into a new
   name was refused ("merge needs at least TWO distinct donor plugins"), and no other tool renames one, so a

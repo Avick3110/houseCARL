@@ -319,11 +319,19 @@ public static class MergeServiceGuardProbe
                 // "Not read" is not the same fact as "and here is what that costs". The runtime distributor layer
                 // addresses records by plugin name, which a merge takes away, so the loss is stated as well as the
                 // gap in coverage — on every merge, not only when the referencer list came back populated.
-                Check(rendered.Contains("SkyPatcher/OAR")
-                      && rendered.Contains("address a record as <plugin>|<FormID>")
+                Check(rendered.Contains("SPID/KID/SkyPatcher .ini lines")
+                      && rendered.Contains("Open Animation Replacer .json conditions")
+                      && rendered.Contains("address a record through the plugin that defines it")
                       && rendered.Contains("stops matching once you deactivate that donor at the swap")
-                      && rendered.Contains("nothing rewrites the .ini files"),
+                      && rendered.Contains("Nothing rewrites those files"),
                     "WARN the distributor-config loss is stated, not just the pass's blindness to it");
+                // The sentence must state the addressing MODEL and never one system's literal spelling. The four named
+                // systems do not share one: SkyPatcher is prefix-pipe, SPID and KID are suffix-tilde, OAR is a JSON
+                // field pair — and spid-authoring's skill lists confusing the first two as a known trap. A caller told
+                // to look for Plugin.esp|FormID would grep for a string three of the four never contain and conclude
+                // they were unaffected, which is the failure the sentence exists to prevent.
+                Check(!rendered.Contains("<plugin>|<FormID>") && !rendered.Contains("the .ini files"),
+                    "WARN the sentence quotes no single spelling as if the four shared one");
                 // The swap instruction must stay PLUGIN-level (PR #158 independent review #1): "disable the donor MODS"
                 // (compact's instruction) would yank the donors' path-referenced assets out of the VFS — the merged
                 // records still load meshes/textures/scripts from the donor folders.
@@ -563,6 +571,14 @@ public static class MergeServiceGuardProbe
                       && renderedOvr.Contains("its 1 override is now served by a plugin under a new name")
                       && !renderedOvr.Contains("records move to the new plugin's identity"),
                     $"RENAME a pure-override donor states the override COUNT it read (copied {oOvr.RecordsCopied}, renumbered {oOvr.RecordsRenumbered})");
+                // The distributor sentence obeys the same rule as the headline above it, on the same donor. This one
+                // originates NOTHING: its single override keeps its master's FormKey, so a config line addressing that
+                // record names the MASTER and the merge does not touch it. A sentence claiming the records are the
+                // output's now would tell this caller to rewrite a line that still works — the report contradicting
+                // its own accounting three lines up.
+                Check(renderedOvr.Contains("a record a donor merely overrode is addressed by its master and is unaffected")
+                      && !renderedOvr.Contains("the records are HcMgOvrRenamed.esp's now"),
+                    "RENAME the distributor sentence exempts overrides instead of claiming every record moved");
 
                 // The third thing the accounting can say. An empty donor takes neither of the arms above, and the
                 // middle arm used to claim overrides it never read — which was wrong for exactly this plugin.
@@ -668,8 +684,13 @@ public static class MergeServiceGuardProbe
                 var rb = lo.Success && File.Exists(lo.OutputPath)
                     ? LocalizedStringsFixture.ReadBackBare(lo.OutputPath, LocalizedStringsFixture.WeaponEdid(lr))
                     : (Name: "unwritten", Desc: "unwritten");
-                Check(lo.Success && string.IsNullOrEmpty(rb.Name) && string.IsNullOrEmpty(rb.Desc),
-                    $"RESIDUAL strings resolvable NOWHERE still merge to blanks, silently (success={lo.Success} Name='{rb.Name}' Desc='{rb.Desc}')");
+                // The record must be THERE and blank. A blank read alone is also what an ABSENT record returns, so
+                // without this the arm would report the residual as pinned even if the merge had dropped the record
+                // altogether — an arm that passes for the wrong reason is the one failure a guard cannot survive.
+                bool carried = lo.Success && File.Exists(lo.OutputPath)
+                               && LocalizedStringsFixture.CarriesWeapon(lo.OutputPath, LocalizedStringsFixture.WeaponEdid(lr));
+                Check(lo.Success && carried && string.IsNullOrEmpty(rb.Name) && string.IsNullOrEmpty(rb.Desc),
+                    $"RESIDUAL strings resolvable NOWHERE still merge to blanks, silently (success={lo.Success} carried={carried} Name='{rb.Name}' Desc='{rb.Desc}')");
             }
         }
         finally { try { Directory.Delete(root, true); } catch { } }

@@ -1001,9 +1001,17 @@ public static class WriteTools
         // line loses here is the FormID half — the ids this same report just listed as renumbered. Phrased against
         // what the renumber moved rather than asserting a break, so it stays true for a compaction that moved nothing
         // (an override-only plugin taking the light flag) without needing an arm per shape.
-        sb.Append("That pass reads plugins; it does not read INI distributor configs (SPID/KID/SkyPatcher/OAR), which ")
-          .Append("address a record as <plugin>|<FormID>. The plugin name is unchanged, but a line naming an object id ")
-          .Append("this compaction moved no longer addresses that record, and nothing rewrites the .ini files.\n");
+        //
+        // "once the compacted plugin is the one loading" rather than a flat present tense: in the NEW-FILE lane
+        // nothing has broken yet — the original is still active and every config line still matches until the MO2 swap
+        // this same report instructs. One clause that is true of both lanes (in place, it is already the one loading)
+        // rather than a branch per lane. The addressing MODEL is stated and no single spelling is quoted, for the
+        // reason RenderMerge's twin gives at length.
+        sb.Append("That pass reads plugins; it does not read the runtime distributor configs — SPID/KID/SkyPatcher ")
+          .Append(".ini lines, Open Animation Replacer .json conditions — which address a record through the plugin ")
+          .Append("that defines it plus its FormID. The plugin name is unchanged, but a line naming an object id this ")
+          .Append("compaction moved stops addressing that record once the compacted plugin is the one loading, and ")
+          .Append("nothing rewrites those files.\n");
 
         AppendFacegenCarry(sb, o.AssetRename, o.InPlace);
         AppendVoiceCarry(sb, o.VoiceRename, o.InPlace);
@@ -1176,16 +1184,27 @@ public static class WriteTools
         // absolute. What the pass reads is record links and record identity — it never opens a plugin header, so a
         // dependent that merely DECLARES a donor as a master is invisible to it, and loses a master at the swap.
         sb.Append("identify-pass scanned ").Append(o.PluginsScanned).Append(" plugin(s) — it reads record links and ")
-          .Append("record identity, NOT declared masters or INI distributor configs (SPID/KID/SkyPatcher/OAR), so a plugin ")
-          .Append("that only lists a donor as a master, or only names one in an .ini, is not counted above.\n");
+          .Append("record identity, NOT declared masters or runtime distributor configs (SPID/KID/SkyPatcher/OAR), so a ")
+          .Append("plugin that only lists a donor as a master, or only names one in such a config, is not counted above.\n");
         // The caveat above says those configs are not READ. This says what that costs, which is the half a caller
-        // cannot derive from "not counted": a distributor line addresses a record as <plugin>|<FormID>, so the donor's
-        // plugin NAME is half of every address pointing into it, and a merge rewrites no .ini. Stated unconditionally
-        // — it is the addressing model plus the swap this same report instructs, not a prediction about any file, and
-        // there is nothing a later call could come back and falsify.
-        sb.Append("Those configs address a record as <plugin>|<FormID>, so a line naming a donor stops matching once ")
-          .Append("you deactivate that donor at the swap: the records are ").Append(o.OutputName)
-          .Append("'s now, and nothing rewrites the .ini files.\n");
+        // cannot derive from "not counted": every one of them addresses a record through the plugin that defines it,
+        // and a merge takes that plugin's NAME away while rewriting none of the files.
+        //
+        // The MODEL is stated, never one system's literal spelling. The four do not share a syntax — SkyPatcher is
+        // prefix-pipe Plugin.esp|0x123, SPID and KID are suffix-tilde 0x123~Plugin.esp, OAR is a JSON pluginName/formID
+        // pair — and spid-authoring's own skill lists confusing the first two as a known trap ("a SkyPatcher-style ID
+        // won't resolve"). Quoting one spelling for all of them would send a caller grepping for a string three of the
+        // four never contain, and conclude they were unaffected. Naming the FILE KINDS is what makes it actionable.
+        //
+        // Scoped to what the merge actually re-keyed, for the reason the headline above is: a donor's originating
+        // records take the output's identity, but a record the donor merely OVERRODE keeps its master's FormKey, so a
+        // config line addressing that record names the master and is untouched by the merge. Claiming all of them
+        // would tell the caller to rewrite lines that still work.
+        sb.Append("Those configs address a record through the plugin that defines it — SPID/KID/SkyPatcher .ini lines ")
+          .Append("and Open Animation Replacer .json conditions, each in its own spelling — so a line naming a donor ")
+          .Append("stops matching once you deactivate that donor at the swap. A donor's OWN records answer to ")
+          .Append(o.OutputName).Append(" now; a record a donor merely overrode is addressed by its master and is ")
+          .Append("unaffected. Nothing rewrites those files.\n");
 
         AppendFacegenCarry(sb, o.AssetRename, inPlace: false);
         AppendVoiceCarry(sb, o.VoiceRename, inPlace: false);

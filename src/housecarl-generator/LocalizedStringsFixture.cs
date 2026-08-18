@@ -87,7 +87,11 @@ internal static class LocalizedStringsFixture
             {
                 var target = Path.Combine(data, "Strings");
                 Directory.CreateDirectory(target);
-                foreach (var f in Directory.EnumerateFiles(own)) File.Move(f, Path.Combine(target, Path.GetFileName(f)));
+                // GetFiles, not EnumerateFiles: the loop MOVES files out of the directory it is walking, and a lazy
+                // enumerator can skip an entry under that mutation — which the Delete below would then destroy rather
+                // than relocate. It fails toward a RED arm rather than a false green, but a flaky fixture is worse
+                // than either.
+                foreach (var f in Directory.GetFiles(own)) File.Move(f, Path.Combine(target, Path.GetFileName(f)));
                 Directory.Delete(own, true);
             }
         }
@@ -110,5 +114,15 @@ internal static class LocalizedStringsFixture
         using var ov = SkyrimMod.CreateFromBinaryOverlay(pluginPath, SkyrimRelease.SkyrimSE);
         var w = ov.Weapons.FirstOrDefault(x => x.EditorID == weaponEdid);
         return (w?.Name?.String, w?.Description?.String);
+    }
+
+    /// <summary>Whether the written plugin carries the weapon at all. An arm whose expectation is a BLANK string needs
+    /// this: <see cref="ReadBackBare"/> answers (null, null) both for "the record is present and its strings did not
+    /// resolve" and for "the record is not there", and only the first is the state such an arm means to pin. Without
+    /// it, a change that dropped the record entirely would read as the pinned behaviour.</summary>
+    internal static bool CarriesWeapon(string pluginPath, string weaponEdid)
+    {
+        using var ov = SkyrimMod.CreateFromBinaryOverlay(pluginPath, SkyrimRelease.SkyrimSE);
+        return ov.Weapons.Any(x => x.EditorID == weaponEdid);
     }
 }
