@@ -2147,7 +2147,8 @@ public static class WritePatchBuilder
         int PluginsScanned, int UnscannableRecords, IReadOnlyList<string> UnscannableSamples,
         long Bytes, string? Note = null,
         AssetRenameOutcome? AssetRename = null, VoiceCarryOutcome? VoiceRename = null, SeqRegenOutcome? SeqRegen = null,
-        IReadOnlyList<string>? LightDonors = null, IReadOnlyList<string>? HeaderMetaDonors = null)
+        IReadOnlyList<string>? LightDonors = null, IReadOnlyList<string>? HeaderMetaDonors = null,
+        IReadOnlyList<string>? MasterDonors = null)
     {
         public static MergeOutcome Fail(string error) =>
             new(false, error, "", "", Array.Empty<string>(), Array.Empty<string>(), 0, 0,
@@ -2562,7 +2563,8 @@ public static class WritePatchBuilder
     public sealed record MergeBuildResult(
         bool Success, string? Error, IReadOnlyList<string> Masters, int RecordsCopied, int RecordsRenumbered,
         IReadOnlyList<RemapEngine.MergeConflict> Conflicts, long Bytes,
-        IReadOnlyList<string>? LightDonors = null, IReadOnlyList<string>? HeaderMetaDonors = null)
+        IReadOnlyList<string>? LightDonors = null, IReadOnlyList<string>? HeaderMetaDonors = null,
+        IReadOnlyList<string>? MasterDonors = null)
     {
         public static MergeBuildResult Fail(string error) =>
             new(false, error, Array.Empty<string>(), 0, 0, Array.Empty<RemapEngine.MergeConflict>(), 0);
@@ -2593,6 +2595,7 @@ public static class WritePatchBuilder
         var donorSet = new HashSet<ModKey>(donorsByLoadOrder.Select(d => d.Key));
         var overlays = new List<IDisposable>();
         var lightDonors = new List<string>();                              // donors carrying header flags/fields the output will not
+        var masterDonors = new List<string>();
         var headerMetaDonors = new List<string>();
         try
         {
@@ -2611,7 +2614,15 @@ public static class WritePatchBuilder
                 // behind. Measured here, while the overlay is open, so the report can state the loss instead of the
                 // caller discovering it (a light donor silently costing a full load-order slot). Whether these should
                 // be CARRIED is a separate decision that is not this lane's to make.
-                if (ov.IsSmallMaster) lightDonors.Add(name);
+                //
+                // LIGHT and MASTER are each read BOTH ways, because either alone under-reports the loss. The header
+                // bit is not the whole model: this tool's own .esl-output refusal states that the engine force-treats
+                // the extension as light regardless of the bit, so a .esl donor with the bit unset still loses light
+                // status here. Symmetrically an esmified .esp carries the master bit without the extension, and a
+                // .esm carries the extension; both lose master status in a bare output.
+                if (ov.IsSmallMaster || ov.ModKey.Type == ModType.Light) lightDonors.Add(name);
+                if (ov.ModHeader.Flags.HasFlag(SkyrimModHeader.HeaderFlag.Master) || ov.ModKey.Type == ModType.Master)
+                    masterDonors.Add(name);
                 if (!string.IsNullOrWhiteSpace(ov.ModHeader.Author) || !string.IsNullOrWhiteSpace(ov.ModHeader.Description))
                     headerMetaDonors.Add(name);
             }
@@ -2689,7 +2700,7 @@ public static class WritePatchBuilder
         }
         catch { /* best-effort read-back; the union is a correct superset */ }
         return new MergeBuildResult(true, null, writtenMasters, mr.RecordsCopied, mr.RecordsRenumbered, mr.Conflicts, bytes,
-            lightDonors, headerMetaDonors);
+            lightDonors, headerMetaDonors, masterDonors);
     }
 
     /// <summary>

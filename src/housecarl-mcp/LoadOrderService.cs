@@ -6382,7 +6382,7 @@ public sealed class LoadOrderService : IDisposable
                 true, null, outPath, outName, donorNames, build.Masters, build.RecordsCopied, build.RecordsRenumbered,
                 plan.Donors, build.Conflicts, id.ExternalPlugins, id.ExternalOverriders,
                 id.PluginsScanned, id.UnscannableRecords, id.UnscannableSamples, build.Bytes, note,
-                assetRename, voiceRename, seqRegen, build.LightDonors, build.HeaderMetaDonors);
+                assetRename, voiceRename, seqRegen, build.LightDonors, build.HeaderMetaDonors, build.MasterDonors);
         }
     }
 
