@@ -33,7 +33,13 @@ when it changes.
   the plugin's own folder carries no strings source at all, and **any** `.bsa` sitting beside the plugin counts as one
   — whatever that archive actually holds. A localized plugin in a mod folder that ships an asset-only `.bsa`, with its
   `.STRINGS` served from elsewhere, is therefore still read the old way and still writes blanks. So is a plugin whose
-  strings are in neither place. Both are unchanged by this fix. (#362)
+  strings are in neither place.
+
+  One case inside `housecarl_compact_plugin` is also untouched, and it is the worst of the three: with
+  `in_place=true` and `repoint_externals=true`, the pass that rewrites each **external referencer** still opens it the
+  old way and writes it back over the user's own file. A localized referencer loses every name and description
+  permanently — in place, on a plugin the user did not ask to compact, with the same silence this entry describes as
+  the bug. Tracked as #368. All three cases are unchanged by this fix. (#362)
 
 - **`housecarl_merge_plugins` now accepts a single donor, which renames a plugin.** Merging one plugin into a new
   name was refused ("merge needs at least TWO distinct donor plugins"), and no other tool renames one, so a
