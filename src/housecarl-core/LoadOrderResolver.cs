@@ -666,6 +666,14 @@ public sealed class LoadOrderResolver : IDisposable
         public string? PluginPath(string pluginName)
             => _r._nameToIdx.TryGetValue(pluginName, out int idx) ? _r._paths[idx] : null;
 
+        /// <summary>The real game-Data folder this order resolved — see <see cref="LoadOrderResolver.DataDir"/>. Paired
+        /// with <see cref="PluginPath"/>: a caller OUTSIDE this assembly that opens a plugin file itself must pass this
+        /// to <see cref="LoadOrderResolver.OpenOverlay"/>, or a localized plugin whose own folder carries no strings
+        /// source reads every TranslatedString EMPTY (the HCBR-2026-06-24 class). The resolver's own DataDir is
+        /// internal, so the write lanes that hold a captured view — merge and compact, which open donor/source plugins
+        /// directly — reach it here.</summary>
+        public string? DataDir => _r.DataDir;
+
         /// <summary>O(1): the winning plugin + override depth for a FormKey. null if the FormKey isn't in the order.</summary>
         public WinnerInfo? ResolveWinner(FormKey fk)
             => _s.Index.TryGetValue(fk, out var e) ? new WinnerInfo(fk, _r._names[e.winner], e.count) : null;

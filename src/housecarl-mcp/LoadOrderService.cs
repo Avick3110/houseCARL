@@ -6077,7 +6077,7 @@ public sealed class LoadOrderService : IDisposable
             }
 
             // 6. build + write the compacted plugin.
-            var build = WritePatchBuilder.CompactBuild(srcPath, modKey, remapDict, view.PluginPath, outPath, esl, floor);
+            var build = WritePatchBuilder.CompactBuild(srcPath, modKey, remapDict, view.PluginPath, outPath, esl, floor, view.DataDir);
             if (!build.Success)
             {
                 if (!inPlace && createdFresh) RemoveOrNameRiderResidue(rf);   // a refused build leaves no orphan folder
@@ -6314,7 +6314,7 @@ public sealed class LoadOrderService : IDisposable
 
             // ---- 6. build + write M ----
             var build = WritePatchBuilder.MergeBuild(
-                donorInfos.Select(d => (d.Name, d.Path, d.Key)).ToList(), outKey, plan.Dict, masterSet, view.PluginPath, outPath);
+                donorInfos.Select(d => (d.Name, d.Path, d.Key)).ToList(), outKey, plan.Dict, masterSet, view.PluginPath, outPath, view.DataDir);
             if (!build.Success)
             {
                 if (rf.CreatedFresh) RemoveOrNameRiderResidue(rf);        // a refused build leaves no orphan folder

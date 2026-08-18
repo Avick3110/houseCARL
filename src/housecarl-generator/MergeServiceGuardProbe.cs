@@ -43,6 +43,16 @@ namespace HousecarlGenerator;
 ///   REFUSE    — ZERO donors / unknown donor / output already active / output == donor / .esl output, all loud,
 ///               nothing written.
 ///   UNTOUCHED — the donor files are byte-identical after the merge (new-file lane only).
+///   LOCALIZED — (#362) donors whose .STRINGS live in the game-Data folder rather than their own mod folder keep their
+///               FULL+DESC through the merge, in BOTH the rename and the combine shape (one fix, no donor-count
+///               conditional). Its own instance: the fixture turns on a game-Data Skyrim.esm, which the order above
+///               has none of. A baseline arm reads the donor with the BARE overlay first and requires it to come back
+///               EMPTY — without that, every arm here would pass on a fixture that was never localized. A further arm
+///               pins that the OUTPUT is written non-localized with its strings inline, which is what makes the
+///               read-backs a read of the written bytes.
+///   RESIDUAL  — (#362, measured not fixed) a donor whose strings are in NEITHER place: OpenOverlay's fallback is
+///               game-Data and nothing else, so no dataDir resolves it, and the merge still writes blanks and still
+///               reports success. Pinned as the current behaviour so the residual is measured rather than asserted.
 /// Run: dotnet run --project src/housecarl-generator merge-service-guard
 /// </summary>
 public static class MergeServiceGuardProbe
@@ -566,6 +576,92 @@ public static class MergeServiceGuardProbe
                 Check(oCase.Success && oCase.Donors.Count == 1 && oCase.Conflicts.Count == 0
                       && WriteTools.RenderMerge(oCase).Contains("a RENAME of"),
                     $"RENAME donor names differing only by CASE are ONE donor ({(oCase.Success ? $"{oCase.Donors.Count} donor, {oCase.Conflicts.Count} conflicts" : "ERR " + oCase.Error)})");
+            }
+
+            // ---- LOCALIZED (#362): donors whose .STRINGS live in the game-Data folder, not their own mod folder ----
+            //      Its own instance, because the fixture's load-bearing part is a game-Data Skyrim.esm (see
+            //      LocalizedStringsFixture) and the order above deliberately has none.
+            {
+                var locRoot = Path.Combine(root, "loc");
+                var la = new LocalizedStringsFixture.Spec("LocA", new ModKey("HcMgLocA", ModType.Plugin), "LOC A NAME", "LOC A DESC");
+                var lb = new LocalizedStringsFixture.Spec("LocB", new ModKey("HcMgLocB", ModType.Plugin), "LOC B NAME", "LOC B DESC");
+                var fx = LocalizedStringsFixture.Build(locRoot, new[] { la, lb });
+                var locStore = new UserConfigStore(Path.Combine(locRoot, "houseCARL.user.json"));
+                using var locSvc = LoadOrderService.WithInstance(fx.Instance, 0, locStore);
+                locSvc.Stats();
+
+                // The fixture really is the blanking shape: read the donor ON DISK with the bare overlay and it comes
+                // back empty. Without this arm every arm below would pass just as well on a non-localized fixture, or
+                // on one whose strings never left the mod folder — the two ways this fixture could go quietly vacuous.
+                var donorPath = Path.Combine(fx.Mods, la.ModFolder, la.Key.FileName.String);
+                var bare = LocalizedStringsFixture.ReadBackBare(donorPath, LocalizedStringsFixture.WeaponEdid(la));
+                Check(string.IsNullOrEmpty(bare.Name) && string.IsNullOrEmpty(bare.Desc),
+                    $"LOCALIZED fixture: the donor read with the BARE overlay is blank (Name='{bare.Name}' Desc='{bare.Desc}')");
+
+                // RENAME — the single-donor shape (#345). Every localized value in the plugin rides on this one open,
+                // so a bare open here blanks the whole renamed plugin.
+                {
+                    var lo = locSvc.MergePlugins(new[] { la.Key.FileName.String }, "HcMgLocRen.esp");
+                    var rb = lo.Success && File.Exists(lo.OutputPath)
+                        ? LocalizedStringsFixture.ReadBackBare(lo.OutputPath, LocalizedStringsFixture.WeaponEdid(la))
+                        : (Name: null, Desc: null);
+                    Check(lo.Success && rb.Name == la.Name && rb.Desc == la.Desc,
+                        $"LOCALIZED single-donor merge (RENAME) carries FULL+DESC (Name='{rb.Name}' Desc='{rb.Desc}'{(lo.Success ? "" : ", ERR " + lo.Error)})");
+                }
+
+                // COMBINE — the multi-donor shape, both donors localized: neither is blanked, and the fix is not
+                // keyed on donor count (settled decision 4 — one fix, no shape conditional).
+                {
+                    var lo = locSvc.MergePlugins(new[] { la.Key.FileName.String, lb.Key.FileName.String }, "HcMgLocComb.esp");
+                    var rbA = lo.Success && File.Exists(lo.OutputPath)
+                        ? LocalizedStringsFixture.ReadBackBare(lo.OutputPath, LocalizedStringsFixture.WeaponEdid(la))
+                        : (Name: null, Desc: null);
+                    var rbB = lo.Success && File.Exists(lo.OutputPath)
+                        ? LocalizedStringsFixture.ReadBackBare(lo.OutputPath, LocalizedStringsFixture.WeaponEdid(lb))
+                        : (Name: null, Desc: null);
+                    Check(lo.Success && rbA.Name == la.Name && rbA.Desc == la.Desc && rbB.Name == lb.Name && rbB.Desc == lb.Desc,
+                        $"LOCALIZED multi-donor merge carries FULL+DESC for EVERY donor (A='{rbA.Name}'/'{rbA.Desc}' B='{rbB.Name}'/'{rbB.Desc}'{(lo.Success ? "" : ", ERR " + lo.Error)})");
+                }
+
+                // OUTPUT-NOT-LOCALIZED — the written merge is a bare SkyrimMod, so it carries no localized header flag
+                // and its strings are inline. This is what makes every read-back above legitimate with no dataDir and
+                // no Strings folder beside the output: if the output were flagged localized without a strings writer,
+                // the reads would be measuring a folder-adjacent lookup instead of the bytes, and a merge would be
+                // shipping a plugin whose strings live nowhere.
+                {
+                    var lo = locSvc.MergePlugins(new[] { la.Key.FileName.String }, "HcMgLocFlag.esp");
+                    bool flagOk = false, noStringsFolder = false;
+                    if (lo.Success && File.Exists(lo.OutputPath))
+                    {
+                        using var ov = SkyrimMod.CreateFromBinaryOverlay(lo.OutputPath, SkyrimRelease.SkyrimSE);
+                        flagOk = !ov.UsingLocalization;
+                        noStringsFolder = !Directory.Exists(Path.Combine(Path.GetDirectoryName(lo.OutputPath)!, "Strings"));
+                    }
+                    Check(flagOk && noStringsFolder,
+                        $"LOCALIZED output is written NON-localized with strings inline (flagClear={flagOk} noStringsFolder={noStringsFolder})");
+                }
+            }
+
+            // ---- RESIDUAL (#362, measured not fixed): a localized donor whose strings exist NEITHER beside it NOR in
+            //      game-Data. OpenOverlay's fallback is the game-Data folder and nothing else, so there is no dataDir
+            //      that resolves this one — the merge still succeeds and still writes blanks, with no warning. Pinned
+            //      here so the residual is a measured fact in the PR rather than a claim, and so a later change to it
+            //      is a deliberate one. Asserting the CURRENT behaviour, not endorsing it.
+            {
+                var resRoot = Path.Combine(root, "res");
+                var lr = new LocalizedStringsFixture.Spec("LocGone", new ModKey("HcMgLocGone", ModType.Plugin),
+                    "GONE NAME", "GONE DESC", StringsNowhere: true);
+                var fx = LocalizedStringsFixture.Build(resRoot, new[] { lr });
+                var resStore = new UserConfigStore(Path.Combine(resRoot, "houseCARL.user.json"));
+                using var resSvc = LoadOrderService.WithInstance(fx.Instance, 0, resStore);
+                resSvc.Stats();
+
+                var lo = resSvc.MergePlugins(new[] { lr.Key.FileName.String }, "HcMgResRen.esp");
+                var rb = lo.Success && File.Exists(lo.OutputPath)
+                    ? LocalizedStringsFixture.ReadBackBare(lo.OutputPath, LocalizedStringsFixture.WeaponEdid(lr))
+                    : (Name: "unwritten", Desc: "unwritten");
+                Check(lo.Success && string.IsNullOrEmpty(rb.Name) && string.IsNullOrEmpty(rb.Desc),
+                    $"RESIDUAL strings resolvable NOWHERE still merge to blanks, silently (success={lo.Success} Name='{rb.Name}' Desc='{rb.Desc}')");
             }
         }
         finally { try { Directory.Delete(root, true); } catch { } }
