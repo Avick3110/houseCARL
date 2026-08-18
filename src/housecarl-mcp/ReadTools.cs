@@ -1181,15 +1181,26 @@ static class Wire
             sb.Append("\nNo errors found in the scanned scope.\n");
 
         bool truncated = false;
+        int sections = 0;
         foreach (var p in r.Reports)
         {
             if (sb.Length >= cap)
             {
-                sb.Append("\n... [truncated at max_chars=").Append(cap).Append("; ").Append(SweepNarrowHint).Append("]\n");
+                // AN OMISSION SENTENCE IS COMPUTED BY THE LAYER THAT PERFORMED THE OMISSION, AND CLAIMS ONLY THAT
+                // LAYER'S OMISSION. This is the render's cut, so it is counted here, where the loop already knows
+                // what it emitted — and it says nothing about the listing budget, whose own omissions the capped
+                // line below reports in its own terms. The two truncators are independent and do not sum: crossing
+                // that seam is what made rounds 1 and 2 a single class (advisor ruling, 2026-08-18).
+                sb.Append("\n... [truncated at max_chars=").Append(cap).Append(": ")
+                  .Append(r.Reports.Count - sections).Append(" of ").Append(r.Reports.Count)
+                  .Append(" plugin section(s) were not rendered, and the last one rendered may be partial; ")
+                  .Append("this is the response being cut, separate from any limit= omission reported below. ")
+                  .Append(SweepNarrowHint).Append("]\n");
                 truncated = true;
                 break;
             }
             sb.Append("\n[ERROR] ").Append(p.Plugin).Append('\n');
+            sections++;
             if (p.ScanError is not null)
                 sb.Append("  scan error: ").Append(p.ScanError).Append('\n');
             if (p.MissingMasters.Count > 0)
@@ -1228,6 +1239,10 @@ static class Wire
     /// plugins it counted as baseline rather than saying "base-game", because that word is the whole claim — houseCARL's
     /// own load-order status groups Creation Club plugins WITH the base masters as "implicit", and the set here is
     /// Mutagen's <c>BaseMasters</c>, which does not contain them.
+    /// <para>Creation Club and <c>_ResourcePack.esl</c> are DELIBERATELY not baseline (ruled 2026-08-18). Baseline is
+    /// Mutagen's set exactly, which is what keeps it by-construction rather than a list kept here; "keep CC out of my
+    /// listing" is a caller's choice, and it routes to the <c>exclude=</c> pole on the successor <c>check</c> surface
+    /// (#344's second stage), not to a classification baked into the sweep.</para>
     /// <para>Printed only when a base master was actually SWEPT, and it names THAT subset
     /// (<see cref="ErrorCheckResult.BaseMastersSwept"/>) rather than the whole definition: "0 of 12 are vanilla" over
     /// a scope that never included vanilla is a true sentence that teaches something false — and so is a "3 of 3"
@@ -1242,7 +1257,10 @@ static class Wire
         // The phase-order sentence only where the phase order DECIDED something. Nothing was crowded out of a sweep
         // that listed everything it found, and saying so there explains a mechanism the reader did not just hit.
         // (Capped is never set under counts_only — that mode lists nothing — so it carries the mode gate too.)
-        if (r.Capped && r.BaselineDangling > 0)
+        // "spent on every other plugin BEFORE those" is a statement about an ordering between two groups, so it needs
+        // both groups to exist: on a sweep scoped to base masters alone there is no "every other plugin", and what the
+        // budget dropped is the caller's own requested findings (round-2 review).
+        if (r.Capped && r.BaselineDangling > 0 && r.PluginsScanned > (r.BaseMastersSwept?.Count ?? 0))
             sb.Append("  the listing budget (limit=) is spent on every other plugin BEFORE those, so baseline findings ")
               .Append("cannot crowd the rest out of the list; the sections below stay in load order.").Append('\n');
     }
@@ -1253,7 +1271,9 @@ static class Wire
     /// one level down (round-1 review).</summary>
     const int OmittedPluginsShown = 10;
 
-    /// <summary>#344 — the capped line. It used to state the true total and stop, which said that entries were dropped
+    /// <summary>#344 — the capped line, whose every subject is the LISTING BUDGET's: an omission sentence is computed
+    /// by the layer that performed the omission and claims only that layer's omission (advisor ruling, 2026-08-18).
+    /// The render's own cut is reported at the truncation notice, in the render's terms. It used to state the true total and stop, which said that entries were dropped
     /// but never WHICH plugin lost them; a plugin that lost its whole set, and had nothing else to report, has no
     /// section above at all, so the report gave a reader no way to find it. Q3: what a cap dropped is part of the
     /// answer, not an omission the caller is expected to infer.</summary>
@@ -1262,11 +1282,11 @@ static class Wire
         // A capped sweep always dropped at least one ref (capped is set only where the budget hit 0 with a finding
         // in hand), so the count is stated flat rather than behind a test that cannot fail.
         int notListed = r.ListingOmitted?.Sum(c => c.Count) ?? 0;
-        sb.Append('\n').Append("[dangling list capped at limit; true total = ").Append(r.TotalDangling)
-          .Append(", of which ").Append(notListed).Append(" were NOT listed");
+        sb.Append('\n').Append("[the listing budget (limit=) omitted ").Append(notListed)
+          .Append(" dangling ref(s); true total = ").Append(r.TotalDangling);
         if (r.ListingOmitted is { Count: > 0 } omitted)
         {
-            sb.Append(", across ").Append(omitted.Count).Append(" plugin(s). Largest losses by SOURCE plugin");
+            sb.Append(", across ").Append(omitted.Count).Append(" source plugin(s). Largest sources");
             if (omitted.Count > OmittedPluginsShown)
                 sb.Append(" (the ").Append(OmittedPluginsShown).Append(" largest of ").Append(omitted.Count)
                   .Append("; the rest are not named here)");
@@ -1279,18 +1299,19 @@ static class Wire
                 sb.Append(row.Key).Append(" (").Append(row.Count).Append(')');
                 shown++;
             }
-            sb.Append('.');
-            // Only where it is true of THIS response: the sentence explains a plugin the reader will not find above,
-            // and printing it when every omitted plugin still has a section sends them hunting for one that is there
-            // (found by measuring the reworded line rather than by reading it).
-            if (omitted.Any(o => r.Reports.All(p => !string.Equals(p.Plugin, o.Key, StringComparison.OrdinalIgnoreCase))))
-                sb.Append(" A plugin that lost its whole set and had nothing else to report has no section above.");
+            // A RULE about the budget, not a claim about this response's contents. The conditional it replaces tested
+            // r.Reports — sweep state — to describe what the reader can see, which is the seam the layer rule closes;
+            // the honest fix was to delete the conditional rather than to move its test (#339 precedent).
+            sb.Append(". A plugin whose whole set the budget omitted, with nothing else to report, gets no section of ")
+              .Append("its own.");
         }
         else sb.Append('.');
         // The remedy is a claim about a call that has not happened. Raising limit= always works; scoping re-spends
         // the WHOLE budget on the named plugin, which is enough unless that plugin's own set is larger than limit=
         // — on a real order the biggest single source ran to 2591 refs against a default of 1000, so an unqualified
         // "scope to it" would loop the caller back to this same line (round-1 review, measured).
+        // Every subject in this line is the BUDGET's. What the response itself dropped is the render's fact, stated at
+        // the truncation notice above in its own terms; the two are independent and are never added together.
         sb.Append(" Raise limit= to list more; scoping plugins= to one of these re-spends the whole budget on that ")
           .Append("plugin, which lists its set in full unless that set is itself larger than limit=. counts_only=true ")
           .Append("returns the by-source tally for every plugin, capped only in how many ROWS it prints.]").Append('\n');
