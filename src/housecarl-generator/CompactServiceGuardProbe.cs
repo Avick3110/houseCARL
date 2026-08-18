@@ -25,6 +25,12 @@ namespace HousecarlGenerator;
 ///   FLAG-ONLY — an override-only plugin: esl=true copies verbatim + sets the light flag (renum 0); esl=false refuses.
 ///   CONSENT   — in_place + repoint without acknowledge returns the CONFIRM prompt (no write); WITH acknowledge it
 ///               compacts the target IN PLACE and repoints the external referencer to the new key (the full opt-in path).
+///   LOCALIZED — (#362) a source whose .STRINGS live in the game-Data folder rather than its own mod folder keeps its
+///               FULL+DESC through the compact. Its own instance: the fixture turns on a game-Data Skyrim.esm, which
+///               the order above has none of. A baseline arm reads the source with the BARE overlay first and requires
+///               it to come back EMPTY — without that, the arm would pass on a fixture that was never localized. A
+///               further arm pins that P′ is written non-localized with its strings inline, which is what makes the
+///               read-back a read of the written bytes.
 /// Run: dotnet run --project src/housecarl-generator compact-service-guard
 /// </summary>
 public static class CompactServiceGuardProbe
@@ -250,6 +256,45 @@ public static class CompactServiceGuardProbe
                                  && depRefAfter == libWeapAfter
                                  && o.Repointed.Count == 1 && o.Repointed[0].Success;
                 Check(repointOk, $"CONSENT in_place+repoint with ack: Lib weapon -> {libWeapAfter}, Dep ref -> {depRefAfter}, repointed {o.Repointed.Count(r => r.Success)}/{o.Repointed.Count}{(o.Success ? "" : "; ERR " + o.Error)}");
+            }
+
+            // ---- LOCALIZED (#362): a source whose .STRINGS live in the game-Data folder, not its own mod folder ----
+            //      Its own instance, because the fixture's load-bearing part is a game-Data Skyrim.esm (see
+            //      LocalizedStringsFixture) and the order above deliberately has none.
+            {
+                var locRoot = Path.Combine(root, "loc");
+                var ls = new LocalizedStringsFixture.Spec("LocSrc", new ModKey("HcCsLoc", ModType.Plugin), "LOC NAME", "LOC DESC");
+                var fx = LocalizedStringsFixture.Build(locRoot, new[] { ls });
+                var locStore = new UserConfigStore(Path.Combine(locRoot, "houseCARL.user.json"));
+                using var locSvc = LoadOrderService.WithInstance(fx.Instance, 0, locStore);
+                locSvc.Stats();
+
+                // The fixture really is the blanking shape — see the twin arm in merge-service-guard for why this is
+                // not optional: without it the arms below pass on a fixture that was never localized.
+                var srcPath = Path.Combine(fx.Mods, ls.ModFolder, ls.Key.FileName.String);
+                var bare = LocalizedStringsFixture.ReadBackBare(srcPath, LocalizedStringsFixture.WeaponEdid(ls));
+                Check(string.IsNullOrEmpty(bare.Name) && string.IsNullOrEmpty(bare.Desc),
+                    $"LOCALIZED fixture: the source read with the BARE overlay is blank (Name='{bare.Name}' Desc='{bare.Desc}')");
+
+                var o = locSvc.CompactPlugin(ls.Key.FileName.String);
+                var rb = o.Success && File.Exists(o.OutputPath)
+                    ? LocalizedStringsFixture.ReadBackBare(o.OutputPath, LocalizedStringsFixture.WeaponEdid(ls))
+                    : (Name: null, Desc: null);
+                Check(o.Success && rb.Name == ls.Name && rb.Desc == ls.Desc,
+                    $"LOCALIZED compact carries FULL+DESC into P′ (Name='{rb.Name}' Desc='{rb.Desc}'{(o.Success ? "" : ", ERR " + o.Error)})");
+
+                // The compacted output is a bare SkyrimMod too — non-localized, strings inline. Same reasoning as the
+                // merge guard's twin: it is what makes the read-back above a read of the bytes rather than of a
+                // folder-adjacent lookup, and it rules out compact shipping a localized plugin with no strings.
+                bool flagOk = false, noStringsFolder = false;
+                if (o.Success && File.Exists(o.OutputPath))
+                {
+                    using var ov = SkyrimMod.CreateFromBinaryOverlay(o.OutputPath, SkyrimRelease.SkyrimSE);
+                    flagOk = !ov.UsingLocalization;
+                    noStringsFolder = !Directory.Exists(Path.Combine(Path.GetDirectoryName(o.OutputPath)!, "Strings"));
+                }
+                Check(flagOk && noStringsFolder,
+                    $"LOCALIZED compact output is written NON-localized with strings inline (flagClear={flagOk} noStringsFolder={noStringsFolder})");
             }
         }
         finally { try { Directory.Delete(root, true); } catch { } }

@@ -2486,7 +2486,7 @@ public static class WritePatchBuilder
     /// </summary>
     public static CompactBuildResult CompactBuild(
         string srcPath, ModKey modKey, IReadOnlyDictionary<FormKey, FormKey> dict,
-        Func<string, string?> resolveMasterPath, string outPath, bool esl, uint floor)
+        Func<string, string?> resolveMasterPath, string outPath, bool esl, uint floor, string? dataDir)
     {
         // 1. Build P′ in memory, then DISPOSE the source overlay (the in-place lane overwrites srcPath — its handle must
         //    be released before the atomic swap).
@@ -2496,7 +2496,12 @@ public static class WritePatchBuilder
         ISkyrimModGetter? srcOv = null;
         try
         {
-            srcOv = SkyrimMod.CreateFromBinaryOverlay(srcPath, SkyrimRelease.SkyrimSE);
+            // The strings-aware factory, not a bare open (#362): a LOCALIZED source whose own folder carries no strings
+            // source reads every TranslatedString EMPTY (the HCBR-2026-06-24 class OpenOverlay exists for) — and the
+            // renumber below copies those empty values into P′, which is then written with the blanks baked in. The
+            // in-place lane already routes through here for its read-back; the compact SOURCE open is the same hazard
+            // one step earlier, where the loss is written rather than merely displayed.
+            srcOv = LoadOrderResolver.OpenOverlay(srcPath, dataDir);
             declaredMasters = srcOv.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToList();
             pPrime = new SkyrimMod(modKey, SkyrimRelease.SkyrimSE) { IsSmallMaster = esl };
             ren = RemapEngine.RenumberModInto(pPrime, srcOv, dict);
@@ -2586,7 +2591,7 @@ public static class WritePatchBuilder
     public static MergeBuildResult MergeBuild(
         IReadOnlyList<(string Name, string Path, ModKey Key)> donorsByLoadOrder, ModKey outKey,
         IReadOnlyDictionary<FormKey, FormKey> dict, IReadOnlyList<string> masters,
-        Func<string, string?> resolveMasterPath, string outPath)
+        Func<string, string?> resolveMasterPath, string outPath, string? dataDir)
     {
         // 1. Open every donor overlay, build M in memory, dispose the donors before the write (no handle at rest;
         //    merge never writes over a donor, but the discipline is uniform).
@@ -2603,7 +2608,10 @@ public static class WritePatchBuilder
             foreach (var (name, path, _) in donorsByLoadOrder)
             {
                 ISkyrimModGetter ov;
-                try { ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE); }
+                // The strings-aware factory, not a bare open (#362): a LOCALIZED donor whose own folder carries no
+                // strings source reads every TranslatedString EMPTY (the HCBR-2026-06-24 class OpenOverlay exists for),
+                // and the merge below copies those empty values into M, which is then written with the blanks baked in.
+                try { ov = LoadOrderResolver.OpenOverlay(path, dataDir); }
                 catch (Exception ex)
                 {
                     return MergeBuildResult.Fail($"cannot open donor '{name}' to merge it ({WriteEngine.Describe(ex)}) — nothing written.");

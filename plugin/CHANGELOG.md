@@ -6,6 +6,17 @@ when it changes.
 
 ## Unreleased
 
+- **Fixed: `housecarl_merge_plugins` and `housecarl_compact_plugin` blanked every localized name and description.**
+  Both verbs opened their donor / source plugins with an overlay that looks for `Strings\` only in the plugin's own
+  folder. A localized plugin whose `.STRINGS` are served from elsewhere — the common case, where a cleaned or
+  translated master's strings live in the game's `Data` folder rather than in the mod folder MO2 resolves the plugin
+  to — therefore read every `FULL` and `DESC` as empty, and the merged or compacted output was written with those
+  blanks baked in. Nothing failed and nothing warned: the result loaded, and the loss was visible only in game or by
+  diffing. Both opens now go through the same strings-aware path the rest of houseCARL reads with, which falls back to
+  the game `Data` folder when the plugin's own folder carries no strings source and leaves plugins that do carry one
+  untouched. A plugin whose strings are in *neither* place still reads empty — there is nowhere left to look — and
+  that case is unchanged by this fix. (#362)
+
 - **`housecarl_merge_plugins` now accepts a single donor, which renames a plugin.** Merging one plugin into a new
   name was refused ("merge needs at least TWO distinct donor plugins"), and no other tool renames one, so a
   mis-named patch could only be fixed by replaying every edit into a freshly named plugin. There was never anything
