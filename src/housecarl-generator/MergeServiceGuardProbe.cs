@@ -330,18 +330,22 @@ public static class MergeServiceGuardProbe
                 Check(r1 is { Kept: 8, Renumbered: 0 }, $"RENAME nothing can collide: A keeps all 8 ids (kept {r1?.Kept}, renumbered {r1?.Renumbered})");
                 Check(o1.RecordsCopied == 9 && o1.RecordsRenumbered == 8,
                     $"RENAME accounting: 8 originating + 1 base override (copied {o1.RecordsCopied} expected 9, renumbered {o1.RecordsRenumbered} expected 8)");
-                Check(o1.Conflicts.Count == 0, $"RENAME no cross-donor conflicts are possible with one donor (got {o1.Conflicts.Count})");
+                // Every arm below is gated on ok1 and short-circuits, so a regression that refuses the rename turns them
+                // all RED with their own reason instead of throwing on the first null OutputPath and taking the rest of
+                // the block with it. A check that cannot report is not a check.
+                bool ok1 = o1.Success && !string.IsNullOrEmpty(o1.OutputPath);
+                Check(ok1 && o1.Conflicts.Count == 0, $"RENAME no cross-donor conflicts are possible with one donor (got {o1.Conflicts.Count})");
 
                 // ASSETS carry on the plugin-NAME folder segment, which is exactly what a rename changes — this is the
                 // arm that fails if anyone ever makes the carry conditional on a collision.
-                var outDir1 = Path.GetDirectoryName(o1.OutputPath)!;
+                var outDir1 = ok1 ? Path.GetDirectoryName(o1.OutputPath)! : "";
                 var face1 = FaceGenPath.Both(new FormKey(renamedKey, 0xA20)).ToList();
-                Check(face1.Count == 2 && face1.All(x => File.Exists(Path.Combine(outDir1, x.Item2))) && o1.AssetRename?.FacegenFilesCarried == 2,
+                Check(ok1 && face1.Count == 2 && face1.All(x => File.Exists(Path.Combine(outDir1, x.Item2))) && o1.AssetRename?.FacegenFilesCarried == 2,
                     $"RENAME facegen pair carried to the renamed-name folder (files {o1.AssetRename?.FacegenFilesCarried})");
-                Check(File.Exists(Path.Combine(outDir1, "Sound", "Voice", renamedKey.FileName.String, "MaleEvenToned", "HcQ_HcT_00000A11_1.fuz"))
+                Check(ok1 && File.Exists(Path.Combine(outDir1, "Sound", "Voice", renamedKey.FileName.String, "MaleEvenToned", "HcQ_HcT_00000A11_1.fuz"))
                       && o1.VoiceRename?.FilesCarried == 1,
                     $"RENAME voice carried to the renamed-name folder (files {o1.VoiceRename?.FilesCarried})");
-                Check(o1.SeqRegen is { Written: true } && File.Exists(Path.Combine(outDir1, "SEQ", "HcMgRenamed.seq")),
+                Check(ok1 && o1.SeqRegen is { Written: true } && File.Exists(Path.Combine(outDir1, "SEQ", "HcMgRenamed.seq")),
                     $"RENAME .seq regenerated under the new name (written {o1.SeqRegen?.Written})");
 
                 // The side effects are REPORTED, not refused: B patches A and is now OUTSIDE the set, so it joins the
