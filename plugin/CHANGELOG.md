@@ -6,6 +6,14 @@ when it changes.
 
 ## Unreleased
 
+- **`housecarl_merge_plugins` and `housecarl_compact_plugin` now say what they cost the runtime distributor layer.**
+  SPID, KID, SkyPatcher and OAR configs address a record as `<plugin>|<FormID>` — an addressing model neither verb
+  leaves intact, and one no plugin scan can see, since those lines live in `.ini` files rather than in any record. The
+  merge report already said the identify pass does not read them; it now also says what follows from that, which is
+  that a line naming a donor stops matching the moment you deactivate that donor at the swap. The compact report said
+  neither, and now says both — with the half that applies to it, since a compaction keeps the plugin name and moves
+  the object ids instead. Neither verb rewrites those files, and neither claims to have looked at them. (#364)
+
 - **Fixed: `housecarl_merge_plugins` and `housecarl_compact_plugin` blanked every localized name and description.**
   Both verbs opened their donor / source plugins with an overlay that looks for `Strings\` only in the plugin's own
   folder. A localized plugin whose `.STRINGS` are served from elsewhere — the common case, where a cleaned or

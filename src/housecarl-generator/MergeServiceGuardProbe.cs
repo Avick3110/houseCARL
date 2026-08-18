@@ -316,6 +316,14 @@ public static class MergeServiceGuardProbe
                 Check(rendered.Contains("it reads record links and record identity, NOT declared masters")
                       && rendered.Contains("only lists a donor as a master"),
                     "WARN the identify-pass line states what the pass does NOT read");
+                // "Not read" is not the same fact as "and here is what that costs". The runtime distributor layer
+                // addresses records by plugin name, which a merge takes away, so the loss is stated as well as the
+                // gap in coverage — on every merge, not only when the referencer list came back populated.
+                Check(rendered.Contains("SkyPatcher/OAR")
+                      && rendered.Contains("address a record as <plugin>|<FormID>")
+                      && rendered.Contains("stops matching once you deactivate that donor at the swap")
+                      && rendered.Contains("nothing rewrites the .ini files"),
+                    "WARN the distributor-config loss is stated, not just the pass's blindness to it");
                 // The swap instruction must stay PLUGIN-level (PR #158 independent review #1): "disable the donor MODS"
                 // (compact's instruction) would yank the donors' path-referenced assets out of the VFS — the merged
                 // records still load meshes/textures/scripts from the donor folders.

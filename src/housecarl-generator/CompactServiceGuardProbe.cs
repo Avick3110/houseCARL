@@ -130,6 +130,18 @@ public static class CompactServiceGuardProbe
                 }
                 Check(o.Success && !o.InPlace && o.Esl && o.RecordsRenumbered == 3 && o.ExternalPlugins.Count == 0 && windowOk && lightOk,
                     $"CLEAN new-file compact (renum {o.RecordsRenumbered}, inWindow {windowOk}, light {lightOk}, ext {o.ExternalPlugins.Count}{(o.Success ? "" : "; ERR " + o.Error)})");
+
+                // The runtime distributor layer addresses records by FormID, which is exactly what a compaction moves,
+                // and the identify pass reads plugins only — so the report says both, on every compaction rather than
+                // only when the external-referencer list came back populated (this one is the clean case, and it is
+                // still the case where a _DISTR.ini goes quietly dead).
+                var rendered = WriteTools.RenderCompact(o);
+                Check(rendered.Contains("does not read INI distributor configs (SPID/KID/SkyPatcher/OAR)")
+                      && rendered.Contains("address a record as <plugin>|<FormID>")
+                      && rendered.Contains("The plugin name is unchanged")
+                      && rendered.Contains("no longer addresses that record")
+                      && rendered.Contains("nothing rewrites the .ini files"),
+                    "CLEAN the distributor-config loss is stated beside the identify-pass coverage");
             }
 
             // ---- ESL-OFF: esl=false -> renumbered, NOT light-flagged ----
