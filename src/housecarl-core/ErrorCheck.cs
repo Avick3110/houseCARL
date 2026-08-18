@@ -343,7 +343,7 @@ public static class ErrorCheck
                                     ownerVarExempt ??= UntypedOwnerVariableData(rec);   // #207: RequiredRank int mis-exposed as a FormLink
                                     if (ownerVarExempt.TryGetValue(target, out int rank) && rank > 0) { ownerVarExempt[target] = rank - 1; continue; }
                                     totalDangling++;
-                                    Bump(bySource, name);                                                     // #344: the SOURCE axis (an off-order file is never a base master — it is not in the order)
+                                    Bump(bySource, name);                                                     // #344: the SOURCE axis, keyed by the off-order FILE (which can itself be a base master — see BaseMastersSwept below)
                                     if (histogram is not null) { BumpTarget(histogram, target); continue; }   // counts_only=
                                     if (danglingBudget > 0)
                                     {
@@ -406,14 +406,20 @@ public static class ErrorCheck
         }
 
         // #344 — the baseline split, derived from the ONE source tally so "is this plugin baseline" is asked in exactly
-        // one place. BaseMastersInScope is not (BaselineDangling > 0): a swept baseline that came back CLEAN is a
+        // one place. The swept SUBSET below is not (BaselineDangling > 0): a swept baseline that came back CLEAN is a
         // different fact from a sweep that never looked at one, and a render that conflates them says "0 of N are
         // vanilla" about an order whose vanilla was never in scope.
         int baselineDangling = bySource is null ? 0 : bySource.Where(kv => IsBaseMaster(kv.Key)).Sum(kv => kv.Value);
-        // Off-order too: a base master swept as a FILE (located on disk, not in the active order) is still a baseline
-        // plugin, and its findings land in the same tally. Asking only the active targets would let BaselineDangling be
-        // positive while this said no baseline was swept — a contradiction a json consumer reads before a human does.
-        bool baseInScope = targets.Any(IsBaseMaster) || offOrderScanned.Any(IsBaseMaster);
+        // WHICH base masters this sweep actually looked at — the swept SUBSET, not a yes/no. A render that says
+        // "N of M come from the base-game masters" has to name the ones it counted, and naming all five over a sweep
+        // that touched one states a figure about four plugins it never opened (round-1 review, two reviewers). Off-order
+        // counts: a base master swept as a FILE (on disk, not in the active order) is still a baseline plugin, and its
+        // findings land in the same tally — asking only the active targets would let BaselineDangling be positive while
+        // this said no baseline was swept. In Mutagen's own order, so the render is stable across sweeps.
+        var baseSwept = BaseMasterNames
+            .Where(m => targets.Any(t => string.Equals(t, m, StringComparison.OrdinalIgnoreCase))
+                     || offOrderScanned.Any(o => string.Equals(o, m, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
 
         // Q3 — what the budget DROPPED, by plugin. The old global "capped at limit" line named no plugin, which is the
         // silent half of this defect: a plugin whose entire list was dropped has no report section to read the loss
@@ -423,7 +429,12 @@ public static class ErrorCheck
         if (bySource is not null && !countsOnly)
         {
             var listed = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            foreach (var p in reports) if (p.Dangling.Count > 0) listed[p.Plugin] = p.Dangling.Count;
+            // Accumulate, never assign: plugins= is not de-duplicated upstream (a repeated or case-variant name is
+            // swept twice, pre-existing on main), and an overwrite kept only the last section's count while bySource
+            // had summed both — reporting refs as budget-dropped on a sweep that never capped (round-1 review).
+            foreach (var p in reports)
+                if (p.Dangling.Count > 0)
+                    listed[p.Plugin] = (listed.TryGetValue(p.Plugin, out var had) ? had : 0) + p.Dangling.Count;
             var acc = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             foreach (var kv in bySource)
             {
@@ -438,7 +449,7 @@ public static class ErrorCheck
                                     filterNote, classes, histogram is null ? null : SweepFindings.Histogram(histogram),
                                     countsOnly, view.Epoch,
                                     bySource is null ? null : SweepFindings.Histogram(bySource),
-                                    baselineDangling, baseInScope, listingOmitted);
+                                    baselineDangling, baseSwept, listingOmitted);
     }
 
     /// <summary>The off-order file's record stream, type-scoped when the caller asked for one (#282) — the overlay
@@ -533,8 +544,10 @@ public sealed record PluginErrors(
 /// FROM (never limit-capped; null = the link walk did not run, never "none found"), the decomposition the
 /// target-keyed <paramref name="Histogram"/> cannot give. <paramref name="BaselineDangling"/> is how many of
 /// <paramref name="TotalDangling"/> came from a base-game master (<see cref="ErrorCheck.BaseMasters"/>) — vanilla
-/// leftovers rather than anything a load order introduced — and <paramref name="BaseMastersInScope"/> says whether the
-/// sweep looked at one at all, so "0 baseline findings" and "no baseline was swept" stay distinguishable.
+/// leftovers rather than anything a load order introduced — and <paramref name="BaseMastersSwept"/> names WHICH base
+/// masters this sweep actually looked at (empty = none, so "0 baseline findings" and "no baseline was swept" stay
+/// distinguishable; a render must name this subset rather than <see cref="ErrorCheck.BaseMasters"/>, which would
+/// attribute a count to plugins the sweep never opened).
 /// <paramref name="ListingOmitted"/> names, per source plugin, the dangling refs found but NOT listed because the
 /// budget ran out (empty = nothing was dropped; null = nothing was listed to begin with, i.e. counts_only or no walk):
 /// the Q3 answer to "which plugins lost entries", which a global capped flag cannot give.</para></summary>
@@ -555,7 +568,7 @@ public sealed record ErrorCheckResult(
     string? Epoch = null,   // the swept INDEXED build's fingerprint (SPEC §2.1.1). Stamped on success and on refusals decided against a captured build (membership/locate); null on parse-level refusals that consulted none. OffOrderScanned files are located OUTSIDE the index — their content is not under this fingerprint (the renders qualify the stamp when any were swept; PR #305 review)
     IReadOnlyList<SweepCount>? DanglingBySource = null,
     int BaselineDangling = 0,
-    bool BaseMastersInScope = false,
+    IReadOnlyList<string>? BaseMastersSwept = null,
     IReadOnlyList<SweepCount>? ListingOmitted = null)
 {
     public bool Success => Error is null;
