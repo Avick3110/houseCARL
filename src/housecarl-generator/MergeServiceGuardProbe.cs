@@ -26,7 +26,9 @@ namespace HousecarlGenerator;
 ///               output ModKey with its object id kept, facegen/voice/seq carry to the NEW plugin-name folders, the
 ///               donor file is byte-untouched, and the plugins that reference/override A (including B, now outside
 ///               the set) are still WARNed. The headline says RENAME; the multi-donor headline does not. A donor name
-///               repeated is still ONE donor — the list is a set, in both arms.
+///               repeated is still ONE donor — the list is a set, in both arms. One arm runs against BuildMergeRemap
+///               directly: "nothing can collide" is not "every id is kept", and a below-floor donor cannot be written
+///               here to prove it through the service (Mutagen rejects sub-0x800 originating records on write).
 ///   REFUSE    — ZERO donors / unknown donor / output already active / output == donor / .esl output, all loud,
 ///               nothing written.
 ///   UNTOUCHED — the donor files are byte-identical after the merge (new-file lane only).
@@ -327,14 +329,16 @@ public static class MergeServiceGuardProbe
                 Check(mastersOk1, $"RENAME masters = base only, the donor is not a master of its own rename ({string.Join(",", o1.Masters)})");
 
                 var r1 = o1.DonorRemaps.FirstOrDefault(d => d.Donor == "HcMgA.esp");
-                Check(r1 is { Kept: 8, Renumbered: 0 }, $"RENAME nothing can collide: A keeps all 8 ids (kept {r1?.Kept}, renumbered {r1?.Renumbered})");
+                Check(r1 is { Kept: 8, Renumbered: 0 }, $"RENAME no collisions with one donor: A's in-window ids are all kept (kept {r1?.Kept}, renumbered {r1?.Renumbered})");
                 Check(o1.RecordsCopied == 9 && o1.RecordsRenumbered == 8,
                     $"RENAME accounting: 8 originating + 1 base override (copied {o1.RecordsCopied} expected 9, renumbered {o1.RecordsRenumbered} expected 8)");
                 // Every arm below is gated on ok1 and short-circuits, so a regression that refuses the rename turns them
                 // all RED with their own reason instead of throwing on the first null OutputPath and taking the rest of
                 // the block with it. A check that cannot report is not a check.
                 bool ok1 = o1.Success && !string.IsNullOrEmpty(o1.OutputPath);
-                Check(ok1 && o1.Conflicts.Count == 0, $"RENAME no cross-donor conflicts are possible with one donor (got {o1.Conflicts.Count})");
+                // (No arm asserts "one donor reports zero conflicts": two distinct source records would have to remap
+                // onto one key for a single donor to conflict, which BuildMergeRemap makes impossible — gutting the
+                // conflict machinery entirely leaves such an arm green, so it would pin nothing.)
 
                 // ASSETS carry on the plugin-NAME folder segment, which is exactly what a rename changes — this is the
                 // arm that fails if anyone ever makes the carry conditional on a collision.
@@ -367,6 +371,31 @@ public static class MergeServiceGuardProbe
 
                 // The donor list is a SET in both arms: a name repeated is one donor, so this is a rename too. Pinned
                 // deliberately (#345) — the Distinct() above the count guard decides it, and it must not drift silently.
+                // "Nothing can collide" is NOT "every id is kept": BuildMergeRemap keeps an id only while it sits
+                // inside the write window, so a lone donor's below-floor id is renumbered with no collision anywhere.
+                // Measured on the PLANNER directly, because Mutagen refuses to write a donor carrying a sub-0x800
+                // originating record at all (LowerFormKeyRangeDisallowedException — verified while trying to fixture
+                // one); such plugins come from other tools, and houseCARL reads them fine. This is the arm the prose
+                // rests on — every written-fixture id is >= 0xA01, so no arm over them could tell a correct claim from
+                // an over-broad one.
+                {
+                    var soloKey = new ModKey("HcMgSolo", ModType.Plugin);
+                    var soloOut = new ModKey("HcMgSoloRenamed", ModType.Plugin);
+                    var soloDonors = new List<(string Donor, IReadOnlyList<FormKey> Keys)>
+                    {
+                        ("HcMgSolo.esp", new[] { new FormKey(soloKey, 0xC01), new FormKey(soloKey, 0x123) })
+                    };
+                    var solo = RemapEngine.BuildMergeRemap(soloDonors, soloOut, RemapEngine.EslFloor, FormIdRange.ObjectIdMax);
+                    var dSolo = solo.Donors.FirstOrDefault();
+                    bool floorOk = solo.Success
+                        && solo.Dict[new FormKey(soloKey, 0xC01)] == new FormKey(soloOut, 0xC01)      // in-window: id kept
+                        && solo.Dict[new FormKey(soloKey, 0x123)].ID >= RemapEngine.EslFloor          // below floor: moved up
+                        && solo.Dict[new FormKey(soloKey, 0x123)].ModKey == soloOut
+                        && dSolo is { Kept: 1, Renumbered: 1 };
+                    Check(floorOk,
+                        $"RENAME a below-floor id renumbers even with nothing to collide with (kept {dSolo?.Kept}, renumbered {dSolo?.Renumbered})");
+                }
+
                 var oDup = svc.MergePlugins(new[] { "HcMgA.esp", "HcMgA.esp" }, "HcMgDup.esp");
                 Check(oDup.Success && oDup.Donors.Count == 1,
                     $"RENAME a donor named twice is ONE donor, still a rename ({(oDup.Success ? $"{oDup.Donors.Count} donor" : "ERR " + oDup.Error)})");

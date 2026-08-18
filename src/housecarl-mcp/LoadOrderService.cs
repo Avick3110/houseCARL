@@ -6183,10 +6183,12 @@ public sealed class LoadOrderService : IDisposable
     /// the donors). The FormID-keyed assets follow per donor: EVERY donor NPC's facegen and EVERY voiced line move to
     /// the new plugin-name folders (the plugin NAME is part of those paths, so this is the full donor set, not just
     /// collisions), and a <c>.seq</c> is refreshed when any donor shipped one. With a SINGLE donor there is nothing to
-    /// combine and the operation IS a rename (#345): the same records under a new plugin identity, keeping their object
-    /// ids since nothing can collide. Its side effects are inherent to any rename and are REPORTED, never refused — the
-    /// output lands in a NEW mod folder beside the donor's (removing the old one is the user's call), and the existing
-    /// saves warning covers the break that a changed plugin name causes.</summary>
+    /// combine and the operation IS a rename (#345): the same records under a new plugin identity, keeping every object
+    /// id already inside the writable range — nothing can collide, but an id BELOW the write floor renumbers exactly as
+    /// it does for the first donor of any merge, and the per-donor line reports it. Its side effects are inherent to any rename and are REPORTED, never refused — the
+    /// output lands in a NEW mod folder beside the donor's and the swap instruction applies unchanged (deactivate the old
+    /// PLUGIN, keep its mod FOLDER enabled — the renamed records still load that mod's path-keyed assets), and the
+    /// existing saves warning covers the break that a changed plugin name causes.</summary>
     public WritePatchBuilder.MergeOutcome MergePlugins(
         IReadOnlyList<string>? plugins, string? outputName, string? patchName = null)
     {
@@ -6196,7 +6198,8 @@ public sealed class LoadOrderService : IDisposable
         // ONE donor is legitimate and IS the rename (#345): the remap moves every donor key to the output ModKey
         // whether or not anything collided, and the facegen/voice carry + .seq refresh are per-DONOR (the plugin NAME
         // is a folder segment of those paths), so the single-donor path needs no machinery the multi-donor path
-        // lacks — it is the same walk with an empty collision set. The donor list stays a SET: duplicate names
+        // lacks — it is the same walk with an empty collision set (below-floor ids still renumber: BuildMergeRemap queues
+        // them with the collisions, so "nothing can collide" is not "every id is kept"). The donor list stays a SET: duplicate names
         // collapse here exactly as they do for many donors, so plugins=["A.esp","A.esp"] is one donor, a rename.
         if (donorsRaw.Count == 0)
             return WritePatchBuilder.MergeOutcome.Fail(
@@ -6369,8 +6372,9 @@ public sealed class LoadOrderService : IDisposable
             // Q3 — surface the one behavior delta the any-donor SEQ gate can introduce: SeqFile.Build lists EVERY SGE
             // quest in M, so a quest from a donor that shipped NO .seq (and thus wasn't auto-starting) gains an entry.
             string? note = seqRegen.Written
-                ? "the regenerated .seq lists EVERY start-game-enabled quest in the merge — including any from a donor that " +
-                  "shipped no .seq of its own (such quests were NOT auto-starting before the merge; they will now)."
+                ? "the regenerated .seq lists EVERY start-game-enabled quest in the output — including quests no donor's own .seq " +
+                  "listed, whether because that donor shipped none or because its .seq was trimmed. Such quests were NOT " +
+                  "auto-starting before; they will now."
                 : null;
 
             return new WritePatchBuilder.MergeOutcome(

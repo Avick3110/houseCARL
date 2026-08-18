@@ -497,7 +497,8 @@ public static class WriteTools
          "MERGE one or more ACTIVE plugins into ONE NEW plugin — a RECORDS operation (the zMerge/'Merge Plugins' job): the " +
          "donors' records combine under a new filename; the donor FILES and their mods are NEVER touched (new-file lane only, " +
          "no in-place). TO RENAME a plugin, pass ONE donor: with nothing to combine the merge IS a rename — the same records " +
-         "under a new plugin name, object ids kept (nothing can collide), facegen/voice/seq carried to the new name. " +
+         "under a new plugin name, keeping every object id already inside the writable range (nothing can collide; an id " +
+         "BELOW the 0x800 floor still renumbers, and the per-donor line reports it), facegen/voice/seq carried to the new name. " +
          "RENUMBER is collision-only (zMerge's default): the donor EARLIEST in the load order keeps its FormID " +
          "object ids; later donors renumber only ids already taken (all records necessarily move to the new plugin's identity). " +
          "Cross-donor conflicts on the SAME record resolve to the LOAD-ORDER WINNER and are each REPORTED; a losing donor's " +
@@ -1134,8 +1135,9 @@ public static class WriteTools
         AppendSeqRegen(sb, o.SeqRegen, inPlace: false);
 
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
-        sb.Append("reminders: existing SAVES that depend on the donors will not survive the swap (records moved to a new ")
-          .Append("plugin name + new FormIDs) — best for a new game. FormIDs compiled into Papyrus (.pex hardcoded / ")
+        sb.Append("reminders: existing SAVES that depend on the donors will not survive the swap (the records now live under a ")
+          .Append("different plugin name, and any id that had to be renumbered moved with it) — best for a new game. ")
+          .Append("FormIDs compiled into Papyrus (.pex hardcoded / ")
           .Append("GetFormFromFile) and any Mutagen-delta residual are NOT remappable — verify scripted records. Want it ")
           .Append("light? Run housecarl_compact_plugin on '").Append(o.OutputName).Append("' (the tools compose).");
         return sb.ToString();
