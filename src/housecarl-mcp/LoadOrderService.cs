@@ -6170,7 +6170,7 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
-    /// <summary>Merge two or more ACTIVE plugins into ONE new plugin (housecarl_merge_plugins — the A4 orchestration
+    /// <summary>Merge one or more ACTIVE plugins into ONE new plugin (housecarl_merge_plugins — the A4 orchestration
     /// over the compact spine). Merge = a RECORDS operation: the donors' records combine into a fresh plugin under a
     /// NEW name (collision-only renumber — the first donor in load order keeps its object IDs; cross-donor conflicts
     /// on the same record resolve to the LOAD-ORDER WINNER and are reported; a losing donor's un-relisted nested
@@ -6182,16 +6182,26 @@ public sealed class LoadOrderService : IDisposable
     /// active until the user swaps; the remedy is to include the patch in the merge set or repoint it before disabling
     /// the donors). The FormID-keyed assets follow per donor: EVERY donor NPC's facegen and EVERY voiced line move to
     /// the new plugin-name folders (the plugin NAME is part of those paths, so this is the full donor set, not just
-    /// collisions), and a <c>.seq</c> is refreshed when any donor shipped one.</summary>
+    /// collisions), and a <c>.seq</c> is refreshed when any donor shipped one. With a SINGLE donor there is nothing to
+    /// combine and the operation IS a rename (#345): the same records under a new plugin identity, keeping their object
+    /// ids since nothing can collide. Its side effects are inherent to any rename and are REPORTED, never refused — the
+    /// output lands in a NEW mod folder beside the donor's (removing the old one is the user's call), and the existing
+    /// saves warning covers the break that a changed plugin name causes.</summary>
     public WritePatchBuilder.MergeOutcome MergePlugins(
         IReadOnlyList<string>? plugins, string? outputName, string? patchName = null)
     {
         // ---- 0. argument shape (Q3 — every refusal names the fix) ----
         var donorsRaw = (plugins ?? Array.Empty<string>()).Select(p => (p ?? "").Trim()).Where(p => p.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (donorsRaw.Count < 2)
+        // ONE donor is legitimate and IS the rename (#345): the remap moves every donor key to the output ModKey
+        // whether or not anything collided, and the facegen/voice carry + .seq refresh are per-DONOR (the plugin NAME
+        // is a folder segment of those paths), so the single-donor path needs no machinery the multi-donor path
+        // lacks — it is the same walk with an empty collision set. The donor list stays a SET: duplicate names
+        // collapse here exactly as they do for many donors, so plugins=["A.esp","A.esp"] is one donor, a rename.
+        if (donorsRaw.Count == 0)
             return WritePatchBuilder.MergeOutcome.Fail(
-                "merge needs at least TWO distinct donor plugins — pass plugins=[\"A.esp\", \"B.esp\", …].");
+                "merge needs at least ONE donor plugin — pass plugins=[\"A.esp\"] to move one plugin's records to a new " +
+                "name (a rename), or plugins=[\"A.esp\", \"B.esp\", …] to combine several.");
         var outName = (outputName ?? "").Trim();
         if (outName.Length == 0)
             return WritePatchBuilder.MergeOutcome.Fail(
