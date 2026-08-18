@@ -494,9 +494,11 @@ public static class WriteTools
 
     [McpServerTool(Name = "housecarl_merge_plugins", Title = "Merge plugins into one new plugin"),
      Description(
-         "MERGE two or more ACTIVE plugins into ONE NEW plugin — a RECORDS operation (the zMerge/'Merge Plugins' job): the " +
+         "MERGE one or more ACTIVE plugins into ONE NEW plugin — a RECORDS operation (the zMerge/'Merge Plugins' job): the " +
          "donors' records combine under a new filename; the donor FILES and their mods are NEVER touched (new-file lane only, " +
-         "no in-place). RENUMBER is collision-only (zMerge's default): the donor EARLIEST in the load order keeps its FormID " +
+         "no in-place). TO RENAME a plugin, pass ONE donor: with nothing to combine the merge IS a rename — the same records " +
+         "under a new plugin name, object ids kept (nothing can collide), facegen/voice/seq carried to the new name. " +
+         "RENUMBER is collision-only (zMerge's default): the donor EARLIEST in the load order keeps its FormID " +
          "object ids; later donors renumber only ids already taken (all records necessarily move to the new plugin's identity). " +
          "Cross-donor conflicts on the SAME record resolve to the LOAD-ORDER WINNER and are each REPORTED; a losing donor's " +
          "nested children the winner doesn't re-list (a base mod's dialogue lines under a patched topic; placed refs under a " +
@@ -518,7 +520,7 @@ public static class WriteTools
          "afterward (the tools compose).")]
     public static string MergePlugins(
         LoadOrderService svc,
-        [Description("The donor plugin filenames to merge (at least two, e.g. [\"CoolMod.esp\", \"CoolMod Patch.esp\"]) — each must be active in your load order. Argument order does not matter: houseCARL uses LOAD order for id priority and conflict resolution.")]
+        [Description("The donor plugin filenames to merge (at least one, e.g. [\"CoolMod.esp\", \"CoolMod Patch.esp\"]) — each must be active in your load order. A SINGLE donor renames it into output=. This is a SET: a name repeated is still one donor. Argument order does not matter: houseCARL uses LOAD order for id priority and conflict resolution.")]
             string[] plugins,
         [Description("The NEW merged plugin's filename to create (e.g. 'MyMerge.esp') — must NOT already exist in the load order. The donors keep their names and files untouched.")]
             string output,
@@ -1059,8 +1061,17 @@ public static class WriteTools
         var file = Path.GetFileName(o.OutputPath);
         var modFolder = Path.GetFileName(Path.GetDirectoryName(o.OutputPath) ?? "");
         var sb = new StringBuilder();
-        sb.Append("wrote merged ").Append(file).Append(" (new plugin; ").Append(o.Bytes).Append(" bytes) from ")
-          .Append(o.Donors.Count).Append(" donors: ").Append(string.Join(", ", o.Donors)).Append('\n');
+        // ONE donor is the RENAME case (#345), and the headline is where the caller learns which operation they got.
+        // "from 1 donors" would be both ungrammatical and a misdescription: nothing was combined. The claim stays
+        // inside what this layer knows — the donor count and the names — and every later line (ids kept/renumbered,
+        // masters, the external-referencer WARNs, the saves reminder) is computed the same way for both arms.
+        if (o.Donors.Count == 1)
+            sb.Append("wrote ").Append(file).Append(" (new plugin; ").Append(o.Bytes).Append(" bytes) — a RENAME of ")
+              .Append(o.Donors[0]).Append(": one donor, so there is nothing to combine and this is that plugin's records ")
+              .Append("under a new identity.\n");
+        else
+            sb.Append("wrote merged ").Append(file).Append(" (new plugin; ").Append(o.Bytes).Append(" bytes) from ")
+              .Append(o.Donors.Count).Append(" donors: ").Append(string.Join(", ", o.Donors)).Append('\n');
         sb.Append("mod folder: ").Append(modFolder).Append("  — review in xEdit, then enable + sort it in MO2.\n");
         // The swap is PLUGIN-level, not mod-level (merge is a RECORDS op): the merged records still reference the donors'
         // meshes/textures/scripts/BSA contents BY PATH, and those files live in the donor mod folders — only the

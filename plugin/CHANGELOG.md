@@ -6,6 +6,21 @@ when it changes.
 
 ## Unreleased
 
+- **`housecarl_merge_plugins` now accepts a single donor, which renames a plugin.** Merging one plugin into a new
+  name was refused ("merge needs at least TWO distinct donor plugins"), and no other tool renames one, so a
+  mis-named patch could only be fixed by replaying every edit into a freshly named plugin. There was never anything
+  behind that refusal: with one donor the collision set is simply empty, and the machinery a rename needs is the
+  machinery a merge already runs — every donor record moves to the output's identity, and the facegen, voice, and
+  `.seq` files follow the plugin **name** that forms part of their paths. Passing one donor now does exactly that,
+  keeping the object ids, and the report calls it a rename rather than a merge "from 1 donors". Zero donors still
+  refuses, and the refusal names both shapes. The list of donors is a set, so a plugin named twice is one donor —
+  also a rename.
+
+  The costs of renaming are inherent, so they are reported rather than refused: the renamed plugin arrives in a new
+  mod folder beside the original (removing the old one is your call), any save that referenced the old plugin name
+  will not survive — the existing saves warning — and any plugin that references or overrides the donor, **its own
+  patches included**, is named in the warnings with the remedy, exactly as for a many-donor merge. (#345)
+
 - **Fixed: on a large load order, a mod's broken references could vanish from `housecarl_check_errors` entirely.**
   The dangling-reference listing budget (`limit=`, default 1000) is one counter spent plugin by plugin in load order,
   and the base-game masters sit at index 0. A plugin whose findings collected an empty list was then dropped from the

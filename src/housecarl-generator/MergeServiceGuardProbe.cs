@@ -22,7 +22,13 @@ namespace HousecarlGenerator;
 ///               active until the MO2 swap, so nothing breaks at write time); RenderMerge carries both to user output.
 ///   ASSETS    — facegen + voice land under the MERGED plugin-name folders (the folder segment IS the plugin name — the
 ///               carry every merge needs even with zero id collisions); the .seq regenerates (A shipped one).
-///   REFUSE    — one donor / unknown donor / output already active / output == donor, all loud, nothing written.
+///   RENAME    — the SINGLE-donor arm (#345): donor A alone into a new name is a rename — every A key remaps to the
+///               output ModKey with its object id kept, facegen/voice/seq carry to the NEW plugin-name folders, the
+///               donor file is byte-untouched, and the plugins that reference/override A (including B, now outside
+///               the set) are still WARNed. The headline says RENAME; the multi-donor headline does not. A donor name
+///               repeated is still ONE donor — the list is a set, in both arms.
+///   REFUSE    — ZERO donors / unknown donor / output already active / output == donor / .esl output, all loud,
+///               nothing written.
 ///   UNTOUCHED — the donor files are byte-identical after the merge (new-file lane only).
 /// Run: dotnet run --project src/housecarl-generator merge-service-guard
 /// </summary>
@@ -247,6 +253,10 @@ public static class MergeServiceGuardProbe
                 Check(rendered.Contains("deactivate the donor PLUGINS") && rendered.Contains("KEEP the donor mod folders enabled")
                       && !rendered.Contains("DISABLE the donor mods"),
                     "SWAP instruction is plugin-level (donor mod folders stay enabled)");
+                // The OTHER direction of the #345 headline conditional: many donors must keep the combining form and
+                // must NOT claim a rename. Pinned here so the arm below can't pass by the branch collapsing to one text.
+                Check(rendered.Contains("from 2 donors") && !rendered.Contains("a RENAME of"),
+                    "MERGE headline is the multi-donor form, never the rename arm");
                 // ASSETS: facegen pair + voice under the MERGED plugin-name folders; .seq regenerated (A shipped one).
                 var outDir = Path.GetDirectoryName(o.OutputPath)!;
                 var newFace = FaceGenPath.Both(new FormKey(mergedKey, 0xA20)).ToList();
@@ -265,9 +275,18 @@ public static class MergeServiceGuardProbe
 
             // ---- REFUSE arms (each loud, nothing written) ----
             {
-                var r = svc.MergePlugins(new[] { "HcMgA.esp" }, "HcMgX.esp");
-                Check(!r.Success && (r.Error?.Contains("at least TWO", StringComparison.OrdinalIgnoreCase) ?? false),
-                    $"REFUSE one donor ({r.Error?.Split('—')[0].Trim()})");
+                // ZERO donors still refuses — the guard's boundary moved from 2 to 1, it did not disappear. Both the
+                // empty list and a list that is only blanks land here (the trim/drop runs before the count).
+                var r = svc.MergePlugins(Array.Empty<string>(), "HcMgX.esp");
+                Check(!r.Success && (r.Error?.Contains("at least ONE", StringComparison.OrdinalIgnoreCase) ?? false)
+                                 && (r.Error?.Contains("rename", StringComparison.OrdinalIgnoreCase) ?? false),
+                    $"REFUSE zero donors, remedy names both shapes ({r.Error?.Split('—')[0].Trim()})");
+                r = svc.MergePlugins(new[] { "  ", "" }, "HcMgX.esp");
+                Check(!r.Success && (r.Error?.Contains("at least ONE", StringComparison.OrdinalIgnoreCase) ?? false),
+                    $"REFUSE blank-only donor list ({r.Error?.Split('—')[0].Trim()})");
+                r = svc.MergePlugins(null, "HcMgX.esp");
+                Check(!r.Success && (r.Error?.Contains("at least ONE", StringComparison.OrdinalIgnoreCase) ?? false),
+                    $"REFUSE null donor list ({r.Error?.Split('—')[0].Trim()})");
                 r = svc.MergePlugins(new[] { "HcMgA.esp", "HcMgNope.esp" }, "HcMgX.esp");
                 Check(!r.Success && (r.Error?.Contains("not an active plugin", StringComparison.OrdinalIgnoreCase) ?? false),
                     $"REFUSE unknown donor ({r.Error?.Split('—')[0].Trim()})");
@@ -281,6 +300,72 @@ public static class MergeServiceGuardProbe
                 Check(!r.Success && (r.Error?.Contains(".esl", StringComparison.OrdinalIgnoreCase) ?? false)
                                  && (r.Error?.Contains("compact", StringComparison.OrdinalIgnoreCase) ?? false),
                     $"REFUSE .esl output with the compact-after remedy ({r.Error?.Split('—')[0].Trim()})");
+            }
+
+            // ---- RENAME: donor A ALONE into a new name (#345). Same walk, empty collision set. ----
+            {
+                var renamedKey = new ModKey("HcMgRenamed", ModType.Plugin);
+                var o1 = svc.MergePlugins(new[] { "HcMgA.esp" }, "HcMgRenamed.esp");
+                Check(o1.Success && o1.Donors.Count == 1,
+                    $"RENAME single donor accepted ({(o1.Success ? $"{o1.Donors.Count} donor" : "ERR " + o1.Error)})");
+
+                bool keysOk = false, mastersOk1 = false;
+                if (o1.Success && File.Exists(o1.OutputPath))
+                {
+                    using var rm = SkyrimMod.CreateFromBinaryOverlay(o1.OutputPath, SkyrimRelease.SkyrimSE);
+                    // REMAP-TO-OUTPUT: every one of A's originating records is under the OUTPUT ModKey, at its OWN
+                    // object id — the rename claim in one assertion. A's records are NOT still keyed to HcMgA.esp.
+                    keysOk = rm.Weapons.Any(w => w.EditorID == "HcMgAWeap" && w.FormKey == new FormKey(renamedKey, 0xA01))
+                          && rm.DialogTopics.Any(t => t.FormKey == new FormKey(renamedKey, 0xA10))
+                          && rm.Npcs.Any(n => n.FormKey == new FormKey(renamedKey, 0xA20))
+                          && rm.Quests.Any(q => q.FormKey == new FormKey(renamedKey, 0xA30))
+                          && !rm.EnumerateMajorRecords().Any(x => x.FormKey.ModKey == aKey);
+                    var ms = rm.ModHeader.MasterReferences.Select(x => x.Master.FileName.String).ToList();
+                    mastersOk1 = ms.Count == 1 && string.Equals(ms[0], baseKey.FileName.String, StringComparison.OrdinalIgnoreCase);
+                }
+                Check(keysOk, "RENAME every A record remaps to the output ModKey at its own object id, none left on HcMgA.esp");
+                Check(mastersOk1, $"RENAME masters = base only, the donor is not a master of its own rename ({string.Join(",", o1.Masters)})");
+
+                var r1 = o1.DonorRemaps.FirstOrDefault(d => d.Donor == "HcMgA.esp");
+                Check(r1 is { Kept: 8, Renumbered: 0 }, $"RENAME nothing can collide: A keeps all 8 ids (kept {r1?.Kept}, renumbered {r1?.Renumbered})");
+                Check(o1.RecordsCopied == 9 && o1.RecordsRenumbered == 8,
+                    $"RENAME accounting: 8 originating + 1 base override (copied {o1.RecordsCopied} expected 9, renumbered {o1.RecordsRenumbered} expected 8)");
+                Check(o1.Conflicts.Count == 0, $"RENAME no cross-donor conflicts are possible with one donor (got {o1.Conflicts.Count})");
+
+                // ASSETS carry on the plugin-NAME folder segment, which is exactly what a rename changes — this is the
+                // arm that fails if anyone ever makes the carry conditional on a collision.
+                var outDir1 = Path.GetDirectoryName(o1.OutputPath)!;
+                var face1 = FaceGenPath.Both(new FormKey(renamedKey, 0xA20)).ToList();
+                Check(face1.Count == 2 && face1.All(x => File.Exists(Path.Combine(outDir1, x.Item2))) && o1.AssetRename?.FacegenFilesCarried == 2,
+                    $"RENAME facegen pair carried to the renamed-name folder (files {o1.AssetRename?.FacegenFilesCarried})");
+                Check(File.Exists(Path.Combine(outDir1, "Sound", "Voice", renamedKey.FileName.String, "MaleEvenToned", "HcQ_HcT_00000A11_1.fuz"))
+                      && o1.VoiceRename?.FilesCarried == 1,
+                    $"RENAME voice carried to the renamed-name folder (files {o1.VoiceRename?.FilesCarried})");
+                Check(o1.SeqRegen is { Written: true } && File.Exists(Path.Combine(outDir1, "SEQ", "HcMgRenamed.seq")),
+                    $"RENAME .seq regenerated under the new name (written {o1.SeqRegen?.Written})");
+
+                // The side effects are REPORTED, not refused: B patches A and is now OUTSIDE the set, so it joins the
+                // external referencer AND overrider warnings alongside Dep/Ovr. Renaming a patched plugin warns about
+                // its patch — the existing WARN-and-proceed posture, unchanged.
+                Check(o1.ExternalPlugins.Contains("HcMgDep.esp") && o1.ExternalPlugins.Contains("HcMgB.esp"),
+                    $"RENAME external referencers named, including the donor's own patch (refs [{string.Join(",", o1.ExternalPlugins)}])");
+                Check(o1.ExternalOverriders.Contains("HcMgOvr.esp") && o1.ExternalOverriders.Contains("HcMgB.esp"),
+                    $"RENAME external overriders named, including the donor's own patch (ovr [{string.Join(",", o1.ExternalOverriders)}])");
+
+                var rendered1 = WriteTools.RenderMerge(o1);
+                Check(rendered1.Contains("a RENAME of HcMgA.esp") && !rendered1.Contains("1 donors"),
+                    "RENAME headline names the operation and never says '1 donors'");
+                Check(rendered1.Contains("existing SAVES") && rendered1.Contains("deactivate the donor PLUGINS"),
+                    "RENAME still carries the saves warning and the MO2 swap instruction");
+
+                Check(aBytesBefore.SequenceEqual(File.ReadAllBytes(Path.Combine(aDir, aKey.FileName.String))),
+                    "RENAME donor file byte-identical (new-file lane, the rename is a COPY under a new name)");
+
+                // The donor list is a SET in both arms: a name repeated is one donor, so this is a rename too. Pinned
+                // deliberately (#345) — the Distinct() above the count guard decides it, and it must not drift silently.
+                var oDup = svc.MergePlugins(new[] { "HcMgA.esp", "HcMgA.esp" }, "HcMgDup.esp");
+                Check(oDup.Success && oDup.Donors.Count == 1,
+                    $"RENAME a donor named twice is ONE donor, still a rename ({(oDup.Success ? $"{oDup.Donors.Count} donor" : "ERR " + oDup.Error)})");
             }
         }
         finally { try { Directory.Delete(root, true); } catch { } }

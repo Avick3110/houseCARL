@@ -28,8 +28,8 @@ It can:
   default.
 - **Compact and merge plugins** — ESL-compact a plugin into the light-master FormID window, carrying its
   FormID-keyed assets (facegen, voice) along so a compacted mod's faces don't go dark; or merge several
-  plugins into one (collision-only renumber, unused masters dropped), with the donor mods swapped out at the
-  MO2 layer and originals intact.
+  plugins into one (collision-only renumber, unused masters dropped), or rename a single plugin by naming
+  just it, with the donor mods swapped out at the MO2 layer and originals intact.
 - **Copy an NPC's appearance into a standalone** — lift a face (head parts, tints, the FaceGen mesh and
   textures) from a donor NPC into a fresh record with no dependency on the donor's plugin — the build behind
   a portable follower or a face moved between mods.
