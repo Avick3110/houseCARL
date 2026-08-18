@@ -517,9 +517,11 @@ public static class WriteTools
          "breaks (facegen/voice/seq); every other donor asset (meshes, textures, scripts, BSA contents) is still referenced " +
          "BY PATH from the merged records and loads from the donor folders. Caveat: a donor .bsa stops auto-loading once its " +
          "same-named plugin is inactive — extract it into the mod folder (housecarl_bsa_extract) or load it via a same-named " +
-         "dummy plugin (housecarl_create_plugin). Existing SAVES that depend on the donors will NOT survive (new plugin name " +
-         "+ renumbered FormIDs) — best for a new game. Want it light/ESL? Run housecarl_compact_plugin on the merged plugin " +
-         "afterward (the tools compose).")]
+         "dummy plugin (housecarl_create_plugin). Existing SAVES that depend on the donors will NOT survive (the records now " +
+         "live under a different plugin name, and any id that had to be renumbered moved with it) — best for a new game. " +
+         "A donor's HEADER does not come along: light (ESL) status, master status, and Author/Description are dropped, and " +
+         "the report names each one it actually dropped. Want it light/ESL? Run housecarl_compact_plugin on the merged " +
+         "plugin afterward (the tools compose) — but it renumbers object ids from 0x800 upward, so ids the merge kept move.")]
     public static string MergePlugins(
         LoadOrderService svc,
         [Description("The donor plugin filenames to merge (at least one, e.g. [\"CoolMod.esp\", \"CoolMod Patch.esp\"]) — each must be active in your load order. A SINGLE donor renames it into output=. This is a SET: a name repeated is still one donor. Argument order does not matter: houseCARL uses LOAD order for id priority and conflict resolution.")]
@@ -1077,12 +1079,21 @@ public static class WriteTools
             // new identity" would be false in the very case the feature was asked for.
             sb.Append("wrote ").Append(file).Append(" (new plugin; ").Append(o.Bytes).Append(" bytes) — a RENAME of ")
               .Append(o.Donors[0]).Append(": one donor, so there is nothing to combine — ");
+            // Three arms, because there are three things the accounting can say and each sentence may claim only the
+            // quantity it read. The middle arm previously asserted overrides it never looked at, which made it wrong
+            // for a donor with no records at all — and an empty plugin is not hypothetical: the swap instruction in
+            // this same report tells the caller to create one to keep a donor .bsa loading.
+            int headlineOverrides = o.RecordsCopied - o.RecordsRenumbered;
             if (o.RecordsRenumbered > 0)
                 sb.Append(o.RecordsRenumbered).Append(o.RecordsRenumbered == 1 ? " record moves" : " records move")
                   .Append(" to the new plugin's identity.\n");
+            else if (headlineOverrides > 0)
+                sb.Append("it originates no records of its own, so nothing is re-keyed; its ").Append(headlineOverrides)
+                  .Append(headlineOverrides == 1 ? " override is" : " overrides are")
+                  .Append(" now served by a plugin under a new name.\n");
             else
-                sb.Append("it originates no records of its own, so nothing is re-keyed; the same overrides are now ")
-                  .Append("served by a plugin under a new name.\n");
+                sb.Append("it carries no records at all, so nothing moved and nothing is overridden — an empty plugin ")
+                  .Append("under a new name.\n");
         }
         else
             sb.Append("wrote merged ").Append(file).Append(" (new plugin; ").Append(o.Bytes).Append(" bytes) from ")
@@ -1138,7 +1149,7 @@ public static class WriteTools
             foreach (var pl in o.ExternalPlugins.Take(25)) sb.Append("  ! ").Append(pl).Append('\n');
             if (o.ExternalPlugins.Count > 25) sb.Append("  ! … (+").Append(o.ExternalPlugins.Count - 25).Append(" more)\n");
         }
-        else sb.Append("external referencers: none — nothing outside the merge points at a donor record.\n");
+        else sb.Append("external referencers: none — no plugin outside the merge has a record that links to a donor record.\n");
         if (o.ExternalOverriders.Count > 0)
         {
             sb.Append("WARNING — ").Append(o.ExternalOverriders.Count).Append(" plugin(s) OUTSIDE the merge OVERRIDE a donor record; those overrides ")
@@ -1153,7 +1164,13 @@ public static class WriteTools
         if (o.UnscannableRecords > 0)
             sb.Append("note: ").Append(o.UnscannableRecords).Append(" record(s) couldn't be scanned in the external-reference pass, so a ")
               .Append("'none' above may be incomplete — verify in xEdit. Samples: ").Append(string.Join("; ", o.UnscannableSamples)).Append('\n');
-        sb.Append("identify-pass scanned ").Append(o.PluginsScanned).Append(" plugin(s) for external references.\n");
+        // The coverage caveat belongs to the PASS, not to either outcome: a "none" and a populated list are incomplete
+        // in the same way, so stating it here covers both rather than qualifying one branch and leaving the other
+        // absolute. What the pass reads is record links and record identity — it never opens a plugin header, so a
+        // dependent that merely DECLARES a donor as a master is invisible to it, and loses a master at the swap.
+        sb.Append("identify-pass scanned ").Append(o.PluginsScanned).Append(" plugin(s) — it reads record links and ")
+          .Append("record identity, NOT declared masters or INI distributor configs (SPID/KID/SkyPatcher), so a plugin ")
+          .Append("that only lists a donor as a master, or only names one in an .ini, is not counted above.\n");
 
         AppendFacegenCarry(sb, o.AssetRename, inPlace: false);
         AppendVoiceCarry(sb, o.VoiceRename, inPlace: false);
@@ -1163,15 +1180,26 @@ public static class WriteTools
         // lines are keyed on what the DONORS carried, not on the donor count — the loss is identical for one donor or
         // ten, and it was measured while each donor overlay was open. Q3: a silent header loss is exactly the kind of
         // degraded result that has to be stated. Whether these should be CARRIED is a separate decision.
+        bool lightNoteShown = o.LightDonors is { Count: > 0 };
         if (o.LightDonors is { Count: > 0 } light)
         {
             sb.Append("NOTE — ").Append(string.Join(", ", light.Take(10)));
             if (light.Count > 10) sb.Append(" (+").Append(light.Count - 10).Append(" more)");
-            sb.Append(light.Count == 1 ? " carried" : " carried").Append(" the LIGHT (ESL) header flag; ")
+            sb.Append(" carried the LIGHT (ESL) status; ")
               .Append(o.OutputName).Append(" does NOT — it is written as a full plugin and takes a full load-order slot. ")
               .Append("To make it light again run housecarl_compact_plugin on '").Append(o.OutputName)
               .Append("' (its esl defaults true) — but that renumbers object ids from 0x800 upward, so the ids listed as ")
               .Append("kept above will move.\n");
+        }
+        if (o.MasterDonors is { Count: > 0 } masters)
+        {
+            // No remedy: nothing on the surface flags an existing plugin as a master. Bare statement, as for the
+            // header text below — an invented remedy would be the worse failure.
+            sb.Append("NOTE — ").Append(string.Join(", ", masters.Take(10)));
+            if (masters.Count > 10) sb.Append(" (+").Append(masters.Count - 10).Append(" more)");
+            sb.Append(" carried MASTER status; ").Append(o.OutputName)
+              .Append(" is NOT flagged as a master — it loads as a plain plugin, in the plugin block rather than the ")
+              .Append("master block, so anything depending on that ordering will see it move.\n");
         }
         if (o.HeaderMetaDonors is { Count: > 0 } meta)
         {
@@ -1186,8 +1214,13 @@ public static class WriteTools
         sb.Append("reminders: existing SAVES that depend on the donors will not survive the swap (the records now live under a ")
           .Append("different plugin name, and any id that had to be renumbered moved with it) — best for a new game. ")
           .Append("FormIDs compiled into Papyrus (.pex hardcoded / ")
-          .Append("GetFormFromFile) and any Mutagen-delta residual are NOT remappable — verify scripted records. Want it ")
-          .Append("light? Run housecarl_compact_plugin on '").Append(o.OutputName).Append("' (the tools compose).");
+          .Append("GetFormFromFile) and any Mutagen-delta residual are NOT remappable — verify scripted records.");
+        // ONE home for the compact recommendation per response. When the light note fired it already named the tool
+        // WITH the cost that makes the advice honest (it renumbers from the floor); repeating it flat here would
+        // leave the caller's last reading of it the one without the cost. With no light note there is no other
+        // pointer, so the tail stays.
+        if (!lightNoteShown)
+            sb.Append(" Want it light? Run housecarl_compact_plugin on '").Append(o.OutputName).Append("' (the tools compose).");
         return sb.ToString();
     }
 

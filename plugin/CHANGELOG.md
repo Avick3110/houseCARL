@@ -20,9 +20,12 @@ when it changes.
 
   The costs of renaming are inherent, so they are reported rather than refused: the renamed plugin arrives in a new
   mod folder beside the original, and the swap instruction applies unchanged — deactivate the old **plugin**, but keep
-  its mod **folder** enabled, because the renamed records still load that mod's meshes, textures and scripts by path.
-  Any save that referenced the old plugin name will not survive — the existing saves warning — and any plugin that
-  references or overrides the donor, **its own patches included**, is named in the warnings with the remedy.
+  its mod **folder** enabled, because the renamed records still load that mod's *loose* meshes, textures and scripts
+  by path. Anything the donor ships inside a **`.bsa`** is the exception, and the report says so: an archive stops
+  loading once its same-named plugin is deactivated, so extract it into the mod folder with `housecarl_bsa_extract`
+  or keep it loading behind a same-named dummy plugin from `housecarl_create_plugin`. Any save that referenced the old
+  plugin name will not survive — the existing saves warning — and any plugin that references or overrides the donor,
+  **its own patches included**, is named in the warnings with the remedy.
 
   The report now says what is true **of the operation you actually got**, because it decides which one that was in
   one place. A rename names only the renumber cause that can apply to a single donor, since nothing can collide with
@@ -32,11 +35,15 @@ when it changes.
   records of its own, which is what most mis-named patches are, says exactly that instead of claiming records took a
   new identity.
 
-  Two losses that were previously silent are now stated, for merges of any size. **A donor's light (ESL) header flag
-  is not carried**, so the output takes a full load-order slot where a light donor took none — the report says so and
-  names `housecarl_compact_plugin` along with its cost, that it renumbers object ids from `0x800` upward and so moves
-  the ids just reported as kept. **A donor's header Author and Description are not carried either**, and that is
-  stated plainly with no remedy offered, because none exists. (#345)
+  Losses that were previously silent are now stated, for merges of any size, because the merged plugin is built with a
+  fresh header and nothing in a donor's header comes along. **Light (ESL) status is not carried** — counted by the
+  header flag *or* an `.esl` extension, since the engine treats the extension as light either way — so the output takes
+  a full load-order slot where a light donor took none. The report says so and names `housecarl_compact_plugin` along
+  with its cost, that it renumbers object ids from `0x800` upward and so moves the ids just reported as kept; where
+  that note appears, the closing "want it light?" line steps aside, so the recommendation you read carries its cost.
+  **Master status is not carried either** — counted by the flag or an `.esm` extension — so an esmified donor comes
+  back as a plain plugin and sorts in the plugin block. **Nor are the header Author and Description.** Those last two
+  are stated with no remedy offered, because the tool surface has none. (#345)
 
 - **Fixed: on a large load order, a mod's broken references could vanish from `housecarl_check_errors` entirely.**
   The dangling-reference listing budget (`limit=`, default 1000) is one counter spent plugin by plugin in load order,

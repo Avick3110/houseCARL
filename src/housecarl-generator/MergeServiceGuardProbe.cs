@@ -33,9 +33,13 @@ namespace HousecarlGenerator;
 ///               headline (derived from the accounting, so a PURE-OVERRIDE donor claims no re-keying), the per-donor
 ///               renumber cause, the two external-referencer remedy orderings, and the mod-folder default. Each has
 ///               arms on BOTH sides — the multi-donor checks above are the negatives.
-///   HEADER    — a donor's light (ESL) flag and its Author/Description are NOT carried into the output. Measured on
+///   HEADER    — nothing in a donor's header comes into the output: light (ESL) status, MASTER status, and
+///               Author/Description. Light and master are each counted BY FLAG OR BY EXTENSION (the engine treats
+///               .esl/.esm that way whatever the bit says), which is why one donor exists per spelling. Measured on
 ///               the written file, then REPORTED: the ESL note carries the compact remedy's own cost (it renumbers
-///               from the floor), and the header-text note names no remedy because the surface has none.
+///               from the floor) and suppresses the flat closing pointer so the costed advice is the one read last;
+///               master and header-text name no remedy because the surface has none. All three are keyed on what the
+///               DONORS carried, never on the donor count — a mixed multi-donor merge raises them too.
 ///   REFUSE    — ZERO donors / unknown donor / output already active / output == donor / .esl output, all loud,
 ///               nothing written.
 ///   UNTOUCHED — the donor files are byte-identical after the merge (new-file lane only).
@@ -179,13 +183,41 @@ public static class MergeServiceGuardProbe
                 m.BeginWrite.ToPath(Path.Combine(eslDir, eslKey.FileName.String)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
             }
 
-            // ---- profile files (load order: Base, A, B, Dep, Ovr, Esl — B AFTER A: the patch wins) ----
+            // Light and master status each arrive TWO ways, and the loss is the same either way: the header bit, or
+            // the extension (the engine force-treats .esl as light and .esm as a master regardless of the bit — the
+            // model this tool's own .esl-output refusal states). One donor per spelling, so an arm can tell a
+            // flag-only reading from the real one.
+            var eslExtKey = new ModKey("HcMgEslExt", ModType.Light);      // .esl extension, header bit NOT set
+            var eslExtDir = Path.Combine(mods, "EslExtMod"); Directory.CreateDirectory(eslExtDir);
+            {
+                var m = new SkyrimMod(eslExtKey, SkyrimRelease.SkyrimSE);
+                m.Weapons.Add(new Weapon(new FormKey(eslExtKey, 0x802), SkyrimRelease.SkyrimSE) { EditorID = "HcMgEslExtWeap" });
+                m.BeginWrite.ToPath(Path.Combine(eslExtDir, eslExtKey.FileName.String)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            }
+            // A donor with NO records at all — what housecarl_create_plugin produces, and what this report's own swap
+            // instruction tells the caller to make so a donor .bsa keeps loading. Renaming one is the third thing the
+            // headline's accounting can be asked to describe.
+            var emptyKey = new ModKey("HcMgEmpty", ModType.Plugin);
+            var emptyDir = Path.Combine(mods, "EmptyMod"); Directory.CreateDirectory(emptyDir);
+            {
+                var m = new SkyrimMod(emptyKey, SkyrimRelease.SkyrimSE);
+                m.BeginWrite.ToPath(Path.Combine(emptyDir, emptyKey.FileName.String)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            }
+            var esmKey = new ModKey("HcMgEsm", ModType.Master);           // .esm extension + the master flag
+            var esmDir = Path.Combine(mods, "EsmMod"); Directory.CreateDirectory(esmDir);
+            {
+                var m = new SkyrimMod(esmKey, SkyrimRelease.SkyrimSE);
+                m.Weapons.Add(new Weapon(new FormKey(esmKey, 0xD01), SkyrimRelease.SkyrimSE) { EditorID = "HcMgEsmWeap" });
+                m.BeginWrite.ToPath(Path.Combine(esmDir, esmKey.FileName.String)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            }
+
+            // ---- profile files (load order: Base, A, B, Dep, Ovr, Esl, EslExt, Esm — B AFTER A: the patch wins) ----
             File.WriteAllText(Path.Combine(profiles, "loadorder.txt"),
-                "# header\r\n" + string.Join("\r\n", baseKey.FileName, aKey.FileName, bKey.FileName, depKey.FileName, ovrKey.FileName, eslKey.FileName) + "\r\n");
+                "# header\r\n" + string.Join("\r\n", baseKey.FileName, aKey.FileName, bKey.FileName, depKey.FileName, ovrKey.FileName, eslKey.FileName, eslExtKey.FileName, esmKey.FileName, emptyKey.FileName) + "\r\n");
             File.WriteAllText(Path.Combine(profiles, "plugins.txt"),
-                string.Join("\r\n", "*" + baseKey.FileName, "*" + aKey.FileName, "*" + bKey.FileName, "*" + depKey.FileName, "*" + ovrKey.FileName, "*" + eslKey.FileName) + "\r\n");
+                string.Join("\r\n", "*" + baseKey.FileName, "*" + aKey.FileName, "*" + bKey.FileName, "*" + depKey.FileName, "*" + ovrKey.FileName, "*" + eslKey.FileName, "*" + eslExtKey.FileName, "*" + esmKey.FileName, "*" + emptyKey.FileName) + "\r\n");
             File.WriteAllText(Path.Combine(profiles, "modlist.txt"),
-                "# header\r\n" + string.Join("\r\n", "+EslMod", "+OvrMod", "+DepMod", "+BMod", "+AMod", "+BaseMod") + "\r\n");
+                "# header\r\n" + string.Join("\r\n", "+EmptyMod", "+EsmMod", "+EslExtMod", "+EslMod", "+OvrMod", "+DepMod", "+BMod", "+AMod", "+BaseMod") + "\r\n");
 
             var store = new UserConfigStore(Path.Combine(root, "houseCARL.user.json"));
             using var svc = LoadOrderService.WithInstance(instance, 0, store);
@@ -269,6 +301,11 @@ public static class MergeServiceGuardProbe
                 var rendered = WriteTools.RenderMerge(o);
                 Check(rendered.Contains("WARNING") && rendered.Contains("HcMgDep.esp") && rendered.Contains("HcMgOvr.esp"),
                     "WARN both warnings reach the rendered user output");
+                // The pass's own coverage, stated by the pass — a dependent that only DECLARES a donor as a master is
+                // invisible here, and the sentence has to say so whether the list came back empty or full.
+                Check(rendered.Contains("it reads record links and record identity, NOT declared masters")
+                      && rendered.Contains("only lists a donor as a master"),
+                    "WARN the identify-pass line states what the pass does NOT read");
                 // The swap instruction must stay PLUGIN-level (PR #158 independent review #1): "disable the donor MODS"
                 // (compact's instruction) would yank the donors' path-referenced assets out of the VFS — the merged
                 // records still load meshes/textures/scripts from the donor folders.
@@ -287,8 +324,11 @@ public static class MergeServiceGuardProbe
                     "MERGE external-referencer remedy leads with include-in-set");
                 Check(rendered.Contains("Include them in the merge set, or rebuild them against"),
                     "MERGE external-overrider remedy leads with include-in-set");
-                Check(!rendered.Contains("LIGHT (ESL) header flag") && !rendered.Contains("Author/Description"),
-                    "MERGE no header-loss notes when no donor carried those header fields");
+                Check(!rendered.Contains("LIGHT (ESL) status") && !rendered.Contains("MASTER status")
+                      && !rendered.Contains("Author/Description"),
+                    "MERGE no header-loss notes when no donor carried any of those header properties");
+                Check(rendered.Contains("Want it light?"),
+                    "MERGE keeps the closing compact pointer when no qualified ESL note replaced it");
                 Check(Path.GetFileName(Path.GetDirectoryName(o.OutputPath))!.EndsWith(" merged"),
                     $"MERGE mod folder defaults to '<output> merged' ({Path.GetFileName(Path.GetDirectoryName(o.OutputPath))})");
                 // ASSETS: facegen pair + voice under the MERGED plugin-name folders; .seq regenerated (A shipped one).
@@ -460,22 +500,60 @@ public static class MergeServiceGuardProbe
                 }
                 var renderedEsl = oEsl.Success ? WriteTools.RenderMerge(oEsl) : "";
                 Check(eslDropped, $"RENAME the donor's light flag and header text really are absent from the output (success {oEsl.Success})");
-                Check(renderedEsl.Contains("HcMgEsl.esp carried the LIGHT (ESL) header flag")
+                Check(renderedEsl.Contains("HcMgEsl.esp carried the LIGHT (ESL) status")
                       && renderedEsl.Contains("takes a full load-order slot")
                       && renderedEsl.Contains("renumbers object ids from 0x800 upward"),
                     "RENAME the light-flag loss is REPORTED, with the compact remedy's own cost stated");
                 Check(renderedEsl.Contains("header Author/Description carried by HcMgEsl.esp")
                       && !renderedEsl.Contains("housecarl_create_plugin on"),
                     "RENAME the header-text loss is stated bare — no remedy invented for it");
+                // ONE home for the compact recommendation: where the qualified note fired, the flat closing tail must
+                // not repeat it un-costed. Its negative is the plain merge, which has no note and so keeps the tail.
+                Check(!renderedEsl.Contains("Want it light?"),
+                    "RENAME the flat 'want it light' tail steps aside when the qualified ESL note fired");
+
+                // Light and master each arrive by EXTENSION as well as by flag; a flag-only reading misses these two
+                // donors entirely, which is the whole reason they exist.
+                var oEslExt = svc.MergePlugins(new[] { "HcMgEslExt.esl" }, "HcMgEslExtRenamed.esp");
+                var renderedEslExt = oEslExt.Success ? WriteTools.RenderMerge(oEslExt) : "";
+                Check(oEslExt.Success && renderedEslExt.Contains("HcMgEslExt.esl carried the LIGHT (ESL) status"),
+                    $"RENAME a .esl-EXTENSION donor counts as light even with the header bit unset (success {oEslExt.Success})");
+                var oEsm = svc.MergePlugins(new[] { "HcMgEsm.esm" }, "HcMgEsmRenamed.esp");
+                var renderedEsm = oEsm.Success ? WriteTools.RenderMerge(oEsm) : "";
+                Check(oEsm.Success && renderedEsm.Contains("HcMgEsm.esm carried MASTER status")
+                      && renderedEsm.Contains("is NOT flagged as a master")
+                      && !renderedEsm.Contains("run housecarl_"),
+                    $"RENAME the master-status loss is stated, with no remedy invented (success {oEsm.Success})");
+
+                // The residual the advisor flagged: both notes are keyed on what the DONORS carried, never on the
+                // donor count. A flagged donor merged WITH a plain one must still raise them, or the property-keying
+                // has quietly become count-keying (PR #346 R5 / PR #360 F2 class).
+                var oMixed = svc.MergePlugins(new[] { "HcMgEsl.esp", "HcMgEsm.esm" }, "HcMgMixed.esp");
+                var renderedMixed = oMixed.Success ? WriteTools.RenderMerge(oMixed) : "";
+                Check(oMixed.Success && oMixed.Donors.Count == 2
+                      && renderedMixed.Contains("carried the LIGHT (ESL) status")
+                      && renderedMixed.Contains("carried MASTER status")
+                      && renderedMixed.Contains("header Author/Description carried by")
+                      && renderedMixed.Contains("from 2 donors"),
+                    $"MERGE all three header-loss notes fire on the MULTI-donor path too (donors {oMixed.Donors.Count})");
 
                 // A PURE-OVERRIDE donor originates nothing, so the headline must not claim records took a new
                 // identity — the mis-named patch this capability exists for is exactly this shape.
                 var oOvr = svc.MergePlugins(new[] { "HcMgOvr.esp" }, "HcMgOvrRenamed.esp");
                 var renderedOvr = oOvr.Success ? WriteTools.RenderMerge(oOvr) : "";
-                Check(oOvr.Success && oOvr.RecordsRenumbered == 0
-                      && renderedOvr.Contains("it originates no records of its own, so nothing is re-keyed")
+                Check(oOvr.Success && oOvr.RecordsRenumbered == 0 && oOvr.RecordsCopied == 1
+                      && renderedOvr.Contains("its 1 override is now served by a plugin under a new name")
                       && !renderedOvr.Contains("records move to the new plugin's identity"),
-                    $"RENAME a pure-override donor claims no re-keying (renumbered {oOvr.RecordsRenumbered}, success {oOvr.Success})");
+                    $"RENAME a pure-override donor states the override COUNT it read (copied {oOvr.RecordsCopied}, renumbered {oOvr.RecordsRenumbered})");
+
+                // The third thing the accounting can say. An empty donor takes neither of the arms above, and the
+                // middle arm used to claim overrides it never read — which was wrong for exactly this plugin.
+                var oEmpty = svc.MergePlugins(new[] { "HcMgEmpty.esp" }, "HcMgEmptyRenamed.esp");
+                var renderedEmpty = oEmpty.Success ? WriteTools.RenderMerge(oEmpty) : "";
+                Check(oEmpty.Success && oEmpty.RecordsCopied == 0 && oEmpty.RecordsRenumbered == 0
+                      && renderedEmpty.Contains("it carries no records at all, so nothing moved and nothing is overridden")
+                      && !renderedEmpty.Contains("override is now served") && !renderedEmpty.Contains("overrides are now served"),
+                    $"RENAME an EMPTY donor claims neither moves nor overrides (copied {oEmpty.RecordsCopied}, success {oEmpty.Success})");
 
                 var oDup = svc.MergePlugins(new[] { "HcMgA.esp", "HcMgA.esp" }, "HcMgDup.esp");
                 Check(oDup.Success && oDup.Donors.Count == 1,
