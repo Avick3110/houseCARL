@@ -87,6 +87,12 @@ namespace HousecarlGenerator;
 ///                     order decided something, and an ample budget lists every finding exactly as before.
 ///   SOURCE-HISTOGRAM / -NOT-COMPUTED — counts_only tallies by SOURCE plugin beside the TARGET axis; with the walk
 ///                     skipped BOTH are null and the render says so (an absent axis must not read as an empty one).
+///   RENDER-CUT-COUNTS-ITS-OWN-OMISSION / -SILENT-WHEN-IT-DID-NOT-CUT / -JSON-DERIVABLE — the max_chars cut is counted
+///                     and stated by the RENDER, in the render's terms; the capped line's subjects are the budget's alone.
+///   BASELINE-RECORD-SCOPE-NOT-SWEPT / -STILL-SWEPT — "swept" means the scope admitted a record, not that the file was
+///                     opened; a master filtered out of the scope must not report as covered-and-clean.
+///   BASELINE-PHASE-CLAUSE-NEEDS-A-NON-BASE-PLUGIN — the ordering sentence needs both groups it compares.
+///   COUNTS-ONLY-NOTE-NOT-REPEATED — the mode note rides the first axis only.
 ///   OMITTED-NULL-UNDER-COUNTS-ONLY — counts_only lists nothing by design, so it reports no omissions rather than
 ///                     reporting the entire sweep as dropped.
 ///   BASE-SET-BY-CONSTRUCTION — the baseline set IS Mutagen's Implicits.BaseMasters, never a list kept here (#344).
@@ -572,7 +578,10 @@ public static class CheckErrorsProbe
         Check("BASELINE-OMITTED-NAMED: the cap names WHICH plugin lost entries and how many — Skyrim.esm (2) — in the result AND in the rendered line (Q3)",
             tight.ListingOmitted is { Count: 1 } om && om[0].Key == "Skyrim.esm" && om[0].Count == 2
             && tightText.Contains("Skyrim.esm (2)", StringComparison.Ordinal)
-            && tightText.Contains("2 were NOT listed", StringComparison.Ordinal),
+            && tightText.Contains("the listing budget (limit=) omitted 2 dangling ref(s)", StringComparison.Ordinal)
+            // the roster names every plugin here, so the truncation clause must be ABSENT — the other arm of the
+            // conditional OMITTED-ROSTER-STATES-ITS-TRUNCATION holds in the true direction.
+            && !tightText.Contains("the rest are not named here", StringComparison.Ordinal),
             $"omitted=[{string.Join(",", (tight.ListingOmitted ?? new List<SweepCount>()).Select(c => $"{c.Key}:{c.Count}"))}]");
 
         Check("BASELINE-SUMMARY: the split is stated (3 of 5, 2 from the rest) and names ONLY the base master this sweep actually opened — the four it never touched are not named (round-1 review: two reviewers, independently)",
@@ -658,7 +667,7 @@ public static class CheckErrorsProbe
             whole.Reports.All(p => p.Plugin != "Skyrim.esm")
             && whole.ListingOmitted is { } wo && wo.Any(c => c.Key == "Skyrim.esm" && c.Count == 3)
             && wholeText.Contains("Skyrim.esm (3)", StringComparison.Ordinal)
-            && wholeText.Contains("has no section above", StringComparison.Ordinal),
+            && wholeText.Contains("A plugin whose whole set the budget omitted, with nothing else to report, gets no section of its own", StringComparison.Ordinal),
             $"sections=[{string.Join(",", whole.Reports.Select(p => p.Plugin))}] omitted=[{string.Join(",", (whole.ListingOmitted ?? new List<SweepCount>()).Select(c => $"{c.Key}:{c.Count}"))}]");
 
         // ---- a duplicated plugins= name is swept twice (pre-existing on main). The omissions table must not read the
@@ -727,7 +736,7 @@ public static class CheckErrorsProbe
         var manyText = Wire.RenderCheckErrors(many, 0);
         // Count names in the CAPPED LINE, not the whole render: every listed dangling entry also prints its source as
         // "000800:HcCeMany00.esp (Npc ...", so a whole-text match counts plugins the roster never named.
-        string cappedLine = manyText.Split('\n').FirstOrDefault(l => l.Contains("capped at limit", StringComparison.Ordinal)) ?? "";
+        string cappedLine = manyText.Split('\n').FirstOrDefault(l => l.Contains("[the listing budget (limit=) omitted", StringComparison.Ordinal)) ?? "";
         int namedInText = many.ListingOmitted!.Count(c => cappedLine.Contains(c.Key + " (", StringComparison.Ordinal));
         Check("OMITTED-ROSTER-STATES-ITS-TRUNCATION: with more plugins losing entries than the line names, it says how many it did NOT name and never claims to be the only place they appear",
             many.ListingOmitted is { Count: > 10 }
@@ -740,7 +749,7 @@ public static class CheckErrorsProbe
         Check("OMITTED-REMEDY-DOES-NOT-PROMISE-SCOPING: the remedy qualifies scoping instead of asserting it reads a set in full — a plugin whose own set exceeds limit= would loop the caller back to this line",
             manyText.Contains("Raise limit= to list more", StringComparison.Ordinal)
             && manyText.Contains("unless that set is itself larger than limit=", StringComparison.Ordinal),
-            manyText.Split('\n').FirstOrDefault(l => l.Contains("capped at limit", StringComparison.Ordinal)) ?? "<no capped line>");
+            cappedLine.Length == 0 ? "<no capped line>" : cappedLine);
 
         // ---- CLEAN-BASELINE fixture: a base master with NO dangling refs, on a sweep the budget still caps. The
         //      phase-order sentence talks about baseline findings crowding the list; with none found there is nothing
@@ -773,12 +782,6 @@ public static class CheckErrorsProbe
             && cleanBaseText.Contains("baseline: 0 of 3", StringComparison.Ordinal)
             && !cleanBaseText.Contains("the listing budget (limit=) is spent", StringComparison.Ordinal),
             $"capped={cleanBase.Capped} baseline={cleanBase.BaselineDangling}");
-
-        Check("NO-SECTION-SENTENCE-ONLY-WHEN-TRUE: a capped sweep where every omitted plugin still HAS a section does not explain a missing one — the reader would go looking for a plugin that is right there",
-            !cleanBaseText.Contains("has no section above", StringComparison.Ordinal)
-            && wholeText.Contains("has no section above", StringComparison.Ordinal),
-            $"clean-has={cleanBaseText.Contains("has no section above", StringComparison.Ordinal)} dropped-has={wholeText.Contains("has no section above", StringComparison.Ordinal)}");
-
         // ---- both axes empty: they must be tellable apart. Two identical untitled "nothing to tally" lines said
         //      neither which axis was which nor that a second one had been computed (round-1 review).
         var cleanCounts = ErrorCheck.Run(r, new[] { "HcCeClean.esp" }, 1000, null, null, ErrorFindingClass.All, countsOnly: true);
@@ -787,6 +790,65 @@ public static class CheckErrorsProbe
             cleanCountsText.Contains("by TARGET plugin (the plugin the broken refs point INTO): nothing to tally", StringComparison.Ordinal)
             && cleanCountsText.Contains("by SOURCE plugin (the plugin the broken refs come FROM): nothing to tally", StringComparison.Ordinal),
             cleanCountsText);
+
+
+        // ---- the render's cut is the RENDER's sentence: computed where the loop breaks, counting what it emitted, and
+        //      saying nothing about the listing budget. The two truncators are independent and never sum (advisor ruling).
+        // an ample budget so every section exists, then a cap small enough that the RENDER is what drops them
+        var manyAmple = ErrorCheck.Run(rm, null, 1000);
+        var truncText = Wire.RenderCheckErrors(manyAmple, 900);
+        int renderedSections = truncText.Split("[ERROR] ").Length - 1;
+        Check("RENDER-CUT-COUNTS-ITS-OWN-OMISSION: the max_chars notice says how many plugin sections IT did not render, out of the total, and names the cut as the response being cut rather than the budget",
+            truncText.Contains("plugin section(s) were not rendered", StringComparison.Ordinal)
+            && truncText.Contains($"{manyAmple.Reports.Count - renderedSections} of {manyAmple.Reports.Count} plugin section(s)", StringComparison.Ordinal)
+            && truncText.Contains("separate from any limit= omission reported below", StringComparison.Ordinal),
+            truncText.Split('\n').FirstOrDefault(l => l.Contains("truncated at max_chars", StringComparison.Ordinal)) ?? "<no truncation notice>");
+
+        Check("RENDER-CUT-SILENT-WHEN-IT-DID-NOT-CUT: an untruncated response carries no such notice — the sentence exists only where the render actually dropped something",
+            !manyText.Contains("plugin section(s) were not rendered", StringComparison.Ordinal)
+            && !manyText.Contains("truncated at max_chars", StringComparison.Ordinal),
+            "untruncated render");
+
+        // json states its own cut in its own terms: rendered + truncated could not answer "how many were dropped"
+        // without a total to subtract from.
+        var truncJson = JsonDocument.Parse(JsonWire.RenderCheckErrors(manyAmple, 900)).RootElement;
+        Check("RENDER-CUT-JSON-DERIVABLE: plugins_with_findings - rendered gives the dropped section count exactly, beside truncated=true",
+            truncJson.GetProperty("truncated").GetBoolean()
+            && truncJson.GetProperty("plugins_with_findings").GetInt32() == manyAmple.Reports.Count
+            && truncJson.GetProperty("plugins_with_findings").GetInt32() - truncJson.GetProperty("rendered").GetInt32() > 0,
+            $"with_findings={truncJson.GetProperty("plugins_with_findings").GetInt32()} rendered={truncJson.GetProperty("rendered").GetInt32()}");
+
+        // ---- a record scope can admit nothing from a base master the sweep opened. "Swept" has to mean examined.
+        var modOnlyScope = ErrorCheck.Run(rb, null, 1000, null, new SweepScope(null, "HcCeModNpc", null, null));
+        var modOnlyScopeText = Wire.RenderCheckErrors(modOnlyScope, 0);
+        Check("BASELINE-RECORD-SCOPE-NOT-SWEPT: a record scope that admits no base-master record leaves base_masters_swept EMPTY and prints no baseline line — a filtered-out master must not report as covered-and-clean",
+            modOnlyScope.BaseMastersSwept is { Count: 0 } && modOnlyScope.BaselineDangling == 0
+            && !modOnlyScopeText.Contains("baseline:", StringComparison.Ordinal)
+            && modOnlyScope.TotalDangling > 0,
+            $"swept={modOnlyScope.BaseMastersSwept?.Count} baseline={modOnlyScope.BaselineDangling} total={modOnlyScope.TotalDangling}");
+
+        var bothScope = ErrorCheck.Run(rb, null, 1000, null, new SweepScope(null, "Npc", null, null));
+        Check("BASELINE-RECORD-SCOPE-STILL-SWEPT: a record scope that DOES admit base-master records still counts them as swept — the arm above must not pass by disabling the baseline line outright",
+            bothScope.BaseMastersSwept is { Count: 1 } && bothScope.BaselineDangling > 0
+            && Wire.RenderCheckErrors(bothScope, 0).Contains("this sweep covered (Skyrim.esm)", StringComparison.Ordinal),
+            $"swept={bothScope.BaseMastersSwept?.Count} baseline={bothScope.BaselineDangling}");
+
+        // ---- the phase sentence compares two groups, so it needs both to exist.
+        var baseOnly = ErrorCheck.Run(rb, new[] { "Skyrim.esm" }, 2);
+        var baseOnlyText = Wire.RenderCheckErrors(baseOnly, 0);
+        Check("BASELINE-PHASE-CLAUSE-NEEDS-A-NON-BASE-PLUGIN: a sweep scoped to base masters alone states the split but not the ordering sentence — there is no 'every other plugin' for the budget to reach first",
+            baseOnly.Capped && baseOnly.BaselineDangling > 0
+            && baseOnlyText.Contains("baseline: 3 of 3", StringComparison.Ordinal)
+            && !baseOnlyText.Contains("the listing budget (limit=) is spent on every other plugin", StringComparison.Ordinal),
+            $"capped={baseOnly.Capped} baseline={baseOnly.BaselineDangling}");
+
+        // ---- the counts_only note belongs to the FIRST axis only; the second must not repeat it.
+        var twoAxes = ErrorCheck.Run(rb, null, 1000, null, null, ErrorFindingClass.All, countsOnly: true);
+        var twoAxesText = Wire.RenderCheckErrors(twoAxes, 0);
+        Check("COUNTS-ONLY-NOTE-NOT-REPEATED: the counts_only=true note is printed once, above the TARGET axis, and not again above the SOURCE axis",
+            twoAxesText.Split("counts_only=true — totals above are exact", StringSplitOptions.None).Length - 1 == 1
+            && twoAxesText.Contains("by SOURCE plugin", StringComparison.Ordinal),
+            $"note occurrences={twoAxesText.Split("counts_only=true — totals above are exact", StringSplitOptions.None).Length - 1}");
 
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "check-errors-guard: ALL PASS" : $"check-errors-guard: {failures} FAILURE(S)");

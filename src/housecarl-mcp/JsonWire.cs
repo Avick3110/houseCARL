@@ -1306,6 +1306,10 @@ static class JsonWire
                     rendered++;
                 }
                 w.WriteEndArray();
+                // The same layer rule as the text render: this writer performed this omission, so it states it in its
+                // own terms. rendered + truncated alone did not let a consumer derive HOW MANY sections were dropped —
+                // there was no total to subtract from — so the total rides along and the arithmetic is exact.
+                w.WriteNumber("plugins_with_findings", r.Reports.Count);
                 w.WriteNumber("rendered", rendered);
                 w.WriteBoolean("truncated", truncated);
             }
@@ -1459,11 +1463,11 @@ static class JsonWire
     }
 
     // ---- shared sweep writers (#282) ---------------------------------------------------------------
-    /// <summary>A counts_only histogram: <c>{distinct, rows:[{key,count}], rendered}</c>. Absent when the mode was not
-    /// requested; PRESENT with an empty <c>rows</c> when the sweep genuinely found nothing — the two must not look alike.</summary>
     /// <summary>Row cap for the budget-omissions table — independent of limit=, which is what caused the omissions.</summary>
     const int OmittedSourceRows = 200;
 
+    /// <summary>A counts_only histogram: <c>{distinct, rows:[{key,count}], rendered}</c>. Absent when the mode was not
+    /// requested; PRESENT with an empty <c>rows</c> when the sweep genuinely found nothing — the two must not look alike.</summary>
     static void WriteHistogram(Utf8JsonWriter w, string name, IReadOnlyList<SweepCount>? rows, int rowLimit)
     {
         if (rows is null) return;

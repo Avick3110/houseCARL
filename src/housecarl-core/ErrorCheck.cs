@@ -140,6 +140,11 @@ public static class ErrorCheck
         // plugin, which cannot answer "how much of this is vanilla" or "which plugin lost its entries to the budget").
         // Uncapped by limit= like the totals it decomposes; it costs one dictionary bump per dangling ref.
         var bySource = wantDangling ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) : null;
+        // WHICH plugins the link walk actually examined a record in, under the scope in force. A record scope
+        // (type=/formids=/editorid_contains=) can admit nothing from a plugin the sweep opened, and "swept" has to
+        // mean examined rather than opened — otherwise the baseline line reports vanilla as covered-and-clean when
+        // the scope filtered every vanilla record out. The layer that applies the filter is the layer that knows.
+        var examined = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // --- resolve the plugin set to scan (Q3: a bad or excluded explicit scope name fails loud, never a silent skip). ---
         List<string> targets;
@@ -223,6 +228,7 @@ public static class ErrorCheck
                         // #282 record scope, tested BEFORE the deleted-record rule and the link walk — the two things
                         // this sweep actually spends its time on.
                         if (recordScope is not null && !recordScope.Matches(fk, body)) continue;
+                        examined.Add(plugin);
                         // A DELETED record links to nothing (#279 — the shared rule, see DeletedRecordRule): its
                         // content is not live, so none of its FormLinks can be a dangling reference, and an
                         // engine-authored deleted body can throw on the walk below and land here as an untyped
@@ -330,6 +336,7 @@ public static class ErrorCheck
                             try
                             {
                                 if (recordScope is not null && !recordScope.Matches(rec.FormKey, rec)) continue;   // #282
+                                examined.Add(name);
                                 if (DeletedRecordRule.HasNoLiveBody(rec)) continue;   // #279 — same rule as the active pass above
                                 if (rec is not IFormLinkContainerGetter flc) continue;
                                 Dictionary<FormKey, int>? ownerVarExempt = null;   // #207 (see UntypedOwnerVariableData)
@@ -412,14 +419,13 @@ public static class ErrorCheck
         int baselineDangling = bySource is null ? 0 : bySource.Where(kv => IsBaseMaster(kv.Key)).Sum(kv => kv.Value);
         // WHICH base masters this sweep actually looked at — the swept SUBSET, not a yes/no. A render that says
         // "N of M come from the base-game masters" has to name the ones it counted, and naming all five over a sweep
-        // that touched one states a figure about four plugins it never opened (round-1 review, two reviewers). Off-order
-        // counts: a base master swept as a FILE (on disk, not in the active order) is still a baseline plugin, and its
-        // findings land in the same tally — asking only the active targets would let BaselineDangling be positive while
-        // this said no baseline was swept. In Mutagen's own order, so the render is stable across sweeps.
-        var baseSwept = BaseMasterNames
-            .Where(m => targets.Any(t => string.Equals(t, m, StringComparison.OrdinalIgnoreCase))
-                     || offOrderScanned.Any(o => string.Equals(o, m, StringComparison.OrdinalIgnoreCase)))
-            .ToList();
+        // that touched one states a figure about four plugins it never opened (round-1 review, two reviewers).
+        // Built from `examined`, so it covers both lanes at once: an off-order base master swept as a FILE counts (its
+        // findings land in the same tally, and asking only the active targets would let BaselineDangling be positive
+        // while this said no baseline was swept), and a base master whose every record a record scope filtered out does
+        // NOT count — the sweep opened it but examined nothing in it (round-2 review). In Mutagen's own order, so the
+        // render is stable across sweeps.
+        var baseSwept = BaseMasterNames.Where(examined.Contains).ToList();
 
         // Q3 — what the budget DROPPED, by plugin. The old global "capped at limit" line named no plugin, which is the
         // silent half of this defect: a plugin whose entire list was dropped has no report section to read the loss
