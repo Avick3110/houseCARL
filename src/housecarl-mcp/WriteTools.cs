@@ -499,8 +499,9 @@ public static class WriteTools
          "no in-place). TO RENAME a plugin, pass ONE donor: with nothing to combine the merge IS a rename — the same records " +
          "under a new plugin name, keeping every object id already inside the writable range (nothing can collide; an id " +
          "BELOW the 0x800 floor still renumbers, and the per-donor line reports it), facegen/voice/seq carried to the new name. " +
-         "RENUMBER is collision-only (zMerge's default): the donor EARLIEST in the load order keeps its FormID " +
-         "object ids; later donors renumber only ids already taken (all records necessarily move to the new plugin's identity). " +
+         "RENUMBER is collision-first (zMerge's default): the donor EARLIEST in the load order keeps its FormID " +
+         "object ids; later donors renumber ids already taken, and ANY donor's ids below the 0x800 floor renumber too " +
+         "(all records necessarily move to the new plugin's identity). " +
          "Cross-donor conflicts on the SAME record resolve to the LOAD-ORDER WINNER and are each REPORTED; a losing donor's " +
          "nested children the winner doesn't re-list (a base mod's dialogue lines under a patched topic; placed refs under a " +
          "patched cell) are GRAFTED into the winner's copy — so merging a mod WITH its patches is the intended use. ASSETS " +
