@@ -526,7 +526,7 @@ public static class WriteTools
             string[] plugins,
         [Description("The NEW merged plugin's filename to create (e.g. 'MyMerge.esp') — must NOT already exist in the load order. The donors keep their names and files untouched.")]
             string output,
-        [Description("Optional. Base name for the NEW mod folder (auto-suffixed if taken). Defaults to '<output> merged'.")]
+        [Description("Optional. Base name for the NEW mod folder (auto-suffixed if taken). Defaults to '<output> merged' — or '<output> renamed' for a single donor, since that folder name is what you will see in MO2 from then on.")]
             string? patch_name = null) => Guard.Tool("housecarl_merge_plugins", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
@@ -1063,14 +1063,27 @@ public static class WriteTools
         var file = Path.GetFileName(o.OutputPath);
         var modFolder = Path.GetFileName(Path.GetDirectoryName(o.OutputPath) ?? "");
         var sb = new StringBuilder();
-        // ONE donor is the RENAME case (#345), and the headline is where the caller learns which operation they got.
-        // "from 1 donors" would be both ungrammatical and a misdescription: nothing was combined. The claim stays
-        // inside what this layer knows — the donor count and the names — and every later line (ids kept/renumbered,
-        // masters, the external-referencer WARNs, the saves reminder) is computed the same way for both arms.
-        if (o.Donors.Count == 1)
+        // The operation's SHAPE is classified ONCE here and consumed by every sentence that varies with it — this
+        // headline, the per-donor renumber cause, and the external-referencer remedy order. One donor is the RENAME
+        // case (#345): "from 1 donors" would be both ungrammatical and a misdescription, nothing having been combined.
+        // Sentences that do NOT vary by shape (masters, the swap, the asset carries, the saves reminder) read the same
+        // for both and are deliberately left alone.
+        bool isRename = o.Donors.Count == 1;
+        if (isRename)
+        {
+            // What a rename did to the records is exactly what the accounting line below reports, so this sentence is
+            // DERIVED from it rather than asserting alongside it. A pure-override donor — the mis-named patch this
+            // capability exists for — originates nothing, so nothing is re-keyed, and claiming "its records under a
+            // new identity" would be false in the very case the feature was asked for.
             sb.Append("wrote ").Append(file).Append(" (new plugin; ").Append(o.Bytes).Append(" bytes) — a RENAME of ")
-              .Append(o.Donors[0]).Append(": one donor, so there is nothing to combine and this is that plugin's records ")
-              .Append("under a new identity.\n");
+              .Append(o.Donors[0]).Append(": one donor, so there is nothing to combine — ");
+            if (o.RecordsRenumbered > 0)
+                sb.Append(o.RecordsRenumbered).Append(o.RecordsRenumbered == 1 ? " record moves" : " records move")
+                  .Append(" to the new plugin's identity.\n");
+            else
+                sb.Append("it originates no records of its own, so nothing is re-keyed; the same overrides are now ")
+                  .Append("served by a plugin under a new name.\n");
+        }
         else
             sb.Append("wrote merged ").Append(file).Append(" (new plugin; ").Append(o.Bytes).Append(" bytes) from ")
               .Append(o.Donors.Count).Append(" donors: ").Append(string.Join(", ", o.Donors)).Append('\n');
@@ -1092,7 +1105,9 @@ public static class WriteTools
         sb.Append(".\n");
         foreach (var d in o.DonorRemaps)
             sb.Append("  ").Append(d.Donor).Append(": ").Append(d.Kept).Append(" object id(s) kept, ")
-              .Append(d.Renumbered).Append(" renumbered (id collisions / below-floor)\n");
+              .Append(d.Renumbered)                                       // one donor has nothing to collide WITH, so
+              .Append(isRename ? " renumbered (below-floor)\n"            // only one of the two causes can apply
+                               : " renumbered (id collisions / below-floor)\n");
         sb.Append(WriteSentences.Masters(o.Masters));
 
         if (o.Conflicts.Count == 0)
@@ -1112,8 +1127,14 @@ public static class WriteTools
         if (o.ExternalPlugins.Count > 0)
         {
             sb.Append("WARNING — ").Append(o.ExternalPlugins.Count).Append(" plugin(s) OUTSIDE the merge REFERENCE donor records. Their references break ")
-              .Append("the moment you deactivate the donor plugins: include them in the merge set (re-run with them added), or re-point them at '")
-              .Append(o.OutputName).Append("' before the swap:\n");
+              // Adding the patch to the donor set yields a COMBINED plugin — a different operation from the one that
+              // was asked for — so a rename leads with the remedy that keeps it a rename, and offers combining second.
+              .Append(isRename
+                  ? "the moment you deactivate the donor plugin: re-point them at '"
+                  : "the moment you deactivate the donor plugins: include them in the merge set (re-run with them added), or re-point them at '")
+              .Append(o.OutputName)
+              .Append(isRename ? "' before the swap — or, to combine them instead, re-run with them added as donors:\n"
+                               : "' before the swap:\n");
             foreach (var pl in o.ExternalPlugins.Take(25)) sb.Append("  ! ").Append(pl).Append('\n');
             if (o.ExternalPlugins.Count > 25) sb.Append("  ! … (+").Append(o.ExternalPlugins.Count - 25).Append(" more)\n");
         }
@@ -1121,8 +1142,11 @@ public static class WriteTools
         if (o.ExternalOverriders.Count > 0)
         {
             sb.Append("WARNING — ").Append(o.ExternalOverriders.Count).Append(" plugin(s) OUTSIDE the merge OVERRIDE a donor record; those overrides ")
-              .Append("orphan once you deactivate the donor plugins (an override can't be auto-repointed — identity, not a link). Include them in the merge set, or rebuild them against '")
-              .Append(o.OutputName).Append("':\n");
+              .Append(isRename
+                  ? "orphan once you deactivate the donor plugin (an override can't be auto-repointed — identity, not a link). Rebuild them against '"
+                  : "orphan once you deactivate the donor plugins (an override can't be auto-repointed — identity, not a link). Include them in the merge set, or rebuild them against '")
+              .Append(o.OutputName)
+              .Append(isRename ? "', or re-run with them added as donors to combine them instead:\n" : "':\n");
             foreach (var pl in o.ExternalOverriders.Take(25)) sb.Append("  ! ").Append(pl).Append('\n');
             if (o.ExternalOverriders.Count > 25) sb.Append("  ! … (+").Append(o.ExternalOverriders.Count - 25).Append(" more)\n");
         }
@@ -1134,6 +1158,29 @@ public static class WriteTools
         AppendFacegenCarry(sb, o.AssetRename, inPlace: false);
         AppendVoiceCarry(sb, o.VoiceRename, inPlace: false);
         AppendSeqRegen(sb, o.SeqRegen, inPlace: false);
+
+        // The merged plugin is built as a bare mod, so what lived in a donor's HEADER does not come along. These two
+        // lines are keyed on what the DONORS carried, not on the donor count — the loss is identical for one donor or
+        // ten, and it was measured while each donor overlay was open. Q3: a silent header loss is exactly the kind of
+        // degraded result that has to be stated. Whether these should be CARRIED is a separate decision.
+        if (o.LightDonors is { Count: > 0 } light)
+        {
+            sb.Append("NOTE — ").Append(string.Join(", ", light.Take(10)));
+            if (light.Count > 10) sb.Append(" (+").Append(light.Count - 10).Append(" more)");
+            sb.Append(light.Count == 1 ? " carried" : " carried").Append(" the LIGHT (ESL) header flag; ")
+              .Append(o.OutputName).Append(" does NOT — it is written as a full plugin and takes a full load-order slot. ")
+              .Append("To make it light again run housecarl_compact_plugin on '").Append(o.OutputName)
+              .Append("' (its esl defaults true) — but that renumbers object ids from 0x800 upward, so the ids listed as ")
+              .Append("kept above will move.\n");
+        }
+        if (o.HeaderMetaDonors is { Count: > 0 } meta)
+        {
+            // No remedy is named because none exists on the surface: author=/description= belong to create_plugin, and
+            // only at create time. A bare statement of the loss is the honest whole of what can be said about it.
+            sb.Append("NOTE — the header Author/Description carried by ").Append(string.Join(", ", meta.Take(10)));
+            if (meta.Count > 10) sb.Append(" (+").Append(meta.Count - 10).Append(" more)");
+            sb.Append(" are not carried across; ").Append(o.OutputName).Append("'s are empty.\n");
+        }
 
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         sb.Append("reminders: existing SAVES that depend on the donors will not survive the swap (the records now live under a ")

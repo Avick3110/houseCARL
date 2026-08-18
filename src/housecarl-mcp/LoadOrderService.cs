@@ -6306,7 +6306,8 @@ public sealed class LoadOrderService : IDisposable
 
             // ---- 5. output folder (fresh houseCARL mod folder; the merge is ALWAYS a new file — no in-place lane) ----
             RiderFolder rf;
-            try { rf = ResolvePatchModFolder(patchName, null, Path.GetFileNameWithoutExtension(outName) + " merged"); }
+            try { rf = ResolvePatchModFolder(patchName, null,
+                Path.GetFileNameWithoutExtension(outName) + (donorInfos.Count == 1 ? " renamed" : " merged")); }
             catch (InvalidOperationException ex) { return WritePatchBuilder.MergeOutcome.Fail(ex.Message); }
             WriteOwnerMeta(rf.ModFolder, outName);
             var outPath = Path.Combine(rf.OutputDir, outName);
@@ -6381,7 +6382,7 @@ public sealed class LoadOrderService : IDisposable
                 true, null, outPath, outName, donorNames, build.Masters, build.RecordsCopied, build.RecordsRenumbered,
                 plan.Donors, build.Conflicts, id.ExternalPlugins, id.ExternalOverriders,
                 id.PluginsScanned, id.UnscannableRecords, id.UnscannableSamples, build.Bytes, note,
-                assetRename, voiceRename, seqRegen);
+                assetRename, voiceRename, seqRegen, build.LightDonors, build.HeaderMetaDonors);
         }
     }
 

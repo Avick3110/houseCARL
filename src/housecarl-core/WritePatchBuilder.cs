@@ -2146,7 +2146,8 @@ public static class WritePatchBuilder
         IReadOnlyList<string> ExternalPlugins, IReadOnlyList<string> ExternalOverriders,
         int PluginsScanned, int UnscannableRecords, IReadOnlyList<string> UnscannableSamples,
         long Bytes, string? Note = null,
-        AssetRenameOutcome? AssetRename = null, VoiceCarryOutcome? VoiceRename = null, SeqRegenOutcome? SeqRegen = null)
+        AssetRenameOutcome? AssetRename = null, VoiceCarryOutcome? VoiceRename = null, SeqRegenOutcome? SeqRegen = null,
+        IReadOnlyList<string>? LightDonors = null, IReadOnlyList<string>? HeaderMetaDonors = null)
     {
         public static MergeOutcome Fail(string error) =>
             new(false, error, "", "", Array.Empty<string>(), Array.Empty<string>(), 0, 0,
@@ -2560,7 +2561,8 @@ public static class WritePatchBuilder
     /// a dangling donor reference that would keep a donor as a master, an absent master, a serialize fault).</summary>
     public sealed record MergeBuildResult(
         bool Success, string? Error, IReadOnlyList<string> Masters, int RecordsCopied, int RecordsRenumbered,
-        IReadOnlyList<RemapEngine.MergeConflict> Conflicts, long Bytes)
+        IReadOnlyList<RemapEngine.MergeConflict> Conflicts, long Bytes,
+        IReadOnlyList<string>? LightDonors = null, IReadOnlyList<string>? HeaderMetaDonors = null)
     {
         public static MergeBuildResult Fail(string error) =>
             new(false, error, Array.Empty<string>(), 0, 0, Array.Empty<RemapEngine.MergeConflict>(), 0);
@@ -2590,6 +2592,8 @@ public static class WritePatchBuilder
         RemapEngine.MergeResult mr;
         var donorSet = new HashSet<ModKey>(donorsByLoadOrder.Select(d => d.Key));
         var overlays = new List<IDisposable>();
+        var lightDonors = new List<string>();                              // donors carrying header flags/fields the output will not
+        var headerMetaDonors = new List<string>();
         try
         {
             var mods = new List<(string, ISkyrimModGetter)>(donorsByLoadOrder.Count);
@@ -2603,6 +2607,13 @@ public static class WritePatchBuilder
                 }
                 overlays.Add((IDisposable)ov);
                 mods.Add((name, ov));
+                // The merged plugin is built as a bare SkyrimMod, so anything living in a donor's HEADER is left
+                // behind. Measured here, while the overlay is open, so the report can state the loss instead of the
+                // caller discovering it (a light donor silently costing a full load-order slot). Whether these should
+                // be CARRIED is a separate decision that is not this lane's to make.
+                if (ov.IsSmallMaster) lightDonors.Add(name);
+                if (!string.IsNullOrWhiteSpace(ov.ModHeader.Author) || !string.IsNullOrWhiteSpace(ov.ModHeader.Description))
+                    headerMetaDonors.Add(name);
             }
             mr = RemapEngine.MergeModsInto(m, mods, dict);
         }
@@ -2677,7 +2688,8 @@ public static class WritePatchBuilder
             writtenMasters = wr.ModHeader.MasterReferences.Select(x => x.Master.FileName.String).ToList();
         }
         catch { /* best-effort read-back; the union is a correct superset */ }
-        return new MergeBuildResult(true, null, writtenMasters, mr.RecordsCopied, mr.RecordsRenumbered, mr.Conflicts, bytes);
+        return new MergeBuildResult(true, null, writtenMasters, mr.RecordsCopied, mr.RecordsRenumbered, mr.Conflicts, bytes,
+            lightDonors, headerMetaDonors);
     }
 
     /// <summary>
