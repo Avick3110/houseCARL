@@ -15,6 +15,14 @@ when it changes.
   listing now says how many plugins lost entries, names the ones that lost the most with a count each, and states
   how many it did not name.
 
+  Each sentence about something you cannot see reports **only what its own layer dropped**, because there are two
+  independent cuts and adding them together would be wrong. The capped line's subject is always the listing budget
+  ("the listing budget (`limit=`) omitted N dangling ref(s)"). Separately, when a response is too long for
+  `max_chars`, the truncation notice now says how many plugin sections of how many went unrendered and that the last
+  one may be partial — previously it said only that something had been cut, so a plugin whose findings the response
+  dropped for length left no trace at all. In `format='json'`, `plugins_with_findings` sits beside `rendered` and
+  `truncated`, so a consumer can compute the dropped count exactly.
+
   The response also splits the dangling total ("N of M come from the base-game masters ...; K from the rest"), and
   `counts_only=true` adds a **by-SOURCE-plugin** histogram beside the existing by-TARGET one: the target axis names the
   absent dependency behind a wall of findings, the source axis answers how much of the wall is vanilla and how much
