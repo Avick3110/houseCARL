@@ -426,6 +426,12 @@ public static class ErrorCheck
         // NOT count — the sweep opened it but examined nothing in it (round-2 review). In Mutagen's own order, so the
         // render is stable across sweeps.
         var baseSwept = BaseMasterNames.Where(examined.Contains).ToList();
+        // Whether the sweep had any NON-base plugin in scope at all. A render cannot get this by comparing
+        // PluginsScanned against the swept-base count: the two measure different things and diverge whenever a
+        // base master is in targets but contributes nothing to `examined` — a record scope that filters it out,
+        // or a name repeated in plugins= (Aaron's PR #360 review). The layer that resolved the targets is the
+        // layer that knows, so it states the fact rather than leaving a subtraction to stand in for it.
+        bool nonBaseInScope = targets.Any(t => !IsBaseMaster(t));
 
         // Q3 — what the budget DROPPED, by plugin. The old global "capped at limit" line named no plugin, which is the
         // silent half of this defect: a plugin whose entire list was dropped has no report section to read the loss
@@ -455,7 +461,7 @@ public static class ErrorCheck
                                     filterNote, classes, histogram is null ? null : SweepFindings.Histogram(histogram),
                                     countsOnly, view.Epoch,
                                     bySource is null ? null : SweepFindings.Histogram(bySource),
-                                    baselineDangling, baseSwept, listingOmitted);
+                                    baselineDangling, baseSwept, listingOmitted, nonBaseInScope);
     }
 
     /// <summary>The off-order file's record stream, type-scoped when the caller asked for one (#282) — the overlay
@@ -575,7 +581,8 @@ public sealed record ErrorCheckResult(
     IReadOnlyList<SweepCount>? DanglingBySource = null,
     int BaselineDangling = 0,
     IReadOnlyList<string>? BaseMastersSwept = null,
-    IReadOnlyList<SweepCount>? ListingOmitted = null)
+    IReadOnlyList<SweepCount>? ListingOmitted = null,
+    bool NonBaseInScope = false)
 {
     public bool Success => Error is null;
     public static ErrorCheckResult Fail(string error) =>

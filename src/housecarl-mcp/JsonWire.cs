@@ -1213,12 +1213,19 @@ static class JsonWire
     }
 
     // ---- housecarl_check_errors (#282) --------------------------------------------------------------
-    /// <summary>The integrity sweep as JSON: <c>{scanned_plugins, dangling, missing_masters, unscannable, classes,
-    /// filter_note, off_order_scanned, excluded_plugins, plugins:[…], capped, rendered, truncated, boundary}</c>, or the
-    /// <c>counts_only</c> shape with <c>histogram</c> in place of <c>plugins</c>. An error CLASS the caller excluded is
+    /// <summary>The integrity sweep as JSON: <c>{scanned_plugins, dangling, baseline_dangling, non_baseline_dangling,
+    /// base_masters_swept, base_masters, missing_masters, unscannable, classes, filter_note, off_order_scanned,
+    /// excluded_plugins, dangling_by_source_plugin, capped, dangling_not_listed_by_source, plugins:[…],
+    /// plugins_with_findings, rendered, truncated, boundary}</c>, or the <c>counts_only</c> shape with
+    /// <c>histogram</c> in place of <c>plugins</c>.
+    /// An error CLASS the caller excluded is
     /// emitted as <c>null</c>, NOT as 0 — the json counterpart of the text render's "NOT CHECKED", so a skipped check
     /// cannot be parsed as a clean one (Q3). Budget-aware: drops trailing rows and flags <c>truncated</c>, always
-    /// leaving valid JSON.</summary>
+    /// leaving valid JSON.
+    /// <para>The field list above is a HAND-KEPT second spelling of the wire names, outside <c>wire-names-guard</c>'s
+    /// reach — it drifted once already (it named <c>base_masters_in_scope</c>, which no writer emits). If it drifts a
+    /// second time, delete it rather than correct it again and let the writer below be the only authority (#358's
+    /// roster lesson).</para></summary>
     public static string RenderCheckErrors(ErrorCheckResult r, int maxChars, int histogramLimit = 1000)
     {
         int cap = Cap(maxChars);
@@ -1249,7 +1256,7 @@ static class JsonWire
             // #344 — the baseline split as DATA (the text render's baseline line). base_masters names the set that was
             // counted, because "baseline" is the whole claim and Mutagen's base set is not the same as the engine's
             // force-loaded implicit set (Creation Club plugins are in the latter, not the former).
-            // base_masters_in_scope distinguishes "the baseline came back clean" from "no baseline was swept"; a
+            // base_masters_swept distinguishes "the baseline came back clean" from "no baseline was swept"; a
             // consumer reading baseline_dangling==0 without it would draw the wrong conclusion on a scoped sweep.
             if (didDangling)
             {

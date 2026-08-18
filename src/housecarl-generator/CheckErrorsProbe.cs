@@ -87,8 +87,12 @@ namespace HousecarlGenerator;
 ///                     order decided something, and an ample budget lists every finding exactly as before.
 ///   SOURCE-HISTOGRAM / -NOT-COMPUTED — counts_only tallies by SOURCE plugin beside the TARGET axis; with the walk
 ///                     skipped BOTH are null and the render says so (an absent axis must not read as an empty one).
-///   RENDER-CUT-COUNTS-ITS-OWN-OMISSION / -SILENT-WHEN-IT-DID-NOT-CUT / -JSON-DERIVABLE — the max_chars cut is counted
-///                     and stated by the RENDER, in the render's terms; the capped line's subjects are the budget's alone.
+///   RENDER-CUT-COUNTS-ITS-OWN-OMISSION / -SILENT-WHEN-IT-DID-NOT-CUT / -JSON-DERIVABLE / -ENTRY-COUNT-IS-WHAT-IT-EMITTED
+///                     — the max_chars cut is counted and stated by the RENDER, in the render's terms and the budget
+///                     line's unit; the capped line's subjects are the budget's alone. Reach: the notice fires at a
+///                     section BOUNDARY; a cut inside the last section is #361, pre-existing.
+///   BASELINE-PHASE-CLAUSE-NOT-A-SUBTRACTION / -STILL-PRINTS-WITH-A-MOD-IN-SCOPE — the ordering sentence gates on a
+///                     stated fact, on a fixture where the two counts a subtraction would use deliberately disagree.
 ///   BASELINE-RECORD-SCOPE-NOT-SWEPT / -STILL-SWEPT — "swept" means the scope admitted a record, not that the file was
 ///                     opened; a master filtered out of the scope must not report as covered-and-clean.
 ///   BASELINE-PHASE-CLAUSE-NEEDS-A-NON-BASE-PLUGIN — the ordering sentence needs both groups it compares.
@@ -801,8 +805,16 @@ public static class CheckErrorsProbe
         Check("RENDER-CUT-COUNTS-ITS-OWN-OMISSION: the max_chars notice says how many plugin sections IT did not render, out of the total, and names the cut as the response being cut rather than the budget",
             truncText.Contains("plugin section(s) were not rendered", StringComparison.Ordinal)
             && truncText.Contains($"{manyAmple.Reports.Count - renderedSections} of {manyAmple.Reports.Count} plugin section(s)", StringComparison.Ordinal)
-            && truncText.Contains("separate from any limit= omission reported below", StringComparison.Ordinal),
+            && truncText.Contains("separate from any limit= omission reported below", StringComparison.Ordinal)
+            // the units fold: the render counts ENTRIES it appended, in the same unit the budget line uses, so
+            // "how many findings can I actually see" is answered without subtracting two different measures
+            && truncText.Contains($"of the {manyAmple.Reports.Sum(x => x.Dangling.Count)} budget-listed dangling entries appear above", StringComparison.Ordinal)
+            && !truncText.Contains("may be partial", StringComparison.Ordinal),
             truncText.Split('\n').FirstOrDefault(l => l.Contains("truncated at max_chars", StringComparison.Ordinal)) ?? "<no truncation notice>");
+
+        Check("RENDER-CUT-ENTRY-COUNT-IS-WHAT-IT-EMITTED: the entry figure equals the dangling lines actually in the response, not the sum of the sections it started — a section sum would overstate a partial last section",
+            truncText.Contains($"{truncText.Split("-> ").Length - 1} of the ", StringComparison.Ordinal),
+            $"lines={truncText.Split("-> ").Length - 1} notice={truncText.Split('\n').FirstOrDefault(l => l.Contains("budget-listed dangling entries", StringComparison.Ordinal))}");
 
         Check("RENDER-CUT-SILENT-WHEN-IT-DID-NOT-CUT: an untruncated response carries no such notice — the sentence exists only where the render actually dropped something",
             !manyText.Contains("plugin section(s) were not rendered", StringComparison.Ordinal)
@@ -839,10 +851,29 @@ public static class CheckErrorsProbe
         var baseOnly = ErrorCheck.Run(rb, new[] { "Skyrim.esm" }, 2);
         var baseOnlyText = Wire.RenderCheckErrors(baseOnly, 0);
         Check("BASELINE-PHASE-CLAUSE-NEEDS-A-NON-BASE-PLUGIN: a sweep scoped to base masters alone states the split but not the ordering sentence — there is no 'every other plugin' for the budget to reach first",
-            baseOnly.Capped && baseOnly.BaselineDangling > 0
+            baseOnly.Capped && baseOnly.BaselineDangling > 0 && !baseOnly.NonBaseInScope
             && baseOnlyText.Contains("baseline: 3 of 3", StringComparison.Ordinal)
             && !baseOnlyText.Contains("the listing budget (limit=) is spent on every other plugin", StringComparison.Ordinal),
-            $"capped={baseOnly.Capped} baseline={baseOnly.BaselineDangling}");
+            $"capped={baseOnly.Capped} baseline={baseOnly.BaselineDangling} nonBase={baseOnly.NonBaseInScope}");
+
+        // The arm above cannot tell a correct gate from a subtraction that happens to agree: scoped to one name, the
+        // scanned count and the swept-base count coincide. This fixture SEPARATES them — the same plugin named twice is
+        // swept twice, so PluginsScanned is 2 while exactly one base master was examined, and any gate phrased as
+        // "scanned > swept-base" prints the ordering sentence over a scope with no other plugin in it (Aaron's review).
+        var dupBase = ErrorCheck.Run(rb, new[] { "Skyrim.esm", "Skyrim.esm" }, 2);
+        var dupBaseText = Wire.RenderCheckErrors(dupBase, 0);
+        Check("BASELINE-PHASE-CLAUSE-NOT-A-SUBTRACTION: with the scanned count (2) and the swept-base count (1) deliberately apart, the ordering sentence still does not print — the gate reads a stated fact, not a difference between two counts of different things",
+            dupBase.Capped && dupBase.BaselineDangling > 0
+            && dupBase.PluginsScanned > (dupBase.BaseMastersSwept?.Count ?? 0)     // the old gate's test is TRUE here
+            && !dupBase.NonBaseInScope                                             // and the fact says otherwise
+            && !dupBaseText.Contains("the listing budget (limit=) is spent on every other plugin", StringComparison.Ordinal),
+            $"scanned={dupBase.PluginsScanned} swept={dupBase.BaseMastersSwept?.Count} nonBase={dupBase.NonBaseInScope}");
+
+        // and the positive direction: a scope that DOES hold a non-base plugin still gets the sentence
+        Check("BASELINE-PHASE-CLAUSE-STILL-PRINTS-WITH-A-MOD-IN-SCOPE: the gate above must not pass by suppressing the sentence everywhere",
+            tight.NonBaseInScope
+            && tightText.Contains("the listing budget (limit=) is spent on every other plugin", StringComparison.Ordinal),
+            $"nonBase={tight.NonBaseInScope}");
 
         // ---- the counts_only note belongs to the FIRST axis only; the second must not repeat it.
         var twoAxes = ErrorCheck.Run(rb, null, 1000, null, null, ErrorFindingClass.All, countsOnly: true);
