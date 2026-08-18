@@ -997,6 +997,13 @@ public static class WriteTools
               .Append("'external referencers: none' may be incomplete — verify in xEdit. Samples: ").Append(string.Join("; ", o.UnscannableSamples)).Append('\n');
         }
         sb.Append("identify-pass scanned ").Append(o.PluginsScanned).Append(" plugin(s) for external references.\n");
+        // Compact's break is the other half of merge's. The plugin NAME survives a compaction, so what a distributor
+        // line loses here is the FormID half — the ids this same report just listed as renumbered. Phrased against
+        // what the renumber moved rather than asserting a break, so it stays true for a compaction that moved nothing
+        // (an override-only plugin taking the light flag) without needing an arm per shape.
+        sb.Append("That pass reads plugins; it does not read INI distributor configs (SPID/KID/SkyPatcher/OAR), which ")
+          .Append("address a record as <plugin>|<FormID>. The plugin name is unchanged, but a line naming an object id ")
+          .Append("this compaction moved no longer addresses that record, and nothing rewrites the .ini files.\n");
 
         AppendFacegenCarry(sb, o.AssetRename, o.InPlace);
         AppendVoiceCarry(sb, o.VoiceRename, o.InPlace);
@@ -1169,8 +1176,16 @@ public static class WriteTools
         // absolute. What the pass reads is record links and record identity — it never opens a plugin header, so a
         // dependent that merely DECLARES a donor as a master is invisible to it, and loses a master at the swap.
         sb.Append("identify-pass scanned ").Append(o.PluginsScanned).Append(" plugin(s) — it reads record links and ")
-          .Append("record identity, NOT declared masters or INI distributor configs (SPID/KID/SkyPatcher), so a plugin ")
+          .Append("record identity, NOT declared masters or INI distributor configs (SPID/KID/SkyPatcher/OAR), so a plugin ")
           .Append("that only lists a donor as a master, or only names one in an .ini, is not counted above.\n");
+        // The caveat above says those configs are not READ. This says what that costs, which is the half a caller
+        // cannot derive from "not counted": a distributor line addresses a record as <plugin>|<FormID>, so the donor's
+        // plugin NAME is half of every address pointing into it, and a merge rewrites no .ini. Stated unconditionally
+        // — it is the addressing model plus the swap this same report instructs, not a prediction about any file, and
+        // there is nothing a later call could come back and falsify.
+        sb.Append("Those configs address a record as <plugin>|<FormID>, so a line naming a donor stops matching once ")
+          .Append("you deactivate that donor at the swap: the records are ").Append(o.OutputName)
+          .Append("'s now, and nothing rewrites the .ini files.\n");
 
         AppendFacegenCarry(sb, o.AssetRename, inPlace: false);
         AppendVoiceCarry(sb, o.VoiceRename, inPlace: false);
