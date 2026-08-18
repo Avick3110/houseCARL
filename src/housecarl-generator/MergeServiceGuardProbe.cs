@@ -315,12 +315,15 @@ public static class MergeServiceGuardProbe
                 if (o1.Success && File.Exists(o1.OutputPath))
                 {
                     using var rm = SkyrimMod.CreateFromBinaryOverlay(o1.OutputPath, SkyrimRelease.SkyrimSE);
-                    // REMAP-TO-OUTPUT: every one of A's originating records is under the OUTPUT ModKey, at its OWN
-                    // object id — the rename claim in one assertion. A's records are NOT still keyed to HcMgA.esp.
-                    keysOk = rm.Weapons.Any(w => w.EditorID == "HcMgAWeap" && w.FormKey == new FormKey(renamedKey, 0xA01))
-                          && rm.DialogTopics.Any(t => t.FormKey == new FormKey(renamedKey, 0xA10))
-                          && rm.Npcs.Any(n => n.FormKey == new FormKey(renamedKey, 0xA20))
-                          && rm.Quests.Any(q => q.FormKey == new FormKey(renamedKey, 0xA30))
+                    // REMAP-TO-OUTPUT: EVERY one of A's originating keys, nested children included, is present under
+                    // the OUTPUT ModKey at its own object id. The positive set is what pins this — the negative below
+                    // is equally satisfied by a record that was DROPPED, and the nested INFOs (0xA11/0xA12) and the
+                    // celled placed ref (0xA40 under 0xA41) are exactly where a walk regression loses one.
+                    var expectedKeys = new[] { 0xA01u, 0xA10u, 0xA11u, 0xA12u, 0xA20u, 0xA30u, 0xA40u, 0xA41u }
+                        .Select(id => new FormKey(renamedKey, id)).ToHashSet();
+                    var presentKeys = rm.EnumerateMajorRecords().Select(r => r.FormKey).ToHashSet();
+                    keysOk = expectedKeys.All(presentKeys.Contains)
+                          && rm.Weapons.Any(w => w.EditorID == "HcMgAWeap" && w.FormKey == new FormKey(renamedKey, 0xA01))
                           && !rm.EnumerateMajorRecords().Any(x => x.FormKey.ModKey == aKey);
                     var ms = rm.ModHeader.MasterReferences.Select(x => x.Master.FileName.String).ToList();
                     mastersOk1 = ms.Count == 1 && string.Equals(ms[0], baseKey.FileName.String, StringComparison.OrdinalIgnoreCase);
@@ -399,6 +402,14 @@ public static class MergeServiceGuardProbe
                 var oDup = svc.MergePlugins(new[] { "HcMgA.esp", "HcMgA.esp" }, "HcMgDup.esp");
                 Check(oDup.Success && oDup.Donors.Count == 1,
                     $"RENAME a donor named twice is ONE donor, still a rename ({(oDup.Success ? $"{oDup.Donors.Count} donor" : "ERR " + oDup.Error)})");
+
+                // Two IDENTICAL strings collapse under ANY comparer, so the arm above cannot see the comparer — and the
+                // comparer IS the set rule. Only a case-differing duplicate pins it: drop OrdinalIgnoreCase and this
+                // call merges a plugin with ITSELF, reporting nine self-conflicts and announcing "2 donors".
+                var oCase = svc.MergePlugins(new[] { "HcMgA.esp", "HCMGA.ESP" }, "HcMgCase.esp");
+                Check(oCase.Success && oCase.Donors.Count == 1 && oCase.Conflicts.Count == 0
+                      && WriteTools.RenderMerge(oCase).Contains("a RENAME of"),
+                    $"RENAME donor names differing only by CASE are ONE donor ({(oCase.Success ? $"{oCase.Donors.Count} donor, {oCase.Conflicts.Count} conflicts" : "ERR " + oCase.Error)})");
             }
         }
         finally { try { Directory.Delete(root, true); } catch { } }
