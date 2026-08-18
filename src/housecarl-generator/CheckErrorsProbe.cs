@@ -813,10 +813,12 @@ public static class CheckErrorsProbe
         // without a total to subtract from.
         var truncJson = JsonDocument.Parse(JsonWire.RenderCheckErrors(manyAmple, 900)).RootElement;
         Check("RENDER-CUT-JSON-DERIVABLE: plugins_with_findings - rendered gives the dropped section count exactly, beside truncated=true",
+            // TryGetProperty, not GetProperty: a missing field must fail this arm, not throw out of the guard
             truncJson.GetProperty("truncated").GetBoolean()
-            && truncJson.GetProperty("plugins_with_findings").GetInt32() == manyAmple.Reports.Count
-            && truncJson.GetProperty("plugins_with_findings").GetInt32() - truncJson.GetProperty("rendered").GetInt32() > 0,
-            $"with_findings={truncJson.GetProperty("plugins_with_findings").GetInt32()} rendered={truncJson.GetProperty("rendered").GetInt32()}");
+            && truncJson.TryGetProperty("plugins_with_findings", out var pwf)
+            && pwf.GetInt32() == manyAmple.Reports.Count
+            && pwf.GetInt32() - truncJson.GetProperty("rendered").GetInt32() > 0,
+            $"with_findings={(truncJson.TryGetProperty("plugins_with_findings", out var pwf2) ? pwf2.GetInt32().ToString() : "<absent>")} rendered={truncJson.GetProperty("rendered").GetInt32()}");
 
         // ---- a record scope can admit nothing from a base master the sweep opened. "Swept" has to mean examined.
         var modOnlyScope = ErrorCheck.Run(rb, null, 1000, null, new SweepScope(null, "HcCeModNpc", null, null));
