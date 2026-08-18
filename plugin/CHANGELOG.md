@@ -22,8 +22,21 @@ when it changes.
   mod folder beside the original, and the swap instruction applies unchanged — deactivate the old **plugin**, but keep
   its mod **folder** enabled, because the renamed records still load that mod's meshes, textures and scripts by path.
   Any save that referenced the old plugin name will not survive — the existing saves warning — and any plugin that
-  references or overrides the donor, **its own patches included**, is named in the warnings with the remedy, exactly
-  as for a many-donor merge. (#345)
+  references or overrides the donor, **its own patches included**, is named in the warnings with the remedy.
+
+  The report now says what is true **of the operation you actually got**, because it decides which one that was in
+  one place. A rename names only the renumber cause that can apply to a single donor, since nothing can collide with
+  it; it leads its warnings with the remedy that keeps the result a rename — re-point the affected plugin, or rebuild
+  it — and offers combining second, because adding that plugin as a donor produces a combined plugin instead; and its
+  new mod folder is named `<output> renamed` rather than `<output> merged`. Renaming a plugin that originates no
+  records of its own, which is what most mis-named patches are, says exactly that instead of claiming records took a
+  new identity.
+
+  Two losses that were previously silent are now stated, for merges of any size. **A donor's light (ESL) header flag
+  is not carried**, so the output takes a full load-order slot where a light donor took none — the report says so and
+  names `housecarl_compact_plugin` along with its cost, that it renumbers object ids from `0x800` upward and so moves
+  the ids just reported as kept. **A donor's header Author and Description are not carried either**, and that is
+  stated plainly with no remedy offered, because none exists. (#345)
 
 - **Fixed: on a large load order, a mod's broken references could vanish from `housecarl_check_errors` entirely.**
   The dangling-reference listing budget (`limit=`, default 1000) is one counter spent plugin by plugin in load order,

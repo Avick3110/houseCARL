@@ -29,6 +29,13 @@ namespace HousecarlGenerator;
 ///               repeated is still ONE donor — the list is a set, in both arms. One arm runs against BuildMergeRemap
 ///               directly: "nothing can collide" is not "every id is kept", and a below-floor donor cannot be written
 ///               here to prove it through the service (Mutagen rejects sub-0x800 originating records on write).
+///   SHAPE     — the render classifies rename-vs-combine ONCE and every sentence that varies consumes it: the
+///               headline (derived from the accounting, so a PURE-OVERRIDE donor claims no re-keying), the per-donor
+///               renumber cause, the two external-referencer remedy orderings, and the mod-folder default. Each has
+///               arms on BOTH sides — the multi-donor checks above are the negatives.
+///   HEADER    — a donor's light (ESL) flag and its Author/Description are NOT carried into the output. Measured on
+///               the written file, then REPORTED: the ESL note carries the compact remedy's own cost (it renumbers
+///               from the floor), and the header-text note names no remedy because the surface has none.
 ///   REFUSE    — ZERO donors / unknown donor / output already active / output == donor / .esl output, all loud,
 ///               nothing written.
 ///   UNTOUCHED — the donor files are byte-identical after the merge (new-file lane only).
@@ -159,13 +166,26 @@ public static class MergeServiceGuardProbe
                 m.BeginWrite.ToPath(Path.Combine(ovrDir, ovrKey.FileName.String)).WithLoadOrder(new ISkyrimModGetter[] { aOv }).Write();
             }
 
-            // ---- profile files (load order: Base, A, B, Dep, Ovr — B AFTER A: the patch wins) ----
+            // A donor whose HEADER carries things the merged output is built without: the light (ESL) flag, an Author
+            // and a Description. Renaming it is how the two header-loss NOTE lines are measured; A and B carry none of
+            // it, so the multi-donor merge is the negative arm for both.
+            var eslKey = new ModKey("HcMgEsl", ModType.Plugin);
+            var eslDir = Path.Combine(mods, "EslMod"); Directory.CreateDirectory(eslDir);
+            {
+                var m = new SkyrimMod(eslKey, SkyrimRelease.SkyrimSE) { IsSmallMaster = true };
+                m.ModHeader.Author = "HcMgAuthor";
+                m.ModHeader.Description = "HcMgDescription";
+                m.Weapons.Add(new Weapon(new FormKey(eslKey, 0x801), SkyrimRelease.SkyrimSE) { EditorID = "HcMgEslWeap" });
+                m.BeginWrite.ToPath(Path.Combine(eslDir, eslKey.FileName.String)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            }
+
+            // ---- profile files (load order: Base, A, B, Dep, Ovr, Esl — B AFTER A: the patch wins) ----
             File.WriteAllText(Path.Combine(profiles, "loadorder.txt"),
-                "# header\r\n" + string.Join("\r\n", baseKey.FileName, aKey.FileName, bKey.FileName, depKey.FileName, ovrKey.FileName) + "\r\n");
+                "# header\r\n" + string.Join("\r\n", baseKey.FileName, aKey.FileName, bKey.FileName, depKey.FileName, ovrKey.FileName, eslKey.FileName) + "\r\n");
             File.WriteAllText(Path.Combine(profiles, "plugins.txt"),
-                string.Join("\r\n", "*" + baseKey.FileName, "*" + aKey.FileName, "*" + bKey.FileName, "*" + depKey.FileName, "*" + ovrKey.FileName) + "\r\n");
+                string.Join("\r\n", "*" + baseKey.FileName, "*" + aKey.FileName, "*" + bKey.FileName, "*" + depKey.FileName, "*" + ovrKey.FileName, "*" + eslKey.FileName) + "\r\n");
             File.WriteAllText(Path.Combine(profiles, "modlist.txt"),
-                "# header\r\n" + string.Join("\r\n", "+OvrMod", "+DepMod", "+BMod", "+AMod", "+BaseMod") + "\r\n");
+                "# header\r\n" + string.Join("\r\n", "+EslMod", "+OvrMod", "+DepMod", "+BMod", "+AMod", "+BaseMod") + "\r\n");
 
             var store = new UserConfigStore(Path.Combine(root, "houseCARL.user.json"));
             using var svc = LoadOrderService.WithInstance(instance, 0, store);
@@ -259,6 +279,18 @@ public static class MergeServiceGuardProbe
                 // must NOT claim a rename. Pinned here so the arm below can't pass by the branch collapsing to one text.
                 Check(rendered.Contains("from 2 donors") && !rendered.Contains("a RENAME of"),
                     "MERGE headline is the multi-donor form, never the rename arm");
+                // The NEGATIVE side of every shape-varying sentence and of both header-loss notes. Each has its
+                // positive twin in the RENAME block; a branch that collapsed to one text would fail one side or other.
+                Check(rendered.Contains("renumbered (id collisions / below-floor)"),
+                    "MERGE per-donor line names BOTH renumber causes (donors can collide)");
+                Check(rendered.Contains("include them in the merge set (re-run with them added), or re-point them"),
+                    "MERGE external-referencer remedy leads with include-in-set");
+                Check(rendered.Contains("Include them in the merge set, or rebuild them against"),
+                    "MERGE external-overrider remedy leads with include-in-set");
+                Check(!rendered.Contains("LIGHT (ESL) header flag") && !rendered.Contains("Author/Description"),
+                    "MERGE no header-loss notes when no donor carried those header fields");
+                Check(Path.GetFileName(Path.GetDirectoryName(o.OutputPath))!.EndsWith(" merged"),
+                    $"MERGE mod folder defaults to '<output> merged' ({Path.GetFileName(Path.GetDirectoryName(o.OutputPath))})");
                 // ASSETS: facegen pair + voice under the MERGED plugin-name folders; .seq regenerated (A shipped one).
                 var outDir = Path.GetDirectoryName(o.OutputPath)!;
                 var newFace = FaceGenPath.Both(new FormKey(mergedKey, 0xA20)).ToList();
@@ -366,6 +398,21 @@ public static class MergeServiceGuardProbe
                 var rendered1 = WriteTools.RenderMerge(o1);
                 Check(rendered1.Contains("a RENAME of HcMgA.esp") && !rendered1.Contains("1 donors"),
                     "RENAME headline names the operation and never says '1 donors'");
+                // The headline is DERIVED from the accounting: A originates 8, so it must claim 8 records moving.
+                Check(rendered1.Contains("8 records move to the new plugin's identity"),
+                    "RENAME headline's record claim is derived from the accounting, not asserted beside it");
+                // Shape-varying sentences, positive side. One donor cannot collide, so only one cause may be named…
+                Check(rendered1.Contains("renumbered (below-floor)") && !rendered1.Contains("id collisions / below-floor"),
+                    "RENAME per-donor line names ONLY the cause that can apply to one donor");
+                // …and the remedy that PRESERVES the rename must lead, with combining offered second.
+                Check(rendered1.Contains("re-point them at 'HcMgRenamed.esp' before the swap")
+                      && rendered1.IndexOf("re-point them at", StringComparison.Ordinal)
+                         < rendered1.IndexOf("re-run with them added as donors", StringComparison.Ordinal),
+                    "RENAME external-referencer remedy leads with re-point, combining offered second");
+                Check(rendered1.Contains("Rebuild them against 'HcMgRenamed.esp'"),
+                    "RENAME external-overrider remedy leads with rebuild");
+                Check(Path.GetFileName(Path.GetDirectoryName(o1.OutputPath))!.EndsWith(" renamed"),
+                    $"RENAME mod folder defaults to '<output> renamed' ({Path.GetFileName(Path.GetDirectoryName(o1.OutputPath))})");
                 Check(rendered1.Contains("existing SAVES") && rendered1.Contains("deactivate the donor PLUGINS"),
                     "RENAME still carries the saves warning and the MO2 swap instruction");
 
@@ -398,6 +445,37 @@ public static class MergeServiceGuardProbe
                     Check(floorOk,
                         $"RENAME a below-floor id renumbers even with nothing to collide with (kept {dSolo?.Kept}, renumbered {dSolo?.Renumbered})");
                 }
+
+                // HEADER LOSS, positive side: the merged plugin is built as a bare mod, so a donor's light flag and
+                // its Author/Description do not come along. Both are stated rather than refused, and the ESL note's
+                // compact remedy carries the consequence that makes it honest — compact renumbers from the floor.
+                var oEsl = svc.MergePlugins(new[] { "HcMgEsl.esp" }, "HcMgEslRenamed.esp");
+                bool eslDropped = false;
+                if (oEsl.Success && !string.IsNullOrEmpty(oEsl.OutputPath) && File.Exists(oEsl.OutputPath))
+                {
+                    using var em = SkyrimMod.CreateFromBinaryOverlay(oEsl.OutputPath, SkyrimRelease.SkyrimSE);
+                    eslDropped = !em.IsSmallMaster                                        // the loss is REAL, not just claimed
+                              && string.IsNullOrEmpty(em.ModHeader.Author)
+                              && string.IsNullOrEmpty(em.ModHeader.Description);
+                }
+                var renderedEsl = oEsl.Success ? WriteTools.RenderMerge(oEsl) : "";
+                Check(eslDropped, $"RENAME the donor's light flag and header text really are absent from the output (success {oEsl.Success})");
+                Check(renderedEsl.Contains("HcMgEsl.esp carried the LIGHT (ESL) header flag")
+                      && renderedEsl.Contains("takes a full load-order slot")
+                      && renderedEsl.Contains("renumbers object ids from 0x800 upward"),
+                    "RENAME the light-flag loss is REPORTED, with the compact remedy's own cost stated");
+                Check(renderedEsl.Contains("header Author/Description carried by HcMgEsl.esp")
+                      && !renderedEsl.Contains("housecarl_create_plugin on"),
+                    "RENAME the header-text loss is stated bare — no remedy invented for it");
+
+                // A PURE-OVERRIDE donor originates nothing, so the headline must not claim records took a new
+                // identity — the mis-named patch this capability exists for is exactly this shape.
+                var oOvr = svc.MergePlugins(new[] { "HcMgOvr.esp" }, "HcMgOvrRenamed.esp");
+                var renderedOvr = oOvr.Success ? WriteTools.RenderMerge(oOvr) : "";
+                Check(oOvr.Success && oOvr.RecordsRenumbered == 0
+                      && renderedOvr.Contains("it originates no records of its own, so nothing is re-keyed")
+                      && !renderedOvr.Contains("records move to the new plugin's identity"),
+                    $"RENAME a pure-override donor claims no re-keying (renumbered {oOvr.RecordsRenumbered}, success {oOvr.Success})");
 
                 var oDup = svc.MergePlugins(new[] { "HcMgA.esp", "HcMgA.esp" }, "HcMgDup.esp");
                 Check(oDup.Success && oDup.Donors.Count == 1,
