@@ -335,7 +335,7 @@ For crafting-graph jobs specifically, the blessed per-recipe entry:
   capped. Use counts freely for sizing.
 - The sweep tools (`housecarl_check_errors`, `housecarl_validate_scripts`) are scopeable like any
   other bulk read: `type=` / `formids=` / `editorid_contains=`, a `findings=` class filter,
-  `format="json"`, and `counts_only=true` for exact totals plus a histogram (unbound-by-property /
-  dangling-by-target-plugin) with no per-record listing. For a multi-pass job — edit, re-check,
+  `format="json"`, and `counts_only=true` for exact totals plus histograms (unbound-by-property /
+  dangling by target plugin AND by source plugin) with no per-record listing. For a multi-pass job — edit, re-check,
   prove the count moved — `counts_only=true` is the pass-to-pass comparison; `limit=` caps
   *findings*, not the record roster, so it will not shrink a script-heavy plugin's output on its own.
