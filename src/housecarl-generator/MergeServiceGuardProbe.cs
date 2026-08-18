@@ -316,22 +316,18 @@ public static class MergeServiceGuardProbe
                 Check(rendered.Contains("it reads record links and record identity, NOT declared masters")
                       && rendered.Contains("only lists a donor as a master"),
                     "WARN the identify-pass line states what the pass does NOT read");
-                // "Not read" is not the same fact as "and here is what that costs". The runtime distributor layer
-                // addresses records by plugin name, which a merge takes away, so the loss is stated as well as the
-                // gap in coverage — on every merge, not only when the referencer list came back populated.
-                Check(rendered.Contains("SPID/KID/SkyPatcher .ini lines")
-                      && rendered.Contains("Open Animation Replacer .json conditions")
-                      && rendered.Contains("address a record through the plugin that defines it")
-                      && rendered.Contains("stops matching once you deactivate that donor at the swap")
-                      && rendered.Contains("Nothing rewrites those files"),
-                    "WARN the distributor-config loss is stated, not just the pass's blindness to it");
-                // The sentence must state the addressing MODEL and never one system's literal spelling. The four named
-                // systems do not share one: SkyPatcher is prefix-pipe, SPID and KID are suffix-tilde, OAR is a JSON
-                // field pair — and spid-authoring's skill lists confusing the first two as a known trap. A caller told
-                // to look for Plugin.esp|FormID would grep for a string three of the four never contain and conclude
-                // they were unaffected, which is the failure the sentence exists to prevent.
-                Check(!rendered.Contains("<plugin>|<FormID>") && !rendered.Contains("the .ini files"),
-                    "WARN the sentence quotes no single spelling as if the four shared one");
+                // "Not read" is not the same fact as "and here is what that costs" — the loss is stated as well as the
+                // gap in coverage, on every merge rather than only when the referencer list came back populated.
+                //
+                // PRESENCE, against the shared constant — not an absence assertion over the open space of things the
+                // sentence might wrongly say. The arms this replaces asserted !Contains("<plugin>|<FormID>"), which
+                // only ever detected the one literal the previous commit wrote: a reviewer quoted a REAL SkyPatcher
+                // spelling and they stayed green. An absence arm over an unbounded string space cannot fail
+                // meaningfully (the winnerTokenFree class). What keeps the sentence honest is the claim rule at its
+                // definition and WriteSurfaceGuardProbe's [MustState] walk; what this arm owes is that the render
+                // actually carries it.
+                Check(rendered.Contains(WriteSentences.MergeRuntimeConfigs),
+                    "WARN the runtime-config loss reaches user output, verbatim from the shared sentence");
                 // The swap instruction must stay PLUGIN-level (PR #158 independent review #1): "disable the donor MODS"
                 // (compact's instruction) would yank the donors' path-referenced assets out of the VFS — the merged
                 // records still load meshes/textures/scripts from the donor folders.
@@ -571,14 +567,13 @@ public static class MergeServiceGuardProbe
                       && renderedOvr.Contains("its 1 override is now served by a plugin under a new name")
                       && !renderedOvr.Contains("records move to the new plugin's identity"),
                     $"RENAME a pure-override donor states the override COUNT it read (copied {oOvr.RecordsCopied}, renumbered {oOvr.RecordsRenumbered})");
-                // The distributor sentence obeys the same rule as the headline above it, on the same donor. This one
-                // originates NOTHING: its single override keeps its master's FormKey, so a config line addressing that
-                // record names the MASTER and the merge does not touch it. A sentence claiming the records are the
-                // output's now would tell this caller to rewrite a line that still works — the report contradicting
-                // its own accounting three lines up.
-                Check(renderedOvr.Contains("a record a donor merely overrode is addressed by its master and is unaffected")
-                      && !renderedOvr.Contains("the records are HcMgOvrRenamed.esp's now"),
-                    "RENAME the distributor sentence exempts overrides instead of claiming every record moved");
+                // The runtime-config sentence carries no per-record claim at all, so it reads identically for a donor
+                // that originates nothing — which is the point. Scoping it to "a line that names a donor" already
+                // excludes a record the donor merely OVERRODE, because such a line names that record's MASTER. An
+                // earlier draft spelled the exemption out and, in doing so, claimed the output owned records this
+                // very donor does not have; the accounting line above is the one that speaks about records.
+                Check(renderedOvr.Contains(WriteSentences.MergeRuntimeConfigs),
+                    "RENAME the runtime-config sentence is unchanged by a donor that originates nothing");
 
                 // The third thing the accounting can say. An empty donor takes neither of the arms above, and the
                 // middle arm used to claim overrides it never read — which was wrong for exactly this plugin.

@@ -136,18 +136,10 @@ public static class CompactServiceGuardProbe
                 // only when the external-referencer list came back populated (this one is the clean case, and it is
                 // still the case where a _DISTR.ini goes quietly dead).
                 var rendered = WriteTools.RenderCompact(o);
-                Check(rendered.Contains("SPID/KID/SkyPatcher .ini lines, Open Animation Replacer .json conditions")
-                      && rendered.Contains("address a record through the plugin that defines it plus its FormID")
-                      && rendered.Contains("The plugin name is unchanged")
-                      && rendered.Contains("stops addressing that record once the compacted plugin is the one loading")
-                      && rendered.Contains("nothing rewrites those files"),
-                    "CLEAN the distributor-config loss is stated beside the identify-pass coverage");
-                // Two ways this sentence could go wrong and still read fluently. It must not quote one system's
-                // spelling as if the four shared one (they do not — see the twin arm in merge-service-guard), and in
-                // THIS lane it must not claim a break that has not happened: the compacted plugin is a new file, the
-                // original is still active, and every config line still matches until the MO2 swap instructed above.
-                Check(!rendered.Contains("<plugin>|<FormID>") && !rendered.Contains("no longer addresses that record"),
-                    "CLEAN the sentence quotes no single spelling, and claims no break before the swap");
+                // PRESENCE, against the shared constant — see the twin arm in merge-service-guard for why the absence
+                // assertions this replaces were worthless.
+                Check(rendered.Contains(WriteSentences.CompactRuntimeConfigs),
+                    "CLEAN the runtime-config loss reaches user output, verbatim from the shared sentence");
             }
 
             // ---- ESL-OFF: esl=false -> renumbered, NOT light-flagged ----

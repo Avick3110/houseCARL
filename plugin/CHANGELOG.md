@@ -6,21 +6,18 @@ when it changes.
 
 ## Unreleased
 
-- **`housecarl_merge_plugins` and `housecarl_compact_plugin` now say what they cost the runtime distributor layer.**
-  SPID, KID and SkyPatcher `.ini` lines, and Open Animation Replacer `.json` conditions, all address a record through
-  the plugin that defines it — an addressing model neither verb leaves intact, and one no plugin scan can see, because
-  those lines live in config files rather than in any record. The merge report already said the identify pass does not
-  read them; it now also says what follows from that, which is that a line naming a donor stops matching once you
-  deactivate that donor at the swap. The compact report said neither, and now says both — with the half that applies
-  to it, since a compaction keeps the plugin name and moves the object ids instead.
+- **`housecarl_merge_plugins` and `housecarl_compact_plugin` now say what they cost your runtime config files.**
+  Neither verb reads SPID, KID, SkyPatcher or Open Animation Replacer configs, and neither rewrites them — but both
+  can invalidate lines in them, and nothing said so. Merge now states that a line naming a donor stops matching once
+  you deactivate that donor at the swap. Compact states the half that applies to it: the plugin name survives a
+  compaction, so what breaks is a line addressing a record by an object id the compaction moved, once the compacted
+  plugin is the one loading.
 
-  Both reports state the addressing *model* and quote no single spelling, because the four systems do not share one:
-  SkyPatcher is prefix-pipe, SPID and KID are suffix-tilde, and OAR is a JSON field pair. Naming the file kinds is what
-  makes the advice actionable; quoting one syntax for all of them would send you grepping for a string three of the
-  four never contain. Merge's sentence is also scoped to the records that actually changed identity — a record a donor
-  merely *overrode* keeps its master's FormID, so a config line addressing it is untouched, and the report says so
-  rather than telling you to rewrite a line that still works. Neither verb rewrites those files, and neither claims to
-  have looked at them. (#364)
+  Both sentences deliberately describe only what the operation did, and say nothing about how any of those config
+  formats are written. Earlier drafts tried to be helpful about the syntax and got it wrong twice — the four systems
+  share neither a file format nor a way of naming a record, and each attempt would have sent you looking for something
+  three of them never contain. What the reports owe you is what *they* changed; the bundled skills are where the
+  grammars live. (#364)
 
 - **Fixed: `housecarl_merge_plugins` and `housecarl_compact_plugin` blanked every localized name and description.**
   Both verbs opened their donor / source plugins with an overlay that looks for `Strings\` only in the plugin's own
@@ -29,10 +26,14 @@ when it changes.
   to — therefore read every `FULL` and `DESC` as empty, and the merged or compacted output was written with those
   blanks baked in. Nothing failed and nothing warned: the result loaded, and the loss was visible only in game or by
   diffing. Both opens now go through the same strings-aware path the rest of houseCARL reads with, which falls back to
-  the game `Data` folder when the plugin's own folder carries no strings source and leaves plugins that do carry one
-  untouched. This fix closes the case where the strings exist but were being looked for in the wrong folder. It does
-  not change what happens when the lookup finds nothing wherever it looks — a plugin whose strings are in *neither*
-  place, for instance — and such a plugin still reads, and writes, empty. (#362)
+  the game `Data` folder when the plugin's own folder carries no strings source, and leaves plugins that do carry one
+  untouched.
+
+  That redirect has a bound worth knowing, because it decides whether this fix reaches your case: it applies only when
+  the plugin's own folder carries no strings source at all, and **any** `.bsa` sitting beside the plugin counts as one
+  — whatever that archive actually holds. A localized plugin in a mod folder that ships an asset-only `.bsa`, with its
+  `.STRINGS` served from elsewhere, is therefore still read the old way and still writes blanks. So is a plugin whose
+  strings are in neither place. Both are unchanged by this fix. (#362)
 
 - **`housecarl_merge_plugins` now accepts a single donor, which renames a plugin.** Merging one plugin into a new
   name was refused ("merge needs at least TWO distinct donor plugins"), and no other tool renames one, so a

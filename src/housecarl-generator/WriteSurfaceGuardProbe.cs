@@ -2458,6 +2458,14 @@ public static class WriteSurfaceGuardProbe
         // the shared source rather than from this probe.
         foreach (var render in CopyOutcomeRenders()) Observe(render, "{}");
 
+        // ---- merge/compact's runtime-config reminder --------------------------------------------------
+        // One transport, same claim as copy's: "reaches a render". Both verbs' SUCCESS paths run against the real
+        // service in merge-service-guard / compact-service-guard, which is where the sentence's behaviour is pinned;
+        // what those fixtures cannot do is prove the constant is still WIRED, because they live in other probes. The
+        // outcome is constructed and handed to the REAL renderer — the renderer is the code under test, and the
+        // sentence still comes from the shared source rather than from this probe.
+        foreach (var render in MergeCompactOutcomeRenders()) Observe(render, "{}");
+
         // ---- the coverage assertion — what stops this arm being theatre ------------------------------
         var missingText = twins.Select(t => t.Name).Where(n => !seenText.Contains(n)).ToList();
         var missingJson = twins.Select(t => t.Name).Where(n => !seenJson.Contains(n)).ToList();
@@ -2735,6 +2743,28 @@ public static class WriteSurfaceGuardProbe
     /// positive test for an absence, which no value reader can express.)</summary>
     static bool HasRoot(JsonDocument? doc, string member)
         => doc is not null && doc.RootElement.TryGetProperty(member, out _);
+
+    /// <summary>Render one successful merge and one successful compact outcome, so the reach half of the
+    /// <c>[MustState]</c> walk covers the runtime-config reminder both verbs carry. Deliberately the plainest
+    /// outcomes that reach the sentence — it is keyed on neither donor count nor any accounting, so a richer
+    /// fixture would prove nothing more here, and the behavioural arms live in the two service guards.</summary>
+    static List<string> MergeCompactOutcomeRenders()
+    {
+        var outPath = Path.Combine(Path.GetTempPath(), "MergeFolder", "Merged.esp");
+        var merge = new WritePatchBuilder.MergeOutcome(
+            true, null, outPath, "Merged.esp",
+            new[] { "DonorA.esp" }, new[] { "Skyrim.esm" }, 1, 1,
+            Array.Empty<RemapEngine.MergeDonorRemap>(), Array.Empty<RemapEngine.MergeConflict>(),
+            Array.Empty<string>(), Array.Empty<string>(), 3, 0, Array.Empty<string>(), 1024);
+
+        var compactPath = Path.Combine(Path.GetTempPath(), "CompactFolder", "Compacted.esp");
+        var compact = new WritePatchBuilder.CompactOutcome(
+            true, null, false, compactPath, "Compacted.esp", false, true,
+            new[] { "Skyrim.esm" }, 1, 1, 1024,
+            Array.Empty<string>(), Array.Empty<WritePatchBuilder.RepointReport>(), 3, 0, Array.Empty<string>());
+
+        return new List<string> { WriteTools.RenderMerge(merge), WriteTools.RenderCompact(compact) };
+    }
 
     /// <summary>Render copy outcomes covering the sentences the service-level fixture cannot reach. Two of copy's
     /// four pinned sentences describe states the operation prevents — a failed read-back and a self-mastered patch

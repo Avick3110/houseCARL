@@ -131,6 +131,50 @@ internal static class WriteSentences
     [MustState("no houseCARL backup or undo")]
     internal const string NoBackupOrUndo = "no houseCARL backup or undo";
 
+    // ---- the runtime-config reminder (merge + compact) -----------------------------------------------
+    //
+    // THE CLAIM RULE, and why these two sentences are so bare.
+    //
+    // Every clause below states EITHER (i) something this tool itself did or did not do, OR (ii) a break ENTAILED by
+    // what this operation did, scoped by the addressed line's own content. Nothing describes an external grammar.
+    // No quoted syntax, no addressing-model taxonomy, no "each in its own spelling" exhaustiveness.
+    //
+    // That rule exists because the earlier drafts kept getting the grammars wrong, one layer at a time. The first
+    // claimed all four address a record as <plugin>|<FormID> — true of SkyPatcher alone; SPID and KID are
+    // suffix-tilde, and spid-authoring's own skill lists confusing those two as a known trap ("a SkyPatcher-style ID
+    // won't resolve"), while OAR is not an .ini at all. The correction claimed they address "through the plugin that
+    // defines it plus its FormID" — also false, because every one of them also takes an EditorID, and merge and
+    // compact both PRESERVE EditorIDs, so those lines do not break. Two rounds, two wrong models. A sentence that
+    // describes someone else's grammar is a sentence that has to be re-verified against four skills every time
+    // anything changes; a sentence that describes only what THIS operation did to a line that names a donor is true
+    // by construction.
+    //
+    // The system list is an enumeration for findability, not a claim about what they are. "Runtime config files" and
+    // not "distributor configs": OAR is an animation-condition system, and calling it a distributor was itself one of
+    // the false claims. Verified before shipping (2026-08-18) that each of the four has a line form naming a plugin,
+    // and that no bundled skill documents a fallback keeping such a line matched once that plugin deactivates —
+    // SkyPatcher's skill states the opposite outright, that a form it cannot resolve is silently skipped.
+
+    /// <summary>Merge's reminder. The break is entailed by the swap this same report instructs: deactivating a donor
+    /// is what stops a line that NAMES that donor from matching. Deliberately no override/master carve-out — a line
+    /// addressing a record the donor merely overrode names the MASTER, so "names a donor" already excludes it by
+    /// construction, and spelling that out would be a claim about addressing rather than about this operation.</summary>
+    [MustState("Nothing here rewrites those files", "stops matching once you deactivate that donor at the swap")]
+    internal const string MergeRuntimeConfigs =
+        "Nothing here rewrites those files. A line in one of them that names a donor stops matching once you " +
+        "deactivate that donor at the swap.\n";
+
+    /// <summary>Compact's. The plugin name survives a compaction, so the half that moves is the object id — and only
+    /// the ids this run actually moved, which the accounting above states. "once the compacted plugin is the one
+    /// loading" rather than a flat present tense: in the new-file lane nothing has broken yet, since the original is
+    /// still active until the swap; in the in-place lane it is already the one loading. One clause, both lanes.</summary>
+    [MustState("does not read", "nothing here rewrites them", "no longer reaches that record")]
+    internal const string CompactRuntimeConfigs =
+        "That pass reads plugins; it does not read runtime config files (SPID, KID, SkyPatcher, Open Animation " +
+        "Replacer), and nothing here rewrites them. The plugin name is unchanged, but a line in one of them that " +
+        "addresses a record by an object id this compaction moved no longer reaches that record once the compacted " +
+        "plugin is the one loading.\n";
+
     /// <summary>The mod-folder line for an IN-PLACE write: the target is a mod the user already runs, so there is
     /// nothing to enable — only a re-sort, and only if the edit moved a winner. (compact's copy had lost "in your
     /// load order"; same sentence, one reading.)</summary>
