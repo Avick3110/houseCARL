@@ -5629,7 +5629,10 @@ public sealed class LoadOrderService : IDisposable
             // The lane clause is what #356 was: None used to render "Omit into= to create it fresh", and omitting the
             // lane is itself refused, so the sentence sent callers to a second refusal. What this lane can honestly
             // offer instead is measured — a patch created first carries no override of the record, so removal refuses
-            // there too; the in-place lane does remove it, behind the first-touch confirmation.
+            // there too; the in-place lane does remove it. Note what that lane costs, because the sentence does not
+            // say it: its consent is once per plugin, persisted, and shared with the edit and create in-place lanes,
+            // so a caller who follows this against an already-acknowledged plugin gets no prompt. #359 owns whether
+            // the remedy should say so.
             //
             // The in-place half comes from the TOOL (inPlaceRemedy), because the two tools spell that lane
             // differently and the service cannot tell which one called it. Null — a direct service call — offers

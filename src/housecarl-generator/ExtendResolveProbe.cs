@@ -418,8 +418,10 @@ internal static class ExtendResolveProbe
                 Check(refused.Contains(WriteSentences.RemoveInPlaceLane, StringComparison.Ordinal),
                       "the not-found refusal fires for this record too, naming the in-place lane");
 
-                // Following it lands on the first-touch CONSENT handshake, not a write and not an error — the
-                // sentence promises the lane, and this is the lane's own next step.
+                // Following it lands on the first-touch CONSENT handshake, not a write and not an error. That is
+                // what THIS fixture shows and all it shows: the plugin has never been acknowledged. Against one
+                // that has — consent is persisted and shared across the in-place lanes — the same call writes with
+                // no prompt, which is why the sentence does not promise a confirmation (#359).
                 var prompted = RemoveTools.Remove(svc, new[] { ipFid }, in_place: "RemoveHere.esp");
                 Check(prompted.Contains("first-time confirmation", StringComparison.Ordinal),
                       "following it reaches the in-place first-touch confirmation (a prompt, not a refusal)");
