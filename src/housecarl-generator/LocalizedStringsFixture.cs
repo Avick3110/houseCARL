@@ -71,51 +71,51 @@ internal static class LocalizedStringsFixture
         var written = new List<ISkyrimModGetter>();
         try
         {
-        foreach (var spec in specs)
-        {
-            var modDir = Path.Combine(mods, spec.ModFolder);
-            Directory.CreateDirectory(modDir);
+            foreach (var spec in specs)
+            {
+                var modDir = Path.Combine(mods, spec.ModFolder);
+                Directory.CreateDirectory(modDir);
 
-            var m = new SkyrimMod(spec.Key, SkyrimRelease.SkyrimSE) { UsingLocalization = true };
-            m.Weapons.Add(new Weapon(new FormKey(spec.Key, 0xA01), SkyrimRelease.SkyrimSE)
-            {
-                EditorID = WeaponEdid(spec),
-                Name = spec.Name,
-                Description = spec.Desc,
-                BasicStats = new WeaponBasicStats { Damage = 7 },
-            });
-            if (spec.LinksTo is { } into)
-            {
-                var fl = new FormList(new FormKey(spec.Key, 0xA02), SkyrimRelease.SkyrimSE) { EditorID = spec.Key.Name + "List" };
-                fl.Items.Add(into.ToLink<ISkyrimMajorRecordGetter>());
-                m.FormLists.Add(fl);
+                var m = new SkyrimMod(spec.Key, SkyrimRelease.SkyrimSE) { UsingLocalization = true };
+                m.Weapons.Add(new Weapon(new FormKey(spec.Key, 0xA01), SkyrimRelease.SkyrimSE)
+                {
+                    EditorID = WeaponEdid(spec),
+                    Name = spec.Name,
+                    Description = spec.Desc,
+                    BasicStats = new WeaponBasicStats { Damage = 7 },
+                });
+                if (spec.LinksTo is { } into)
+                {
+                    var fl = new FormList(new FormKey(spec.Key, 0xA02), SkyrimRelease.SkyrimSE) { EditorID = spec.Key.Name + "List" };
+                    fl.Items.Add(into.ToLink<ISkyrimMajorRecordGetter>());
+                    m.FormLists.Add(fl);
+                }
+                m.ModHeader.Stats.NextFormID = 0xA03;
+                m.BeginWrite.ToPath(Path.Combine(modDir, spec.Key.FileName.String))
+                    .WithLoadOrder(written.ToArray()).NoNextFormIDProcessing().Write();
+
+                // The plugin now has its strings beside it, which is the state the bare overlay reads CORRECTLY. Move them
+                // out (or drop them) so the plugin's own folder carries no strings source — the state under test.
+                var own = Path.Combine(modDir, "Strings");
+                if (!Directory.Exists(own))
+                    throw new InvalidOperationException(
+                        $"fixture: '{spec.Key.FileName}' was written with UsingLocalization but produced no Strings folder — " +
+                        "the fixture would then be a NON-localized plugin and every arm below would pass vacuously.");
+                if (spec.StringsNowhere) Directory.Delete(own, true);
+                else
+                {
+                    var target = Path.Combine(data, "Strings");
+                    Directory.CreateDirectory(target);
+                    // GetFiles, not EnumerateFiles: the loop MOVES files out of the directory it is walking, and a lazy
+                    // enumerator can skip an entry under that mutation — which the Delete below would then destroy rather
+                    // than relocate. It fails toward a RED arm rather than a false green, but a flaky fixture is worse
+                    // than either.
+                    foreach (var f in Directory.GetFiles(own)) File.Move(f, Path.Combine(target, Path.GetFileName(f)));
+                    Directory.Delete(own, true);
+                }
+
+                written.Add(SkyrimMod.CreateFromBinaryOverlay(Path.Combine(modDir, spec.Key.FileName.String), SkyrimRelease.SkyrimSE));
             }
-            m.ModHeader.Stats.NextFormID = 0xA03;
-            m.BeginWrite.ToPath(Path.Combine(modDir, spec.Key.FileName.String))
-                .WithLoadOrder(written.ToArray()).NoNextFormIDProcessing().Write();
-
-            // The plugin now has its strings beside it, which is the state the bare overlay reads CORRECTLY. Move them
-            // out (or drop them) so the plugin's own folder carries no strings source — the state under test.
-            var own = Path.Combine(modDir, "Strings");
-            if (!Directory.Exists(own))
-                throw new InvalidOperationException(
-                    $"fixture: '{spec.Key.FileName}' was written with UsingLocalization but produced no Strings folder — " +
-                    "the fixture would then be a NON-localized plugin and every arm below would pass vacuously.");
-            if (spec.StringsNowhere) Directory.Delete(own, true);
-            else
-            {
-                var target = Path.Combine(data, "Strings");
-                Directory.CreateDirectory(target);
-                // GetFiles, not EnumerateFiles: the loop MOVES files out of the directory it is walking, and a lazy
-                // enumerator can skip an entry under that mutation — which the Delete below would then destroy rather
-                // than relocate. It fails toward a RED arm rather than a false green, but a flaky fixture is worse
-                // than either.
-                foreach (var f in Directory.GetFiles(own)) File.Move(f, Path.Combine(target, Path.GetFileName(f)));
-                Directory.Delete(own, true);
-            }
-
-            written.Add(SkyrimMod.CreateFromBinaryOverlay(Path.Combine(modDir, spec.Key.FileName.String), SkyrimRelease.SkyrimSE));
-        }
         }
         finally { foreach (var w in written) { if (w is IDisposable d) { try { d.Dispose(); } catch { } } } }
 
