@@ -4,6 +4,13 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
+**Writing an entry.** State what the tool now does or refuses. Where a change has a bound — a case it does
+not reach, a condition it depends on — **point at the bound rather than restating it**, so the two cannot
+drift apart. A scoped claim that names its bound is fine; an unpointed restatement is the defect, because it
+is a second copy of a fact that will be edited once. No frequency or coverage adjectives ("rare", "most",
+"only affects…"): how often something bites depends on the reader's install, which the entry cannot see, and
+saying it sets an expectation their install may contradict. Say what is known, and say how they can check.
+
 ## Unreleased
 
 - **The record-editing lanes now refuse a localized plugin in place instead of scrambling its text.** Editing,
