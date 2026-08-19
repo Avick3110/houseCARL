@@ -82,7 +82,7 @@ public static class ForwardTools
             string? into = null,
         [Description("LANE (opt-in): the FILENAME OF THE FILE BEING OVERWRITTEN, e.g. \"MyHandmadePatch.esp\" — forward INTO that existing active plugin's own file (incl. one houseCARL didn't author). Your ORIGINAL file is rewritten; no houseCARL backup or undo. A FormKey the target already carries is REPLACED by source's body.")]
             string? in_place = null,
-        [Description("Confirms the one-time in-place trade-off for the plugin named by in_place= — needed only on the FIRST in-place write to a given plugin (edit, create, remove, OR forward), never again for it. Waives the consent to touch your original ONLY; it NEVER skips the record verify. Meaningless without in_place=, and refused there rather than ignored.")]
+        [Description("Confirms the one-time in-place trade-off for the plugin named by in_place= — needed only on the FIRST in-place write to a given plugin (edit, create, remove, OR forward), and not again once one has LANDED — a call that is refused records nothing, so it may be needed again. Waives the consent to touch your original ONLY; it NEVER skips the record verify. Meaningless without in_place=, and refused there rather than ignored.")]
             bool acknowledge = false,
         [Description("DRY RUN: run the whole real pipeline and STOP before anything touches disk. Returns what WOULD be forwarded (per record: source, the winner it would out-rank, replace/redundant flags) + the expected masters, or EXACTLY the refusal the real call would give. Works on every lane.")]
             bool dry_run = false,

@@ -111,7 +111,7 @@ public static class CreateTools
             string? into = null,
         [Description("LANE (opt-in): the FILENAME OF THE FILE BEING WRITTEN INTO, e.g. \"CoolWeapons.esp\" — create these records straight into that existing active plugin (incl. one houseCARL didn't author) instead of a patch. Your ORIGINAL file is rewritten; no houseCARL backup or undo. Naming the file is the point: it is what you are about to overwrite. OMIT for the default patch lane, which leaves every original untouched.")]
             string? in_place = null,
-        [Description("Confirms the one-time in-place trade-off for the plugin named by in_place= — needed only on the FIRST in-place write to a given plugin (edit, create, remove, OR forward), never again for it. Waives the consent to touch your original ONLY; it NEVER skips the record verify. Meaningless without in_place=, and refused there rather than ignored.")]
+        [Description("Confirms the one-time in-place trade-off for the plugin named by in_place= — needed only on the FIRST in-place write to a given plugin (edit, create, remove, OR forward), and not again once one has LANDED — a call that is refused records nothing, so it may be needed again. Waives the consent to touch your original ONLY; it NEVER skips the record verify. Meaningless without in_place=, and refused there rather than ignored.")]
             bool acknowledge = false,
         [Description("TRANSPORT: expand the read-back to the FULL deep field-by-field dump of every record this call created (not just the fields you set). The written file's content, not load-order truth.")]
             bool readback = false,

@@ -1431,7 +1431,7 @@ public sealed class LoadOrderService : IDisposable
                     return NifSetResult.Fail($"wrote '{meshName}' but its on-disk size ({sz}) does not match the {editedBytes.Length} verified byte(s) — verify before relying on it.", providers, profileName);
 
                 var ackNote = PersistInPlaceConsent(owesConsent, targetPath) is { } ackErr
-                    ? $"the in-place acknowledgement could not be saved ({ackErr}) — the edit proceeded, but a future session will re-prompt for this file."
+                    ? $"the in-place acknowledgement could not be saved ({ackErr}) — the edit proceeded, but the next in-place call will ask for this file again."
                     : null;
                 return NifSetResult.OkInPlace(rel, chosenProv, providers, place.Ambiguous, editedIsWinner, report, targetPath,
                     MergeWarnings(report.Warnings, warnings, ackNote), profileName);
@@ -5390,7 +5390,7 @@ public sealed class LoadOrderService : IDisposable
         if (outcome.Success)
         {
             if (PersistInPlaceConsent(owesConsent, targetPath) is { } ackErr)
-                ackNote = $"the in-place acknowledgement could not be saved ({ackErr}) — the edit proceeded, but a future session will re-prompt for this plugin.";
+                ackNote = $"the in-place acknowledgement could not be saved ({ackErr}) — the edit proceeded, but the next in-place call will ask for this plugin again.";
             var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
             // outcome.Note first — the core's master-grow re-sort note (PR #163 review #1) must survive the merge.
@@ -5732,7 +5732,7 @@ public sealed class LoadOrderService : IDisposable
         if (outcome.Success)
         {
             var ackNote = PersistInPlaceConsent(owesConsent, targetPath) is { } ackErr
-                ? $"the in-place acknowledgement could not be saved ({ackErr}) — the removal proceeded, but a future session will re-prompt for this plugin."
+                ? $"the in-place acknowledgement could not be saved ({ackErr}) — the removal proceeded, but the next in-place call will ask for this plugin again."
                 : null;
             var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
@@ -5907,7 +5907,7 @@ public sealed class LoadOrderService : IDisposable
         if (outcome.Success)
         {
             if (PersistInPlaceConsent(owesConsent, targetPath) is { } ackErr)
-                ackNote = $"the in-place acknowledgement could not be saved ({ackErr}) — the forward proceeded, but a future session will re-prompt for this plugin.";
+                ackNote = $"the in-place acknowledgement could not be saved ({ackErr}) — the forward proceeded, but the next in-place call will ask for this plugin again.";
             var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
             // outcome.Note first — the core's master-grow re-sort note (PR #163 review #1) must survive the merge.
@@ -7003,7 +7003,7 @@ public sealed class LoadOrderService : IDisposable
         if (outcome.Success)
         {
             var ackNote = PersistInPlaceConsent(owesConsent, targetPath) is { } ackErr
-                ? $"the in-place acknowledgement could not be saved ({ackErr}) — the create proceeded, but a future session will re-prompt for this plugin."
+                ? $"the in-place acknowledgement could not be saved ({ackErr}) — the create proceeded, but the next in-place call will ask for this plugin again."
                 : null;
             var enriched = EnrichWithCellShell(EnrichWithScriptCheck(EnrichWithVoiceCheck(outcome, resolver)));
             var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));

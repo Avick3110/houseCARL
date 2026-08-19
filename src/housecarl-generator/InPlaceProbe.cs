@@ -874,7 +874,10 @@ public static class InPlaceProbe
                 {
                     var svc = LoadOrderService.ForGuard(r, new UserConfigStore(StoreCo("COC")));
                     var o = svc.ForwardRecords(new[] { fmtW2fk }, HighName, null, null, target: UserName, inPlace: true, acknowledge: true);
-                    refused = !o.Success;
+                    // The builder's own per-spec rejection, not any service-level gate — the sentence is what ties this
+                    // arm to a refusal that lives at the WRITE. Without it the arm passes on ANY failure, including one
+                    // moved ahead of the consent check, and stops testing ordering while still looking green.
+                    refused = !o.Success && (o.Error?.Contains("forward(s) rejected") ?? false);
                     spent = new UserConfigStore(StoreCo("COC")).IsInPlaceAcknowledged(userC);
                     var next = svc.ForwardRecords(new[] { fmtWfk }, HighName, null, null, target: UserName, inPlace: true, acknowledge: false);
                     reprompts = next.NeedsAcknowledge && !next.Success;
@@ -898,7 +901,9 @@ public static class InPlaceProbe
                     var ops = new[] { new BulkOp { FieldPath = "Keywords", Verb = "Add", Value = "000ABC:NotInOrder.esp" } };
                     var o = svc.CreateRecords("Weapon", "HcIP_CoDWeap", ops, null, null, false, null, null, null,
                                               target: UserName, inPlace: true, acknowledge: true);
-                    refused = !o.Success;
+                    // Named for the same reason as CO-C's: this refusal comes from the serialize itself, the furthest
+                    // point a call can reach and still leave the file byte-intact.
+                    refused = !o.Success && (o.Error?.Contains("in place after create failed") ?? false);
                     spent = new UserConfigStore(StoreCo("COD")).IsInPlaceAcknowledged(userD);
                     var next = svc.CreateRecords("Keyword", "HcIP_CoDKw", Array.Empty<BulkOp>(), null, null, false, null, null, null,
                                                  target: UserName, inPlace: true, acknowledge: false);

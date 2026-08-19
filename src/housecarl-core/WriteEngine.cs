@@ -1829,7 +1829,7 @@ public static class WriteEngine
     /// <summary>Is the plugin at <paramref name="path"/> flagged LOCALIZED? The pre-flight form of
     /// <see cref="WriteInPlace"/>'s choke point, for the lanes that must answer BEFORE they reach the write — a dry
     /// run (whose job is to give the same answer the real call would), and any lane whose refusal carries a remedy
-    /// clause of its own, which the throw below cannot name because it does not know which lane called it.
+    /// clause of its own, which the throw cannot name because it does not know which lane called it.
     ///
     /// <para>Reads the header only, and deliberately with the BARE overlay: the localized FLAG is in the header, so
     /// unlike reading the strings themselves this needs no game-Data fallback and cannot be wrong about the flag
@@ -3869,8 +3869,9 @@ public sealed class NullArmSerializeException : InvalidOperationException
 public sealed class LocalizedTargetUnsupportedException : InvalidOperationException
 {
     /// <summary>The refusal sentence, in ONE place — the exception below throws it, and the lanes that predict the
-    /// refusal BEFORE reaching the write (a dry run, or the consent gate) state it without throwing. Two spellings of
-    /// this would drift, and the dry run's whole job is to give the same answer as the real call.
+    /// refusal BEFORE reaching the write (see <see cref="WriteEngine.PluginIsLocalized"/> for who those are and why)
+    /// state it without throwing. Two spellings of this would drift, and the dry run's whole job is to give the same
+    /// answer as the real call.
     ///
     /// <para>"would no longer reliably be its own record's" and not "would all land on the wrong record": the probe
     /// measures a MIX — of five localized weapons in arm C, two kept their own text exactly, one went blank, and two
