@@ -58,6 +58,7 @@ public static class InPlaceProbe
     const string MasterName = "HcInPlaceMaster.esm";
     const string UserName = "HcInPlaceUser.esp";
     const string HighName = "HcInPlaceHigh.esp";
+    const string LocName = "HcInPlaceLoc.esp";
 
     public static int RunGuard(string[] args)
     {
@@ -79,6 +80,7 @@ public static class InPlaceProbe
         string masterPath = Path.Combine(tmpDir, MasterName);
         string userPristine = Path.Combine(tmpDir, "pristine", UserName);
         string highPath = Path.Combine(tmpDir, HighName);
+        string locPristine = Path.Combine(tmpDir, "locpristine", LocName);
         Directory.CreateDirectory(Path.GetDirectoryName(userPristine)!);
 
         var masterKey = new ModKey("HcInPlaceMaster", ModType.Master);
@@ -109,6 +111,18 @@ public static class InPlaceProbe
             var hkw = h.Keywords.AddNew(); hkw.EditorID = "HcIP_HighKw";
             hkwFk = hkw.FormKey;
             h.BeginWrite.ToPath(highPath).WithLoadOrder(new ISkyrimModGetter[] { mOv }).Write();
+
+            // The LOCALIZED twin of the user override (arms LOC-A/LOC-B). Mutagen writes its .STRINGS beside it and
+            // they STAY there: this fixture is the plugin whose strings are exactly where they belong.
+            var lo = new SkyrimMod(new ModKey("HcInPlaceLoc", ModType.Plugin), SkyrimRelease.SkyrimSE) { UsingLocalization = true };
+            var low = lo.Weapons.GetOrAddAsOverride(mOv.Weapons.First(x => x.FormKey == wfk));
+            low.BasicStats!.Damage = 20; low.Name = "LocSword";
+            Directory.CreateDirectory(Path.GetDirectoryName(locPristine)!);
+            lo.BeginWrite.ToPath(locPristine).WithLoadOrder(new ISkyrimModGetter[] { mOv }).Write();
+            if (!Directory.Exists(Path.Combine(Path.GetDirectoryName(locPristine)!, "Strings")))
+                throw new InvalidOperationException(
+                    "guard fixture: the localized twin produced no Strings folder — it is NOT a localized plugin, and " +
+                    "arms LOC-A/LOC-B would both pass vacuously.");
         }
         Console.WriteLine($"-- setup: master {MasterName} (weapon {wfk}), user override (dmg 20, 'UserSword', counter 0x123), higher override (dmg 99, 'HighSword') --");
         Console.WriteLine();
@@ -631,6 +645,70 @@ public static class InPlaceProbe
                 $"refused={!o.Success} named={named} untouched={untouched}  [{Trim(o.Error)}]"));
         }
 
+        // ===== LOC-A / LOC-B — the write's LOCALIZED choke point, both directions =====
+        // A localized plugin holds its text in sibling .STRINGS files and carries only indices into them. The in-place
+        // re-serialize renumbers those indices and commits the plugin file alone, so the rewritten plugin would read its
+        // text against the old, unchanged strings — values landing on other records. WriteInPlace refuses such a target
+        // BEFORE it creates its staging directory, which is what the residue check below actually pins: a refusal that
+        // staged first and cleaned up afterwards would pass a bytes-only assertion just as well.
+        //
+        // Deliberately the shape that has NOTHING wrong with its strings — they sit right beside the plugin and read
+        // correctly through the ordinary open. The guard is not about where strings resolve from; it is about the write
+        // discarding the tables it just emitted.
+        //
+        // LOC-B is the other direction on the same edit: the non-localized twin still writes. Without it, deleting the
+        // localized read (or hard-coding the refusal) would leave LOC-A green.
+        {
+            var locT = FreshLocalized(tmpDir, "LOCA", locPristine);
+            var before = File.ReadAllBytes(locT);
+            var stringsBefore = StringsSnapshot(Path.GetDirectoryName(locT)!);
+            using var r = LoadOrderResolver.Build(new[] { masterPath, locT });
+            var o = WritePatchBuilder.ApplyInPlace(r, rulebook,
+                new[] { new WritePatchBuilder.PatchEdit { Target = wfk, Path = new[] { "BasicStats", "Damage" }, Verb = "Set", Value = "55" } },
+                locT, LocName);
+            bool untouched = File.ReadAllBytes(locT).AsSpan().SequenceEqual(before);
+            bool stringsSame = StringsSnapshot(Path.GetDirectoryName(locT)!) == stringsBefore;
+            bool noStaging = !Directory.Exists(Path.Combine(Path.GetDirectoryName(locT)!, ".housecarl-tmp"));
+            bool named = !o.Success && (o.Error?.Contains("LOCALIZED", StringComparison.Ordinal) ?? false);
+            bool pass = named && untouched && stringsSame && noStaging;
+            results.Add(("LOC-A in-place REFUSES a localized target; plugin, strings and staging all untouched", pass,
+                $"refused={!o.Success} named={named} pluginUntouched={untouched} stringsUntouched={stringsSame} noStagingResidue={noStaging}  [{Trim(o.Error)}]"));
+
+            var plainT = FreshUser(tmpDir, "LOCB", userPristine);
+            using var r2 = LoadOrderResolver.Build(new[] { masterPath, plainT });
+            var o2 = WritePatchBuilder.ApplyInPlace(r2, rulebook,
+                new[] { new WritePatchBuilder.PatchEdit { Target = wfk, Path = new[] { "BasicStats", "Damage" }, Verb = "Set", Value = "55" } },
+                plainT, UserName);
+            int dmg2 = ReadDamage(plainT, wfk);
+            bool pass2 = o2.Success && dmg2 == 55;
+            results.Add(("LOC-B the same edit on the NON-localized twin still writes (the guard fires on localization only)", pass2,
+                $"success={o2.Success} dmg={dmg2}(want 55)  [{o2.Error ?? "ok"}]"));
+        }
+
+        // ===== LOC-C / LOC-D — the REMOVE lane renders the refusal too, and still removes from a plain target =====
+        // The remove lane does not share the edit lane's SerializeFailure render, so it carries the refusal through its
+        // own arm. Without LOC-C that arm is an untested branch; without LOC-D, deleting the lane's normal render would
+        // not show up here.
+        {
+            var locT = FreshLocalized(tmpDir, "LOCC", locPristine);
+            var before = File.ReadAllBytes(locT);
+            using var r = LoadOrderResolver.Build(new[] { masterPath, locT });
+            var o = WritePatchBuilder.RemoveRecordsInPlace(r, new[] { wfk }, locT, LocName);
+            bool untouched = File.ReadAllBytes(locT).AsSpan().SequenceEqual(before);
+            // The refusal is the exception's OWN sentence, not the lane's "failed (serialize or commit…)" lead — the
+            // write refuses before either of those runs, so a lead naming them would say a thing that did not happen.
+            bool verbatim = !o.Success && (o.Error?.StartsWith("houseCARL did not write", StringComparison.Ordinal) ?? false);
+            results.Add(("LOC-C remove-in-place refuses a localized target with the refusal's own sentence, file untouched",
+                verbatim && untouched,
+                $"refused={!o.Success} verbatim={verbatim} untouched={untouched}  [{Trim(o.Error)}]"));
+
+            var plainT = FreshUser(tmpDir, "LOCD", userPristine);
+            using var r2 = LoadOrderResolver.Build(new[] { masterPath, plainT });
+            var o2 = WritePatchBuilder.RemoveRecordsInPlace(r2, new[] { wfk }, plainT, UserName);
+            results.Add(("LOC-D remove-in-place on the NON-localized twin still removes", o2.Success && o2.Removed.Count == 1,
+                $"success={o2.Success} removed={o2.Removed.Count}(want 1)  [{o2.Error ?? "ok"}]"));
+        }
+
         Console.WriteLine("── ARMS ──");
         bool all = true;
         foreach (var (name, pass, detail) in results)
@@ -774,6 +852,33 @@ public static class InPlaceProbe
     }
 
     // ---- helpers -------------------------------------------------------------------------------------------
+
+    /// <summary>A fresh copy of the LOCALIZED pristine plugin AND its sibling <c>Strings\</c> folder — both, because
+    /// a copy without the strings would be a plugin whose text resolves nowhere, which is a different fixture.</summary>
+    static string FreshLocalized(string tmpDir, string arm, string pristine)
+    {
+        var dir = Path.Combine(tmpDir, "arm-" + arm);
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, LocName);
+        File.Copy(pristine, path, overwrite: true);
+        var srcStrings = Path.Combine(Path.GetDirectoryName(pristine)!, "Strings");
+        var dstStrings = Path.Combine(dir, "Strings");
+        Directory.CreateDirectory(dstStrings);
+        foreach (var f in Directory.GetFiles(srcStrings))
+            File.Copy(f, Path.Combine(dstStrings, Path.GetFileName(f)), overwrite: true);
+        return path;
+    }
+
+    /// <summary>Name+length+bytes of every file in a plugin folder's <c>Strings\</c>, as one comparable string — the
+    /// strings half of "nothing was touched". Missing folder answers a distinct token, so a DELETED strings folder can
+    /// never compare equal to a present one.</summary>
+    static string StringsSnapshot(string folder)
+    {
+        var dir = Path.Combine(folder, "Strings");
+        if (!Directory.Exists(dir)) return "<no Strings folder>";
+        return string.Join(";", Directory.GetFiles(dir).OrderBy(f => f, StringComparer.Ordinal)
+            .Select(f => Path.GetFileName(f) + ":" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(f)))));
+    }
 
     static string FreshUser(string tmpDir, string arm, string pristine)
     {

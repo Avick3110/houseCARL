@@ -840,6 +840,40 @@ public static class RemapEngine
         public static RepointResult Fail(string error) => new(false, error, 0, 0);
     }
 
+    /// <summary>Which of <paramref name="pluginNames"/> are flagged LOCALIZED — the pre-flight for a repoint, run
+    /// BEFORE the compaction writes anything.
+    ///
+    /// <para><see cref="RepointInPlace"/> is reached only AFTER the compacted plugin is already on disk (the reason the
+    /// declared-master refusals below are so careful about it), and the in-place write refuses a localized target
+    /// outright (<see cref="WriteEngine.LocalizedTargetUnsupportedException"/> — it cannot re-emit one without
+    /// corrupting its text). A refusal discovered at that point would strand a half-completed compaction: the target
+    /// renumbered on disk, its referencers still pointing at the old FormIDs. So the caller asks this FIRST and refuses
+    /// the whole operation while everything is still untouched.</para>
+    ///
+    /// <para>Reads the header only, through the lazy overlay. A plugin whose header cannot be read is NOT reported as
+    /// localized: the identify pass that produced these names already enumerated each of them successfully, so a fault
+    /// here is a race rather than a normal state, and the write's own choke point remains the absolute backstop. This
+    /// pre-flight exists to keep the refusal EARLY, not to be the thing that makes it safe.</para></summary>
+    public static IReadOnlyList<string> LocalizedAmong(LoadOrderResolver resolver, IEnumerable<string> pluginNames)
+    {
+        var view = resolver.Capture();
+        var hits = new List<string>();
+        foreach (var name in pluginNames)
+        {
+            var path = view.PluginPath(name);
+            if (path is null) continue;
+            ISkyrimModGetter? ov = null;
+            try
+            {
+                ov = LoadOrderResolver.OpenOverlay(path, view.DataDir);
+                if (ov.ModHeader.Flags.HasFlag(SkyrimModHeader.HeaderFlag.Localized)) hits.Add(name);
+            }
+            catch { /* see the summary: unreadable here is not a localization claim, and the write still refuses. */ }
+            finally { if (ov is IDisposable d) { try { d.Dispose(); } catch { } } }
+        }
+        return hits;
+    }
+
     /// <summary>
     /// Repoint plugin <paramref name="pluginName"/>'s outgoing references against <paramref name="dict"/> IN PLACE — the
     /// streaming applier for an EXTERNAL referencer (a plugin outside the transform set that the identify-pass found
@@ -926,6 +960,11 @@ public static class RemapEngine
             }
 
             try { WriteEngine.WriteInPlace(targetMod, resolved, path); }
+            // The localized-target refusal is its own whole sentence, and it happens BEFORE the serialize — so the
+            // generic arm below would both misattribute it and append a sub-0x800 note about a cause that isn't this
+            // one. The service pre-flight (LocalizedAmong) normally refuses long before a referencer gets here; this is
+            // the backstop for the path that reaches it anyway.
+            catch (LocalizedTargetUnsupportedException ex) { return RepointResult.Fail(ex.Message); }
             catch (Exception ex)
             {
                 return RepointResult.Fail(

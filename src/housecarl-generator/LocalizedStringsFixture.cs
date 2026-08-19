@@ -28,7 +28,11 @@ internal static class LocalizedStringsFixture
     /// <param name="Name">The localized FULL the weapon carries.</param>
     /// <param name="Desc">The localized DESC the weapon carries.</param>
     /// <param name="StringsNowhere">Delete the strings rather than relocating them to game-Data (the residual case).</param>
-    internal sealed record Spec(string ModFolder, ModKey Key, string Name, string Desc, bool StringsNowhere = false);
+    /// <param name="LinksTo">A record in an EARLIER spec's plugin to point a FormList at — the external-referencer
+    /// shape. The link makes that plugin a declared master of this one, which is what puts this plugin in the
+    /// identify pass's answer when the other one is compacted.</param>
+    internal sealed record Spec(string ModFolder, ModKey Key, string Name, string Desc, bool StringsNowhere = false,
+                                FormKey? LinksTo = null);
 
     /// <param name="Instance">The MO2 instance dir to hand <c>LoadOrderService.WithInstance</c>.</param>
     /// <param name="Mods">The instance's mods dir.</param>
@@ -38,6 +42,10 @@ internal static class LocalizedStringsFixture
     /// <summary>The EditorID of the localized weapon in the plugin built from <paramref name="spec"/> — the handle every
     /// arm reads back by, since a merge/compact renumbers the FormKey but never the EditorID.</summary>
     internal static string WeaponEdid(Spec spec) => spec.Key.Name + "Weap";
+
+    /// <summary>The FormKey of that weapon — what a later spec's <see cref="Spec.LinksTo"/> points at. Fixed rather
+    /// than discovered, because the referencer has to be built naming it before the fixture has written anything.</summary>
+    internal static FormKey WeaponKey(Spec spec) => new(spec.Key, 0xA01);
 
     /// <summary>Build the instance under <paramref name="root"/>. The specs are listed in load order, after Skyrim.esm.</summary>
     internal static Built Build(string root, IReadOnlyList<Spec> specs)
@@ -58,6 +66,11 @@ internal static class LocalizedStringsFixture
             .BeginWrite.ToPath(Path.Combine(data, skyrimKey.FileName.String))
             .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
+        // Plugins already written, kept open as the load order for the ones still to come: a spec that LinksTo an
+        // earlier plugin can only be serialized against a context that can resolve the link.
+        var written = new List<ISkyrimModGetter>();
+        try
+        {
         foreach (var spec in specs)
         {
             var modDir = Path.Combine(mods, spec.ModFolder);
@@ -71,9 +84,15 @@ internal static class LocalizedStringsFixture
                 Description = spec.Desc,
                 BasicStats = new WeaponBasicStats { Damage = 7 },
             });
-            m.ModHeader.Stats.NextFormID = 0xA02;
+            if (spec.LinksTo is { } into)
+            {
+                var fl = new FormList(new FormKey(spec.Key, 0xA02), SkyrimRelease.SkyrimSE) { EditorID = spec.Key.Name + "List" };
+                fl.Items.Add(into.ToLink<ISkyrimMajorRecordGetter>());
+                m.FormLists.Add(fl);
+            }
+            m.ModHeader.Stats.NextFormID = 0xA03;
             m.BeginWrite.ToPath(Path.Combine(modDir, spec.Key.FileName.String))
-                .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).NoNextFormIDProcessing().Write();
+                .WithLoadOrder(written.ToArray()).NoNextFormIDProcessing().Write();
 
             // The plugin now has its strings beside it, which is the state the bare overlay reads CORRECTLY. Move them
             // out (or drop them) so the plugin's own folder carries no strings source — the state under test.
@@ -94,7 +113,11 @@ internal static class LocalizedStringsFixture
                 foreach (var f in Directory.GetFiles(own)) File.Move(f, Path.Combine(target, Path.GetFileName(f)));
                 Directory.Delete(own, true);
             }
+
+            written.Add(SkyrimMod.CreateFromBinaryOverlay(Path.Combine(modDir, spec.Key.FileName.String), SkyrimRelease.SkyrimSE));
         }
+        }
+        finally { foreach (var w in written) { if (w is IDisposable d) { try { d.Dispose(); } catch { } } } }
 
         var order = new[] { skyrimKey.FileName.String }.Concat(specs.Select(s => s.Key.FileName.String)).ToArray();
         File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", order) + "\r\n");
@@ -103,6 +126,21 @@ internal static class LocalizedStringsFixture
             "# header\r\n" + string.Join("\r\n", specs.Reverse().Select(s => "+" + s.ModFolder)) + "\r\n");
 
         return new Built(instance, mods, data);
+    }
+
+    /// <summary>Add an already-written plugin to a built instance's profile — for a plugin this fixture did NOT build
+    /// (the non-localized referencer arms need one, and every plugin this builder makes is localized by definition).
+    /// Appended to loadorder/plugins (lowest priority, so it sorts after the specs) and prepended to modlist, which is
+    /// MO2's highest-priority-first list.</summary>
+    internal static void AppendPlugin(Built built, string modFolder, string pluginFileName)
+    {
+        var profiles = Path.Combine(built.Instance, "profiles", "Default");
+        File.AppendAllText(Path.Combine(profiles, "loadorder.txt"), pluginFileName + "\r\n");
+        File.AppendAllText(Path.Combine(profiles, "plugins.txt"), "*" + pluginFileName + "\r\n");
+        var modlist = Path.Combine(profiles, "modlist.txt");
+        var lines = File.ReadAllLines(modlist).ToList();
+        lines.Insert(lines.Count > 0 && lines[0].StartsWith("#") ? 1 : 0, "+" + modFolder);
+        File.WriteAllText(modlist, string.Join("\r\n", lines) + "\r\n");
     }
 
     /// <summary>Read a written plugin's weapon FULL/DESC back with the BARE overlay — deliberately bare, and deliberately

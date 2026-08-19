@@ -306,6 +306,110 @@ public static class CompactServiceGuardProbe
                 Check(flagOk && noStringsFolder,
                     $"LOCALIZED compact output is written NON-localized with strings inline (flagClear={flagOk} noStringsFolder={noStringsFolder})");
             }
+
+            // ---- REPOINT-LOC: a repoint that would REWRITE a localized external referencer is refused UP FRONT ----
+            //      houseCARL cannot re-serialize a localized plugin without corrupting its text, and the referencer
+            //      rewrites happen only AFTER the target is already compacted on disk. So the refusal has to come
+            //      before the compaction starts, and the arm's real assertion is that NOTHING was written — an arm
+            //      that only checked for an error would pass just as well on a refusal issued halfway through.
+            {
+                var rlRoot = Path.Combine(root, "reploc");
+                var tgt = new LocalizedStringsFixture.Spec("RlTgt", new ModKey("HcCsRlTgt", ModType.Plugin), "TGT NAME", "TGT DESC");
+                var rf = new LocalizedStringsFixture.Spec("RlRef", new ModKey("HcCsRlRef", ModType.Plugin), "REF NAME", "REF DESC",
+                                                          LinksTo: LocalizedStringsFixture.WeaponKey(tgt));
+                var fx = LocalizedStringsFixture.Build(rlRoot, new[] { tgt, rf });
+                var rlStore = new UserConfigStore(Path.Combine(rlRoot, "houseCARL.user.json"));
+                using var rlSvc = LoadOrderService.WithInstance(fx.Instance, 0, rlStore);
+                rlSvc.Stats();
+
+                var tgtPath = Path.Combine(fx.Mods, tgt.ModFolder, tgt.Key.FileName.String);
+                var refPath = Path.Combine(fx.Mods, rf.ModFolder, rf.Key.FileName.String);
+                var tgtBefore = File.ReadAllBytes(tgtPath);
+                var refBefore = File.ReadAllBytes(refPath);
+
+                var o = rlSvc.CompactPlugin(tgt.Key.FileName.String, inPlace: true, repointExternals: true, acknowledge: true);
+                bool named = !o.Success && (o.Error?.Contains("LOCALIZED", StringComparison.Ordinal) ?? false)
+                                        && (o.Error?.Contains(rf.Key.FileName.String, StringComparison.OrdinalIgnoreCase) ?? false);
+                bool tgtUntouched = File.ReadAllBytes(tgtPath).AsSpan().SequenceEqual(tgtBefore);
+                bool refUntouched = File.ReadAllBytes(refPath).AsSpan().SequenceEqual(refBefore);
+                bool noStaging = !Directory.Exists(Path.Combine(Path.GetDirectoryName(tgtPath)!, ".housecarl-tmp"))
+                                 && !Directory.Exists(Path.Combine(Path.GetDirectoryName(refPath)!, ".housecarl-tmp"));
+                Check(named && tgtUntouched && refUntouched && noStaging,
+                    $"REPOINT-LOC refused up front, naming the localized referencer; target AND referencer untouched " +
+                    $"(named={named} targetUntouched={tgtUntouched} refUntouched={refUntouched} noStaging={noStaging}) [{o.Error}]");
+
+                // The identify pass really did see the referencer — otherwise the refusal above could be firing on an
+                // empty referencer set and the arm would pass on a fixture with no external reference in it at all.
+                var o2 = rlSvc.CompactPlugin(tgt.Key.FileName.String);
+                Check(!o2.Success && (o2.Error?.Contains(rf.Key.FileName.String, StringComparison.OrdinalIgnoreCase) ?? false),
+                    $"REPOINT-LOC fixture: the referencer IS an external referencer of the target (plain compact names it) [{o2.Error}]");
+
+                // The BACKSTOP, driven directly: the pre-flight above is what a caller normally meets, but the repoint
+                // itself must refuse a localized target on its own — otherwise the pre-flight is the only thing standing
+                // between a localized referencer and a corrupting rewrite, and any path that reaches the repoint another
+                // way is unprotected. Straight at RemapEngine, with the service's refusal bypassed entirely.
+                using (var rr = LoadOrderResolver.Build(new[]
+                {
+                    Path.Combine(fx.Data, "Skyrim.esm"),
+                    tgtPath,
+                    refPath,
+                }))
+                {
+                    var refBefore2 = File.ReadAllBytes(refPath);
+                    var rep = RemapEngine.RepointInPlace(rr, rf.Key.FileName.String,
+                        new Dictionary<FormKey, FormKey> { [LocalizedStringsFixture.WeaponKey(tgt)] = new FormKey(tgt.Key, 0x900) });
+                    bool untouched = File.ReadAllBytes(refPath).AsSpan().SequenceEqual(refBefore2);
+                    bool verbatim = !rep.Success && (rep.Error?.StartsWith("houseCARL did not write", StringComparison.Ordinal) ?? false);
+                    Check(verbatim && untouched,
+                        $"REPOINT-LOC backstop: RepointInPlace itself refuses the localized referencer verbatim, file untouched " +
+                        $"(refused={!rep.Success} verbatim={verbatim} untouched={untouched}) [{rep.Error}]");
+                }
+            }
+
+            // ---- REPOINT-PLAIN: the same shape with a NON-localized referencer still compacts and repoints ----
+            //      The other direction. The target here IS localized and compacts in place fine — the compacted plugin
+            //      is built fresh and non-localized with its strings inline — so this also pins that the refusal is
+            //      about the plugins being REWRITTEN as referencers, not about localization anywhere in the operation.
+            {
+                var rpRoot = Path.Combine(root, "repplain");
+                var tgt = new LocalizedStringsFixture.Spec("RpTgt", new ModKey("HcCsRpTgt", ModType.Plugin), "TGT NAME", "TGT DESC");
+                var fx = LocalizedStringsFixture.Build(rpRoot, new[] { tgt });
+
+                // The referencer, written NON-localized beside the fixture's plugins and appended to its profile.
+                var refKey = new ModKey("HcCsRpRef", ModType.Plugin);
+                var refDir = Path.Combine(fx.Mods, "RpRef");
+                Directory.CreateDirectory(refDir);
+                var refPath = Path.Combine(refDir, refKey.FileName.String);
+                var tgtPath = Path.Combine(fx.Mods, tgt.ModFolder, tgt.Key.FileName.String);
+                using (var tov = SkyrimMod.CreateFromBinaryOverlay(tgtPath, SkyrimRelease.SkyrimSE))
+                {
+                    var rm = new SkyrimMod(refKey, SkyrimRelease.SkyrimSE);
+                    var fl = new FormList(new FormKey(refKey, 0xA01), SkyrimRelease.SkyrimSE) { EditorID = "RpRefList" };
+                    fl.Items.Add(LocalizedStringsFixture.WeaponKey(tgt).ToLink<ISkyrimMajorRecordGetter>());
+                    rm.FormLists.Add(fl);
+                    rm.ModHeader.Stats.NextFormID = 0xA02;
+                    rm.BeginWrite.ToPath(refPath).WithLoadOrder(new ISkyrimModGetter[] { tov }).NoNextFormIDProcessing().Write();
+                }
+                LocalizedStringsFixture.AppendPlugin(fx, "RpRef", refKey.FileName.String);
+
+                var rpStore = new UserConfigStore(Path.Combine(rpRoot, "houseCARL.user.json"));
+                using var rpSvc = LoadOrderService.WithInstance(fx.Instance, 0, rpStore);
+                rpSvc.Stats();
+
+                var o = rpSvc.CompactPlugin(tgt.Key.FileName.String, inPlace: true, repointExternals: true, acknowledge: true);
+                FormKey? tgtWeapAfter = null, refLinkAfter = null;
+                if (o.Success)
+                {
+                    using (var tb = SkyrimMod.CreateFromBinaryOverlay(tgtPath, SkyrimRelease.SkyrimSE))
+                        tgtWeapAfter = tb.Weapons.FirstOrDefault(w => w.EditorID == LocalizedStringsFixture.WeaponEdid(tgt))?.FormKey;
+                    using (var rb = SkyrimMod.CreateFromBinaryOverlay(refPath, SkyrimRelease.SkyrimSE))
+                        refLinkAfter = rb.FormLists.First().Items.FirstOrDefault()?.FormKey;
+                }
+                Check(o.Success && o.InPlace && tgtWeapAfter is not null && refLinkAfter == tgtWeapAfter
+                      && o.Repointed.Count == 1 && o.Repointed[0].Success,
+                    $"REPOINT-PLAIN a NON-localized referencer still compacts + repoints (weapon -> {tgtWeapAfter}, ref -> {refLinkAfter}, " +
+                    $"repointed {o.Repointed.Count(x => x.Success)}/{o.Repointed.Count}){(o.Success ? "" : "; ERR " + o.Error)}");
+            }
         }
         finally { try { Directory.Delete(root, true); } catch { } }
 
