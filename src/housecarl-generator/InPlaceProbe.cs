@@ -806,6 +806,106 @@ public static class InPlaceProbe
             }
         }
 
+
+        // ===== CO-A / CO-B / CO-C / CO-D — a REFUSED in-place call must not spend the one-time consent (#378) =====
+        // The consent is per-plugin, persisted, and shared across the in-place lanes, so spending it on a call that
+        // wrote nothing leaves the NEXT call — the first real rewrite of the user's original — unprompted. Each arm
+        // drives a refusal that lives at the WRITE, past the point the lane used to record the acknowledgement, and
+        // then asserts the two halves that matter: the store is unspent, and a following call without acknowledge=
+        // still meets the first-touch prompt with the file byte-untouched.
+        {
+            string StoreCo(string arm) => Path.Combine(tmpDir, arm + ".user.json");
+
+            // CO-A — REMOVE, the reported scenario: W2 lives only in the master, so the removal is refused by the
+            // builder's present-check ("not carried by"), which runs at the write.
+            {
+                var userA = FreshUser(tmpDir, "COA", userPristine);
+                var before = File.ReadAllBytes(userA);
+                bool refused, spent, reprompts, untouched;
+                using (var r = LoadOrderResolver.Build(new[] { masterPath, userA, highPath }))
+                {
+                    var svc = LoadOrderService.ForGuard(r, new UserConfigStore(StoreCo("COA")));
+                    var o = svc.RemoveRecords(new[] { fmtW2fk }, null, target: UserName, inPlace: true, acknowledge: true);
+                    refused = !o.Success && (o.Error?.Contains("not carried by") ?? false);
+                    spent = new UserConfigStore(StoreCo("COA")).IsInPlaceAcknowledged(userA);
+                    var next = svc.RemoveRecords(new[] { fmtWfk }, null, target: UserName, inPlace: true, acknowledge: false);
+                    reprompts = next.NeedsAcknowledge && !next.Success;
+                    untouched = File.ReadAllBytes(userA).AsSpan().SequenceEqual(before);
+                }
+                results.Add(("CO-A a REFUSED in-place remove (not carried) spends no consent — the next write still prompts",
+                    refused && !spent && reprompts && untouched,
+                    $"refused={refused} consentRecorded={spent}(want False) nextCallPrompts={reprompts} fileUntouched={untouched}"));
+            }
+
+            // CO-B — EDIT: W2 is a record the target does not define or override, refused by the builder's
+            // content-source gate (arm C's refusal), which likewise runs at the write.
+            {
+                var userB = FreshUser(tmpDir, "COB", userPristine);
+                var before = File.ReadAllBytes(userB);
+                bool refused, spent, reprompts, untouched;
+                using (var r = LoadOrderResolver.Build(new[] { masterPath, userB, highPath }))
+                {
+                    var svc = LoadOrderService.ForGuard(r, new UserConfigStore(StoreCo("COB")));
+                    var op = new[] { new BulkOp { Formid = fmtW2fk, FieldPath = "BasicStats.Damage", Verb = "Set", Value = "44" } };
+                    var o = svc.ApplyEdits(op, null, null, fullReadback: false, target: UserName, inPlace: true, acknowledge: true);
+                    refused = !o.Success && (o.Error?.Contains("does not define or override") ?? false);
+                    spent = new UserConfigStore(StoreCo("COB")).IsInPlaceAcknowledged(userB);
+                    var next = svc.ApplyEdits(new[] { new BulkOp { Formid = fmtWfk, FieldPath = "BasicStats.Damage", Verb = "Set", Value = "44" } },
+                        null, null, fullReadback: false, target: UserName, inPlace: true, acknowledge: false);
+                    reprompts = next.NeedsAcknowledge && !next.Success;
+                    untouched = File.ReadAllBytes(userB).AsSpan().SequenceEqual(before);
+                }
+                results.Add(("CO-B a REFUSED in-place edit (record not defined by the target) spends no consent",
+                    refused && !spent && reprompts && untouched,
+                    $"refused={refused} consentRecorded={spent}(want False) nextCallPrompts={reprompts} fileUntouched={untouched}"));
+            }
+
+            // CO-C — FORWARD: High does not define W2, so the source fetch refuses at the write.
+            {
+                var userC = FreshUser(tmpDir, "COC", userPristine);
+                var before = File.ReadAllBytes(userC);
+                bool refused, spent, reprompts, untouched;
+                using (var r = LoadOrderResolver.Build(new[] { masterPath, userC, highPath }))
+                {
+                    var svc = LoadOrderService.ForGuard(r, new UserConfigStore(StoreCo("COC")));
+                    var o = svc.ForwardRecords(new[] { fmtW2fk }, HighName, null, null, target: UserName, inPlace: true, acknowledge: true);
+                    refused = !o.Success;
+                    spent = new UserConfigStore(StoreCo("COC")).IsInPlaceAcknowledged(userC);
+                    var next = svc.ForwardRecords(new[] { fmtWfk }, HighName, null, null, target: UserName, inPlace: true, acknowledge: false);
+                    reprompts = next.NeedsAcknowledge && !next.Success;
+                    untouched = File.ReadAllBytes(userC).AsSpan().SequenceEqual(before);
+                }
+                results.Add(("CO-C a REFUSED in-place forward (source does not carry it) spends no consent",
+                    refused && !spent && reprompts && untouched,
+                    $"refused={refused} consentRecorded={spent}(want False) nextCallPrompts={reprompts} fileUntouched={untouched}"));
+            }
+
+            // CO-D — CREATE: a new record linking to a plugin that is NOT in the load order refuses at the serialize
+            // (arm Z's refusal on the create side) — the furthest-downstream refusal of the four, and still one that
+            // leaves the original byte-intact.
+            {
+                var userD = FreshUser(tmpDir, "COD", userPristine);
+                var before = File.ReadAllBytes(userD);
+                bool refused, spent, reprompts, untouched;
+                using (var r = LoadOrderResolver.Build(new[] { masterPath, userD, highPath }))
+                {
+                    var svc = LoadOrderService.ForGuard(r, new UserConfigStore(StoreCo("COD")));
+                    var ops = new[] { new BulkOp { FieldPath = "Keywords", Verb = "Add", Value = "000ABC:NotInOrder.esp" } };
+                    var o = svc.CreateRecords("Weapon", "HcIP_CoDWeap", ops, null, null, false, null, null, null,
+                                              target: UserName, inPlace: true, acknowledge: true);
+                    refused = !o.Success;
+                    spent = new UserConfigStore(StoreCo("COD")).IsInPlaceAcknowledged(userD);
+                    var next = svc.CreateRecords("Keyword", "HcIP_CoDKw", Array.Empty<BulkOp>(), null, null, false, null, null, null,
+                                                 target: UserName, inPlace: true, acknowledge: false);
+                    reprompts = next.NeedsAcknowledge && !next.Success;
+                    untouched = File.ReadAllBytes(userD).AsSpan().SequenceEqual(before);
+                }
+                results.Add(("CO-D a REFUSED in-place create (link to a non-load-order plugin) spends no consent",
+                    refused && !spent && reprompts && untouched,
+                    $"refused={refused} consentRecorded={spent}(want False) nextCallPrompts={reprompts} fileUntouched={untouched}"));
+            }
+        }
+
         Console.WriteLine("── ARMS ──");
         bool all = true;
         foreach (var (name, pass, detail) in results)
