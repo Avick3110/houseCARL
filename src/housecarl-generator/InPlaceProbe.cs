@@ -909,6 +909,29 @@ public static class InPlaceProbe
                     refused && !spent && reprompts && untouched,
                     $"refused={refused} consentRecorded={spent}(want False) nextCallPrompts={reprompts} fileUntouched={untouched}"));
             }
+
+            // CO-E — the SUCCESS direction of the same conditional, on the FORWARD lane. The other three plugin lanes
+            // get it from arms G / K / W; forward had none, so its persist could be deleted outright with the whole
+            // suite green. An acknowledged forward that LANDS must record the consent, or every later in-place call on
+            // that plugin — in any lane, since the record is shared — re-prompts forever.
+            {
+                var userE = FreshUser(tmpDir, "COE", userPristine);
+                bool landed, spent, noReprompt, secondLanded;
+                using (var r = LoadOrderResolver.Build(new[] { masterPath, userE, highPath }))
+                {
+                    var svc = LoadOrderService.ForGuard(r, new UserConfigStore(StoreCo("COE")));
+                    var first = svc.ForwardRecords(new[] { fmtWfk }, HighName, null, null, target: UserName, inPlace: true, acknowledge: true);
+                    landed = first.Success && first.InPlace;
+                    spent = new UserConfigStore(StoreCo("COE")).IsInPlaceAcknowledged(userE);
+                    // Forwarding the ORIGIN master reverts the record to vanilla — a second real write, un-acknowledged.
+                    var second = svc.ForwardRecords(new[] { fmtWfk }, MasterName, null, null, target: UserName, inPlace: true, acknowledge: false);
+                    noReprompt = !second.NeedsAcknowledge;
+                    secondLanded = second.Success;
+                }
+                results.Add(("CO-E an acknowledged forward that LANDS records the consent — the next one does not re-prompt",
+                    landed && spent && noReprompt && secondLanded,
+                    $"firstLanded={landed} consentRecorded={spent}(want True) secondNoReprompt={noReprompt} secondLanded={secondLanded}"));
+            }
         }
 
         Console.WriteLine("── ARMS ──");
