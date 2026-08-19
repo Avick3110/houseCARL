@@ -1415,15 +1415,13 @@ public sealed class LoadOrderService : IDisposable
                 var targetPath = chosen.LooseFilePath!;
                 var meshName = Path.GetFileName(targetPath);
 
+                // The CHECK gates entry here; the acknowledgement is RECORDED below, once the overwrite has landed and
+                // verified — see PersistInPlaceConsent. The parent pre-flight and the write's own failure both refuse
+                // without changing the file, and neither may spend the caller's one-time confirmation.
                 bool already = _store.IsInPlaceAcknowledged(targetPath);
                 if (!already && !acknowledge)
                     return NifSetResult.NeedsAck(NifInPlaceHandshakeText(meshName, targetPath), chosenProv, providers, profileName);
-                string? ackNote = null;
-                if (!already && acknowledge)
-                {
-                    var (ok, err) = _store.RecordInPlaceAcknowledged(targetPath);
-                    if (!ok) ackNote = $"the in-place acknowledgement could not be saved ({err}) — the edit proceeded, but a future session will re-prompt for this file.";
-                }
+                bool owesConsent = !already && acknowledge;
 
                 if (InPlaceParentUnwritable(targetPath, out var why)) return NifSetResult.Fail(why, providers, profileName);
                 try { AtomicFile.WriteAllBytes(targetPath, editedBytes); }
@@ -1432,6 +1430,9 @@ public sealed class LoadOrderService : IDisposable
                 if (sz != editedBytes.Length)
                     return NifSetResult.Fail($"wrote '{meshName}' but its on-disk size ({sz}) does not match the {editedBytes.Length} verified byte(s) — verify before relying on it.", providers, profileName);
 
+                var ackNote = PersistInPlaceConsent(owesConsent, targetPath) is { } ackErr
+                    ? $"the in-place acknowledgement could not be saved ({ackErr}) — the edit proceeded, but a future session will re-prompt for this file."
+                    : null;
                 return NifSetResult.OkInPlace(rel, chosenProv, providers, place.Ambiguous, editedIsWinner, report, targetPath,
                     MergeWarnings(report.Warnings, warnings, ackNote), profileName);
             }
@@ -5341,8 +5342,11 @@ public sealed class LoadOrderService : IDisposable
         //     #225: a DRY RUN bypasses the handshake and NEVER persists an acknowledgement — consent gates touching
         //     your original, and a dry run touches nothing; the pending consent is surfaced as a note instead, so the
         //     report still says the REAL write will prompt.
+        //     The CHECK gates entry here; a real write's acknowledgement is RECORDED at (5), once the edit has actually
+        //     landed — see PersistInPlaceConsent.
         bool already = _store.IsInPlaceAcknowledged(targetPath);
         string? ackNote = null;
+        bool owesConsent = false;
         if (dryRun)
         {
             if (!already)
@@ -5358,11 +5362,7 @@ public sealed class LoadOrderService : IDisposable
                 // where a caller most often meets it.
                 return WritePatchBuilder.PatchOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath))
                     with { Epoch = view.Epoch };
-            if (!already && acknowledge)
-            {
-                var (ok, err) = _store.RecordInPlaceAcknowledged(targetPath);
-                if (!ok) ackNote = $"the in-place acknowledgement could not be saved ({err}) — the edit proceeded, but a future session will re-prompt for this plugin.";
-            }
+            owesConsent = !already && acknowledge;
         }
 
         // (3) Writable, same-volume parent pre-flight — refuse rather than degrade (the swap stages a sibling temp in
@@ -5380,21 +5380,19 @@ public sealed class LoadOrderService : IDisposable
         if (dryRun)
             return JoinNotes(outcome.Note, ackNote) is { } dn ? outcome with { Note = dn } : outcome;
 
-        // (5) On success, stamp the distinct audit marker + auto-flag a now-stale .seq (both best-effort; neither miss
-        //     fails the done edit, Q3-noted). SEQ flag (Track C): an in-place edit can prune a master and shift the own
-        //     records' on-disk FormIDs, staling the plugin's .seq — surfaced as a note, never auto-regen'd (Aaron 2026-07-04).
+        // (5) On success, record the acknowledgement, then stamp the distinct audit marker + auto-flag a now-stale .seq
+        //     (the marker and flag best-effort; neither miss fails the done edit, Q3-noted). SEQ flag (Track C): an
+        //     in-place edit can prune a master and shift the own records' on-disk FormIDs, staling the plugin's .seq —
+        //     surfaced as a note, never auto-regen'd (Aaron 2026-07-04).
         if (outcome.Success)
         {
+            if (PersistInPlaceConsent(owesConsent, targetPath) is { } ackErr)
+                ackNote = $"the in-place acknowledgement could not be saved ({ackErr}) — the edit proceeded, but a future session will re-prompt for this plugin.";
             var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
             // outcome.Note first — the core's master-grow re-sort note (PR #163 review #1) must survive the merge.
             var note = JoinNotes(outcome.Note, ackNote, markerNote, seqNote);
             if (note is not null) return outcome with { Note = note };
-        }
-        else if (ackNote is not null)
-        {
-            // The acknowledgement was recorded but the write then failed — keep the (now-honest) note alongside the error.
-            return outcome with { Note = ackNote };
         }
         return outcome;
     }
@@ -5429,6 +5427,31 @@ public sealed class LoadOrderService : IDisposable
         "  • It still refuses if the file can't be parsed, or carries engine-reserved (sub-0x800) records.\n" +
         "  • The default lane (a NEW patch, originals untouched) stays the recommended way — this is the explicit opt-in.\n" +
         "Re-call the SAME edit with acknowledge=true to proceed.";
+
+    /// <summary>PERSIST the one-time in-place acknowledgement for <paramref name="targetPath"/> — called by every
+    /// in-place lane AFTER the write it gated has actually landed, never before. <paramref name="owed"/> is the consent
+    /// gate's own answer: a first touch of this file that carried <c>acknowledge=true</c>. False (already acknowledged,
+    /// or a dry run, which touches nothing and so records nothing — #225) makes this a no-op. Returns the store's error
+    /// when the config write failed, for the caller's own note; null when there was nothing to record or it recorded.
+    ///
+    /// <para>Ordering is the whole point (#378). Between the consent CHECK and the byte that changes on disk, every
+    /// lane runs a chain of refusals that leave the original untouched — the writable-parent pre-flight, then the
+    /// builder's own guards: a target Mutagen can't fully parse, a record the file doesn't carry, a link into a plugin
+    /// that isn't loaded, the localized backstop. Recording the acknowledgement ahead of them spent the modder's
+    /// first-touch confirmation on a write that never happened, so the NEXT call — the first real rewrite of their
+    /// original — went through unprompted. Persisting last makes the whole class unreachable rather than fixing one
+    /// member of it: nothing can sit behind a persist that is the last thing the call does, including a check added
+    /// later. The gate itself does NOT move — <c>already || acknowledge</c> still decides whether the call runs.</para>
+    ///
+    /// <para>Callers persist on the lane's own SUCCESS, which is the conservative reading: a lane that mutated the
+    /// file and then failed its post-write verify records nothing and re-prompts next time. Over-prompting costs a
+    /// confirmation; under-prompting costs a file, so the failure direction is chosen deliberately.</para></summary>
+    string? PersistInPlaceConsent(bool owed, string targetPath)
+    {
+        if (!owed) return null;
+        var (ok, err) = _store.RecordInPlaceAcknowledged(targetPath);
+        return ok ? null : (err ?? "unknown error");
+    }
 
     /// <summary>Writable-parent pre-flight for the in-place swap (§6 layer 3): the staged temp is a sibling of the
     /// target, so prove the parent is writable NOW, loud, rather than degrade to a non-atomic write later. True (with a
@@ -5680,18 +5703,14 @@ public sealed class LoadOrderService : IDisposable
 
         // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path (shared
         //     with the edit + create lanes: acknowledging a plugin once covers editing, creating into, AND removing from
-        //     it in place — it's the same "touch your original" trade-off).
+        //     it in place — it's the same "touch your original" trade-off). The CHECK gates entry here; the acknowledgement
+        //     is RECORDED at (5), once the removal has actually landed — see PersistInPlaceConsent.
         bool already = _store.IsInPlaceAcknowledged(targetPath);
         if (!already && !acknowledge)
             // Stamped for the reason the edit lane's twin states (the most common in-place response shape).
             return WritePatchBuilder.RemovalOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath))
                 with { Epoch = view.Epoch };
-        string? ackNote = null;
-        if (!already && acknowledge)
-        {
-            var (ok, err) = _store.RecordInPlaceAcknowledged(targetPath);
-            if (!ok) ackNote = $"the in-place acknowledgement could not be saved ({err}) — the removal proceeded, but a future session will re-prompt for this plugin.";
-        }
+        bool owesConsent = !already && acknowledge;
 
         // (3) Writable, same-volume parent pre-flight — refuse rather than degrade (the swap stages a sibling temp here).
         if (InPlaceParentUnwritable(targetPath, out var why))
@@ -5700,21 +5719,20 @@ public sealed class LoadOrderService : IDisposable
         // (4) The write — absence verify forced ON (the model-C substitute for the dropped whole-plugin floor).
         var outcome = WritePatchBuilder.RemoveRecordsInPlace(resolver, keys, targetPath, targetName);
 
-        // (5) On success, stamp the distinct audit marker + auto-flag a now-stale .seq (both best-effort; neither miss
-        //     fails the done removal, Q3-noted). SEQ flag (Track C): a removal can drop the last reference to a master
-        //     (a prune) and shift on-disk FormIDs, staling the plugin's .seq — surfaced, never auto-regenerated.
+        // (5) On success, record the acknowledgement, then stamp the distinct audit marker + auto-flag a now-stale .seq
+        //     (the marker and flag best-effort; neither miss fails the done removal, Q3-noted). SEQ flag (Track C): a
+        //     removal can drop the last reference to a master (a prune) and shift on-disk FormIDs, staling the plugin's
+        //     .seq — surfaced, never auto-regenerated.
         if (outcome.Success)
         {
+            var ackNote = PersistInPlaceConsent(owesConsent, targetPath) is { } ackErr
+                ? $"the in-place acknowledgement could not be saved ({ackErr}) — the removal proceeded, but a future session will re-prompt for this plugin."
+                : null;
             var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
             // outcome.Note first — the core's master-grow re-sort note (PR #163 review #1) must survive the merge.
             var note = JoinNotes(outcome.Note, ackNote, markerNote, seqNote);
             if (note is not null) return outcome with { Note = note };
-        }
-        else if (ackNote is not null)
-        {
-            // The acknowledgement was recorded but the write then failed — keep the (now-honest) note alongside the error.
-            return outcome with { Note = ackNote };
         }
         return outcome;
     }
@@ -5843,9 +5861,11 @@ public sealed class LoadOrderService : IDisposable
         // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path (shared
         //     with the edit/create/remove lanes: it's the same "touch your original" trade-off).
         //     #225: a DRY RUN bypasses the handshake and NEVER persists an acknowledgement (see ApplyEditsInPlace) —
-        //     the pending consent is surfaced as a note instead.
+        //     the pending consent is surfaced as a note instead. The CHECK gates entry here; a real write's
+        //     acknowledgement is RECORDED at (5), once the forward has actually landed — see PersistInPlaceConsent.
         bool already = _store.IsInPlaceAcknowledged(targetPath);
         string? ackNote = null;
+        bool owesConsent = false;
         if (dryRun)
         {
             if (!already)
@@ -5858,11 +5878,7 @@ public sealed class LoadOrderService : IDisposable
                 // Stamped for the reason the edit lane's twin states (the most common in-place response shape).
                 return WritePatchBuilder.ForwardOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath))
                     with { Epoch = view.Epoch };
-            if (!already && acknowledge)
-            {
-                var (ok, err) = _store.RecordInPlaceAcknowledged(targetPath);
-                if (!ok) ackNote = $"the in-place acknowledgement could not be saved ({err}) — the forward proceeded, but a future session will re-prompt for this plugin.";
-            }
+            owesConsent = !already && acknowledge;
         }
 
         // (3) Writable, same-volume parent pre-flight — refuse rather than degrade. Kept in the dry run (it predicts
@@ -5877,20 +5893,17 @@ public sealed class LoadOrderService : IDisposable
         if (dryRun)
             return JoinNotes(outcome.Note, ackNote) is { } dn ? outcome with { Note = dn } : outcome;
 
-        // (5) On success, stamp the distinct audit marker + auto-flag a now-stale .seq (both best-effort; neither miss
-        //     fails the done forward, Q3-noted).
+        // (5) On success, record the acknowledgement, then stamp the distinct audit marker + auto-flag a now-stale .seq
+        //     (the marker and flag best-effort; neither miss fails the done forward, Q3-noted).
         if (outcome.Success)
         {
+            if (PersistInPlaceConsent(owesConsent, targetPath) is { } ackErr)
+                ackNote = $"the in-place acknowledgement could not be saved ({ackErr}) — the forward proceeded, but a future session will re-prompt for this plugin.";
             var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
             // outcome.Note first — the core's master-grow re-sort note (PR #163 review #1) must survive the merge.
             var note = JoinNotes(outcome.Note, ackNote, markerNote, seqNote);
             if (note is not null) return outcome with { Note = note };
-        }
-        else if (ackNote is not null)
-        {
-            // The acknowledgement was recorded but the write then failed — keep the (now-honest) note alongside the error.
-            return outcome with { Note = ackNote };
         }
         return outcome;
     }
@@ -6952,7 +6965,8 @@ public sealed class LoadOrderService : IDisposable
 
         // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path (shared with
         //     the edit lane: acknowledging a plugin once covers BOTH editing and creating into it in place — it's the same
-        //     "touch your original" trade-off).
+        //     "touch your original" trade-off). The CHECK gates entry here; the acknowledgement is RECORDED at (5), once
+        //     the create has actually landed — see PersistInPlaceConsent.
         bool already = _store.IsInPlaceAcknowledged(targetPath);
         if (!already && !acknowledge)
             // Stamped for the reason the edit lane's twin states: this branch is reached only after the view above
@@ -6960,12 +6974,7 @@ public sealed class LoadOrderService : IDisposable
             // "every write response carries an epoch" false exactly where a caller most often meets it.
             return WritePatchBuilder.CreateOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath))
                 with { Epoch = view.Epoch };
-        string? ackNote = null;
-        if (!already && acknowledge)
-        {
-            var (ok, err) = _store.RecordInPlaceAcknowledged(targetPath);
-            if (!ok) ackNote = $"the in-place acknowledgement could not be saved ({err}) — the create proceeded, but a future session will re-prompt for this plugin.";
-        }
+        bool owesConsent = !already && acknowledge;
 
         // (3) Writable, same-volume parent pre-flight — refuse rather than degrade (the swap stages a sibling temp here).
         if (InPlaceParentUnwritable(targetPath, out var why))
@@ -6974,21 +6983,21 @@ public sealed class LoadOrderService : IDisposable
         // (4) The write — created-record verify forced ON (the model-C substitute for the dropped whole-plugin floor).
         var outcome = WritePatchBuilder.CreateRecordsInPlace(resolver, rulebook, specs, targetPath, targetName, fullReadback: true);
 
-        // (5) On success: run the SAME post-write teeth the patch lane runs (the service owns the live AssetResolver) —
-        //     in-place create can now author dialogue lines / cells under any parent, so voice (.fuz) + result-script +
-        //     cell-shell coverage must be checked here too (each a no-op unless that record kind was created; none can
-        //     fail the write, which already succeeded). Then stamp the distinct audit marker (best-effort; a marker miss
-        //     never fails the done create, Q3-noted).
+        // (5) On success: record the acknowledgement, then run the SAME post-write teeth the patch lane runs (the service
+        //     owns the live AssetResolver) — in-place create can now author dialogue lines / cells under any parent, so
+        //     voice (.fuz) + result-script + cell-shell coverage must be checked here too (each a no-op unless that
+        //     record kind was created; none can fail the write, which already succeeded). Then stamp the distinct audit
+        //     marker (best-effort; a marker miss never fails the done create, Q3-noted).
         if (outcome.Success)
         {
+            var ackNote = PersistInPlaceConsent(owesConsent, targetPath) is { } ackErr
+                ? $"the in-place acknowledgement could not be saved ({ackErr}) — the create proceeded, but a future session will re-prompt for this plugin."
+                : null;
             var enriched = EnrichWithCellShell(EnrichWithScriptCheck(EnrichWithVoiceCheck(outcome, resolver)));
             var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
             var note = JoinNotes(ackNote, markerNote);
             return note is not null ? enriched with { Note = note } : enriched;
         }
-        if (ackNote is not null)
-            // The acknowledgement was recorded but the write then failed — keep the (now-honest) note alongside the error.
-            return outcome with { Note = ackNote };
         return outcome;
     }
 
