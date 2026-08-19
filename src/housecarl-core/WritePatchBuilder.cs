@@ -1513,6 +1513,10 @@ public static class WritePatchBuilder
             ISkyrimModGetter[] ownMasters = ResolveOwnMasters(view, targetMod, masterOverlays, out var missing);
             if (missing is not null) return RemovalOutcome.Fail(missing);
             try { WriteEngine.WriteInPlace(targetMod, ownMasters, targetPath); }
+            // The localized-target refusal names its own whole sentence; this lane's lead would put it after "failed
+            // (serialize or commit…)", which is a step the refusal happens before. (The lanes that render through
+            // SerializeFailure get the same treatment inside it.)
+            catch (LocalizedTargetUnsupportedException ex) { return RemovalOutcome.Fail(ex.Message); }
             catch (Exception ex)
                 { return RemovalOutcome.Fail($"writing '{fileName}' in place after removal failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}"); }
         }
@@ -1913,7 +1917,13 @@ public static class WritePatchBuilder
     public static string SerializeFailure(string lead, Exception ex, LoadOrderResolver.OverlaySession session, string trailer = "")
     {
         for (Exception? b = ex; b is not null; b = b.InnerException)
+        {
             if (b is UnopenableBaselineMasterException ub) return ub.Message;
+            // Same reason as the baseline-master refusal above: the write refused a LOCALIZED target before it
+            // serialized or committed anything, so every lead here ("failed (serialize or commit…)") would attribute the
+            // refusal to a step that never ran. The exception's own message is the whole sentence.
+            if (b is LocalizedTargetUnsupportedException lt) return lt.Message;
+        }
         var body = lead + WriteEngine.Describe(ex) + UnopenableMasterClause(ex, session);
         if (trailer.Length == 0) return body;
         // Exactly ONE terminator before a lane's tail. A fixed trailer cannot do this alone: the clause already ends

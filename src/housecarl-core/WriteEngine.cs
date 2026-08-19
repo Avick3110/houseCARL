@@ -1809,6 +1809,11 @@ public static class WriteEngine
         if (!string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException(
                 $"In-place output filename '{actual}' must match the target's ModKey filename '{expected}'.");
+        // The localized-target choke point (the backstop for every caller of this method). BEFORE the staging directory
+        // exists and before the serialize runs, so a refused write leaves nothing at all behind. See the exception's own
+        // summary for what the write does to a localized plugin and how it was measured.
+        if (targetMod.UsingLocalization)
+            throw new LocalizedTargetUnsupportedException(expected);
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         var ordered = ownMasters as ISkyrimModGetter[] ?? ownMasters.ToArray();
         // Same composed-null-arm serialize guard as WritePatch (an in-place edit can compose a record too): a required
@@ -3818,6 +3823,35 @@ public sealed class NullArmSerializeException : InvalidOperationException
                "sub-field too (select the arm via compose). Nothing was written — the staged file was discarded and the " +
                "target is untouched. If no composition was involved, this is an engine/Mutagen inconsistency — surface it, " +
                "don't work around it.", inner)
+    {
+    }
+}
+
+/// <summary>The in-place write's refusal to re-serialize a plugin flagged LOCALIZED — thrown by
+/// <see cref="WriteEngine.WriteInPlace"/> before the staging directory is created, so nothing is written, staged, or
+/// cleaned up.
+///
+/// <para>WHY, measured (<c>repoint-strings-probe</c>): a localized plugin keeps its text in sibling
+/// <c>.STRINGS</c>/<c>.DLSTRINGS</c>/<c>.ILSTRINGS</c> files and carries only integer indices into them.
+/// <see cref="WriteEngine.WriteInPlace"/> stages the serialize, which emits a freshly numbered set of those files
+/// beside the staged plugin, and then commits THE PLUGIN ALONE — the emitted tables are discarded with the staging
+/// directory. The committed plugin's new indices are therefore read against the plugin's old, untouched strings file,
+/// and the values land on records they do not belong to: in the probe a weapon read a book's name. The probe's arm C
+/// shows this needs no strings-resolution problem of any kind — a plugin whose strings sit correctly beside it, read
+/// correctly through the ordinary open, is corrupted just the same.</para>
+///
+/// <para>So this is NOT the read-side blanking of a localized plugin whose strings resolve elsewhere; that one is a
+/// separate defect on the way IN. This is the round-trip's write half, and it is why resolving the strings correctly
+/// on the way in does not on its own make the rewrite faithful. Both are chartered to an attended engagement; until
+/// that lands, the write refuses rather than corrupt a file it cannot faithfully re-emit.</para></summary>
+public sealed class LocalizedTargetUnsupportedException : InvalidOperationException
+{
+    public LocalizedTargetUnsupportedException(string pluginFileName)
+        : base($"houseCARL did not write '{pluginFileName}' — the file is unchanged and nothing was staged. It is flagged " +
+               "LOCALIZED, so its text is held in separate .STRINGS files and the plugin itself carries only indices into " +
+               "them. Re-serializing the plugin renumbers those indices, and this write commits the plugin file alone — so " +
+               "the rewritten plugin would read its text against the old, unchanged strings files and every localized value " +
+               "would land on the wrong record. houseCARL refuses the write instead of corrupting the file.")
     {
     }
 }

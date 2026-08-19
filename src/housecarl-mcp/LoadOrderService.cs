@@ -6063,6 +6063,25 @@ public sealed class LoadOrderService : IDisposable
             if (inPlace && InPlaceParentUnwritable(srcPath, out var unwritable))
                 return WritePatchBuilder.CompactOutcome.Fail(unwritable);
 
+            // pre-flight the referencers this run would REWRITE: houseCARL cannot re-serialize a localized plugin
+            // without corrupting its text, and the rewrites happen only AFTER the compacted plugin is on disk — so a
+            // localized referencer discovered then would leave the target renumbered and its referencers still pointing
+            // at the old FormIDs. Refuse the whole operation here, with everything still untouched.
+            if (willRepoint)
+            {
+                var localized = RemapEngine.LocalizedAmong(resolver, id.ExternalPlugins);
+                if (localized.Count > 0)
+                    return WritePatchBuilder.CompactOutcome.Fail(
+                        $"refused — {localized.Count} of the plugin(s) that reference records '{name}' would renumber " +
+                        $"{(localized.Count == 1 ? "is" : "are")} flagged LOCALIZED: {string.Join(", ", localized.Take(25))}" +
+                        $"{(localized.Count > 25 ? $", … (+{localized.Count - 25} more)" : "")}. A localized plugin holds its " +
+                        "text in separate .STRINGS files and carries only indices into them; rewriting one renumbers those " +
+                        "indices while houseCARL commits the plugin file alone, so its text would end up on the wrong " +
+                        "records. Repointing runs only after '" + name + "' has already been rewritten, so this refuses up " +
+                        "front rather than renumber it and then stop partway through its referencers. NOTHING was written — " +
+                        $"'{name}' is untouched. Repoint those plugins yourself, then compact.");
+            }
+
             // 5. output location — in-place (overwrite the original) or a NEW file keeping the source's EXACT basename in
             //    a fresh houseCARL mod folder (so its masters still resolve; the user swaps the folder in MO2 to use it).
             string outPath; bool createdFresh = false; RiderFolder rf = default;
