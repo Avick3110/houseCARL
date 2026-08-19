@@ -78,3 +78,15 @@ Concretely:
 - Before writing a sentence that restates another doc's fact, link instead.
 
 Adopted 2026-08-16 from the tool-surface-2.0 doc-space audit: the sub-project's STATUS paraphrased the handoffs, charter, and SPEC it pointed at, and every paraphrase eventually contradicted its source. This is the same one-source-per-sentence rule PR #337 applied to code renders, applied to documentation.
+
+---
+
+## 7. Comment provenance: state the constraint, not the discovery
+
+**Source comments state the constraint and its reasoning — never the PR, review round, or finding that discovered it.** Discovery provenance ("added in PR #311", "review finding 4", "hunt F2") lives in git blame; written into the source it is the commit log encoded into comments, addressed to an audience of one and turning to noise as the tracker ages.
+
+The exception is §6 applied to code: a pointer (`#N` / `PR #N`) **stays** when it stands in for a rationale too large to restate in place — the pointer is the alternative to a paraphrase, and on the public repo those numbers are the only provenance an outside reader can resolve (the `dev/` corpus is private).
+
+Existing discovery citations are cleaned opportunistically when a file is touched — never as a bulk scrub.
+
+Adopted 2026-08-19 from the code-quality review (~511 `PR #` citations across `src/` at the time of the ruling, plus hundreds of review-marker variants — the *why* content was consistently worth keeping; the citation ritual was not).
