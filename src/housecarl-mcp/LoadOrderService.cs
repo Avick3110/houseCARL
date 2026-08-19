@@ -5591,12 +5591,14 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.RemovalOutcome.Fail(
                 "target= is only meaningful with in_place=true (it names the plugin to remove from in place). For the default lane omit target=; use patch= to name the houseCARL patch.");
         if (!inPlace && string.IsNullOrWhiteSpace(patch))
+            // Renders the caller's own spelling, exactly like the not-found arm below: null names no lane. This
+            // arm used to hardcode the 1.x sentence, justified by its being 1.x-only reachable — which was true,
+            // but "true for the one caller that reaches it today" is a roster with one row, and it made a fact
+            // about a DIFFERENT file (that housecarl_remove refuses before the service is called) load-bearing
+            // here. Handing it down costs nothing and removes both.
             return WritePatchBuilder.RemovalOutcome.Fail(
-                // The legacy spelling is hardcoded here because this arm is 1.x-ONLY: housecarl_remove refuses
-                // "no lane named" — in its own correct spelling — before the service is reached. Measured, and
-                // pinned by the extend-resolver guard's tool-altitude arm.
-                "patch is required — name the houseCARL patch to remove the record from (removal only targets a patch that already carries it). "
-                + WriteSentences.RemoveInPlaceLaneLegacy);
+                "patch is required — name the houseCARL patch to remove the record from (removal only targets a patch that already carries it)."
+                + (inPlaceRemedy is null ? "" : " " + inPlaceRemedy));
 
         // Parse every formid first, collecting ALL problems (all-or-nothing, like the edit path). Pure — outside the gate.
         var keys = new List<FormKey>(formids.Count);
@@ -7998,21 +8000,19 @@ public sealed class LoadOrderService : IDisposable
         // working call with the caller's own guessed name in it.
         //
         // THE RULE, not a roster: each operation states its OWN fresh-write path, because it is not inferable here
-        // and the lane bit does not separate it. Three independent ways a shared assumption goes false — which is why
-        // an enumeration was the wrong shape, and why this comment's own list of tools was wrong twice before it
-        // became a rule. (1) The operation does not create a patch at all: a REMOVAL edits an artifact that already
-        // exists, so both halves are false there whichever spelling that tool gives the lane (2.0's housecarl_remove
-        // says into=; 1.x remove_record says patch=, meaning the EXISTING patch — where the sentence would tell the
-        // caller to re-issue the call that just failed). (2) It creates one but names it something else: copy and
-        // copy_npc_appearance default their stem to the new EditorID or houseCARL_NpcCopy, and every RIDER lane
-        // defaults to the stem its own call site passes, never "Patch" — deliberately not listed here, because a list
-        // of them is what keeps going stale; the call sites are the authority. (3) The spelling means a different
-        // artifact on that tool: on housecarl_bsa_repack a bare patch= binds to archive_name — the .bsa, not the mod
-        // folder — because it declares both and §5.3 routes patch= to the artifact.
+        // and the lane bit does not separate it. Three independent ways a shared assumption goes false, stated as
+        // PROPERTIES rather than as tools that have them — this comment's own list of tools was wrong twice before it
+        // became a rule, and naming them here just moves the roster into prose. (1) The operation cannot create a
+        // patch at all: it edits an artifact that must already exist, so a create remedy is false for it whatever it
+        // spells the lane. (2) It creates one, but names it off something other than the "Patch" default — a
+        // caller-supplied identifier, or a stem its own call site fixes. (3) The spelling names a DIFFERENT artifact
+        // on that operation, because it declares more than one output name and §5.3 routes patch= to the artifact.
+        // Which operation is which is answered at the call sites, which are the authority; a reader who wants the set
+        // greps the enum, and gets an answer that cannot be stale.
         //
         // Hence the DEFAULT claims no fresh-write path at all (#356). It used to be case (1)'s opposite — the weaker
-        // "Omit into= to create it fresh", justified as "merely less helpful, never wrong" — and removal, the one
-        // caller that cannot create anything, reached exactly that default and told its callers to omit the lane,
+        // "Omit into= to create it fresh", justified as "merely less helpful, never wrong" — and the removal lane,
+        // which cannot create anything, reached exactly that default and told its callers to omit the lane,
         // which is itself refused. A default that is wrong for a whole class of caller is not a weak default, so the
         // safe sentence is now the one that promises nothing: a caller added later without a thought about any of
         // this gets "Check the name.", and every stronger claim is one an operation makes for itself.

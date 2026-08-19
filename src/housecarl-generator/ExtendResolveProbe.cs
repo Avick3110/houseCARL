@@ -343,11 +343,13 @@ internal static class ExtendResolveProbe
                 Check(r.Error is not null && !r.Error.Contains("in_place", StringComparison.Ordinal),
                       "…and at the SERVICE altitude names no in-place spelling (the tools own that sentence)");
 
-                // The missing-patch= refusal is 1.x-only reachable, so it states the 1.x spelling.
+                // remove's OTHER no-patch refusal renders the caller's own spelling on the same terms: a direct
+                // service call hands none, so it names none.
                 var bare = svc.RemoveRecords(new[] { fid }, null);
                 Check(!bare.Success && bare.Error is not null
-                      && bare.Error.Contains(WriteSentences.RemoveInPlaceLaneLegacy, StringComparison.Ordinal),
-                      "…and remove's OTHER no-patch refusal names the lane in the 1.x spelling it is reachable from");
+                      && bare.Error.Contains("patch is required", StringComparison.Ordinal)
+                      && !bare.Error.Contains("in_place", StringComparison.Ordinal),
+                      "…and the missing-patch= refusal names no spelling either when the caller hands none");
             }
 
             // ---- 8d3: the sentence is read at the TOOL altitude, and each tool spells its OWN lane ---------------
@@ -369,12 +371,20 @@ internal static class ExtendResolveProbe
                 Check(legacy.Contains(WriteSentences.RemoveInPlaceLaneLegacy, StringComparison.Ordinal),
                       "housecarl_remove_record names target= + in_place=true — the lane IT declares");
 
-                // What makes hardcoding the 1.x spelling in the service's "patch is required" arm safe: a 2.0
-                // caller never reaches it. Its own no-lane refusal fires first, in its own spelling.
+                // BOTH of remove's no-usable-patch refusals carry the handed-down spelling, not just the
+                // not-found one: the missing-patch= arm renders what its caller passed, so 1.x reaches it and
+                // gets the 1.x sentence. Nothing about which tool can reach which arm is load-bearing any more.
+                var legacyBare = WriteTools.RemoveRecord(svc, fid);
+                Check(legacyBare.Contains("patch is required", StringComparison.Ordinal)
+                      && legacyBare.Contains(WriteSentences.RemoveInPlaceLaneLegacy, StringComparison.Ordinal),
+                      "…and its missing-patch= refusal carries that same spelling, handed down the same way");
+
+                // The 2.0 tool refuses first, in its own spelling. Kept as a statement about the TOOL — it is
+                // no longer what makes anything in the service correct.
                 var noLane = RemoveTools.Remove(svc, new[] { fid });
                 Check(noLane.Contains("no lane named", StringComparison.Ordinal)
                       && !noLane.Contains("patch is required", StringComparison.Ordinal),
-                      "…and the service's 1.x-spelled 'patch is required' arm is unreachable from the 2.0 tool");
+                      "housecarl_remove answers a lane-less call itself, before the service's own arm");
             }
 
             // ---- 8d2: the removal remedy is TRUE — following it removes the record -------------------------------
