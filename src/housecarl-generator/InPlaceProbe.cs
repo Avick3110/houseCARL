@@ -669,10 +669,13 @@ public static class InPlaceProbe
             bool untouched = File.ReadAllBytes(locT).AsSpan().SequenceEqual(before);
             bool stringsSame = StringsSnapshot(Path.GetDirectoryName(locT)!) == stringsBefore;
             bool noStaging = !Directory.Exists(Path.Combine(Path.GetDirectoryName(locT)!, ".housecarl-tmp"));
-            bool named = !o.Success && (o.Error?.Contains("LOCALIZED", StringComparison.Ordinal) ?? false);
+            // StartsWith, not Contains: the edit lane renders through SerializeFailure, whose lead would put this
+            // refusal after "failed (serialize or commit…)" — a step it happens before. A Contains check passes either
+            // way, so it would leave that render untested.
+            bool named = !o.Success && (o.Error?.StartsWith("houseCARL did not write", StringComparison.Ordinal) ?? false);
             bool pass = named && untouched && stringsSame && noStaging;
-            results.Add(("LOC-A in-place REFUSES a localized target; plugin, strings and staging all untouched", pass,
-                $"refused={!o.Success} named={named} pluginUntouched={untouched} stringsUntouched={stringsSame} noStagingResidue={noStaging}  [{Trim(o.Error)}]"));
+            results.Add(("LOC-A in-place REFUSES a localized target verbatim; plugin, strings and staging all untouched", pass,
+                $"refused={!o.Success} verbatim={named} pluginUntouched={untouched} stringsUntouched={stringsSame} noStagingResidue={noStaging}  [{Trim(o.Error)}]"));
 
             var plainT = FreshUser(tmpDir, "LOCB", userPristine);
             using var r2 = LoadOrderResolver.Build(new[] { masterPath, plainT });
