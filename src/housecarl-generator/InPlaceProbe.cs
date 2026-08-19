@@ -673,8 +673,12 @@ public static class InPlaceProbe
             // refusal after "failed (serialize or commit…)" — a step it happens before. A Contains check passes either
             // way, so it would leave that render untested.
             bool named = !o.Success && (o.Error?.StartsWith("houseCARL did not write", StringComparison.Ordinal) ?? false);
+            // stringsSame is a WITNESS, not a test: the staged write emits into .housecarl-tmp\Strings, never into the
+            // plugin's own Strings\, so this stays true with or without the refusal (measured by disabling the choke
+            // point — it printed pluginUntouched=False noStagingResidue=False stringsUntouched=True). It is reported
+            // because "the strings are still there" is worth seeing; the arm's teeth are the other three.
             bool pass = named && untouched && stringsSame && noStaging;
-            results.Add(("LOC-A in-place REFUSES a localized target verbatim; plugin, strings and staging all untouched", pass,
+            results.Add(("LOC-A in-place REFUSES a localized target verbatim; plugin untouched, no staging residue", pass,
                 $"refused={!o.Success} verbatim={named} pluginUntouched={untouched} stringsUntouched={stringsSame} noStagingResidue={noStaging}  [{Trim(o.Error)}]"));
 
             var plainT = FreshUser(tmpDir, "LOCB", userPristine);
@@ -710,6 +714,44 @@ public static class InPlaceProbe
             var o2 = WritePatchBuilder.RemoveRecordsInPlace(r2, new[] { wfk }, plainT, UserName);
             results.Add(("LOC-D remove-in-place on the NON-localized twin still removes", o2.Success && o2.Removed.Count == 1,
                 $"success={o2.Success} removed={o2.Removed.Count}(want 1)  [{o2.Error ?? "ok"}]"));
+        }
+
+        // ===== LOC-E / LOC-F / LOC-G — the SERVICE predicts the write's refusal instead of meeting it =====
+        // The choke point lives in the write, which the dry run never reaches and which the consent gate runs after.
+        // Left there alone: a dry run on a localized target reports the edit landing and the masters the file would
+        // carry, while the real call refuses — and the first acknowledged real call spends the modder's one-time
+        // in-place consent for a plugin houseCARL was never going to write. The service pre-flight answers first.
+        {
+            var locE = FreshLocalized(tmpDir, "LOCE", locPristine);
+            var storePath = Path.Combine(tmpDir, "LOCE.user.json");
+            using var r = LoadOrderResolver.Build(new[] { masterPath, locE });
+            var svc = LoadOrderService.ForGuard(r, new UserConfigStore(storePath));
+            svc.Stats();
+            var edit = new[] { new BulkOp { Formid = fmtWfk, FieldPath = "BasicStats.Damage", Verb = "Set", Value = "55" } };
+
+            // A dry run's contract is to give EXACTLY the answer the real call gives.
+            var dry = svc.ApplyEdits(edit, null, null, fullReadback: false, target: LocName, inPlace: true,
+                                     acknowledge: false, dryRun: true);
+            bool dryPass = !dry.Success && (dry.Error?.StartsWith("houseCARL did not write", StringComparison.Ordinal) ?? false);
+            results.Add(("LOC-E an in-place DRY RUN on a localized target refuses, as the real call does", dryPass,
+                $"refused={!dry.Success} verbatim={dryPass}  [{Trim(dry.Error) ?? "(reported success — WRONG)"}]"));
+
+            // acknowledge=true is the branch that PERSISTS consent before the write is attempted.
+            var real = svc.ApplyEdits(edit, null, null, fullReadback: false, target: LocName, inPlace: true,
+                                      acknowledge: true);
+            bool spent = new UserConfigStore(storePath).IsInPlaceAcknowledged(locE);
+            results.Add(("LOC-F the refused write does NOT spend the plugin's one-time in-place consent", !real.Success && !spent,
+                $"refused={!real.Success} consentRecorded={spent}(want False)  [{Trim(real.Error)}]"));
+
+            // The other direction on the same seam: the plain twin's dry run still reports what it would do.
+            var plainG = FreshUser(tmpDir, "LOCG", userPristine);
+            using var rg = LoadOrderResolver.Build(new[] { masterPath, plainG });
+            var svcG = LoadOrderService.ForGuard(rg, new UserConfigStore(Path.Combine(tmpDir, "LOCG.user.json")));
+            svcG.Stats();
+            var dryG = svcG.ApplyEdits(edit, null, null, fullReadback: false, target: UserName, inPlace: true,
+                                       acknowledge: false, dryRun: true);
+            results.Add(("LOC-G the NON-localized twin's in-place dry run still reports what it would do", dryG.Success && dryG.DryRun,
+                $"success={dryG.Success} dryRun={dryG.DryRun}  [{dryG.Error ?? "ok"}]"));
         }
 
         Console.WriteLine("── ARMS ──");

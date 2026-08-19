@@ -10,8 +10,20 @@ using Mutagen.Bethesda.Strings;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// EXPLORATORY probe (#368): does the MUTABLE open honour the same strings overrides OpenOverlay wires for reads, and
-/// does the mutate → WriteInPlace round-trip preserve the resolved strings ON DISK? Not a guard — throwaway evidence.
+/// EXPLORATORY probe: does the MUTABLE open honour the same strings overrides OpenOverlay wires for reads, and does the
+/// mutate → WriteInPlace round-trip preserve the resolved strings ON DISK? Not a guard — the evidence behind the
+/// in-place lane's localized refusal.
+///
+/// <para>ON A CURRENT BUILD EVERY ARM STOPS AT THE REFUSAL, which is the whole point of the refusal: the write will not
+/// re-serialize a localized plugin. To reproduce the ORIGINAL measurement — the one the refusal cites, where a weapon
+/// comes back reading a book's name — disable the choke point in <c>WriteEngine.WriteInPlace</c> and re-run. The arms
+/// are kept intact so that measurement stays reproducible rather than becoming a claim in a comment.</para>
+///
+/// <para>The measurement, for the record: with the guard bypassed, ARM A (strings relocated to game-Data, bare open)
+/// comes back blank and STAYS blank when re-read with the game-Data folder; ARM B (the same fixture, strings-aware
+/// open) reads every value correctly in memory and writes a MIX of correct, blank, and other-record text; ARM C
+/// (strings sitting correctly beside the plugin — nothing wrong with it at all) is scrambled the same way. The emitted
+/// .STRINGS and .DLSTRINGS differ byte-wise from the ones the committed plugin is left resolving against.</para>
 ///
 /// Run: dotnet run --project src/housecarl-generator repoint-strings-probe
 /// </summary>
@@ -149,6 +161,15 @@ public static class RepointStringsProbe
             {
                 var tgtOv = SkyrimMod.CreateFromBinaryOverlay(tgtPath, SkyrimRelease.SkyrimSE);
                 try { WriteEngine.WriteInPlace(mut, new ISkyrimModGetter[] { tgtOv }, refPath); }
+                catch (LocalizedTargetUnsupportedException ex)
+                {
+                    // The shipped behaviour. The corruption this probe measured is why the refusal exists, so on a
+                    // current build the arm stops HERE rather than reproducing it — see the class summary for how to
+                    // get the original measurement back.
+                    Console.WriteLine("  REFUSED by the in-place write's localized choke point — nothing written.");
+                    Console.WriteLine("  " + ex.Message);
+                    return 0;
+                }
                 finally { ((IDisposable)tgtOv).Dispose(); }
             }
 

@@ -1826,6 +1826,27 @@ public static class WriteEngine
         CommitStagedPatch(staged, outputPath);
     }
 
+    /// <summary>Is the plugin at <paramref name="path"/> flagged LOCALIZED? The pre-flight form of
+    /// <see cref="WriteInPlace"/>'s choke point, for the lanes that must answer BEFORE they reach the write — a dry
+    /// run (whose job is to give the same answer the real call would) and the consent gate (which must not spend a
+    /// modder's one-time in-place acknowledgement on a write that is going to refuse).
+    ///
+    /// <para>Reads the header only, and deliberately with the BARE overlay: the localized FLAG is in the header, so
+    /// unlike reading the strings themselves this needs no game-Data fallback and cannot be wrong about the flag
+    /// because a strings source is missing. Any fault answers "not localized" and leaves the write's own choke point
+    /// to refuse — a pre-flight that threw would turn a readable-header failure into a different refusal.</para></summary>
+    public static bool PluginIsLocalized(string path)
+    {
+        ISkyrimModGetter? ov = null;
+        try
+        {
+            ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
+            return ov.ModHeader.Flags.HasFlag(SkyrimModHeader.HeaderFlag.Localized);
+        }
+        catch { return false; }
+        finally { if (ov is IDisposable d) { try { d.Dispose(); } catch { } } }
+    }
+
     /// <summary>Stage 1 of the in-place write — the probe-faithful re-serialize: own declared masters as the load order,
     /// the counter persisted verbatim (<c>NoNextFormIDProcessing</c>, NO floor), NO baseline force-include. Stages into
     /// the <c>.housecarl-tmp</c> sibling of the target (same parent ⇒ same NTFS volume ⇒ the stage-2 swap is atomic),
@@ -3831,7 +3852,8 @@ public sealed class NullArmSerializeException : InvalidOperationException
 /// <see cref="WriteEngine.WriteInPlace"/> before the staging directory is created, so nothing is written, staged, or
 /// cleaned up.
 ///
-/// <para>WHY, measured (<c>repoint-strings-probe</c>): a localized plugin keeps its text in sibling
+/// <para>WHY, measured (<c>repoint-strings-probe</c> — which now stops at this very refusal, so reproducing the
+/// measurement means disabling the check below and re-running; the probe's summary says so): a localized plugin keeps its text in sibling
 /// <c>.STRINGS</c>/<c>.DLSTRINGS</c>/<c>.ILSTRINGS</c> files and carries only integer indices into them.
 /// <see cref="WriteEngine.WriteInPlace"/> stages the serialize, which emits a freshly numbered set of those files
 /// beside the staged plugin, and then commits THE PLUGIN ALONE — the emitted tables are discarded with the staging
@@ -3846,14 +3868,24 @@ public sealed class NullArmSerializeException : InvalidOperationException
 /// that lands, the write refuses rather than corrupt a file it cannot faithfully re-emit.</para></summary>
 public sealed class LocalizedTargetUnsupportedException : InvalidOperationException
 {
-    public LocalizedTargetUnsupportedException(string pluginFileName)
-        : base($"houseCARL did not write '{pluginFileName}' — the file is unchanged and nothing was staged. It is flagged " +
-               "LOCALIZED, so its text is held in separate .STRINGS files and the plugin itself carries only indices into " +
-               "them. Re-serializing the plugin renumbers those indices, and this write commits the plugin file alone — so " +
-               "the rewritten plugin would read its text against the old, unchanged strings files and every localized value " +
-               "would land on the wrong record. houseCARL refuses the write instead of corrupting the file.")
-    {
-    }
+    /// <summary>The refusal sentence, in ONE place — the exception below throws it, and the lanes that predict the
+    /// refusal BEFORE reaching the write (a dry run, or the consent gate) state it without throwing. Two spellings of
+    /// this would drift, and the dry run's whole job is to give the same answer as the real call.
+    ///
+    /// <para>"would no longer reliably be its own record's" and not "would all land on the wrong record": the probe
+    /// measures a MIX — of five localized weapons in arm C, two kept their own text exactly, one went blank, and two
+    /// read a book's. The absolute was the easier sentence to write and the more dangerous one to act on, because a
+    /// caller who checks a few records, finds them intact, and concludes the diagnosis does not fit their file is
+    /// looking at precisely the failure being described.</para></summary>
+    public static string Text(string pluginFileName)
+        => $"houseCARL did not write '{pluginFileName}' — the file is unchanged and nothing was staged. It is flagged " +
+           "LOCALIZED, so its text is held in separate .STRINGS files and the plugin itself carries only indices into " +
+           "them. Re-serializing the plugin renumbers those indices, and this write commits the plugin file alone — so " +
+           "in the rewritten plugin a localized value would no longer reliably be its own record's: measured, some " +
+           "records kept their text, one went blank, and others read text belonging to a different record. houseCARL " +
+           "refuses the write instead of corrupting the file.";
+
+    public LocalizedTargetUnsupportedException(string pluginFileName) : base(Text(pluginFileName)) { }
 }
 
 /// <summary>A refusal whose cause is LIVE COLLECTION/RECORD STATE the schema-only pre-flight provably CANNOT see —
