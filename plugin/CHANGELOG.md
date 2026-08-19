@@ -18,9 +18,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
   spelling — is refused, and that refusal ended "Omit into= to create it fresh, or check the name." Doing that got
   you a second refusal: removal has no fresh-patch lane, because it only drops a record the patch itself already
   carries, so there is nothing for a newly created one to remove. The refusal now says that instead, and names the
-  lane a removal does have — `target=<plugin filename>` + `in_place=true`, which removes the record from an existing
-  plugin in place (that lane's own first-touch confirmation still applies; see the in-place entry below for what it
-  refuses). Every write tool that *can* create a patch still says so, each on its own behalf. (#356)
+  lane a removal does have — `in_place="<plugin filename>"` on `housecarl_remove`, `target=<plugin filename>` +
+  `in_place=true` on the 1.x `housecarl_remove_record`, each tool naming the lane it declares. That lane removes the
+  record from an existing plugin in place; its own first-touch confirmation still applies, and see the in-place entry
+  below for what it refuses. Every write tool that *can* create a patch still says so, each on its own behalf. (#356)
 
 - **The record-editing lanes now refuse a localized plugin in place instead of scrambling its text.** Editing,
   removing from, creating into, or forwarding into an existing plugin **in place** re-serializes that whole plugin —
