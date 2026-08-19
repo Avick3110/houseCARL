@@ -1828,8 +1828,8 @@ public static class WriteEngine
 
     /// <summary>Is the plugin at <paramref name="path"/> flagged LOCALIZED? The pre-flight form of
     /// <see cref="WriteInPlace"/>'s choke point, for the lanes that must answer BEFORE they reach the write — a dry
-    /// run (whose job is to give the same answer the real call would) and the consent gate (which must not spend a
-    /// modder's one-time in-place acknowledgement on a write that is going to refuse).
+    /// run (whose job is to give the same answer the real call would), and any lane whose refusal carries a remedy
+    /// clause of its own, which the throw below cannot name because it does not know which lane called it.
     ///
     /// <para>Reads the header only, and deliberately with the BARE overlay: the localized FLAG is in the header, so
     /// unlike reading the strings themselves this needs no game-Data fallback and cannot be wrong about the flag

@@ -13,6 +13,19 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **Fixed: a refused in-place call no longer spends your one-time confirmation.** The in-place lanes ask you to
+  confirm the first time they touch a given file, and remember the answer. That confirmation used to be recorded when
+  you passed `acknowledge=true`, before the write was attempted — so a call that was then refused, and wrote nothing,
+  had already spent it. Removing a record the target does not carry, editing one it does not define, forwarding from
+  a source that does not have it, creating a record that links to a plugin you have not enabled: each of these is
+  refused with your file untouched, and each used to bank the confirmation for that plugin. The next in-place write
+  to it — the first one that actually rewrote your original — then went ahead with no prompt. The confirmation is now
+  recorded after the write lands, in every in-place lane (`housecarl_apply`, `housecarl_create`, `housecarl_remove`,
+  `housecarl_forward`, their 1.x spellings, and `housecarl_nif_set`), so no refusal can spend it. It still covers the
+  whole plugin once given, and is still shared across those lanes — see the `housecarl_remove` entry above for what
+  that means when you follow a refusal into the in-place lane. If houseCARL cannot save the confirmation, it says so
+  and you are asked again next session. (#378)
+
 - **Fixed: `housecarl_remove` told you to create a patch it cannot create.** Naming a patch that does not exist —
   `housecarl_remove(..., into="My Patch.esp")`, or `housecarl_remove_record(..., patch="My Patch.esp")` on the 1.x
   spelling — is refused, and that refusal ended "Omit into= to create it fresh, or check the name." Doing that got
@@ -42,12 +55,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   corrupted the same way.
 
   These lanes now stop before writing anything and tell you the plugin is localized, why houseCARL will not re-emit
-  it, and what to do instead where there is something to do. Nothing is written or staged, and your one-time
-  in-place consent for that plugin is not spent on a write that cannot happen — the one exception being a plugin
-  whose header cannot be read at that moment (a lock from MO2 or xEdit, say), which the check treats as
-  not-localized: the call then proceeds, spends the acknowledgement, and is refused at the write instead. The file
-  is untouched either way. A dry run gives the same refusal the real call does, rather than reporting an edit that
-  would then be refused. `housecarl_compact_plugin` checks the referencers it would rewrite *before* it compacts
+  it, and what to do instead where there is something to do. Nothing is written or staged. A plugin whose header
+  cannot be read at that moment (a lock from MO2 or xEdit, say) is treated as not-localized, so the call proceeds and
+  is refused at the write instead, with a message that does not name this lane's remedy; the file is untouched either
+  way, and neither refusal costs you a confirmation (see the consent entry above). A dry run gives the same refusal
+  the real call does, rather than reporting an edit that would then be refused.
+  `housecarl_compact_plugin` checks the referencers it would rewrite *before* it compacts
   anything, so it refuses up front rather than renumbering your plugin and then stopping partway through the plugins
   that point at it — and it refuses before asking you to confirm the rewrite, instead of after.
 
