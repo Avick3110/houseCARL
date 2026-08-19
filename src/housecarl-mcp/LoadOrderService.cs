@@ -1430,9 +1430,7 @@ public sealed class LoadOrderService : IDisposable
                 if (sz != editedBytes.Length)
                     return NifSetResult.Fail($"wrote '{meshName}' but its on-disk size ({sz}) does not match the {editedBytes.Length} verified byte(s) — verify before relying on it.", providers, profileName);
 
-                var ackNote = PersistInPlaceConsent(owesConsent, targetPath) is { } ackErr
-                    ? $"the in-place acknowledgement could not be saved ({ackErr}) — the edit proceeded, but the next in-place call will ask for this file again."
-                    : null;
+                var ackNote = PersistInPlaceConsent(owesConsent, targetPath, "edit", subject: "file");
                 return NifSetResult.OkInPlace(rel, chosenProv, providers, place.Ambiguous, editedIsWinner, report, targetPath,
                     MergeWarnings(report.Warnings, warnings, ackNote), profileName);
             }
@@ -5389,8 +5387,8 @@ public sealed class LoadOrderService : IDisposable
         //     surfaced as a note, never auto-regen'd (Aaron 2026-07-04).
         if (outcome.Success)
         {
-            if (PersistInPlaceConsent(owesConsent, targetPath) is { } ackErr)
-                ackNote = $"the in-place acknowledgement could not be saved ({ackErr}) — the edit proceeded, but the next in-place call will ask for this plugin again.";
+            // ackNote is null here: the only other writer is the dry-run branch, which returned above.
+            ackNote = PersistInPlaceConsent(owesConsent, targetPath, "edit");
             var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
             // outcome.Note first — the core's master-grow re-sort note (PR #163 review #1) must survive the merge.
@@ -5448,12 +5446,21 @@ public sealed class LoadOrderService : IDisposable
     ///
     /// <para>Callers persist on the lane's own SUCCESS, which is the conservative reading: a lane that mutated the
     /// file and then failed its post-write verify records nothing and re-prompts next time. Over-prompting costs a
-    /// confirmation; under-prompting costs a file, so the failure direction is chosen deliberately.</para></summary>
-    string? PersistInPlaceConsent(bool owed, string targetPath)
+    /// confirmation; under-prompting costs a file, so the failure direction is chosen deliberately.</para>
+    ///
+    /// <para>Returns the caller's NOTE when the config write failed, null otherwise — the sentence lives here, in one
+    /// place, rather than once per lane. <paramref name="what"/> names the thing that just happened ("edit",
+    /// "removal", "create", "forward") and <paramref name="subject"/> the thing being remembered; those two words are
+    /// the whole of the per-lane variation, and five hand-kept copies of the rest is how the claim they share drifts
+    /// apart. "the next in-place call" and not "a future session": <see cref="UserConfigStore"/> caches nothing, so a
+    /// failed write is re-prompted immediately.</para></summary>
+    string? PersistInPlaceConsent(bool owed, string targetPath, string what, string subject = "plugin")
     {
         if (!owed) return null;
         var (ok, err) = _store.RecordInPlaceAcknowledged(targetPath);
-        return ok ? null : (err ?? "unknown error");
+        return ok ? null
+            : $"the in-place acknowledgement could not be saved ({err ?? "unknown error"}) — the {what} proceeded, " +
+              $"but the next in-place call will ask for this {subject} again.";
     }
 
     /// <summary>Writable-parent pre-flight for the in-place swap (§6 layer 3): the staged temp is a sibling of the
@@ -5731,9 +5738,7 @@ public sealed class LoadOrderService : IDisposable
         //     .seq — surfaced, never auto-regenerated.
         if (outcome.Success)
         {
-            var ackNote = PersistInPlaceConsent(owesConsent, targetPath) is { } ackErr
-                ? $"the in-place acknowledgement could not be saved ({ackErr}) — the removal proceeded, but the next in-place call will ask for this plugin again."
-                : null;
+            var ackNote = PersistInPlaceConsent(owesConsent, targetPath, "removal");
             var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
             // outcome.Note first — the core's master-grow re-sort note (PR #163 review #1) must survive the merge.
@@ -5906,8 +5911,8 @@ public sealed class LoadOrderService : IDisposable
         //     (the marker and flag best-effort; neither miss fails the done forward, Q3-noted).
         if (outcome.Success)
         {
-            if (PersistInPlaceConsent(owesConsent, targetPath) is { } ackErr)
-                ackNote = $"the in-place acknowledgement could not be saved ({ackErr}) — the forward proceeded, but the next in-place call will ask for this plugin again.";
+            // ackNote is null here: the only other writer is the dry-run branch, which returned above.
+            ackNote = PersistInPlaceConsent(owesConsent, targetPath, "forward");
             var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
             // outcome.Note first — the core's master-grow re-sort note (PR #163 review #1) must survive the merge.
@@ -7002,9 +7007,7 @@ public sealed class LoadOrderService : IDisposable
         //     marker (best-effort; a marker miss never fails the done create, Q3-noted).
         if (outcome.Success)
         {
-            var ackNote = PersistInPlaceConsent(owesConsent, targetPath) is { } ackErr
-                ? $"the in-place acknowledgement could not be saved ({ackErr}) — the create proceeded, but the next in-place call will ask for this plugin again."
-                : null;
+            var ackNote = PersistInPlaceConsent(owesConsent, targetPath, "create");
             var enriched = EnrichWithCellShell(EnrichWithScriptCheck(EnrichWithVoiceCheck(outcome, resolver)));
             var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
             var note = JoinNotes(ackNote, markerNote);
