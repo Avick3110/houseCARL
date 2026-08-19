@@ -37,6 +37,9 @@ namespace HousecarlGenerator;
 ///                  true rather than read. The two arms that keep it honest are negative: the RIDER lane does NOT
 ///                  get it (on bsa_repack patch= binds to archive_name — the .bsa), and neither does the REMOVAL
 ///                  lane, which shares the record branch but whose patch= names an EXISTING patch.
+///   REMOVE-TAIL  — that removal lane offers no create route at all (#356: it used to inherit "omit into= to create
+///                  it fresh", which removal itself refuses), states why, and names the one lane it does have. Its
+///                  spelling is the calling TOOL'"'"'s, not the service'"'"'s, and the arms call the tools to see it.
 ///   FOREIGN      — a "houseCARL - X" folder with NO marker is still REFUSED (originals untouched, Q3) and left byte-intact.
 ///   ORIGINALS    — the master plugin is byte-untouched throughout (extends only ever wrote the patch folder).
 /// </summary>
@@ -335,24 +338,52 @@ internal static class ExtendResolveProbe
                       "…it falls back to the always-true default tail (check what you typed)");
                 Check(r.Error is not null && r.Error.Contains(WriteSentences.RemoveNoFreshPatch, StringComparison.Ordinal),
                       "…and the LANE states why there is no create route here (a fresh patch carries nothing to remove)");
-                Check(r.Error is not null && r.Error.Contains(WriteSentences.RemoveInPlaceAlternative, StringComparison.Ordinal),
-                      "…and names the one lane a removal does have — target= + in_place=true");
+                // A direct SERVICE call names no in-place spelling at all — the two tools spell that lane
+                // differently, so the honest thing at this altitude is the half that is true at both.
+                Check(r.Error is not null && !r.Error.Contains("in_place", StringComparison.Ordinal),
+                      "…and at the SERVICE altitude names no in-place spelling (the tools own that sentence)");
 
-                // The missing-patch= refusal renders the SAME in-place sentence, from the same constant. It is the
-                // call the old tail sent callers to, so the two have to agree about what a caller does next — which
-                // is the whole reason this clause is shared rather than written out twice.
+                // The missing-patch= refusal is 1.x-only reachable, so it states the 1.x spelling.
                 var bare = svc.RemoveRecords(new[] { fid }, null);
                 Check(!bare.Success && bare.Error is not null
-                      && bare.Error.Contains(WriteSentences.RemoveInPlaceAlternative, StringComparison.Ordinal),
-                      "…and remove's OTHER no-patch refusal names the same lane, from the same constant");
+                      && bare.Error.Contains(WriteSentences.RemoveInPlaceLaneLegacy, StringComparison.Ordinal),
+                      "…and remove's OTHER no-patch refusal names the lane in the 1.x spelling it is reachable from");
+            }
+
+            // ---- 8d3: the sentence is read at the TOOL altitude, and each tool spells its OWN lane ---------------
+            //      The service cannot tell its two callers apart, and they declare different parameters: 2.0's
+            //      housecarl_remove takes in_place="<file>" and no target= at all, while 1.x remove_record takes
+            //      target= plus a bool. One shared sentence is therefore wrong on one of them — which is #356's own
+            //      defect one layer up, and invisible to every arm that calls the service directly. These call the
+            //      TOOLS.
+            Console.WriteLine();
+            Console.WriteLine("--- 8d3: each remove TOOL's refusal names the lane IT declares ---");
+            {
+                var modern = RemoveTools.Remove(svc, new[] { fid }, into: "GhostRemove");
+                Check(modern.Contains(WriteSentences.RemoveInPlaceLane, StringComparison.Ordinal),
+                      "housecarl_remove names in_place=\"<plugin filename>\" — the lane it actually declares");
+                Check(!modern.Contains("target=", StringComparison.Ordinal),
+                      "…and never names target=, which that tool does not declare");
+
+                var legacy = WriteTools.RemoveRecord(svc, fid, patch: "GhostRemove");
+                Check(legacy.Contains(WriteSentences.RemoveInPlaceLaneLegacy, StringComparison.Ordinal),
+                      "housecarl_remove_record names target= + in_place=true — the lane IT declares");
+
+                // What makes hardcoding the 1.x spelling in the service's "patch is required" arm safe: a 2.0
+                // caller never reaches it. Its own no-lane refusal fires first, in its own spelling.
+                var noLane = RemoveTools.Remove(svc, new[] { fid });
+                Check(noLane.Contains("no lane named", StringComparison.Ordinal)
+                      && !noLane.Contains("patch is required", StringComparison.Ordinal),
+                      "…and the service's 1.x-spelled 'patch is required' arm is unreachable from the 2.0 tool");
             }
 
             // ---- 8d2: the removal remedy is TRUE — following it removes the record -------------------------------
+            //      Driven through housecarl_remove, in the spelling that tool declares (arm 8d3's subject).
             //      Same standard as arm 8b: a remedy is a claim about what a call does, so it is checked by MAKING
             //      the call. Its own throwaway active plugin, never the master — arm 10 asserts that file is
             //      byte-untouched, and an in-place removal would be exactly the write that falsifies it.
             Console.WriteLine();
-            Console.WriteLine("--- 8d2: following the removal remedy (target= + in_place=true) removes the record ---");
+            Console.WriteLine("--- 8d2: following the removal remedy (in_place=\"<plugin filename>\") removes the record ---");
             {
                 var ipDir = Path.Combine(mods, "RemoveHereMod");
                 Directory.CreateDirectory(ipDir);
@@ -371,20 +402,21 @@ internal static class ExtendResolveProbe
                 svc.Stats();                                                   // let the resolver see the changed order
 
                 string ipFid = $"{ipFk.ID:X6}:RemoveHere.esp";
-                var refused = svc.RemoveRecords(new[] { ipFid }, "GhostRemove");
-                Check(!refused.Success && refused.Error is not null
-                      && refused.Error.Contains(WriteSentences.RemoveInPlaceAlternative, StringComparison.Ordinal),
+                // Driven through the 2.0 TOOL, not the service: the sentence under test is the one that tool
+                // renders, in the spelling that tool declares, so following it has to mean passing what it says.
+                var refused = RemoveTools.Remove(svc, new[] { ipFid }, into: "GhostRemove");
+                Check(refused.Contains(WriteSentences.RemoveInPlaceLane, StringComparison.Ordinal),
                       "the not-found refusal fires for this record too, naming the in-place lane");
 
                 // Following it lands on the first-touch CONSENT handshake, not a write and not an error — the
                 // sentence promises the lane, and this is the lane's own next step.
-                var prompted = svc.RemoveRecords(new[] { ipFid }, null, "RemoveHere.esp", inPlace: true);
-                Check(!prompted.Success && prompted.NeedsAcknowledge,
+                var prompted = RemoveTools.Remove(svc, new[] { ipFid }, in_place: "RemoveHere.esp");
+                Check(prompted.Contains("first-time confirmation", StringComparison.Ordinal),
                       "following it reaches the in-place first-touch confirmation (a prompt, not a refusal)");
 
-                var done = svc.RemoveRecords(new[] { ipFid }, null, "RemoveHere.esp", inPlace: true, acknowledge: true);
-                Check(done.Success && done.InPlace && done.Removed.Count == 1,
-                      $"…and acknowledging it REMOVES the record ({done.Error})");
+                var done = RemoveTools.Remove(svc, new[] { ipFid }, in_place: "RemoveHere.esp", acknowledge: true);
+                Check(done.Contains("removed 1 record from RemoveHere.esp IN PLACE", StringComparison.Ordinal),
+                      $"…and acknowledging it REMOVES the record ({done})");
                 ISkyrimModGetter? back = null;
                 try
                 {
@@ -392,6 +424,28 @@ internal static class ExtendResolveProbe
                     Check(back.Weapons.All(w => w.FormKey != ipFk), "…and the record is GONE from the file on disk");
                 }
                 finally { (back as IDisposable)?.Dispose(); }
+            }
+
+            // ---- 8e: every lane that STATES a fresh-write path is held to saying it ------------------------------
+            //      The shared default used to carry the create clause, so these call sites were free-riding on it and
+            //      an arm would have proved nothing. Now the default claims nothing and each lane states its own, so
+            //      a deleted statement is a silently weakened refusal — the #356 shape, one lane over. apply is
+            //      covered by arm 8; forward and create are cheap on this fixture; the two copy lanes need an NPC
+            //      universe, so they are pinned in their own probes (copy-service-guard, npc-copy-guard).
+            Console.WriteLine();
+            Console.WriteLine("--- 8e: forward and create still state that patch= names a fresh patch ---");
+            {
+                // A name nothing holds — arm 8b's remedy call created "GhostPatch", so reusing it would resolve.
+                var fwd = svc.ForwardRecords(new[] { fid }, mKey.FileName, null, "GhostFwd");
+                Check(!fwd.Success && fwd.Error is not null
+                      && fwd.Error.Contains("pass patch=\"GhostFwd\"", StringComparison.Ordinal),
+                      "housecarl_forward's not-found refusal names patch=<the guessed name>");
+
+                var cre = svc.CreateRecordsBatch(new[] { new CreateOp { RecordType = "Keyword", Editorid = "HcExtKw" } },
+                                                 null, "GhostCre");
+                Check(!cre.Success && cre.Error is not null
+                      && cre.Error.Contains("pass patch=\"GhostCre\"", StringComparison.Ordinal),
+                      "housecarl_create's does too");
             }
 
             // ---- 9: FOREIGN — an un-owned "houseCARL - X" folder stays REFUSED + byte-untouched (Q3) ----

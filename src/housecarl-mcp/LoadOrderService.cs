@@ -5572,7 +5572,7 @@ public sealed class LoadOrderService : IDisposable
     /// → mod.Remove → re-serialize, with clean-masters riding along). The default lane never touches originals (only the
     /// patch folder is written).</summary>
     public WritePatchBuilder.RemovalOutcome RemoveRecords(IReadOnlyList<string> formids, string? patch,
-        string? target = null, bool inPlace = false, bool acknowledge = false)
+        string? target = null, bool inPlace = false, bool acknowledge = false, string? inPlaceRemedy = null)
     {
         if (formids is null || formids.Count == 0)
             return WritePatchBuilder.RemovalOutcome.Fail("no formids supplied — pass the FormID(s) of the record(s) to remove.");
@@ -5592,8 +5592,11 @@ public sealed class LoadOrderService : IDisposable
                 "target= is only meaningful with in_place=true (it names the plugin to remove from in place). For the default lane omit target=; use patch= to name the houseCARL patch.");
         if (!inPlace && string.IsNullOrWhiteSpace(patch))
             return WritePatchBuilder.RemovalOutcome.Fail(
+                // The legacy spelling is hardcoded here because this arm is 1.x-ONLY: housecarl_remove refuses
+                // "no lane named" — in its own correct spelling — before the service is reached. Measured, and
+                // pinned by the extend-resolver guard's tool-altitude arm.
                 "patch is required — name the houseCARL patch to remove the record from (removal only targets a patch that already carries it). "
-                + WriteSentences.RemoveInPlaceAlternative);
+                + WriteSentences.RemoveInPlaceLaneLegacy);
 
         // Parse every formid first, collecting ALL problems (all-or-nothing, like the edit path). Pure — outside the gate.
         var keys = new List<FormKey>(formids.Count);
@@ -5625,9 +5628,14 @@ public sealed class LoadOrderService : IDisposable
             // lane is itself refused, so the sentence sent callers to a second refusal. What this lane can honestly
             // offer instead is measured — a patch created first carries no override of the record, so removal refuses
             // there too; the in-place lane does remove it, behind the first-touch confirmation.
+            //
+            // The in-place half comes from the TOOL (inPlaceRemedy), because the two tools spell that lane
+            // differently and the service cannot tell which one called it. Null — a direct service call — offers
+            // only the half that is true at every altitude, rather than guessing a spelling.
             string outPath;
             try { outPath = ResolveOutputPath(patchName: null, into: patch, out _, out _,
-                                              laneClause: WriteSentences.RemoveNoFreshPatch + " " + WriteSentences.RemoveInPlaceAlternative); }
+                                              laneClause: WriteSentences.RemoveNoFreshPatch
+                                                          + (inPlaceRemedy is null ? "" : " " + inPlaceRemedy)); }
             catch (Exception ex) { return WritePatchBuilder.RemovalOutcome.Fail(ex.Message); }
 
             return WritePatchBuilder.RemoveRecords(resolver, keys, outPath);
@@ -8015,6 +8023,9 @@ public sealed class LoadOrderService : IDisposable
         // THIS arm only. The ambiguous and multi-plugin arms above already name a working call, and the foreign-folder
         // arm's remedy is #359's open design question, not this one's.
         //
+        // It is rendered BEFORE the fallback above, not after: the lane's own diagnosis is what makes the fallback
+        // the right thing left to do, and reading the instruction first was the order two reviewers stumbled on.
+        //
         // Note what the sentence does NOT do: predict the resulting filename. UniqueStem takes a stem only when it
         // is free on BOTH of IsStemFree's tests — no "houseCARL - <stem>" folder already exists, AND no active
         // plugin is named "<stem>.esp" — and suffixes it otherwise. Either trigger is ordinary: the folder arm is
@@ -8025,7 +8036,7 @@ public sealed class LoadOrderService : IDisposable
             $"cannot extend: no houseCARL plugin '{espName}' in any houseCARL folder, and no houseCARL folder named " +
             $"'{ModFolderName(stem)}'" +
             (string.Equals(bareName, ModFolderName(stem), StringComparison.OrdinalIgnoreCase) ? "" : $" or '{bareName}'") +
-            ". " + freshPatch switch
+            ". " + (laneClause is null ? "" : laneClause + " ") + freshPatch switch
             {
                 FreshPatchRemedy.NamedByPatchParam =>
                     $"Omit into= and pass patch=\"{stem}\" to create it fresh under a name you choose, or omit patch= "
@@ -8033,7 +8044,7 @@ public sealed class LoadOrderService : IDisposable
                     + "Or check the name.",
                 FreshPatchRemedy.CreatedByOmittingInto => "Omit into= to create it fresh, or check the name.",
                 _ => WriteSentences.ExtendCheckTheName,
-            } + (laneClause is null ? "" : " " + laneClause));
+            });
     }
 
     /// <summary>houseCARL-OWNED mod folders under ModsDir holding a plugin file named <paramref name="espFileName"/> at

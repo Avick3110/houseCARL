@@ -248,6 +248,18 @@ public static class NpcCopyProbe
             using var svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(root, "user.json")));
             svc.Stats();
 
+            // ================= 0. into= a patch that does not exist ============================================
+            //      Same statement as copy's, for the same reason (#356): the shared resolver's default no longer
+            //      offers any create route, so this lane's own CreatedByOmittingInto is what keeps the clause on
+            //      this refusal — and nothing else would notice if it were deleted.
+            {
+                var ghost = svc.CopyNpcAppearance(donorNpcFk.ToString(), "Donor.esp", null,
+                                                  targetFk.ToString(), null, null, null, "NoSuchFacePatch");
+                Check(!ghost.Success && ghost.Error is not null
+                      && ghost.Error.Contains("create it fresh", StringComparison.OrdinalIgnoreCase),
+                      $"copy_npc_appearance's not-found refusal still offers its fresh-write route ({ghost.Error})");
+            }
+
             // ================= 1. APPLY — disabled donor's appearance onto the active follower =================
             {
                 var o = svc.CopyNpcAppearance(donorNpcFk.ToString(), "Donor.esp", null,

@@ -246,7 +246,10 @@ public static class WriteTools
             bool acknowledge = false) => Guard.Tool("housecarl_remove_record", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        return RenderRemoval(svc.RemoveRecords(new[] { formid }, patch, target, in_place, acknowledge));
+        // This tool's own lane spelling (a bool + target=), handed down rather than assumed by the service —
+        // housecarl_remove reaches the same refusal and declares no target= at all.
+        return RenderRemoval(svc.RemoveRecords(new[] { formid }, patch, target, in_place, acknowledge,
+                                               WriteSentences.RemoveInPlaceLaneLegacy));
     });
 
     [McpServerTool(Name = "housecarl_create_record", Title = "Create a brand-new record"),

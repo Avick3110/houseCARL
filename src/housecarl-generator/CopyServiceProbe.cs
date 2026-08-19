@@ -191,6 +191,20 @@ public static class CopyServiceProbe
             var seedPaths = new[] { "HeadParts" };
             var noExcl = Array.Empty<WalkExclusion>();
 
+            // ---- 0. into= a patch that does not exist: this lane STATES it can create one fresh ---------------
+            //      The shared resolver's default used to carry that clause for every caller. It no longer claims
+            //      any create route (#356 — removal reached the same default and cannot create), so copy's own
+            //      statement is what puts the clause back, and deleting it silently weakens this refusal. Measured
+            //      here rather than assumed: omitting into= on this lane does create a patch, named off the new
+            //      EditorID (the clone arm below writes ClonePatch.esp the same way).
+            {
+                var ghost = svc.CopyClosure(srcNpcFk, new[] { "Src.esp" }, seedPaths, noExcl,
+                    targetFk, null, null, "NoSuchCopyPatch");
+                Check(ghost.EngineError is not null
+                      && ghost.EngineError.Contains("create it fresh", StringComparison.OrdinalIgnoreCase),
+                      $"copy's not-found refusal still offers the fresh-write route it does have ({ghost.EngineError})");
+            }
+
             // ---- 1. ATTACH onto an ACTIVE target, source DISABLED --------------------------------------------
             var att = svc.CopyClosure(srcNpcFk, new[] { "Src.esp" }, seedPaths, noExcl,
                 targetFk, null, "AttachPatch", null);
