@@ -61,6 +61,9 @@ if (args.Length > 0 && args[0] == "class-parents") return ClassParentsEmitter.Ru
 // Localized-strings read fix (Heisen 2026-06-24): DLC master resolved to a strings-less mod folder reads Name EMPTY.
 if (args.Length > 0 && args[0] == "strings-resolve-probe") return StringsResolveProbe.Run(args[1..]);
 
+// EXPLORATORY (#368): the MUTABLE strings-aware open + the mutate → WriteInPlace round-trip.
+if (args.Length > 0 && args[0] == "repoint-strings-probe") return RepointStringsProbe.Run(args[1..]);
+
 // One-shot verify (decision #1): confirm the xEdit 4-char signature reflection path.
 if (args.Length > 0 && args[0] == "sig") return Probe.RunSig();
 
