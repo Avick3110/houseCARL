@@ -2368,6 +2368,17 @@ public static class WriteSurfaceGuardProbe
             "total_removed", $"removed {rmOutcome.Removed.Count} records");
         Observe(WriteTools.RenderRemoval(rmOutcome, 60), JsonWire.RenderRemovalOutcome(rmOutcome, 60, "into"));
 
+        // …and remove's two no-usable-patch REFUSALS, which are where the extend not-found tail reaches a caller
+        // (#356). Driven off the real service rather than a built outcome: the sentence under test is chosen inside
+        // the resolver from what the LANE stated about itself, so an outcome constructed here would be this probe
+        // handing itself the answer. Both refusals write nothing, so the fixture the later arms read is untouched.
+        foreach (var refusal in new[]
+                 {
+                     fx.Svc.RemoveRecords(new[] { fx.SubjectFid }, "W2TwinNoSuchPatch"),   // into= names nothing → the not-found tail
+                     fx.Svc.RemoveRecords(new[] { fx.SubjectFid }, null),                  // no lane at all → the missing-patch= refusal
+                 })
+            Observe(WriteTools.RenderRemoval(refusal), JsonWire.RenderRemovalOutcome(refusal, 0, "into"));
+
         // ---- the three post-write report blocks -------------------------------------------------------
         // Rendered off a built outcome for the same reason the report-budget arm above builds one: a report big
         // enough to cut means dozens of voiced lines, and the claim under test is the RENDERERS' agreement, not the

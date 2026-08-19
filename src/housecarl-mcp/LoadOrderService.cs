@@ -4704,7 +4704,7 @@ public sealed class LoadOrderService : IDisposable
             // one disk side effect the pre-serialize pipeline otherwise has. The fresh-lane name is a preview: the
             // real write re-picks a free stem, so a concurrent write can shift the auto-suffix.
             string outPath; bool extend, created;
-            try { outPath = ResolveOutputPath(patchName, into, out extend, out created, create: !dryRun, patchNamesFresh: true); }
+            try { outPath = ResolveOutputPath(patchName, into, out extend, out created, create: !dryRun, FreshPatchRemedy.NamedByPatchParam); }
             catch (Exception ex) { return WritePatchBuilder.PatchOutcome.Fail(ex.Message); }
 
             // P8b: pre-resolve any CopyFrom source that is OFF-ORDER (from_plugin on disk but NOT in the active order —
@@ -5236,7 +5236,8 @@ public sealed class LoadOrderService : IDisposable
                 if (!walk.Success) return ClosureCopyOutcome.Fail(walk: walk.Refusal, sources: consulted);
 
                 string outPath; bool extend, created;
-                try { outPath = ResolveOutputPath(patchName ?? (into is null ? newEditorid?.Trim() : null), into, out extend, out created); }
+                try { outPath = ResolveOutputPath(patchName ?? (into is null ? newEditorid?.Trim() : null), into, out extend, out created,
+                                                  freshPatch: FreshPatchRemedy.CreatedByOmittingInto); }
                 catch (Exception ex) { return ClosureCopyOutcome.Fail(engine: ex.Message, sources: consulted); }
                 var patchModKey = ModKey.FromFileName(Path.GetFileName(outPath));
 
@@ -5591,7 +5592,8 @@ public sealed class LoadOrderService : IDisposable
                 "target= is only meaningful with in_place=true (it names the plugin to remove from in place). For the default lane omit target=; use patch= to name the houseCARL patch.");
         if (!inPlace && string.IsNullOrWhiteSpace(patch))
             return WritePatchBuilder.RemovalOutcome.Fail(
-                "patch is required — name the houseCARL patch to remove the record from (removal only targets a patch that already carries it). To remove from an existing plugin IN PLACE instead, pass target=<plugin filename> + in_place=true.");
+                "patch is required — name the houseCARL patch to remove the record from (removal only targets a patch that already carries it). "
+                + WriteSentences.RemoveInPlaceAlternative);
 
         // Parse every formid first, collecting ALL problems (all-or-nothing, like the edit path). Pure — outside the gate.
         var keys = new List<FormKey>(formids.Count);
@@ -5615,11 +5617,17 @@ public sealed class LoadOrderService : IDisposable
                 return RemoveRecordsInPlace(resolver, keys, target!.Trim(), acknowledge);
 
             // Resolve + ownership-gate the patch path via the into= (extend) path — must exist + carry the houseCARL marker.
-            // patchNamesFresh stays FALSE (the default) and must: removal cannot create a patch at all, and this tool's
+            // FreshPatchRemedy.None (the default) and must: removal cannot create a patch at all, and this tool's
             // patch= names an EXISTING one — it IS the into= slot — so the naming remedy would tell the caller to
             // re-issue the exact call that just failed. Pinned by the extend-resolver guard's remove arm.
+            //
+            // The lane clause is what #356 was: None used to render "Omit into= to create it fresh", and omitting the
+            // lane is itself refused, so the sentence sent callers to a second refusal. What this lane can honestly
+            // offer instead is measured — a patch created first carries no override of the record, so removal refuses
+            // there too; the in-place lane does remove it, behind the first-touch confirmation.
             string outPath;
-            try { outPath = ResolveOutputPath(patchName: null, into: patch, out _, out _); }
+            try { outPath = ResolveOutputPath(patchName: null, into: patch, out _, out _,
+                                              laneClause: WriteSentences.RemoveNoFreshPatch + " " + WriteSentences.RemoveInPlaceAlternative); }
             catch (Exception ex) { return WritePatchBuilder.RemovalOutcome.Fail(ex.Message); }
 
             return WritePatchBuilder.RemoveRecords(resolver, keys, outPath);
@@ -5775,7 +5783,7 @@ public sealed class LoadOrderService : IDisposable
 
                 // #225: a dry run resolves the would-be output path WITHOUT creating the mod folder (see ApplyEdits).
                 string outPath; bool extend, created;
-                try { outPath = ResolveOutputPath(patchName, into, out extend, out created, create: !dryRun, patchNamesFresh: true); }
+                try { outPath = ResolveOutputPath(patchName, into, out extend, out created, create: !dryRun, FreshPatchRemedy.NamedByPatchParam); }
                 catch (Exception ex) { return WritePatchBuilder.ForwardOutcome.Fail(ex.Message); }
 
                 var outcome = WritePatchBuilder.ForwardRecords(resolver, specs, outPath, extend, fullReadback, dryRun, sourceParam, offOrder);
@@ -6656,7 +6664,8 @@ public sealed class LoadOrderService : IDisposable
                 // ---- 3. output patch (folder-per-patch or into= extend — the record lane's resolver + ownership gate) ----
                 string outPath; bool extend, created;
                 var defaultStem = clone ? newEditorid!.Trim() : "houseCARL_NpcCopy";
-                try { outPath = ResolveOutputPath(patchName ?? (into is null ? defaultStem : null), into, out extend, out created); }
+                try { outPath = ResolveOutputPath(patchName ?? (into is null ? defaultStem : null), into, out extend, out created,
+                                                  freshPatch: FreshPatchRemedy.CreatedByOmittingInto); }
                 catch (Exception ex) { return NpcCopyOutcome.Fail(ex.Message); }
                 var patchFileName = Path.GetFileName(outPath);
                 var patchModKey = ModKey.FromFileName(patchFileName);
@@ -6880,7 +6889,7 @@ public sealed class LoadOrderService : IDisposable
                 return CommitCreateInPlace(resolver, rulebook, specs, target!.Trim(), acknowledge);
 
             string outPath; bool extend, created;
-            try { outPath = ResolveOutputPath(patchName, into, out extend, out created, patchNamesFresh: true); }
+            try { outPath = ResolveOutputPath(patchName, into, out extend, out created, freshPatch: FreshPatchRemedy.NamedByPatchParam); }
             catch (Exception ex) { return WritePatchBuilder.CreateOutcome.Fail(ex.Message); }
 
             var outcome = WritePatchBuilder.CreateRecords(resolver, rulebook, specs, outPath, extend, fullReadback);
@@ -7268,11 +7277,12 @@ public sealed class LoadOrderService : IDisposable
     /// check-then-create is only race-free when every folder allocation is serialized on the one gate.
     /// <paramref name="createdFolder"/> reports whether THIS call created the fresh folder, so a refused write can
     /// remove it again (hunt F4 — "NO patch written" must not leave an orphan folder accreting _001/_002 on retry).
-    /// <paramref name="patchNamesFresh"/> is passed through to the not-found refusal's remedy: the calling operation
-    /// states whether ITS <c>patch=</c> names a fresh patch defaulting to "Patch". Defaults to false — the weaker,
-    /// always-true remedy — so a caller added later without considering it cannot inherit a false sentence.</summary>
+    /// <paramref name="freshPatch"/> and <paramref name="laneClause"/> are passed through to the not-found refusal's
+    /// remedy: the calling operation states how ITS own fresh-write path works, and adds any next step that is its
+    /// alone. Both default to claiming nothing, so a caller added later without considering them cannot inherit a
+    /// sentence that is false for it (#356 — removal inherited exactly that).</summary>
     string ResolveOutputPath(string? patchName, string? into, out bool extend, out bool createdFolder, bool create = true,
-                             bool patchNamesFresh = false)
+                             FreshPatchRemedy freshPatch = FreshPatchRemedy.None, string? laneClause = null)
     {
         lock (_gate)
         {
@@ -7288,7 +7298,7 @@ public sealed class LoadOrderService : IDisposable
                 // the canonical fast path only short-circuits a folder that actually holds <stem>.esp; we then pick the .esp
                 // to extend inside the resolved folder: the <stem>.esp it holds, or — via the by-folder catch-all, where the
                 // folder & plugin names differ — the folder's single plugin (Q3-refuse if it holds none or several).
-                var folder = ResolveOwnedPatchFolder(into, needEsp: true, patchNamesFresh);
+                var folder = ResolveOwnedPatchFolder(into, needEsp: true, freshPatch, laneClause);
                 var direct = Path.Combine(folder, PatchStem(into) + ".esp");
                 if (File.Exists(direct)) return direct;
                 var sole = SoleEspInFolder(folder, out var why);
@@ -7366,7 +7376,10 @@ public sealed class LoadOrderService : IDisposable
                 // into= behaves exactly like record into= (before this, a renamed folder fell to a misleading "folder not
                 // found"). needEsp:false — a rider targets the FOLDER itself (it writes scripts / a .bsa / loose files into
                 // it, not an .esp), so it does NOT require a <stem>.esp to be present.
-                var folder = ResolveOwnedPatchFolder(into, needEsp: false);
+                // CreatedByOmittingInto, stated here rather than inherited: omitting into= on this lane DOES create a
+                // fresh folder (measured — the branch below returns CreatedFresh), but patch= names the rider's own
+                // artifact on bsa_repack (the .bsa), so the naming remedy is the wrong one and always was.
+                var folder = ResolveOwnedPatchFolder(into, needEsp: false, FreshPatchRemedy.CreatedByOmittingInto);
                 return new RiderFolder(folder, folder, CreatedFresh: false);   // reused — the user owns it; cleanup leaves it
             }
 
@@ -7928,10 +7941,12 @@ public sealed class LoadOrderService : IDisposable
     /// separate in-place lane). <paramref name="needEsp"/> tightens the canonical fast path for the RECORD lane (the folder
     /// must actually hold &lt;stem&gt;.esp to short-circuit, else fall through); the rider lane targets the folder itself, so
     /// it short-circuits on folder-exists+owned. Caller holds <see cref="_gate"/>.
-    /// <paramref name="patchNamesFresh"/> is the calling operation's own statement that, for IT, <c>patch=</c> names a
-    /// NEW patch and defaults to "Patch" — which decides only the not-found refusal's remedy (see the throw). It is a
-    /// separate bit from <paramref name="needEsp"/> on purpose: the lanes and the naming semantics do not coincide.</summary>
-    string ResolveOwnedPatchFolder(string into, bool needEsp, bool patchNamesFresh = false)
+    /// <paramref name="freshPatch"/> is the calling operation's own statement about how — or whether — IT can create a
+    /// patch, which decides only the not-found refusal's remedy (see the throw); <paramref name="laneClause"/> is that
+    /// same lane's own extra next step, appended to that one arm. Both are separate from <paramref name="needEsp"/> on
+    /// purpose: the lanes and the naming semantics do not coincide.</summary>
+    string ResolveOwnedPatchFolder(string into, bool needEsp,
+                                   FreshPatchRemedy freshPatch = FreshPatchRemedy.None, string? laneClause = null)
     {
         var stem = PatchStem(into);                             // strips a trailing .esp/.esm/.esl; no directory parts (can't escape ModsDir)
         var espName = stem + ".esp";
@@ -7974,22 +7989,31 @@ public sealed class LoadOrderService : IDisposable
         // name a new patch, was in no doc a caller reads. The stronger sentence names patch= and hands back the
         // working call with the caller's own guessed name in it.
         //
-        // THE RULE, not a roster: it reaches exactly the operations whose patch= names a NEW patch defaulting to
-        // "Patch", and each states that for itself, because it is not inferable here and the lane bit does not
-        // separate it. Three independent ways it goes false — which is why an enumeration was the wrong shape, and
-        // why this comment's own list of tools was wrong twice before it became a rule. (1) The operation does not
-        // create a patch at all: a REMOVAL edits an artifact that already exists, so both halves are false there
-        // whichever spelling that tool gives the lane (2.0's housecarl_remove says into=; 1.x remove_record says
-        // patch=, meaning the EXISTING patch — where the sentence would tell the caller to re-issue the call that
-        // just failed). (2) It creates one but names it something else: copy and copy_npc_appearance default their
-        // stem to the new EditorID or houseCARL_NpcCopy, and every RIDER lane defaults to the stem its own call site
-        // passes, never "Patch" — deliberately not listed here, because a list of them is what keeps going stale;
-        // the call sites are the authority. (3) The spelling means a different artifact on that tool: on
-        // housecarl_bsa_repack a bare patch= binds to archive_name — the .bsa, not the mod folder — because it
-        // declares both and §5.3 routes patch= to the artifact.
+        // THE RULE, not a roster: each operation states its OWN fresh-write path, because it is not inferable here
+        // and the lane bit does not separate it. Three independent ways a shared assumption goes false — which is why
+        // an enumeration was the wrong shape, and why this comment's own list of tools was wrong twice before it
+        // became a rule. (1) The operation does not create a patch at all: a REMOVAL edits an artifact that already
+        // exists, so both halves are false there whichever spelling that tool gives the lane (2.0's housecarl_remove
+        // says into=; 1.x remove_record says patch=, meaning the EXISTING patch — where the sentence would tell the
+        // caller to re-issue the call that just failed). (2) It creates one but names it something else: copy and
+        // copy_npc_appearance default their stem to the new EditorID or houseCARL_NpcCopy, and every RIDER lane
+        // defaults to the stem its own call site passes, never "Patch" — deliberately not listed here, because a list
+        // of them is what keeps going stale; the call sites are the authority. (3) The spelling means a different
+        // artifact on that tool: on housecarl_bsa_repack a bare patch= binds to archive_name — the .bsa, not the mod
+        // folder — because it declares both and §5.3 routes patch= to the artifact.
         //
-        // Hence the default is FALSE and the tail is the weaker, always-true one: a caller added later without a
-        // thought about any of this gets a sentence that is merely less helpful, never wrong.
+        // Hence the DEFAULT claims no fresh-write path at all (#356). It used to be case (1)'s opposite — the weaker
+        // "Omit into= to create it fresh", justified as "merely less helpful, never wrong" — and removal, the one
+        // caller that cannot create anything, reached exactly that default and told its callers to omit the lane,
+        // which is itself refused. A default that is wrong for a whole class of caller is not a weak default, so the
+        // safe sentence is now the one that promises nothing: a caller added later without a thought about any of
+        // this gets "Check the name.", and every stronger claim is one an operation makes for itself.
+        //
+        // laneClause is the same statement one step further: a lane whose next step is its OWN
+        // (removal's is the in-place lane, which no other caller here has) hands the sentence in rather than having
+        // it inferred from a semantic bit — the shape LocalizedTargetUnsupportedException.Text already uses. It rides
+        // THIS arm only. The ambiguous and multi-plugin arms above already name a working call, and the foreign-folder
+        // arm's remedy is #359's open design question, not this one's.
         //
         // Note what the sentence does NOT do: predict the resulting filename. UniqueStem takes a stem only when it
         // is free on BOTH of IsStemFree's tests — no "houseCARL - <stem>" folder already exists, AND no active
@@ -8001,11 +8025,15 @@ public sealed class LoadOrderService : IDisposable
             $"cannot extend: no houseCARL plugin '{espName}' in any houseCARL folder, and no houseCARL folder named " +
             $"'{ModFolderName(stem)}'" +
             (string.Equals(bareName, ModFolderName(stem), StringComparison.OrdinalIgnoreCase) ? "" : $" or '{bareName}'") +
-            ". " + (patchNamesFresh
-                ? $"Omit into= and pass patch=\"{stem}\" to create it fresh under a name you choose, or omit patch= "
-                  + "too and houseCARL names it \"Patch\" — either name auto-suffixed if already taken. "
-                  + "Or check the name."
-                : "Omit into= to create it fresh, or check the name."));
+            ". " + freshPatch switch
+            {
+                FreshPatchRemedy.NamedByPatchParam =>
+                    $"Omit into= and pass patch=\"{stem}\" to create it fresh under a name you choose, or omit patch= "
+                    + "too and houseCARL names it \"Patch\" — either name auto-suffixed if already taken. "
+                    + "Or check the name.",
+                FreshPatchRemedy.CreatedByOmittingInto => "Omit into= to create it fresh, or check the name.",
+                _ => WriteSentences.ExtendCheckTheName,
+            } + (laneClause is null ? "" : " " + laneClause));
     }
 
     /// <summary>houseCARL-OWNED mod folders under ModsDir holding a plugin file named <paramref name="espFileName"/> at
@@ -8577,6 +8605,27 @@ public sealed class LoadOrderService : IDisposable
     {
         lock (_gate) { _resolver?.Dispose(); _resolver = null; _assetResolver?.Dispose(); _assetResolver = null; }
     }
+}
+
+/// <summary>How a calling operation can produce a patch that does not exist yet — the operation's OWN statement,
+/// which is the only thing the shared <c>into=</c> resolver's not-found refusal may say about creating one. It is
+/// never inferred there: the write lane and the naming semantics do not coincide (a rider's <c>patch=</c> can name a
+/// .bsa; <c>copy</c>'s fresh stem is an EditorID), and a resolver that guessed would be keeping the roster this
+/// enum exists to replace. The rule and the three ways an assumption goes false are stated at the throw.</summary>
+internal enum FreshPatchRemedy
+{
+    /// <summary>The DEFAULT, and the safe one: this operation claims no fresh-write path, so the refusal offers
+    /// none. Removal is the caller that needs it — it edits a patch that must already exist — and #356 is what the
+    /// old default cost: it told removal's callers to omit the lane, which removal itself refuses.</summary>
+    None = 0,
+
+    /// <summary>Omitting <c>into=</c> creates one, under a stem this call site chooses rather than "Patch" — the
+    /// copy lanes (the new EditorID / houseCARL_NpcCopy) and every rider lane (its own artifact stem).</summary>
+    CreatedByOmittingInto,
+
+    /// <summary><c>patch=</c> on this tool names a NEW patch and defaults to "Patch" (#343) — so the refusal can
+    /// hand back a working call with the caller's own guessed name already in it.</summary>
+    NamedByPatchParam,
 }
 
 /// <summary>The outcome of a read_record resolve+read. <see cref="Error"/> non-null ⇒ the read failed (with a

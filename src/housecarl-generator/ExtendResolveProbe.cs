@@ -324,6 +324,74 @@ internal static class ExtendResolveProbe
                       "housecarl_remove into a patch that does not exist still refuses, naming the .esp searched");
                 Check(r.Error is not null && !r.Error.Contains("patch=", StringComparison.Ordinal),
                       "…and does NOT name patch= (a removal cannot create a patch — the remedy would be false)");
+
+                // #356: the tail this lane USED to inherit. It offered "Omit into= to create it fresh" — and omitting
+                // the lane is refused with "patch is required", so the sentence handed callers a second refusal. The
+                // shared default no longer claims a create path at all, and this is the arm that keeps removal off it:
+                // a lane that starts stating CreatedByOmittingInto, or a default that starts assuming one, reddens here.
+                Check(r.Error is not null && !r.Error.Contains("create it fresh", StringComparison.OrdinalIgnoreCase),
+                      "…and no longer offers 'create it fresh' — the remedy this lane could not perform (#356)");
+                Check(r.Error is not null && r.Error.Contains(WriteSentences.ExtendCheckTheName, StringComparison.Ordinal),
+                      "…it falls back to the always-true default tail (check what you typed)");
+                Check(r.Error is not null && r.Error.Contains(WriteSentences.RemoveNoFreshPatch, StringComparison.Ordinal),
+                      "…and the LANE states why there is no create route here (a fresh patch carries nothing to remove)");
+                Check(r.Error is not null && r.Error.Contains(WriteSentences.RemoveInPlaceAlternative, StringComparison.Ordinal),
+                      "…and names the one lane a removal does have — target= + in_place=true");
+
+                // The missing-patch= refusal renders the SAME in-place sentence, from the same constant. It is the
+                // call the old tail sent callers to, so the two have to agree about what a caller does next — which
+                // is the whole reason this clause is shared rather than written out twice.
+                var bare = svc.RemoveRecords(new[] { fid }, null);
+                Check(!bare.Success && bare.Error is not null
+                      && bare.Error.Contains(WriteSentences.RemoveInPlaceAlternative, StringComparison.Ordinal),
+                      "…and remove's OTHER no-patch refusal names the same lane, from the same constant");
+            }
+
+            // ---- 8d2: the removal remedy is TRUE — following it removes the record -------------------------------
+            //      Same standard as arm 8b: a remedy is a claim about what a call does, so it is checked by MAKING
+            //      the call. Its own throwaway active plugin, never the master — arm 10 asserts that file is
+            //      byte-untouched, and an in-place removal would be exactly the write that falsifies it.
+            Console.WriteLine();
+            Console.WriteLine("--- 8d2: following the removal remedy (target= + in_place=true) removes the record ---");
+            {
+                var ipDir = Path.Combine(mods, "RemoveHereMod");
+                Directory.CreateDirectory(ipDir);
+                var ipPath = Path.Combine(ipDir, "RemoveHere.esp");
+                FormKey ipFk;
+                {
+                    var m = new SkyrimMod(new ModKey("RemoveHere", ModType.Plugin), SkyrimRelease.SkyrimSE);
+                    var w = m.Weapons.AddNew(); w.EditorID = "HcRemoveMe";
+                    w.BasicStats = new WeaponBasicStats { Damage = 3, Weight = 1 };
+                    ipFk = w.FormKey;
+                    m.BeginWrite.ToPath(ipPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+                }
+                File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + mKey.FileName + "\r\nGhostActive.esp\r\nRemoveHere.esp\r\n");
+                File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + mKey.FileName + "\r\n*GhostActive.esp\r\n*RemoveHere.esp\r\n");
+                File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+RemoveHereMod\r\n+OddlyNamedMod\r\n+MasterMod\r\n");
+                svc.Stats();                                                   // let the resolver see the changed order
+
+                string ipFid = $"{ipFk.ID:X6}:RemoveHere.esp";
+                var refused = svc.RemoveRecords(new[] { ipFid }, "GhostRemove");
+                Check(!refused.Success && refused.Error is not null
+                      && refused.Error.Contains(WriteSentences.RemoveInPlaceAlternative, StringComparison.Ordinal),
+                      "the not-found refusal fires for this record too, naming the in-place lane");
+
+                // Following it lands on the first-touch CONSENT handshake, not a write and not an error — the
+                // sentence promises the lane, and this is the lane's own next step.
+                var prompted = svc.RemoveRecords(new[] { ipFid }, null, "RemoveHere.esp", inPlace: true);
+                Check(!prompted.Success && prompted.NeedsAcknowledge,
+                      "following it reaches the in-place first-touch confirmation (a prompt, not a refusal)");
+
+                var done = svc.RemoveRecords(new[] { ipFid }, null, "RemoveHere.esp", inPlace: true, acknowledge: true);
+                Check(done.Success && done.InPlace && done.Removed.Count == 1,
+                      $"…and acknowledging it REMOVES the record ({done.Error})");
+                ISkyrimModGetter? back = null;
+                try
+                {
+                    back = SkyrimMod.CreateFromBinaryOverlay(ipPath, SkyrimRelease.SkyrimSE);
+                    Check(back.Weapons.All(w => w.FormKey != ipFk), "…and the record is GONE from the file on disk");
+                }
+                finally { (back as IDisposable)?.Dispose(); }
             }
 
             // ---- 9: FOREIGN — an un-owned "houseCARL - X" folder stays REFUSED + byte-untouched (Q3) ----

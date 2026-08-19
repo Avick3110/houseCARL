@@ -596,6 +596,35 @@ internal static class WriteSentences
         "source_provider= only applies to a Data-relative source resolved through the VFS. The source you passed is an "
       + "on-disk path, which already names one exact copy — drop source_provider=, or pass source= the Data-relative path.";
 
+    // ---- the into=-extend not-found refusal (#356) ---------------------------------------------------
+    /// <summary>The whole remedy an operation that has stated nothing about creating a patch may offer: check what
+    /// you typed. It is the DEFAULT tail of the shared not-found refusal, and it is deliberately the weakest thing
+    /// that is true for every caller — the tail it replaced offered "Omit into= to create it fresh", which removal
+    /// inherited and could not honour. A stronger claim is one an operation makes for itself
+    /// (<c>FreshPatchRemedy</c>), never one the resolver assumes on its behalf.</summary>
+    [MustState("Check the name")]
+    internal const string ExtendCheckTheName = "Check the name.";
+
+    /// <summary>Removal's own half of that refusal: why no create remedy is offered here. Measured before it was
+    /// written — creating the patch first does NOT leave anything to remove: a fresh patch carries no override of
+    /// the record, and removal refuses it with "not carried by patch". So the honest sentence is that the create
+    /// route does not exist for this lane, not a route the caller would have to discover is a dead end.</summary>
+    [MustState("will not create a patch here", "nothing to remove")]
+    internal const string RemoveNoFreshPatch =
+        "houseCARL will not create a patch here: a removal only drops a record the patch ITSELF carries, so a patch "
+      + "created now would have nothing to remove.";
+
+    /// <summary>The other lane a removal has, stated once and rendered by BOTH of remove's refusals that reach a
+    /// caller who named no usable patch — the missing-patch= one and the into=-not-found one (#356). It was the
+    /// first refusal's own text, made shared rather than rewritten, because it is the same claim in both places and
+    /// a second copy is how the two drift. Measured: the named call reaches the first-touch in-place confirmation
+    /// and, once acknowledged, removes the record — so this promises a lane that works, not one that is refused.
+    /// It deliberately does not spell the confirmation out; that is the in-place lane's own sentence, and it is
+    /// the sentence a caller who follows this one gets next.</summary>
+    [MustState("in_place=true", "target=<plugin filename>")]
+    internal const string RemoveInPlaceAlternative =
+        "To remove from an existing plugin IN PLACE instead, pass target=<plugin filename> + in_place=true.";
+
     /// <summary>Sentences the SAME outcome must carry on BOTH transports. Reflected over by the write-surface
     /// guard's twin arm — see this class's summary. Members are whole invariant strings on purpose: a sentence
     /// interpolating a cap or a filename cannot be compared verbatim across lanes, so parameterised twins stay on
