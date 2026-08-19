@@ -606,13 +606,17 @@ internal static class WriteSentences
     internal const string ExtendCheckTheName = "Check the name.";
 
     /// <summary>Removal's own half of that refusal: why no create remedy is offered here. Measured before it was
-    /// written — creating the patch first does NOT leave anything to remove: a fresh patch carries no override of
-    /// the record, and removal refuses it with "not carried by patch". So the honest sentence is that the create
-    /// route does not exist for this lane, not a route the caller would have to discover is a dead end.</summary>
-    [MustState("will not create a patch here", "nothing to remove")]
+    /// written — creating a patch first does not give a removal anything to work on: a patch houseCARL makes here
+    /// carries no override of the record, and removal refuses it with "not carried by patch".
+    ///
+    /// <para>It states the RULE and stops, rather than predicting what a patch created next would contain. The
+    /// longer version said "a patch created now would have nothing to remove", and a caller CAN falsify that in two
+    /// calls — <c>housecarl_apply(patch="X", …)</c> writes an override of the record, after which removing it from
+    /// X succeeds (measured; it nets out to nothing, but the sentence would still have been wrong). Predicting a
+    /// subsequent call's result is the #343/#358 class this lane's whole fix exists to stay out of.</para></summary>
+    [MustState("will not create a patch here", "only drops a record the patch ITSELF already carries")]
     internal const string RemoveNoFreshPatch =
-        "houseCARL will not create a patch here: a removal only drops a record the patch ITSELF carries, so a patch "
-      + "created now would have nothing to remove.";
+        "houseCARL will not create a patch here: a removal only drops a record the patch ITSELF already carries.";
 
     /// <summary>The other lane a removal has, in the spelling <c>housecarl_remove</c> declares — one string naming
     /// the file being rewritten. Measured through the TOOL, not the service: the named call reaches the first-touch

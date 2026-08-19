@@ -313,7 +313,7 @@ internal static class ExtendResolveProbe
 
             // ---- 8d: the REMOVAL lane must not get the naming sentence either ----
             //      Removal reaches the same refusal through ResolveOutputPath — the SAME branch arm 8 covers — so the
-            //      lane bit does not separate them; only the caller's own patchNamesFresh does. A removal edits an
+            //      lane bit does not separate them; only the caller's own FreshPatchRemedy does. A removal edits an
             //      artifact that already exists, so it cannot create a patch and the cost clause is false whichever
             //      spelling the tool gives the lane: 2.0's housecarl_remove calls it into=, while 1.x remove_record
             //      calls it patch= and means the EXISTING patch — there "pass patch=<the name you just passed>" would
@@ -337,7 +337,7 @@ internal static class ExtendResolveProbe
                 Check(r.Error is not null && r.Error.Contains(WriteSentences.ExtendCheckTheName, StringComparison.Ordinal),
                       "…it falls back to the always-true default tail (check what you typed)");
                 Check(r.Error is not null && r.Error.Contains(WriteSentences.RemoveNoFreshPatch, StringComparison.Ordinal),
-                      "…and the LANE states why there is no create route here (a fresh patch carries nothing to remove)");
+                      "…and the LANE states why there is no create route here (removal needs a patch that already carries it)");
                 // A direct SERVICE call names no in-place spelling at all — the two tools spell that lane
                 // differently, so the honest thing at this altitude is the half that is true at both.
                 Check(r.Error is not null && !r.Error.Contains("in_place", StringComparison.Ordinal),

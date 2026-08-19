@@ -8020,8 +8020,11 @@ public sealed class LoadOrderService : IDisposable
         // laneClause is the same statement one step further: a lane whose next step is its OWN
         // (removal's is the in-place lane, which no other caller here has) hands the sentence in rather than having
         // it inferred from a semantic bit — the shape LocalizedTargetUnsupportedException.Text already uses. It rides
-        // THIS arm only. The ambiguous and multi-plugin arms above already name a working call, and the foreign-folder
-        // arm's remedy is #359's open design question, not this one's.
+        // THIS arm only: the foreign-folder arm's remedy is #359's open design question, and the ambiguous and
+        // multi-plugin arms name a call rather than a lane. Note what that is NOT a claim that those two arms are
+        // correct — they instruct every caller to "pass into=", which housecarl_remove_record does not declare and no
+        // alias row maps onto its patch= (the table runs old→new only). That is this same defect one arm over, it is
+        // on main untouched by this change, and it is filed rather than fixed here.
         //
         // It is rendered BEFORE the fallback above, not after: the lane's own diagnosis is what makes the fallback
         // the right thing left to do, and reading the instruction first was the order two reviewers stumbled on.
