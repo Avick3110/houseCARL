@@ -619,10 +619,14 @@ internal static class WriteSentences
         "houseCARL will not create a patch here: a removal only drops a record the patch ITSELF already carries.";
 
     /// <summary>The other lane a removal has, in the spelling <c>housecarl_remove</c> declares — one string naming
-    /// the file being rewritten. Measured through the TOOL, not the service: the named call reaches the first-touch
-    /// in-place confirmation and, once acknowledged, removes the record. It deliberately does not spell the
-    /// confirmation out; that is the in-place lane's own sentence, and it is what a caller who follows this one
-    /// gets next.
+    /// the file being rewritten. Measured through the TOOL, not the service: against a plugin never acknowledged
+    /// before, the named call reaches the first-touch confirmation and, once acknowledged, removes the record.
+    ///
+    /// <para>It does not spell the confirmation out, and it must not be read as promising one. That consent is
+    /// PERSISTED, survives the session, and is shared across the edit / create / remove in-place lanes — so a
+    /// caller who follows this sentence against a plugin they have acknowledged before, in any lane, rewrites the
+    /// original with no prompt at all. Whether this remedy should carry a consent caveat of its own is #359's
+    /// chartered design question, not something to settle by widening the sentence here.</para>
     ///
     /// <para>There are two spellings because there are two tools, and the SERVICE cannot tell which one called it.
     /// So each tool hands its own down (<c>housecarl_remove</c> this one, <c>housecarl_remove_record</c>

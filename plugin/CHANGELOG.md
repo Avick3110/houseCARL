@@ -19,9 +19,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   you a second refusal: removal has no fresh-patch lane at all, because it only drops a record the patch itself
   already carries. The refusal now says that instead, and names the lane a removal does have —
   `in_place="<plugin filename>"` on `housecarl_remove`, `target=<plugin filename>` +
-  `in_place=true` on the 1.x `housecarl_remove_record`, each tool naming the lane it declares. That lane removes the
-  record from an existing plugin in place; its own first-touch confirmation still applies, and see the in-place entry
-  below for what it refuses. Every write tool that *can* create a patch still says so, each on its own behalf. (#356)
+  `in_place=true` on the 1.x `housecarl_remove_record`, each tool naming the lane it declares. Know what that lane
+  costs before you follow the suggestion: it rewrites your original file, with no houseCARL backup or undo, and its
+  one-time confirmation is per plugin and shared with the other in-place lanes — so if you have already acknowledged
+  that plugin, in any lane or any earlier session, the write happens with no further prompt. See the in-place entry
+  below for what that lane refuses. Every write tool that *can* create a patch still says so, each on its own
+  behalf. (#356)
 
 - **The record-editing lanes now refuse a localized plugin in place instead of scrambling its text.** Editing,
   removing from, creating into, or forwarding into an existing plugin **in place** re-serializes that whole plugin —
