@@ -732,16 +732,18 @@ public static class InPlaceProbe
             // A dry run's contract is to give EXACTLY the answer the real call gives.
             var dry = svc.ApplyEdits(edit, null, null, fullReadback: false, target: LocName, inPlace: true,
                                      acknowledge: false, dryRun: true);
-            bool dryPass = !dry.Success && (dry.Error?.StartsWith("houseCARL did not write", StringComparison.Ordinal) ?? false);
-            results.Add(("LOC-E an in-place DRY RUN on a localized target refuses, as the real call does", dryPass,
-                $"refused={!dry.Success} verbatim={dryPass}  [{Trim(dry.Error) ?? "(reported success — WRONG)"}]"));
+            bool dryPass = !dry.Success && (dry.Error?.StartsWith("houseCARL did not write", StringComparison.Ordinal) ?? false)
+                           && (dry.Error?.Contains(LocalizedTargetUnsupportedException.RemedyDefaultLane, StringComparison.Ordinal) ?? false);
+            results.Add(("LOC-E an in-place DRY RUN on a localized target refuses, with the lane's remedy, as the real call does", dryPass,
+                $"refused={!dry.Success} verbatimWithRemedy={dryPass}  [{Trim(dry.Error) ?? "(reported success — WRONG)"}]"));
 
             // acknowledge=true is the branch that PERSISTS consent before the write is attempted.
             var real = svc.ApplyEdits(edit, null, null, fullReadback: false, target: LocName, inPlace: true,
                                       acknowledge: true);
             bool spent = new UserConfigStore(storePath).IsInPlaceAcknowledged(locE);
-            results.Add(("LOC-F the refused write does NOT spend the plugin's one-time in-place consent", !real.Success && !spent,
-                $"refused={!real.Success} consentRecorded={spent}(want False)  [{Trim(real.Error)}]"));
+            bool realRemedy = real.Error?.Contains(LocalizedTargetUnsupportedException.RemedyDefaultLane, StringComparison.Ordinal) ?? false;
+            results.Add(("LOC-F the refused write does NOT spend consent, and carries the same remedy the dry run gave", !real.Success && !spent && realRemedy,
+                $"refused={!real.Success} consentRecorded={spent}(want False) sameRemedy={realRemedy}  [{Trim(real.Error)}]"));
 
             // The other direction on the same seam: the plain twin's dry run still reports what it would do.
             var plainG = FreshUser(tmpDir, "LOCG", userPristine);
@@ -772,8 +774,10 @@ public static class InPlaceProbe
                 svc.Stats();
                 var o = svc.RemoveRecords(new[] { fmtWfk }, null, target: LocName, inPlace: true, acknowledge: true);
                 bool spent = new UserConfigStore(StoreFor("LOCH")).IsInPlaceAcknowledged(locH);
-                results.Add(("LOC-H the REMOVE lane's own pre-flight answers before consent is recorded", !o.Success && RefusedVerbatim(o.Error) && !spent,
-                    $"refused={!o.Success} verbatim={RefusedVerbatim(o.Error)} consentRecorded={spent}(want False)  [{Trim(o.Error)}]"));
+                bool clause = (o.Error?.Contains(LocalizedTargetUnsupportedException.RemoveNoEquivalent, StringComparison.Ordinal) ?? false)
+                              && !(o.Error?.Contains(LocalizedTargetUnsupportedException.RemedyDefaultLane, StringComparison.Ordinal) ?? false);
+                results.Add(("LOC-H the REMOVE lane's own pre-flight answers before consent, with THIS lane's clause", !o.Success && RefusedVerbatim(o.Error) && !spent && clause,
+                    $"refused={!o.Success} verbatim={RefusedVerbatim(o.Error)} consentRecorded={spent}(want False) laneClause={clause}  [{Trim(o.Error)}]"));
             }
 
             var locI = FreshLocalized(tmpDir, "LOCI", locPristine);
@@ -783,8 +787,9 @@ public static class InPlaceProbe
                 svc.Stats();
                 var o = svc.ForwardRecords(new[] { fmtWfk }, HighName, null, null, target: LocName, inPlace: true, acknowledge: true);
                 bool spent = new UserConfigStore(StoreFor("LOCI")).IsInPlaceAcknowledged(locI);
-                results.Add(("LOC-I the FORWARD lane's own pre-flight answers before consent is recorded", !o.Success && RefusedVerbatim(o.Error) && !spent,
-                    $"refused={!o.Success} verbatim={RefusedVerbatim(o.Error)} consentRecorded={spent}(want False)  [{Trim(o.Error)}]"));
+                bool clause = o.Error?.Contains(LocalizedTargetUnsupportedException.RemedyDefaultLane, StringComparison.Ordinal) ?? false;
+                results.Add(("LOC-I the FORWARD lane's own pre-flight answers before consent, with THIS lane's clause", !o.Success && RefusedVerbatim(o.Error) && !spent && clause,
+                    $"refused={!o.Success} verbatim={RefusedVerbatim(o.Error)} consentRecorded={spent}(want False) laneClause={clause}  [{Trim(o.Error)}]"));
             }
 
             var locJ = FreshLocalized(tmpDir, "LOCJ", locPristine);
@@ -795,8 +800,9 @@ public static class InPlaceProbe
                 var o = svc.CreateRecords("Keyword", "HcIP_LocKw", Array.Empty<BulkOp>(), null, null, false, null, null, null,
                                           target: LocName, inPlace: true, acknowledge: true);
                 bool spent = new UserConfigStore(StoreFor("LOCJ")).IsInPlaceAcknowledged(locJ);
-                results.Add(("LOC-J the CREATE lane's own pre-flight answers before consent is recorded", !o.Success && RefusedVerbatim(o.Error) && !spent,
-                    $"refused={!o.Success} verbatim={RefusedVerbatim(o.Error)} consentRecorded={spent}(want False)  [{Trim(o.Error)}]"));
+                bool clause = o.Error?.Contains(LocalizedTargetUnsupportedException.RemedyDefaultLane, StringComparison.Ordinal) ?? false;
+                results.Add(("LOC-J the CREATE lane's own pre-flight answers before consent, with THIS lane's clause", !o.Success && RefusedVerbatim(o.Error) && !spent && clause,
+                    $"refused={!o.Success} verbatim={RefusedVerbatim(o.Error)} consentRecorded={spent}(want False) laneClause={clause}  [{Trim(o.Error)}]"));
             }
         }
 

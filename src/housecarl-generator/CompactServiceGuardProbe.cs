@@ -43,6 +43,16 @@ public static class CompactServiceGuardProbe
         void Check(bool c, string label) { Console.WriteLine((c ? "  PASS  " : "  FAIL  ") + label); if (!c) fail++; }
 
         var root = Path.Combine(Path.GetTempPath(), "hc-compact-service-guard-" + Guid.NewGuid().ToString("N"));
+
+        // The REMEDY arm below drives the DEFAULT write lane, which pre-flights through the corpus rulebook. Generated
+        // into a directory OUTSIDE `root` (which the finally deletes) and the previous CorpusPath restored afterwards:
+        // CorpusPath is process-global, and leaving it pointing into a deleted temp dir would break whichever probe
+        // ci-all runs next. CorpusGenerator memoizes its reflection, so under ci-all this costs nothing.
+        var corpusDir = Path.Combine(Path.GetTempPath(), "hc-compact-guard-corpus");
+        var priorCorpusPath = CorpusRulebook.CorpusPath;
+        CorpusGenerator.GenerateAll(corpusDir, Path.Combine(corpusDir, "ref"));
+        CorpusRulebook.CorpusPath = Path.Combine(corpusDir, "corpus.json");
+
         try
         {
             string instance = Path.Combine(root, "instance");
@@ -306,6 +316,12 @@ public static class CompactServiceGuardProbe
                 Check(flagOk && noStringsFolder,
                     $"LOCALIZED compact output is written NON-localized with strings inline (flagClear={flagOk} noStringsFolder={noStringsFolder})");
 
+                // NEWFILE-NOTE: the new-file lane produces the same de-localized plugin the in-place lane is refused
+                // for, so it says so at the point the caller takes it. Non-fatal — the compaction still succeeds.
+                bool noteOn = o.Success && (o.Note?.Contains("is NOT localized", StringComparison.Ordinal) ?? false);
+                Check(noteOn, $"NEWFILE-NOTE a localized SOURCE compacted to a new file still succeeds AND is reported " +
+                              $"(success={o.Success} noted={noteOn}) [{o.Note}]");
+
                 // The arm above IS the measurement behind the in-place refusal's remedy: the same localized source,
                 // compacted to a NEW file, keeps its FULL+DESC. The refusal names that lane, so it is named against a
                 // measured result rather than an assumption — and this block asserts the lane still works, which is the
@@ -316,6 +332,21 @@ public static class CompactServiceGuardProbe
                 // here to borrow a refusal from — the compaction builds a fresh non-localized plugin, so the write's
                 // own localized check structurally cannot fire on this path. Deleting the service check makes this arm
                 // RED by letting the compaction run, which is the whole point.
+                // REMEDY: the clause three in-place lanes append names the default lane, so the default lane is
+                // measured here against this same localized plugin before any refusal points at it. An edit with no
+                // in_place lands in a NEW plugin and the localized original is byte-untouched — which is exactly and
+                // only what the clause claims. It deliberately does NOT assert the text came through: whether the
+                // strings resolve is the bound the changelog points at, and the clause never promised it.
+                var remedyBefore = File.ReadAllBytes(srcPath);
+                var remedyEdit = new[] { new BulkOp { Formid = $"000A01:{ls.Key.FileName}", FieldPath = "BasicStats.Damage",
+                                                     Verb = "Set", Value = "42" } };
+                var rem = locSvc.ApplyEdits(remedyEdit, "LocRemedyPatch", null);
+                bool remedyUntouched = File.ReadAllBytes(srcPath).AsSpan().SequenceEqual(remedyBefore);
+                bool remedyWrote = rem.Success && !rem.InPlace && File.Exists(rem.OutputPath);
+                Check(remedyWrote && remedyUntouched,
+                    $"REMEDY the default lane writes a NEW plugin against a localized target, original untouched " +
+                    $"(success={rem.Success} inPlace={rem.InPlace} originalUntouched={remedyUntouched}) [{rem.Error ?? rem.OutputPath}]");
+
                 var srcBefore = File.ReadAllBytes(srcPath);
                 var oip = locSvc.CompactPlugin(ls.Key.FileName.String, inPlace: true, acknowledge: false);
                 bool untouched = File.ReadAllBytes(srcPath).AsSpan().SequenceEqual(srcBefore);
@@ -325,6 +356,15 @@ public static class CompactServiceGuardProbe
                 Check(named && preConsent && untouched && noStaging,
                     $"TARGET-LOC compacting a LOCALIZED plugin IN PLACE is refused before the consent prompt, file untouched " +
                     $"(refused={!oip.Success} named={named} preConsent={preConsent} untouched={untouched} noStaging={noStaging}) [{oip.Error}]");
+            }
+
+            // NEWFILE-NOTE, other direction: the SAME lane over a NON-localized source says nothing about localization.
+            // Without this the note could be unconditional and the arm above would not notice.
+            {
+                var plainOut = svc.CompactPlugin(selfKey.FileName.String);
+                bool quiet = plainOut.Success && !(plainOut.Note?.Contains("localized", StringComparison.OrdinalIgnoreCase) ?? false);
+                Check(quiet, $"NEWFILE-NOTE a NON-localized source compacts to a new file with no localization note " +
+                             $"(success={plainOut.Success} quiet={quiet}) [{plainOut.Note}]");
             }
 
             // ---- REPOINT-LOC: a repoint that would REWRITE a localized external referencer is refused UP FRONT ----
@@ -433,7 +473,7 @@ public static class CompactServiceGuardProbe
                     $"repointed {o.Repointed.Count(x => x.Success)}/{o.Repointed.Count}){(o.Success ? "" : "; ERR " + o.Error)}");
             }
         }
-        finally { try { Directory.Delete(root, true); } catch { } }
+        finally { CorpusRulebook.CorpusPath = priorCorpusPath; try { Directory.Delete(root, true); } catch { } }
 
         Console.WriteLine();
         Console.WriteLine($"=== compact-service-guard: {(fail == 0 ? "PASS" : $"FAIL ({fail})")} ===");

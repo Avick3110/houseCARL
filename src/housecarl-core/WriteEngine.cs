@@ -3877,10 +3877,27 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
     /// read a book's. The absolute was the easier sentence to write and the more dangerous one to act on, because a
     /// caller who checks a few records, finds them intact, and concludes the diagnosis does not fit their file is
     /// looking at precisely the failure being described.</para></summary>
-    public static string Text(string pluginFileName)
+    public static string Text(string pluginFileName, string? laneClause = null)
         => $"houseCARL did not write '{pluginFileName}' — the file is unchanged and nothing was staged. It is flagged " +
            "LOCALIZED: " + Why + " Measured, some records kept their text, some went blank, and others read text " +
-           "belonging to a different record. houseCARL refuses the write instead of corrupting the file.";
+           "belonging to a different record. houseCARL refuses the write instead of corrupting the file." +
+           (laneClause is null ? "" : " " + laneClause);
+
+    /// <summary>What the three lanes that HAVE a new-plugin equivalent append. Measured before it was named: the
+    /// compact guard's REMEDY arm runs the default lane against the localized fixture and reads the written patch back,
+    /// with the localized original byte-untouched. Deliberately "a NEW plugin" and not "a new override plugin" —
+    /// <c>create</c> shares this clause and authors new records rather than overrides.</summary>
+    public const string RemedyDefaultLane =
+        "This is the in-place lane only: drop in_place= and houseCARL writes the same change into a NEW plugin instead, " +
+        "leaving this file untouched.";
+
+    /// <summary>Remove's clause. It names NO remedy, because there is none to name: a new plugin can override a record
+    /// but cannot un-define one, so "do it in a patch instead" would be false here in a way it is not for the other
+    /// three. Stating the asymmetry is what this lane owes the caller. (Remove's remedy machinery is being reworked
+    /// separately; this deliberately adds nothing for that work to collide with.)</summary>
+    public const string RemoveNoEquivalent =
+        "This lane has no new-plugin form: a separate plugin can override a record but cannot un-define one, so there is " +
+        "no way to remove this record without rewriting the plugin that defines it.";
 
     /// <summary>The MECHANISM clause on its own, for the lanes that refuse over a plugin OTHER than the one they were
     /// asked about — compact refusing because a plugin that REFERENCES its target is localized, where "houseCARL did
