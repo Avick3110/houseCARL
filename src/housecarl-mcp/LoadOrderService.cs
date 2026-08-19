@@ -5327,11 +5327,12 @@ public sealed class LoadOrderService : IDisposable
 
         // (1c) LOCALIZED target — refuse BEFORE the consent gate and before the dry-run branch below. houseCARL
         //      cannot re-serialize a localized plugin without scrambling its text (WriteInPlace refuses outright), and
-        //      that refusal has to be predicted HERE rather than met at the write: the gate would otherwise spend the
+        //      that refusal has to be PREDICTED here rather than met at the write: the gate would otherwise spend the
         //      modder's one-time in-place acknowledgement on a write that was never going to happen, and a dry run —
         //      whose contract is to give exactly the answer the real call gives — would report the edit landing.
         if (WriteEngine.PluginIsLocalized(targetPath))
-            return WritePatchBuilder.PatchOutcome.Fail(LocalizedTargetUnsupportedException.Text(targetName));
+            return WritePatchBuilder.PatchOutcome.Fail(LocalizedTargetUnsupportedException.Text(targetName))
+                with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
         // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path. NOT a
         //     sticky mode: each in-place write still names its own target=, so this only stops re-explaining the
@@ -5648,13 +5649,13 @@ public sealed class LoadOrderService : IDisposable
                 "plugin filename (e.g. 'CoolWeapons.esp'). in-place removes from the file the game actually loads. Nothing was written.")
                 with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
-        // (1c) LOCALIZED target — refuse BEFORE the consent gate and before the dry-run branch below. houseCARL
-        //      cannot re-serialize a localized plugin without scrambling its text (WriteInPlace refuses outright), and
-        //      that refusal has to be predicted HERE rather than met at the write: the gate would otherwise spend the
-        //      modder's one-time in-place acknowledgement on a write that was never going to happen, and a dry run —
-        //      whose contract is to give exactly the answer the real call gives — would report the edit landing.
+        // (1c) LOCALIZED target — refuse BEFORE the consent gate. houseCARL cannot re-serialize a localized plugin
+        //      without scrambling its text (WriteInPlace refuses outright), and the gate would otherwise spend the
+        //      modder's one-time in-place acknowledgement on a write that was never going to happen. (This lane has no
+        //      dry run; the two that do also need the refusal predicted ahead of it — see ApplyEditsInPlace.)
         if (WriteEngine.PluginIsLocalized(targetPath))
-            return WritePatchBuilder.RemovalOutcome.Fail(LocalizedTargetUnsupportedException.Text(targetName));
+            return WritePatchBuilder.RemovalOutcome.Fail(LocalizedTargetUnsupportedException.Text(targetName))
+                with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
         // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path (shared
         //     with the edit + create lanes: acknowledging a plugin once covers editing, creating into, AND removing from
@@ -5811,11 +5812,12 @@ public sealed class LoadOrderService : IDisposable
 
         // (1c) LOCALIZED target — refuse BEFORE the consent gate and before the dry-run branch below. houseCARL
         //      cannot re-serialize a localized plugin without scrambling its text (WriteInPlace refuses outright), and
-        //      that refusal has to be predicted HERE rather than met at the write: the gate would otherwise spend the
+        //      that refusal has to be PREDICTED here rather than met at the write: the gate would otherwise spend the
         //      modder's one-time in-place acknowledgement on a write that was never going to happen, and a dry run —
         //      whose contract is to give exactly the answer the real call gives — would report the edit landing.
         if (WriteEngine.PluginIsLocalized(targetPath))
-            return WritePatchBuilder.ForwardOutcome.Fail(LocalizedTargetUnsupportedException.Text(targetName));
+            return WritePatchBuilder.ForwardOutcome.Fail(LocalizedTargetUnsupportedException.Text(targetName))
+                with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
         // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path (shared
         //     with the edit/create/remove lanes: it's the same "touch your original" trade-off).
@@ -6087,9 +6089,8 @@ public sealed class LoadOrderService : IDisposable
                         $"refused — compacting '{name}' means rewriting the plugins that reference it, and " +
                         $"{(localized.Count == 1 ? "one of them is" : $"{localized.Count} of them are")} flagged LOCALIZED: " +
                         $"{string.Join(", ", localized.Take(25))}{(localized.Count > 25 ? $", … (+{localized.Count - 25} more)" : "")}. " +
-                        "A localized plugin holds its text in separate .STRINGS files and carries only indices into them; " +
-                        "rewriting one renumbers those indices while houseCARL commits the plugin file alone, so a value in " +
-                        "it would no longer reliably be its own record's. NOTHING was written and nothing was staged — " +
+                        "For a localized plugin " + LocalizedTargetUnsupportedException.Why +
+                        " NOTHING was written and nothing was staged — " +
                         $"'{name}' is untouched. houseCARL cannot compact '{name}' while a localized plugin references it.");
             }
             if ((willOverwriteTarget || willRepoint) && !acknowledge)
@@ -6877,13 +6878,13 @@ public sealed class LoadOrderService : IDisposable
                 "plugin filename (e.g. 'CoolWeapons.esp'). in-place creates into the file the game actually loads. Nothing was written.")
                 with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
-        // (1c) LOCALIZED target — refuse BEFORE the consent gate and before the dry-run branch below. houseCARL
-        //      cannot re-serialize a localized plugin without scrambling its text (WriteInPlace refuses outright), and
-        //      that refusal has to be predicted HERE rather than met at the write: the gate would otherwise spend the
-        //      modder's one-time in-place acknowledgement on a write that was never going to happen, and a dry run —
-        //      whose contract is to give exactly the answer the real call gives — would report the edit landing.
+        // (1c) LOCALIZED target — refuse BEFORE the consent gate. houseCARL cannot re-serialize a localized plugin
+        //      without scrambling its text (WriteInPlace refuses outright), and the gate would otherwise spend the
+        //      modder's one-time in-place acknowledgement on a write that was never going to happen. (This lane has no
+        //      dry run; the two that do also need the refusal predicted ahead of it — see ApplyEditsInPlace.)
         if (WriteEngine.PluginIsLocalized(targetPath))
-            return WritePatchBuilder.CreateOutcome.Fail(LocalizedTargetUnsupportedException.Text(targetName));
+            return WritePatchBuilder.CreateOutcome.Fail(LocalizedTargetUnsupportedException.Text(targetName))
+                with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
         // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path (shared with
         //     the edit lane: acknowledging a plugin once covers BOTH editing and creating into it in place — it's the same

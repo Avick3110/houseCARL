@@ -6,18 +6,20 @@ when it changes.
 
 ## Unreleased
 
-- **The in-place write lanes now refuse a localized plugin instead of scrambling its text.** Every operation that
-  rewrites an existing plugin over itself re-serializes it: `housecarl_set_field` and `housecarl_bulk_apply` with
-  `in_place=true`, `housecarl_remove_record`, `housecarl_create_record` and `housecarl_bulk_create` in place,
-  `housecarl_forward_record` in place, and `housecarl_compact_plugin`'s rewrite of external referencers under
-  `repoint_externals=true`. A plugin flagged *localized* keeps its names and descriptions in separate `.STRINGS`
-  files and carries only numbers pointing into them; the re-serialize renumbers those pointers, houseCARL saved only
-  the plugin, and the rewritten plugin then read its text against the old, unchanged `.STRINGS`. Values came back
-  attached to the wrong records — a weapon showing a book's name — with the tool reporting success. Not every value:
-  in the measured case some records kept their text, one went blank, and others picked up a different record's, which
-  is worse than a clean break, because spot-checking a few records can leave you thinking the file is fine. It did
-  not need anything unusual about where the strings lived, either: a plugin whose `.STRINGS` sit right beside it,
-  reading correctly everywhere else, was corrupted the same way.
+- **The record-editing lanes now refuse a localized plugin in place instead of scrambling its text.** Editing,
+  removing from, creating into, or forwarding into an existing plugin **in place** re-serializes that whole plugin —
+  `housecarl_apply`, `housecarl_create`, `housecarl_remove` and `housecarl_forward` with `in_place="X.esp"` (and
+  their 1.x spellings `housecarl_set_field` / `housecarl_bulk_apply` / `housecarl_create_record` /
+  `housecarl_bulk_create` / `housecarl_remove_record` / `housecarl_forward_record` with `in_place=true`), plus
+  `housecarl_compact_plugin`'s rewrite of external referencers under `repoint_externals=true`. A plugin flagged
+  *localized* keeps its names and descriptions in separate `.STRINGS` files and carries only numbers pointing into
+  them; the re-serialize renumbers those pointers, houseCARL saved only the plugin, and the rewritten plugin then
+  read its text against the old, unchanged `.STRINGS`. Values came back attached to the wrong records — a weapon
+  showing a book's name — with the tool reporting success. Not every value: in the measured case some records kept
+  their text, some went blank, and others picked up a different record's, which is worse than a clean break, because
+  spot-checking a few records can leave you thinking the file is fine. It did not need anything unusual about where
+  the strings lived, either: a plugin whose `.STRINGS` sit right beside it, reading correctly everywhere else, was
+  corrupted the same way.
 
   These lanes now stop before writing anything and tell you the plugin is localized and why houseCARL will not
   re-emit it. Nothing is written or staged, and your one-time in-place consent for that plugin is not spent on a
@@ -26,12 +28,20 @@ when it changes.
   anything, so it refuses up front rather than renumbering your plugin and then stopping partway through the plugins
   that point at it — and it refuses before asking you to confirm the rewrite, instead of after.
 
-  Writing a NEW plugin is unaffected: the default patch lane, `housecarl_merge_plugins`, and
+  **What this does not cover.** `housecarl_compact_plugin(in_place=true)` on a localized plugin still runs: a
+  compaction does not re-serialize your plugin, it builds a fresh one and writes that over the original, so it never
+  hits the check above. The compacted result comes back **non-localized**, with the text of whichever language
+  resolved baked into the plugin — leaving the mod's `.STRINGS` set orphaned and any other language it shipped gone.
+  If the strings did not resolve at all (see the bound described below), what gets baked in is blanks. Compact a
+  localized plugin to a new file and check it before swapping it in.
+
+  Writing a NEW plugin is otherwise unaffected: the default patch lane, `housecarl_merge_plugins`, and
   `housecarl_compact_plugin`'s default new-file lane all build their output fresh with the text stored inside the
-  plugin. (Extending an existing patch with `into=` re-serializes that patch, so it is in-place in this sense — but
-  it only ever targets a folder houseCARL owns, and houseCARL does not author localized plugins.) In practice modders
-  overwrite official masters and translation mods rarely if ever, preferring new override plugins, so the refusal
-  should be rare.
+  plugin, and leave your original alone. (Extending an existing patch with `into=` does re-serialize that patch, so
+  it is in-place in this sense — but it only ever targets a folder houseCARL owns, and houseCARL does not author
+  localized plugins.) The refusal fires on any plugin carrying the localized header flag, which in practice is
+  mostly official masters and translation mods — and those are edited by making a new override plugin, not in place,
+  so it should be rare.
 
   Making these lanes rewrite a localized plugin *correctly* is a larger change — it decides what an in-place edit is
   allowed to write besides the plugin file itself — and is being designed separately. Until then houseCARL refuses
@@ -66,11 +76,10 @@ when it changes.
   `.STRINGS` served from elsewhere, is therefore still read the old way and still writes blanks. So is a plugin whose
   strings are in neither place.
 
-  One case inside `housecarl_compact_plugin` is also untouched, and it is the worst of the three: with
-  `in_place=true` and `repoint_externals=true`, the pass that rewrites each **external referencer** still opens it the
-  old way and writes it back over the user's own file. A localized referencer loses every name and description
-  permanently — in place, on a plugin the user did not ask to compact, with the same silence this entry describes as
-  the bug. Tracked as #368. All three cases are unchanged by this fix. (#362)
+  Both of those cases are unchanged by this fix. A third — `housecarl_compact_plugin` rewriting each **external
+  referencer** under `in_place=true` + `repoint_externals=true`, over a plugin the user never asked to compact — is
+  no longer reachable: that whole operation is now refused up front when any referencer is localized (see the
+  in-place entry above). (#362)
 
 - **`housecarl_merge_plugins` now accepts a single donor, which renames a plugin.** Merging one plugin into a new
   name was refused ("merge needs at least TWO distinct donor plugins"), and no other tool renames one, so a

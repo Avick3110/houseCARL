@@ -754,6 +754,47 @@ public static class InPlaceProbe
                 $"success={dryG.Success} dryRun={dryG.DryRun}  [{dryG.Error ?? "ok"}]"));
         }
 
+        // ===== LOC-H / LOC-I / LOC-J — the pre-flight is called from FOUR lanes; one arm covers one of them =====
+        // LOC-E/F only drive ApplyEdits. The remove, forward and create entries each carry their own copy of the
+        // check, so deleting any of those three left every arm green — the write's choke point would still refuse, but
+        // the consent would already be spent and (for forward) a dry run would still report an edit that then refuses.
+        // One arm per call site, since the call sites are what can go missing.
+        {
+            string StoreFor(string arm) => Path.Combine(tmpDir, arm + ".user.json");
+            bool RefusedVerbatim(string? err) => err?.StartsWith("houseCARL did not write", StringComparison.Ordinal) ?? false;
+
+            var locH = FreshLocalized(tmpDir, "LOCH", locPristine);
+            using (var r = LoadOrderResolver.Build(new[] { masterPath, locH }))
+            {
+                var svc = LoadOrderService.ForGuard(r, new UserConfigStore(StoreFor("LOCH")));
+                svc.Stats();
+                var o = svc.RemoveRecords(new[] { fmtWfk }, null, target: LocName, inPlace: true, acknowledge: true);
+                results.Add(("LOC-H the REMOVE lane's own pre-flight refuses a localized target", !o.Success && RefusedVerbatim(o.Error),
+                    $"refused={!o.Success} verbatim={RefusedVerbatim(o.Error)}  [{Trim(o.Error)}]"));
+            }
+
+            var locI = FreshLocalized(tmpDir, "LOCI", locPristine);
+            using (var r = LoadOrderResolver.Build(new[] { masterPath, locI, highPath }))
+            {
+                var svc = LoadOrderService.ForGuard(r, new UserConfigStore(StoreFor("LOCI")));
+                svc.Stats();
+                var o = svc.ForwardRecords(new[] { fmtWfk }, HighName, null, null, target: LocName, inPlace: true, acknowledge: true);
+                results.Add(("LOC-I the FORWARD lane's own pre-flight refuses a localized target", !o.Success && RefusedVerbatim(o.Error),
+                    $"refused={!o.Success} verbatim={RefusedVerbatim(o.Error)}  [{Trim(o.Error)}]"));
+            }
+
+            var locJ = FreshLocalized(tmpDir, "LOCJ", locPristine);
+            using (var r = LoadOrderResolver.Build(new[] { masterPath, locJ }))
+            {
+                var svc = LoadOrderService.ForGuard(r, new UserConfigStore(StoreFor("LOCJ")));
+                svc.Stats();
+                var o = svc.CreateRecords("Keyword", "HcIP_LocKw", Array.Empty<BulkOp>(), null, null, false, null, null, null,
+                                          target: LocName, inPlace: true, acknowledge: true);
+                results.Add(("LOC-J the CREATE lane's own pre-flight refuses a localized target", !o.Success && RefusedVerbatim(o.Error),
+                    $"refused={!o.Success} verbatim={RefusedVerbatim(o.Error)}  [{Trim(o.Error)}]"));
+            }
+        }
+
         Console.WriteLine("── ARMS ──");
         bool all = true;
         foreach (var (name, pass, detail) in results)

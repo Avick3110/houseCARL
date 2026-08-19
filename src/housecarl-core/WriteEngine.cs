@@ -3879,11 +3879,18 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
     /// looking at precisely the failure being described.</para></summary>
     public static string Text(string pluginFileName)
         => $"houseCARL did not write '{pluginFileName}' — the file is unchanged and nothing was staged. It is flagged " +
-           "LOCALIZED, so its text is held in separate .STRINGS files and the plugin itself carries only indices into " +
-           "them. Re-serializing the plugin renumbers those indices, and this write commits the plugin file alone — so " +
-           "in the rewritten plugin a localized value would no longer reliably be its own record's: measured, some " +
-           "records kept their text, one went blank, and others read text belonging to a different record. houseCARL " +
-           "refuses the write instead of corrupting the file.";
+           "LOCALIZED: " + Why + " Measured, some records kept their text, some went blank, and others read text " +
+           "belonging to a different record. houseCARL refuses the write instead of corrupting the file.";
+
+    /// <summary>The MECHANISM clause on its own, for the lanes that refuse over a plugin OTHER than the one they were
+    /// asked about — compact refusing because a plugin that REFERENCES its target is localized, where "houseCARL did
+    /// not write 'X'" would name the wrong file. Same words, one source: the sentence that explains why a localized
+    /// plugin cannot be re-emitted is the same explanation wherever it is given, and two hand-written spellings of it
+    /// would drift apart the first time either was edited.</summary>
+    public const string Why =
+        "its text is held in separate .STRINGS files and the plugin itself carries only indices into them, so " +
+        "re-serializing it renumbers those indices while houseCARL commits the plugin file alone — a value in the " +
+        "rewritten plugin would no longer reliably be its own record's.";
 
     public LocalizedTargetUnsupportedException(string pluginFileName) : base(Text(pluginFileName)) { }
 }
