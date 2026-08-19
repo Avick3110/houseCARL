@@ -16,9 +16,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
 - **Fixed: `housecarl_remove` told you to create a patch it cannot create.** Naming a patch that does not exist —
   `housecarl_remove(..., into="My Patch.esp")`, or `housecarl_remove_record(..., patch="My Patch.esp")` on the 1.x
   spelling — is refused, and that refusal ended "Omit into= to create it fresh, or check the name." Doing that got
-  you a second refusal: removal has no fresh-patch lane, because it only drops a record the patch itself already
-  carries, so there is nothing for a newly created one to remove. The refusal now says that instead, and names the
-  lane a removal does have — `in_place="<plugin filename>"` on `housecarl_remove`, `target=<plugin filename>` +
+  you a second refusal: removal has no fresh-patch lane at all, because it only drops a record the patch itself
+  already carries. The refusal now says that instead, and names the lane a removal does have —
+  `in_place="<plugin filename>"` on `housecarl_remove`, `target=<plugin filename>` +
   `in_place=true` on the 1.x `housecarl_remove_record`, each tool naming the lane it declares. That lane removes the
   record from an existing plugin in place; its own first-touch confirmation still applies, and see the in-place entry
   below for what it refuses. Every write tool that *can* create a patch still says so, each on its own behalf. (#356)
