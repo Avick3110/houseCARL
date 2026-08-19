@@ -28,9 +28,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   the strings lived, either: a plugin whose `.STRINGS` sit right beside it, reading correctly everywhere else, was
   corrupted the same way.
 
-  These lanes now stop before writing anything and tell you the plugin is localized and why houseCARL will not
-  re-emit it. Nothing is written or staged, and your one-time in-place consent for that plugin is not spent on a
-  write that cannot happen. A dry run gives the same refusal the real call does, rather than reporting an edit that
+  These lanes now stop before writing anything and tell you the plugin is localized, why houseCARL will not re-emit
+  it, and what to do instead where there is something to do. Nothing is written or staged, and your one-time
+  in-place consent for that plugin is not spent on a write that cannot happen — the one exception being a plugin
+  whose header cannot be read at that moment (a lock from MO2 or xEdit, say), which the check treats as
+  not-localized: the call then proceeds, spends the acknowledgement, and is refused at the write instead. The file
+  is untouched either way. A dry run gives the same refusal the real call does, rather than reporting an edit that
   would then be refused. `housecarl_compact_plugin` checks the referencers it would rewrite *before* it compacts
   anything, so it refuses up front rather than renumbering your plugin and then stopping partway through the plugins
   that point at it — and it refuses before asking you to confirm the rewrite, instead of after.
@@ -41,16 +44,18 @@ saying it sets an expectation their install may contradict. Say what is known, a
   houseCARL read it, with the mod's `.STRINGS` set left describing nothing and any other language it shipped gone.
   If the strings resolved nowhere at all (see the bound described below), blanks get baked in instead. Neither is
   something to do silently to a file with no review step and no undo, so that lane now refuses up front and points at
-  the new-file lane. Compacting to a new plugin is unaffected and keeps your text — that output is not localized
-  either, so read it before you enable it.
+  the new-file lane, which now says the same thing in its own report rather than only when you are refused.
+  Compacting to a new plugin keeps your text wherever houseCARL can resolve your strings — see the bound below; its
+  output is not localized either, so read it before you enable it.
 
   Writing a NEW plugin is otherwise unaffected: the default patch lane, `housecarl_merge_plugins`, and
   `housecarl_compact_plugin`'s default new-file lane all build their output fresh with the text stored inside the
   plugin, and leave your original alone. (Extending an existing patch with `into=` does re-serialize that patch, so
   it is in-place in this sense — but it only ever targets a folder houseCARL owns, and houseCARL does not author
-  localized plugins.) The refusal fires on any plugin carrying the localized header flag, which in practice is
-  mostly official masters and translation mods — and those are edited by making a new override plugin, not in place,
-  so it should be rare.
+  localized plugins.) The refusal fires on any plugin carrying the localized header flag. Which of your plugins
+  carry it depends on your install: the official masters always do, and translated releases commonly do, because
+  that is what the translation toolchain emits. No houseCARL tool reports the flag today, so there is currently no
+  way to answer "will this hit me?" from inside houseCARL — xEdit shows it on the file header.
 
   Making these lanes rewrite a localized plugin *correctly* is a larger change — it decides what an in-place edit is
   allowed to write besides the plugin file itself — and is being designed separately. Until then houseCARL refuses
