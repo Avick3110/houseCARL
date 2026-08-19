@@ -50,7 +50,10 @@ namespace HousecarlGenerator;
 /// not-carried, T surgical-remove+keep-master, U contract, V resolver, W handshake+cross-lane-share, X opt-in);
 /// Y–Z cover the edit lane's MASTER-GROW fix (HCBR-2026-07-08-01 F2: Y — a FormLink to an active-but-undeclared plugin
 /// lands and grows the header; Z — a link to a plugin NOT in the load order still refuses loud, file untouched);
-/// CO-A–CO-D cover the CONSENT ORDERING, one per plugin lane (remove / edit / forward / create).
+/// CO-A–CO-F cover the CONSENT ORDERING as a grid: CO-A–CO-D are the REFUSAL direction, one per plugin lane
+/// (remove / edit / forward / create), and CO-E / CO-F the SUCCESS direction on the two lanes whose persist no
+/// other arm reached (forward, remove). The edit and create success cells are arms G and K; the nif lane carries
+/// both of its directions in NifSetGuardProbe.
 /// Run: dotnet run --project src/housecarl-generator inplace-guard
 ///
 /// The NESTED lock arm (the LinkCacheFor-on-a-foreign-target path) needs a real nested record + master, so it lives in
@@ -816,8 +819,14 @@ public static class InPlaceProbe
         // The consent is per-plugin, persisted, and shared across the in-place lanes, so spending it on a call that
         // wrote nothing leaves the NEXT call — the first real rewrite of the user's original — unprompted. Each arm
         // drives a refusal that lives at the WRITE, past the point the lane used to record the acknowledgement, and
-        // then asserts the two halves that matter: the store is unspent, and a following call without acknowledge=
-        // still meets the first-touch prompt with the file byte-untouched.
+        // then asserts the halves that matter: the store is unspent, and a following call without acknowledge= still
+        // meets the first-touch prompt with the file byte-untouched.
+        //
+        // gateBeforeRefusal is what keeps these from going vacuous. Pinning only the refusal's SENTENCE catches a
+        // DIFFERENT refusal being substituted, but not the same refusal moved AHEAD of the consent gate — and a
+        // refusal the gate never reaches cannot spend consent, so the arm would stay green while testing nothing
+        // about ordering. So each arm first issues the SAME call with acknowledge=false and requires the handshake:
+        // that is the assertion that says the gate runs first, which is the whole claim.
         {
             string StoreCo(string arm) => Path.Combine(tmpDir, arm + ".user.json");
 
@@ -826,10 +835,11 @@ public static class InPlaceProbe
             {
                 var userA = FreshUser(tmpDir, "COA", userPristine);
                 var before = File.ReadAllBytes(userA);
-                bool refused, spent, reprompts, untouched;
+                bool refused, spent, reprompts, untouched, gateFirst;
                 using (var r = LoadOrderResolver.Build(new[] { masterPath, userA, highPath }))
                 {
                     var svc = LoadOrderService.ForGuard(r, new UserConfigStore(StoreCo("COA")));
+                    gateFirst = svc.RemoveRecords(new[] { fmtW2fk }, null, target: UserName, inPlace: true, acknowledge: false).NeedsAcknowledge;
                     var o = svc.RemoveRecords(new[] { fmtW2fk }, null, target: UserName, inPlace: true, acknowledge: true);
                     refused = !o.Success && (o.Error?.Contains("not carried by") ?? false);
                     spent = new UserConfigStore(StoreCo("COA")).IsInPlaceAcknowledged(userA);
@@ -838,8 +848,8 @@ public static class InPlaceProbe
                     untouched = File.ReadAllBytes(userA).AsSpan().SequenceEqual(before);
                 }
                 results.Add(("CO-A a REFUSED in-place remove (not carried) spends no consent — the next write still prompts",
-                    refused && !spent && reprompts && untouched,
-                    $"refused={refused} consentRecorded={spent}(want False) nextCallPrompts={reprompts} fileUntouched={untouched}"));
+                    gateFirst && refused && !spent && reprompts && untouched,
+                    $"gateBeforeRefusal={gateFirst} refused={refused} consentRecorded={spent}(want False) nextCallPrompts={reprompts} fileUntouched={untouched}"));
             }
 
             // CO-B — EDIT: W2 is a record the target does not define or override, refused by the builder's
@@ -847,11 +857,12 @@ public static class InPlaceProbe
             {
                 var userB = FreshUser(tmpDir, "COB", userPristine);
                 var before = File.ReadAllBytes(userB);
-                bool refused, spent, reprompts, untouched;
+                bool refused, spent, reprompts, untouched, gateFirst;
                 using (var r = LoadOrderResolver.Build(new[] { masterPath, userB, highPath }))
                 {
                     var svc = LoadOrderService.ForGuard(r, new UserConfigStore(StoreCo("COB")));
                     var op = new[] { new BulkOp { Formid = fmtW2fk, FieldPath = "BasicStats.Damage", Verb = "Set", Value = "44" } };
+                    gateFirst = svc.ApplyEdits(op, null, null, fullReadback: false, target: UserName, inPlace: true, acknowledge: false).NeedsAcknowledge;
                     var o = svc.ApplyEdits(op, null, null, fullReadback: false, target: UserName, inPlace: true, acknowledge: true);
                     refused = !o.Success && (o.Error?.Contains("does not define or override") ?? false);
                     spent = new UserConfigStore(StoreCo("COB")).IsInPlaceAcknowledged(userB);
@@ -861,18 +872,19 @@ public static class InPlaceProbe
                     untouched = File.ReadAllBytes(userB).AsSpan().SequenceEqual(before);
                 }
                 results.Add(("CO-B a REFUSED in-place edit (record not defined by the target) spends no consent",
-                    refused && !spent && reprompts && untouched,
-                    $"refused={refused} consentRecorded={spent}(want False) nextCallPrompts={reprompts} fileUntouched={untouched}"));
+                    gateFirst && refused && !spent && reprompts && untouched,
+                    $"gateBeforeRefusal={gateFirst} refused={refused} consentRecorded={spent}(want False) nextCallPrompts={reprompts} fileUntouched={untouched}"));
             }
 
             // CO-C — FORWARD: High does not define W2, so the source fetch refuses at the write.
             {
                 var userC = FreshUser(tmpDir, "COC", userPristine);
                 var before = File.ReadAllBytes(userC);
-                bool refused, spent, reprompts, untouched;
+                bool refused, spent, reprompts, untouched, gateFirst;
                 using (var r = LoadOrderResolver.Build(new[] { masterPath, userC, highPath }))
                 {
                     var svc = LoadOrderService.ForGuard(r, new UserConfigStore(StoreCo("COC")));
+                    gateFirst = svc.ForwardRecords(new[] { fmtW2fk }, HighName, null, null, target: UserName, inPlace: true, acknowledge: false).NeedsAcknowledge;
                     var o = svc.ForwardRecords(new[] { fmtW2fk }, HighName, null, null, target: UserName, inPlace: true, acknowledge: true);
                     // The builder's own per-spec rejection, not any service-level gate — the sentence is what ties this
                     // arm to a refusal that lives at the WRITE. Without it the arm passes on ANY failure, including one
@@ -884,8 +896,8 @@ public static class InPlaceProbe
                     untouched = File.ReadAllBytes(userC).AsSpan().SequenceEqual(before);
                 }
                 results.Add(("CO-C a REFUSED in-place forward (source does not carry it) spends no consent",
-                    refused && !spent && reprompts && untouched,
-                    $"refused={refused} consentRecorded={spent}(want False) nextCallPrompts={reprompts} fileUntouched={untouched}"));
+                    gateFirst && refused && !spent && reprompts && untouched,
+                    $"gateBeforeRefusal={gateFirst} refused={refused} consentRecorded={spent}(want False) nextCallPrompts={reprompts} fileUntouched={untouched}"));
             }
 
             // CO-D — CREATE: a new record linking to a plugin that is NOT in the load order refuses at the serialize
@@ -894,11 +906,13 @@ public static class InPlaceProbe
             {
                 var userD = FreshUser(tmpDir, "COD", userPristine);
                 var before = File.ReadAllBytes(userD);
-                bool refused, spent, reprompts, untouched;
+                bool refused, spent, reprompts, untouched, gateFirst;
                 using (var r = LoadOrderResolver.Build(new[] { masterPath, userD, highPath }))
                 {
                     var svc = LoadOrderService.ForGuard(r, new UserConfigStore(StoreCo("COD")));
                     var ops = new[] { new BulkOp { FieldPath = "Keywords", Verb = "Add", Value = "000ABC:NotInOrder.esp" } };
+                    gateFirst = svc.CreateRecords("Weapon", "HcIP_CoDWeap", ops, null, null, false, null, null, null,
+                                                  target: UserName, inPlace: true, acknowledge: false).NeedsAcknowledge;
                     var o = svc.CreateRecords("Weapon", "HcIP_CoDWeap", ops, null, null, false, null, null, null,
                                               target: UserName, inPlace: true, acknowledge: true);
                     // Named for the same reason as CO-C's: this refusal comes from the serialize itself, the furthest
@@ -911,8 +925,8 @@ public static class InPlaceProbe
                     untouched = File.ReadAllBytes(userD).AsSpan().SequenceEqual(before);
                 }
                 results.Add(("CO-D a REFUSED in-place create (link to a non-load-order plugin) spends no consent",
-                    refused && !spent && reprompts && untouched,
-                    $"refused={refused} consentRecorded={spent}(want False) nextCallPrompts={reprompts} fileUntouched={untouched}"));
+                    gateFirst && refused && !spent && reprompts && untouched,
+                    $"gateBeforeRefusal={gateFirst} refused={refused} consentRecorded={spent}(want False) nextCallPrompts={reprompts} fileUntouched={untouched}"));
             }
 
             // CO-E — the SUCCESS direction of the same conditional, on the FORWARD lane. The other three plugin lanes
@@ -936,6 +950,37 @@ public static class InPlaceProbe
                 results.Add(("CO-E an acknowledged forward that LANDS records the consent — the next one does not re-prompt",
                     landed && spent && noReprompt && secondLanded,
                     $"firstLanded={landed} consentRecorded={spent}(want True) secondNoReprompt={noReprompt} secondLanded={secondLanded}"));
+            }
+
+            // CO-F — the SUCCESS direction on the REMOVE lane, the last cell of the grid. Arm W looks like it covers
+            // this and does not: its first half never re-calls after the acknowledged removal, and its second half has
+            // an EDIT record the acknowledgement and only checks that a later remove rides it. Neither exercises
+            // remove's OWN persist, so deleting that one line left the whole suite green. Two own records are needed —
+            // remove one with acknowledge, the other without.
+            {
+                var userF = FreshUser(tmpDir, "COF", userPristine);
+                FormKey kwFk;
+                using (var rc = LoadOrderResolver.Build(new[] { masterPath, userF, highPath }))
+                {
+                    var c = WritePatchBuilder.CreateRecordsInPlace(rc, rulebook,
+                        new[] { new WritePatchBuilder.CreateSpec { RecordType = "Keyword", EditorId = "HcIP_CoFKw", Edits = Array.Empty<WriteRequest>() } },
+                        userF, UserName);   // the builder directly — the service lane would spend the consent this arm measures
+                    kwFk = c.Created.Count > 0 ? c.Created[0].FormKey : default;
+                }
+                bool firstLanded, spent, noReprompt, secondLanded;
+                using (var r = LoadOrderResolver.Build(new[] { masterPath, userF, highPath }))
+                {
+                    var svc = LoadOrderService.ForGuard(r, new UserConfigStore(StoreCo("COF")));
+                    var first = svc.RemoveRecords(new[] { $"{kwFk.ID:X6}:{UserName}" }, null, target: UserName, inPlace: true, acknowledge: true);
+                    firstLanded = first.Success && first.InPlace;
+                    spent = new UserConfigStore(StoreCo("COF")).IsInPlaceAcknowledged(userF);
+                    var second = svc.RemoveRecords(new[] { fmtWfk }, null, target: UserName, inPlace: true, acknowledge: false);
+                    noReprompt = !second.NeedsAcknowledge;
+                    secondLanded = second.Success;
+                }
+                results.Add(("CO-F an acknowledged remove that LANDS records the consent — the next removal does not re-prompt",
+                    firstLanded && spent && noReprompt && secondLanded,
+                    $"firstLanded={firstLanded} consentRecorded={spent}(want True) secondNoReprompt={noReprompt} secondLanded={secondLanded}"));
             }
         }
 

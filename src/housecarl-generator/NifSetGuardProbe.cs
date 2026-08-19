@@ -392,14 +392,19 @@ internal static class NifSetGuardProbe
                 using var svc = HousecarlMcp.LoadOrderService.WithInstance(inst, 0, new UserConfigStore(storePath));
 
                 var op = new[] { new NifSetOp(NifSetOpKind.SetFlags, "GuardShape", Flags: 0x800000E) };
-                bool refused, spent, untouched;
+                bool refused, spent, untouched, gateFirst;
                 using (new FileStream(loosePath, FileMode.Open, FileAccess.Read, FileShare.Read))
                 {
+                    // The SAME call without acknowledge must still meet the handshake. Without this the arm accepts any
+                    // failure, so hoisting the I/O refusal ahead of the consent gate — a plausible "pre-flight the
+                    // lock" refactor — would leave it green while the scenario it names stopped happening at all.
+                    gateFirst = svc.NifSet(MeshRel, op, null, null, null, inPlace: true, acknowledge: false).NeedsAcknowledge;
                     var blocked = svc.NifSet(MeshRel, op, null, null, null, inPlace: true, acknowledge: true);
                     refused = blocked.Error is not null && !blocked.InPlace;
                     spent = new UserConfigStore(storePath).IsInPlaceAcknowledged(loosePath);
                     untouched = File.ReadAllBytes(loosePath).SequenceEqual(seBytes);
                 }
+                Check(gateFirst, $"the consent gate is reached BEFORE the overwrite refuses — {(gateFirst ? "handshake" : "refused ahead of the gate; this arm would be vacuous")}");
                 Check(refused && untouched, $"a held target makes the in-place overwrite refuse with the mesh byte-intact — {(refused ? "refused" : "WROTE ANYWAY")}, untouched={untouched}");
                 Check(!spent, $"the refused in-place edit records NO consent — consentRecorded={spent} (want False)");
                 var after = svc.NifSet(MeshRel, op, null, null, null, inPlace: true, acknowledge: false);
