@@ -8021,10 +8021,12 @@ public sealed class LoadOrderService : IDisposable
         // (removal's is the in-place lane, which no other caller here has) hands the sentence in rather than having
         // it inferred from a semantic bit — the shape LocalizedTargetUnsupportedException.Text already uses. It rides
         // THIS arm only: the foreign-folder arm's remedy is #359's open design question, and the ambiguous and
-        // multi-plugin arms name a call rather than a lane. Note what that is NOT a claim that those two arms are
-        // correct — they instruct every caller to "pass into=", which housecarl_remove_record does not declare and no
-        // alias row maps onto its patch= (the table runs old→new only). That is this same defect one arm over, it is
-        // on main untouched by this change, and it is filed rather than fixed here.
+        // multi-plugin arms name a call rather than a lane. That is NOT a claim that those two arms are correct.
+        // They instruct every caller to "pass into=", which housecarl_remove_record does not declare, and the alias
+        // table has no row whose OLD spelling is "into" — it is bidirectional, so the miss is that specific row's
+        // absence rather than any one-way rule. Measured: that tool answers "unknown parameter: into". Same defect
+        // as this one, one arm over; it is on main untouched by this change, and filed as #377 rather than fixed
+        // here.
         //
         // It is rendered BEFORE the fallback above, not after: the lane's own diagnosis is what makes the fallback
         // the right thing left to do, and reading the instruction first was the order two reviewers stumbled on.
