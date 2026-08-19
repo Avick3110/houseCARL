@@ -373,6 +373,39 @@ internal static class NifSetGuardProbe
                 Check(svc.NifSet(@"meshes\nope\absent.nif", new[] { new NifSetOp(NifSetOpKind.SetScale, "GuardShape", Scale: 1f) }, null, null, null, false, false).Error is { } ea && ea.Contains("ABSENT"),
                       "an absent mesh path → ABSENT refusal");
             }
+
+            // IN-PLACE lane, the REFUSAL direction of the consent record (#378): a call refused AFTER the consent
+            // check but BEFORE the file changes must record nothing, or the next call rewrites the user's original
+            // unprompted. The nif lane's refusals past the gate are all I/O, so the fixture holds the target open —
+            // shared for reading, so the resolve and read still succeed and the ATOMIC SWAP is what fails, leaving
+            // the mesh byte-intact. Own instance and own store, so the arm starts un-acknowledged.
+            {
+                var inst = Path.Combine(svcRoot, "iprefuse");
+                var (mods, _, prof) = MakeInstance(inst);
+                var mod = Path.Combine(mods, "FaceMod"); Directory.CreateDirectory(mod);
+                WriteLoose(mod, MeshRel, seBytes);
+                File.WriteAllText(Path.Combine(mod, "Dummy.esp"), "x");
+                WriteProfile(prof, new[] { "Dummy.esp" }, new[] { "*Dummy.esp" }, new[] { "+FaceMod" });
+                WriteSkyrimIni(prof);
+                var loosePath = Path.Combine(mod, MeshRel);
+                var storePath = Path.Combine(svcRoot, "u-ip-refused.json");
+                using var svc = HousecarlMcp.LoadOrderService.WithInstance(inst, 0, new UserConfigStore(storePath));
+
+                var op = new[] { new NifSetOp(NifSetOpKind.SetFlags, "GuardShape", Flags: 0x800000E) };
+                bool refused, spent, untouched;
+                using (new FileStream(loosePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    var blocked = svc.NifSet(MeshRel, op, null, null, null, inPlace: true, acknowledge: true);
+                    refused = blocked.Error is not null && !blocked.InPlace;
+                    spent = new UserConfigStore(storePath).IsInPlaceAcknowledged(loosePath);
+                    untouched = File.ReadAllBytes(loosePath).SequenceEqual(seBytes);
+                }
+                Check(refused && untouched, $"a held target makes the in-place overwrite refuse with the mesh byte-intact — {(refused ? "refused" : "WROTE ANYWAY")}, untouched={untouched}");
+                Check(!spent, $"the refused in-place edit records NO consent — consentRecorded={spent} (want False)");
+                var after = svc.NifSet(MeshRel, op, null, null, null, inPlace: true, acknowledge: false);
+                Check(after.NeedsAcknowledge && after.Report is null,
+                      $"…so the NEXT call still meets the first-touch prompt rather than overwriting unprompted — {(after.NeedsAcknowledge ? "prompt" : "NO PROMPT — the refusal banked the confirmation")}");
+            }
         }
         finally { try { Directory.Delete(svcRoot, recursive: true); } catch { /* temp scratch */ } }
 
