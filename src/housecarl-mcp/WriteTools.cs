@@ -53,7 +53,7 @@ public static class WriteTools
             string? target = null,
         [Description("Optional, default false. With target=, edit that plugin IN PLACE: houseCARL rewrites your ORIGINAL file — no new patch, and NO houseCARL backup or undo (keep your own). It re-lays-out the whole plugin the way xEdit/CK do on save, VERIFIES the records you edit, and trusts Mutagen for the untouched rest; it refuses a file it can't parse or that holds engine-reserved (sub-0x800) records. The FIRST in-place edit of a given plugin returns a one-time confirmation prompt (re-call with acknowledge=true).")]
             bool in_place = false,
-        [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place edit of a given plugin, never again for it. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
+        [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place edit of a given plugin, and not again once one has LANDED — a call that is refused records nothing, so it may be needed again. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
             bool acknowledge = false,
         [Description("When true, the read-back is the FULL deep field-by-field dump of the touched record (every field, not just the edited leaf) — confirm the write landed and nothing else was disturbed, WITHOUT enabling the patch in MO2. For an IN-PLACE edit the touched-record verify ALWAYS runs and is shown COMPACTLY by default (re-read-clean + what landed, every record); true expands it to the deep dump. (The read-back is the written file's content, NOT load-order truth — the patch/edit wins nothing until enabled + sorted in MO2.)")]
             bool full_readback = false,
@@ -116,7 +116,7 @@ public static class WriteTools
             string? target = null,
         [Description("Optional, default false. With target=, edit that plugin IN PLACE: houseCARL rewrites your ORIGINAL file — no new patch, and NO houseCARL backup or undo (keep your own). It re-lays-out the whole plugin the way xEdit/CK do on save, VERIFIES the records you edit, and trusts Mutagen for the untouched rest; it refuses a file it can't parse or that holds engine-reserved (sub-0x800) records. The FIRST in-place edit of a given plugin returns a one-time confirmation prompt (re-call with acknowledge=true).")]
             bool in_place = false,
-        [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place edit of a given plugin, never again for it. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
+        [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place edit of a given plugin, and not again once one has LANDED — a call that is refused records nothing, so it may be needed again. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
             bool acknowledge = false,
         [Description("When true, the read-back is the FULL deep field-by-field dump of every record this call touched (not just the edited leaves) — confirm composed structures (conditions, container entries) landed and nothing else was disturbed, WITHOUT enabling the patch in MO2. For an IN-PLACE edit the touched-record verify ALWAYS runs and is shown COMPACTLY by default (per record: re-read-clean + what landed, covering ALL of them); true expands it to the deep dump. (The read-back is the written file's content, NOT load-order truth — the patch/edit wins nothing until enabled + sorted in MO2.)")]
             bool full_readback = false,
@@ -242,7 +242,7 @@ public static class WriteTools
             string? target = null,
         [Description("Optional, default false. With target=, remove the record straight from that plugin IN PLACE: houseCARL rewrites your ORIGINAL file — no patch, and NO houseCARL backup or undo (keep your own). houseCARL re-lays-out the whole plugin the way xEdit/CK do on save, VERIFIES the record is gone, and trusts Mutagen for the untouched rest; it refuses a file it can't parse or that holds engine-reserved (sub-0x800) records. Any master the removal orphans is pruned from the header. The FIRST in-place write to a given plugin returns a one-time confirmation prompt (re-call with acknowledge=true).")]
             bool in_place = false,
-        [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place write to a given plugin (edit, create, OR remove), never again for it. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
+        [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place write to a given plugin (edit, create, OR remove), and not again once one has LANDED — a call that is refused records nothing, so it may be needed again. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
             bool acknowledge = false) => Guard.Tool("housecarl_remove_record", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
@@ -298,7 +298,7 @@ public static class WriteTools
             string? target = null,
         [Description("Optional, default false. With target=, create the new record straight INTO that plugin IN PLACE: houseCARL rewrites your ORIGINAL file — no new patch, and NO houseCARL backup or undo (keep your own). The new record gets a fresh FormID in that plugin's OWN range; houseCARL re-lays-out the whole plugin the way xEdit/CK do on save, VERIFIES the record it created, and trusts Mutagen for the untouched rest; it refuses a file it can't parse or that holds engine-reserved (sub-0x800) records. The FIRST in-place write to a given plugin returns a one-time confirmation prompt (re-call with acknowledge=true).")]
             bool in_place = false,
-        [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place write to a given plugin (edit OR create), never again for it. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
+        [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place write to a given plugin (edit OR create), and not again once one has LANDED — a call that is refused records nothing, so it may be needed again. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
             bool acknowledge = false,
         [Description("When true, the read-back is the FULL deep field-by-field dump of the created record (every field, not just the fields you set). For an IN-PLACE create the touched-record verify ALWAYS runs and is shown COMPACTLY by default (re-read-clean + field count per record); true expands it to the deep dump. (The read-back is the written file's content, NOT load-order truth — the patch/edit wins nothing until enabled + sorted in MO2.)")]
             bool full_readback = false,
@@ -347,7 +347,7 @@ public static class WriteTools
             string? target = null,
         [Description("Optional, default false. With target=, create the new records straight INTO that plugin IN PLACE: houseCARL rewrites your ORIGINAL file — no new patch, and NO houseCARL backup or undo (keep your own). Each new record gets a fresh FormID in that plugin's OWN range; houseCARL re-lays-out the whole plugin the way xEdit/CK do on save, VERIFIES the records it created, and trusts Mutagen for the untouched rest; it refuses a file it can't parse or that holds engine-reserved (sub-0x800) records. The FIRST in-place write to a given plugin returns a one-time confirmation prompt (re-call with acknowledge=true).")]
             bool in_place = false,
-        [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place write to a given plugin (edit OR create), never again for it. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
+        [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place write to a given plugin (edit OR create), and not again once one has LANDED — a call that is refused records nothing, so it may be needed again. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
             bool acknowledge = false,
         [Description("When true, the read-back is the FULL deep field-by-field dump of each created record. For an IN-PLACE create the touched-record verify ALWAYS runs and is shown COMPACTLY by default (re-read-clean + field count per record); true expands it to the deep dump. (The read-back is the written file's content, NOT load-order truth — the patch/edit wins nothing until enabled + sorted in MO2.)")]
             bool full_readback = false,
@@ -404,7 +404,7 @@ public static class WriteTools
             string? target = null,
         [Description("Optional, default false. Confirms the IN-PLACE lane together with target= (see target). Your ORIGINAL plugin file is rewritten — no houseCARL backup or undo. Defaults OFF: omitting it always writes a new patch.")]
             bool in_place = false,
-        [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place write to a given plugin (edit, create, remove, OR forward), never again for it. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
+        [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place write to a given plugin (edit, create, remove, OR forward), and not again once one has LANDED — a call that is refused records nothing, so it may be needed again. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
             bool acknowledge = false,
         [Description("Optional. Max characters for the whole response; past it the read-back is cut with an explicit notice (never silent). 0 = a safe default kept under the host's per-response token limit; raise it to widen a full_readback=true dump.")]
             int max_chars = 0,

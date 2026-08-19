@@ -21,10 +21,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   refused with your file untouched, and each used to bank the confirmation for that plugin. The next in-place write
   to it — the first one that actually rewrote your original — then went ahead with no prompt. The confirmation is now
   recorded after the write lands, in every in-place lane (`housecarl_apply`, `housecarl_create`, `housecarl_remove`,
-  `housecarl_forward`, their 1.x spellings, and `housecarl_nif_set`), so no refusal can spend it. It still covers the
-  whole plugin once given, and is still shared across those lanes — see the `housecarl_remove` entry above for what
-  that means when you follow a refusal into the in-place lane. If houseCARL cannot save the confirmation, it says so
-  and you are asked again next session. (#378)
+  `housecarl_forward`, their 1.x spellings, and `housecarl_nif_set`), so no refusal can spend it. What each
+  confirmation covers is unchanged: for the plugin lanes it is the whole plugin and it is shared between them — see
+  the `housecarl_remove` entry above for what that means when you follow a refusal into the in-place lane — while
+  `housecarl_nif_set` confirms one mesh file, separately. If houseCARL cannot save the confirmation it says so, and
+  asks again on the next in-place call. (#378)
 
 - **Fixed: `housecarl_remove` told you to create a patch it cannot create.** Naming a patch that does not exist —
   `housecarl_remove(..., into="My Patch.esp")`, or `housecarl_remove_record(..., patch="My Patch.esp")` on the 1.x

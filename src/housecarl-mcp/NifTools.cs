@@ -175,7 +175,7 @@ public static class NifTools
             string into = "",
         [Description("Optional, default false. IN-PLACE LANE (opt-in): OVERWRITE the winning LOOSE file where it sits instead of writing a new folder — NO backup. Requires acknowledge=true (see below). OMIT (the default) to write a new winning override and leave the original untouched.")]
             bool in_place = false,
-        [Description("Optional, default false. Confirms the one-time in-place trade-off for this file — needed only on the FIRST in-place edit of a given mesh, never again for it. Waives the consent to overwrite your original ONLY; it NEVER skips the mesh verification.")]
+        [Description("Optional, default false. Confirms the one-time in-place trade-off for this file — needed only on the FIRST in-place edit of a given mesh, and not again once one has LANDED — a call that is refused records nothing, so it may be needed again. Waives the consent to overwrite your original ONLY; it NEVER skips the mesh verification.")]
             bool acknowledge = false) => Guard.Tool("housecarl_nif_set", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;

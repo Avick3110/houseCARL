@@ -59,7 +59,7 @@ public static class RemoveTools
             string? into = null,
         [Description("LANE (opt-in): the FILENAME OF THE FILE BEING REWRITTEN, e.g. \"CoolWeapons.esp\" — drop the records straight out of that existing active plugin (incl. one houseCARL didn't author). Your ORIGINAL file is rewritten; no houseCARL backup or undo. It drops only a record the file itself defines or overrides. Mutually exclusive with into=.")]
             string? in_place = null,
-        [Description("Confirms the one-time in-place trade-off for the plugin named by in_place= — needed only on the FIRST in-place write to a given plugin (edit, create, remove, OR forward), never again for it. Waives the consent to touch your original ONLY; it NEVER skips the absence verify. Meaningless without in_place=, and refused there rather than ignored.")]
+        [Description("Confirms the one-time in-place trade-off for the plugin named by in_place= — needed only on the FIRST in-place write to a given plugin (edit, create, remove, OR forward), and not again once one has LANDED — a call that is refused records nothing, so it may be needed again. Waives the consent to touch your original ONLY; it NEVER skips the absence verify. Meaningless without in_place=, and refused there rather than ignored.")]
             bool acknowledge = false,
         [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
             string? format = null,

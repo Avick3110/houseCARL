@@ -148,7 +148,8 @@ public sealed class UserConfigStore
     /// <summary>PERSIST an in-place acknowledgement for <paramref name="pluginPath"/> (idempotent — never duplicated),
     /// through the same atomic read-modify-write as every other field so it can never clobber the MO2 instance / tool
     /// paths sharing this file. Returns (ok, error): a write failure is RETURNED, not thrown (Q3 — the caller can tell
-    /// the user the edit proceeded but the acknowledgement won't survive a restart, so the next session re-prompts).</summary>
+    /// the user the edit proceeded but the acknowledgement did not stick. Nothing caches it — every read goes to the
+    /// file — so a failed write re-prompts on the very next call, not merely in a later session).</summary>
     public (bool ok, string? error) RecordInPlaceAcknowledged(string pluginPath)
     {
         var key = NormalizePath(pluginPath);
