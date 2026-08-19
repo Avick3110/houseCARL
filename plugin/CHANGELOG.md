@@ -23,7 +23,7 @@ saying it sets an expectation their install may contradict. Say what is known, a
   recorded after the write lands, in every in-place lane (`housecarl_apply`, `housecarl_create`, `housecarl_remove`,
   `housecarl_forward`, their 1.x spellings, and `housecarl_nif_set`), so no refusal can spend it. What each
   confirmation covers is unchanged: for the plugin lanes it is the whole plugin and it is shared between them — see
-  the `housecarl_remove` entry above for what that means when you follow a refusal into the in-place lane — while
+  the `housecarl_remove` entry below for what that means when you follow a refusal into the in-place lane — while
   `housecarl_nif_set` confirms one mesh file, separately. If houseCARL cannot save the confirmation it says so, and
   asks again on the next in-place call. (#378)
 

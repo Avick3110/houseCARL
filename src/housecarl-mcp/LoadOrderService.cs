@@ -5330,7 +5330,9 @@ public sealed class LoadOrderService : IDisposable
         //      here rather than met at the write for two reasons the write's own backstop cannot serve: a dry run —
         //      whose contract is to give exactly the answer the real call gives — would otherwise report the edit
         //      landing, and the backstop's sentence names no lane, while a caller refused here needs THIS lane's
-        //      remedy clause. (Measured by the guard's LOC arms: delete this and they go red on the missing clause.)
+        //      remedy clause. (Measured: delete this and the LOC arms go red — LOC-E on the dry run reporting a
+        //      write that would be refused, LOC-F on the remedy. The clause half is what LOC-H, on a lane with
+        //      no dry run, isolates.)
         //      It is no longer what keeps a refusal from spending the acknowledgement — nothing records consent until
         //      the write has landed (see PersistInPlaceConsent).
         if (WriteEngine.PluginIsLocalized(targetPath))
@@ -5457,9 +5459,14 @@ public sealed class LoadOrderService : IDisposable
     string? PersistInPlaceConsent(bool owed, string targetPath, string what, string subject = "plugin")
     {
         if (!owed) return null;
-        var (ok, err) = _store.RecordInPlaceAcknowledged(targetPath);
-        return ok ? null
-            : $"the in-place acknowledgement could not be saved ({err ?? "unknown error"}) — the {what} proceeded, " +
+        string? err;
+        // The store RETURNS its write failures rather than throwing, but its cross-process lock handling sits outside
+        // that try. Now that this runs AFTER the file changed, a throw escaping here would report a failure for a write
+        // that landed — so the last step of a successful call cannot be allowed to throw at all (Q3).
+        try { err = _store.RecordInPlaceAcknowledged(targetPath) is { ok: false, error: var e } ? (e ?? "unknown error") : null; }
+        catch (Exception ex) { err = $"{ex.GetType().Name}: {ex.Message}"; }
+        return err is null ? null
+            : $"the in-place acknowledgement could not be saved ({err}) — the {what} proceeded, " +
               $"but the next in-place call will ask for this {subject} again.";
     }
 
@@ -5865,7 +5872,9 @@ public sealed class LoadOrderService : IDisposable
         //      here rather than met at the write for two reasons the write's own backstop cannot serve: a dry run —
         //      whose contract is to give exactly the answer the real call gives — would otherwise report the edit
         //      landing, and the backstop's sentence names no lane, while a caller refused here needs THIS lane's
-        //      remedy clause. (Measured by the guard's LOC arms: delete this and they go red on the missing clause.)
+        //      remedy clause. (Measured: delete this and the LOC arms go red — LOC-E on the dry run reporting a
+        //      write that would be refused, LOC-F on the remedy. The clause half is what LOC-H, on a lane with
+        //      no dry run, isolates.)
         //      It is no longer what keeps a refusal from spending the acknowledgement — nothing records consent until
         //      the write has landed (see PersistInPlaceConsent).
         if (WriteEngine.PluginIsLocalized(targetPath))
