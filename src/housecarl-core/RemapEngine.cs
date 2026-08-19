@@ -852,8 +852,11 @@ public static class RemapEngine
     ///
     /// <para>Reads the header only, through the lazy overlay. A plugin whose header cannot be read is NOT reported as
     /// localized: the identify pass that produced these names already enumerated each of them successfully, so a fault
-    /// here is a race rather than a normal state, and the write's own choke point remains the absolute backstop. This
-    /// pre-flight exists to keep the refusal EARLY, not to be the thing that makes it safe.</para></summary>
+    /// here is a race rather than a normal state. Failing open costs the EARLINESS, not the safety — the write's choke
+    /// point still refuses, so nothing is corrupted, but by then the target is compacted and the caller is left with a
+    /// renumbered plugin whose referencer still points at the old FormIDs (reported per referencer, never silent).
+    /// That is the outcome this pre-flight exists to avoid, and the reason it is worth having on top of the write's
+    /// own refusal rather than relying on it.</para></summary>
     public static IReadOnlyList<string> LocalizedAmong(LoadOrderResolver resolver, IEnumerable<string> pluginNames)
     {
         var view = resolver.Capture();

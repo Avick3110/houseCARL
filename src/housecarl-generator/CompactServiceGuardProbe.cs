@@ -344,6 +344,15 @@ public static class CompactServiceGuardProbe
                 Check(!o2.Success && (o2.Error?.Contains(rf.Key.FileName.String, StringComparison.OrdinalIgnoreCase) ?? false),
                     $"REPOINT-LOC fixture: the referencer IS an external referencer of the target (plain compact names it) [{o2.Error}]");
 
+                // The refusal must come BEFORE the consent gate. Without acknowledge the caller would otherwise get
+                // "CONFIRM in-place rewrite (your ORIGINAL file(s) will be rewritten — no houseCARL backup or undo)"
+                // and be asked to accept an irreversible trade-off for a run that was never going to write anything.
+                var oNoAck = rlSvc.CompactPlugin(tgt.Key.FileName.String, inPlace: true, repointExternals: true);
+                Check(!oNoAck.Success && !oNoAck.NeedsAcknowledge
+                      && (oNoAck.Error?.Contains("LOCALIZED", StringComparison.Ordinal) ?? false),
+                    $"REPOINT-LOC refuses BEFORE the consent gate (no CONFIRM prompt for a rewrite that cannot happen) " +
+                    $"(refused={!oNoAck.Success} needsAck={oNoAck.NeedsAcknowledge}) [{oNoAck.Error}]");
+
                 // The BACKSTOP, driven directly: the pre-flight above is what a caller normally meets, but the repoint
                 // itself must refuse a localized target on its own — otherwise the pre-flight is the only thing standing
                 // between a localized referencer and a corrupting rewrite, and any path that reaches the repoint another
