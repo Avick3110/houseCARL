@@ -28,12 +28,14 @@ when it changes.
   anything, so it refuses up front rather than renumbering your plugin and then stopping partway through the plugins
   that point at it — and it refuses before asking you to confirm the rewrite, instead of after.
 
-  **What this does not cover.** `housecarl_compact_plugin(in_place=true)` on a localized plugin still runs: a
-  compaction does not re-serialize your plugin, it builds a fresh one and writes that over the original, so it never
-  hits the check above. The compacted result comes back **non-localized**, with the text of whichever language
-  resolved baked into the plugin — leaving the mod's `.STRINGS` set orphaned and any other language it shipped gone.
-  If the strings did not resolve at all (see the bound described below), what gets baked in is blanks. Compact a
-  localized plugin to a new file and check it before swapping it in.
+  **`housecarl_compact_plugin(in_place=true)` refuses a localized plugin too**, for a different reason. A compaction
+  does not re-serialize your plugin, it builds a fresh one and writes that over the original — so it never hits the
+  check above, and what it would produce is a **non-localized** plugin carrying whichever language resolved when
+  houseCARL read it, with the mod's `.STRINGS` set left describing nothing and any other language it shipped gone.
+  If the strings resolved nowhere at all (see the bound described below), blanks get baked in instead. Neither is
+  something to do silently to a file with no review step and no undo, so that lane now refuses up front and points at
+  the new-file lane. Compacting to a new plugin is unaffected and keeps your text — that output is not localized
+  either, so read it before you enable it.
 
   Writing a NEW plugin is otherwise unaffected: the default patch lane, `housecarl_merge_plugins`, and
   `housecarl_compact_plugin`'s default new-file lane all build their output fresh with the text stored inside the

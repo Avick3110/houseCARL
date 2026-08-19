@@ -305,6 +305,26 @@ public static class CompactServiceGuardProbe
                 }
                 Check(flagOk && noStringsFolder,
                     $"LOCALIZED compact output is written NON-localized with strings inline (flagClear={flagOk} noStringsFolder={noStringsFolder})");
+
+                // The arm above IS the measurement behind the in-place refusal's remedy: the same localized source,
+                // compacted to a NEW file, keeps its FULL+DESC. The refusal names that lane, so it is named against a
+                // measured result rather than an assumption — and this block asserts the lane still works, which is the
+                // "new-file compact is untouched" direction of the in-place refusal below.
+                //
+                // TARGET-LOC: the same plugin compacted IN PLACE is refused, BEFORE the consent prompt and with the
+                // file untouched. Isolation, per the lesson the per-lane in-place arms taught: there is no backstop
+                // here to borrow a refusal from — the compaction builds a fresh non-localized plugin, so the write's
+                // own localized check structurally cannot fire on this path. Deleting the service check makes this arm
+                // RED by letting the compaction run, which is the whole point.
+                var srcBefore = File.ReadAllBytes(srcPath);
+                var oip = locSvc.CompactPlugin(ls.Key.FileName.String, inPlace: true, acknowledge: false);
+                bool untouched = File.ReadAllBytes(srcPath).AsSpan().SequenceEqual(srcBefore);
+                bool noStaging = !Directory.Exists(Path.Combine(Path.GetDirectoryName(srcPath)!, ".housecarl-tmp"));
+                bool preConsent = !oip.NeedsAcknowledge;
+                bool named = !oip.Success && (oip.Error?.StartsWith("houseCARL did not compact", StringComparison.Ordinal) ?? false);
+                Check(named && preConsent && untouched && noStaging,
+                    $"TARGET-LOC compacting a LOCALIZED plugin IN PLACE is refused before the consent prompt, file untouched " +
+                    $"(refused={!oip.Success} named={named} preConsent={preConsent} untouched={untouched} noStaging={noStaging}) [{oip.Error}]");
             }
 
             // ---- REPOINT-LOC: a repoint that would REWRITE a localized external referencer is refused UP FRONT ----
@@ -314,7 +334,11 @@ public static class CompactServiceGuardProbe
             //      that only checked for an error would pass just as well on a refusal issued halfway through.
             {
                 var rlRoot = Path.Combine(root, "reploc");
-                var tgt = new LocalizedStringsFixture.Spec("RlTgt", new ModKey("HcCsRlTgt", ModType.Plugin), "TGT NAME", "TGT DESC");
+                // The TARGET is deliberately non-localized: the in-place lane refuses a localized target outright, so a
+                // localized one here would be refused by THAT check and this arm would never reach the referencer
+                // pre-flight it is named for. Only the referencer is localized.
+                var tgt = new LocalizedStringsFixture.Spec("RlTgt", new ModKey("HcCsRlTgt", ModType.Plugin), "TGT NAME", "TGT DESC",
+                                                          Localized: false);
                 var rf = new LocalizedStringsFixture.Spec("RlRef", new ModKey("HcCsRlRef", ModType.Plugin), "REF NAME", "REF DESC",
                                                           LinksTo: LocalizedStringsFixture.WeaponKey(tgt));
                 var fx = LocalizedStringsFixture.Build(rlRoot, new[] { tgt, rf });
@@ -375,31 +399,20 @@ public static class CompactServiceGuardProbe
                 }
             }
 
-            // ---- REPOINT-PLAIN: the same shape with a NON-localized referencer still compacts and repoints ----
-            //      The other direction. The target here IS localized and compacts in place fine — the compacted plugin
-            //      is built fresh and non-localized with its strings inline — so this also pins that the refusal is
-            //      about the plugins being REWRITTEN as referencers, not about localization anywhere in the operation.
+            // ---- REPOINT-PLAIN: a NON-localized target with a NON-localized referencer still compacts and repoints ----
+            //      The other direction for the REFERENCER pre-flight: nothing localized anywhere, so neither the
+            //      referencer check nor the target check may fire and the full opt-in path must work end to end.
+            //      The target is non-localized here BECAUSE the in-place lane now refuses a localized one — this arm
+            //      would otherwise be measuring that refusal instead of the repoint it is named for.
             {
                 var rpRoot = Path.Combine(root, "repplain");
-                var tgt = new LocalizedStringsFixture.Spec("RpTgt", new ModKey("HcCsRpTgt", ModType.Plugin), "TGT NAME", "TGT DESC");
-                var fx = LocalizedStringsFixture.Build(rpRoot, new[] { tgt });
-
-                // The referencer, written NON-localized beside the fixture's plugins and appended to its profile.
-                var refKey = new ModKey("HcCsRpRef", ModType.Plugin);
-                var refDir = Path.Combine(fx.Mods, "RpRef");
-                Directory.CreateDirectory(refDir);
-                var refPath = Path.Combine(refDir, refKey.FileName.String);
+                var tgt = new LocalizedStringsFixture.Spec("RpTgt", new ModKey("HcCsRpTgt", ModType.Plugin), "TGT NAME", "TGT DESC",
+                                                          Localized: false);
+                var rf = new LocalizedStringsFixture.Spec("RpRef", new ModKey("HcCsRpRef", ModType.Plugin), "REF NAME", "REF DESC",
+                                                          LinksTo: LocalizedStringsFixture.WeaponKey(tgt), Localized: false);
+                var fx = LocalizedStringsFixture.Build(rpRoot, new[] { tgt, rf });
                 var tgtPath = Path.Combine(fx.Mods, tgt.ModFolder, tgt.Key.FileName.String);
-                using (var tov = SkyrimMod.CreateFromBinaryOverlay(tgtPath, SkyrimRelease.SkyrimSE))
-                {
-                    var rm = new SkyrimMod(refKey, SkyrimRelease.SkyrimSE);
-                    var fl = new FormList(new FormKey(refKey, 0xA01), SkyrimRelease.SkyrimSE) { EditorID = "RpRefList" };
-                    fl.Items.Add(LocalizedStringsFixture.WeaponKey(tgt).ToLink<ISkyrimMajorRecordGetter>());
-                    rm.FormLists.Add(fl);
-                    rm.ModHeader.Stats.NextFormID = 0xA02;
-                    rm.BeginWrite.ToPath(refPath).WithLoadOrder(new ISkyrimModGetter[] { tov }).NoNextFormIDProcessing().Write();
-                }
-                LocalizedStringsFixture.AppendPlugin(fx, "RpRef", refKey.FileName.String);
+                var refPath = Path.Combine(fx.Mods, rf.ModFolder, rf.Key.FileName.String);
 
                 var rpStore = new UserConfigStore(Path.Combine(rpRoot, "houseCARL.user.json"));
                 using var rpSvc = LoadOrderService.WithInstance(fx.Instance, 0, rpStore);
@@ -416,7 +429,7 @@ public static class CompactServiceGuardProbe
                 }
                 Check(o.Success && o.InPlace && tgtWeapAfter is not null && refLinkAfter == tgtWeapAfter
                       && o.Repointed.Count == 1 && o.Repointed[0].Success,
-                    $"REPOINT-PLAIN a NON-localized referencer still compacts + repoints (weapon -> {tgtWeapAfter}, ref -> {refLinkAfter}, " +
+                    $"REPOINT-PLAIN nothing localized: compacts in place + repoints (weapon -> {tgtWeapAfter}, ref -> {refLinkAfter}, " +
                     $"repointed {o.Repointed.Count(x => x.Success)}/{o.Repointed.Count}){(o.Success ? "" : "; ERR " + o.Error)}");
             }
         }
