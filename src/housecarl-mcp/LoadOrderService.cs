@@ -6008,6 +6008,35 @@ public sealed class LoadOrderService : IDisposable
             try { modKey = ModKey.FromFileName(name); }
             catch (Exception ex) { return WritePatchBuilder.CompactOutcome.Fail($"'{name}' is not a valid plugin filename ({ex.Message})."); }
 
+            // LOCALIZED TARGET, in-place only. Earliest possible: before the identify pass, before the consent gate,
+            // before anything is written or staged. Early on purpose — a caller whose target ALSO has external
+            // referencers would otherwise meet the referencer refusal first, follow its "re-run with
+            // repoint_externals=true" remedy, and only then be told the operation was never possible.
+            //
+            // This is NOT the in-place write's choke point reaching further: it cannot fire here. A compaction does not
+            // re-serialize the target, it builds a FRESH plugin and writes that over the original, so the mod handed to
+            // the write is never flagged localized and the check keyed on it never sees this case. What makes it
+            // refusable is what the rebuild DOES to a localized plugin, and there are two outcomes, both silent and both
+            // landing on a file with no review step and no undo: when the strings resolve, the result is DE-LOCALIZED —
+            // one language baked into the plugin, the mod's .STRINGS set no longer describing it, and nobody chose that;
+            // when they do not, the same path bakes in blanks.
+            //
+            // Keyed on the header FLAG, deliberately wider than the strings-resolve-nowhere case. Detecting that case
+            // precisely is separate machinery that does not exist yet, and neither outcome above may happen silently.
+            // The NEW-FILE lane is untouched: its output is a plugin the modder reviews before swapping it in, which is
+            // the distinction this whole refusal rests on.
+            if (inPlace && WriteEngine.PluginIsLocalized(srcPath))
+                return WritePatchBuilder.CompactOutcome.Fail(
+                    $"houseCARL did not compact '{name}' in place — the file is unchanged and nothing was staged. It is " +
+                    "flagged LOCALIZED, so its text lives in separate .STRINGS files rather than in the plugin. A " +
+                    "compaction does not rewrite the plugin, it builds a NEW one and writes that over the original, and " +
+                    "the rebuilt plugin is not localized: what it would carry is whichever language resolved when " +
+                    "houseCARL read it, written into the plugin itself — or blanks, if those strings resolved nowhere. " +
+                    "Either way the file the game loads would stop being the translated plugin you have, with no backup " +
+                    $"and nothing to undo it. Re-run without in_place to compact '{name}' into a NEW plugin instead: the " +
+                    "same renumber, left in its own mod folder for you to check and enable yourself. That output is not " +
+                    "localized either — read it before you swap it in.");
+
             // 1. originating record keys + the remap into the (light, by default) window.
             if (!WritePatchBuilder.TryReadOriginatingKeys(srcPath, modKey, out var keys, out var keyErr))
                 return WritePatchBuilder.CompactOutcome.Fail(keyErr!);

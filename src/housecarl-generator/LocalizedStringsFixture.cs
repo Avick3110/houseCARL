@@ -31,8 +31,11 @@ internal static class LocalizedStringsFixture
     /// <param name="LinksTo">A record in an EARLIER spec's plugin to point a FormList at — the external-referencer
     /// shape. The link makes that plugin a declared master of this one, which is what puts this plugin in the
     /// identify pass's answer when the other one is compacted.</param>
+    /// <param name="Localized">Build this one NON-localized. Needed because the in-place lanes now refuse a localized
+    /// plugin outright: an arm about the REFERENCER check has to give the operation a target it will accept, or the
+    /// target check answers first and the arm measures that instead of what it is named for.</param>
     internal sealed record Spec(string ModFolder, ModKey Key, string Name, string Desc, bool StringsNowhere = false,
-                                FormKey? LinksTo = null);
+                                FormKey? LinksTo = null, bool Localized = true);
 
     /// <param name="Instance">The MO2 instance dir to hand <c>LoadOrderService.WithInstance</c>.</param>
     /// <param name="Mods">The instance's mods dir.</param>
@@ -76,7 +79,7 @@ internal static class LocalizedStringsFixture
                 var modDir = Path.Combine(mods, spec.ModFolder);
                 Directory.CreateDirectory(modDir);
 
-                var m = new SkyrimMod(spec.Key, SkyrimRelease.SkyrimSE) { UsingLocalization = true };
+                var m = new SkyrimMod(spec.Key, SkyrimRelease.SkyrimSE) { UsingLocalization = spec.Localized };
                 m.Weapons.Add(new Weapon(new FormKey(spec.Key, 0xA01), SkyrimRelease.SkyrimSE)
                 {
                     EditorID = WeaponEdid(spec),
@@ -97,11 +100,19 @@ internal static class LocalizedStringsFixture
                 // The plugin now has its strings beside it, which is the state the bare overlay reads CORRECTLY. Move them
                 // out (or drop them) so the plugin's own folder carries no strings source — the state under test.
                 var own = Path.Combine(modDir, "Strings");
-                if (!Directory.Exists(own))
+                if (spec.Localized && !Directory.Exists(own))
                     throw new InvalidOperationException(
                         $"fixture: '{spec.Key.FileName}' was written with UsingLocalization but produced no Strings folder — " +
                         "the fixture would then be a NON-localized plugin and every arm below would pass vacuously.");
-                if (spec.StringsNowhere) Directory.Delete(own, true);
+                if (!spec.Localized)
+                {
+                    // Nothing to relocate: its text is already inside the plugin. Assert that, so a spec that silently
+                    // started producing strings would fail here rather than quietly becoming a localized fixture.
+                    if (Directory.Exists(own))
+                        throw new InvalidOperationException(
+                            $"fixture: '{spec.Key.FileName}' was written NON-localized but produced a Strings folder.");
+                }
+                else if (spec.StringsNowhere) Directory.Delete(own, true);
                 else
                 {
                     var target = Path.Combine(data, "Strings");
