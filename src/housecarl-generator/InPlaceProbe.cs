@@ -754,11 +754,13 @@ public static class InPlaceProbe
                 $"success={dryG.Success} dryRun={dryG.DryRun}  [{dryG.Error ?? "ok"}]"));
         }
 
-        // ===== LOC-H / LOC-I / LOC-J — the pre-flight is called from FOUR lanes; one arm covers one of them =====
-        // LOC-E/F only drive ApplyEdits. The remove, forward and create entries each carry their own copy of the
-        // check, so deleting any of those three left every arm green — the write's choke point would still refuse, but
-        // the consent would already be spent and (for forward) a dry run would still report an edit that then refuses.
-        // One arm per call site, since the call sites are what can go missing.
+        // ===== LOC-H / LOC-I / LOC-J — the pre-flight is called from FOUR lanes; LOC-E/F cover one of them =====
+        // These assert on the CONSENT RECORD, not on the refusal. Measured: deleting the remove lane's pre-flight and
+        // asserting only "refused, verbatim" left the arm GREEN, because the write's own choke point refuses with the
+        // same sentence — the arm was pinning the backstop, not the thing it named. What actually separates the two is
+        // that the pre-flight answers BEFORE the gate persists the acknowledgement: without it the lane runs the gate,
+        // records consent for a plugin houseCARL then refuses to write, and the modder's one-time confirmation for that
+        // file is gone. One arm per call site, since the call sites are what can go missing.
         {
             string StoreFor(string arm) => Path.Combine(tmpDir, arm + ".user.json");
             bool RefusedVerbatim(string? err) => err?.StartsWith("houseCARL did not write", StringComparison.Ordinal) ?? false;
@@ -769,8 +771,9 @@ public static class InPlaceProbe
                 var svc = LoadOrderService.ForGuard(r, new UserConfigStore(StoreFor("LOCH")));
                 svc.Stats();
                 var o = svc.RemoveRecords(new[] { fmtWfk }, null, target: LocName, inPlace: true, acknowledge: true);
-                results.Add(("LOC-H the REMOVE lane's own pre-flight refuses a localized target", !o.Success && RefusedVerbatim(o.Error),
-                    $"refused={!o.Success} verbatim={RefusedVerbatim(o.Error)}  [{Trim(o.Error)}]"));
+                bool spent = new UserConfigStore(StoreFor("LOCH")).IsInPlaceAcknowledged(locH);
+                results.Add(("LOC-H the REMOVE lane's own pre-flight answers before consent is recorded", !o.Success && RefusedVerbatim(o.Error) && !spent,
+                    $"refused={!o.Success} verbatim={RefusedVerbatim(o.Error)} consentRecorded={spent}(want False)  [{Trim(o.Error)}]"));
             }
 
             var locI = FreshLocalized(tmpDir, "LOCI", locPristine);
@@ -779,8 +782,9 @@ public static class InPlaceProbe
                 var svc = LoadOrderService.ForGuard(r, new UserConfigStore(StoreFor("LOCI")));
                 svc.Stats();
                 var o = svc.ForwardRecords(new[] { fmtWfk }, HighName, null, null, target: LocName, inPlace: true, acknowledge: true);
-                results.Add(("LOC-I the FORWARD lane's own pre-flight refuses a localized target", !o.Success && RefusedVerbatim(o.Error),
-                    $"refused={!o.Success} verbatim={RefusedVerbatim(o.Error)}  [{Trim(o.Error)}]"));
+                bool spent = new UserConfigStore(StoreFor("LOCI")).IsInPlaceAcknowledged(locI);
+                results.Add(("LOC-I the FORWARD lane's own pre-flight answers before consent is recorded", !o.Success && RefusedVerbatim(o.Error) && !spent,
+                    $"refused={!o.Success} verbatim={RefusedVerbatim(o.Error)} consentRecorded={spent}(want False)  [{Trim(o.Error)}]"));
             }
 
             var locJ = FreshLocalized(tmpDir, "LOCJ", locPristine);
@@ -790,8 +794,9 @@ public static class InPlaceProbe
                 svc.Stats();
                 var o = svc.CreateRecords("Keyword", "HcIP_LocKw", Array.Empty<BulkOp>(), null, null, false, null, null, null,
                                           target: LocName, inPlace: true, acknowledge: true);
-                results.Add(("LOC-J the CREATE lane's own pre-flight refuses a localized target", !o.Success && RefusedVerbatim(o.Error),
-                    $"refused={!o.Success} verbatim={RefusedVerbatim(o.Error)}  [{Trim(o.Error)}]"));
+                bool spent = new UserConfigStore(StoreFor("LOCJ")).IsInPlaceAcknowledged(locJ);
+                results.Add(("LOC-J the CREATE lane's own pre-flight answers before consent is recorded", !o.Success && RefusedVerbatim(o.Error) && !spent,
+                    $"refused={!o.Success} verbatim={RefusedVerbatim(o.Error)} consentRecorded={spent}(want False)  [{Trim(o.Error)}]"));
             }
         }
 
