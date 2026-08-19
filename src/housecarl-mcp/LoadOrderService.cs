@@ -5327,11 +5327,14 @@ public sealed class LoadOrderService : IDisposable
                 "plugin filename (e.g. 'CoolWeapons.esp'). in-place edits the file the game actually loads. Nothing was written.")
                 with { Epoch = view.Epoch };
 
-        // (1c) LOCALIZED target — refuse BEFORE the consent gate and before the dry-run branch below. houseCARL
-        //      cannot re-serialize a localized plugin without scrambling its text (WriteInPlace refuses outright), and
-        //      that refusal has to be PREDICTED here rather than met at the write: the gate would otherwise spend the
-        //      modder's one-time in-place acknowledgement on a write that was never going to happen, and a dry run —
-        //      whose contract is to give exactly the answer the real call gives — would report the edit landing.
+        // (1c) LOCALIZED target — refuse BEFORE the dry-run branch below. houseCARL cannot re-serialize a localized
+        //      plugin without scrambling its text (WriteInPlace refuses outright), and that refusal has to be PREDICTED
+        //      here rather than met at the write for two reasons the write's own backstop cannot serve: a dry run —
+        //      whose contract is to give exactly the answer the real call gives — would otherwise report the edit
+        //      landing, and the backstop's sentence names no lane, while a caller refused here needs THIS lane's
+        //      remedy clause. (Measured by the guard's LOC arms: delete this and they go red on the missing clause.)
+        //      It is no longer what keeps a refusal from spending the acknowledgement — nothing records consent until
+        //      the write has landed (see PersistInPlaceConsent).
         if (WriteEngine.PluginIsLocalized(targetPath))
             return WritePatchBuilder.PatchOutcome.Fail(LocalizedTargetUnsupportedException.Text(targetName, LocalizedTargetUnsupportedException.RemedyDefaultLane))
                 with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
@@ -5693,10 +5696,13 @@ public sealed class LoadOrderService : IDisposable
                 "plugin filename (e.g. 'CoolWeapons.esp'). in-place removes from the file the game actually loads. Nothing was written.")
                 with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
-        // (1c) LOCALIZED target — refuse BEFORE the consent gate. houseCARL cannot re-serialize a localized plugin
-        //      without scrambling its text (WriteInPlace refuses outright), and the gate would otherwise spend the
-        //      modder's one-time in-place acknowledgement on a write that was never going to happen. (This lane has no
-        //      dry run; the two that do also need the refusal predicted ahead of it — see ApplyEditsInPlace.)
+        // (1c) LOCALIZED target — predicted here rather than met at the write. houseCARL cannot re-serialize a
+        //      localized plugin without scrambling its text and WriteInPlace refuses outright, but that backstop's
+        //      sentence names no lane, and a caller refused here needs THIS lane's remedy clause. (Measured by the
+        //      guard's LOC arms: delete this and they go red on the missing clause.) It is no longer what keeps a
+        //      refusal from spending the acknowledgement — nothing records consent until the write has landed (see
+        //      PersistInPlaceConsent). The two lanes with a dry run need the prediction for a second reason — see
+        //      ApplyEditsInPlace.
         if (WriteEngine.PluginIsLocalized(targetPath))
             return WritePatchBuilder.RemovalOutcome.Fail(LocalizedTargetUnsupportedException.Text(targetName, LocalizedTargetUnsupportedException.RemoveNoEquivalent))
                 with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
@@ -5849,11 +5855,14 @@ public sealed class LoadOrderService : IDisposable
                 "plugin filename (e.g. 'CoolWeapons.esp'). in-place forwards into the file the game actually loads. Nothing was written.")
                 with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
-        // (1c) LOCALIZED target — refuse BEFORE the consent gate and before the dry-run branch below. houseCARL
-        //      cannot re-serialize a localized plugin without scrambling its text (WriteInPlace refuses outright), and
-        //      that refusal has to be PREDICTED here rather than met at the write: the gate would otherwise spend the
-        //      modder's one-time in-place acknowledgement on a write that was never going to happen, and a dry run —
-        //      whose contract is to give exactly the answer the real call gives — would report the edit landing.
+        // (1c) LOCALIZED target — refuse BEFORE the dry-run branch below. houseCARL cannot re-serialize a localized
+        //      plugin without scrambling its text (WriteInPlace refuses outright), and that refusal has to be PREDICTED
+        //      here rather than met at the write for two reasons the write's own backstop cannot serve: a dry run —
+        //      whose contract is to give exactly the answer the real call gives — would otherwise report the edit
+        //      landing, and the backstop's sentence names no lane, while a caller refused here needs THIS lane's
+        //      remedy clause. (Measured by the guard's LOC arms: delete this and they go red on the missing clause.)
+        //      It is no longer what keeps a refusal from spending the acknowledgement — nothing records consent until
+        //      the write has landed (see PersistInPlaceConsent).
         if (WriteEngine.PluginIsLocalized(targetPath))
             return WritePatchBuilder.ForwardOutcome.Fail(LocalizedTargetUnsupportedException.Text(targetName, LocalizedTargetUnsupportedException.RemedyDefaultLane))
                 with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
@@ -6955,10 +6964,13 @@ public sealed class LoadOrderService : IDisposable
                 "plugin filename (e.g. 'CoolWeapons.esp'). in-place creates into the file the game actually loads. Nothing was written.")
                 with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
-        // (1c) LOCALIZED target — refuse BEFORE the consent gate. houseCARL cannot re-serialize a localized plugin
-        //      without scrambling its text (WriteInPlace refuses outright), and the gate would otherwise spend the
-        //      modder's one-time in-place acknowledgement on a write that was never going to happen. (This lane has no
-        //      dry run; the two that do also need the refusal predicted ahead of it — see ApplyEditsInPlace.)
+        // (1c) LOCALIZED target — predicted here rather than met at the write. houseCARL cannot re-serialize a
+        //      localized plugin without scrambling its text and WriteInPlace refuses outright, but that backstop's
+        //      sentence names no lane, and a caller refused here needs THIS lane's remedy clause. (Measured by the
+        //      guard's LOC arms: delete this and they go red on the missing clause.) It is no longer what keeps a
+        //      refusal from spending the acknowledgement — nothing records consent until the write has landed (see
+        //      PersistInPlaceConsent). The two lanes with a dry run need the prediction for a second reason — see
+        //      ApplyEditsInPlace.
         if (WriteEngine.PluginIsLocalized(targetPath))
             return WritePatchBuilder.CreateOutcome.Fail(LocalizedTargetUnsupportedException.Text(targetName, LocalizedTargetUnsupportedException.RemedyDefaultLane))
                 with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome

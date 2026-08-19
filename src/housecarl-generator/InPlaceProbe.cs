@@ -28,6 +28,8 @@ namespace HousecarlGenerator;
 ///   CONSENT HANDSHAKE      — first in-place touch of a plugin REFUSES-and-explains (writes nothing); acknowledge=true
 ///                            proceeds; a second touch does NOT re-prompt (persisted, cross-session via UserConfig). The
 ///                            acknowledgement is SHARED across the edit + create lanes (keyed off the resolved path).
+///   CONSENT ORDERING       — a call REFUSED at the write records nothing, so the next call still meets the prompt and
+///                            the file stays byte-untouched. RED if a refusal banks the one-time confirmation.
 ///   NESTED (create)        — a new child under ANY parent works in place (full create parity): a parent the target OWNS is
 ///                            sourced from the target; a FOREIGN parent is overridden IN to host the child, as xEdit/the patch lane do.
 ///   RESOLVER / CONTRACT    — target= resolves the REAL active-plugin path (a non-load-order name REFUSES, never
@@ -47,7 +49,8 @@ namespace HousecarlGenerator;
 /// proves the create lane shares the marker + handshake; R–X cover the REMOVE lane (R override-remove+prune, S refuse-if-
 /// not-carried, T surgical-remove+keep-master, U contract, V resolver, W handshake+cross-lane-share, X opt-in);
 /// Y–Z cover the edit lane's MASTER-GROW fix (HCBR-2026-07-08-01 F2: Y — a FormLink to an active-but-undeclared plugin
-/// lands and grows the header; Z — a link to a plugin NOT in the load order still refuses loud, file untouched).
+/// lands and grows the header; Z — a link to a plugin NOT in the load order still refuses loud, file untouched);
+/// CO-A–CO-D cover the CONSENT ORDERING, one per plugin lane (remove / edit / forward / create).
 /// Run: dotnet run --project src/housecarl-generator inplace-guard
 ///
 /// The NESTED lock arm (the LinkCacheFor-on-a-foreign-target path) needs a real nested record + master, so it lives in
@@ -717,10 +720,11 @@ public static class InPlaceProbe
         }
 
         // ===== LOC-E / LOC-F / LOC-G — the SERVICE predicts the write's refusal instead of meeting it =====
-        // The choke point lives in the write, which the dry run never reaches and which the consent gate runs after.
-        // Left there alone: a dry run on a localized target reports the edit landing and the masters the file would
-        // carry, while the real call refuses — and the first acknowledged real call spends the modder's one-time
-        // in-place consent for a plugin houseCARL was never going to write. The service pre-flight answers first.
+        // The choke point lives in the write, which the dry run never reaches. Left there alone, a dry run on a
+        // localized target reports the edit landing and the masters the file would carry, while the real call refuses.
+        // The service pre-flight answers first, in both. LOC-F's consent assertion is now a property of every refusal
+        // (nothing records consent until the write lands — see PersistInPlaceConsent), kept here because this is the
+        // arm a reader of the localized lane looks at; what pins the pre-flight ITSELF is the remedy clause.
         {
             var locE = FreshLocalized(tmpDir, "LOCE", locPristine);
             var storePath = Path.Combine(tmpDir, "LOCE.user.json");
@@ -737,7 +741,8 @@ public static class InPlaceProbe
             results.Add(("LOC-E an in-place DRY RUN on a localized target refuses, with the lane's remedy, as the real call does", dryPass,
                 $"refused={!dry.Success} verbatimWithRemedy={dryPass}  [{Trim(dry.Error) ?? "(reported success — WRONG)"}]"));
 
-            // acknowledge=true is the branch that PERSISTS consent before the write is attempted.
+            // acknowledge=true is the branch that would proceed to the write, so it is the branch whose consent
+            // record is worth reading back.
             var real = svc.ApplyEdits(edit, null, null, fullReadback: false, target: LocName, inPlace: true,
                                       acknowledge: true);
             bool spent = new UserConfigStore(storePath).IsInPlaceAcknowledged(locE);
@@ -757,12 +762,12 @@ public static class InPlaceProbe
         }
 
         // ===== LOC-H / LOC-I / LOC-J — the pre-flight is called from FOUR lanes; LOC-E/F cover one of them =====
-        // These assert on the CONSENT RECORD, not on the refusal. Measured: deleting the remove lane's pre-flight and
-        // asserting only "refused, verbatim" left the arm GREEN, because the write's own choke point refuses with the
-        // same sentence — the arm was pinning the backstop, not the thing it named. What actually separates the two is
-        // that the pre-flight answers BEFORE the gate persists the acknowledgement: without it the lane runs the gate,
-        // records consent for a plugin houseCARL then refuses to write, and the modder's one-time confirmation for that
-        // file is gone. One arm per call site, since the call sites are what can go missing.
+        // What separates the pre-flight from the write's own choke point is the LANE CLAUSE. Measured twice: asserting
+        // only "refused, verbatim" left these GREEN with the pre-flight deleted, because the backstop refuses with the
+        // same sentence; and deleting the remove lane's pre-flight now leaves LOC-H red on laneClause alone, because
+        // the backstop cannot name a lane it was not told about. The consent assertion rides along and is no longer
+        // the discriminator — no refusal spends the acknowledgement any more, in this lane or any other (see
+        // PersistInPlaceConsent). One arm per call site, since the call sites are what can go missing.
         {
             string StoreFor(string arm) => Path.Combine(tmpDir, arm + ".user.json");
             bool RefusedVerbatim(string? err) => err?.StartsWith("houseCARL did not write", StringComparison.Ordinal) ?? false;
