@@ -6,6 +6,30 @@ when it changes.
 
 ## Unreleased
 
+- **The in-place write lanes now refuse a localized plugin instead of scrambling its text.** Any operation that
+  rewrites an existing plugin over itself — `housecarl_set_field` / `housecarl_bulk_apply` with `in_place=true`,
+  `housecarl_remove_record`, `housecarl_create_record` in place, and `housecarl_compact_plugin`'s rewrite of external
+  referencers under `repoint_externals=true` — re-serializes that plugin. A plugin flagged *localized* keeps its
+  names and descriptions in separate `.STRINGS` files and carries only numbers pointing into them; the re-serialize
+  renumbers those pointers, houseCARL saved only the plugin, and the rewritten plugin then read its text against the
+  old, unchanged `.STRINGS`. Every localized value came out attached to a different record — a weapon showing a
+  book's name — with the tool reporting success. It did not need anything unusual about where the strings lived: a
+  plugin whose `.STRINGS` sit right beside it, reading correctly everywhere else, was corrupted the same way.
+
+  These lanes now stop before writing anything and tell you the plugin is localized and why houseCARL will not
+  re-emit it. Nothing is written, staged, or left behind. `housecarl_compact_plugin` checks the referencers it would
+  rewrite *before* it compacts anything, so it refuses the whole operation up front rather than renumbering your
+  plugin and then stopping partway through the plugins that point at it.
+
+  Only in-place rewrites are affected. Everything that writes a NEW plugin — the default patch lane,
+  `housecarl_merge_plugins`, and `housecarl_compact_plugin`'s default new-file lane — builds its output fresh with
+  the text stored inside the plugin, and is unaffected. In practice modders overwrite official masters and
+  translation mods rarely if ever, preferring new override plugins, so the refusal should be rare.
+
+  Making these lanes rewrite a localized plugin *correctly* is a larger change — it decides what an in-place edit is
+  allowed to write besides the plugin file itself — and is being designed separately. Until then houseCARL refuses
+  rather than corrupt a file it cannot faithfully re-emit.
+
 - **`housecarl_merge_plugins` and `housecarl_compact_plugin` now say what they cost your runtime config files.**
   Neither verb reads SPID, KID, SkyPatcher or Open Animation Replacer configs, and neither rewrites them — but both
   can invalidate lines in them, and nothing said so. Merge now states that a line naming a donor stops matching once
