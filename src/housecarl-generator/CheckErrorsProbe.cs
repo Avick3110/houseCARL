@@ -945,6 +945,27 @@ public static class CheckErrorsProbe
             && !histFloor.Contains("more row(s)", StringComparison.Ordinal),
             $"floorLen={histFloor.Length} distinct={histFixture.Histogram?.Count}");
 
+        // The arm CapSweep's floor formulation needs standing beside it. A floor measured off the fixture under test
+        // is inflated by any write site that ignores the budget, and an inflated floor excuses the very overrun it
+        // was measuring — the first sabotage sweep proved it: unbounding both json histogram row loops changed
+        // nothing any arm could see, because at every cap the response WAS the (now enormous) floor.
+        //
+        // The pairs below differ ONLY in how many CHARACTERS their rows carry — same plugin counts, same distinct
+        // counts, same totals — so every number the accounting prints is identical and the two floors must be
+        // EXACTLY equal. Anything else means the response's irreducible part grew with content the budget was
+        // supposed to gate, which is an unbounded write site by definition. No slack, because none is owed.
+        var floorBad = new List<string>();
+        FloorIgnoresRowSize("counts_only histograms", floorBad,
+            HistogramSized(rm, 8), HistogramSized(rm, 400));
+        FloorIgnoresRowSize("counts_only honesty tail", floorBad,
+            UnreadSized(rm, 4), UnreadSized(rm, 400));
+        FloorIgnoresRowSize("listing sections", floorBad,
+            SectionsSized(ErrorCheck.Run(rm, null, 1000), 4), SectionsSized(ErrorCheck.Run(rm, null, 1000), 400));
+        FloorIgnoresRowSize("excluded roster", floorBad,
+            ExcludedSized(ErrorCheck.Run(rm, null, 1000), 4), ExcludedSized(ErrorCheck.Run(rm, null, 1000), 400));
+        Check("FLOOR-IGNORES-BODY-SIZE: at a cap no body fits under, the response is the same length whether its rows carry four characters each or four hundred — the irreducible part of a response is the header, the accounting and the boundary, and nothing that grows with the findings",
+            floorBad.Count == 0, floorBad.Count == 0 ? "every lane's floor is content-independent" : string.Join("; ", floorBad));
+
         Check("SECTION-IS-WHOLE-OR-ABSENT: across a sweep of caps, a section that starts also carries everything it has to say — the only things a cut may drop are a whole section or an entry, which are the two the accounting states",
             SectionsWhole(new[] { manyAmple, tight, ErrorCheck.Run(r, null, 1000) }, out var wholeFail), wholeFail);
 
@@ -1474,6 +1495,58 @@ public static class CheckErrorsProbe
         var lines = response.Split('\n');
         return lines.Length > 1 ? lines[0] + " | " + lines[1] : lines[0];
     }
+
+    /// <summary>Two results identical but for the SIZE of their rows must render to the same length at a cap no
+    /// body fits under. Both transports, and the difference is reported rather than a bare boolean, because the
+    /// number IS the leak: it is how many characters escaped the budget.</summary>
+    static void FloorIgnoresRowSize(string lane, List<string> bad, ErrorCheckResult thin, ErrorCheckResult fat)
+    {
+        int t = Wire.RenderCheckErrors(thin, 1).Length, f = Wire.RenderCheckErrors(fat, 1).Length;
+        if (t != f) bad.Add($"text {lane}: floor {t} -> {f} ({f - t} chars past the budget)");
+        int tj = JsonWire.RenderCheckErrors(thin, 1).Length, fj = JsonWire.RenderCheckErrors(fat, 1).Length;
+        if (tj != fj) bad.Add($"json {lane}: floor {tj} -> {fj} ({fj - tj} chars past the budget)");
+    }
+
+    /// <summary>A counts_only result whose two histogram axes carry 200 rows each, keyed at <paramref name="width"/>
+    /// characters. The COUNTS are fixed; only the characters move.</summary>
+    static ErrorCheckResult HistogramSized(LoadOrderResolver r, int width)
+    {
+        var rows = Enumerable.Range(0, 200)
+            .Select(i => new SweepCount(new string('k', width) + i.ToString("000"), 200 - i)).ToList();
+        return ErrorCheck.Run(r, null, 1000, null, null, ErrorFindingClass.All, true)
+               with { Histogram = rows, DanglingBySource = rows };
+    }
+
+    /// <summary>A counts_only result whose honesty layer carries six unreadable plugins, each with a scan error and
+    /// an unscannable sample of <paramref name="width"/> characters.</summary>
+    static ErrorCheckResult UnreadSized(LoadOrderResolver r, int width)
+        => ErrorCheck.Run(r, null, 1000, null, null, ErrorFindingClass.All, true)
+           with
+        {
+            Reports = Enumerable.Range(0, 6)
+                .Select(i => new PluginErrors($"HcCeUnread{i}.esp", Array.Empty<DanglingRef>(), Array.Empty<string>(),
+                                              2, new[] { new string('u', width) }, new string('x', width)))
+                .ToList(),
+        };
+
+    /// <summary>The listing lane's sections, with each section's FIXED part widened — a scan error and three
+    /// unscannable samples of <paramref name="width"/> characters, the shape that broke the json plugin head.</summary>
+    static ErrorCheckResult SectionsSized(ErrorCheckResult r, int width)
+        => r with
+        {
+            Reports = r.Reports.Select(x => new PluginErrors(
+                x.Plugin, x.Dangling, x.MissingMasters, 3,
+                Enumerable.Range(0, 3).Select(k => new string('s', width) + k).ToList(),
+                new string('e', width))).ToList(),
+        };
+
+    /// <summary>The excluded-plugin roster with three rows, each reason <paramref name="width"/> characters.</summary>
+    static ErrorCheckResult ExcludedSized(ErrorCheckResult r, int width)
+        => r with
+        {
+            ExcludedPlugins = Enumerable.Range(0, 3)
+                .ToDictionary(i => $"HcCeBroken{i}.esp", i => new string('r', width)),
+        };
 
     /// <summary>The first max_chars at which the counts_only honesty tail lands SOME of its rows and not all of
     /// them — the shape the accounting's unread clause is about. Searched rather than hardcoded: the tail renders
