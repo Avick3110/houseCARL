@@ -905,14 +905,16 @@ public static class CheckErrorsProbe
         bool capFat = CapSweep(fatHead, out var fatFail);
         bool capCounts = CapSweep(ErrorCheck.Run(rm, null, 1000, null, null, ErrorFindingClass.All, true), out var countsFail);
         bool capMasters = CapSweep(mastersMany, out var mastersFail);
-        // The honesty tails are the lane whose budget argument was unpinned in both transports — int.MaxValue in
-        // place of the real budget stayed green, because no fixture in the battery had tails big enough to overrun.
-        // This one's six rows carry ~450 chars each, in both the [UNREAD] tail and the json `unread` roster.
+        // The honesty tails are the lane whose budget was unpinned in both transports — no fixture in the battery
+        // had tails big enough to overrun. Its rows carry a scan error plus an unscannable sample, both of them
+        // exception messages with no length of their own, so ONE row is sized past the json lane's whole reserve:
+        // at ~450 chars a row the json cost's removal was absorbed by the reserve and nothing went red, which said
+        // the cost was decorative when what it actually was, was untested.
         var capTails = ErrorCheck.Run(rm, null, 1000, null, null, ErrorFindingClass.All, true) with
         {
             Reports = Enumerable.Range(0, 6)
                 .Select(i => new PluginErrors($"HcCeUnread{i}.esp", Array.Empty<DanglingRef>(), Array.Empty<string>(),
-                                              2, new[] { new string('u', 400) + i }, new string('x', 400)))
+                                              2, new[] { new string('u', 2000) + i }, new string('x', 2000)))
                 .ToList(),
         };
         bool capTailsOk = CapSweep(capTails, out var tailsFail);
@@ -965,6 +967,29 @@ public static class CheckErrorsProbe
             ExcludedSized(ErrorCheck.Run(rm, null, 1000), 4), ExcludedSized(ErrorCheck.Run(rm, null, 1000), 400));
         Check("FLOOR-IGNORES-BODY-SIZE: at a cap no body fits under, the response is the same length whether its rows carry four characters each or four hundred — the irreducible part of a response is the header, the accounting and the boundary, and nothing that grows with the findings",
             floorBad.Count == 0, floorBad.Count == 0 ? "every lane's floor is content-independent" : string.Join("; ", floorBad));
+
+        // The emitter's guarantee, driven directly. Every call site now passes a cost for the units that can be
+        // large, so on the product's own fixtures the post-check never has to fire — which means removing it stays
+        // green everywhere. It is the backstop for a site that forgets, so it is exercised where a site HAS: a unit
+        // whose declared cost was smaller than what it wrote.
+        var emitSb = new System.Text.StringBuilder();
+        var emitter = new BoundedBody(null, 100, () => emitSb.Length);
+        bool firstLanded = emitter.Emit(SweepSubject.DanglingEntries, 0, () => emitSb.Append(new string('x', 500)));
+        bool secondRefused = !emitter.Emit(SweepSubject.PluginSections, 0, () => emitSb.Append("more"));
+        bool closeRefused = !emitter.Close(SweepSubject.UnreadRows, 0, () => emitSb.Append("tail"));
+        Check("EMISSION-POST-CHECK-STOPS-AN-UNDERSTATED-UNIT: a unit that declared a cost smaller than what it wrote takes the body over exactly ONCE — every later unit is refused, in every subject, and so is a closing disclosure",
+            firstLanded && secondRefused && closeRefused && emitSb.Length == 500,
+            $"firstLanded={firstLanded} secondRefused={secondRefused} closeRefused={closeRefused} len={emitSb.Length}");
+
+        // The other direction, or the arm above would pass on an emitter that refuses everything.
+        var okSb = new System.Text.StringBuilder();
+        var okEmitter = new BoundedBody(null, 100, () => okSb.Length);
+        bool a = okEmitter.Emit(SweepSubject.DanglingEntries, 10, () => okSb.Append(new string('y', 10)));
+        bool b = okEmitter.Emit(SweepSubject.PluginSections, 10, () => okSb.Append(new string('z', 10)));
+        bool c = okEmitter.Close(SweepSubject.UnreadRows, 4, () => okSb.Append("tail"));
+        Check("EMISSION-HONEST-COSTS-ALL-LAND: units that state their true cost and fit are all emitted, and the closing disclosure with them — the stop is a bound, not a refusal to write",
+            a && b && c && okSb.Length == 24,
+            $"a={a} b={b} c={c} len={okSb.Length}");
 
         Check("SECTION-IS-WHOLE-OR-ABSENT: across a sweep of caps, a section that starts also carries everything it has to say — the only things a cut may drop are a whole section or an entry, which are the two the accounting states",
             SectionsWhole(new[] { manyAmple, tight, ErrorCheck.Run(r, null, 1000) }, out var wholeFail), wholeFail);
