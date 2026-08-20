@@ -37,7 +37,17 @@ internal enum SweepSubject
     /// stopped, and every row of the axis below was then refused — at <c>limit=3</c> over two 200-row axes, the
     /// SOURCE axis rendered no rows at all, at a cap 79,000 chars short of biting, under a remedy naming
     /// <c>max_chars=</c>, a knob that would have moved nothing. One subject standing for two lane facts is the
-    /// <c>_listing</c> boolean <see cref="CheckAccounting"/> was built to retire, one level down.</para></summary>
+    /// <c>_listing</c> boolean <see cref="CheckAccounting"/> was built to retire, one level down.</para>
+    ///
+    /// <para><b>Observable in the TEXT lane only, and said here rather than left to be assumed.</b> What made the
+    /// shared subject bite is <see cref="BoundedBody.Close"/>, which stops a subject after a row budget cut the axis
+    /// short. The json lane writes no closing line, so nothing there stops a subject except the budget itself —
+    /// and because the response's length only grows, a budget that refuses the first axis refuses the second anyway.
+    /// Sabotaged to share, the json lane stayed green at every arm: the split is unobservable there TODAY. It is
+    /// threaded through both transports regardless, because the alternative is a hard-coded coupling that comes back
+    /// the moment json gains any per-axis close, and because a parameter has to carry some value — the honest one
+    /// costs nothing. No arm claims to pin it in json; HISTOGRAM-AXES-CUT-INDEPENDENTLY pins the text lane, and
+    /// HISTOGRAM-JSON-STATES-THE-SAME-CUT pins what json does say about a cut.</para></summary>
     HistogramBySource,
 
     /// <summary>Rows of validate_scripts' <c>counts_only</c> histogram, by property NAME.</summary>
