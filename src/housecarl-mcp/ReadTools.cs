@@ -1190,45 +1190,44 @@ static class Wire
 
         foreach (var p in r.Reports)
         {
-            // Composed then measured, never appended then regretted: the section header decides whether this section
-            // starts at all, and a section that does not start is counted as not rendered rather than half-written.
-            var head = "\n[ERROR] " + p.Plugin + "\n";
-            if (sb.Length + head.Length > budget) break;
-            sb.Append(head);
-            acct.Section();
+            // A SECTION IS EMITTED WHOLE, OR NOT AT ALL — except for its dangling entries, which are the one thing
+            // the accounting can account for one at a time. Everything else a section says (the scan error, the
+            // missing masters, the unscannable-record count) is a finding in its own right, and a per-line "append
+            // if it fits" dropped those silently: they are not entries, so no accounting subject covered them, and
+            // the tool's own parameter text promises master-table findings are "always listed in full". Composing
+            // the fixed part first makes the only droppable units the two the accounting already states — a whole
+            // section, or an entry.
+            var fixedPart = new StringBuilder("\n[ERROR] ").Append(p.Plugin).Append('\n');
             if (p.ScanError is not null)
-                Fit(sb, "  scan error: " + p.ScanError + "\n", budget);
+                fixedPart.Append("  scan error: ").Append(p.ScanError).Append('\n');
             if (p.MissingMasters.Count > 0)
-                Fit(sb, "  missing master(s): " + string.Join(", ", p.MissingMasters)
-                        + "   [declared as a dependency but not present in the active order — install/enable it, or this plugin's refs into it dangle]\n", budget);
-            if (p.Dangling.Count > 0)
-            {
-                Fit(sb, "  dangling reference(s) (" + p.Dangling.Count + "):\n", budget);
-                foreach (var d in p.Dangling)
-                {
-                    var line = "    " + d.Source + " (" + d.SourceType
-                             + (string.IsNullOrEmpty(d.SourceEditorId) ? "" : " '" + d.SourceEditorId + "'")
-                             + ") -> " + d.Target + "   [target not defined by any active plugin]\n";
-                    if (sb.Length + line.Length > budget) break;
-                    sb.Append(line);
-                    acct.Entry(p.Plugin);   // registered where the line LANDED — the accounting counts the response
-                }
-            }
+                fixedPart.Append("  missing master(s): ").Append(string.Join(", ", p.MissingMasters))
+                         .Append("   [declared as a dependency but not present in the active order — install/enable it, or this plugin's refs into it dangle]\n");
             if (p.UnscannableRecords > 0)
-                Fit(sb, "  " + p.UnscannableRecords + " record(s) could not be scanned (Mutagen could not parse their content)"
-                        + (p.UnscannableSamples.Count > 0 ? ": " + string.Join("; ", p.UnscannableSamples) : "") + "\n", budget);
+            {
+                fixedPart.Append("  ").Append(p.UnscannableRecords).Append(" record(s) could not be scanned (Mutagen could not parse their content)");
+                if (p.UnscannableSamples.Count > 0) fixedPart.Append(": ").Append(string.Join("; ", p.UnscannableSamples));
+                fixedPart.Append('\n');
+            }
+            if (p.Dangling.Count > 0)
+                fixedPart.Append("  dangling reference(s) (").Append(p.Dangling.Count).Append("):\n");
+            if (sb.Length + fixedPart.Length > budget) break;
+            sb.Append(fixedPart);
+            acct.Section();
+
+            foreach (var d in p.Dangling)
+            {
+                var line = "    " + d.Source + " (" + d.SourceType
+                         + (string.IsNullOrEmpty(d.SourceEditorId) ? "" : " '" + d.SourceEditorId + "'")
+                         + ") -> " + d.Target + "   [target not defined by any active plugin]\n";
+                if (sb.Length + line.Length > budget) break;
+                sb.Append(line);
+                acct.Entry(p.Plugin);   // registered where the line LANDED — the accounting counts the response
+            }
         }
 
         acct.ExcludedRows(AppendExcludedPlugins(sb, r.ExcludedPlugins, budget).Appended);
         return Close(sb, acct, reserve, headerLength);
-    }
-
-    /// <summary>Append <paramref name="line"/> only if it fits the body budget. A line that does not fit is DROPPED,
-    /// not clipped: half a finding is a finding a caller cannot act on, and what was dropped is accounted for below
-    /// either way.</summary>
-    static void Fit(StringBuilder sb, string line, int budget)
-    {
-        if (sb.Length + line.Length <= budget) sb.Append(line);
     }
 
     /// <summary>Close the response: the accounting for what it emitted, then the boundary. Both live inside the

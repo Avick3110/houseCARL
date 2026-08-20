@@ -866,6 +866,9 @@ public static class CheckErrorsProbe
         Check("RESPONSE-NEVER-EXCEEDS-MAX-CHARS (#361): the accounting and the boundary are RESERVED before the body renders, so neither is appended past the cap — across a sweep of caps, in both transports",
             CapSweep(manyAmple, out var capFail), capFail);
 
+        Check("SECTION-IS-WHOLE-OR-ABSENT: across a sweep of caps, a section that starts also carries everything it has to say — the only things a cut may drop are a whole section or an entry, which are the two the accounting states",
+            SectionsWhole(new[] { manyAmple, tight, ErrorCheck.Run(r, null, 1000) }, out var wholeFail), wholeFail);
+
         Check("RESPONSE-CUT-COMPLETE-RESPONSE-SAYS-SO: an uncut, unbudgeted response states its completeness rather than staying silent — silence used to mean both 'complete' and #361",
             manyText.Contains("dangling ref(s) found by this sweep appear above", StringComparison.Ordinal)
             && !manyText.Contains("did not fit this response", StringComparison.Ordinal)
@@ -1001,6 +1004,46 @@ public static class CheckErrorsProbe
         return acct.GetProperty("dangling_missing_by_source").EnumerateArray()
                    .Select(e => e.GetProperty("plugin").GetString() + ":" + e.GetProperty("count").GetInt32())
                    .ToArray();
+    }
+
+    /// <summary>The whole-or-absent rule, swept over caps. A section says more than its dangling entries — a scan
+    /// error, the missing masters it declares, how many records could not be read — and none of those is an entry,
+    /// so no accounting subject covers them one at a time. They are emitted with the section head or the section is
+    /// not started, and this holds the render to that: every head has its dangling header, every header has its
+    /// head, and the head count is what the accounting reports as rendered.
+    ///
+    /// <para>The tool's own parameter text promises master-table findings are "always listed in full". Under a
+    /// per-line drop that sentence was false at any cap tight enough to reach it.</para></summary>
+    static bool SectionsWhole(IReadOnlyList<ErrorCheckResult> results, out string detail)
+    {
+        var bad = new List<string>();
+        foreach (var r in results)
+            foreach (int cap in new[] { 400, 900, 1500, 2500, 4000, 9000, 30000 })
+            {
+                var text = Wire.RenderCheckErrors(r, cap);
+                int heads = text.Split("[ERROR] ").Length - 1;
+                int headers = text.Split("  dangling reference(s) (").Length - 1;
+                int withDangling = 0, rendered = 0;
+                foreach (var pl in r.Reports)
+                {
+                    if (!text.Contains("[ERROR] " + pl.Plugin + "\n", StringComparison.Ordinal)) continue;
+                    rendered++;
+                    if (pl.Dangling.Count > 0) withDangling++;
+                    // a section that declares missing masters must show them where it appears at all
+                    if (pl.MissingMasters.Count > 0
+                        && !text.Contains("  missing master(s): " + string.Join(", ", pl.MissingMasters), StringComparison.Ordinal))
+                        bad.Add($"@{cap} {pl.Plugin} rendered without its missing-master line");
+                }
+                if (headers != withDangling)
+                    bad.Add($"@{cap} {headers} dangling header(s) for {withDangling} rendered section(s) that have refs");
+                if (heads != rendered)
+                    bad.Add($"@{cap} {heads} head(s) but {rendered} section(s) matched by name");
+                var acctLine = AccountingLine(text);
+                if (rendered < r.Reports.Count && !acctLine.Contains($"{rendered} of {r.Reports.Count} plugin section(s) were rendered", StringComparison.Ordinal))
+                    bad.Add($"@{cap} rendered {rendered} of {r.Reports.Count} but the accounting does not say so");
+            }
+        detail = bad.Count == 0 ? "every section whole at every cap" : string.Join("; ", bad.Take(4));
+        return bad.Count == 0;
     }
 
     /// <summary>The cap invariant, swept: for a range of max_chars values, NEITHER transport may return more than it
