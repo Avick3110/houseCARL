@@ -13,6 +13,20 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **New: `source_provider=` reaches a mod MO2 is not currently loading.** `housecarl_place_asset` and
+  `housecarl_bulk_place_asset` resolve a named provider against the mods MO2 loads, and — when no provider of that
+  name is among them — against the MO2 mod folder of that name on disk: the loose file first, then that folder's own
+  archives. So the copy inside a mod you have switched off can be placed by naming it, without switching it on. This
+  is the same rule the plugin side already follows, where naming a plugin resolves it whether or not it is ticked.
+  A read served that way says so in the result, naming the mod it came from. Naming is what reaches it: with
+  `source_provider=` omitted, resolution still sees only the mods MO2 loads, `*winner` is still the winner among
+  those, and a contention list still names only those — so a mod you did not name cannot be read, be reported as the
+  winner, or appear as a copy to choose between. A name that supplies the path in neither place is refused, and the
+  refusal says both places were looked in and names the other providers when there are any.
+  `housecarl_asset_status` still answers for the mods MO2 loads, so a path only a switched-off mod provides reads as
+  absent there while remaining placeable by naming that mod — the `source_provider=` description and the
+  `housecarl_copy` asset readback both say so.
+
 - **Fixed: a refused in-place call no longer spends your one-time confirmation.** The in-place lanes ask you to
   confirm the first time they touch a given file, and remember the answer. That confirmation used to be recorded when
   you passed `acknowledge=true`, before the write was attempted — so a call that was then refused, and wrote nothing,
