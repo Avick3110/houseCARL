@@ -683,6 +683,242 @@ internal static class PlaceAssetProbe
                 Check(specs?[0].Source == @"meshes\y.nif" && specs?[0].AssetPath == @"meshes\x.nif",
                       "…and so do the sibling fields this spec pairs it with");
             }
+
+            // ================= M: the OFF-ORDER source lane (F1, ruling O1) =================
+            // Naming a mod reaches that mod's copy whether or not MO2 ticks it. Fifteen CELLS, enumerated rather
+            // than inferred: the lane crosses two tools × two source shapes × two provider kinds, and its whole risk
+            // is what it must NOT reach — so the not-widened poles get cells of their own, not an argument.
+            Console.WriteLine();
+            Console.WriteLine("--- M: source_provider= names a mod MO2 does not tick — served off disk, and nothing else widens ---");
+            {
+                var inst = Path.Combine(root, "svc-m");
+                var (mods, data, prof) = MakeInstance(inst);
+
+                const string OnlyDisabled = @"meshes\hcprobe\only-disabled.nif";
+                const string Shared       = @"meshes\hcprobe\shared.nif";
+                const string Contended    = @"meshes\hcprobe\contended.nif";
+                const string DataName     = "Data";       // a LOOSE-ROOT name, so a mods\Data folder can collide with it
+
+                var eShared     = new byte[] { 0xE1, 0xE1, 0xE1, 0xE1 };
+                var dShared     = new byte[] { 0xD1, 0xD1 };
+                var dOnly       = new byte[] { 0xD0, 0xD0, 0xD0 };
+                var dFaceLoose  = new byte[] { 0xDF, 0xDF, 0xDF, 0xDF, 0xDF };
+                var e1Contended = new byte[] { 0xC1 };
+                var e2Contended = new byte[] { 0xC2, 0xC2 };
+                var dataGame    = new byte[] { 0x6A, 0x6A, 0x6A };
+                var dataFolder  = new byte[] { 0x7B, 0x7B };
+                const string DataCollision = @"meshes\hcprobe\data-collision.nif";
+
+                // ENABLED
+                var e1 = Path.Combine(mods, "Enabled1"); Directory.CreateDirectory(e1);
+                WriteLoose(e1, Shared, eShared);
+                WriteLoose(e1, Contended, e1Contended);
+                File.WriteAllText(Path.Combine(e1, "Dummy.esp"), "x");
+                var e2 = Path.Combine(mods, "Enabled2"); Directory.CreateDirectory(e2);
+                WriteLoose(e2, Contended, e2Contended);
+
+                // OFF-ORDER: unticked in modlist.txt, and holding copies nothing enabled has.
+                var d1 = Path.Combine(mods, "Disabled1"); Directory.CreateDirectory(d1);
+                WriteLoose(d1, OnlyDisabled, dOnly);
+                WriteLoose(d1, Shared, dShared);
+                WriteLoose(d1, Contended, new byte[] { 0xDC });
+                WriteLoose(d1, FacegenRel, dFaceLoose);
+                File.Copy(fixA, Path.Combine(d1, "Disabled1.bsa"));          // loose AND archive, for the lane's own order
+                var d2 = Path.Combine(mods, "Disabled2"); Directory.CreateDirectory(d2);
+                File.Copy(fixA, Path.Combine(d2, "Disabled2.bsa"));          // archive ONLY — the BSA branch of the lane
+
+                // The reserved-name collision: a mods\Data folder beside the game Data folder, both supplying one path.
+                var dFolder = Path.Combine(mods, DataName); Directory.CreateDirectory(dFolder);
+                WriteLoose(dFolder, DataCollision, dataFolder);
+                WriteLoose(data, DataCollision, dataGame);
+
+                WriteProfile(prof, new[] { "Dummy.esp" }, new[] { "*Dummy.esp" },
+                             new[] { "+Enabled1", "+Enabled2", "-Disabled1", "-Disabled2" });
+                WriteSkyrimIni(prof, "");
+                var store = new UserConfigStore(Path.Combine(root, "user-m.json"));
+                using var svc = LoadOrderService.WithInstance(inst, 0, store);
+                var archBytes = AssetResolver.TryReadArchiveEntry(fixA, FacegenRel)!;
+
+                // The fixture's premise, MEASURED rather than assumed — if the "off-order" copies were visible to the
+                // active universe, every cell below would pass for the wrong reason.
+                var pre = svc.AssetStatus(new[] { OnlyDisabled, FacegenRel, Shared, Contended }).Results;
+                Check(pre[0].Hit is { Exists: false } && pre[1].Hit is { Exists: false },
+                      $"the off-order copies are INVISIBLE to the active universe (only-disabled={pre[0].Hit?.Exists}, facegen={pre[1].Hit?.Exists})");
+                Check(pre[2].Hit?.Providers.Count == 1 && pre[3].Hit?.Providers.Count == 2,
+                      $"…and the enabled universe supplies shared once and contended twice ({pre[2].Hit?.Providers.Count}, {pre[3].Hit?.Providers.Count})");
+                Check(archBytes is not null && !archBytes.SequenceEqual(dFaceLoose),
+                      "…and Disabled1's loose facegen differs from the copy in its own archive, so the lane's order is testable");
+
+                string? PlacedAt(PlaceOutcome o, string rel) =>
+                    o.ModFolder is null ? null : (File.Exists(Path.Combine(o.ModFolder, rel)) ? Path.Combine(o.ModFolder, rel) : null);
+
+                // ---- M1: place_asset, NO source=, off-order LOOSE ----
+                {
+                    var o = svc.PlaceAssets(new[] { new PlaceRequest(OnlyDisabled, null, "Disabled1") }, null, null);
+                    var p = PlacedAt(o, OnlyDisabled);
+                    Check(o.Results[0].Placed && p is not null && File.ReadAllBytes(p).SequenceEqual(dOnly),
+                          $"M1  no source=: naming an unticked mod places ITS copy of the destination path  [RED arm] — {(o.Results[0].Placed ? "placed" : o.Results[0].Error)}");
+                }
+
+                // ---- M2: place_asset, source= a DIFFERENT path — the rename the appearance carry is built from ----
+                {
+                    var dest = @"meshes\hcprobe\renamed.nif";
+                    var o = svc.PlaceAssets(new[] { new PlaceRequest(dest, OnlyDisabled, "Disabled1") }, null, null);
+                    var p = PlacedAt(o, dest);
+                    Check(o.Results[0].Placed && p is not null && File.ReadAllBytes(p).SequenceEqual(dOnly),
+                          $"M2  source= a different path: the unticked mod's bytes land under the DESTINATION name  [RED arm] — {(o.Results[0].Placed ? "placed" : o.Results[0].Error)}");
+                }
+
+                // ---- M3: the folder's ROOT ARCHIVE — the capability a path guess cannot reach ----
+                {
+                    var o = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, "Disabled2") }, null, null);
+                    var p = PlacedAt(o, FacegenRel);
+                    Check(o.Results[0].Placed && p is not null && File.ReadAllBytes(p).SequenceEqual(archBytes),
+                          $"M3  a copy that exists ONLY inside the unticked mod's root .bsa is extracted  [RED arm] — {(o.Results[0].Placed ? "placed" : o.Results[0].Error)}");
+                }
+
+                // ---- M4/M5: the BULK tool's own door, both source shapes. The scalar cells above prove the service
+                // policy and say nothing about whether bulk threads the per-asset pole into it. ----
+                {
+                    var t4 = PlaceAssetTools.BulkPlaceAsset(svc, new[]
+                        { new PlaceAssetSpec { AssetPath = OnlyDisabled, SourceProvider = "Disabled1" } }, "MBulkNoSrc");
+                    var f4 = PlacedFileFrom(t4, mods, OnlyDisabled);
+                    Check(f4 is not null && File.ReadAllBytes(f4).SequenceEqual(dOnly),
+                          $"M4  bulk_place_asset, no source=: the unticked mod's copy  [RED arm] — {Trim1(t4)}");
+
+                    var t5 = PlaceAssetTools.BulkPlaceAsset(svc, new[]
+                        { new PlaceAssetSpec { AssetPath = OnlyDisabled, Source = OnlyDisabled, SourceProvider = "Disabled1" } }, "MBulkSrc");
+                    var f5 = PlacedFileFrom(t5, mods, OnlyDisabled);
+                    Check(f5 is not null && File.ReadAllBytes(f5).SequenceEqual(dOnly),
+                          $"M5  bulk_place_asset, with source=: same  [RED arm] — {Trim1(t5)}");
+                }
+
+                // ---- M6: PROVENANCE. Bytes out of a mod the game is not loading look identical on the OK line;
+                // the response has to say which. Counted, not Contains-ed: the destination's own enable+sort
+                // instruction is a DIFFERENT claim and duplicating either one is the #271 class. ----
+                {
+                    var text = PlaceAssetTools.PlaceAsset(svc, asset_path: OnlyDisabled, source_provider: "Disabled1", patch_name: "MProv");
+                    int said = System.Text.RegularExpressions.Regex.Matches(text, "NOT enabled in MO2").Count;
+                    int enableSort = System.Text.RegularExpressions.Regex.Matches(text, "\"wrote it\" is not \"it wins\"").Count;
+                    Check(said == 1, $"M6  the render SAYS the source mod is not enabled — exactly once  [RED arm] — said={said}");
+                    Check(text.Contains("Disabled1", StringComparison.Ordinal), "…naming the mod it read from");
+                    Check(enableSort == 1, $"…and the destination's own enable+sort instruction is still said exactly once, not duplicated — {enableSort}");
+
+                    var enabledText = PlaceAssetTools.PlaceAsset(svc, asset_path: Shared, source_provider: "Enabled1", patch_name: "MProvEnabled");
+                    Check(!enabledText.Contains("NOT enabled in MO2", StringComparison.Ordinal),
+                          $"…and a read served by the ACTIVE universe says no such thing  [RED arm] — {Trim1(enabledText)}");
+                }
+
+                // ---- M7: UNIVERSE FIRST. 'Data' is a loose-root name AND a folder under mods\ here. The universe
+                // answers, so no enabled name changes behaviour and a disk folder cannot shadow one. ----
+                {
+                    var o = svc.PlaceAssets(new[] { new PlaceRequest(@"meshes\hcprobe\data-copy.nif", DataCollision, DataName) }, null, null);
+                    var p = PlacedAt(o, @"meshes\hcprobe\data-copy.nif");
+                    Check(o.Results[0].Placed && p is not null && File.ReadAllBytes(p).SequenceEqual(dataGame),
+                          $"M7  a name the built universe knows is served by the UNIVERSE, not by a mods\\ folder of that name  [RED arm] — {(o.Results[0].Placed ? "placed" : o.Results[0].Error)}");
+                    Check(p is not null && !File.ReadAllBytes(p).SequenceEqual(dataFolder),
+                          "…and specifically not the folder's copy (the two differ, so the assertion can fail)");
+                    Check(o.Results[0].SourceOffOrderProvider is null,
+                          $"…and it is not reported as an off-order read — {o.Results[0].SourceOffOrderProvider ?? "(none)"}");
+                }
+
+                // ---- M8/M9: the two named-provider misses. ONE sentence, and the candidate list appears only when
+                // there are candidates — an always-printed "pass one of these names" with nothing after it is #380's
+                // empty remedy. ----
+                {
+                    var r8 = svc.PlaceAssets(new[] { new PlaceRequest(OnlyDisabled, OnlyDisabled, "NoSuchModAnywhere") }, null, null).Results[0];
+                    Check(!r8.Placed && r8.Error!.Contains("NoSuchModAnywhere", StringComparison.Ordinal)
+                          && r8.Error.Contains(WriteSentences.PlaceSourceBothPlacesSearched, StringComparison.Ordinal),
+                          $"M8  a name nothing supplies anywhere is refused NAMING it and both places searched  [RED arm] — {r8.Error}");
+                    Check(!r8.Error!.Contains("pass one of these names", StringComparison.Ordinal),
+                          $"…and offers NO candidate list, because there are no candidates to offer  [RED arm] — {r8.Error}");
+
+                    var r9 = svc.PlaceAssets(new[] { new PlaceRequest(Contended, Contended, "NoSuchModAnywhere") }, null, null).Results[0];
+                    Check(!r9.Placed && r9.Error!.Contains(WriteSentences.PlaceSourceBothPlacesSearched, StringComparison.Ordinal)
+                          && r9.Error.Contains("pass one of these names", StringComparison.Ordinal),
+                          $"M9  the same miss on a path OTHERS supply lists them as the remedy  [RED arm] — {r9.Error}");
+                    Check(r9.Error!.Contains("\"Enabled1\"", StringComparison.Ordinal) && r9.Error.Contains("\"Enabled2\"", StringComparison.Ordinal),
+                          "…naming exactly the enabled providers");
+                }
+
+                // ---- M10: NOT widened — an OMITTED provider never reaches the lane. Naming is the consent, so a
+                // path only an unticked mod has still has no copy to auto-place. ----
+                {
+                    var r = svc.PlaceAssets(new[] { new PlaceRequest(OnlyDisabled, null, null) }, null, null).Results[0];
+                    Check(!r.Placed && r.Error!.Contains("no copy to auto-place", StringComparison.Ordinal),
+                          $"M10 with NO source_provider=, an unticked mod's copy is NOT auto-resolved  [RED arm] — {r.Error}");
+                }
+
+                // ---- M11: NOT widened — *winner is the ACTIVE winner. An unticked mod is not in the VFS and can
+                // never be what "the game shows right now" means. ----
+                {
+                    var o = svc.PlaceAssets(new[] { new PlaceRequest(@"meshes\hcprobe\winner-copy.nif", Shared, AssetSourceChoice.WinnerToken) }, null, null);
+                    var p = PlacedAt(o, @"meshes\hcprobe\winner-copy.nif");
+                    Check(o.Results[0].Placed && p is not null && File.ReadAllBytes(p).SequenceEqual(eShared),
+                          $"M11 *winner places the ACTIVE winner's bytes on a path an unticked mod also supplies  [RED arm] — {(o.Results[0].Placed ? "placed" : o.Results[0].Error)}");
+                    Check(p is not null && !File.ReadAllBytes(p).SequenceEqual(dShared), "…and specifically not the unticked mod's");
+                }
+
+                // ---- M12: NOT widened — the contention listing is the ACTIVE universe's. An unticked mod that
+                // happens to hold the path must never appear as a provider to choose between. ----
+                {
+                    var r = svc.PlaceAssets(new[] { new PlaceRequest(Contended, Contended, null) }, null, null).Results[0];
+                    Check(!r.Placed && r.Error!.Contains("2 providers", StringComparison.Ordinal),
+                          $"M12 the ambiguity refusal counts the ACTIVE providers only  [RED arm] — {r.Error}");
+                    Check(!r.Error!.Contains("Disabled1", StringComparison.Ordinal),
+                          "…and never names the unticked mod that also holds the path");
+                }
+
+                // ---- M13: the ESCAPE guard. A provider name is joined to mods\, so it is the other half of the
+                // path validation — a name carrying a separator, a '..' or a drive must not address a file outside. ----
+                {
+                    // Placed one level ABOVE mods\ on purpose: '..\outsider' has to REACH something, or the arm
+                    // would pass on a resolver that escapes the mods folder and merely found nothing there.
+                    var outsider = Path.Combine(inst, "outsider");
+                    Directory.CreateDirectory(outsider);
+                    WriteLoose(outsider, OnlyDisabled, new byte[] { 0x66, 0x66, 0x66, 0x66, 0x66, 0x66 });
+                    foreach (var bad in new[] { @"..\outsider", "../outsider", @"Disabled1\..\Disabled1", outsider, "." })
+                    {
+                        var r = svc.PlaceAssets(new[] { new PlaceRequest(OnlyDisabled, OnlyDisabled, bad) }, null, null).Results[0];
+                        Check(!r.Placed, $"M13 a provider name that is a PATH ('{bad}') places nothing  [RED arm] — {(r.Placed ? "PLACED" : "refused")}");
+                    }
+                }
+
+                // ---- M14: the lane's OWN order — loose first, then the folder's archives, which is the ancestor's
+                // donor-disk shape. Disabled1 holds both copies of the facegen path. ----
+                {
+                    var o = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, "Disabled1") }, null, null);
+                    var p = PlacedAt(o, FacegenRel);
+                    Check(o.Results[0].Placed && p is not null && File.ReadAllBytes(p).SequenceEqual(dFaceLoose),
+                          $"M14 the folder's LOOSE copy beats its own root archive  [RED arm] — {(o.Results[0].Placed ? "placed" : o.Results[0].Error)}");
+                    Check(p is not null && !File.ReadAllBytes(p).SequenceEqual(archBytes), "…and specifically not the archive's");
+                }
+
+                // ---- M15: THE DISCRIMINATING CELL. A path an ENABLED mod supplies, with the UNTICKED one named:
+                // the name binds, so the read is the named mod's. Every pre-F1 policy fails this one. ----
+                {
+                    var o = svc.PlaceAssets(new[] { new PlaceRequest(@"meshes\hcprobe\bound.nif", Shared, "Disabled1") }, null, null);
+                    var p = PlacedAt(o, @"meshes\hcprobe\bound.nif");
+                    Check(o.Results[0].Placed && p is not null && File.ReadAllBytes(p).SequenceEqual(dShared),
+                          $"M15 naming the unticked mod reads ITS copy though an enabled mod supplies the path too  [RED arm] — {(o.Results[0].Placed ? "placed" : o.Results[0].Error)}");
+                    Check(p is not null && !File.ReadAllBytes(p).SequenceEqual(eShared), "…and specifically not the enabled mod's");
+                    Check(o.Results[0].SourceOffOrderProvider == "Disabled1",
+                          $"…and the result carries the off-order provenance the render prints — {o.Results[0].SourceOffOrderProvider ?? "(none)"}");
+                }
+
+                // ---- M16: the cell M7 cannot reach. M7 passes on the universe's own match, so it says nothing
+                // about the gate; this is the case where the universe name exists but does NOT supply the path, and
+                // a mods\ folder of the same name does. Without the gate, 'Data' would quietly mean two different
+                // providers depending on the path — which is the shadowing the ruled universe-first shape forbids. ----
+                {
+                    const string FolderOnly = @"meshes\hcprobe\data-folder-only.nif";
+                    WriteLoose(Path.Combine(mods, DataName), FolderOnly, new byte[] { 0x5C, 0x5C });
+                    File.SetLastWriteTimeUtc(Path.Combine(prof, "modlist.txt"), DateTime.UtcNow.AddHours(1));
+                    var r = svc.PlaceAssets(new[] { new PlaceRequest(FolderOnly, FolderOnly, DataName) }, null, null).Results[0];
+                    Check(!r.Placed,
+                          $"M16 a name the universe knows NEVER falls through to a mods\\ folder of that name  [RED arm] — {(r.Placed ? "PLACED from the folder" : "refused")}");
+                }
+            }
         }
         finally { try { Directory.Delete(root, recursive: true); } catch { /* temp scratch */ } }
 
