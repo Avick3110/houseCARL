@@ -927,11 +927,12 @@ public static class CheckErrorsProbe
             // Twelve sources for a ten-row roster, so the sample the reserve is measured from actually DROPS
             // two. Ten short non-ASCII names (61 chars plain, 366 escaped) against two long ASCII ones (204
             // either way): ranked by the ESCAPED spelling the non-ASCII names win and the long ASCII pair falls
-            // out, which sizes the TEXT reserve off names a third the length of what the text render prints.
+            // out. The long pair carries the LARGEST counts, so the roster this response really prints is the one the
+            // worst case left out — which is what makes an under-sized text reserve show up as a response over its cap.
             DanglingBySource = Enumerable.Range(0, 10)
-                .Select(i => new SweepCount(new string('\u00e9', 57) + i.ToString("000") + ".esp", 900 - i))
+                .Select(i => new SweepCount(new string('\u00e9', 57) + i.ToString("000") + ".esp", 500 - i))
                 .Concat(Enumerable.Range(0, 2)
-                    .Select(i => new SweepCount(new string('n', 197) + i.ToString("000") + ".esp", 500 - i)))
+                    .Select(i => new SweepCount(new string('n', 197) + i.ToString("000") + ".esp", 900 - i)))
                 .ToList(),
         };
         bool capWideOk = CapSweep(capWide, out var wideFail);
