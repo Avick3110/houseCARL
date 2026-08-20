@@ -27,7 +27,8 @@ saying it sets an expectation their install may contradict. Say what is known, a
   and reported `truncated: false`, which was true, because the cap had not been applied. The check is now per
   finding.
   The accounting and the boundary footer are held back out of `max_chars` before the listing is built, so
-  neither is appended past it. That costs the listing a few hundred characters of an 80,000 budget. The one case
+  neither is appended past it. That costs the listing a little of its room: on a 3800-plugin order at the
+  defaults the response lists 537 findings and ends just inside 80,000 characters. The one case
   where a response is still longer than the `max_chars` you gave it is a `max_chars` too small to hold the
   accounting itself; there the response says so and names the number that clears it, and setting `max_chars` to
   that number does clear it. `counts_only=true` is inside the cap too now — its two histograms took `limit=` as
