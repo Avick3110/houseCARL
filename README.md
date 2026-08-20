@@ -30,7 +30,7 @@ models — by construction, not a hand-maintained subset.
   header-only **trigger plugin** when a mod just needs `Foo.esp` to exist.
 - **Edit an existing plugin in place** — when you ask, houseCARL edits, creates, and removes records
   directly inside an existing plugin (including one it didn't author) instead of writing a separate patch.
-  Opt-in, gated by a one-time per-plugin consent prompt, and it keeps **no backup** — so the default
+  Opt-in, gated by a per-plugin consent prompt, and it keeps **no backup** — so the default
   new-patch lane above stays the default.
 - **Compact and merge plugins** — ESL-compact a plugin into the light-master FormID window, carrying its
   FormID-keyed assets (facegen, voice) along so a compacted mod's faces don't go dark; or merge several

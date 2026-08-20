@@ -982,6 +982,31 @@ public static class InPlaceProbe
                     firstLanded && spent && noReprompt && secondLanded,
                     $"firstLanded={firstLanded} consentRecorded={spent}(want True) secondNoReprompt={noReprompt} secondLanded={secondLanded}"));
             }
+
+            // CO-G — the PROMPT's own two claims, as the caller actually receives them. Asserted by PRESENCE of the
+            // corrected wording, not by absence of the old: an absence check passes for a prompt that says nothing at
+            // all, and both of these are claims the caller acts on.
+            //   • WHEN it stops — "shown until a write LANDS", because a refused call records nothing and the caller
+            //     can meet this prompt again; the old "shown once for this plugin" said that could not happen.
+            //   • WHAT it costs — the file claim has to be true whether or not a previous call already mutated the
+            //     file and failed its verify, which is reachable and records no consent. "It will NO LONGER be
+            //     untouched" asserts a transition that may already have happened; the durable fact does not.
+            {
+                var userG = FreshUser(tmpDir, "COG", userPristine);
+                string prompt;
+                using (var r = LoadOrderResolver.Build(new[] { masterPath, userG, highPath }))
+                {
+                    var svc = LoadOrderService.ForGuard(r, new UserConfigStore(StoreCo("COG")));
+                    prompt = svc.RemoveRecords(new[] { fmtWfk }, null, target: UserName, inPlace: true, acknowledge: false).Error ?? "";
+                }
+                bool landedClause = prompt.Contains("shown until an in-place write to this plugin LANDS", StringComparison.Ordinal)
+                                 && prompt.Contains("a call that is refused records nothing", StringComparison.Ordinal);
+                bool neutralFileClause = prompt.Contains("not a copy", StringComparison.Ordinal)
+                                      && prompt.Contains("cannot restore what it overwrites", StringComparison.Ordinal);
+                results.Add(("CO-G the first-touch prompt states WHEN it stops (a landed write) and a direction-neutral file claim",
+                    landedClause && neutralFileClause,
+                    $"landedSemantics={landedClause} directionNeutralFileClaim={neutralFileClause}"));
+            }
         }
 
         Console.WriteLine("── ARMS ──");

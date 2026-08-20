@@ -42,7 +42,7 @@ public static class RemoveTools
          "(the same name you pass to housecarl_apply's into=); it must be a patch houseCARL created. " +
          "in_place='<plugin filename>' is the opt-in lane for ANY existing active plugin, including one houseCARL " +
          "didn't author: your ORIGINAL file is rewritten — no houseCARL backup or undo (keep your own). The FIRST " +
-         "in-place write to a given plugin returns a one-time confirmation prompt (re-call with acknowledge=true); " +
+         "in-place write to a given plugin returns a confirmation prompt (re-call with acknowledge=true); " +
          "that consent covers touching your original ONLY — it NEVER skips the absence verify, which confirms on the " +
          "re-opened file that every record you dropped is actually gone. Exactly one lane per call.\n\n" +
          "Unused masters are pruned automatically: if a removed record held the file's last reference to a master, " +

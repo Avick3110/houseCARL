@@ -24,7 +24,7 @@ It can:
   just needs `Foo.esp` to exist.
 - **Edit an existing plugin in place** — on request, edit / create / remove records directly inside an
   existing plugin (including one houseCARL didn't author) instead of writing a separate patch. Opt-in, gated
-  by a one-time per-plugin consent prompt, and it keeps **no backup**; the default new-patch lane stays the
+  by a per-plugin consent prompt, and it keeps **no backup**; the default new-patch lane stays the
   default.
 - **Compact and merge plugins** — ESL-compact a plugin into the light-master FormID window, carrying its
   FormID-keyed assets (facegen, voice) along so a compacted mod's faces don't go dark; or merge several

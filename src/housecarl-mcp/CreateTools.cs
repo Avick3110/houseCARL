@@ -78,7 +78,7 @@ public static class CreateTools
          "file (incl. a mod houseCARL didn't author) — no new patch, and NO houseCARL backup or undo (keep your " +
          "own). Full create parity in place, nesting included: a parent the target already owns hosts the child, a " +
          "parent from another plugin is overridden in. Each new record gets a fresh FormID in THAT plugin's own " +
-         "range. The FIRST in-place write to a given plugin returns a one-time confirmation prompt (re-call with " +
+         "range. The FIRST in-place write to a given plugin returns a confirmation prompt (re-call with " +
          "acknowledge=true); that consent covers touching your original ONLY — it NEVER skips the record verify.\n\n" +
          "ALL-OR-NOTHING (Q3): if ANY spec is malformed or fails pre-flight — an unknown or ambiguous record_type, a " +
          "missing editorid, an illegal field op, a nested child with no resolvable parent, an ambiguous collection, " +

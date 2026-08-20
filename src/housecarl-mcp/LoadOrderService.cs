@@ -1472,13 +1472,13 @@ public sealed class LoadOrderService : IDisposable
         return list;
     }
 
-    /// <summary>The mesh-specific first-touch in-place consent prompt. Distinct from the PLUGIN handshake
-    /// (<see cref="InPlaceHandshakeText"/>) whose "whole plugin re-serialized / engine-reserved sub-0x800 records" wording
-    /// is false for a .nif — a mesh write is a WHOLE-FILE NiflySharp re-serialization (not a byte-surgical patch), then
-    /// verified. The no-backup + opt-in trade-offs carry over.</summary>
+    /// <summary>The mesh-specific first-touch in-place consent prompt. Shares the opening lead with the PLUGIN
+    /// handshake (<see cref="InPlaceHandshakeLead"/>) — same two claims, keyed to the mesh — and diverges from
+    /// <see cref="InPlaceHandshakeText"/> after it, because that prompt's "whole plugin re-serialized / engine-reserved
+    /// sub-0x800 records" wording is false for a .nif: a mesh write is a WHOLE-FILE NiflySharp re-serialization (not a
+    /// byte-surgical patch), then verified. The opt-in trade-off carries over.</summary>
     static string NifInPlaceHandshakeText(string meshName, string path) =>
-        $"in-place edit of '{meshName}' — first-time confirmation (shown once for this mesh):\n" +
-        $"  • This overwrites your ORIGINAL file ({path}). It will NO LONGER be untouched, and houseCARL keeps NO backup or undo — keep your own.\n" +
+        InPlaceHandshakeLead(meshName, path, "mesh", "overwrites") +
         "  • The written mesh is a WHOLE-FILE re-serialization through NiflySharp's canonical writer (the way NifSkope / BodySlide rewrite a mesh on save), NOT a byte-surgical patch — then VERIFIED (only the value you edited changed; it reloads as a valid SE mesh).\n" +
         "  • It still refuses if the mesh can't be parsed or isn't a Skyrim SE stream.\n" +
         "  • The default lane (a NEW mod folder, originals untouched) stays the recommended way — this is the explicit opt-in.\n" +
@@ -5354,7 +5354,7 @@ public sealed class LoadOrderService : IDisposable
         {
             if (!already)
                 ackNote = $"in-place consent is still PENDING for '{targetName}' — the REAL write's first touch of this " +
-                          "plugin will show the one-time confirmation (re-call with acknowledge=true); a dry run neither needs nor records it.";
+                          "plugin will show the confirmation (re-call with acknowledge=true); a dry run neither needs nor records it.";
         }
         else
         {
@@ -5419,13 +5419,33 @@ public sealed class LoadOrderService : IDisposable
         return null;
     }
 
-    /// <summary>The first-touch in-place CONSENT prompt (server-enforced, shown once per plugin). States the trade-off
-    /// plainly: the original file IS the output, there's no houseCARL undo/backup, the whole plugin is re-laid-out like
-    /// xEdit/CK do on save with the touched records VERIFIED and Mutagen trusted for the rest, and the default new-patch
-    /// lane stays recommended. Waives the CONSENT axis only (re-call with acknowledge=true).</summary>
+    /// <summary>The two opening claims BOTH first-touch prompts make — the plugin one and the mesh one — in one place,
+    /// because they are one claim each and were corrected as a pair.
+    ///
+    /// <para>The header states WHEN the prompt stops: not "once", but once a write LANDS. A refused call records
+    /// nothing (see <see cref="PersistInPlaceConsent"/>), so a caller can legitimately meet this prompt more than once,
+    /// and a prompt that called itself one-time was telling them that could not happen.</para>
+    ///
+    /// <para>The file claim is deliberately DIRECTION-NEUTRAL. It used to read "It will NO LONGER be untouched", which
+    /// asserts a state transition — and the transition may already have happened, because a write that lands and then
+    /// fails its verify mutates the file while recording no consent, so the very next call re-prompts against a file
+    /// that is already modified. Stating the durable fact instead ("writes to your original, not a copy; nothing here
+    /// can restore it") is true in both worlds and needs no state to distinguish them. If a future edit cannot be
+    /// phrased truthfully both ways, that is a §4 surface-and-stop, not a licence to track whether the file was
+    /// previously touched.</para></summary>
+    static string InPlaceHandshakeLead(string name, string path, string subject, string verb) =>
+        $"in-place edit of '{name}' — first-time confirmation (shown until an in-place write to this {subject} LANDS; " +
+        "a call that is refused records nothing, so you may see this again):\n" +
+        $"  • This {verb} your ORIGINAL file ({path}) — not a copy. houseCARL keeps NO backup or undo and cannot " +
+        "restore what it overwrites, so keep your own.\n";
+
+    /// <summary>The first-touch in-place CONSENT prompt for a PLUGIN (server-enforced). Opens with the shared lead
+    /// (<see cref="InPlaceHandshakeLead"/> — when the prompt stops, and what it costs the original), then states the
+    /// plugin-specific trade-off: the whole plugin is re-laid-out like xEdit/CK do on save with the touched records
+    /// VERIFIED and Mutagen trusted for the rest, and the default new-patch lane stays recommended. Waives the CONSENT
+    /// axis only (re-call with acknowledge=true).</summary>
     static string InPlaceHandshakeText(string pluginName, string path) =>
-        $"in-place edit of '{pluginName}' — first-time confirmation (shown once for this plugin):\n" +
-        $"  • This writes to your ORIGINAL file ({path}). It will NO LONGER be untouched, and houseCARL keeps NO backup or undo — keep your own.\n" +
+        InPlaceHandshakeLead(pluginName, path, "plugin", "writes to") +
         "  • houseCARL re-lays-out the WHOLE plugin the way xEdit/CK do on save (every record re-serialized), VERIFIES the records you edit, and trusts Mutagen for the rest.\n" +
         "  • It still refuses if the file can't be parsed, or carries engine-reserved (sub-0x800) records.\n" +
         "  • The default lane (a NEW patch, originals untouched) stays the recommended way — this is the explicit opt-in.\n" +
@@ -5893,7 +5913,7 @@ public sealed class LoadOrderService : IDisposable
         {
             if (!already)
                 ackNote = $"in-place consent is still PENDING for '{targetName}' — the REAL write's first touch of this " +
-                          "plugin will show the one-time confirmation (re-call with acknowledge=true); a dry run neither needs nor records it.";
+                          "plugin will show the confirmation (re-call with acknowledge=true); a dry run neither needs nor records it.";
         }
         else
         {
