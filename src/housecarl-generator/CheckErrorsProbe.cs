@@ -905,9 +905,33 @@ public static class CheckErrorsProbe
         bool capFat = CapSweep(fatHead, out var fatFail);
         bool capCounts = CapSweep(ErrorCheck.Run(rm, null, 1000, null, null, ErrorFindingClass.All, true), out var countsFail);
         bool capMasters = CapSweep(mastersMany, out var mastersFail);
+        // The honesty tails are the lane whose budget argument was unpinned in both transports — int.MaxValue in
+        // place of the real budget stayed green, because no fixture in the battery had tails big enough to overrun.
+        // This one's six rows carry ~450 chars each, in both the [UNREAD] tail and the json `unread` roster.
+        var capTails = ErrorCheck.Run(rm, null, 1000, null, null, ErrorFindingClass.All, true) with
+        {
+            Reports = Enumerable.Range(0, 6)
+                .Select(i => new PluginErrors($"HcCeUnread{i}.esp", Array.Empty<DanglingRef>(), Array.Empty<string>(),
+                                              2, new[] { new string('u', 400) + i }, new string('x', 400)))
+                .ToList(),
+        };
+        bool capTailsOk = CapSweep(capTails, out var tailsFail);
         Check("RESPONSE-NEVER-EXCEEDS-MAX-CHARS (#361): the accounting and the boundary are RESERVED before the body renders, so neither is appended past the cap — across a sweep of caps, in every lane, in both transports",
-            capListing && capFat && capCounts && capMasters,
-            $"listing=[{capFail}] fat-head=[{fatFail}] counts_only=[{countsFail}] masters-only=[{mastersFail}]");
+            capListing && capFat && capCounts && capMasters && capTailsOk,
+            $"listing=[{capFail}] fat-head=[{fatFail}] counts_only=[{countsFail}] masters-only=[{mastersFail}] fat-tails=[{tailsFail}]");
+
+        // The surface the floor formulation deliberately cannot see: anything emitted UNCONDITIONALLY is inside the
+        // floor CapSweep measures against. A histogram's title, its empty-case sentence and its "more rows" line are
+        // exactly that — they bypassed the budget entirely. At a cap that admits no ROWS, a title is a section head
+        // with no section, which the whole-or-absent rule already forbids everywhere else.
+        var histFixture = ErrorCheck.Run(rm, null, 1000, null, null, ErrorFindingClass.All, true);
+        var histFloor = Wire.RenderCheckErrors(histFixture, 1);
+        Check("HISTOGRAM-FRAMING-IS-BOUNDED: at a cap that admits no histogram rows, the histogram's own title and framing lines are absent too — a title with nothing under it is a section head with no section, and it is charged to the budget like every other unit",
+            histFixture.Histogram is { Count: > 0 }
+            && !histFloor.Contains("dangling ref(s) by TARGET plugin", StringComparison.Ordinal)
+            && !histFloor.Contains("dangling ref(s) by SOURCE plugin", StringComparison.Ordinal)
+            && !histFloor.Contains("more row(s)", StringComparison.Ordinal),
+            $"floorLen={histFloor.Length} distinct={histFixture.Histogram?.Count}");
 
         Check("SECTION-IS-WHOLE-OR-ABSENT: across a sweep of caps, a section that starts also carries everything it has to say — the only things a cut may drop are a whole section or an entry, which are the two the accounting states",
             SectionsWhole(new[] { manyAmple, tight, ErrorCheck.Run(r, null, 1000) }, out var wholeFail), wholeFail);
@@ -1016,12 +1040,21 @@ public static class CheckErrorsProbe
             $"success={exGroupNarrow.Success} err=[{exGroupNarrow.Error}] scanned={exGroupNarrow.PluginsScanned}");
 
         // A group can legitimately match nothing here. That is not an error — but the response must still say the
-        // scope was narrowed, or exclude= leaves no trace and the caller cannot tell it was honoured.
-        var exGroupEmpty = ErrorCheck.Run(rb, new[] { "HcCeBaseMod.esp" }, 1000, null, null,
-                                          ErrorFindingClass.All, false, Excl("base_masters"));
-        Check("EXCLUDE-EMPTY-GROUP-STILL-NOTED: an exclusion that removes nothing from THIS scope is still reported as a narrowing — an exclude= that leaves no trace reads as one that was ignored",
-            exGroupEmpty.FilterNote is { } egn && egn.Contains("exclude= left out", StringComparison.Ordinal),
-            $"note=[{exGroupEmpty.FilterNote}]");
+        // scope was narrowed, or exclude= leaves no trace and the caller cannot tell it was honoured. The NUMBER it
+        // states is asserted, not the presence of the sentence: a substring match passes over any figure at all, and
+        // this one is the figure the class-C roster proved wrong (exclude.Names.Count * 99 stayed green).
+        Check("EXCLUDE-EMPTY-GROUP-STILL-NOTED: an exclusion that removes nothing from THIS scope is still reported as a narrowing, and the number it states is what the SCOPE lost — not the size of the group the token expanded to",
+            ExcludeLeftOut(exGroupNarrow.FilterNote) == 0,
+            $"note=[{exGroupNarrow.FilterNote}] stated={ExcludeLeftOut(exGroupNarrow.FilterNote)} scopeLoss=0 groupExpandsTo={ErrorCheck.BaseMasters.Count}");
+
+        // The other direction, which nothing exercised: a group token that actually REMOVES a plugin. The two group
+        // cells above were byte-identical calls, so no cell anywhere proved a token subtracts anything from a sweep.
+        var exGroupBites = ErrorCheck.Run(rb, null, 1000, null, null, ErrorFindingClass.All, false, Excl("base_masters"));
+        Check("EXCLUDE-GROUP-REMOVES-A-PLUGIN: over a scope that CONTAINS a group member, the token drops it from the sweep — the totals lose its findings, its section is gone, and the note states the one plugin the scope lost",
+            exGroupBites.Success && exGroupBites.PluginsScanned == 1
+            && exGroupBites.TotalDangling == 2 && exGroupBites.Reports.All(x => x.Plugin != "Skyrim.esm")
+            && ExcludeLeftOut(exGroupBites.FilterNote) == 1,
+            $"scanned={exGroupBites.PluginsScanned} total={exGroupBites.TotalDangling} sections=[{string.Join(",", exGroupBites.Reports.Select(x => x.Plugin))}] note=[{exGroupBites.FilterNote}]");
 
         var (_, blankErr) = SweepExclusion.Resolve(new[] { "  " }, Array.Empty<string>());
         Check("EXCLUDE-BLANK-VALUE-REFUSES: a blank entry refuses and names both shapes, rather than being skipped as though it were absent",
@@ -1033,6 +1066,15 @@ public static class CheckErrorsProbe
             SweepExclusion.IsPluginName("MyMod.ESP") && SweepExclusion.IsPluginName("MyMod.EsM")
             && !SweepExclusion.IsPluginName("MyMod"),
             $"ESP={SweepExclusion.IsPluginName("MyMod.ESP")} EsM={SweepExclusion.IsPluginName("MyMod.EsM")} bare={SweepExclusion.IsPluginName("MyMod")}");
+
+        // The helper above only says what a plugin NAME looks like. The two comparers that decide whether a typed
+        // name is in scope and whether a target is dropped are inside the sweep, and both could be Ordinal with every
+        // cell still green — so this one drives a mis-cased name all the way through and reads the TOTALS.
+        var exCase = ErrorCheck.Run(rb, null, 1000, null, null, ErrorFindingClass.All, false, Excl("sKyRiM.eSm"));
+        Check("EXCLUDE-NAME-CASE-INSENSITIVE-THROUGH-THE-SWEEP: a mis-cased filename is accepted as in-scope AND actually removes its plugin — the sweep loses that plugin's three findings, rather than the value being taken and then matching nothing",
+            exCase.Success && exCase.PluginsScanned == 1 && exCase.TotalDangling == 2
+            && exCase.Reports.All(x => x.Plugin != "Skyrim.esm") && ExcludeLeftOut(exCase.FilterNote) == 1,
+            $"success={exCase.Success} err=[{exCase.Error}] scanned={exCase.PluginsScanned} total={exCase.TotalDangling} note=[{exCase.FilterNote}]");
 
         Check("EXCLUDE-DESCRIPTION-NAMES-EVERY-GROUP: the caller-facing token list is held against SweepExclusion.Tokens, the one place they are enumerated — no wire-name guard reaches a tool parameter's prose (#386), so this parameter brings its own",
             ExcludeDescriptionNamesTokens(out var descDetail), descDetail);
@@ -1110,11 +1152,56 @@ public static class CheckErrorsProbe
                  .GetProperty("accounting").GetProperty("excluded_plugins_named").GetInt32() == 1,
             AccountingLine(Wire.RenderCheckErrors(withExcluded, 0)));
 
-        Check("EXCLUDED-ROWS-COUNTED-WHEN-DROPPED: when the cap leaves no room for the roster, the accounting says how many of how many were named — and json's own count agrees with the text",
-            Wire.RenderCheckErrors(withExcluded, 3000) is var exCut
-            && (exCut.Contains("0 of 1 plugin(s) that could not be parsed are named above", StringComparison.Ordinal)
-                || !exCut.Contains("HcCeBroken.esp", StringComparison.Ordinal) == false),
-            AccountingLine(Wire.RenderCheckErrors(withExcluded, 3000)));
+        // The cell this replaces carried a dead disjunct — `!x.Contains(name) == false`, i.e. "the name IS there",
+        // which is true of the uncut response — so it passed whatever the render did, and its label promised a json
+        // check it never made. Both numbers are now asserted, against rows counted out of the document.
+        var exDrop = Wire.RenderCheckErrors(withExcluded, 3000);
+        int exNamed = withExcluded.ExcludedPlugins.Keys.Count(k => exDrop.Contains("  " + k + ":", StringComparison.Ordinal));
+        var exDropJson = JsonDocument.Parse(JsonWire.RenderCheckErrors(withExcluded, 3000)).RootElement
+                                     .GetProperty("accounting");
+        Check("EXCLUDED-ROWS-COUNTED-WHEN-DROPPED: when the cap leaves no room for the roster, the accounting states how many of how many were named — the count is the rows actually in the document, and json's own field agrees with it",
+            exNamed < withExcluded.ExcludedPlugins.Count
+            && exDrop.Contains($" {exNamed} of {withExcluded.ExcludedPlugins.Count} plugin(s) that could not be parsed are named above.", StringComparison.Ordinal)
+            && exDropJson.GetProperty("excluded_plugins_named").GetInt32() == withExcluded.ExcludedPlugins.Count
+            && exDropJson.GetProperty("excluded_plugins_total").GetInt32() == withExcluded.ExcludedPlugins.Count,
+            $"namedInText={exNamed} of {withExcluded.ExcludedPlugins.Count} jsonNamed={exDropJson.GetProperty("excluded_plugins_named").GetInt32()} line=[{AccountingLine(exDrop)}]");
+
+        // ---- the unread subject, which nothing pinned: _unreadTotal = 0 and deleting the clause that states it
+        //      both stayed green. counts_only's reports list IS the honesty layer, so a cut there hides the boundary
+        //      of the answer rather than a finding inside it. Rows are made fat so a real cap drops some of them.
+        var unreadFat = ErrorCheck.Run(rm, null, 1000, null, null, ErrorFindingClass.All, true) with
+        {
+            Reports = Enumerable.Range(0, 6)
+                .Select(i => new PluginErrors($"HcCeUnread{i}.esp", Array.Empty<DanglingRef>(), Array.Empty<string>(),
+                                              2, new[] { new string('u', 400) + i }, new string('x', 400)))
+                .ToList(),
+        };
+        var unreadWhole = Wire.RenderCheckErrors(unreadFat, 0);
+        int unreadWholeRows = unreadWhole.Split("[UNREAD] ").Length - 1;
+        Check("UNREAD-ROWS-COUNTED-WHEN-NAMED: a counts_only response that names every plugin it could not read makes NO claim about them, and json still reports the total it was measured against",
+            unreadWholeRows == unreadFat.Reports.Count
+            && !unreadWhole.Contains("whose records could not be read are named above", StringComparison.Ordinal)
+            && JsonDocument.Parse(JsonWire.RenderCheckErrors(unreadFat, 0)).RootElement.GetProperty("accounting")
+                 .GetProperty("unread_plugins_total").GetInt32() == unreadFat.Reports.Count,
+            $"rows={unreadWholeRows} of {unreadFat.Reports.Count} line=[{AccountingLine(unreadWhole)}]");
+
+        // The cap is SEARCHED FOR rather than guessed: the honesty tail renders after two histograms, so which cap
+        // leaves room for some rows and not all of them is a fact about the fixture, not a number to hardcode and
+        // then re-tune whenever the header moves.
+        int unreadCap = PartialUnreadCap(unreadFat);
+        var unreadCut = Wire.RenderCheckErrors(unreadFat, unreadCap);
+        int unreadRows = unreadCut.Split("[UNREAD] ").Length - 1;
+        var unreadCutDoc = JsonDocument.Parse(JsonWire.RenderCheckErrors(unreadFat, unreadCap)).RootElement;
+        var unreadCutJson = unreadCutDoc.GetProperty("accounting");
+        // The json lane is its own render with its own encoding, so it cuts at its own row — its named-count is held
+        // against ITS OWN document, never against the text lane's. Each transport must agree with itself.
+        int unreadJsonRows = unreadCutDoc.GetProperty("unread").GetProperty("rows").GetArrayLength();
+        Check("UNREAD-ROWS-COUNTED-WHEN-DROPPED: when the cap drops rows off the honesty layer, the accounting states how many of how many were named — in each transport the count is the rows actually in THAT document",
+            unreadRows > 0 && unreadRows < unreadFat.Reports.Count
+            && unreadCut.Contains($" {unreadRows} of {unreadFat.Reports.Count} plugin(s) whose records could not be read are named above.", StringComparison.Ordinal)
+            && unreadCutJson.GetProperty("unread_plugins_named").GetInt32() == unreadJsonRows
+            && unreadCutJson.GetProperty("unread_plugins_total").GetInt32() == unreadFat.Reports.Count,
+            $"cap={unreadCap} textRows={unreadRows} of {unreadFat.Reports.Count} jsonRows={unreadJsonRows} jsonNamed={unreadCutJson.GetProperty("unread_plugins_named").GetInt32()} line=[{AccountingLine(unreadCut)}]");
 
         // ---- json's §2.1 in-band fields, in both directions and in the lane that has them.
         var jsonWhole = JsonDocument.Parse(JsonWire.RenderCheckErrors(ErrorCheck.Run(rm, null, 1000), 0)).RootElement;
@@ -1217,6 +1304,10 @@ public static class CheckErrorsProbe
             && twoAxesText.Contains("by SOURCE plugin", StringComparison.Ordinal),
             $"note occurrences={twoAxesText.Split("counts_only=true — totals above are exact", StringSplitOptions.None).Length - 1}");
 
+        // ---- #344's exclude= pole, driven end to end through the TOOL surface over a synthetic MO2 instance.
+        //      Every cell above calls the core directly, so nothing held the parameter's journey across two layers.
+        failures += ExcludeWireChecks(Path.Combine(tmpDir, "wire"), Check);
+
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "check-errors-guard: ALL PASS" : $"check-errors-guard: {failures} FAILURE(S)");
         return failures == 0 ? 0 : 1;
@@ -1261,6 +1352,146 @@ public static class CheckErrorsProbe
     /// </summary>
     static string AccountingLine(string text)
         => text.Split('\n').FirstOrDefault(l => l.Contains("[accounting:", StringComparison.Ordinal)) ?? "";
+
+    /// <summary>#344's <c>exclude=</c> pole, driven END TO END through the surface a caller actually reaches:
+    /// <see cref="ReadTools.CheckErrorsTool"/> -> <see cref="LoadOrderService.CheckErrors"/> -> <see cref="ErrorCheck.Run"/>,
+    /// over a SYNTHETIC MO2 instance in temp (the established synth-instance pattern — real ModOrganizer.ini, profile
+    /// and mod folders).
+    ///
+    /// <para><b>Why this exists.</b> Every other exclude= cell in this guard calls <c>ErrorCheck.Run</c> directly with
+    /// an already-resolved exclusion, so the parameter's journey across two layers was covered by nothing: passing
+    /// <c>null</c> in place of <c>exclude</c> at the tool call site, or in place of <c>excluded</c> at the service's
+    /// two <c>ErrorCheck.Run</c> calls, left the whole suite GREEN. The pole that closes #344 was disconnectable
+    /// end-to-end without a single cell noticing — a round-1 finding that survived into round 2 by silence.</para>
+    ///
+    /// <para>Every arm asserts the sweep's own TOTALS, which are fixture-known: this order carries five dangling refs,
+    /// three of them in the base master. An exclusion that does not reach the core returns five.</para></summary>
+    static int ExcludeWireChecks(string root, Action<string, bool, string?> Check)
+    {
+        string instance = Path.Combine(root, "instance");
+        string profiles = Path.Combine(instance, "profiles", "Default");
+        string mods = Path.Combine(instance, "mods");
+        string data = Path.Combine(root, "game", "Data");
+        Directory.CreateDirectory(profiles); Directory.CreateDirectory(mods); Directory.CreateDirectory(data);
+        File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
+            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+            + Path.Combine(root, "game").Replace(@"\", @"\\") + ")\r\n");
+
+        // Skyrim.esm — a base master BY FILENAME, which is what Mutagen's Implicits set matches on, carrying three
+        // dangling refs of its own. HcCeWireMod.esp masters it and carries two more. Five in the order.
+        string baseModDir = Path.Combine(mods, "VanillaStub");
+        string wireModDir = Path.Combine(mods, "WireMod");
+        Directory.CreateDirectory(baseModDir); Directory.CreateDirectory(wireModDir);
+        var deadFk = FormKey.Factory("0E0E0E:Skyrim.esm");
+        var sky = new SkyrimMod(new ModKey("Skyrim", ModType.Master), SkyrimRelease.SkyrimSE);
+        for (int i = 0; i < 3; i++) { var n = sky.Npcs.AddNew(); n.EditorID = $"HcCeWireVanilla{i}"; n.Race.SetTo(deadFk); }
+        string skyPath = Path.Combine(baseModDir, "Skyrim.esm");
+        sky.BeginWrite.ToPath(skyPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        using (var skyOv = SkyrimMod.CreateFromBinaryOverlay(skyPath, SkyrimRelease.SkyrimSE))
+        {
+            var mod = new SkyrimMod(new ModKey("HcCeWireMod", ModType.Plugin), SkyrimRelease.SkyrimSE);
+            for (int i = 0; i < 2; i++) { var n = mod.Npcs.AddNew(); n.EditorID = $"HcCeWireMod{i}"; n.Race.SetTo(deadFk); }
+            mod.BeginWrite.ToPath(Path.Combine(wireModDir, "HcCeWireMod.esp")).WithLoadOrder(new ISkyrimModGetter[] { skyOv }).Write();
+        }
+        // Skyrim.esm is in loadorder.txt and ABSENT from plugins.txt — which is exactly what makes it IMPLICIT
+        // (force-loaded). That is the fact LoadOrderService.ImplicitPluginNames() reads, and the `implicit` token's
+        // whole journey runs through it.
+        File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\nSkyrim.esm\r\nHcCeWireMod.esp\r\n");
+        File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*HcCeWireMod.esp\r\n");
+        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+WireMod\r\n+VanillaStub\r\n");
+
+        var store = new UserConfigStore(Path.Combine(root, "houseCARL.user.json"));
+        using var svc = LoadOrderService.WithInstance(instance, 0, store);
+
+        int failures = 0;
+        void Arm(string label, bool ok, string? detail) { Check(label, ok, detail); if (!ok) failures++; }
+
+        // The control. Without it every arm below could pass on a sweep that found nothing at all.
+        var whole = ReadTools.CheckErrorsTool(svc);
+        Arm("EXCLUDE-WIRE-CONTROL: the synthetic instance sweeps both plugins through the tool surface and finds all five dangling refs — the baseline every exclusion below is measured against",
+            whole.Contains("scanned 2 plugins", StringComparison.Ordinal) && whole.Contains("5 dangling ref(s)", StringComparison.Ordinal),
+            First(whole));
+
+        // The pole itself, at the surface a caller reaches. A null at EITHER layer returns the control's numbers.
+        var byName = ReadTools.CheckErrorsTool(svc, exclude: new[] { "Skyrim.esm" });
+        Arm("EXCLUDE-WIRE-NAME-REACHES-THE-SWEEP (#344): exclude= given to the TOOL removes the plugin from the sweep the CORE runs — one plugin scanned, two dangling refs, the excluded plugin's three gone from the totals",
+            byName.Contains("scanned 1 plugin ", StringComparison.Ordinal) && byName.Contains("2 dangling ref(s)", StringComparison.Ordinal)
+            && !byName.Contains("[ERROR] Skyrim.esm", StringComparison.Ordinal),
+            First(byName));
+
+        var byGroup = ReadTools.CheckErrorsTool(svc, exclude: new[] { SweepExclusion.BaseMastersToken });
+        Arm("EXCLUDE-WIRE-BASE-MASTERS-REACHES-THE-SWEEP: the base_masters token survives the same journey and drops the base master — the group is expanded at the service and the expansion is what the core sweeps by",
+            byGroup.Contains("scanned 1 plugin ", StringComparison.Ordinal) && byGroup.Contains("2 dangling ref(s)", StringComparison.Ordinal),
+            First(byGroup));
+
+        // implicit is the one token whose members are read from the MO2 COMPOSITION, at the service layer. Nothing
+        // reached LoadOrderService.ImplicitPluginNames() before this arm.
+        var byImplicit = ReadTools.CheckErrorsTool(svc, exclude: new[] { SweepExclusion.ImplicitToken });
+        Arm("EXCLUDE-WIRE-IMPLICIT-READS-THE-COMPOSITION: the implicit token resolves from the profile's own plugins.txt/loadorder.txt split at the service layer and drops the force-loaded master from the core's sweep",
+            byImplicit.Contains("scanned 1 plugin ", StringComparison.Ordinal) && byImplicit.Contains("2 dangling ref(s)", StringComparison.Ordinal),
+            First(byImplicit));
+
+        // json is a second render over the same service call — the wire must carry there too, or one transport
+        // silently answers a different question.
+        var jsonExcl = ReadTools.CheckErrorsTool(svc, exclude: new[] { "Skyrim.esm" }, format: "json");
+        int jsonScanned = -1, jsonDangling = -1;
+        try
+        {
+            var d = JsonDocument.Parse(jsonExcl).RootElement;
+            jsonScanned = d.GetProperty("scanned_plugins").GetInt32();
+            jsonDangling = d.GetProperty("dangling").GetInt32();
+        }
+        catch { /* reported by the arm */ }
+        Arm("EXCLUDE-WIRE-JSON-AGREES: the json transport of the same excluded sweep reports the same narrowed totals — one exclusion, one sweep, two renders",
+            jsonScanned == 1 && jsonDangling == 2, $"scanned={jsonScanned} dangling={jsonDangling}");
+
+        // Q3 at the surface: a bad value refuses through the tool, not just in the resolver's unit test.
+        var refused = ReadTools.CheckErrorsTool(svc, exclude: new[] { "vanilla" });
+        Arm("EXCLUDE-WIRE-REFUSAL-REACHES-THE-CALLER: an unknown group refuses at the TOOL surface, naming the value and the real token set, rather than sweeping with the exclusion quietly dropped",
+            refused.Contains("'vanilla'", StringComparison.Ordinal)
+            && SweepExclusion.Tokens.All(t => refused.Contains(t, StringComparison.Ordinal))
+            && !refused.Contains("scanned 2 plugins", StringComparison.Ordinal),
+            First(refused));
+
+        return failures;
+    }
+
+    /// <summary>The first line of a tool response — enough to read a failure by, without printing a whole sweep.</summary>
+    static string First(string response)
+    {
+        var lines = response.Split('\n');
+        return lines.Length > 1 ? lines[0] + " | " + lines[1] : lines[0];
+    }
+
+    /// <summary>The first max_chars at which the counts_only honesty tail lands SOME of its rows and not all of
+    /// them — the shape the accounting's unread clause is about. Searched rather than hardcoded: the tail renders
+    /// after both histograms, so the cap that splits it is a property of the fixture and moves whenever the header
+    /// does. Returns the last cap tried when no split exists, so the arm fails with a readable number instead of
+    /// silently testing the wrong thing.</summary>
+    static int PartialUnreadCap(ErrorCheckResult r)
+    {
+        int last = 0;
+        for (int cap = 1500; cap <= 12000; cap += 100)
+        {
+            last = cap;
+            int rows = Wire.RenderCheckErrors(r, cap).Split("[UNREAD] ").Length - 1;
+            if (rows > 0 && rows < r.Reports.Count) return cap;
+        }
+        return last;
+    }
+
+    /// <summary>The number the <c>exclude=</c> narrowing note states, or -1 where it states none. Read as a NUMBER
+    /// so an arm can hold it against what the SCOPE actually lost: the cell this replaces matched the substring
+    /// "exclude= left out" and passed over any figure at all — <c>exclude.Names.Count * 99</c> stayed green.</summary>
+    static int ExcludeLeftOut(string? note)
+    {
+        const string lead = "exclude= left out ";
+        if (note is null) return -1;
+        int at = note.IndexOf(lead, StringComparison.Ordinal);
+        if (at < 0) return -1;
+        var digits = new string(note[(at + lead.Length)..].TakeWhile(char.IsDigit).ToArray());
+        return int.TryParse(digits, out var n) ? n : -1;
+    }
 
     /// <summary>The json roster as "plugin:count" keys, in the order it was written. The json twin of the text
     /// line's roster, so an arm can hold the two transports against each other rather than trusting either.</summary>
