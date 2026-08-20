@@ -1178,22 +1178,24 @@ static class Wire
         // Where the BODY begins. The overrun arm is a question about the fixed part of the response, so it is asked
         // here rather than at the end, where the answer would be the body's own length.
         int headerLength = sb.Length;
+        // EVERYTHING BELOW THIS LINE GOES THROUGH `body`. The header above is the response's fixed part and the
+        // accounting plus boundary are reserved out of max_chars before it renders — those two are the only things
+        // a response may never drop, which is why they are not emitted through a helper that can refuse.
+        var body = new BoundedBody(acct, budget, () => sb.Length);
 
         if (r.CountsOnly)
         {
-            AppendHistogram(sb, r.Histogram, histogramLimit, "dangling ref(s) by TARGET plugin (the plugin the broken refs point INTO)",
+            AppendHistogram(sb, body, r.Histogram, histogramLimit, "dangling ref(s) by TARGET plugin (the plugin the broken refs point INTO)",
                             "counts_only=true — totals above are exact; no per-plugin listing was built.",
-                            notComputed: "no dangling histogram, by target or by source — the link walk was not run (findings= excluded 'dangling').",
-                            budget: budget);
+                            notComputed: "no dangling histogram, by target or by source — the link walk was not run (findings= excluded 'dangling').");
             // #344 — the SOURCE axis: which plugin the broken refs come FROM. The target axis names the absent
             // dependency behind a wall of findings; only this one answers "how much of this is vanilla, and how much
             // did the mods introduce". No note and no not-computed line of its own — both would repeat what the
             // target histogram directly above has just said.
-            AppendHistogram(sb, r.DanglingBySource, histogramLimit,
-                            "dangling ref(s) by SOURCE plugin (the plugin the broken refs come FROM)", note: null,
-                            budget: budget);
-            acct.UnreadRows(AppendScanErrorTail(sb, r.Reports, budget));
-            acct.ExcludedRows(AppendExcludedPlugins(sb, r.ExcludedPlugins, budget).Appended);   // #288 review finding 5: the NAMES, not just the header count
+            AppendHistogram(sb, body, r.DanglingBySource, histogramLimit,
+                            "dangling ref(s) by SOURCE plugin (the plugin the broken refs come FROM)", note: null);
+            AppendScanErrorTail(sb, body, r.Reports);
+            AppendExcludedPlugins(sb, body, r.ExcludedPlugins);   // #288 review finding 5: the NAMES, not just the header count
             return Close(sb, acct, reserve, headerLength);
         }
 
@@ -1223,22 +1225,21 @@ static class Wire
             }
             if (p.Dangling.Count > 0)
                 fixedPart.Append("  dangling reference(s) (").Append(p.Dangling.Count).Append("):\n");
-            if (sb.Length + fixedPart.Length > budget) break;
-            sb.Append(fixedPart);
-            acct.Section();
+            var section = fixedPart.ToString();
+            if (!body.Emit(SweepSubject.PluginSections, section.Length, () => sb.Append(section))) break;
 
             foreach (var d in p.Dangling)
             {
                 var line = "    " + d.Source + " (" + d.SourceType
                          + (string.IsNullOrEmpty(d.SourceEditorId) ? "" : " '" + d.SourceEditorId + "'")
                          + ") -> " + d.Target + "   [target not defined by any active plugin]\n";
-                if (sb.Length + line.Length > budget) break;
-                sb.Append(line);
-                acct.Entry(p.Plugin);   // registered where the line LANDED — the accounting counts the response
+                // Registered where the line LANDS — the accounting counts the response, and the by-source roster is
+                // tallied off the same registration, so the count and the roster cannot disagree.
+                if (!body.Emit(SweepSubject.DanglingEntries, line.Length, () => sb.Append(line), p.Plugin)) break;
             }
         }
 
-        acct.ExcludedRows(AppendExcludedPlugins(sb, r.ExcludedPlugins, budget).Appended);
+        AppendExcludedPlugins(sb, body, r.ExcludedPlugins);
         return Close(sb, acct, reserve, headerLength);
     }
 
@@ -1313,62 +1314,83 @@ static class Wire
     /// <summary>Render a <c>counts_only=</c> histogram, capped at <paramref name="rowLimit"/> with the true distinct-key
     /// count always stated. A null histogram means the mode was not requested; an EMPTY one means the sweep genuinely
     /// found nothing, and the two read differently (Q3).</summary>
-    /// <param name="budget">the chars this render may occupy. Defaults to unbounded, which is what validate_scripts
-    /// still passes — its response layer is not this branch's. check_errors passes the real budget: measured on a
-    /// 400-row-per-axis sweep, an unbounded counts_only response returned 27,944 chars against a max_chars of 5,000,
-    /// which is the one lane the cap invariant did not reach.</param>
-    static void AppendHistogram(StringBuilder sb, IReadOnlyList<SweepCount>? rows, int rowLimit, string title, string? note,
-                                string? notComputed = null, int budget = int.MaxValue)
+    /// <param name="body">the ONE bounded emission path. Its framing goes through it as well as its rows: the title,
+    /// the empty-case sentence and the "more rows" line used to bypass the budget entirely (~650 chars past a tight
+    /// cap), and a title with no rows under it is a section head with no section — the whole-or-absent rule this
+    /// render follows everywhere else. So the title rides the FIRST ROW as one unit.</param>
+    static void AppendHistogram(StringBuilder sb, BoundedBody body, IReadOnlyList<SweepCount>? rows, int rowLimit,
+                                string title, string? note, string? notComputed = null)
     {
+        // The note and the not-computed line are fixed text that does not grow with the findings, and the second is
+        // this axis's whole answer — a "the walk was not run" that a budget could drop would be the silence the
+        // sentence exists to break. They are part of the response's fixed part, deliberately.
         if (note is not null) sb.Append('\n').Append(note).Append('\n');
         if (rows is null) { if (notComputed is not null) sb.Append(notComputed).Append('\n'); return; }
         // The title rides the empty case too: two axes that both came back empty rendered as two identical untitled
         // sentences, with no way to tell which was which — or that a second axis existed at all (round-1 review).
-        if (rows.Count == 0) { sb.Append("\n").Append(title).Append(": nothing to tally — no findings in the swept scope.\n"); return; }
-        sb.Append('\n').Append(title).Append(" (").Append(rows.Count).Append(" distinct):\n");
+        if (rows.Count == 0)
+        {
+            var empty = "\n" + title + ": nothing to tally — no findings in the swept scope.\n";
+            body.Emit(SweepSubject.HistogramRows, empty.Length, () => sb.Append(empty));
+            return;
+        }
+        // The "more rows" line is HELD BACK rather than emitted on hope: rows shown without the count of the rows
+        // that were not is the silent cut one level down. Its widest spelling is bounded by the row count's digits.
+        var head = "\n" + title + " (" + rows.Count + " distinct):\n";
         int shown = 0;
         bool cutByBudget = false;
+        var moreReserve = MoreRowsLine(rows.Count, byBudget: true).Length;
         foreach (var row in rows)
         {
             if (shown >= rowLimit) break;
             var line = "  " + row.Count.ToString().PadLeft(6) + "  " + row.Key + "\n";
-            if (sb.Length + line.Length > budget) { cutByBudget = true; break; }
-            sb.Append(line);
+            var unit = shown == 0 ? head + line : line;
+            if (!body.Emit(SweepSubject.HistogramRows, unit.Length + moreReserve, () => sb.Append(unit)))
+            { cutByBudget = true; break; }
             shown++;
         }
         // The remedy names the knob that STOPPED it. "raise limit=" on rows the response had no room for is a knob
         // that moves nothing — the same defect the accounting's own remedy was measured for.
-        if (shown < rows.Count)
-            sb.Append("  ... [").Append(rows.Count - shown).Append(" more row(s) — raise ")
-              .Append(cutByBudget ? "max_chars=" : "limit=").Append(" to see them]\n");
+        //
+        // An axis the budget admitted NO rows of still says so, head and count together as one unit: an axis that
+        // exists and renders nothing at all is the same silent cut, one level down.
+        if (shown == 0)
+        {
+            var only = head + MoreRowsLine(rows.Count, cutByBudget);
+            body.Close(SweepSubject.HistogramRows, only.Length, () => sb.Append(only));
+        }
+        else if (shown < rows.Count)
+            body.Close(SweepSubject.HistogramRows, 0, () => sb.Append(MoreRowsLine(rows.Count - shown, cutByBudget)));
     }
+
+    /// <summary>The histogram's own disclosure of its cut, in one spelling — it is composed twice, once to measure
+    /// the room to hold back for it and once to write it, and two spellings of one sentence is how a reserve stops
+    /// covering what it reserves for.</summary>
+    static string MoreRowsLine(int remaining, bool byBudget)
+        => "  ... [" + remaining + " more row(s) — raise " + (byBudget ? "max_chars=" : "limit=") + " to see them]\n";
 
     /// <summary>The named, reasoned list of plugins the index build could not parse. Shared by the listing and
     /// <c>counts_only=</c> paths — counts_only used to return before it, leaving the header's bare count with no way to
     /// learn WHICH plugin went unchecked without re-running (PR #288 review, finding 5).</summary>
-    static (int Appended, bool Stopped) AppendExcludedPlugins(StringBuilder sb, IReadOnlyDictionary<string, string> excluded,
-                                                             int budget)
+    static void AppendExcludedPlugins(StringBuilder sb, BoundedBody body, IReadOnlyDictionary<string, string> excluded)
     {
-        if (excluded.Count == 0) return (0, false);
-        var head = "\nexcluded plugins (could not be parsed — NOT checked):\n";
-        if (sb.Length + head.Length > budget) return (0, true);
-        sb.Append(head);
-        int n = 0;
+        if (excluded.Count == 0) return;
+        // The head rides the first ROW, so the list is whole or absent: a head with nothing under it says a roster
+        // exists and then names none of it.
+        const string head = "\nexcluded plugins (could not be parsed — NOT checked):\n";
+        bool first = true;
         foreach (var kv in excluded)
         {
-            var line = "  " + kv.Key + ": " + kv.Value + "\n";
-            if (sb.Length + line.Length > budget) return (n, true);
-            sb.Append(line);
-            n++;
+            var unit = (first ? head : "") + "  " + kv.Key + ": " + kv.Value + "\n";
+            if (!body.Emit(SweepSubject.ExcludedRows, unit.Length, () => sb.Append(unit))) return;
+            first = false;
         }
-        return (n, false);
     }
 
     /// <summary>Under <c>counts_only=</c> the reports list carries the honesty layer only (records/plugins houseCARL
     /// could not read). Emit it verbatim so a counts-only answer still names what it could not check (Q3).</summary>
-    static int AppendScanErrorTail(StringBuilder sb, IReadOnlyList<PluginErrors> reports, int budget)
+    static void AppendScanErrorTail(StringBuilder sb, BoundedBody body, IReadOnlyList<PluginErrors> reports)
     {
-        int n = 0;
         foreach (var p in reports)
         {
             var line = new StringBuilder("\n[UNREAD] ").Append(p.Plugin).Append(": ");
@@ -1379,11 +1401,9 @@ static class Wire
                 if (p.UnscannableSamples.Count > 0) line.Append(": ").Append(string.Join("; ", p.UnscannableSamples));
             }
             line.Append('\n');
-            if (sb.Length + line.Length > budget) break;
-            sb.Append(line);
-            n++;
+            var row = line.ToString();
+            if (!body.Emit(SweepSubject.UnreadRows, row.Length, () => sb.Append(row))) return;
         }
-        return n;
     }
 
     // ---- housecarl_validate_scripts -----------------------------------------------------------------
@@ -1419,7 +1439,10 @@ static class Wire
 
         if (r.CountsOnly)
         {
-            AppendHistogram(sb, r.Histogram, histogramLimit, "unbound properties by NAME",
+            // validate_scripts' response layer is not this branch's, so it keeps no accounting — but it goes through
+            // the same bounded emission path, because a second appending path is a second place to forget the bound.
+            var scriptBody = new BoundedBody(null, cap, () => sb.Length);
+            AppendHistogram(sb, scriptBody, r.Histogram, histogramLimit, "unbound properties by NAME",
                             "counts_only=true — totals above are exact; no per-record listing was built.",
                             notComputed: "no unbound histogram — findings= excluded both unbound classes, so nothing was tallied.");
             foreach (var rec in r.Reports)   // the honesty layer: plugins whose record enumeration faulted
@@ -1429,7 +1452,8 @@ static class Wire
             }
             // The helper reports rather than annotates (it is shared with check_errors, whose accounting states the
             // same fact in its own terms), so this lane keeps its own marker at its own call site.
-            if (AppendExcludedPlugins(sb, r.ExcludedPlugins, cap).Stopped) sb.Append("  ... [truncated at max_chars]\n");
+            AppendExcludedPlugins(sb, scriptBody, r.ExcludedPlugins);
+            if (scriptBody.Stopped(SweepSubject.ExcludedRows)) sb.Append(ExcludedRosterCut(r.ExcludedPlugins.Count));
             AppendScriptCheckBoundary(sb);
             return sb.ToString().TrimEnd('\n');
         }
@@ -1483,8 +1507,12 @@ static class Wire
             sb.Append("\n[finding list capped at limit; true totals = ").Append(UnboundTotalText(r, didObject, didScalar))
               .Append(" + ").Append(NullTotalText(r, didNull)).Append(" — raise limit= to see all]\n");
 
-        if (!truncated && AppendExcludedPlugins(sb, r.ExcludedPlugins, cap).Stopped)
-            sb.Append("  ... [truncated at max_chars]\n");
+        var listBody = new BoundedBody(null, cap, () => sb.Length);
+        if (!truncated)
+        {
+            AppendExcludedPlugins(sb, listBody, r.ExcludedPlugins);
+            if (listBody.Stopped(SweepSubject.ExcludedRows)) sb.Append(ExcludedRosterCut(r.ExcludedPlugins.Count));
+        }
 
         AppendScriptCheckBoundary(sb);
         return sb.ToString().TrimEnd('\n');
@@ -1510,6 +1538,14 @@ static class Wire
     /// from records-with-scripts and unverifiable, which it does not narrow — that asymmetry is the whole point.</summary>
     static string PropLabel(ScriptCheckResult r)
         => r.PropertyContains is null ? "" : $" matching '{r.PropertyContains}'";
+
+    /// <summary>What validate_scripts says when max_chars leaves no room for the excluded-plugin roster. It used to
+    /// be a bare "... [truncated at max_chars]" appended under a header line that was always printed — and once the
+    /// roster's HEAD became droppable too, that marker could stand alone with nothing above it saying what had been
+    /// truncated. A marker that names its own subject does not depend on a line that may not be there.</summary>
+    static string ExcludedRosterCut(int total)
+        => $"\n... [the excluded-plugin list did not fit max_chars — {total} plugin(s) the index could not parse are "
+         + "NOT named above; raise max_chars= to see them]\n";
 
     static void AppendScriptCheckBoundary(StringBuilder sb)
         => sb.Append("\nboundary: checks Auto (CK-editable) properties across the extends chain — not code-driven full ")
