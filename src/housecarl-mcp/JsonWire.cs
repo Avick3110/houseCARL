@@ -1356,9 +1356,18 @@ static class JsonWire
             // written in one place, which is the same place JsonReserve measures.
             acct.WriteJson(w);
             w.WriteString("boundary", ReadSentences.SweepBoundary);
-            // Measured, like the text lane: Size() is the document so far, plus the one brace still to close.
-            if (acct.CapTooSmall(Size(w, ms) + 1, headerLength + reserve) is { } notice)
-                w.WriteString("max_chars_overrun", notice);
+            // Measured, like the text lane: Size() is the document so far, plus what closing it still costs — and
+            // like the text lane, the notice is part of the document whose length it states, so its own encoded cost
+            // is counted in and the composition is run to a fixed point.
+            int closed = Size(w, ms) + RootClose;
+            if (acct.CapTooSmall(closed, headerLength + reserve) is { } notice)
+            {
+                int cost = OverrunNoticeCost(notice);
+                var settled = acct.CapTooSmall(closed + cost, headerLength + reserve)!;
+                if (OverrunNoticeCost(settled) != cost)
+                    settled = acct.CapTooSmall(closed + OverrunNoticeCost(settled), headerLength + reserve)!;
+                w.WriteString("max_chars_overrun", settled);
+            }
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -1387,6 +1396,25 @@ static class JsonWire
             w.WriteEndObject();
         }
         return (int)ms.Length;
+    }
+
+    /// <summary>What closing the root object still costs an INDENTED writer: a newline and the brace. It was
+    /// counted as one char, and the notice then stated a length one short of the document the caller received.
+    /// </summary>
+    const int RootClose = 2;
+
+    /// <summary>What the overrun notice costs the document, encoded as the response will encode it — json escapes
+    /// what a raw char count would miss, and the notice's own length is part of the length it reports.</summary>
+    static int OverrunNoticeCost(string notice)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteString("max_chars_overrun", notice);
+            w.WriteEndObject();
+        }
+        return (int)ms.Length - 2;   // the scratch wrapper's own braces
     }
 
     /// <summary>The document's size so far, without flushing: committed bytes plus what the writer still holds. A
@@ -1534,9 +1562,6 @@ static class JsonWire
     }
 
     // ---- shared sweep writers (#282) ---------------------------------------------------------------
-    /// <summary>Row cap for the budget-omissions table — independent of limit=, which is what caused the omissions.</summary>
-    const int OmittedSourceRows = 200;
-
     /// <summary>A counts_only histogram: <c>{distinct, rows:[{key,count}], rendered}</c>. Absent when the mode was not
     /// requested; PRESENT with an empty <c>rows</c> when the sweep genuinely found nothing — the two must not look alike.</summary>
     /// <param name="body">the ONE bounded emission path, or null for validate_scripts, which passes no budget —

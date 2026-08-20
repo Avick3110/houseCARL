@@ -505,8 +505,9 @@ public static class ReadTools
              "budget. Each value is either a plugin filename WITH its extension ('CoolMod.esp') or one of two group " +
              "names: base_masters (the five the game ships with) or implicit (every plugin the order force-loads " +
              "because plugins.txt does not list it — this is where Creation Club plugins and _ResourcePack.esl are, " +
-             "and it INCLUDES the base masters). A value that is neither, or a name nothing in scope matches, is " +
-             "refused before the sweep runs rather than quietly excluding nothing. This does not change what counts " +
+             "and it INCLUDES the base masters). A value that is neither is refused before the sweep runs, and so is " +
+             "a FILENAME YOU NAMED that nothing in scope matches — a group member that is not in this order is the " +
+             "ordinary case and is simply dropped. This does not change what counts " +
              "as the vanilla BASELINE the response splits out — that is always Mutagen's own base-master set.")]
             string[]? exclude = null,
         [Description("Optional. Which error classes to look for: 'dangling' and/or 'missing_masters' (default both). Excluding 'dangling' SKIPS the per-record link walk entirely — that is how you ask 'is any master missing anywhere in my order' without paying for a full sweep. An excluded class renders as 'not checked', never as 0. Unscannable records and scan errors are ALWAYS reported and cannot be filtered out (a suppressed 'could not read' would read as clean).")]
@@ -1252,9 +1253,16 @@ static class Wire
     {
         if (acct.TextLine() is { } line) sb.Append('\n').Append(line).Append('\n');
         sb.Append('\n').Append(ReadSentences.SweepBoundaryLabel).Append(ReadSentences.SweepBoundary).Append('\n');
-        // The overrun question is asked of the FINISHED response, so the string is built first and measured.
+        // The overrun question is asked of the FINISHED response, so the string is built first and measured — and
+        // the notice is PART of the response it reports the length of. Measured without itself it understated by its
+        // own length: 1,109 stated on a response of 1,281. Composing it changes only the width of one printed
+        // number, so a second pass settles it and a third is only ever needed when that width moved.
         var response = sb.ToString().TrimEnd('\n');
-        return acct.CapTooSmall(response.Length, headerLength + reserve) is { } notice ? response + notice : response;
+        if (acct.CapTooSmall(response.Length, headerLength + reserve) is not { } notice) return response;
+        var settled = acct.CapTooSmall(response.Length + notice.Length, headerLength + reserve)!;
+        if (settled.Length != notice.Length)
+            settled = acct.CapTooSmall(response.Length + settled.Length, headerLength + reserve)!;
+        return response + settled;
     }
 
     /// <summary>#344 — the baseline split: how much of the dangling total came from the base-game masters, and how
