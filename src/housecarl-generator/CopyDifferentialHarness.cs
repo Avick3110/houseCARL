@@ -181,8 +181,9 @@ public static class CopyDifferentialHarness
     // ==================================================================================================
     static void Fixture2(string root)
     {
-        Console.WriteLine("---- FIXTURE 2 — DISABLED donor (records only, by ruling) ---------------------------");
-        var inst = BuildInstance(root, donorEnabled: false, out var donorKey, out _, out _, out var overrideName);
+        Console.WriteLine("---- FIXTURE 2 — DISABLED donor (records AND assets — EL-2) -------------------------");
+        var inst = BuildInstance(root, donorEnabled: false, withAssets: true,
+                                 out var donorKey, out _, out _, out var overrideName);
         using var svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(root, "user.json")));
         var mods = Path.Combine(inst, "mods");
 
@@ -194,10 +195,101 @@ public static class CopyDifferentialHarness
                                     Seeds, new[] { "Race:refuse" }, null, "TheClone", "F2New", null);
         Check(!oldOut.StartsWith("error"), $"the ANCESTOR reads the disabled donor ({First(oldOut)})");
         Check(!newOut.StartsWith("error"), $"the SUCCESSOR reads it through the ordered source list ({First(newOut)})");
-        DiffPatches("disabled donor", FindPatch(mods, "F2Old"), FindPatch(mods, "F2New"));
-        Console.WriteLine("  NOTE  the asset half of this fixture is NOT compared — the disabled-donor asset lane is");
-        Console.WriteLine("        ruled out of this branch, so the ancestor's donor-disk carry has no counterpart.");
-        Console.WriteLine("        A stated coverage gap, not a pass; the comparison belongs to that later PR.");
+        var oldPatch = FindPatch(mods, "F2Old");
+        var newPatch = FindPatch(mods, "F2New");
+        DiffPatches("disabled donor", oldPatch, newPatch);
+
+        // ================================================================================================
+        //  THE ASSET HALF — EL-2. Deferred from PR #346 by ruling R1 because the successor had no
+        //  disabled-donor asset lane to be compared against; F1 built it, and this runs while the
+        //  ancestor still exists to be compared against.
+        // ================================================================================================
+        Console.WriteLine();
+        Console.WriteLine("  -- EL-2: the deferred asset comparison, per destination path --");
+
+        // The fixture's PREMISE, measured rather than assumed. If the donor's files were visible to the
+        // active order, or the contested path were not contested, every line below would be true for the
+        // wrong reason — the same discipline fixture 3 applies to its own contest.
+        var meshRel = FaceGenPath.For(donorKey, FaceGenSlot.Mesh);
+        var tintRel = FaceGenPath.For(donorKey, FaceGenSlot.Tint);
+        var status = svc.AssetStatus(new[] { meshRel, tintRel, HarvestedRel }).Results;
+        var meshHit = status[0].Hit;
+        Check(meshHit is { Exists: true } && meshHit.Winner?.Source == "ReplacerMod",
+            $"the FaceGen MESH path is won by an ENABLED replacer, not the donor — winner={meshHit?.Winner?.Source ?? "(none)"}");
+        Check(status[1].Hit is { Exists: false } && status[2].Hit is { Exists: false },
+            $"…while the tint and the head-part model exist ONLY in the switched-off donor (tint={status[1].Hit?.Exists}, hair={status[2].Hit?.Exists})");
+        if (meshHit?.Winner?.Source != "ReplacerMod" || status[1].Hit is not { Exists: false } || status[2].Hit is not { Exists: false })
+        {
+            Stop("the disabled-donor asset fixture is not what it claims — one contested path and two the donor " +
+                 "alone provides. Without both shapes the comparison cannot tell a match from a coincidence.");
+            return;
+        }
+
+        var oldKey = NewCloneKey(oldPatch, "TheClone");
+        var newKey = NewCloneKey(newPatch, "TheClone");
+        Check(oldKey is not null && newKey is not null, "both clones' FormKeys are readable off their patches");
+        if (oldKey is null || newKey is null) return;
+
+        // The ancestor carries assets ITSELF; the successor's carry is a separate call, which this harness
+        // makes standing in for the skill — the same stand-in fixture 3 declares, and the reason both are
+        // FLOW-level claims. What F1 changed is what that call can now reach.
+        var placed = PlaceAssetTools.BulkPlaceAsset(svc, new[]
+        {
+            new PlaceAssetSpec { Formid = newKey.Value.ToString(), Kind = "mesh", Source = meshRel, SourceProvider = "DonorMod" },
+            new PlaceAssetSpec { Formid = newKey.Value.ToString(), Kind = "tint", Source = tintRel, SourceProvider = "DonorMod" },
+            new PlaceAssetSpec { AssetPath = HarvestedRel, Source = HarvestedRel, SourceProvider = "DonorMod" },
+        }, null, Path.GetFileName(newPatch!));
+        Check(!placed.StartsWith("error") && !placed.Contains("FAIL", StringComparison.Ordinal),
+            $"the successor's carry places all three from the switched-off donor — {First(placed)}");
+        Check(placed.Contains("NOT enabled in MO2", StringComparison.Ordinal),
+            "…and SAYS the bytes came from a mod MO2 does not load (Q3 — the ancestor says it about the record, this says it about the files)");
+
+        var oldFolder = FindPatchFolder(mods, "F2Old");
+        var newFolder = FindPatchFolder(mods, "F2New");
+        // CarriedFiles drops meta.ini as MO2 bookkeeping that names its own folder. Checked, not assumed: a side
+        // that stopped writing one would otherwise be invisible behind the exclusion.
+        Check(oldFolder is not null && newFolder is not null
+              && File.Exists(Path.Combine(oldFolder, "meta.ini")) && File.Exists(Path.Combine(newFolder, "meta.ini")),
+            "both patch folders carry the MO2 meta.ini the comparison excludes");
+
+        var oldFiles = CarriedFiles(oldFolder, oldKey.Value);
+        var newFiles = CarriedFiles(newFolder, newKey.Value);
+        Check(oldFiles.Count == 3 && newFiles.Count == 3,
+            $"each side carried exactly the three files this fixture puts in the donor (ancestor={oldFiles.Count}, successor={newFiles.Count})");
+
+        foreach (var key in oldFiles.Keys.Concat(newFiles.Keys).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(k => k, StringComparer.OrdinalIgnoreCase))
+        {
+            oldFiles.TryGetValue(key, out var ob);
+            newFiles.TryGetValue(key, out var nb);
+            var same = ob is not null && nb is not null && ob.SequenceEqual(nb);
+            Console.WriteLine($"    {key,-24}  ancestor={(ob is null ? "(none)" : Show(ob)),-40}  successor={(nb is null ? "(none)" : Show(nb))}");
+
+            if (key == "<clone facegeom>")
+            {
+                // THE INVENTORIED DIVERGENCE (§12): on a contested path the ancestor reads the VFS winner and
+                // the successor reads the mod the caller named. Its ABSENCE is the failure here — a clean diff
+                // would mean one of the two stopped doing what it is documented to do.
+                Check(ob is not null && ob.SequenceEqual(ReplacerMeshBytes),
+                    "  the ANCESTOR carried the VFS WINNER's mesh (the replacer's) — the recorded behaviour");
+                Check(nb is not null && nb.SequenceEqual(DonorMeshBytes),
+                    "  the SUCCESSOR carried the NAMED donor's mesh — the recorded divergence, inventoried as intentional (§12)");
+                if (same) Stop("the contested FaceGen mesh carried IDENTICAL bytes on both sides. The fixture was " +
+                               "measured contested above, so one of the two lanes has moved — which is the thing to go find out.");
+                continue;
+            }
+            // Everything else is an EQUALITY claim: the donor alone provides it, so both lanes must reach the
+            // same bytes, and a divergence here is a successor defect rather than a recorded difference.
+            Check(same, $"  '{key}' carries IDENTICAL bytes on both sides (donor-only path — no divergence is inventoried here)");
+            if (!same)
+                Stop($"'{key}' diverges on a path only the switched-off donor provides, and the inventory records no " +
+                     "divergence there. That is a defect in the successor, not a diff to fold.");
+        }
+
+        Console.WriteLine("  SCOPE  the comparison covers the donor folder's LOOSE copies. The root-ARCHIVE half of the");
+        Console.WriteLine("         same lane is guarded per-side instead — place-asset-guard M3 (archive-only hit) and");
+        Console.WriteLine("         M14 (loose beats the folder's archive) — because this fixture's records have no link");
+        Console.WriteLine("         to a path the committed archive actually contains, and inventing one would move what");
+        Console.WriteLine("         fixture 1 measures off the same tree.");
         Console.WriteLine();
     }
 
@@ -464,6 +556,16 @@ public static class CopyDifferentialHarness
     /// the donor's NPC, and a follower mod holding the attach target.</summary>
     static string BuildInstance(string root, bool donorEnabled,
         out FormKey donorKey, out FormKey targetKey, out string donorPlugin, out string overrideName)
+        => BuildInstance(root, donorEnabled, false, out donorKey, out targetKey, out donorPlugin, out overrideName);
+
+    /// <summary>As above, and with <paramref name="withAssets"/> the donor mod also gets FILES: its FaceGen pair, its
+    /// head part's model, and one path that exists ONLY inside a root archive of the donor's own folder — plus an
+    /// ENABLED replacer supplying the FaceGen MESH path with different bytes, which is what makes the recorded
+    /// winner-vs-named divergence reachable on a DISABLED donor.
+    /// <para>Opt-in rather than always-on because fixture 1 asserts against this same tree, and growing it would move
+    /// what a dozen of its arms measure for the sake of a fixture only fixture 2 needs (#333's lesson).</para></summary>
+    static string BuildInstance(string root, bool donorEnabled, bool withAssets,
+        out FormKey donorKey, out FormKey targetKey, out string donorPlugin, out string overrideName)
     {
         var inst = Path.Combine(root, "inst");
         var mods = Path.Combine(inst, "mods");
@@ -539,8 +641,11 @@ public static class CopyDifferentialHarness
         fol.Npcs.Add(tgt);
         WriteMod(mods, "FollowerMod", fol, baseMod);
 
+        if (withAssets) WriteDonorAssets(mods, donorFk);
+
         var donorLine = donorEnabled ? "+DonorMod" : "-DonorMod";
-        File.WriteAllText(Path.Combine(prof, "modlist.txt"), $"+OverhaulMod\r\n+FollowerMod\r\n{donorLine}\r\n+BaseMod\r\n");
+        var replacerLine = withAssets ? "+ReplacerMod\r\n" : "";
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"), $"{replacerLine}+OverhaulMod\r\n+FollowerMod\r\n{donorLine}\r\n+BaseMod\r\n");
         var order = donorEnabled
             ? "HcBase.esm\r\nDonor.esp\r\nOverhaul.esp\r\nFollower.esp\r\n"
             : "HcBase.esm\r\nFollower.esp\r\n";
@@ -551,6 +656,65 @@ public static class CopyDifferentialHarness
         donorKey = donorFk; targetKey = tgtFk; donorPlugin = "Donor.esp"; overrideName = "Overhaul.esp";
         return inst;
     }
+
+    // ---- the EL-2 asset fixture ---------------------------------------------------------------------
+    // Data-relative destinations, and the bytes are distinct per file so a mix-up shows as a mix-up rather
+    // than as a pass. None of them contains a 'textures\…dds' run: the ancestor SCRAPES the carried geom for
+    // embedded texture paths, and a fixture that accidentally looked like a NIF would harvest itself.
+    internal const string HarvestedRel = @"Meshes\actors\character\character assets\hair\donorhair.nif";
+    static readonly byte[] DonorMeshBytes    = Encoding.ASCII.GetBytes("DONOR-FACEGEOM-0001");
+    static readonly byte[] DonorTintBytes    = Encoding.ASCII.GetBytes("DONOR-FACETINT-0002");
+    static readonly byte[] DonorHairBytes    = Encoding.ASCII.GetBytes("DONOR-HAIRMESH-0003");
+    static readonly byte[] ReplacerMeshBytes = Encoding.ASCII.GetBytes("REPLACER-FACEGEOM-NOT-THE-DONORS");
+
+    /// <summary>The donor's own files, in the donor's own mod folder — plus an ENABLED replacer over the FaceGen MESH
+    /// path only. The asymmetry is the point: the tint and the head-part model are the donor's alone (both tools must
+    /// reach the same bytes), while the mesh is contested (the ancestor reads whatever wins the VFS, the successor
+    /// reads the mod the caller named), which is the divergence the inventory records as intentional.</summary>
+    static void WriteDonorAssets(string mods, FormKey donorFk)
+    {
+        var donorDir = Path.Combine(mods, "DonorMod");
+        WriteFile(donorDir, FaceGenPath.For(donorFk, FaceGenSlot.Mesh), DonorMeshBytes);
+        WriteFile(donorDir, FaceGenPath.For(donorFk, FaceGenSlot.Tint), DonorTintBytes);
+        WriteFile(donorDir, HarvestedRel, DonorHairBytes);
+        WriteFile(Path.Combine(mods, "ReplacerMod"), FaceGenPath.For(donorFk, FaceGenSlot.Mesh), ReplacerMeshBytes);
+    }
+
+    static void WriteFile(string baseDir, string rel, byte[] bytes)
+    {
+        var p = Path.Combine(baseDir, rel);
+        Directory.CreateDirectory(Path.GetDirectoryName(p)!);
+        File.WriteAllBytes(p, bytes);
+    }
+
+    /// <summary>Every file a patch mod folder holds EXCEPT its plugin, keyed by destination path with the two
+    /// per-side identities folded out: the FaceGen pair's path carries the patch's own plugin name and the clone's
+    /// own FormID, both of which differ between the two runs by construction and neither of which is a behaviour.
+    /// Everything else is compared under its literal path.
+    /// <para><c>meta.ini</c> is excluded and its exclusion is checked rather than assumed. It is MO2 bookkeeping
+    /// houseCARL writes for the folder it just made, and it NAMES that folder — so the two runs differ in it for the
+    /// same reason the patch filename differs, which <see cref="Project"/> already folds out on the record side. The
+    /// caller asserts both sides HAVE one, so dropping it cannot hide a side that stopped writing it.</para></summary>
+    static Dictionary<string, byte[]> CarriedFiles(string? patchFolder, FormKey cloneKey)
+    {
+        var map = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        if (patchFolder is null) return map;
+        var mesh = FaceGenPath.For(cloneKey, FaceGenSlot.Mesh);
+        var tint = FaceGenPath.For(cloneKey, FaceGenSlot.Tint);
+        foreach (var f in Directory.EnumerateFiles(patchFolder, "*", SearchOption.AllDirectories))
+        {
+            if (f.EndsWith(".esp", StringComparison.OrdinalIgnoreCase)) continue;
+            if (string.Equals(Path.GetFileName(f), "meta.ini", StringComparison.OrdinalIgnoreCase)) continue;
+            var rel = f.Substring(patchFolder.Length).TrimStart('\\', '/');
+            var key = string.Equals(rel, mesh, StringComparison.OrdinalIgnoreCase) ? "<clone facegeom>"
+                    : string.Equals(rel, tint, StringComparison.OrdinalIgnoreCase) ? "<clone facetint>"
+                    : rel;
+            map[key] = File.ReadAllBytes(f);
+        }
+        return map;
+    }
+
+    static string Show(byte[] b) => $"{b.Length}B {Encoding.ASCII.GetString(b, 0, Math.Min(b.Length, 32))}";
 
     static void WriteMo2Ini(string inst) =>
         File.WriteAllText(Path.Combine(inst, "ModOrganizer.ini"),
