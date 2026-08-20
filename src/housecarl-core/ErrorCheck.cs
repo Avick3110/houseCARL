@@ -586,10 +586,11 @@ public sealed record PluginErrors(
 /// leftovers rather than anything a load order introduced — and <paramref name="BaseMastersSwept"/> names WHICH base
 /// masters this sweep actually looked at (empty = none, so "0 baseline findings" and "no baseline was swept" stay
 /// distinguishable; a render must name this subset rather than <see cref="ErrorCheck.BaseMasters"/>, which would
-/// attribute a count to plugins the sweep never opened).
-/// <paramref name="ListingOmitted"/> names, per source plugin, the dangling refs found but NOT listed because the
-/// budget ran out (empty = nothing was dropped; null = nothing was listed to begin with, i.e. counts_only or no walk):
-/// the Q3 answer to "which plugins lost entries", which a global capped flag cannot give.</para></summary>
+/// attribute a count to plugins the sweep never opened).</para>
+/// <para>Which plugins LOST entries is no longer a field here: it is a fact about the RESPONSE, not about the sweep,
+/// and it is computed in the render's accounting against what that response emitted. Carried on the result it could
+/// only ever report the listing budget's own omissions, so a plugin whose entries the budget listed and max_chars
+/// then dropped appeared in no sentence at all.</para></summary>
 public sealed record ErrorCheckResult(
     IReadOnlyList<PluginErrors> Reports,
     int PluginsScanned,

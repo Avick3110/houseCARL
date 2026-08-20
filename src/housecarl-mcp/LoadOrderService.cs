@@ -4580,9 +4580,13 @@ public sealed class LoadOrderService : IDisposable
         // loads that plugins.txt does not list — so it is read HERE, where that composition lives, and the core
         // sweep receives plain filenames. Resolved before anything is swept: a bad value refuses having done no
         // work (Q3).
-        var (implicitNames, implicitErr) = ImplicitPluginNames();
-        if (implicitErr is not null && exclude is { Count: > 0 })
-            return ErrorCheckResult.Fail(implicitErr);
+        // The composition read only defines the `implicit` GROUP, so only a caller who wrote that token is affected
+        // by its failure. Gated on "an exclusion was passed at all", exclude=["CoolMod.esp"] over an unreadable
+        // profile was refused with a message about a group the caller never named — and a refusal a caller cannot
+        // act on is the shape this gate exists to avoid, not one to spread.
+        bool wantsImplicit = exclude?.Any(v => (v ?? "").Trim().Equals(SweepExclusion.ImplicitToken, StringComparison.OrdinalIgnoreCase)) == true;
+        var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames() : (Array.Empty<string>(), null);
+        if (implicitErr is not null) return ErrorCheckResult.Fail(implicitErr);
         var (excluded, excludeErr) = SweepExclusion.Resolve(exclude, implicitNames);
         if (excludeErr is not null) return ErrorCheckResult.Fail(excludeErr);
 
