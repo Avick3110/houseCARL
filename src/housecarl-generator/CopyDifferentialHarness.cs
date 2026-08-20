@@ -559,10 +559,11 @@ public static class CopyDifferentialHarness
         out FormKey donorKey, out FormKey targetKey, out string donorPlugin, out string overrideName)
         => BuildInstance(root, donorEnabled, false, out donorKey, out targetKey, out donorPlugin, out overrideName);
 
-    /// <summary>As above, and with <paramref name="withAssets"/> the donor mod also gets FILES: its FaceGen pair, its
-    /// head part's model, and one path that exists ONLY inside a root archive of the donor's own folder — plus an
-    /// ENABLED replacer supplying the FaceGen MESH path with different bytes, which is what makes the recorded
-    /// winner-vs-named divergence reachable on a DISABLED donor.
+    /// <summary>As above, and with <paramref name="withAssets"/> the donor mod also gets FILES: its FaceGen pair and
+    /// its head part's model, all LOOSE in the donor's own folder — plus an ENABLED replacer supplying the FaceGen
+    /// MESH path with different bytes, which is what makes the recorded winner-vs-named divergence reachable on a
+    /// DISABLED donor. No archive here: see the SCOPE note at the end of <c>Fixture2</c> for why, and for where the
+    /// root-archive half of the lane is guarded instead.
     /// <para>Opt-in rather than always-on because fixture 1 asserts against this same tree, and growing it would move
     /// what a dozen of its arms measure for the sake of a fixture only fixture 2 needs (#333's lesson).</para></summary>
     static string BuildInstance(string root, bool donorEnabled, bool withAssets,

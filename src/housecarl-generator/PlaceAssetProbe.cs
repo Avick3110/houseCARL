@@ -42,6 +42,9 @@ namespace HousecarlGenerator;
 ///      through the tool — the arm a substring check cannot replace.
 ///   K  a BSA provider named as the pole, and a Data-relative source that merely ENDS in '.bsa'.
 ///   L  the wire field names — PlaceAssetSpec deserialized from the JSON an MCP client actually sends.
+///   M  the OFF-ORDER source lane (F1) — source_provider= naming a mod MO2 does not tick, served off that mod
+///      folder's disk (loose, then its root archives), and every pole that must NOT widen with it. Twenty-four
+///      cells; see the block's own header for the grid.
 ///
 /// Self-contained: synthetic folders/instances in temp + the committed fixtures/asset-resolver/FixtureA.bsa, NO BSArch.
 /// Run: dotnet run --project src/housecarl-generator place-asset-guard
@@ -685,9 +688,10 @@ internal static class PlaceAssetProbe
             }
 
             // ================= M: the OFF-ORDER source lane (F1, ruling O1) =================
-            // Naming a mod reaches that mod's copy whether or not MO2 ticks it. Fifteen CELLS, enumerated rather
-            // than inferred: the lane crosses two tools × two source shapes × two provider kinds, and its whole risk
-            // is what it must NOT reach — so the not-widened poles get cells of their own, not an argument.
+            // Naming a mod reaches that mod's copy whether or not MO2 ticks it. TWENTY-FOUR CELLS, enumerated
+            // rather than inferred: the lane crosses two tools × two source shapes × two provider kinds, and its
+            // whole risk is what it must NOT reach — so the not-widened poles get cells of their own, not an
+            // argument. M17–M24 were added after review round 1 measured eight of them empty.
             Console.WriteLine();
             Console.WriteLine("--- M: source_provider= names a mod MO2 does not tick — served off disk, and nothing else widens ---");
             {
@@ -805,8 +809,12 @@ internal static class PlaceAssetProbe
                     Check(enableSort == 1, $"…and the destination's own enable+sort instruction is still said exactly once, not duplicated — {enableSort}");
 
                     var enabledText = PlaceAssetTools.PlaceAsset(svc, asset_path: Shared, source_provider: "Enabled1", patch_name: "MProvEnabled");
-                    Check(!enabledText.Contains("NOT enabled in MO2", StringComparison.Ordinal),
-                          $"…and a read served by the ACTIVE universe says no such thing  [RED arm] — {Trim1(enabledText)}");
+                    // PAIRED with the positive. A bare negative is satisfied by any refusal render, so on its own it
+                    // would pass for a call that placed nothing at all (round 1).
+                    var enabledFile = PlacedFileFrom(enabledText, mods, Shared);
+                    Check(enabledFile is not null && File.ReadAllBytes(enabledFile).SequenceEqual(eShared)
+                          && !enabledText.Contains("NOT enabled in MO2", StringComparison.Ordinal),
+                          $"…and a read served by the ACTIVE universe PLACES and says no such thing  [RED arm] — {Trim1(enabledText)}");
                 }
 
                 // ---- M7: UNIVERSE FIRST. 'Data' is a loose-root name AND a folder under mods\ here. The universe
@@ -828,21 +836,28 @@ internal static class PlaceAssetProbe
                 {
                     var r8 = svc.PlaceAssets(new[] { new PlaceRequest(OnlyDisabled, OnlyDisabled, "NoSuchModAnywhere") }, null, null).Results[0];
                     Check(!r8.Placed && r8.Error!.Contains("NoSuchModAnywhere", StringComparison.Ordinal)
-                          && r8.Error.Contains(WriteSentences.PlaceSourceBothPlacesSearched, StringComparison.Ordinal),
-                          $"M8  a name nothing supplies anywhere is refused NAMING it and both places searched  [RED arm] — {r8.Error}");
+                          && r8.Error.Contains(WriteSentences.PlaceSourceDiskFolderSearched, StringComparison.Ordinal),
+                          $"M8  a name nothing supplies anywhere is refused NAMING it, and says the mod folder WAS looked for  [RED arm] — {r8.Error}");
                     Check(!r8.Error!.Contains("pass one of these names", StringComparison.Ordinal),
                           $"…and offers NO candidate list, because there are no candidates to offer  [RED arm] — {r8.Error}");
 
                     var r9 = svc.PlaceAssets(new[] { new PlaceRequest(Contended, Contended, "NoSuchModAnywhere") }, null, null).Results[0];
-                    Check(!r9.Placed && r9.Error!.Contains(WriteSentences.PlaceSourceBothPlacesSearched, StringComparison.Ordinal)
+                    Check(!r9.Placed && r9.Error!.Contains(WriteSentences.PlaceSourceDiskFolderSearched, StringComparison.Ordinal)
                           && r9.Error.Contains("pass one of these names", StringComparison.Ordinal),
                           $"M9  the same miss on a path OTHERS supply lists them as the remedy  [RED arm] — {r9.Error}");
                     Check(r9.Error!.Contains("\"Enabled1\"", StringComparison.Ordinal) && r9.Error.Contains("\"Enabled2\"", StringComparison.Ordinal),
                           "…naming exactly the enabled providers");
                 }
 
-                // ---- M10: NOT widened — an OMITTED provider never reaches the lane. Naming is the consent, so a
-                // path only an unticked mod has still has no copy to auto-place. ----
+                // ---- M10–M12: NOT widened. Naming is the consent, so the omitted-provider lane, the winner pole and
+                // the contention listing all stay inside the active universe.
+                //
+                // What these three are red to, stated honestly: no edit INSIDE the off-order lane can break them,
+                // because that lane is reachable only through the Named pole and never contributes to res.Sources.
+                // They are red to a RESOLVER-level widening — an unticked mod entering the built universe — which is
+                // the regression class worth holding, and the sweep reddens them by ticking Disabled1 in the fixture.
+                //
+                // M10: a path only an unticked mod has still has no copy to auto-place. ----
                 {
                     var r = svc.PlaceAssets(new[] { new PlaceRequest(OnlyDisabled, null, null) }, null, null).Results[0];
                     Check(!r.Placed && r.Error!.Contains("no copy to auto-place", StringComparison.Ordinal),
@@ -914,9 +929,123 @@ internal static class PlaceAssetProbe
                     const string FolderOnly = @"meshes\hcprobe\data-folder-only.nif";
                     WriteLoose(Path.Combine(mods, DataName), FolderOnly, new byte[] { 0x5C, 0x5C });
                     File.SetLastWriteTimeUtc(Path.Combine(prof, "modlist.txt"), DateTime.UtcNow.AddHours(1));
+                    // The folder copy is genuinely there — else "refused" proves nothing about the gate.
+                    Check(File.Exists(Path.Combine(mods, DataName, FolderOnly)), "…the mods\\Data copy really is on disk");
                     var r = svc.PlaceAssets(new[] { new PlaceRequest(FolderOnly, FolderOnly, DataName) }, null, null).Results[0];
                     Check(!r.Placed,
                           $"M16 a name the universe knows NEVER falls through to a mods\\ folder of that name  [RED arm] — {(r.Placed ? "PLACED from the folder" : "refused")}");
+                    // …and the REFUSAL must not claim a search the gate prevented. This arm stopped at !Placed, so it
+                    // passed while the sentence beside it told the caller houseCARL had looked in that very folder.
+                    Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceUniverseName, StringComparison.Ordinal)
+                          && !r.Error.Contains(WriteSentences.PlaceSourceDiskFolderSearched, StringComparison.Ordinal),
+                          $"…and SAYS the name is one the active order already provides, claiming no folder search  [RED arm] — {r.Error}");
+                }
+
+                // ---- M17: the class three reviewers found in round 1. Naming an ENABLED mod that does not supply
+                // the path must not claim its folder was searched — the gate answered first, so no folder was
+                // opened. This is the commonest shape of all (the appearance skill tells callers to name the donor
+                // MOD), and the sentence was unconditional. ----
+                {
+                    var r = svc.PlaceAssets(new[] { new PlaceRequest(OnlyDisabled, OnlyDisabled, "Enabled1") }, null, null).Results[0];
+                    Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceUniverseName, StringComparison.Ordinal),
+                          $"M17 naming an ENABLED mod that lacks the path says only that the name is already provided  [RED arm] — {r.Error}");
+                    Check(!r.Error!.Contains(WriteSentences.PlaceSourceDiskFolderSearched, StringComparison.Ordinal),
+                          "…and claims NO mod-folder search, because the gate stopped one from happening  [RED arm]");
+                }
+
+                // ---- M18: PROVENANCE ON THE ARCHIVE BRANCH. M6 and M15 both assert it on a LOOSE read, so
+                // dropping the flag from the archive branch alone shipped green through a whole sabotage sweep. ----
+                {
+                    var text = PlaceAssetTools.PlaceAsset(svc, asset_path: FacegenRel, source: FacegenRel,
+                                                          source_provider: "Disabled2", patch_name: "MArchProv");
+                    var f = PlacedFileFrom(text, mods, FacegenRel);
+                    Check(f is not null && File.ReadAllBytes(f).SequenceEqual(archBytes),
+                          $"M18 an archive-served off-order read places the archive's bytes — {Trim1(text)}");
+                    Check(text.Contains("NOT enabled in MO2", StringComparison.Ordinal) && text.Contains("Disabled2", StringComparison.Ordinal),
+                          $"…and SAYS so, naming the mod — the branch the loose cells cannot reach  [RED arm] — {Trim1(text)}");
+                }
+
+                // ---- M19: the archive branch's NEGATIVE. An off-order folder that EXISTS and whose root archive
+                // does NOT hold the path must refuse. Nothing reached this: every other miss cell names a folder
+                // that does not exist, so the archive lookup's false answer was never exercised. ----
+                {
+                    var r = svc.PlaceAssets(new[] { new PlaceRequest(OnlyDisabled, OnlyDisabled, "Disabled2") }, null, null).Results[0];
+                    Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceDiskFolderSearched, StringComparison.Ordinal),
+                          $"M19 an existing off-order folder whose archive lacks the path is REFUSED  [RED arm] — {r.Error}");
+                    Check(Directory.Exists(Path.Combine(mods, "Disabled2")) && !r.Error!.Contains("unscanned", StringComparison.Ordinal),
+                          "…and the folder really exists, with no unreadable-archive caveat — a clean miss, not an unknown");
+                }
+
+                // ---- M20: TOP-LEVEL ONLY. A .bsa nested in a subtree is not one the engine would load for that
+                // mod, so reading it would serve bytes the game never would. The whole policy was satisfied by
+                // construction — no fixture had a nested archive. ----
+                {
+                    var nested = Path.Combine(mods, "DisabledNested", "sub", "deep");
+                    Directory.CreateDirectory(nested);
+                    File.Copy(fixA, Path.Combine(nested, "Nested.bsa"));
+                    File.SetLastWriteTimeUtc(Path.Combine(prof, "modlist.txt"), DateTime.UtcNow.AddHours(1));
+                    var r = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, "DisabledNested") }, null, null).Results[0];
+                    Check(!r.Placed,
+                          $"M20 an archive NESTED in the mod folder is not read — root archives only  [RED arm] — {(r.Placed ? "PLACED from a nested archive" : "refused")}");
+                    Check(AssetResolver.ArchiveHasEntry(Path.Combine(nested, "Nested.bsa"), FacegenRel),
+                          "…and that nested archive really does hold the path, so the refusal is the policy and not an accident");
+                }
+
+                // ---- M21: an archive that will not READ is an UNKNOWN, not a miss. Reporting it as "this mod does
+                // not have it" is the silent-wrong-answer class; the active lane has carried this caveat all along
+                // and the off-order lane swallowed the throw. ----
+                {
+                    var brokenDir = Path.Combine(mods, "DisabledBroken");
+                    Directory.CreateDirectory(brokenDir);
+                    File.WriteAllBytes(Path.Combine(brokenDir, "Broken.bsa"), new byte[] { 0xDE, 0xAD, 0xBE, 0xEF });
+                    File.SetLastWriteTimeUtc(Path.Combine(prof, "modlist.txt"), DateTime.UtcNow.AddHours(1));
+                    var r = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, "DisabledBroken") }, null, null).Results[0];
+                    Check(!r.Placed && r.Error!.Contains("unscanned rather than absent", StringComparison.Ordinal),
+                          $"M21 an unreadable archive in the named folder is reported as UNKNOWN, not as absent  [RED arm] — {r.Error}");
+                    Check(r.Error!.Contains("Broken.bsa", StringComparison.Ordinal),
+                          "…naming the archive that could not be read");
+                }
+
+                // ---- M22: Windows strips a trailing dot when it resolves a path, so 'Data.' opens mods\Data —
+                // straight around a gate that matches the name as typed. Left in, an ENABLED mod named with a
+                // trailing dot would be served off disk and reported as NOT enabled: a false provenance line, which
+                // is the one sentence this lane exists to keep honest. ----
+                {
+                    foreach (var (spelling, why) in new[] { ("Data.", "walks around the universe-first gate"),
+                                                            ("Enabled1.", "would print a false off-order provenance line") })
+                    {
+                        var r = svc.PlaceAssets(new[] { new PlaceRequest(DataCollision, DataCollision, spelling) }, null, null).Results[0];
+                        Check(!r.Placed || r.SourceOffOrderProvider is null,
+                              $"M22 a trailing-dot spelling ('{spelling}') never reaches disk — it {why}  [RED arm] — " +
+                              $"{(r.Placed ? "PLACED off-order=" + (r.SourceOffOrderProvider ?? "(none)") : "refused")}");
+                    }
+                }
+
+                // ---- M23: '*winner' is a non-empty selector that is NOT a provider name. Routing the merged
+                // refusal on "a provider string was passed" quoted the pole back as if it were a mod, claimed a
+                // folder of that name had been searched — impossible, '*' cannot be in a folder name, which is why
+                // the token is sigiled — and corrected the caller toward the spelling they had just used. ----
+                {
+                    foreach (var (src, label) in new[] { ((string?)null, "no source="), (OnlyDisabled, "with source=") })
+                    {
+                        var r = svc.PlaceAssets(new[] { new PlaceRequest(OnlyDisabled, src, AssetSourceChoice.WinnerToken) }, null, null).Results[0];
+                        Check(!r.Placed && !r.Error!.Contains(WriteSentences.PlaceSourceDiskFolderSearched, StringComparison.Ordinal)
+                              && !r.Error.Contains(WriteSentences.PlaceSourceUniverseName, StringComparison.Ordinal),
+                              $"M23 {AssetSourceChoice.WinnerToken} ({label}) is never refused as a named PROVIDER  [RED arm] — {r.Error}");
+                        Check(!r.Error!.Contains($"'{AssetSourceChoice.WinnerToken}' does not supply", StringComparison.Ordinal),
+                              "…and the pole is not quoted back as though it were a mod name");
+                    }
+                }
+
+                // ---- M24: the #283 root-prefix hint. A path taken off a record is stored relative to meshes\, and
+                // naming a provider does not stop that being the caller's real mistake — but the named-provider
+                // refusal used to swallow the hint that names the fix. ----
+                {
+                    var rootless = Shared.Substring(@"meshes\".Length);
+                    var r = svc.PlaceAssets(new[] { new PlaceRequest(rootless, rootless, "NoSuchModAnywhere") }, null, null).Results[0];
+                    Check(!r.Placed && r.Error!.Contains("Did you mean", StringComparison.Ordinal)
+                          && r.Error.Contains(Shared, StringComparison.OrdinalIgnoreCase),
+                          $"M24 a named-provider miss still offers the verified root-prefix hint  [RED arm] — {r.Error}");
                 }
             }
         }

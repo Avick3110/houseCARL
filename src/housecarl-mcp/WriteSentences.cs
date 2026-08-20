@@ -448,16 +448,15 @@ internal static class WriteSentences
     internal const string CopyFromArmLead = "the source record was read from ";
 
     // ---- the copied records' asset paths (inventory I1) ----------------------------------------------
-    /// <summary>The asset paths the copied records reference. `copy` is the only thing that knows WHAT it copied,
-    /// so it enumerates; it does not fetch, place, or judge them — that decision is the caller's, over
-    /// housecarl_asset_status and housecarl_bulk_place_asset.</summary>
-    [MustState("does NOT place them", "housecarl_bulk_place_asset")]
-    /// <summary>The list the caller acts on after a copy, and the route to acting on it.
+    /// <summary>The asset paths the copied records reference, and the route to acting on them. `copy` is the only
+    /// thing that knows WHAT it copied, so it enumerates; it does not fetch, place, or judge them — that decision is
+    /// the caller's, over housecarl_asset_status and housecarl_bulk_place_asset.
     /// <para>The absent-reads clause is not decoration. <c>from_source=</c> resolves a plugin wherever it lives, so a
     /// copy can legitimately read a record out of a mod MO2 does not load — and <c>asset_status</c> answers for the
     /// mods it DOES load, so every path only that mod provides reads back as absent there. A caller following the
     /// route without this sentence reads "absent" as "nothing to place" and silently ships a patch with no assets,
     /// which is the dark-face outcome. Measured on the disabled-donor fixture, not assumed.</para></summary>
+    [MustState("does NOT place them", "housecarl_bulk_place_asset")]
     internal const string CopyAssetPathsHeader =
         "asset paths the copied records reference (this call does NOT place them — check each with " +
         "housecarl_asset_status, then place what you keep with housecarl_bulk_place_asset; a path only the mod you " +
@@ -591,23 +590,33 @@ internal static class WriteSentences
     /// <para>It states BOTH halves. The second is the load-bearing one: naming is what reaches an unticked mod, and
     /// an omitted provider still sees only ticked ones — a caller told the first half alone would reasonably expect
     /// auto-resolve to find a disabled mod's copy, which it deliberately does not.</para></summary>
-    [MustState("whether or not that mod is ticked", "Naming it is what reaches it")]
+    [MustState("NOT currently loading", "Naming it is what reaches it")]
     internal const string PlaceSourceNameReachesUnticked =
-        "A mod folder is read whether or not that mod is ticked in MO2 — the copy comes off disk (loose, then that "
-      + "folder's own archives) and the result says so. Naming it is what reaches it: with source_provider= omitted, "
-      + "only the mods MO2 currently loads are considered.";
+        "Naming a mod folder MO2 is NOT currently loading reads that mod's own copy off disk — the loose file, then "
+      + "that folder's own archives — and the result says so. Naming it is what reaches it: with source_provider= "
+      + "omitted, only the mods MO2 loads are considered. For a mod MO2 IS loading, nothing changes: its loose files "
+      + "are reached by the mod's name and a file inside its archive by that archive's filename, as before.";
 
-    /// <summary>Both places a named provider is searched, stated in the refusal because a refusal that names only one
-    /// of them understates what was checked (Q3, and SPEC §4.2's "a plugin found in neither place is a loud refusal
-    /// naming both places searched" — the same standard on the asset surface).
-    /// <para>UNCONDITIONAL and free of state: it says what houseCARL LOOKED IN, not what it found there, so it is
-    /// equally true when the folder is absent, present-but-lacking the file, and present-with-an-unreadable archive.
-    /// The version that named the folder's existence would be a claim with a state to get wrong (the #385 lesson) —
-    /// and NAMES only, never the folder's on-disk path.</para></summary>
-    [MustState("active load order", "MO2 mod folder of that name")]
-    internal const string PlaceSourceBothPlacesSearched =
-        "houseCARL looked for it in the active load order AND in an MO2 mod folder of that name (loose, then that "
-      + "folder's own archives), so an unticked mod is not what is missing here";
+    /// <summary>What was searched when the off-order lane DID run — the name was not one the active order already
+    /// provides files under, so a mod folder of that name was looked for (SPEC §4.2's "a refusal naming both places
+    /// searched", on the asset surface). NAMES only, never the folder's on-disk path.
+    /// <para>Conditional, and it has to be. The first version of this sentence was unconditional and said this about
+    /// every named-provider refusal — including the ones where the universe-first gate answered before any disk look
+    /// happened, which is every name the active order knows. Three independent reviewers measured it claiming a
+    /// search that had not run. What houseCARL looked in is a fact about the lookup, not about the sentence, so the
+    /// lookup now reports it and this is rendered only when it is true.</para></summary>
+    [MustState("MO2 mod folder of that name")]
+    internal const string PlaceSourceDiskFolderSearched =
+        "houseCARL also looked for an MO2 mod folder of that name, and read neither a loose copy there nor one inside "
+      + "that folder's own archives";
+
+    /// <summary>The other arm: the name IS one the active order provides files under, so the off-order lane never
+    /// ran and no claim about a mod folder may be made. It states only what is true — the name resolved, the path did
+    /// not — and leaves the remedy to the provider list, which names the real candidates (including an archive's
+    /// filename, which is how a file inside an active mod's archive is reached).</summary>
+    [MustState("active load order already provides")]
+    internal const string PlaceSourceUniverseName =
+        "that name is one the active load order already provides files under";
 
     /// <summary>The named provider supplies this path in NEITHER place searched. ONE sentence for both misses, because
     /// they are one fact: the difference between them is only whether anyone ELSE supplies the path, and that decides
@@ -619,8 +628,15 @@ internal static class WriteSentences
     /// for. Nothing weaker is invented to fill the gap — the two searched places and the pole spelling are what is
     /// honestly known. The list, when there is one, is the same quoted-name spelling the ambiguity refusal uses, and
     /// for the same reason: this is the caller's next call, not a display.</para></summary>
-    internal static string PlaceSourceNamedAbsent(string provider, string rel, IReadOnlyList<string> providerNames) =>
-        $"'{provider}' does not supply '{rel}' — {PlaceSourceBothPlacesSearched}. "
+    internal static string PlaceSourceNamedAbsent(string provider, string rel, IReadOnlyList<string> providerNames,
+                                                  bool folderSearched, string? readFailure = null, string? pathHint = null) =>
+        $"'{provider}' does not supply '{rel}' — "
+      + (folderSearched ? PlaceSourceDiskFolderSearched : PlaceSourceUniverseName) + ". "
+        // An unreadable folder or archive makes this an UNKNOWN, not a miss, and saying so is the same caveat the
+        // active lane carries for an archive that failed its build. Rendered before the remedy: it changes what the
+        // remedy is worth.
+      + (readFailure is null ? "" : $"NOTE: {readFailure}, so this may be unscanned rather than absent. ")
+      + (pathHint is null ? "" : pathHint + " ")
       + (providerNames.Count > 0
             ? $"{PlaceSourceNoSubstitute} — pass one of these names instead, quotes excluded: "
             + $"{string.Join("; ", providerNames)}. "

@@ -22,8 +22,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `source_provider=` omitted, resolution still sees only the mods MO2 loads, `*winner` is still the winner among
   those, and a contention list still names only those — so a mod you did not name cannot be read, be reported as the
   winner, or appear as a copy to choose between. A name that supplies the path in neither place is refused, and the
-  refusal says both places were looked in and names the other providers when there are any.
-  `housecarl_asset_status` still answers for the mods MO2 loads, so a path only a switched-off mod provides reads as
+  refusal says which places were looked in — the mod folder is only claimed to have been searched when it was — and
+  names the other providers when there are any.
+  For a mod MO2 *is* loading nothing changes, including how you reach a file inside its archive: that is the
+  archive's own filename, as before, and `housecarl_asset_status` lists it under that name.
+  `housecarl_asset_status` answers for the mods MO2 loads, so a path only a switched-off mod provides reads as
   absent there while remaining placeable by naming that mod — the `source_provider=` description and the
   `housecarl_copy` asset readback both say so.
 

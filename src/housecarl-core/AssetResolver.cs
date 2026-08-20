@@ -421,8 +421,9 @@ public sealed class AssetResolver : IDisposable
     /// when that name is NOT one this build knows — the off-order source lane (F1). Thin delegation:
     /// <see cref="OffOrderAssetSource"/> owns the lane, this resolver only supplies the two facts it holds (where the
     /// mods folder is, and what the universe already answers for). Null when the name is a universe name, is not a
-    /// plain folder name, or that folder supplies no copy.</summary>
-    public PlacementSource? TryResolveOffOrderProvider(string? providerName, string relPath)
+    /// plain folder name, or that folder supplies no copy — and the result says WHICH of those it was, because a
+    /// refusal may only claim the folder was searched when it was.</summary>
+    public OffOrderLookup TryResolveOffOrderProvider(string? providerName, string relPath)
         => OffOrderAssetSource.Resolve(_modsDir, IsUniverseProviderName, providerName, relPath);
 
     /// <summary>Resolve many paths in one call (the facegen bulk scan), all against ONE pinned build so the whole scan
@@ -501,7 +502,7 @@ public sealed class AssetResolver : IDisposable
         /// Deliberately NOT pinned to this view's snapshot, and it cannot be: an off-order mod folder contributes
         /// nothing to any build, so there is no captured state for it to answer from. The universe-first test it
         /// runs first IS this build's, so the two halves agree on what "already known" means.</summary>
-        public PlacementSource? TryResolveOffOrderProvider(string? providerName, string relPath)
+        public OffOrderLookup TryResolveOffOrderProvider(string? providerName, string relPath)
             => _r.TryResolveOffOrderProvider(providerName, relPath);
 
         public IReadOnlyList<AssetHit> ResolveMany(IEnumerable<string> relPaths)
