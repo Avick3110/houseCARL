@@ -1186,14 +1186,15 @@ static class Wire
 
         if (r.CountsOnly)
         {
-            AppendHistogram(sb, body, r.Histogram, histogramLimit, "dangling ref(s) by TARGET plugin (the plugin the broken refs point INTO)",
+            AppendHistogram(sb, body, SweepSubject.HistogramByTarget, r.Histogram, histogramLimit,
+                            "dangling ref(s) by TARGET plugin (the plugin the broken refs point INTO)",
                             "counts_only=true — totals above are exact; no per-plugin listing was built.",
                             notComputed: "no dangling histogram, by target or by source — the link walk was not run (findings= excluded 'dangling').");
             // #344 — the SOURCE axis: which plugin the broken refs come FROM. The target axis names the absent
             // dependency behind a wall of findings; only this one answers "how much of this is vanilla, and how much
             // did the mods introduce". No note and no not-computed line of its own — both would repeat what the
             // target histogram directly above has just said.
-            AppendHistogram(sb, body, r.DanglingBySource, histogramLimit,
+            AppendHistogram(sb, body, SweepSubject.HistogramBySource, r.DanglingBySource, histogramLimit,
                             "dangling ref(s) by SOURCE plugin (the plugin the broken refs come FROM)", note: null);
             AppendScanErrorTail(sb, body, r.Reports);
             AppendExcludedPlugins(sb, body, r.ExcludedPlugins);   // #288 review finding 5: the NAMES, not just the header count
@@ -1326,7 +1327,11 @@ static class Wire
     /// the empty-case sentence and the "more rows" line used to bypass the budget entirely (~650 chars past a tight
     /// cap), and a title with no rows under it is a section head with no section — the whole-or-absent rule this
     /// render follows everywhere else. So the title rides the FIRST ROW as one unit.</param>
-    static void AppendHistogram(StringBuilder sb, BoundedBody body, IReadOnlyList<SweepCount>? rows, int rowLimit,
+    /// <param name="subject">this axis's OWN emission subject, never one shared with a sibling axis. A subject is
+    /// what <see cref="BoundedBody"/> stops, and the close below stops it: shared, the first axis to close refused
+    /// every row of the next one (see <see cref="SweepSubject.HistogramBySource"/>).</param>
+    static void AppendHistogram(StringBuilder sb, BoundedBody body, SweepSubject subject,
+                                IReadOnlyList<SweepCount>? rows, int rowLimit,
                                 string title, string? note, string? notComputed = null)
     {
         // The note and the not-computed line are fixed text that does not grow with the findings, and the second is
@@ -1339,43 +1344,40 @@ static class Wire
         if (rows.Count == 0)
         {
             var empty = "\n" + title + ": nothing to tally — no findings in the swept scope.\n";
-            body.Emit(SweepSubject.HistogramRows, empty.Length, () => sb.Append(empty));
+            body.Emit(subject, empty.Length, () => sb.Append(empty));
             return;
         }
         // The "more rows" line is HELD BACK rather than emitted on hope: rows shown without the count of the rows
-        // that were not is the silent cut one level down. Its widest spelling is bounded by the row count's digits.
+        // that were not is the silent cut one level down. Its widest spelling is bounded by the row count's digits,
+        // and by the longer of the two knob names — which is max_chars.
         var head = "\n" + title + " (" + rows.Count + " distinct):\n";
         int shown = 0;
         bool cutByBudget = false;
-        var moreReserve = MoreRowsLine(rows.Count, byBudget: true).Length;
+        var moreReserve = new HistogramCut(rows.Count, ByBudget: true).Line.Length;
         foreach (var row in rows)
         {
             if (shown >= rowLimit) break;
             var line = "  " + row.Count.ToString().PadLeft(6) + "  " + row.Key + "\n";
             var unit = shown == 0 ? head + line : line;
-            if (!body.Emit(SweepSubject.HistogramRows, unit.Length + moreReserve, () => sb.Append(unit)))
+            if (!body.Emit(subject, unit.Length + moreReserve, () => sb.Append(unit)))
             { cutByBudget = true; break; }
             shown++;
         }
-        // The remedy names the knob that STOPPED it. "raise limit=" on rows the response had no room for is a knob
-        // that moves nothing — the same defect the accounting's own remedy was measured for.
+        // The closing disclosure, from ONE computation the json lane reads too. The remedy names the knob that
+        // STOPPED THIS AXIS: "raise limit=" on rows the response had no room for is a knob that moves nothing, and so
+        // is "raise max_chars=" on rows the row budget refused. An axis that rendered every row it had says nothing.
         //
         // An axis the budget admitted NO rows of still says so, head and count together as one unit: an axis that
         // exists and renders nothing at all is the same silent cut, one level down.
+        if (HistogramCut.For(rows.Count, shown, cutByBudget) is not { } cut) return;
         if (shown == 0)
         {
-            var only = head + MoreRowsLine(rows.Count, cutByBudget);
-            body.Close(SweepSubject.HistogramRows, only.Length, () => sb.Append(only));
+            var only = head + cut.Line;
+            body.Close(subject, only.Length, () => sb.Append(only));
         }
-        else if (shown < rows.Count)
-            body.Close(SweepSubject.HistogramRows, 0, () => sb.Append(MoreRowsLine(rows.Count - shown, cutByBudget)));
+        else
+            body.Close(subject, 0, () => sb.Append(cut.Line));
     }
-
-    /// <summary>The histogram's own disclosure of its cut, in one spelling — it is composed twice, once to measure
-    /// the room to hold back for it and once to write it, and two spellings of one sentence is how a reserve stops
-    /// covering what it reserves for.</summary>
-    static string MoreRowsLine(int remaining, bool byBudget)
-        => "  ... [" + remaining + " more row(s) — raise " + (byBudget ? "max_chars=" : "limit=") + " to see them]\n";
 
     /// <summary>The named, reasoned list of plugins the index build could not parse. Shared by the listing and
     /// <c>counts_only=</c> paths — counts_only used to return before it, leaving the header's bare count with no way to
@@ -1454,7 +1456,8 @@ static class Wire
             // validate_scripts' response layer is not this branch's, so it keeps no accounting — but it goes through
             // the same bounded emission path, because a second appending path is a second place to forget the bound.
             var scriptBody = new BoundedBody(null, cap, () => sb.Length);
-            AppendHistogram(sb, scriptBody, r.Histogram, histogramLimit, "unbound properties by NAME",
+            AppendHistogram(sb, scriptBody, SweepSubject.HistogramByProperty, r.Histogram, histogramLimit,
+                            "unbound properties by NAME",
                             "counts_only=true — totals above are exact; no per-record listing was built.",
                             notComputed: "no unbound histogram — findings= excluded both unbound classes, so nothing was tallied.");
             foreach (var rec in r.Reports)   // the honesty layer: plugins whose record enumeration faulted

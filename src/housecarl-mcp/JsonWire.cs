@@ -1291,8 +1291,8 @@ static class JsonWire
 
             if (r.CountsOnly)
             {
-                WriteHistogram(w, "dangling_by_target_plugin", r.Histogram, histogramLimit, body);
-                WriteHistogram(w, "dangling_by_source_plugin", r.DanglingBySource, histogramLimit, body);   // #344 — the new axis
+                WriteHistogram(w, "dangling_by_target_plugin", SweepSubject.HistogramByTarget, r.Histogram, histogramLimit, body);
+                WriteHistogram(w, "dangling_by_source_plugin", SweepSubject.HistogramBySource, r.DanglingBySource, histogramLimit, body);   // #344 — the new axis
                 WriteUnreadPlugins(w, r.Reports, body);
             }
             else
@@ -1480,7 +1480,7 @@ static class JsonWire
 
             if (r.CountsOnly)
             {
-                WriteHistogram(w, "unbound_by_property", r.Histogram, histogramLimit);
+                WriteHistogram(w, "unbound_by_property", SweepSubject.HistogramByProperty, r.Histogram, histogramLimit);
                 // Wrapped + budget-flagged for the same reason check_errors' `unread` is (#288 review finding 4): a
                 // silently short honesty list reads as a complete one.
                 var scanErrors = r.Reports.Where(x => x.ScanError is not null).ToList();
@@ -1562,35 +1562,44 @@ static class JsonWire
     }
 
     // ---- shared sweep writers (#282) ---------------------------------------------------------------
-    /// <summary>A counts_only histogram: <c>{distinct, rows:[{key,count}], rendered}</c>. Absent when the mode was not
-    /// requested; PRESENT with an empty <c>rows</c> when the sweep genuinely found nothing — the two must not look alike.</summary>
+    /// <summary>A counts_only histogram: <c>{distinct, rows:[{key,count}], rendered, cut_by}</c>. Absent when the mode
+    /// was not requested; PRESENT with an empty <c>rows</c> when the sweep genuinely found nothing — the two must not
+    /// look alike.</summary>
     /// <param name="body">the ONE bounded emission path, or null for validate_scripts, which passes no budget —
-    /// its response layer is not this branch's. `distinct` vs `rendered` already discloses a short list, so the
-    /// bound needs no new field.</param>
-    static void WriteHistogram(Utf8JsonWriter w, string name, IReadOnlyList<SweepCount>? rows, int rowLimit,
-                               BoundedBody? body = null)
+    /// its response layer is not this branch's.</param>
+    /// <param name="subject">this axis's OWN emission subject. Two axes sharing one meant the first to stop stopped
+    /// the second (see <see cref="SweepSubject.HistogramBySource"/>).</param>
+    static void WriteHistogram(Utf8JsonWriter w, string name, SweepSubject subject, IReadOnlyList<SweepCount>? rows,
+                               int rowLimit, BoundedBody? body = null)
     {
         if (rows is null) return;
-        // The object's own three fixed members do not grow with the findings, so they are part of the fixed part;
-        // the ROWS are what the budget gates, and `rendered` is written from what the gate let through.
+        // The object's own fixed members do not grow with the findings, so they are part of the fixed part; the ROWS
+        // are what the budget gates, and `rendered` is written from what the gate let through.
         w.WriteStartObject(name);
         w.WriteNumber("distinct", rows.Count);
         w.WriteStartArray("rows");
         int shown = 0;
+        bool cutByBudget = false;
         foreach (var row in rows)
         {
             if (shown >= rowLimit) break;
             var r = row;
             if (body is not null
-                && !body.Emit(SweepSubject.HistogramRows, 0,
+                && !body.Emit(subject, 0,
                               () => { w.WriteStartObject(); w.WriteString("key", r.Key); w.WriteNumber("count", r.Count); w.WriteEndObject(); }))
-                break;
+            { cutByBudget = true; break; }
             if (body is null)
             { w.WriteStartObject(); w.WriteString("key", row.Key); w.WriteNumber("count", row.Count); w.WriteEndObject(); }
             shown++;
         }
         w.WriteEndArray();
         w.WriteNumber("rendered", shown);
+        // WHICH knob stopped it, from the SAME computation the text lane renders as a sentence. distinct vs rendered
+        // says an axis is short; it cannot say which parameter a consumer would have to change, and this lane said
+        // nothing at all while the text twin named a knob — one sweep, two transports, two different answers.
+        // Null where the axis is whole, so "complete" is read rather than inferred from two numbers.
+        if (HistogramCut.For(rows.Count, shown, cutByBudget) is { } cut) w.WriteString("cut_by", cut.Knob);
+        else w.WriteNull("cut_by");
         w.WriteEndObject();
     }
 
