@@ -898,6 +898,66 @@ public static class CheckErrorsProbe
             && oneJson.GetProperty("truncated").GetBoolean(),
             $"chars={JsonWire.RenderCheckErrors(oneSection, OneCut).Length} cap={OneCut} truncated={oneJson.GetProperty("truncated").GetBoolean()} overrun={oneJson.TryGetProperty("max_chars_overrun", out _)} entries={oneJson.GetProperty("plugins").EnumerateArray().Sum(pl => pl.GetProperty("dangling").GetArrayLength())} of {oneSection.TotalDangling}");
 
+        // ---- #344's exclusion axis. Applied to the SWEEP, so an excluded plugin costs no walk and no budget — the
+        //      half of #344 the phase order could not reach. The BASELINE definition is untouched by it.
+        var exBase = ErrorCheck.Run(rb, null, 1000, null, null, ErrorFindingClass.All, false,
+                                    new[] { "Skyrim.esm" });
+        var exBaseText = Wire.RenderCheckErrors(exBase, 0);
+        Check("EXCLUDE-NAME: a named plugin is left out of the sweep entirely — its findings are gone from the TOTALS, not merely from the listing, and the response says the scope was narrowed",
+            exBase.Success && exBase.TotalDangling == 2 && exBase.Reports.All(x => x.Plugin != "Skyrim.esm")
+            && exBase.BaseMastersSwept is { Count: 0 }
+            && exBaseText.Contains("exclude= left out 1 plugin(s)", StringComparison.Ordinal)
+            && !exBaseText.Contains("baseline:", StringComparison.Ordinal),
+            $"total={exBase.TotalDangling} sections=[{string.Join(",", exBase.Reports.Select(x => x.Plugin))}] note={exBase.FilterNote}");
+
+        var (baseTok, baseTokErr) = SweepExclusion.Resolve(new[] { SweepExclusion.BaseMastersToken }, Array.Empty<string>());
+        Check("EXCLUDE-TOKEN-BASE-MASTERS: the group resolves to Mutagen's base-master set exactly — the same list the baseline split is defined by, never a second hand-kept copy",
+            baseTokErr is null && baseTok.SetEquals(ErrorCheck.BaseMasters),
+            $"err={baseTokErr} resolved=[{string.Join(",", baseTok)}]");
+
+        var (implTok, implTokErr) = SweepExclusion.Resolve(
+            new[] { SweepExclusion.ImplicitToken }, new[] { "Skyrim.esm", "ccBGSSSE001-Fish.esm", "_ResourcePack.esl" });
+        Check("EXCLUDE-TOKEN-IMPLICIT: the group resolves to what the ORDER force-loads — where Creation Club and _ResourcePack live — and it is a superset of the base masters rather than a rival definition of vanilla",
+            implTokErr is null && implTok.Contains("ccBGSSSE001-Fish.esm") && implTok.Contains("_ResourcePack.esl")
+            && implTok.Contains("Skyrim.esm"),
+            $"err={implTokErr} resolved=[{string.Join(",", implTok)}]");
+
+        var (_, unknownErr) = SweepExclusion.Resolve(new[] { "vanilla" }, Array.Empty<string>());
+        Check("EXCLUDE-UNKNOWN-GROUP-REFUSES: a value that is neither a filename nor a known group refuses BEFORE the sweep and names both what a filename looks like and every group there is",
+            unknownErr is not null && unknownErr.Contains("'vanilla'", StringComparison.Ordinal)
+            && SweepExclusion.Tokens.All(t => unknownErr.Contains(t, StringComparison.Ordinal))
+            && unknownErr.Contains("Nothing was swept", StringComparison.Ordinal),
+            unknownErr ?? "<no refusal>");
+
+        // §3.1's standing S1 exemption is PINNED, not asserted: tokens carry no sigil because a plugin name is
+        // extension-mandatory, so an extensionless spelling must refuse by name and never fuzzy-match a plugin whose
+        // stem it resembles. The with-extension control sits beside it, or the arm proves only that nothing matches.
+        var (_, stemErr) = SweepExclusion.Resolve(new[] { "Skyrim" }, Array.Empty<string>());
+        var (stemOk, stemOkErr) = SweepExclusion.Resolve(new[] { "Skyrim.esm" }, Array.Empty<string>());
+        Check("EXCLUDE-EXTENSIONLESS-NEVER-FUZZY-MATCHES: 'Skyrim' is refused as an unknown group and never resolved to Skyrim.esm; 'Skyrim.esm' is taken as the name it is",
+            stemErr is not null && stemErr.Contains("'Skyrim'", StringComparison.Ordinal)
+            && stemOkErr is null && stemOk.SetEquals(new[] { "Skyrim.esm" }),
+            $"stem=[{stemErr}] withExt=[{stemOkErr}] resolved=[{string.Join(",", stemOk)}]");
+
+        var exMiss = ErrorCheck.Run(rb, null, 1000, null, null, ErrorFindingClass.All, false, new[] { "HcCeNotHere.esp" });
+        Check("EXCLUDE-NAME-NOT-IN-SCOPE-REFUSES: an exclusion matching nothing is a refusal, not a no-op — the silent reading returns exactly the findings the caller asked to leave out, with nothing to say the spelling missed",
+            !exMiss.Success && exMiss.Error is not null
+            && exMiss.Error.Contains("HcCeNotHere.esp", StringComparison.Ordinal)
+            && exMiss.Error.Contains("not in the scope this sweep would cover", StringComparison.Ordinal)
+            && exMiss.Reports.Count == 0,
+            exMiss.Error ?? "<no refusal>");
+
+        var exAll = ErrorCheck.Run(rb, null, 1000, null, null, ErrorFindingClass.All, false,
+                                   new[] { "Skyrim.esm", "HcCeBaseMod.esp" });
+        Check("EXCLUDE-EMPTIES-THE-SCOPE-REFUSES: excluding everything in scope refuses with the count it removed, rather than returning a clean-looking sweep of nothing (Q3)",
+            !exAll.Success && exAll.Error is not null
+            && exAll.Error.Contains("removed every plugin", StringComparison.Ordinal)
+            && exAll.Error.Contains("nothing left to check", StringComparison.Ordinal),
+            exAll.Error ?? "<no refusal>");
+
+        Check("EXCLUDE-DESCRIPTION-NAMES-EVERY-GROUP: the caller-facing token list is held against SweepExclusion.Tokens, the one place they are enumerated — no wire-name guard reaches a tool parameter's prose (#386), so this parameter brings its own",
+            ExcludeDescriptionNamesTokens(out var descDetail), descDetail);
+
         // ---- a record scope can admit nothing from a base master the sweep opened. "Swept" has to mean examined.
         var modOnlyScope = ErrorCheck.Run(rb, null, 1000, null, new SweepScope(null, "HcCeModNpc", null, null));
         var modOnlyScopeText = Wire.RenderCheckErrors(modOnlyScope, 0);
@@ -1044,6 +1104,24 @@ public static class CheckErrorsProbe
             }
         detail = bad.Count == 0 ? "every section whole at every cap" : string.Join("; ", bad.Take(4));
         return bad.Count == 0;
+    }
+
+    /// <summary>The exclude= parameter's [Description] must name every token SweepExclusion accepts, and no word it
+    /// does not. A tool parameter's prose is a SECOND spelling of an accepted vocabulary, on a surface no existing
+    /// guard reads (#386) — so a token added to the list and not to the description would be undiscoverable, and one
+    /// named in the description and not accepted would be refused when a caller believed the docs.</summary>
+    static bool ExcludeDescriptionNamesTokens(out string detail)
+    {
+        var param = typeof(ReadTools).GetMethod(nameof(ReadTools.CheckErrorsTool))?
+            .GetParameters().FirstOrDefault(x => x.Name == "exclude");
+        if (param is null) { detail = "no exclude= parameter on CheckErrorsTool"; return false; }
+        var text = param.GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
+                        .Cast<System.ComponentModel.DescriptionAttribute>().FirstOrDefault()?.Description;
+        if (text is null) { detail = "exclude= carries no [Description]"; return false; }
+        var missing = SweepExclusion.Tokens.Where(t => !text.Contains(t, StringComparison.Ordinal)).ToList();
+        detail = missing.Count == 0 ? $"names all {SweepExclusion.Tokens.Length} token(s)"
+                                    : "not named in the description: " + string.Join(", ", missing);
+        return missing.Count == 0;
     }
 
     /// <summary>The cap invariant, swept: for a range of max_chars values, NEITHER transport may return more than it
