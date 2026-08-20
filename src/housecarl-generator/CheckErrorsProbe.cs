@@ -916,9 +916,21 @@ public static class CheckErrorsProbe
                 .ToList(),
         };
         bool capTailsOk = CapSweep(capTails, out var tailsFail);
+        // The histogram ROWS were unpinned for the same reason: the counts_only fixture's two axes are a few
+        // hundred chars, which fits inside the floor at every cap in the ladder, so unbounding them changed
+        // nothing any arm could see. Two hundred rows of long keys is the shape the live order actually has —
+        // 3800 plugins — and it is what makes the budget test on those loops observable.
+        var capHist = ErrorCheck.Run(rm, null, 1000, null, null, ErrorFindingClass.All, true) with
+        {
+            Histogram = Enumerable.Range(0, 200)
+                .Select(i => new SweepCount($"HcCeHistogramTargetPlugin{i:000}.esp", 200 - i)).ToList(),
+            DanglingBySource = Enumerable.Range(0, 200)
+                .Select(i => new SweepCount($"HcCeHistogramSourcePlugin{i:000}.esp", 200 - i)).ToList(),
+        };
+        bool capHistOk = CapSweep(capHist, out var histFail);
         Check("RESPONSE-NEVER-EXCEEDS-MAX-CHARS (#361): the accounting and the boundary are RESERVED before the body renders, so neither is appended past the cap — across a sweep of caps, in every lane, in both transports",
-            capListing && capFat && capCounts && capMasters && capTailsOk,
-            $"listing=[{capFail}] fat-head=[{fatFail}] counts_only=[{countsFail}] masters-only=[{mastersFail}] fat-tails=[{tailsFail}]");
+            capListing && capFat && capCounts && capMasters && capTailsOk && capHistOk,
+            $"listing=[{capFail}] fat-head=[{fatFail}] counts_only=[{countsFail}] masters-only=[{mastersFail}] fat-tails=[{tailsFail}] fat-histograms=[{histFail}]");
 
         // The surface the floor formulation deliberately cannot see: anything emitted UNCONDITIONALLY is inside the
         // floor CapSweep measures against. A histogram's title, its empty-case sentence and its "more rows" line are
