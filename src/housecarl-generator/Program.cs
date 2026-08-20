@@ -272,6 +272,11 @@ if (args.Length > 0 && args[0] == "skse-config-audit-real") return SkseConfigAud
 if (args.Length > 0 && args[0] == "native-pairing-guard") return NativePairingProbe.RunGuard(args[1..]);
 if (args.Length > 0 && args[0] == "native-pairing-real") return NativePairingProbe.RunReal(args[1..]);
 
+// PR 4 kickoff (`check`'s response layer): MANUAL real-data measurement of the two #361 lanes and the response
+// accounting on the LIVE order, taken before any design work. Needs --mo2 <inst>; --plugin <Name.esp> selects the
+// single-section cells. SKIPs without --mo2.
+if (args.Length > 0 && args[0] == "check-measure") return CheckMeasureProbe.RunMeasure(args[1..]);
+
 // UNKNOWN MODE — refused, not silently taken as an output directory (2.0 tidy-up scar, W3 PR 3 housekeeping).
 // Every dispatch above matched nothing, and the corpus fallthrough below reads args[0] as the OUTPUT DIRECTORY. So a
 // mistyped probe name generated the whole corpus into a folder of that name and exited 0: two of them put 13.5 MB of
