@@ -420,11 +420,17 @@ internal sealed class CheckAccounting
 
     // ---- the cap floor ------------------------------------------------------------------------------
 
-    /// <summary>The overrun notice, or null. Non-null exactly where the caller's <c>max_chars</c> cannot hold the
-    /// response's HEADER plus the accounting — the one arm where the response is longer than it was asked to be:
-    /// dropping the accounting would restore exactly the silence #361 is, and refusing would turn a call that
-    /// answers today into one that does not, so the accounting ships and the overrun is named with the number that
-    /// fixes it.
+    /// <summary>The overrun notice, or null. Non-null on every response longer than the cap it was given, and it
+    /// names WHICH of the two overruns happened: a <c>max_chars</c> too small to hold the response's fixed part
+    /// (<see cref="ReadSentences.SweepCapTooSmall"/>), or a body unit that ran past what the budget had left after
+    /// that fixed part fit (<see cref="ReadSentences.SweepCapOvershot"/>). Both are arms where the response is
+    /// longer than it was asked to be: dropping the accounting would restore exactly the silence #361 is, and
+    /// refusing would turn a call that answers today into one that does not, so the accounting ships and the overrun
+    /// is named with the number that fixes it.
+    ///
+    /// <para>ONE sentence for both was tried and rejected: the fixed-part explanation is FALSE of the second, and
+    /// there is nothing true of both that is also a cause. The discriminator adds no state —
+    /// <paramref name="needed"/> is the fixed part's own size, which the caller of this method already has.</para>
     ///
     /// <para>It is asked of the FINISHED response's length, and answers only about that. Predicted from
     /// <c>headerLength + reserve</c> it was a statement about the worst case the reserve is sized for, and it fired
@@ -436,10 +442,16 @@ internal sealed class CheckAccounting
     /// remedy at a sweep of caps rather than trusting that reasoning. It is also never BELOW the cap the caller
     /// already passed: a remedy telling them to lower max_chars is one they cannot act on, and the fixed part that
     /// does not fit is by definition bigger than the budget it did not fit in.</para></summary>
-    internal string? CapTooSmall(int contentLength, int needed) =>
-        contentLength > _cap
-            ? string.Format(ReadSentences.SweepCapTooSmall, _cap, Math.Max(needed, contentLength) + RaiseSlack, contentLength)
-            : null;
+    internal string? CapTooSmall(int contentLength, int needed)
+    {
+        if (contentLength <= _cap) return null;
+        // WHICH overrun this is, from what the arm was already handed. A cap that cannot hold the fixed part is one
+        // story; a body unit that ran past the budget after the fixed part fit is a different one, and the first
+        // sentence told that caller their header and accounting did not fit in a cap holding them with room to
+        // spare. needed IS the fixed part's size, so no state is added to tell them apart.
+        var sentence = needed > _cap ? ReadSentences.SweepCapTooSmall : ReadSentences.SweepCapOvershot;
+        return string.Format(sentence, _cap, Math.Max(needed, contentLength) + RaiseSlack, contentLength);
+    }
 
     /// <summary>Slack on the number the overrun notice tells a caller to raise to. Setting max_chars to exactly the
     /// length measured under the OLD cap gets the notice back with the number one higher, because max_chars is
