@@ -1619,7 +1619,12 @@ public sealed class LoadOrderService : IDisposable
                 return PlaceResult.Fail(rel,
                     $"nothing in the active load order provides the source '{srcRel}'."
                     + (AssetPathHint.AssetRootHint(view, srcRel) is { } srcHint ? " " + srcHint : "")
-                    + (srcRes.ReadIncomplete ? " NOTE: a BSA failed to read this build, so it may merely be unscanned (see the warnings)." : ""),
+                    + (srcRes.ReadIncomplete ? " NOTE: a BSA failed to read this build, so it may merely be unscanned (see the warnings)." : "")
+                    // The OTHER dead end, and the one the appearance skill's own recipe produces: a Data-relative
+                    // source= with no source_provider=. The auto-resolve refusal below gained the route out of it;
+                    // this one did not, so the caller who passed a source and no provider was still told only that
+                    // nothing active has it. Same sentence, same one home (review round 2).
+                    + " " + WriteSentences.PlaceSourceNameReachesUnticked,
                     winner);
             if (pick.Verdict == AssetSourceVerdict.NoProvider)
             {

@@ -9,7 +9,11 @@ using HousecarlMcp;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// EXPLORATORY (F1) — the two BINDING kickoff measurements, taken on the branch BASE before any fix.
+/// EXPLORATORY (F1) — the two BINDING kickoff measurements, as a BEFORE/AFTER vehicle. Run it on the
+/// branch base and it shows four refusals and a carry that misses; run it on the branch and it shows the
+/// lane working. It PRINTS and asserts nothing, so it is not a guard and is not in ci-all — arm M of
+/// place-asset-guard is the standing coverage. It is kept so the measurement stays reproducible on either
+/// side of the fix (the repoint-strings-probe precedent).
 /// Fixture: an MO2 instance whose donor mod is DISABLED and holds the ONLY copy of a facegen path
 /// (loose) plus a root BSA carrying a second path. Nothing enabled provides either.
 /// Run: dotnet run --project src/housecarl-generator -- f1-measure
@@ -86,7 +90,8 @@ internal static class F1MeasureProbe
 
         using var svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(root, "user.json")));
 
-        Console.WriteLine("################  F1 KICKOFF MEASUREMENTS (branch base)  ################");
+        Console.WriteLine("################  F1 KICKOFF MEASUREMENTS  ################");
+        Console.WriteLine("Run on the branch BASE this shows the before-state; on the branch, the lane working.");
         Console.WriteLine($"disabled mod folder : {DonorFolder}  (modlist line '-{DonorFolder}')");
         Console.WriteLine($"facegen path        : {faceRel}");
         Console.WriteLine($"  loose in the donor folder : {File.Exists(loosePath)} ({donorBytes.Length}B)");
