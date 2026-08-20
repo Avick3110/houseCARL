@@ -27,13 +27,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
   and reported `truncated: false`, which was true, because the cap had not been applied. The check is now per
   finding.
   The accounting and the boundary footer are held back out of `max_chars` before the listing is built, so
-  neither is appended past it. That costs the listing about 1,400 characters of an 80,000 budget. The one case
+  neither is appended past it. That costs the listing a few hundred characters of an 80,000 budget. The one case
   where a response is still longer than the `max_chars` you gave it is a `max_chars` too small to hold the
-  accounting itself, and there the response says so and names the number that fits.
+  accounting itself; there the response says so and names the number that clears it, and setting `max_chars` to
+  that number does clear it. `counts_only=true` is inside the cap too now — its two histograms took `limit=` as
+  their only bound, so a wide tally could run many times past the `max_chars` it was given.
   A report section is now emitted whole or not at all: what a section says besides its dangling entries — a
   scan error, the masters it declares that are missing, how many records could not be read — is a finding in
   its own right, and used to be dropped a line at a time with nothing recording it. The two things a cut can
-  drop are a whole section and a single finding, and the line above states both.
+  drop are a whole section and a single finding, and the line above states both — including on
+  `findings=["missing_masters"]`, which lists no dangling refs at all and so makes no claim about them, but
+  still says how many plugin sections of how many it rendered.
 
 - **New: `exclude=` on `housecarl_check_errors` leaves plugins out of the sweep.** Pass plugin filenames with
   their extension, or a group name: `base_masters` (the five the game ships with) or `implicit` (every plugin
@@ -41,9 +45,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `_ResourcePack.esl` are, and it includes the base masters). An excluded plugin is not walked, does not spend
   `limit=`, and is in no total; the response says the scope was narrowed. What the response calls the vanilla
   BASELINE does not change with it — that stays the base-master set Mutagen defines, whatever you exclude.
-  A value that is neither a filename nor a group name, a name nothing in scope matches, and an exclusion that
-  removes everything are each refused before the sweep runs; the `exclude=` description lists the group names,
-  and each refusal names what it expected.
+  A value that is neither a filename nor a group name, a filename YOU NAMED that nothing in scope matches, and
+  an exclusion that removes everything are each refused before the sweep runs, and each refusal names what it
+  expected. A group is a filter rather than a claim, so a group whose members are not all in your scope is not
+  an error — `plugins=` narrowed to one plugin with `exclude=["base_masters"]` drops whichever base masters are
+  there and says nothing about the rest. If the MO2 profile's plugin list cannot be read, `implicit` cannot be
+  worked out at all and the call is refused rather than quietly excluding nothing.
 
 - **New: `source_provider=` reaches a mod MO2 is not currently loading.** `housecarl_place_asset` and
   `housecarl_bulk_place_asset` resolve a named provider against the mods MO2 loads, and — when no provider of that
