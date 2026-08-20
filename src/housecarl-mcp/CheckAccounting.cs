@@ -151,14 +151,14 @@ internal sealed class CheckAccounting
 
     /// <summary>The chars held back from <c>max_chars</c> so the text accounting and the boundary footer are always
     /// affordable.</summary>
-    internal int TextReserve => _textReserve ??= Compose(Worst()).Length + ReadSentences.SweepBoundary.Length
+    internal int TextReserve => _textReserve ??= Compose(Worst(escaped: false)).Length + ReadSentences.SweepBoundary.Length
                                                  + ReadSentences.SweepBoundaryLabel.Length + TextGlue;
     int? _textReserve;
 
     /// <summary>The json lane's own reserve. Measured by SERIALIZING the worst case, not by estimating it off the
     /// text line: the two encodings differ in escaping and syntax, and a reserve that is an estimate is a reserve
     /// that is occasionally wrong in the direction that matters.</summary>
-    internal int JsonReserve => _jsonReserve ??= MeasureJson(Worst()) + JsonGlue;
+    internal int JsonReserve => _jsonReserve ??= MeasureJson(Worst(escaped: true)) + JsonGlue;
     int? _jsonReserve;
 
     /// <summary>Slack over the measured worst case, and the two lanes need very different amounts of it.
@@ -183,11 +183,12 @@ internal sealed class CheckAccounting
     /// largest, because a partly-listed response can promote a long-named small source into the roster that a
     /// fully-omitted one would have pushed out — "largest" is not a bound and "longest" is.
     ///
-    /// <para>Length is taken as the MAXIMUM of the plain and the json-escaped spelling. One reserve is measured off
-    /// a text render and one off a json one, and a name whose escaped form is longer than its plain form (any
-    /// non-ASCII plugin filename) ranks differently in the two — ordering both by the json length let a name that is
-    /// long in text be pushed out of the sample the TEXT reserve was sized from.</para></summary>
-    Values Worst()
+    /// <para>Length is measured in the LANE'S OWN encoding, which is why <paramref name="escaped"/> exists. Escaping
+    /// only ever adds characters, so a "longest by either spelling" rule is just the escaped one wearing a hat: it
+    /// ranks a short non-ASCII name above a much longer ASCII one, and a text reserve sized from that sample is
+    /// short by the difference. The two lanes disagree about which names are longest, so each asks its own
+    /// question.</para></summary>
+    Values Worst(bool escaped)
     {
         int danglingFound = Found(SweepSubject.DanglingEntries);
         // The roster is the dangling subject's, so a lane without that subject reserves nothing for it. The
@@ -195,7 +196,7 @@ internal sealed class CheckAccounting
         // back from a counts_only response for a roster that lane can never emit — at max_chars=1500 that was the
         // whole histogram.
         var longest = Has(SweepSubject.DanglingEntries)
-            ? _bySource.OrderByDescending(c => WidestSpelling(c.Key))
+            ? _bySource.OrderByDescending(c => escaped ? JsonEncodedText.Encode(c.Key).Value.Length : c.Key.Length)
                        .Take(ReadSentences.SweepRosterRows)
                        .Select(c => new SweepCount(c.Key, danglingFound))
                        .ToList()
@@ -209,8 +210,6 @@ internal sealed class CheckAccounting
         return new Values(Visible: danglingFound, ByBudget: danglingFound, ByCut: danglingFound, Roster: longest,
                           RosterTotal: Math.Max(_bySource.Count, longest.Count), Emitted: emitted, Worst: true);
     }
-
-    static int WidestSpelling(string name) => Math.Max(name.Length, JsonEncodedText.Encode(name).Value.Length);
 
     /// <summary>What this response actually did.</summary>
     Values Real() => new(Emitted(SweepSubject.DanglingEntries), OmittedByBudget, OmittedByCut,

@@ -924,12 +924,15 @@ public static class CheckErrorsProbe
         // TEXT reserve was sized from. Escaped, each of these characters is six.
         var capWide = ErrorCheck.Run(rm, null, 1000) with
         {
-            DanglingBySource = new[]
-            {
-                new SweepCount(new string('\u00e9', 60) + ".esp", 900),
-                new SweepCount(new string('n', 62) + ".esp", 40),
-                new SweepCount("HcCeBulk.esp", 200),
-            },
+            // Twelve sources for a ten-row roster, so the sample the reserve is measured from actually DROPS
+            // two. Ten short non-ASCII names (61 chars plain, 366 escaped) against two long ASCII ones (204
+            // either way): ranked by the ESCAPED spelling the non-ASCII names win and the long ASCII pair falls
+            // out, which sizes the TEXT reserve off names a third the length of what the text render prints.
+            DanglingBySource = Enumerable.Range(0, 10)
+                .Select(i => new SweepCount(new string('\u00e9', 57) + i.ToString("000") + ".esp", 900 - i))
+                .Concat(Enumerable.Range(0, 2)
+                    .Select(i => new SweepCount(new string('n', 197) + i.ToString("000") + ".esp", 500 - i)))
+                .ToList(),
         };
         bool capWideOk = CapSweep(capWide, out var wideFail);
         // The histogram ROWS were unpinned for the same reason: the counts_only fixture's two axes are a few
