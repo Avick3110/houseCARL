@@ -1098,11 +1098,25 @@ public static class CheckErrorsProbe
 
         var exAll = ErrorCheck.Run(rb, null, 1000, null, null, ErrorFindingClass.All, false,
                                    Excl("Skyrim.esm", "HcCeBaseMod.esp"));
+        // The NUMBER is asserted, not just the two phrases. Read only for its phrases this cell passed over whatever
+        // figure the refusal stated, which is the surface the off-order arm below found wrong.
         Check("EXCLUDE-EMPTIES-THE-SCOPE-REFUSES: excluding everything in scope refuses with the count it removed, rather than returning a clean-looking sweep of nothing (Q3)",
             !exAll.Success && exAll.Error is not null
             && exAll.Error.Contains("removed every plugin", StringComparison.Ordinal)
-            && exAll.Error.Contains("nothing left to check", StringComparison.Ordinal),
-            exAll.Error ?? "<no refusal>");
+            && exAll.Error.Contains("nothing left to check", StringComparison.Ordinal)
+            && ScopeInRefusal(exAll.Error) == 2,
+            $"stated={ScopeInRefusal(exAll.Error)} scope=2 err=[{exAll.Error}]");
+
+        // The same refusal over a scope that resolved ENTIRELY OFF-ORDER — plugins= naming a file on disk that is not
+        // in the active order, then excluded. The sweep's targets list is empty on that path BY DESIGN, so a number
+        // read off targets alone reports a scope that held one plugin as having held none.
+        var exOffOnly = ErrorCheck.Run(r, Array.Empty<string>(), 1000, new[] { ("HcCePatch.esp", patchPath) },
+                                       null, ErrorFindingClass.All, false, Excl("HcCePatch.esp"));
+        Check("EXCLUDE-EMPTIES-AN-OFF-ORDER-SCOPE-COUNTS-IT: when the excluded scope was entirely off-order, the refusal states the one plugin it held — a Q3 refusal must not report zero over a scope that had something in it",
+            !exOffOnly.Success && exOffOnly.Error is not null
+            && exOffOnly.Error.Contains("removed every plugin", StringComparison.Ordinal)
+            && ScopeInRefusal(exOffOnly.Error) == 1,
+            $"stated={ScopeInRefusal(exOffOnly.Error)} scope=1 err=[{exOffOnly.Error}]");
 
         // The separation the refusal above depends on: a GROUP member that is not in scope is the ordinary case,
         // and only a name the CALLER TYPED is a claim the scope has to satisfy. Expanded and validated as one list,
@@ -1687,6 +1701,19 @@ public static class CheckErrorsProbe
         int at = note.IndexOf(lead, StringComparison.Ordinal);
         if (at < 0) return -1;
         var digits = new string(note[(at + lead.Length)..].TakeWhile(char.IsDigit).ToArray());
+        return int.TryParse(digits, out var n) ? n : -1;
+    }
+
+    /// <summary>The size the empty-scope refusal claims for the scope it emptied, or -1 where it claims none. Read as
+    /// a NUMBER for the same reason <see cref="ExcludeLeftOut"/> is: the cell this strengthens matched the refusal's
+    /// two phrases and passed over whatever figure sat between them.</summary>
+    static int ScopeInRefusal(string? error)
+    {
+        const string tail = " in scope, all excluded)";
+        if (error is null) return -1;
+        int at = error.IndexOf(tail, StringComparison.Ordinal);
+        if (at < 0) return -1;
+        var digits = new string(error[..at].Reverse().TakeWhile(char.IsDigit).Reverse().ToArray());
         return int.TryParse(digits, out var n) ? n : -1;
     }
 

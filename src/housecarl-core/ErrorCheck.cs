@@ -196,18 +196,23 @@ public static class ErrorCheck
                         "Nothing was swept — an exclusion that matches nothing would return the findings you asked to leave out.")
                            with { Epoch = view.Epoch };
 
-            int before = targets.Count;
+            int targetsBefore = targets.Count;
+            int offBefore = offOrder?.Count ?? 0;
+            // What the refusal below claims about: the WHOLE scope this sweep would have covered, captured before
+            // either filter runs. Read off targets alone it was 0 over a plugins= that resolved entirely off-order —
+            // that path leaves targets deliberately empty (see the offOrder branch above), so the refusal told a
+            // caller their one-plugin scope had held nothing.
+            int scopeBefore = targetsBefore + offBefore;
             targets.RemoveAll(drop.Contains);
-            excludedFromScope = before - targets.Count;
+            excludedFromScope = targetsBefore - targets.Count;
             if (offOrder is { Count: > 0 })
             {
-                int offBefore = offOrder.Count;
                 offOrder = offOrder.Where(o => !drop.Contains(o.Name)).ToList();
                 excludedFromScope += offBefore - offOrder.Count;
             }
             if (targets.Count == 0 && (offOrder is null || offOrder.Count == 0))
                 return ErrorCheckResult.Fail(
-                    $"exclude= removed every plugin this sweep would have covered ({before} in scope, all excluded) — " +
+                    $"exclude= removed every plugin this sweep would have covered ({scopeBefore} in scope, all excluded) — " +
                     "there is nothing left to check. Narrow exclude=, or widen plugins=.")
                        with { Epoch = view.Epoch };
         }
