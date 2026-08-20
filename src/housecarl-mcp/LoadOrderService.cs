@@ -1559,6 +1559,10 @@ public sealed class LoadOrderService : IDisposable
         // is the same VFS lane pointed at the destination path. The last two share one code path because they are
         // one question ("which provider supplies this Data-relative path") asked about different paths.
         byte[] bytes; string sourceDesc;
+        // The mod folder an OFF-ORDER read was served from, or null when the bytes came from the active universe.
+        // Typed, not baked into sourceDesc: the render owns the sentence (#337), and this is a fact about WHERE the
+        // bytes came from that a caller cannot infer from a provider name.
+        string? offOrderProvider = null;
         // ONE normalization point for source=, ahead of BOTH the classification and every consumer. IsVfsSource used
         // to trim quotes to decide and the VFS lane then resolved the un-trimmed string, so a quoted Data-relative
         // source classified one way and was read another — refused as "nothing provides '"meshes\…"'" for a path two
@@ -1585,9 +1589,19 @@ public sealed class LoadOrderService : IDisposable
                 catch (ArgumentException ex) { return PlaceResult.Fail(rel, $"source '{explicitSrc}': {ex.Message}", winner); }
             }
             var srcRes = sourceNamed ? view.ResolveForPlacement(srcRel) : res;
-            var pick = AssetSourceSelection.Select(srcRes, AssetSourceChoice.Parse(providerSel));
+            // The off-order lane (F1) is handed to the ONE source policy rather than spelled here: naming a mod means
+            // that mod's copy whether or not MO2 ticks it, and both place tools plus the closure copy's asset carry
+            // reach that rule through this call.
+            var pick = AssetSourceSelection.Select(srcRes, AssetSourceChoice.Parse(providerSel),
+                                                   n => view.TryResolveOffOrderProvider(n, srcRel));
 
-            if (pick.Verdict == AssetSourceVerdict.NamedAbsent)
+            // BOTH named-provider misses render as ONE refusal. They are the same fact — the provider you named does
+            // not supply this path, in either place houseCARL looked — and the only thing that differs is whether
+            // there is anyone else to suggest, which the sentence decides off its own list rather than by being two
+            // sentences. Before F1 the empty case fell through to a refusal that spoke only of the active load order
+            // and never mentioned the name at all.
+            if (pick.Verdict == AssetSourceVerdict.NamedAbsent
+                || (pick.Verdict == AssetSourceVerdict.NoProvider && !string.IsNullOrEmpty(providerSel)))
                 return PlaceResult.Fail(rel, WriteSentences.PlaceSourceNamedAbsent(providerSel!, srcRel, pick.ProviderNames), winner);
             if (pick.Verdict == AssetSourceVerdict.Ambiguous)
                 return PlaceResult.Fail(rel, WriteSentences.PlaceSourceAmbiguous(srcRel, pick.ProviderNames), winner);
@@ -1625,6 +1639,7 @@ public sealed class LoadOrderService : IDisposable
             var (b, desc, err) = ReadResolvedSource(pick.Source!);
             if (err is not null) return PlaceResult.Fail(rel, err, winner);
             bytes = b!;
+            if (pick.Source!.OffOrder) offOrderProvider = pick.Source.ProviderName;
             // A source read from a DIFFERENT path than the destination is a rename, and the render has to say so —
             // "placed from ModX" alone would hide that the bytes are another file's. Keyed on whether the two PATHS
             // differ, not on whether a source was NAMED: "place meshes\x.nif from ModB" is the natural spelling of a
@@ -1649,7 +1664,7 @@ public sealed class LoadOrderService : IDisposable
         if (size != bytes.Length)
             return PlaceResult.Fail(rel,
                 $"wrote '{rel}' but its on-disk size ({size}) does not match the {bytes.Length} source byte(s) — verify before relying on it.", winner);
-        return new PlaceResult(rel, true, bytes.Length, sourceDesc, winner, null);
+        return new PlaceResult(rel, true, bytes.Length, sourceDesc, winner, null) { SourceOffOrderProvider = offOrderProvider };
     }
 
     /// <summary>Read an ON-DISK source= the caller named exactly. Forms: "&lt;archive.bsa&gt;|&lt;entry&gt;" (a specific
@@ -9251,6 +9266,12 @@ public sealed record PlaceRequest(string AssetPath, string? Source, string? Sour
 /// copy does NOT win until the fresh mod is enabled + sorted above it), or null if nothing provided it before.</summary>
 public sealed record PlaceResult(string AssetPath, bool Placed, long Bytes, string? SourceDesc, string? CurrentWinner, string? Error)
 {
+    /// <summary>The mod folder these bytes were read out of when it is NOT one the active profile includes — the F1
+    /// off-order source lane (ruling O1). Null for every read served by the active universe, which is every read that
+    /// existed before that lane. Non-null is the fact the response must SAY (SPEC §4.2: the response states which arm
+    /// resolved) — the bytes are the ones the caller named, out of a mod the game is not currently loading.</summary>
+    public string? SourceOffOrderProvider { get; init; }
+
     public static PlaceResult Fail(string assetPath, string error, string? currentWinner = null)
         => new(assetPath, false, 0, null, currentWinner, error);
 }
