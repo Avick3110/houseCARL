@@ -91,15 +91,16 @@ public sealed record AssetSourcePick(
     PlacementSource? Source,
     IReadOnlyList<string> ProviderNames)
 {
-    /// <summary>Did the off-order lane actually look for a mod folder of the named provider's name? False when no
-    /// lookup was supplied, when the pole was not Named, or when the universe-first gate answered first. A refusal
-    /// may only say the folder was searched when this is true — the review round that caught the unconditional
-    /// version found the sentence claiming a search the gate had already prevented.</summary>
-    public bool OffOrderFolderSearched { get; init; }
+    /// <summary>WHY the off-order lane ended where it did — the typed outcome a refusal keys its sentence to. It
+    /// replaced a pair of booleans that two consecutive review rounds each caught expressing fewer states than the
+    /// lane actually reaches; no consumer re-derives this from anything else.</summary>
+    public OffOrderReason OffOrderReason { get; init; } = OffOrderReason.NotConsulted;
 
-    /// <summary>A folder or archive that could not be READ during that look, named — so an absent answer is never
-    /// rendered as an authoritative "that mod does not have it" (Q3). Null when nothing failed.</summary>
-    public string? OffOrderReadFailure { get; init; }
+    /// <summary>The NAME of the folder or archive that would not read, and a concise cause — the unreadable
+    /// outcome's data, so an absent answer is never rendered as an authoritative "that mod does not have it" (Q3).
+    /// Both null unless <see cref="OffOrderReason"/> is <see cref="HousecarlCore.OffOrderReason.FolderUnreadable"/>.</summary>
+    public string? OffOrderUnreadableName { get; init; }
+    public string? OffOrderUnreadableCause { get; init; }
 }
 
 public static class AssetSourceSelection
@@ -142,7 +143,7 @@ public static class AssetSourceSelection
             foreach (var s in res.Sources)
                 if (string.Equals(s.ProviderName, choice.Spelling ?? "", StringComparison.OrdinalIgnoreCase))
                     return new AssetSourcePick(AssetSourceVerdict.Selected, s, names);
-            var off = offOrderLookup?.Invoke(choice.Spelling) ?? OffOrderLookup.NotSearched;
+            var off = offOrderLookup?.Invoke(choice.Spelling) ?? OffOrderLookup.NotConsulted;
             if (off.Source is { } offOrder)
                 return new AssetSourcePick(AssetSourceVerdict.Selected, offOrder, names);
             // Which refusal is the SAME question as before this lane existed — does anything else supply the path —
@@ -152,8 +153,9 @@ public static class AssetSourceSelection
             return new AssetSourcePick(
                 res.Sources.Count == 0 ? AssetSourceVerdict.NoProvider : AssetSourceVerdict.NamedAbsent, null, names)
             {
-                OffOrderFolderSearched = off.FolderSearched,
-                OffOrderReadFailure = off.ReadFailure,
+                OffOrderReason = off.Reason,
+                OffOrderUnreadableName = off.UnreadableName,
+                OffOrderUnreadableCause = off.UnreadableCause,
             };
         }
 

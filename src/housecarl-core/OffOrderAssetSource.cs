@@ -24,16 +24,47 @@ namespace HousecarlCore;
 //  disqualified deriving mods\<name>\ paths in a skill — a path guess cannot enumerate them.
 // ======================================================================
 
-/// <summary>What one off-order lookup did, not just what it found. <see cref="FolderSearched"/> is false when the
-/// universe-first gate answered first or the name could not be a folder — and a refusal that says "houseCARL also
-/// looked in a mod folder of that name" is only true when it is TRUE, which a null <see cref="Source"/> alone cannot
-/// tell a caller. <see cref="ReadFailure"/> names a folder or archive that could not be READ, so an absent answer is
-/// never reported as an authoritative "this mod does not have it" (Q3 — the same caveat the active lane carries as
-/// <c>ReadIncomplete</c>).</summary>
-public readonly record struct OffOrderLookup(PlacementSource? Source, bool FolderSearched, string? ReadFailure)
+/// <summary>WHY one off-order lookup ended where it did — the CLOSED set of outcomes this lane can reach, one per
+/// exit in <see cref="OffOrderAssetSource.Resolve"/>.
+///
+/// <para><b>Why an enum and not flags.</b> This started as one boolean, then two, and two consecutive review rounds
+/// each found a state the booleans could not express — a refusal claiming a search the gate had prevented, then a
+/// refusal calling a drive-rooted path "a name the active load order already provides files under". Every consumer
+/// sentence now keys to exactly ONE value and no site re-derives the state, so the next outcome added here is a
+/// compiler error at the render rather than a false sentence in front of a caller.</para>
+///
+/// <para>A value that needed free-text to explain what KIND of outcome it is would mean the set is not closed and
+/// belongs back at Aaron's gate. The unreadable arm carries a NAME and a cause, which are that outcome's data — the
+/// same way the provider name is the sentence's data — not a qualifier on what the outcome means.</para></summary>
+public enum OffOrderReason
 {
-    /// <summary>The gate answered, or the name is not a folder name: nothing was looked at on disk.</summary>
-    public static readonly OffOrderLookup NotSearched = new(null, false, null);
+    /// <summary>A copy was found; <see cref="OffOrderLookup.Source"/> is non-null. Never renders a refusal.</summary>
+    Found,
+    /// <summary>The lane was not consulted at all — no lookup supplied, or degenerate inputs. No claim about disk
+    /// may be made, because nothing on disk was looked at.</summary>
+    NotConsulted,
+    /// <summary>Universe-first answered: the name is one the built universe already provides files under, so the
+    /// disk was deliberately not consulted.</summary>
+    UniverseName,
+    /// <summary>The name cannot BE a mod folder name — a separator, a drive, a '..', a trailing dot or space.</summary>
+    NotAFolderName,
+    /// <summary>A mod folder of that name was looked for and there is none.</summary>
+    NoSuchFolder,
+    /// <summary>The folder is there and was searched — loose, then its root archives — and holds no copy.</summary>
+    NoCopyInFolder,
+    /// <summary>The folder was searched but something in it could not be READ, so "absent" is an unknown rather than
+    /// an answer (Q3 — the caveat the active lane carries as <c>ReadIncomplete</c>).</summary>
+    FolderUnreadable,
+}
+
+/// <summary>What one off-order lookup did, not just what it found. <see cref="Reason"/> is the typed outcome; the
+/// two unreadable fields are that outcome's data — the NAME of what would not read and a concise cause — kept as
+/// data rather than a sentence because prose belongs to the tool layer (#337).</summary>
+public readonly record struct OffOrderLookup(PlacementSource? Source, OffOrderReason Reason,
+                                             string? UnreadableName = null, string? UnreadableCause = null)
+{
+    /// <summary>The lane was not consulted: no lookup supplied, or degenerate inputs.</summary>
+    public static readonly OffOrderLookup NotConsulted = new(null, OffOrderReason.NotConsulted);
 }
 
 /// <summary>Resolve a Data-relative asset path inside ONE named MO2 mod folder, off the active profile.</summary>
@@ -55,50 +86,58 @@ public static class OffOrderAssetSource
                                          string? providerName, string relPath)
     {
         var name = providerName?.Trim() ?? "";
-        if (name.Length == 0 || modsDir.Length == 0 || relPath.Length == 0) return OffOrderLookup.NotSearched;
+        if (name.Length == 0 || modsDir.Length == 0 || relPath.Length == 0) return OffOrderLookup.NotConsulted;
 
         // UNIVERSE FIRST — the one line that keeps every enabled name on its existing path.
-        if (isUniverseProviderName(name)) return OffOrderLookup.NotSearched;
+        if (isUniverseProviderName(name)) return new OffOrderLookup(null, OffOrderReason.UniverseName);
 
-        if (!IsPlainFolderName(name)) return OffOrderLookup.NotSearched;
+        // A name that cannot BE a folder is its own outcome, NOT the gate's. Collapsing the two is what let a
+        // drive-rooted path be refused as "a name the active load order already provides files under".
+        if (!IsPlainFolderName(name)) return new OffOrderLookup(null, OffOrderReason.NotAFolderName);
 
         string dir;
         try { dir = Path.Combine(modsDir, name); }
-        catch { return OffOrderLookup.NotSearched; }
+        catch { return new OffOrderLookup(null, OffOrderReason.NotAFolderName); }
 
-        // From here the caller may honestly say a mod folder of this name was looked for — including when there is
-        // no such folder, which is a search with an answer, not an absent search.
-        string? readFailure = null;
-        if (!SafeDirectoryExists(dir, out var dirFailure))
-            return new OffOrderLookup(null, FolderSearched: true, ReadFailure: dirFailure);
+        string? unreadableName = null, unreadableCause = null;
+        if (!SafeDirectoryExists(dir, out var dirCause))
+            return dirCause is null
+                ? new OffOrderLookup(null, OffOrderReason.NoSuchFolder)
+                : new OffOrderLookup(null, OffOrderReason.FolderUnreadable, name, dirCause);
 
         // ---- loose, exactly as the VFS would layer it if this mod were ticked ----
         string loose;
         try { loose = Path.Combine(dir, relPath); }
-        catch { return new OffOrderLookup(null, true, null); }
+        catch { return new OffOrderLookup(null, OffOrderReason.NoCopyInFolder); }
         if (SafeFileExists(loose))
             return new OffOrderLookup(new PlacementSource(name, AssetKind.Loose, LooseFilePath: loose, ArchivePath: null,
-                                                          EntryPath: relPath, OffOrder: true), true, null);
+                                                          EntryPath: relPath, OffOrder: true), OffOrderReason.Found);
 
         // ---- the folder's ROOT archives, in a deterministic order ----
-        var (archives, listFailure) = RootArchives(dir);
-        readFailure ??= listFailure;
+        var (archives, listCause) = RootArchives(dir);
+        if (listCause is not null) { unreadableName = name; unreadableCause = listCause; }
         foreach (var bsa in archives)
         {
             bool has;
             // An archive that will not READ is not a miss — it is an unknown, and reporting it as "this mod does not
-            // have it" is the silent-wrong-answer class. Named and carried out, the way the active lane carries its
-            // own unreadable-archive caveat.
+            // have it" is the silent-wrong-answer class. Named and carried out as DATA; the sentence is the tool's.
             try { has = AssetResolver.ArchiveHasEntry(bsa, relPath); }
-            catch (Exception ex) { readFailure ??= $"'{Path.GetFileName(bsa)}' in that folder could not be read ({Concise(ex)})"; continue; }
+            catch (Exception ex)
+            {
+                unreadableName ??= Path.GetFileName(bsa);
+                unreadableCause ??= Concise(ex);
+                continue;
+            }
             if (has)
                 // ProviderName stays the name the CALLER typed — the mod folder is the provider they chose, and the
                 // archive inside it is named separately by the read description. Spelling it as the .bsa filename
                 // here would answer a different question than the one asked.
                 return new OffOrderLookup(new PlacementSource(name, AssetKind.Bsa, LooseFilePath: null, ArchivePath: bsa,
-                                                              EntryPath: relPath, OffOrder: true), true, null);
+                                                              EntryPath: relPath, OffOrder: true), OffOrderReason.Found);
         }
-        return new OffOrderLookup(null, true, readFailure);
+        return unreadableCause is null
+            ? new OffOrderLookup(null, OffOrderReason.NoCopyInFolder)
+            : new OffOrderLookup(null, OffOrderReason.FolderUnreadable, unreadableName, unreadableCause);
     }
 
     /// <summary>A provider name is a FOLDER name and nothing else — no separator, no drive, no '..'. Mirrors
@@ -129,24 +168,24 @@ public static class OffOrderAssetSource
     /// <summary>The archives at the folder's ROOT, sorted so the same folder answers the same way every run (the
     /// resolver's own deterministic tie-break among equal-rank archives). Top level only: a .bsa nested in a subtree
     /// is not one the engine would load for this mod, so reading one would serve bytes the game never would.
-    /// <para>A folder that cannot be LISTED returns its reason rather than an empty list, so "no archives here" and
-    /// "could not see the archives here" stay different answers (Q3).</para></summary>
-    static (IReadOnlyList<string> Archives, string? Failure) RootArchives(string dir)
+    /// <para>A folder that cannot be LISTED returns its CAUSE rather than an empty list, so "no archives here" and
+    /// "could not see the archives here" stay different answers (Q3). The cause is data; the sentence is the tool's.</para></summary>
+    static (IReadOnlyList<string> Archives, string? Cause) RootArchives(string dir)
     {
         List<string> bsas;
         try { bsas = Directory.EnumerateFiles(dir, "*.bsa", SearchOption.TopDirectoryOnly).ToList(); }
-        catch (Exception ex) { return (Array.Empty<string>(), $"that mod folder's archives could not be listed ({Concise(ex)})"); }
+        catch (Exception ex) { return (Array.Empty<string>(), Concise(ex)); }
         bsas.Sort((a, b) => string.Compare(Path.GetFileName(a), Path.GetFileName(b), StringComparison.OrdinalIgnoreCase));
         return (bsas, null);
     }
 
     /// <summary>Does the folder exist? A folder that cannot be STATTED is not the same answer as one that is not
     /// there, and the caller renders the difference.</summary>
-    static bool SafeDirectoryExists(string dir, out string? failure)
+    static bool SafeDirectoryExists(string dir, out string? cause)
     {
-        failure = null;
+        cause = null;
         try { return Directory.Exists(dir); }
-        catch (Exception ex) { failure = $"that mod folder could not be read ({Concise(ex)})"; return false; }
+        catch (Exception ex) { cause = Concise(ex); return false; }
     }
 
     static bool SafeFileExists(string path) { try { return File.Exists(path); } catch { return false; } }

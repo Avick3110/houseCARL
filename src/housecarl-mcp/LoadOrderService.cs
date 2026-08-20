@@ -1608,7 +1608,8 @@ public sealed class LoadOrderService : IDisposable
             if (choice.Pole == AssetSourcePole.Named
                 && pick.Verdict is AssetSourceVerdict.NamedAbsent or AssetSourceVerdict.NoProvider)
                 return PlaceResult.Fail(rel, WriteSentences.PlaceSourceNamedAbsent(
-                    providerSel!, srcRel, pick.ProviderNames, pick.OffOrderFolderSearched, pick.OffOrderReadFailure,
+                    providerSel!, srcRel, pick.ProviderNames,
+                    pick.OffOrderReason, pick.OffOrderUnreadableName, pick.OffOrderUnreadableCause,
                     // The #283 root-prefix hint, which this refusal used to swallow: a path taken off a record is
                     // stored relative to meshes\/textures\, and naming a provider does not stop that being the
                     // caller's actual mistake. Verified before it is offered, like every other site that shows it.

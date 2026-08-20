@@ -169,4 +169,121 @@ internal static class F1MeasureProbe
         Directory.CreateDirectory(dir);
         m.BeginWrite.ToPath(Path.Combine(dir, m.ModKey.FileName.String)).WithLoadOrder(masters).Write();
     }
+
+    // ==================================================================================================
+    //  I14 — the inventory's PLURALITY requirement, measured rather than reasoned about.
+    //
+    //  The ancestor builds a donor disk for BOTH donor-side files — the file the caller named AND the
+    //  auto-widened defining plugin — deduped by folder (LoadOrderService, the DonorDisk.For loop). The
+    //  inventory codes that F1 and notes the successor "has to accept the same plurality".
+    //
+    //  The fixture puts the two donor-side plugins in TWO DIFFERENT unticked mod folders, with the facegen
+    //  beside the SECOND one only. That is the shape where a single-folder carry can miss and a plural one
+    //  cannot, and it is the shape a real standalone-ization takes: a look read through an overhaul's
+    //  override, with the FaceGen shipped by the mod that defines the NPC.
+    //  Run: dotnet run --project src/housecarl-generator -- f1-i14
+    // ==================================================================================================
+    public static int RunI14(string[] args)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "hc-f1-i14-" + Guid.NewGuid().ToString("N"));
+        try { MeasureI14(root); }
+        catch (Exception ex) { Console.WriteLine("THREW: " + ex); return 1; }
+        finally { try { Directory.Delete(root, true); } catch { } }
+        return 0;
+    }
+
+    static void MeasureI14(string root)
+    {
+        var inst = Path.Combine(root, "inst");
+        var mods = Path.Combine(inst, "mods");
+        var prof = Path.Combine(inst, "profiles", "Default");
+        foreach (var d in new[] { mods, Path.Combine(inst, "game", "Data"), prof }) Directory.CreateDirectory(d);
+        File.WriteAllText(Path.Combine(inst, "ModOrganizer.ini"),
+            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+            + Path.Combine(inst, "game").Replace(@"\", @"\\") + ")\r\n");
+
+        var baseKey = new ModKey("HcBase", ModType.Master);
+        var raceA = new FormKey(baseKey, 0x800);
+        var baseMod = new SkyrimMod(baseKey, SkyrimRelease.SkyrimSE);
+        baseMod.Races.Add(new Race(raceA, SkyrimRelease.SkyrimSE) { EditorID = "RaceA" });
+        WriteMod(mods, "BaseMod", baseMod);
+
+        // DisabledB DEFINES the donor and ships its FaceGen. DisabledA only OVERRIDES it.
+        var donorMk = new ModKey("Donor", ModType.Plugin);
+        var hairFk = new FormKey(donorMk, 0x801);
+        var donorFk = new FormKey(donorMk, 0x805);
+        var donor = new SkyrimMod(donorMk, SkyrimRelease.SkyrimSE);
+        var hp = new HeadPart(hairFk, SkyrimRelease.SkyrimSE) { EditorID = "DonorHair" };
+        donor.HeadParts.Add(hp);
+        var dnpc = new Npc(donorFk, SkyrimRelease.SkyrimSE) { EditorID = "DonorNpc" };
+        dnpc.Race.SetTo(raceA);
+        dnpc.HeadParts.Add(hairFk);
+        donor.Npcs.Add(dnpc);
+        WriteMod(mods, "DisabledB", donor, baseMod);
+
+        var ovMk = new ModKey("Override", ModType.Plugin);
+        var ov = new SkyrimMod(ovMk, SkyrimRelease.SkyrimSE);
+        ov.Npcs.GetOrAddAsOverride(dnpc);
+        WriteMod(mods, "DisabledA", ov, baseMod, donor);
+
+        var faceRel = FaceGenPath.For(donorFk, FaceGenSlot.Mesh);
+        var faceBytes = Encoding.ASCII.GetBytes("FACEGEN-BESIDE-THE-DEFINING-PLUGIN");
+        var loose = Path.Combine(mods, "DisabledB", faceRel);
+        Directory.CreateDirectory(Path.GetDirectoryName(loose)!);
+        File.WriteAllBytes(loose, faceBytes);
+
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "+BaseMod\r\n-DisabledA\r\n-DisabledB\r\n");
+        File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "HcBase.esm\r\n");
+        File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*HcBase.esm\r\n");
+        File.WriteAllText(Path.Combine(prof, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
+
+        using var svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(root, "user.json")));
+
+        Console.WriteLine("################  I14 — the plurality requirement, measured  ################");
+        Console.WriteLine("DisabledA holds Override.esp (overrides the NPC).  DisabledB holds Donor.esp (DEFINES it)");
+        Console.WriteLine($"the FaceGen exists ONLY beside the DEFINING plugin, in DisabledB: {File.Exists(loose)} ({faceBytes.Length}B)");
+        Console.WriteLine($"asset_status sees it: {svc.AssetStatus(new[] { faceRel }).Results[0].Hit?.Exists}");
+
+        // ---- the ANCESTOR: named file = Override.esp, auto-widens to Donor.esp, disks for BOTH folders ----
+        var oldOut = NpcCopyTools.CopyNpcAppearance(svc, donorFk.ToString(), "Override.esp", null, null, "TheClone", null, "I14Old", null);
+        Say("A  ANCESTOR copy_npc_appearance, source_plugin='Override.esp' (the FIRST donor-side file)", oldOut);
+        var oldFolder = Directory.EnumerateDirectories(mods, "houseCARL - I14Old*").OrderBy(d => d, StringComparer.Ordinal).FirstOrDefault();
+        var oldFace = oldFolder is null ? null
+            : Directory.EnumerateFiles(oldFolder, "*.nif", SearchOption.AllDirectories)
+                       .FirstOrDefault(f => f.Contains("facegeom", StringComparison.OrdinalIgnoreCase));
+        Console.WriteLine($"  ancestor carried : {(oldFace is null ? "NOTHING" : $"{new FileInfo(oldFace).Length}B  == the defining plugin's? {File.ReadAllBytes(oldFace).SequenceEqual(faceBytes)}")}");
+
+        // ---- the SUCCESSOR: the ordered pole list, then the carry ----
+        var seeds = new[] { "HeadParts", "HairColor", "HeadTexture", "WornArmor" };
+        var newOut = CopyTools.Copy(svc, donorFk.ToString(), new[] { "Override.esp", "Donor.esp" }, seeds,
+                                    new[] { "Race:refuse" }, null, "TheClone", "I14New", null);
+        Say("B  SUCCESSOR housecarl_copy, from_source=['Override.esp','Donor.esp']", newOut);
+
+        var newFolder = Directory.EnumerateDirectories(mods, "houseCARL - I14New*").OrderBy(d => d, StringComparer.Ordinal).FirstOrDefault();
+        var newPatch = newFolder is null ? null : Directory.EnumerateFiles(newFolder, "*.esp").FirstOrDefault();
+        FormKey? newKey = null;
+        if (newPatch is not null)
+        {
+            var m = SkyrimMod.CreateFromBinaryOverlay(newPatch, SkyrimRelease.SkyrimSE);
+            try { newKey = m.Npcs.FirstOrDefault(n => string.Equals(n.EditorID, "TheClone", StringComparison.OrdinalIgnoreCase))?.FormKey; }
+            finally { (m as IDisposable)?.Dispose(); }
+        }
+        if (newKey is not { } nk) { Console.WriteLine("  (no clone key — cannot drive the carry)"); return; }
+
+        // The name a skill reading the readback would reach for: the mod holding the plugin the RECORD came
+        // from, which is the FIRST arm. The FaceGen is not there.
+        Say("C  the carry naming DisabledA — the mod of the arm the RECORD came from",
+            PlaceAssetTools.BulkPlaceAsset(svc, new[]
+            { new PlaceAssetSpec { Formid = nk.ToString(), Kind = "mesh", Source = faceRel, SourceProvider = "DisabledA" } },
+              null, Path.GetFileName(newPatch!)));
+
+        Say("D  the carry naming DisabledB — the mod that DEFINES the NPC and ships the FaceGen",
+            PlaceAssetTools.BulkPlaceAsset(svc, new[]
+            { new PlaceAssetSpec { Formid = nk.ToString(), Kind = "mesh", Source = faceRel, SourceProvider = "DisabledB" } },
+              null, Path.GetFileName(newPatch!)));
+
+        var newFace = Directory.EnumerateFiles(newFolder!, "*.nif", SearchOption.AllDirectories)
+                               .FirstOrDefault(f => f.Contains("facegeom", StringComparison.OrdinalIgnoreCase));
+        Console.WriteLine($"  successor carried: {(newFace is null ? "NOTHING" : $"{new FileInfo(newFace).Length}B  == the defining plugin's? {File.ReadAllBytes(newFace).SequenceEqual(faceBytes)}")}");
+    }
 }

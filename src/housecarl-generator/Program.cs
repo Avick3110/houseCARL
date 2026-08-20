@@ -67,6 +67,9 @@ if (args.Length > 0 && args[0] == "repoint-strings-probe") return RepointStrings
 // EXPLORATORY (F1): the disabled-mod asset source lane's two binding kickoff measurements.
 if (args.Length > 0 && args[0] == "f1-measure") return F1MeasureProbe.Run(args[1..]);
 
+// EXPLORATORY (F1): inventory I14 - does the successor reach a FaceGen beside the SECOND donor-side plugin?
+if (args.Length > 0 && args[0] == "f1-i14") return F1MeasureProbe.RunI14(args[1..]);
+
 // One-shot verify (decision #1): confirm the xEdit 4-char signature reflection path.
 if (args.Length > 0 && args[0] == "sig") return Probe.RunSig();
 
