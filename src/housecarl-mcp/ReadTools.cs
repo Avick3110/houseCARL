@@ -488,6 +488,8 @@ public static class ReadTools
          "the COUNTS too — they are always the counts for the scope actually swept, and the response says so. BASELINE: the " +
          "base-game masters carry permanent vanilla dangling refs no load order can fix, so the response splits them out of the " +
          "total and spends limit= on every other plugin FIRST — vanilla can no longer crowd mod findings out of the listing. " +
+         "exclude= drops named plugins or whole groups (base_masters / implicit) out of the sweep when you want them gone " +
+         "entirely rather than merely accounted for. " +
          "Results cap at limit= and max_chars (both overruns explicit); a capped listing NAMES which source plugins lost entries.")]
     public static string CheckErrorsTool(
         LoadOrderService svc,
@@ -499,6 +501,14 @@ public static class ReadTools
             string[]? formids = null,
         [Description("Optional. Sweep only records whose EditorID contains this substring (case-insensitive). A record with no EditorID never matches.")]
             string? editorid_contains = null,
+        [Description("Optional. Plugins to leave OUT of the sweep entirely — they cost no record walk and no limit= " +
+             "budget. Each value is either a plugin filename WITH its extension ('CoolMod.esp') or one of two group " +
+             "names: base_masters (the five the game ships with) or implicit (every plugin the order force-loads " +
+             "because plugins.txt does not list it — this is where Creation Club plugins and _ResourcePack.esl are, " +
+             "and it INCLUDES the base masters). A value that is neither, or a name nothing in scope matches, is " +
+             "refused before the sweep runs rather than quietly excluding nothing. This does not change what counts " +
+             "as the vanilla BASELINE the response splits out — that is always Mutagen's own base-master set.")]
+            string[]? exclude = null,
         [Description("Optional. Which error classes to look for: 'dangling' and/or 'missing_masters' (default both). Excluding 'dangling' SKIPS the per-record link walk entirely — that is how you ask 'is any master missing anywhere in my order' without paying for a full sweep. An excluded class renders as 'not checked', never as 0. Unscannable records and scan errors are ALWAYS reported and cannot be filtered out (a suppressed 'could not read' would read as clean).")]
             string[]? findings = null,
         [Description("Optional. true = return ONLY the header totals plus two histograms, with no per-plugin listing: dangling-by-TARGET-plugin (which plugin the broken refs point INTO — the one absent dependency behind a wall of findings) and dangling-by-SOURCE-plugin (which plugin they come FROM — how much of the total is vanilla baseline and how much your mods introduced). The cheap before/after-a-fix comparison; totals stay exact (never limit-capped) and limit= caps the histogram ROWS instead.")]
@@ -514,7 +524,7 @@ public static class ReadTools
         bool json = Wire.WantsJson(format, out var fmtErr);
         if (fmtErr is not null) return fmtErr;
         int lim = limit <= 0 ? 1000 : limit;
-        var result = svc.CheckErrors(plugins, lim, formids, editorid_contains, type, findings, counts_only);
+        var result = svc.CheckErrors(plugins, lim, formids, editorid_contains, type, findings, counts_only, exclude);
         return json ? JsonWire.RenderCheckErrors(result, max_chars, lim)
                     : Wire.RenderCheckErrors(result, max_chars, lim);
     });

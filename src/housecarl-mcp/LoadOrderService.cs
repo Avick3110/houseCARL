@@ -4563,7 +4563,7 @@ public sealed class LoadOrderService : IDisposable
     public ErrorCheckResult CheckErrors(IReadOnlyList<string>? plugins, int limit,
                                         IReadOnlyList<string>? formids = null, string? editoridContains = null,
                                         string? type = null, IReadOnlyList<string>? findings = null,
-                                        bool countsOnly = false)
+                                        bool countsOnly = false, IReadOnlyList<string>? exclude = null)
     {
         var (recordScope, scopeErr) = BuildSweepScope(formids, editoridContains, type);
         if (scopeErr is not null) return ErrorCheckResult.Fail(scopeErr);
@@ -4575,6 +4575,13 @@ public sealed class LoadOrderService : IDisposable
         // and capture an adjacent build, making a refusal stamp N while the sweep stamped N+1.
         var resolver = Resolver;
         var viewAll = resolver.Capture();
+
+        // #344's exclude= axis. The `implicit` group is a fact about the MO2 composition — the plugins the order
+        // loads that plugins.txt does not list — so it is read HERE, where that composition lives, and the core
+        // sweep receives plain filenames. Resolved before anything is swept: a bad value refuses having done no
+        // work (Q3).
+        var (excluded, excludeErr) = SweepExclusion.Resolve(exclude, ImplicitPluginNamesOrEmpty());
+        if (excludeErr is not null) return ErrorCheckResult.Fail(excludeErr);
 
         if (plugins is { Count: > 0 })
         {
@@ -4605,9 +4612,21 @@ public sealed class LoadOrderService : IDisposable
                 offOrder.Add((n, loc.Path!));
             }
             return ErrorCheck.Run(resolver, viewAll, active, limit, offOrder.Count > 0 ? offOrder : null,
-                                  recordScope, classes, countsOnly);
+                                  recordScope, classes, countsOnly, excluded);
         }
-        return ErrorCheck.Run(resolver, viewAll, plugins, limit, null, recordScope, classes, countsOnly);
+        return ErrorCheck.Run(resolver, viewAll, plugins, limit, null, recordScope, classes, countsOnly, excluded);
+    }
+
+    /// <summary>The force-loaded plugin names (in the order, absent from plugins.txt) for
+    /// <see cref="SweepExclusion.ImplicitToken"/>, or empty when the composition cannot be read — a sweep must not
+    /// fail because an exclusion group could not be widened, and an exclusion that then matches nothing refuses in
+    /// the core with the name it could not find, which is the honest report either way.</summary>
+    IReadOnlyList<string> ImplicitPluginNamesOrEmpty()
+    {
+        string profileDir;
+        lock (_gate) { EnsurePathsDerived(); profileDir = _profileDir; }
+        try { return Mo2LoadOrder.ReadComposition(profileDir).ImplicitPluginNames; }
+        catch { return Array.Empty<string>(); }
     }
 
     /// <summary>Parse the two sweep tools' shared record-scope params (#282) into a <see cref="SweepScope"/>: FormID
