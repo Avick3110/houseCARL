@@ -1115,6 +1115,106 @@ internal static class PlaceAssetProbe
                 }
             }
 
+            // ================= M28: the ACTIVE scan's read-incomplete caveat =================
+            // Arm M's fixture has NO active archives, so ReadIncomplete is FALSE in every one of its cells — the
+            // caveat could not be observed there whatever the code did. That is fixture blindness of exactly the
+            // shape the provenance cells had, and it is why the named-pole refusal could silently stop carrying a
+            // caveat its two sibling refusals still print (Aaron's review, F1). Its own instance, with a bound
+            // archive that will not open.
+            Console.WriteLine();
+            Console.WriteLine("--- M28: a refusal from an INCOMPLETE scan says so — the arm-M fixture cannot see this ---");
+            {
+                var inst = Path.Combine(root, "svc-m28");
+                var (mods, _, prof) = MakeInstance(inst);
+                var host = Path.Combine(mods, "HostMod");
+                Directory.CreateDirectory(host);
+                File.WriteAllText(Path.Combine(host, "Dummy.esp"), "x");
+                // Bound to the active plugin by name, and NOT a real archive — so the build records a read failure.
+                File.WriteAllBytes(Path.Combine(host, "Dummy.bsa"), new byte[] { 0xDE, 0xAD, 0xBE, 0xEF });
+                WriteProfile(prof, new[] { "Dummy.esp" }, new[] { "*Dummy.esp" }, new[] { "+HostMod" });
+                WriteSkyrimIni(prof, "");
+                using var svc28 = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(root, "user-m28.json")));
+
+                const string Wanted = @"meshes\hcprobe\m28-only-in-the-broken-archive.nif";
+                // The PREMISE: this build really is incomplete. Without it the cell proves nothing.
+                var st = svc28.AssetStatus(new[] { Wanted });
+                Check(st.ReadIncomplete,
+                      $"the fixture's scan really is INCOMPLETE — an active archive failed to read ({st.ReadIncomplete}, failures={st.BsaFailures.Count})");
+
+                foreach (var (src, label) in new[] { ((string?)Wanted, "with source="), (null, "no source=") })
+                {
+                    var r = svc28.PlaceAssets(new[] { new PlaceRequest(Wanted, src, "HostMod") }, null, null).Results[0];
+                    Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceScanIncomplete, StringComparison.Ordinal),
+                          $"M28 a named-pole refusal from an incomplete scan carries the caveat ({label})  [RED arm] — {r.Error}");
+                }
+                // …and a COMPLETE scan does not say it, or the clause would be noise that means nothing.
+                var clean = Path.Combine(root, "svc-m28b");
+                var (mods2, _, prof2) = MakeInstance(clean);
+                Directory.CreateDirectory(Path.Combine(mods2, "CleanMod"));
+                File.WriteAllText(Path.Combine(mods2, "CleanMod", "Dummy.esp"), "x");
+                WriteProfile(prof2, new[] { "Dummy.esp" }, new[] { "*Dummy.esp" }, new[] { "+CleanMod" });
+                WriteSkyrimIni(prof2, "");
+                using var svc28b = LoadOrderService.WithInstance(clean, 0, new UserConfigStore(Path.Combine(root, "user-m28b.json")));
+                var rc = svc28b.PlaceAssets(new[] { new PlaceRequest(Wanted, Wanted, "CleanMod") }, null, null).Results[0];
+                Check(!rc.Placed && !rc.Error!.Contains(WriteSentences.PlaceSourceScanIncomplete, StringComparison.Ordinal),
+                      $"…and a COMPLETE scan's refusal does NOT carry it  [RED arm] — {rc.Error}");
+            }
+
+            // ================= M29/M30: the probes that could not see "unreadable" =================
+            // Both bool probes said FALSE for a path that is there and cannot be read, so an unknown rendered as an
+            // authoritative absence (Aaron's review, F2 + F3). The fixtures use a real deny ACL, applied and removed
+            // here; if the ACL cannot be applied the cells SKIP loudly rather than passing green-by-vacuity.
+            Console.WriteLine();
+            Console.WriteLine("--- M29/M30: an unreadable loose copy / mod folder is an UNKNOWN, never an absence ---");
+            {
+                var inst = Path.Combine(root, "svc-m29");
+                var (mods, _, prof) = MakeInstance(inst);
+                Directory.CreateDirectory(Path.Combine(mods, "Anchor"));
+                File.WriteAllText(Path.Combine(mods, "Anchor", "Dummy.esp"), "x");
+                WriteProfile(prof, new[] { "Dummy.esp" }, new[] { "*Dummy.esp" }, new[] { "+Anchor" });
+                WriteSkyrimIni(prof, "");
+
+                const string Rel = @"meshes\hcprobe\denied.nif";
+                // M29: the folder is readable, the SUBTREE holding the file is denied.
+                var m29 = Path.Combine(mods, "DeniedSubtree");
+                WriteLoose(m29, Rel, new byte[] { 0x29, 0x29 });
+                // M30: the mod FOLDER itself is denied.
+                var m30 = Path.Combine(mods, "DeniedFolder");
+                WriteLoose(m30, Rel, new byte[] { 0x30, 0x30 });
+
+                using var svc29 = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(root, "user-m29.json")));
+                foreach (var (cell, target, what) in new[]
+                         { ("M29", Path.Combine(m29, "meshes"), "an unreadable SUBTREE under the mod folder"),
+                           ("M30", m30,                          "an unreadable MOD FOLDER") })
+                {
+                    if (!TryDenyAll(target))
+                    {
+                        Check(false, $"{cell} — this host would not apply a deny ACL, so {what} is UNPROVEN here. " +
+                                     "Not a pass: a cell that cannot be fixtured honestly is a signal (CLAUDE.md §5 #11), not a gap to skip past.");
+                        continue;
+                    }
+                    try
+                    {
+                        var provider = cell == "M30" ? "DeniedFolder" : "DeniedSubtree";
+                        var r = svc29.PlaceAssets(new[] { new PlaceRequest(Rel, Rel, provider) }, null, null).Results[0];
+                        Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceFolderUnreadable, StringComparison.Ordinal),
+                              $"{cell} {what} refuses as UNREADABLE  [RED arm] — {r.Error}");
+                        Check(r.Error!.Contains("unscanned rather than absent", StringComparison.Ordinal),
+                              "…carrying the unknown-not-absent caveat with its cause");
+                        foreach (var falseClaim in new[] { WriteSentences.PlaceSourceNoSuchFolder,
+                                                          WriteSentences.PlaceSourceDiskFolderSearched })
+                            Check(!r.Error!.Contains(falseClaim, StringComparison.Ordinal),
+                                  "…and NEVER as an absence — the claim the bool probes used to produce  [RED arm]");
+                        // NAMES, not paths. The cause comes from an exception whose MESSAGE carries the full
+                        // on-disk path, and rendering that into a refusal is the one thing names-not-paths forbids.
+                        Check(!r.Error!.Contains(root, StringComparison.OrdinalIgnoreCase)
+                              && !r.Error.Contains(@":\", StringComparison.Ordinal),
+                              $"…and the cause names WHY without leaking a machine path  [RED arm] — {r.Error}");
+                    }
+                    finally { UndenyAll(target); }
+                }
+            }
+
             // ================= M26: the ARCHIVE half of the universe-first gate =================
             // IsUniverseProviderName tests loose-root names AND active archive filenames. Arm M's fixture has NO
             // active archives at all, so deleting the archive clause left every cell green — one whole half of the
@@ -1163,6 +1263,49 @@ internal static class PlaceAssetProbe
         Console.WriteLine();
         Console.WriteLine(fail == 0 ? "================ ALL PASS ================" : $"================ {fail} CHECK(S) FAILED ================");
         return fail == 0 ? 0 : 1;
+    }
+
+    /// <summary>Apply a deny-everything ACE for the CURRENT user to one directory subtree, and say whether it took.
+    /// A cell whose fixture cannot be built is a SKIP that fails the run — never a silent pass (Q3, §11: a branch
+    /// that cannot be fixtured honestly is a signal, not a testing gap to work around).</summary>
+    static bool TryDenyAll(string dir)
+    {
+        try
+        {
+            var me = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
+            var di = new DirectoryInfo(dir);
+            var sec = di.GetAccessControl();
+            sec.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(
+                me, System.Security.AccessControl.FileSystemRights.FullControl,
+                System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit,
+                System.Security.AccessControl.PropagationFlags.None,
+                System.Security.AccessControl.AccessControlType.Deny));
+            di.SetAccessControl(sec);
+            // Verify it actually bites on this host rather than trusting the call: a deny that did not take would
+            // make every assertion below pass for the wrong reason.
+            try { File.GetAttributes(Path.Combine(dir, "probe-canary.nif")); } catch (UnauthorizedAccessException) { return true; } catch { }
+            try { Directory.EnumerateFiles(dir, "*.bsa").ToList(); } catch (UnauthorizedAccessException) { return true; } catch { }
+            UndenyAll(dir);
+            return false;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Remove the deny ACE again. Best-effort and always attempted in a finally: a fixture that left one
+    /// behind would poison the temp tree cleanup and every later run on this host.</summary>
+    static void UndenyAll(string dir)
+    {
+        try
+        {
+            var me = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
+            var di = new DirectoryInfo(dir);
+            var sec = di.GetAccessControl();
+            sec.RemoveAccessRuleAll(new System.Security.AccessControl.FileSystemAccessRule(
+                me, System.Security.AccessControl.FileSystemRights.FullControl,
+                System.Security.AccessControl.AccessControlType.Deny));
+            di.SetAccessControl(sec);
+        }
+        catch { /* best effort; the temp root is removed with recursive delete either way */ }
     }
 
     // ---- synthetic MO2 layout helpers (the AssetStatusProbe / FreshnessCaptureProbe pattern) ----

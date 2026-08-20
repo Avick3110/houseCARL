@@ -1613,14 +1613,16 @@ public sealed class LoadOrderService : IDisposable
                     // The #283 root-prefix hint, which this refusal used to swallow: a path taken off a record is
                     // stored relative to meshes\/textures\, and naming a provider does not stop that being the
                     // caller's actual mistake. Verified before it is offered, like every other site that shows it.
-                    AssetPathHint.AssetRootHint(view, srcRel)), winner);
+                    AssetPathHint.AssetRootHint(view, srcRel),
+                    // srcRes, not res: the caveat has to describe the scan that answered for the SOURCE path.
+                    srcRes.ReadIncomplete), winner);
             if (pick.Verdict == AssetSourceVerdict.Ambiguous)
                 return PlaceResult.Fail(rel, WriteSentences.PlaceSourceAmbiguous(srcRel, pick.ProviderNames), winner);
             if (pick.Verdict == AssetSourceVerdict.NoProvider && sourceNamed)
                 return PlaceResult.Fail(rel,
                     $"nothing in the active load order provides the source '{srcRel}'."
                     + (AssetPathHint.AssetRootHint(view, srcRel) is { } srcHint ? " " + srcHint : "")
-                    + (srcRes.ReadIncomplete ? " NOTE: a BSA failed to read this build, so it may merely be unscanned (see the warnings)." : "")
+                    + (srcRes.ReadIncomplete ? " " + WriteSentences.PlaceSourceScanIncomplete : "")
                     // The OTHER dead end, and the one the appearance skill's own recipe produces: a Data-relative
                     // source= with no source_provider=. The auto-resolve refusal below gained the route out of it;
                     // this one did not, so the caller who passed a source and no provider was still told only that
@@ -1654,7 +1656,7 @@ public sealed class LoadOrderService : IDisposable
                     // enabled-only, so "pass source= with source_provider=" routed to a second refusal. Naming a mod
                     // now reaches it, and the caller who is here is precisely the one who needs to be told.
                     + " " + WriteSentences.PlaceSourceNameReachesUnticked
-                    + (res.ReadIncomplete ? " NOTE: a BSA failed to read this build, so a source may merely be unscanned (see the warnings)." : ""),
+                    + (res.ReadIncomplete ? " " + WriteSentences.PlaceSourceScanIncomplete : ""),
                     winner);
             }
             var (b, desc, err) = ReadResolvedSource(pick.Source!);

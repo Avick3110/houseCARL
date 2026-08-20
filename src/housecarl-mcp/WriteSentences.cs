@@ -610,6 +610,17 @@ internal static class WriteSentences
         "houseCARL also looked in the MO2 mod folder of that name, and read neither a loose copy there nor one inside "
       + "that folder's own archives";
 
+    /// <summary>The scan that produced the "nothing supplies it" half was INCOMPLETE — an archive failed to read
+    /// this build, so an absence may be an unscanned copy. Hoisted here on its third consumer: the two sibling
+    /// place refusals already carried near-identical spellings of it, and the named-pole refusal was silently
+    /// dropping it altogether (Aaron's review, F1) because that verdict no longer falls through to them.
+    /// <para>This is the ACTIVE universe's caveat, and it is separate from the off-order lane's own unreadable
+    /// outcome: one says the enabled scan was incomplete, the other says the named mod folder could not be read.
+    /// Both can be true at once and they are different facts, so they are different clauses.</para></summary>
+    [MustState("may merely be unscanned")]
+    internal const string PlaceSourceScanIncomplete =
+        "NOTE: a BSA failed to read this build, so it may merely be unscanned (see the warnings).";
+
     /// <summary>The folder was looked for and is not there. Distinct from finding it empty of this path, because the
     /// caller's next move differs: a name with no folder is a name to check, a folder without the file is a file to
     /// find elsewhere.</summary>
@@ -651,7 +662,8 @@ internal static class WriteSentences
     /// for the same reason: this is the caller's next call, not a display.</para></summary>
     internal static string PlaceSourceNamedAbsent(string provider, string rel, IReadOnlyList<string> providerNames,
                                                   OffOrderReason reason, string? unreadableName = null,
-                                                  string? unreadableCause = null, string? pathHint = null) =>
+                                                  string? unreadableCause = null, string? pathHint = null,
+                                                  bool scanIncomplete = false) =>
         $"'{provider}' does not supply '{rel}'"
         // ONE sentence per reason, and a SWITCH EXPRESSION with no default arm: the compiler requires every outcome
         // the lane can reach to be named here (CS8509 fires on a missing one — verified by removing an arm), so a new
@@ -671,6 +683,10 @@ internal static class WriteSentences
         // active lane carries for an archive that failed its build. Rendered before the remedy: it changes what the
         // remedy is worth. The NAME and the cause come typed off the lookup; the sentence is built here.
       + (unreadableName is null ? "" : $"NOTE: '{unreadableName}' could not be read ({unreadableCause}), so this may be unscanned rather than absent. ")
+        // The ACTIVE scan's own incompleteness, which this refusal used to drop on the floor: the Named verdict no
+        // longer falls through to the sibling refusals that render it, so it is keyed in here like every other fact
+        // the sentence takes.
+      + (scanIncomplete ? PlaceSourceScanIncomplete + " " : "")
       + (pathHint is null ? "" : pathHint + " ")
       + (providerNames.Count > 0
             ? $"{PlaceSourceNoSubstitute} — pass one of these names instead, quotes excluded: "
