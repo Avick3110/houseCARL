@@ -15,6 +15,12 @@ namespace HousecarlCore;
 //  render its own refusal — every non-Selected verdict carries the provider NAMES (never
 //  their on-disk paths; naming a machine path in a refusal is how the caller learns to
 //  round-trip absolute paths that go stale between resolve and read).
+//
+//  F1 (ruling O1) widened the NAMED pole rather than adding a fourth: a name the active
+//  universe cannot answer is looked for as a mod folder on disk, through a lookup the CALLER
+//  passes in. The widening therefore lives at this one decision point too — place_asset,
+//  bulk_place_asset and the closure copy's asset carry all reach it through here, and not one
+//  of them spells the lane for itself.
 // ======================================================================
 
 /// <summary>Which pole of S2's SOURCE grammar a read is made under.</summary>
@@ -24,7 +30,8 @@ public enum AssetSourcePole
     SoleProvider,
     /// <summary>Use whichever copy currently wins the VFS — "what the game shows right now".</summary>
     Winner,
-    /// <summary>Use a NAMED provider's copy, whatever else contends. Absent from that provider is a refusal.</summary>
+    /// <summary>Use a NAMED provider's copy, whatever else contends — and, where the caller supplies the off-order
+    /// lookup, wherever that provider lives (SPEC §4.2's one-pole rule; ruling O1). Absent from it is a refusal.</summary>
     Named,
 }
 
@@ -99,12 +106,39 @@ public static class AssetSourceSelection
     /// and is what keeps the claim true.</para></summary>
     public static string Describe(PlacementSource s) => $"\"{s.ProviderName}\" ({(s.Kind == AssetKind.Bsa ? "BSA" : "loose")})";
 
-    /// <summary>Pick the provider to read from, under <paramref name="choice"/>'s pole. Pure: no I/O, no bytes, no
-    /// message. Every refusal verdict carries the provider names so the caller can render its own.</summary>
-    public static AssetSourcePick Select(PlacementResolution res, AssetSourceChoice choice)
+    /// <summary>Pick the provider to read from, under <paramref name="choice"/>'s pole. Every refusal verdict carries
+    /// the provider names so the caller can render its own.
+    ///
+    /// <para><paramref name="offOrderLookup"/> is the F1 lane (ruling O1): a NAMED provider the active universe has no
+    /// answer for is looked for as a mod folder on disk. Passing it is what makes a named source reachable regardless
+    /// of the MO2 tick; omitting it leaves the pure, universe-only policy every other caller wants. It is consulted
+    /// ONLY under the Named pole — naming is the consent, so an omitted provider, the winner pole and the contention
+    /// listing all stay strictly inside the built universe, and a mod nobody named can never contend silently.</para>
+    ///
+    /// <para>The lookup itself is the caller's I/O; this type still decides WHICH provider and renders nothing.</para></summary>
+    public static AssetSourcePick Select(PlacementResolution res, AssetSourceChoice choice,
+                                         Func<string?, PlacementSource?>? offOrderLookup = null)
     {
         var names = new List<string>(res.Sources.Count);
         foreach (var s in res.Sources) names.Add(Describe(s));
+
+        // The NAMED pole is answered FIRST and on its own, ahead of the empty-universe return below. Its answer does
+        // not depend on how many providers the active universe has — and while it sat under that return, a named
+        // provider was never consulted at all for a path nothing enabled supplied, which is precisely the disabled-mod
+        // case: the caller's name was dropped and the refusal spoke only of the active load order (measured on `main`).
+        if (choice.Pole == AssetSourcePole.Named)
+        {
+            foreach (var s in res.Sources)
+                if (string.Equals(s.ProviderName, choice.Spelling ?? "", StringComparison.OrdinalIgnoreCase))
+                    return new AssetSourcePick(AssetSourceVerdict.Selected, s, names);
+            if (offOrderLookup?.Invoke(choice.Spelling) is { } offOrder)
+                return new AssetSourcePick(AssetSourceVerdict.Selected, offOrder, names);
+            // Which refusal is the SAME question as before this lane existed — does anything else supply the path —
+            // so the two verdicts keep meaning exactly what they meant, and the caller's remedy can still only offer
+            // names it actually has.
+            return new AssetSourcePick(
+                res.Sources.Count == 0 ? AssetSourceVerdict.NoProvider : AssetSourceVerdict.NamedAbsent, null, names);
+        }
 
         if (res.Sources.Count == 0)
             return new AssetSourcePick(AssetSourceVerdict.NoProvider, null, names);
@@ -116,12 +150,6 @@ public static class AssetSourceSelection
                 // A whole verdict, a suppression flag and a bespoke refusal used to live here to manage the overlap
                 // a bare "winner" created; the sigil deletes the overlap instead of guarding it.
                 return new AssetSourcePick(AssetSourceVerdict.Selected, res.Sources[0], names);
-
-            case AssetSourcePole.Named:
-                foreach (var s in res.Sources)
-                    if (string.Equals(s.ProviderName, choice.Spelling ?? "", StringComparison.OrdinalIgnoreCase))
-                        return new AssetSourcePick(AssetSourceVerdict.Selected, s, names);
-                return new AssetSourcePick(AssetSourceVerdict.NamedAbsent, null, names);
 
             default:
                 // Sole-provider: contention is the caller's call, not ours. Counted off Sources rather than read off

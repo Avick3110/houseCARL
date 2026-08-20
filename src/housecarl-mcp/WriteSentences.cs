@@ -575,11 +575,43 @@ internal static class WriteSentences
     internal const string PlaceSourcePoleSpelling =
         "(the winner pole is spelled " + AssetSourceChoice.WinnerToken + " — a bare name always means a provider of that name)";
 
-    /// <summary>The named provider does not supply this path (others may). The list is the same quoted-name spelling
-    /// the ambiguity refusal uses, and for the same reason — this is the caller's next call, not a display.</summary>
+    /// <summary>Both places a named provider is searched, stated in the refusal because a refusal that names only one
+    /// of them understates what was checked (Q3, and SPEC §4.2's "a plugin found in neither place is a loud refusal
+    /// naming both places searched" — the same standard on the asset surface).
+    /// <para>UNCONDITIONAL and free of state: it says what houseCARL LOOKED IN, not what it found there, so it is
+    /// equally true when the folder is absent, present-but-lacking the file, and present-with-an-unreadable archive.
+    /// The version that named the folder's existence would be a claim with a state to get wrong (the #385 lesson) —
+    /// and NAMES only, never the folder's on-disk path.</para></summary>
+    [MustState("active load order", "MO2 mod folder of that name")]
+    internal const string PlaceSourceBothPlacesSearched =
+        "houseCARL looked for it in the active load order AND in an MO2 mod folder of that name (loose, then that "
+      + "folder's own archives), so an unticked mod is not what is missing here";
+
+    /// <summary>The named provider supplies this path in NEITHER place searched. ONE sentence for both misses, because
+    /// they are one fact: the difference between them is only whether anyone ELSE supplies the path, and that decides
+    /// whether there is a name to suggest — never whether the refusal mentions the name the caller passed. Before F1
+    /// the no-other-provider case fell through to a refusal that spoke only of "the active load order" and dropped the
+    /// caller's provider name entirely (measured on `main`).
+    /// <para>The suggestion clause is skipped when the list is EMPTY rather than rendered as an empty list: an
+    /// always-printed "pass one of these names instead:" with nothing after it is the empty-remedy shape #380 exists
+    /// for. Nothing weaker is invented to fill the gap — the two searched places and the pole spelling are what is
+    /// honestly known. The list, when there is one, is the same quoted-name spelling the ambiguity refusal uses, and
+    /// for the same reason: this is the caller's next call, not a display.</para></summary>
     internal static string PlaceSourceNamedAbsent(string provider, string rel, IReadOnlyList<string> providerNames) =>
-        $"'{provider}' does not supply '{rel}', so {PlaceSourceNoSubstitute} — pass one of these names instead, "
-      + $"quotes excluded: {string.Join("; ", providerNames)}. {PlaceSourcePoleSpelling}";
+        $"'{provider}' does not supply '{rel}' — {PlaceSourceBothPlacesSearched}. "
+      + (providerNames.Count > 0
+            ? $"{PlaceSourceNoSubstitute} — pass one of these names instead, quotes excluded: "
+            + $"{string.Join("; ", providerNames)}. "
+            : "")
+      + PlaceSourcePoleSpelling;
+
+    /// <summary>The provenance line for bytes read out of a mod the active profile does NOT include — the F1 lane's
+    /// half of Q3. It is about the SOURCE and stops there: the placed copy's own "does not win until you enable +
+    /// sort" instruction is the render's separate, unconditional line, and saying either fact twice is the
+    /// duplication #271 removed.</summary>
+    internal static string PlaceSourceOffOrder(string provider) =>
+        $"read from '{provider}', a mod folder that is NOT enabled in MO2 — you named it, so houseCARL read it off "
+      + "disk; the bytes are that mod's, and enabling it is not required for the copy just placed";
 
     /// <summary>The both-slots expansion's own constraint on the pole. A FormID with no kind derives TWO destination
     /// paths, so an explicit source= (one file) cannot serve them — but the pole can, because it names whose copy

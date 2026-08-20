@@ -215,6 +215,11 @@ static class PlaceWire
             if (r.Placed)
             {
                 sb.Append("  OK    ").Append(r.AssetPath).Append("  (").Append(r.Bytes).Append(" bytes from ").Append(r.SourceDesc).Append(")\n");
+                // Q3 provenance for the F1 lane: bytes served out of a mod MO2 does not currently load look exactly
+                // like any other placement on the line above — the provider name alone does not say which. Its own
+                // line, about the SOURCE; the destination's enable+sort instruction is the block below and stays there.
+                if (r.SourceOffOrderProvider is { } offOrder)
+                    sb.Append("        ").Append(WriteSentences.PlaceSourceOffOrder(offOrder)).Append('\n');
                 sb.Append(r.CurrentWinner is not null
                     ? $"        currently wins the VFS: {r.CurrentWinner} — sort the new mod ABOVE it\n"
                     : "        nothing else provides this path — once the mod is enabled, the placed copy wins\n");

@@ -73,8 +73,13 @@ public sealed record AssetHit(string RelPath, bool Exists, AssetProvider? Winner
 /// auto-resolve, facegen-diagnostics Phase 3). For a LOOSE provider, <see cref="LooseFilePath"/> is the file on disk and
 /// <see cref="ArchivePath"/>/<see cref="EntryPath"/> describe nothing. For a BSA provider, <see cref="ArchivePath"/> is the
 /// .bsa on disk and <see cref="EntryPath"/> is the file inside it (read via <see cref="AssetResolver.TryReadArchiveEntry"/>);
-/// <see cref="LooseFilePath"/> is null. <see cref="ProviderName"/>/<see cref="Kind"/> mirror <see cref="AssetProvider"/>.</summary>
-public sealed record PlacementSource(string ProviderName, AssetKind Kind, string? LooseFilePath, string? ArchivePath, string EntryPath);
+/// <see cref="LooseFilePath"/> is null. <see cref="ProviderName"/>/<see cref="Kind"/> mirror <see cref="AssetProvider"/>.
+/// <para><see cref="OffOrder"/> is true only for a source resolved by <see cref="OffOrderAssetSource"/> — a mod folder
+/// the ACTIVE profile does not include, reachable only because a caller named it. It exists so the response can SAY so
+/// (SPEC §4.2: the response states which arm resolved): bytes read out of an unticked mod are correct bytes served from
+/// a mod the game is not currently loading, and a caller cannot tell from the provider name alone.</para></summary>
+public sealed record PlacementSource(string ProviderName, AssetKind Kind, string? LooseFilePath, string? ArchivePath,
+                                     string EntryPath, bool OffOrder = false);
 
 /// <summary>Concrete-source resolution of one asset path for PLACEMENT (place_asset's auto-resolve when no explicit
 /// source= is given): every provider with its on-disk descriptor, winner FIRST (the same precedence
@@ -260,6 +265,25 @@ public sealed class AssetResolver : IDisposable
         finally { (reader as IDisposable)?.Dispose(); }           // INERT in 0.53.1 — belt-and-braces, see ReadArchiveTable
     }
 
+    /// <summary>Is <paramref name="entryPath"/> inside this archive? The EXISTENCE half of
+    /// <see cref="TryReadArchiveEntry"/> — same reader, same normalized OrdinalIgnoreCase match, but it never calls
+    /// <c>GetBytes</c>, so an off-order probe over a mod folder's root archives costs a table walk rather than a
+    /// decompress per candidate. Same zero-handle-at-rest contract; an archive that cannot be opened THROWS (loud,
+    /// Q3) so the caller decides, rather than reading as "the entry is not there".</summary>
+    public static bool ArchiveHasEntry(string archivePath, string entryPath)
+    {
+        var want = Normalize(entryPath);
+        var reader = Archive.CreateReader(GameRelease.SkyrimSE, archivePath);
+        try
+        {
+            foreach (var file in reader.Files)
+                if (string.Equals(Normalize(file.Path), want, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
+        }
+        finally { (reader as IDisposable)?.Dispose(); }           // INERT in 0.53.1 — belt-and-braces, see ReadArchiveTable
+    }
+
     /// <summary>Read MANY entries' bytes out of ONE archive in a single table walk — the batch sibling of
     /// <see cref="TryReadArchiveEntry"/> (native-pairing review finding: reading K entries via the single-entry call
     /// costs K archive opens × a full linear table scan each — O(K·M) against Skyrim - Misc.bsa's ~10k scripts, the
@@ -379,6 +403,28 @@ public sealed class AssetResolver : IDisposable
         return new PlacementResolution(rel, sources, sources.Count > 1, snap.Failures.Count > 0);
     }
 
+    /// <summary>Is <paramref name="name"/> a provider name this build already knows — an enabled mod folder,
+    /// "overwrite", "Data", or an ACTIVE archive's filename? The universe-first gate
+    /// (<see cref="OffOrderAssetSource"/>): a name that passes here is answered by the built universe and never
+    /// reaches disk, which is what makes the off-order lane additive rather than a change to any enabled name.
+    /// Matched the same way a pole is (OrdinalIgnoreCase) so the test and the match cannot disagree.</summary>
+    public bool IsUniverseProviderName(string name)
+    {
+        foreach (var (rootName, _) in _looseRoots)
+            if (string.Equals(rootName, name, StringComparison.OrdinalIgnoreCase)) return true;
+        foreach (var a in _archives)
+            if (string.Equals(Path.GetFileName(a.Path), name, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    /// <summary>The copy of <paramref name="relPath"/> inside the mod folder <paramref name="providerName"/> names,
+    /// when that name is NOT one this build knows — the off-order source lane (F1). Thin delegation:
+    /// <see cref="OffOrderAssetSource"/> owns the lane, this resolver only supplies the two facts it holds (where the
+    /// mods folder is, and what the universe already answers for). Null when the name is a universe name, is not a
+    /// plain folder name, or that folder supplies no copy.</summary>
+    public PlacementSource? TryResolveOffOrderProvider(string? providerName, string relPath)
+        => OffOrderAssetSource.Resolve(_modsDir, IsUniverseProviderName, providerName, relPath);
+
     /// <summary>Resolve many paths in one call (the facegen bulk scan), all against ONE pinned build so the whole scan
     /// is internally consistent even if a RefreshIfStale lands mid-scan (the LoadOrderResolver.Capture discipline).
     /// To pair the scan with its read-failure list off the same build, use <see cref="Capture"/>. Holds nothing past return.</summary>
@@ -450,6 +496,13 @@ public sealed class AssetResolver : IDisposable
         /// <see cref="AssetResolver.ResolveForPlacement(string)"/>. The dialogue validator's SEQ lint uses it to read
         /// the winning .seq's loose path off the same capture as <see cref="Resolve"/>.</summary>
         public PlacementResolution ResolveForPlacement(string relPath) => _r.ResolveForPlacement(relPath, _s);
+
+        /// <summary>The off-order source lane — see <see cref="AssetResolver.TryResolveOffOrderProvider"/>.
+        /// Deliberately NOT pinned to this view's snapshot, and it cannot be: an off-order mod folder contributes
+        /// nothing to any build, so there is no captured state for it to answer from. The universe-first test it
+        /// runs first IS this build's, so the two halves agree on what "already known" means.</summary>
+        public PlacementSource? TryResolveOffOrderProvider(string? providerName, string relPath)
+            => _r.TryResolveOffOrderProvider(providerName, relPath);
 
         public IReadOnlyList<AssetHit> ResolveMany(IEnumerable<string> relPaths)
         {
