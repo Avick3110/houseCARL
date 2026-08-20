@@ -126,16 +126,10 @@ public static class ErrorCheck
         // The claim fires only under a RECORD scope — that is the one thing here that makes a reported count a subset of
         // its own label. A findings= class filter leaves every number complete for what it names (an excluded class
         // renders "NOT CHECKED"), so claiming otherwise over a true whole-order total would be false (re-review finding 3).
-        var excludedNote = exclude is not null
-            ? $"exclude= left out {exclude.Names.Count} plugin(s)"
-            : null;
-        var filterNote = SweepFindings.FilterNote(
-            recordScope is null ? null
-                : wantMasters
-                    ? "the dangling / unscannable counts below are for THIS narrowed scope; the missing-master count is "
-                      + "PLUGIN-level (read off the master table) and is NOT narrowed by it."
-                    : SweepFindings.ScopedCountsClaim,
-            recordScope?.Label, SweepFindings.Describe(classes), excludedNote);
+        // The exclude= narrowing note is composed BELOW, after the exclusion has actually run: its number is what
+        // THIS SCOPE lost, and read off the resolved set it was the size of the group the token expanded to.
+        // plugins=["MyMod.esp"] exclude=["base_masters"] said "left out 5 plugin(s)" over a sweep that removed none.
+        int excludedFromScope = 0;
         // counts_only=: the dangling-by-target-plugin tally, over EVERY dangling ref in scope (never limit-capped).
         // Built only when the walk that fills it actually RUNS — with 'dangling' excluded there is nothing to tally, and
         // an empty-but-present histogram would render as "nothing found" for a walk that never happened (PR #288 review,
@@ -204,14 +198,30 @@ public static class ErrorCheck
 
             int before = targets.Count;
             targets.RemoveAll(drop.Contains);
+            excludedFromScope = before - targets.Count;
             if (offOrder is { Count: > 0 })
+            {
+                int offBefore = offOrder.Count;
                 offOrder = offOrder.Where(o => !drop.Contains(o.Name)).ToList();
+                excludedFromScope += offBefore - offOrder.Count;
+            }
             if (targets.Count == 0 && (offOrder is null || offOrder.Count == 0))
                 return ErrorCheckResult.Fail(
                     $"exclude= removed every plugin this sweep would have covered ({before} in scope, all excluded) — " +
                     "there is nothing left to check. Narrow exclude=, or widen plugins=.")
                        with { Epoch = view.Epoch };
         }
+
+        var filterNote = SweepFindings.FilterNote(
+            recordScope is null ? null
+                : wantMasters
+                    ? "the dangling / unscannable counts below are for THIS narrowed scope; the missing-master count is "
+                      + "PLUGIN-level (read off the master table) and is NOT narrowed by it."
+                    : SweepFindings.ScopedCountsClaim,
+            recordScope?.Label, SweepFindings.Describe(classes),
+            // Stated whenever the caller PASSED an exclusion, zero included: a group with no members in this order
+            // still narrowed nothing, and an exclude= that leaves no trace reads as one that was ignored.
+            exclude is not null ? $"exclude= left out {excludedFromScope} plugin(s)" : null);
 
         var reports = new List<PluginErrors>();
         int totalDangling = 0, totalMissing = 0, totalUnscannable = 0;
