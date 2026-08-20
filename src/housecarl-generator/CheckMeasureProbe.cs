@@ -56,9 +56,11 @@ public static class CheckMeasureProbe
         int cap = Wire.DefaultMaxChars;
         Console.WriteLine($"## {label}");
         Console.WriteLine($"   chars      : {s.Length}  (cap {cap}{(s.Length > cap ? $" — OVER by {s.Length - cap}" : "")})");
-        Console.WriteLine($"   truncation notice present : {s.Contains("[truncated at max_chars=")}");
+        Console.WriteLine($"   states what it is missing : {s.Contains("found by this sweep appear above") || s.Contains("\"dangling_missing\"")}");
+        Console.WriteLine($"   over its cap              : {s.Length > cap}{(s.Contains("raise it to at least") || s.Contains("max_chars_overrun") ? " (declared)" : "")}");
         Console.WriteLine($"   json truncated flag       : {(s.Contains("\"truncated\"") ? s.Substring(s.IndexOf("\"truncated\"", StringComparison.Ordinal), Math.Min(24, s.Length - s.IndexOf("\"truncated\"", StringComparison.Ordinal))) : "n/a")}");
-        Console.WriteLine($"   budget line present       : {s.Contains("[the listing budget (limit=) omitted")}");
+        foreach (var l in s.Split('\n'))
+            if (l.Contains("[accounting:", StringComparison.Ordinal)) Console.WriteLine("   accounting : " + Trim(l));
         // The number no sentence in either format states: how many findings this RESPONSE actually carries. Counted
         // off the rendered entries themselves, so it is what the caller can see rather than what a layer intended.
         int shown = s.Contains("\"target\"") ? Count(s, "\"target\":") : Count(s, "[target not defined by any active plugin]");
@@ -66,8 +68,7 @@ public static class CheckMeasureProbe
         Console.WriteLine($"   boundary footer present   : {s.Contains("boundary: checks FormLink resolution") || s.Contains("\"boundary\"")}");
         Console.WriteLine($"   elapsed    : {sw.ElapsedMilliseconds} ms");
         foreach (var line in s.Split('\n'))
-            if (line.StartsWith("scanned ", StringComparison.Ordinal) || line.StartsWith("baseline:", StringComparison.Ordinal)
-                || line.Contains("[the listing budget", StringComparison.Ordinal) || line.Contains("[truncated at max_chars=", StringComparison.Ordinal))
+            if (line.StartsWith("scanned ", StringComparison.Ordinal) || line.StartsWith("baseline:", StringComparison.Ordinal))
                 Console.WriteLine("   > " + Trim(line));
         Console.WriteLine($"   last 220 chars: …{Trim(s[Math.Max(0, s.Length - 220)..])}");
         Console.WriteLine();
