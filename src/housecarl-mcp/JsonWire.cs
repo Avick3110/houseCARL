@@ -1287,8 +1287,8 @@ static class JsonWire
 
             if (r.CountsOnly)
             {
-                WriteHistogram(w, "dangling_by_target_plugin", r.Histogram, histogramLimit);
-                WriteHistogram(w, "dangling_by_source_plugin", r.DanglingBySource, histogramLimit);   // #344 — the new axis
+                WriteHistogram(w, "dangling_by_target_plugin", r.Histogram, histogramLimit, ms, budget);
+                WriteHistogram(w, "dangling_by_source_plugin", r.DanglingBySource, histogramLimit, ms, budget);   // #344 — the new axis
                 acct.UnreadRows(WriteUnreadPlugins(w, r.Reports, ms, budget));
             }
             else
@@ -1296,16 +1296,20 @@ static class JsonWire
                 w.WriteStartArray("plugins");
                 foreach (var p in r.Reports)
                 {
-                    if (Size(w, ms) >= budget) break;
+                    // A SECTION IS WHOLE OR ABSENT HERE TOO, and the cost is MEASURED rather than assumed small. The
+                    // plugin object's fixed part carries a scan-error string and up to three unscannable-record
+                    // exception messages, all unbounded — tested with a bare `Size(w, ms) >= budget` before writing
+                    // it, a two-report fixture whose second plugin carried three ~950-char samples returned 7,296
+                    // chars against a 5,270 cap, silently. The text lane composes its fixed part and measures it;
+                    // this is the same rule, and a Utf8JsonWriter can only be measured by writing, so it is written
+                    // once into a scratch buffer at the same nesting depth.
+                    if (Size(w, ms) + PluginHeadCost(p) >= budget) break;
                     w.WriteStartObject();
                     w.WriteString("plugin", p.Plugin);
                     WriteNullable(w, "scan_error", p.ScanError);
                     WriteStringArray(w, "missing_masters", p.MissingMasters);
-                    // The unscannable fields are written BEFORE the dangling array, not after it. Field order carries
-                    // no meaning to a consumer, and putting them here is what bounds the tail: once the entry loop
-                    // breaks mid-plugin, all that follows is three fixed closing brackets. Written after the array,
-                    // their length rode outside the budget — and unscannable_samples carries up to three exception
-                    // messages, so "outside the budget" was unbounded, not merely untidy.
+                    // The unscannable fields sit before the dangling array so that once the ENTRY loop breaks
+                    // mid-plugin, all that follows is three fixed closing brackets.
                     w.WriteNumber("unscannable_records", p.UnscannableRecords);
                     WriteStringArray(w, "unscannable_samples", p.UnscannableSamples);
                     w.WriteStartArray("dangling");
@@ -1324,8 +1328,9 @@ static class JsonWire
                     }
                     w.WriteEndArray();
                     w.WriteEndObject();
-                    // Counted where the object CLOSED, so a section is "rendered" only once all of it is in the
-                    // document — the twin of the text lane counting an entry where its line landed.
+                    // Counted where the section's own content landed, exactly as the text lane counts it: its
+                    // ENTRIES are accounted separately, so a section whose entry loop stopped on the budget is a
+                    // rendered section carrying fewer entries, not a partly-rendered one.
                     acct.Section();
                 }
                 w.WriteEndArray();
@@ -1339,10 +1344,37 @@ static class JsonWire
             // written in one place, which is the same place JsonReserve measures.
             acct.WriteJson(w);
             w.WriteString("boundary", ReadSentences.SweepBoundary);
-            if (acct.CapTooSmall(headerLength, reserve) is { } notice) w.WriteString("max_chars_overrun", notice);
+            // Measured, like the text lane: Size() is the document so far, plus the one brace still to close.
+            if (acct.CapTooSmall(Size(w, ms) + 1, headerLength + reserve) is { } notice)
+                w.WriteString("max_chars_overrun", notice);
             w.WriteEndObject();
         }
         return Finish(ms);
+    }
+
+    /// <summary>What a plugin object's FIXED part costs, encoded exactly as the response will encode it — same
+    /// writer options, same nesting depth, so escaping and indentation are counted rather than estimated. Over-counts
+    /// by the scratch wrapper's own braces, which is the safe direction for a budget test.</summary>
+    static int PluginHeadCost(PluginErrors p)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteStartArray("plugins");
+            w.WriteStartObject();
+            w.WriteString("plugin", p.Plugin);
+            WriteNullable(w, "scan_error", p.ScanError);
+            WriteStringArray(w, "missing_masters", p.MissingMasters);
+            w.WriteNumber("unscannable_records", p.UnscannableRecords);
+            WriteStringArray(w, "unscannable_samples", p.UnscannableSamples);
+            w.WriteStartArray("dangling");
+            w.WriteEndArray();
+            w.WriteEndObject();
+            w.WriteEndArray();
+            w.WriteEndObject();
+        }
+        return (int)ms.Length;
     }
 
     /// <summary>The document's size so far, without flushing: committed bytes plus what the writer still holds. A
@@ -1495,7 +1527,10 @@ static class JsonWire
 
     /// <summary>A counts_only histogram: <c>{distinct, rows:[{key,count}], rendered}</c>. Absent when the mode was not
     /// requested; PRESENT with an empty <c>rows</c> when the sweep genuinely found nothing — the two must not look alike.</summary>
-    static void WriteHistogram(Utf8JsonWriter w, string name, IReadOnlyList<SweepCount>? rows, int rowLimit)
+    /// <param name="budget">the bytes this render may occupy; unbounded by default, which is what validate_scripts
+    /// still passes. `distinct` vs `rendered` already discloses a short list, so the bound needs no new field.</param>
+    static void WriteHistogram(Utf8JsonWriter w, string name, IReadOnlyList<SweepCount>? rows, int rowLimit,
+                               MemoryStream? ms = null, int budget = int.MaxValue)
     {
         if (rows is null) return;
         w.WriteStartObject(name);
@@ -1505,6 +1540,7 @@ static class JsonWire
         foreach (var row in rows)
         {
             if (shown >= rowLimit) break;
+            if (ms is not null && Size(w, ms) >= budget) break;
             w.WriteStartObject(); w.WriteString("key", row.Key); w.WriteNumber("count", row.Count); w.WriteEndObject();
             shown++;
         }

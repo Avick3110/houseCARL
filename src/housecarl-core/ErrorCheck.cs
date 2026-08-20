@@ -105,7 +105,7 @@ public static class ErrorCheck
                                        IReadOnlyList<(string Name, string Path)>? offOrder = null,
                                        SweepScope? recordScope = null,
                                        ErrorFindingClass classes = ErrorFindingClass.All, bool countsOnly = false,
-                                       IReadOnlyCollection<string>? exclude = null)
+                                       SweepExclusion.Resolved? exclude = null)
         => Run(resolver, resolver.Capture(), scope, limit, offOrder, recordScope, classes, countsOnly, exclude);
 
     /// <summary>The view-threaded body (PR #305 re-review): a caller that already captured — the service, which
@@ -116,7 +116,7 @@ public static class ErrorCheck
                                        IReadOnlyList<(string Name, string Path)>? offOrder = null,
                                        SweepScope? recordScope = null,
                                        ErrorFindingClass classes = ErrorFindingClass.All, bool countsOnly = false,
-                                       IReadOnlyCollection<string>? exclude = null)
+                                       SweepExclusion.Resolved? exclude = null)
     {
         bool wantDangling = classes.HasFlag(ErrorFindingClass.Dangling);
         bool wantMasters = classes.HasFlag(ErrorFindingClass.MissingMasters);
@@ -126,8 +126,8 @@ public static class ErrorCheck
         // The claim fires only under a RECORD scope — that is the one thing here that makes a reported count a subset of
         // its own label. A findings= class filter leaves every number complete for what it names (an excluded class
         // renders "NOT CHECKED"), so claiming otherwise over a true whole-order total would be false (re-review finding 3).
-        var excludedNote = exclude is { Count: > 0 }
-            ? $"exclude= left out {exclude.Count} plugin(s)"
+        var excludedNote = exclude is not null
+            ? $"exclude= left out {exclude.Names.Count} plugin(s)"
             : null;
         var filterNote = SweepFindings.FilterNote(
             recordScope is null ? null
@@ -183,17 +183,19 @@ public static class ErrorCheck
 
         // #344's exclusion axis. Applied to the SWEEP, not to the listing: a plugin the caller excluded costs no
         // record walk and no budget, which is the half of #344 the phase order could not reach.
-        if (exclude is { Count: > 0 })
+        // Runs whenever the caller PASSED an exclusion, even one that expands to nothing — otherwise a group with
+        // no members in this order left no trace at all and the response never mentioned exclude= had been written.
+        if (exclude is not null)
         {
             // Case-insensitive here, explicitly, rather than relying on whatever comparer the caller's collection
             // happens to carry: plugin filenames are matched case-insensitively everywhere else in this sweep.
-            var drop = new HashSet<string>(exclude, StringComparer.OrdinalIgnoreCase);
-            // A name that matches nothing in scope is a REFUSAL, not a no-op. The silent reading hands back exactly
-            // the wall of findings the caller asked not to see, with nothing to tell them their spelling missed —
-            // the same rule plugins= already follows for a name that is not in the order.
+            var drop = new HashSet<string>(exclude.Names, StringComparer.OrdinalIgnoreCase);
+            // Only the names the CALLER TYPED are held against the scope. A typed name that matches nothing is a
+            // typo and refuses; a GROUP member that is not here is the ordinary case — see SweepExclusion.Resolved
+            // for the refusal this separation removes.
             var inScope = new HashSet<string>(targets, StringComparer.OrdinalIgnoreCase);
             foreach (var name in offOrder ?? Array.Empty<(string Name, string Path)>()) inScope.Add(name.Name);
-            foreach (var name in exclude)
+            foreach (var name in exclude.TypedNames)
                 if (!inScope.Contains(name))
                     return ErrorCheckResult.Fail(
                         $"exclude= names '{name}', which is not in the scope this sweep would cover.{view.AbsenceClause(name)} " +

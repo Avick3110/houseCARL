@@ -44,36 +44,54 @@ public static class SweepExclusion
     public static bool IsPluginName(string value) =>
         PluginExtensions.Any(e => value.EndsWith(e, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Resolve <paramref name="exclude"/> into the set of plugin filenames to leave out of the sweep.
+    /// <summary>A resolved <c>exclude=</c>, keeping the two kinds of value APART.
+    ///
+    /// <para>They earn different treatment and conflating them produced a refusal naming a plugin the caller never
+    /// typed. A NAME is a claim that a specific plugin is in scope, so one that matches nothing is a typo and must
+    /// refuse. A GROUP is a filter — "whichever of these are here, drop them" — so a member that is not in scope is
+    /// the ordinary case, not an error. Expanded together and validated as one list, <c>plugins=["MyMod.esp"]</c>
+    /// with <c>exclude=["base_masters"]</c> refused with "exclude= names 'Update.esm', which is not in the scope
+    /// this sweep would cover" — a value the caller never wrote, from a group they cannot subtract from, with no
+    /// action available to them. Every narrowed scope refused every group token.</para></summary>
+    /// <param name="Names">every filename to leave out, groups expanded.</param>
+    /// <param name="TypedNames">only the filenames the CALLER wrote — the ones a scope must actually contain.</param>
+    public sealed record Resolved(IReadOnlyCollection<string> Names, IReadOnlyList<string> TypedNames);
+
+    /// <summary>Resolve <paramref name="exclude"/> into the plugin filenames to leave out of the sweep.
     /// <paramref name="implicitNames"/> comes from the layer that reads the MO2 composition, because that is where
     /// the fact lives; passing it in keeps this parsable without a live order.
     ///
     /// <para>Every malformed value refuses BEFORE the sweep runs and names what was expected (Q3): a typo'd
     /// exclusion that silently excluded nothing would hand back a wall of findings the caller asked not to see,
-    /// with no hint that their spelling missed.</para></summary>
-    public static (HashSet<string> Names, string? Error) Resolve(
+    /// with no hint that their spelling missed.</para>
+    ///
+    /// <para>Returns null only when the caller passed no exclusion at all. A caller who DID pass one gets a
+    /// Resolved back even when it expands to nothing, so the sweep can still say the scope was narrowed rather
+    /// than proceeding as though exclude= had never been written.</para></summary>
+    public static (Resolved? Set, string? Error) Resolve(
         IReadOnlyList<string>? exclude, IReadOnlyList<string> implicitNames)
     {
+        if (exclude is null || exclude.Count == 0) return (null, null);
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (exclude is null || exclude.Count == 0) return (names, null);
+        var typed = new List<string>();
 
         foreach (var raw in exclude)
         {
             var v = raw?.Trim() ?? "";
             if (v.Length == 0)
-                return (names, $"a blank value in exclude= — pass a plugin filename (e.g. 'CoolMod.esp') or one of: {string.Join(", ", Tokens)}.");
-            if (IsPluginName(v)) { names.Add(v); continue; }
+                return (null, $"a blank value in exclude= — pass a plugin filename (e.g. 'CoolMod.esp') or one of: {string.Join(", ", Tokens)}.");
+            if (IsPluginName(v)) { names.Add(v); typed.Add(v); continue; }
 
             if (v.Equals(BaseMastersToken, StringComparison.OrdinalIgnoreCase))
                 foreach (var m in ErrorCheck.BaseMasters) names.Add(m);
             else if (v.Equals(ImplicitToken, StringComparison.OrdinalIgnoreCase))
                 foreach (var m in implicitNames) names.Add(m);
             else
-                return (names,
+                return (null,
                     $"exclude= value '{v}' is neither a plugin filename nor a known group. A plugin filename carries " +
                     $"its extension ('CoolMod.esp'); the groups are: {string.Join(", ", Tokens)}. " +
                     "Nothing was swept — fix the value and re-run.");
         }
-        return (names, null);
+        return (new Resolved(names, typed), null);
     }
 }

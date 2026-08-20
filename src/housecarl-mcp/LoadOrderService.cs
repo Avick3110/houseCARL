@@ -4580,7 +4580,10 @@ public sealed class LoadOrderService : IDisposable
         // loads that plugins.txt does not list — so it is read HERE, where that composition lives, and the core
         // sweep receives plain filenames. Resolved before anything is swept: a bad value refuses having done no
         // work (Q3).
-        var (excluded, excludeErr) = SweepExclusion.Resolve(exclude, ImplicitPluginNamesOrEmpty());
+        var (implicitNames, implicitErr) = ImplicitPluginNames();
+        if (implicitErr is not null && exclude is { Count: > 0 })
+            return ErrorCheckResult.Fail(implicitErr);
+        var (excluded, excludeErr) = SweepExclusion.Resolve(exclude, implicitNames);
         if (excludeErr is not null) return ErrorCheckResult.Fail(excludeErr);
 
         if (plugins is { Count: > 0 })
@@ -4618,15 +4621,25 @@ public sealed class LoadOrderService : IDisposable
     }
 
     /// <summary>The force-loaded plugin names (in the order, absent from plugins.txt) for
-    /// <see cref="SweepExclusion.ImplicitToken"/>, or empty when the composition cannot be read — a sweep must not
-    /// fail because an exclusion group could not be widened, and an exclusion that then matches nothing refuses in
-    /// the core with the name it could not find, which is the honest report either way.</summary>
-    IReadOnlyList<string> ImplicitPluginNamesOrEmpty()
+    /// <see cref="SweepExclusion.ImplicitToken"/>, or a REASON it could not be read.
+    ///
+    /// <para>It used to swallow the failure and return an empty list. That is the shape houseCARL fails on: a probe
+    /// that cannot see turns into an absence, and the absence is then acted on. Here the group expanded to nothing,
+    /// nothing was excluded, and the response carried no note that exclude= had even been passed — while the
+    /// parameter's own text promised a value that matches nothing is refused. A read that did not happen is not a
+    /// set that is empty, and the caller who asked for the group is the one who is told.</para></summary>
+    (IReadOnlyList<string> Names, string? Error) ImplicitPluginNames()
     {
         string profileDir;
         lock (_gate) { EnsurePathsDerived(); profileDir = _profileDir; }
-        try { return Mo2LoadOrder.ReadComposition(profileDir).ImplicitPluginNames; }
-        catch { return Array.Empty<string>(); }
+        try { return (Mo2LoadOrder.ReadComposition(profileDir).ImplicitPluginNames, null); }
+        catch (Exception ex)
+        {
+            return (Array.Empty<string>(),
+                $"exclude= could not be resolved: the MO2 profile's plugin list at '{profileDir}' could not be read " +
+                $"({ex.GetType().Name}: {ex.Message}). The '{SweepExclusion.ImplicitToken}' group is defined by which " +
+                "plugins that file does NOT list, so it cannot be widened without it. Nothing was swept.");
+        }
     }
 
     /// <summary>Parse the two sweep tools' shared record-scope params (#282) into a <see cref="SweepScope"/>: FormID

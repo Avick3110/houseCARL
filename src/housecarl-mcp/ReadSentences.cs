@@ -237,36 +237,59 @@ internal static class ReadSentences
     [MustState("not named here")]
     internal const string SweepRosterCut = " (the {0} largest of {1}; the rest are not named here)";
 
-    /// <summary>A RULE about the listing, not a claim about this response's contents - so it is unconditional
-    /// (#339: prefer deleting the conditional to moving its test). It is what lets a reader trust the roster: a
-    /// plugin can be absent from the sections entirely and still be findable there.</summary>
+    /// <summary>A RULE about the listing rather than a claim about this response's contents. It is stated wherever
+    /// a roster is, which is the only place it means anything — it exists to tell a reader that the roster above is
+    /// where a plugin with no section of its own can still be found.</summary>
     [MustState("no section of its own")]
     internal const string SweepNoSectionRule =
         " A plugin whose whole set is missing here, with nothing else to report, gets no section of its own.";
 
-    /// <summary>The remedy. Each knob is named beside the cause it moves, because a caller cut by max_chars who
-    /// raises limit= gets the identical response back. The scoping clause carries its own bound: on the live order
-    /// the largest single source runs to 2591 refs against a default limit of 1000, so an unqualified "scope to it"
-    /// would loop the caller back to this same line (#344 round-1 review, measured).</summary>
-    [MustState("limit=", "max_chars=", "counts_only=true")]
-    internal const string SweepRemedy =
-        " Raise limit= to list more, max_chars= to fit more; scoping plugins= to one of these re-spends the whole " +
-        "budget on that plugin, which lists its set in full unless that set is itself larger than limit=. " +
-        "counts_only=true returns the by-source tally for every plugin, capped only in how many ROWS it prints.]";
+    // THE REMEDY IS ASSEMBLED FROM THE CAUSES THAT ACTUALLY FIRED. One fixed sentence naming every knob was
+    // measured wrong twice over: it opened with "Raise limit= to list more" on responses where the budget had
+    // dropped nothing, and it promised scoping "lists its set in full unless that set is itself larger than limit="
+    // on responses whose cause was max_chars — driven on a real scope, that promise returned 16 of 40. A knob named
+    // beside a cause it did not move is a remedy the caller can follow and land in the same place.
 
-    /// <summary>The closer on a complete response - no remedy, because there is nothing to remedy.</summary>
-    [NoClaims("the bracket closing a line whose every claim is stated before it")]
-    internal const string SweepComplete = "]";
+    /// <summary>Offered only where the listing budget actually dropped something.</summary>
+    [MustState("limit=")]
+    internal const string SweepRemedyLimit = " Raise limit= to list more.";
+
+    /// <summary>Offered only where THIS RESPONSE could not fit what the budget admitted.</summary>
+    [MustState("max_chars=")]
+    internal const string SweepRemedyMaxChars = " Raise max_chars= to fit more of what was found.";
+
+    /// <summary>The scoping clause, and it names BOTH bounds rather than one. Re-spending the budget on one plugin
+    /// says nothing about whether the response can carry the result: on the live order the largest single source
+    /// runs to 2591 refs against a default limit of 1000, and a scoped sweep of it still met max_chars.</summary>
+    [MustState("plugins=", "limit=", "max_chars=")]
+    internal const string SweepRemedyScope =
+        " Scoping plugins= to one of these re-spends the whole listing budget on that plugin; whether you then see " +
+        "its set in full depends on limit= and on max_chars=, which both still apply.";
+
+    /// <summary>Offered wherever a by-source roster exists, since that is the tally it points at.</summary>
+    [MustState("counts_only=true")]
+    internal const string SweepRemedyCountsOnly =
+        " counts_only=true returns the by-source tally for every plugin, capped only in how many ROWS it prints.";
+
+    /// <summary>The bracket that closes the line, remedies or not.</summary>
+    [NoClaims("punctuation closing the accounting line")]
+    internal const string SweepClose = "]";
 
     /// <summary>The one arm where the response is allowed to exceed max_chars, and it says so. A cap smaller than
     /// the accounting itself leaves no honest response: dropping the accounting restores exactly the silence #361
-    /// IS, and refusing turns a call that answers today into one that does not. So the accounting ships, the
-    /// overrun is NAMED with the number that fixes it, and the invariant a probe can pin becomes "never over
-    /// max_chars, or over it and saying so" rather than a promise with an undocumented hole.</summary>
+    /// IS, and refusing turns a call that answers today into one that does not. So the accounting ships and the
+    /// overrun is NAMED with the number that clears it.
+    ///
+    /// <para><b>It is MEASURED, never predicted.</b> The first cut of this fired on
+    /// <c>headerLength + reserve &gt; max_chars</c> — a statement about the worst case the reserve is sized for, not
+    /// about this response. It printed "this response is longer than the max_chars you gave it" over responses that
+    /// were comfortably shorter: 1032 caps out of a 200–6000 sweep in the default text lane alone, and every cap
+    /// from 800 up in the missing-masters lane, where the reserve is held for a line that lane never emitted. A
+    /// sentence about a length is asked of the length.</para></summary>
     [MustState("max_chars=", "raise it to at least")]
     internal const string SweepCapTooSmall =
-        " This response is longer than the max_chars={0} it was given: that budget is smaller than the accounting " +
-        "above, which is never dropped, so nothing was listed - raise it to at least {1}.";
+        " This response is {2} chars, longer than the max_chars={0} it was given: that budget cannot carry the " +
+        "accounting above, which is never dropped - raise it to at least {1}.";
 
     /// <summary>The sweep's honest scope boundary, stated to BOTH transports from here. It was two hand-copied
     /// twins — the text render's and the json writer's — and they had already drifted: the text one qualified the

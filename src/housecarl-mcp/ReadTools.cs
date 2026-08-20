@@ -1183,13 +1183,15 @@ static class Wire
         {
             AppendHistogram(sb, r.Histogram, histogramLimit, "dangling ref(s) by TARGET plugin (the plugin the broken refs point INTO)",
                             "counts_only=true — totals above are exact; no per-plugin listing was built.",
-                            notComputed: "no dangling histogram, by target or by source — the link walk was not run (findings= excluded 'dangling').");
+                            notComputed: "no dangling histogram, by target or by source — the link walk was not run (findings= excluded 'dangling').",
+                            budget: budget);
             // #344 — the SOURCE axis: which plugin the broken refs come FROM. The target axis names the absent
             // dependency behind a wall of findings; only this one answers "how much of this is vanilla, and how much
             // did the mods introduce". No note and no not-computed line of its own — both would repeat what the
             // target histogram directly above has just said.
             AppendHistogram(sb, r.DanglingBySource, histogramLimit,
-                            "dangling ref(s) by SOURCE plugin (the plugin the broken refs come FROM)", note: null);
+                            "dangling ref(s) by SOURCE plugin (the plugin the broken refs come FROM)", note: null,
+                            budget: budget);
             acct.UnreadRows(AppendScanErrorTail(sb, r.Reports, budget));
             acct.ExcludedRows(AppendExcludedPlugins(sb, r.ExcludedPlugins, budget).Appended);   // #288 review finding 5: the NAMES, not just the header count
             return Close(sb, acct, reserve, headerLength);
@@ -1249,8 +1251,9 @@ static class Wire
     {
         if (acct.TextLine() is { } line) sb.Append('\n').Append(line).Append('\n');
         sb.Append('\n').Append(ReadSentences.SweepBoundaryLabel).Append(ReadSentences.SweepBoundary).Append('\n');
-        if (acct.CapTooSmall(headerLength, reserve) is { } notice) sb.Append(notice).Append('\n');
-        return sb.ToString().TrimEnd('\n');
+        // The overrun question is asked of the FINISHED response, so the string is built first and measured.
+        var response = sb.ToString().TrimEnd('\n');
+        return acct.CapTooSmall(response.Length, headerLength + reserve) is { } notice ? response + notice : response;
     }
 
     /// <summary>#344 — the baseline split: how much of the dangling total came from the base-game masters, and how
@@ -1310,8 +1313,12 @@ static class Wire
     /// <summary>Render a <c>counts_only=</c> histogram, capped at <paramref name="rowLimit"/> with the true distinct-key
     /// count always stated. A null histogram means the mode was not requested; an EMPTY one means the sweep genuinely
     /// found nothing, and the two read differently (Q3).</summary>
+    /// <param name="budget">the chars this render may occupy. Defaults to unbounded, which is what validate_scripts
+    /// still passes — its response layer is not this branch's. check_errors passes the real budget: measured on a
+    /// 400-row-per-axis sweep, an unbounded counts_only response returned 27,944 chars against a max_chars of 5,000,
+    /// which is the one lane the cap invariant did not reach.</param>
     static void AppendHistogram(StringBuilder sb, IReadOnlyList<SweepCount>? rows, int rowLimit, string title, string? note,
-                                string? notComputed = null)
+                                string? notComputed = null, int budget = int.MaxValue)
     {
         if (note is not null) sb.Append('\n').Append(note).Append('\n');
         if (rows is null) { if (notComputed is not null) sb.Append(notComputed).Append('\n'); return; }
@@ -1320,14 +1327,20 @@ static class Wire
         if (rows.Count == 0) { sb.Append("\n").Append(title).Append(": nothing to tally — no findings in the swept scope.\n"); return; }
         sb.Append('\n').Append(title).Append(" (").Append(rows.Count).Append(" distinct):\n");
         int shown = 0;
+        bool cutByBudget = false;
         foreach (var row in rows)
         {
             if (shown >= rowLimit) break;
-            sb.Append("  ").Append(row.Count.ToString().PadLeft(6)).Append("  ").Append(row.Key).Append('\n');
+            var line = "  " + row.Count.ToString().PadLeft(6) + "  " + row.Key + "\n";
+            if (sb.Length + line.Length > budget) { cutByBudget = true; break; }
+            sb.Append(line);
             shown++;
         }
+        // The remedy names the knob that STOPPED it. "raise limit=" on rows the response had no room for is a knob
+        // that moves nothing — the same defect the accounting's own remedy was measured for.
         if (shown < rows.Count)
-            sb.Append("  ... [").Append(rows.Count - shown).Append(" more row(s) — raise limit= to see them]\n");
+            sb.Append("  ... [").Append(rows.Count - shown).Append(" more row(s) — raise ")
+              .Append(cutByBudget ? "max_chars=" : "limit=").Append(" to see them]\n");
     }
 
     /// <summary>The named, reasoned list of plugins the index build could not parse. Shared by the listing and
