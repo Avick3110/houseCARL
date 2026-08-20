@@ -99,6 +99,21 @@ debugging session. If the user is on a SPID version newer than 7.3.0 and asks ab
 the reference, surface that the reference may be behind and offer to re-derive from the current
 SPID documentation.
 
+## Verifying a distribution actually happened
+
+A parsed `_DISTR.ini` and a clean SPID log are **not** proof that an NPC got the thing. The log
+shows what SPID looked up; only a live actor shows what SPID applied.
+
+- **SPID does not distribute to the player.** Asserting on `Game.GetPlayer()` returns false even
+  for a working distribution — verify against sampled NPCs instead.
+- **Distribution happens at NPC load**, so an actor already baked into a pre-existing save proves
+  nothing about a rule added afterwards — verify against actors that load after the rule exists.
+- **A dynamic keyword IS reachable.** A keyword SPID creates at runtime has no plugin FormID, but
+  `Keyword.GetKeyword("<name>")` (SKSE) finds it — which is what makes a no-ESP keyword
+  distribution verifiable from script at all.
+- **Sample somewhere NPCs must be.** An interior cell with known occupants beats an exterior spawn
+  marker: finding no NPC within scan range there is inconclusive, not a failing distribution.
+
 ## Common mistakes
 
 - **Miscounting pipe positions.** The sections are positional; a chance written one pipe early lands

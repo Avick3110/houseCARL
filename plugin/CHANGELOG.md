@@ -13,6 +13,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **`spid-authoring` now covers verifying a distribution on a live actor.** A parsed `_DISTR.ini` and a
+  clean SPID log show what SPID looked up, not what an actor received. The skill's new "Verifying a
+  distribution actually happened" section says what to assert instead — and why the player is the wrong
+  actor to assert on.
+
 - **Fixed: `housecarl_remove` told you to create a patch it cannot create.** Naming a patch that does not exist —
   `housecarl_remove(..., into="My Patch.esp")`, or `housecarl_remove_record(..., patch="My Patch.esp")` on the 1.x
   spelling — is refused, and that refusal ended "Omit into= to create it fresh, or check the name." Doing that got
