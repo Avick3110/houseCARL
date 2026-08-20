@@ -18,7 +18,7 @@ saying it sets an expectation their install may contradict. Say what is known, a
   units: the listing budget said how many refs `limit=` never listed, and a truncation notice said how many
   plugin sections `max_chars` dropped. Neither could see the other, so neither answered "how many of these can
   I actually see" — on a 3800-plugin order at the defaults the two together reported 3996 not listed and 554
-  of 1000 shown, while 530 of 4996 was the answer. There is now one line, and it states that number first,
+  of 1000 shown, while 554 of 4996 was the answer. There is now one line, and it states that number first,
   then splits it by cause and names the knob that moves each. Two things follow from computing it after the
   response is built rather than where a loop stops. A cut landing inside the LAST report section used to print
   nothing at all — no notice, and the response ran past `max_chars` while doing it; it is now reported like any
@@ -28,11 +28,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   finding.
   The accounting and the boundary footer are held back out of `max_chars` before the listing is built, so
   neither is appended past it. That costs the listing a little of its room: on a 3800-plugin order at the
-  defaults the response lists 537 findings and ends just inside 80,000 characters. The one case
-  where a response is still longer than the `max_chars` you gave it is a `max_chars` too small to hold the
-  accounting itself; there the response says so and names the number that clears it, and setting `max_chars` to
-  that number does clear it. `counts_only=true` is inside the cap too now — its two histograms took `limit=` as
-  their only bound, so a wide tally could run many times past the `max_chars` it was given.
+  defaults the response lists 538 findings and ends just inside 80,000 characters. The one case
+  where a response is still longer than the `max_chars` you gave it is a `max_chars` too small to hold what the
+  response must carry whatever the budget — its header, that accounting, the boundary; there the response says so,
+  states its own length including the sentence saying it, and names the number that clears it, and setting
+  `max_chars` to that number does clear it. Every other part of the answer is now inside the cap: the two
+  `counts_only=true` histograms (which took `limit=` as their only bound, so a wide tally could run many times past
+  the `max_chars` it was given), the list of plugins whose records could not be read, and the list of plugins that
+  could not be parsed — the last of which `format='json'` wrote with no bound at all. A histogram is emitted with
+  rows or not at all, and where rows were dropped it says how many and which knob to move.
   A report section is now emitted whole or not at all: what a section says besides its dangling entries — a
   scan error, the masters it declares that are missing, how many records could not be read — is a finding in
   its own right, and used to be dropped a line at a time with nothing recording it. The two things a cut can
@@ -50,8 +54,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   an exclusion that removes everything are each refused before the sweep runs, and each refusal names what it
   expected. A group is a filter rather than a claim, so a group whose members are not all in your scope is not
   an error — `plugins=` narrowed to one plugin with `exclude=["base_masters"]` drops whichever base masters are
-  there and says nothing about the rest. If the MO2 profile's plugin list cannot be read, `implicit` cannot be
-  worked out at all and the call is refused rather than quietly excluding nothing.
+  there and says nothing about the rest, and the count the response states is what YOUR scope lost, not how many
+  plugins the group name stands for. If the MO2 profile's plugin list cannot be read, `implicit` cannot be worked
+  out at all and a call that asked for that group is refused rather than quietly excluding nothing; a call that
+  named plugins instead is unaffected, because those need no profile read.
+
+- **Changed: `housecarl_validate_scripts` says what a `max_chars` cut dropped from its excluded-plugin list.**
+  That list is now charged to `max_chars` like the rest of the response, so a tight one can drop it whole. Where
+  that happens the response says which list did not fit and how many plugins the index could not parse are
+  therefore unnamed, instead of a bare "truncated" marker under a heading that may itself be gone.
 
 - **New: `source_provider=` reaches a mod MO2 is not currently loading.** `housecarl_place_asset` and
   `housecarl_bulk_place_asset` resolve a named provider against the mods MO2 loads, and — when no provider of that
