@@ -142,7 +142,7 @@ public static class NifTools
          "(from housecarl_nif_inspect). By DEFAULT the verified mesh is written into a NEW houseCARL MO2 mod folder at the " +
          "same path (originals untouched) — enable it and sort it ABOVE the current winner so the edit wins; a BSA-packed " +
          "source becomes a loose winning override this way. in_place=true instead OVERWRITES the winning LOOSE file where " +
-         "it sits (opt-in; rides the one-time per-file consent handshake, needs acknowledge=true, NO backup). Only edits " +
+         "it sits (opt-in; rides the per-file consent handshake, needs acknowledge=true, NO backup). Only edits " +
          "data VALUES — never geometry / vertices / the .dds pixels. Refuses loud (Q3): a non-SE mesh, a target it can't " +
          "find or that's ambiguous, an op that doesn't apply, or any verification miss.")]
     public static string NifSet(

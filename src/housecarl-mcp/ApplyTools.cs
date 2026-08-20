@@ -86,7 +86,7 @@ public static class ApplyTools
          "houseCARL backup or undo (keep your own). It re-lays-out the whole plugin the way xEdit/CK do on save, " +
          "VERIFIES the records you edit, trusts Mutagen for the untouched rest, and refuses a file it can't parse or " +
          "that holds engine-reserved (sub-0x800) records. The FIRST in-place edit of a given plugin returns a " +
-         "one-time confirmation prompt (re-call with acknowledge=true); that consent covers touching your original " +
+         "confirmation prompt (re-call with acknowledge=true); that consent covers touching your original " +
          "ONLY — it NEVER skips the record verify.\n" +
          "dry_run=true runs the FULL pipeline — winner resolve, schema pre-flight, every op applied in memory, the " +
          "reference-resolution check — and STOPS before anything touches disk. It returns what WOULD change and the " +

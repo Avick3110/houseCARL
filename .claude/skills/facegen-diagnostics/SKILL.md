@@ -32,7 +32,7 @@ offset-immune verification gates before anything lands** (only the value the op 
 reload re-reads it; census + SE-stream intact) — a failed verify writes **nothing** and says why. By default
 the edited mesh goes into a **new houseCARL MO2 mod folder** at the same path (originals untouched; enable +
 sort it above the current winner — a BSA-packed source becomes a loose winning override this way);
-`in_place=true` overwrites the winning loose file itself (opt-in, one-time per-file acknowledge, **no
+`in_place=true` overwrites the winning loose file itself (opt-in, per-file acknowledge, **no
 backup**).
 
 **What houseCARL CANNOT do — instruct, never claim:** bake/regenerate facegen **geometry** (that is Creation

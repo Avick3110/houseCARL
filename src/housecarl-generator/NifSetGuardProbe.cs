@@ -358,6 +358,15 @@ internal static class NifSetGuardProbe
 
                 var r1 = svc.NifSet(MeshRel, new[] { new NifSetOp(NifSetOpKind.SetFlags, "GuardShape", Flags: 0x800000E) }, null, null, null, inPlace: true, acknowledge: false);
                 Check(r1.NeedsAcknowledge && r1.Report is null, $"in-place FIRST call without acknowledge → consent prompt, nothing written — {(r1.NeedsAcknowledge ? "prompt" : "NO PROMPT")}");
+                // The mesh prompt's half of the shared lead, by PRESENCE of the corrected wording. Keyed to "mesh", so
+                // this also pins that the mesh lane passes its own subject rather than inheriting the plugin's.
+                var meshPrompt = r1.AckPrompt ?? "";
+                Check(meshPrompt.Contains("shown until an in-place write to this mesh LANDS", StringComparison.Ordinal)
+                      && meshPrompt.Contains("a call that is refused records nothing", StringComparison.Ordinal),
+                      "the mesh prompt states WHEN it stops — a landed write, not \"once\"");
+                Check(meshPrompt.Contains("not a copy", StringComparison.Ordinal)
+                      && meshPrompt.Contains("cannot restore what it overwrites", StringComparison.Ordinal),
+                      "the mesh prompt's file claim is direction-neutral (true whether or not a prior call already mutated it)");
                 Check(File.ReadAllBytes(loosePath).SequenceEqual(seBytes), "the loose file is untouched by the un-acknowledged in-place call");
 
                 var r2 = svc.NifSet(MeshRel, new[] { new NifSetOp(NifSetOpKind.SetFlags, "GuardShape", Flags: 0x800000E) }, null, null, null, inPlace: true, acknowledge: true);

@@ -50,7 +50,7 @@ public static class ForwardTools
          "existing override is REPLACED by source's body (xEdit's copy-as-override overwrite, flagged per record). " +
          "in_place='<plugin filename>' forwards INTO an existing plugin's OWN file (incl. one houseCARL didn't " +
          "author) — same replace-on-collision semantics, your ORIGINAL rewritten, no houseCARL backup or undo, and " +
-         "the same one-time acknowledge= consent as the sibling write tools.\n\n" +
+         "the same acknowledge= consent as the sibling write tools.\n\n" +
          "THE STALE-WINNER BYPASS RECIPE (pinned): forward from the source you want, then housecarl_apply into= the " +
          "same patch — the ops edit the patch's FORWARDED copy and never re-resolve the (stale) load-order winner, " +
          "so you build on the forwarded body directly.\n\n" +
