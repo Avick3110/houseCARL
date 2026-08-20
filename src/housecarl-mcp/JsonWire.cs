@@ -23,6 +23,11 @@ static class JsonWire
 {
     static readonly JsonWriterOptions Opts = new() { Indented = true };
 
+    /// <summary>The options every json response is written under, exposed so <see cref="CheckAccounting"/> measures
+    /// its reserve against the SAME encoding it will be written in. Measuring unindented what is written indented
+    /// under-reserves by the whole indentation.</summary>
+    internal static JsonWriterOptions WriterOptions => Opts;
+
     static string Finish(MemoryStream ms) => Encoding.UTF8.GetString(ms.ToArray());
 
     static void WriteNullable(Utf8JsonWriter w, string name, string? v)
@@ -1213,24 +1218,31 @@ static class JsonWire
     }
 
     // ---- housecarl_check_errors (#282) --------------------------------------------------------------
-    /// <summary>The integrity sweep as JSON: <c>{scanned_plugins, dangling, baseline_dangling, non_baseline_dangling,
-    /// base_masters_swept, base_masters, missing_masters, unscannable, classes, filter_note, off_order_scanned,
-    /// excluded_plugins, dangling_by_source_plugin, capped, dangling_not_listed_by_source, plugins:[…],
-    /// plugins_with_findings, rendered, truncated, boundary}</c>, or the <c>counts_only</c> shape with
-    /// <c>histogram</c> in place of <c>plugins</c>.
-    /// An error CLASS the caller excluded is
-    /// emitted as <c>null</c>, NOT as 0 — the json counterpart of the text render's "NOT CHECKED", so a skipped check
-    /// cannot be parsed as a clean one (Q3). Budget-aware: drops trailing rows and flags <c>truncated</c>, always
-    /// leaving valid JSON.
-    /// <para>The field list above is a HAND-KEPT second spelling of the wire names, outside <c>wire-names-guard</c>'s
-    /// reach — it drifted once already (it named <c>base_masters_in_scope</c>, which no writer emits). If it drifts a
-    /// second time, delete it rather than correct it again and let the writer below be the only authority (#358's
-    /// roster lesson).</para></summary>
+    /// <summary>The integrity sweep as json, carrying the SAME accounting the text render states in prose — one
+    /// <see cref="CheckAccounting"/> computes both, so the two transports cannot disagree about what this response
+    /// is missing (#337).
+    ///
+    /// <para>An error CLASS the caller excluded is emitted as <c>null</c>, NOT as 0 — the json counterpart of the
+    /// text render's "NOT CHECKED", so a skipped check cannot be parsed as a clean one (Q3).</para>
+    ///
+    /// <para><b>The budget is tested per ENTRY, not per plugin</b> (#361). It used to be tested before each plugin
+    /// OBJECT, so one plugin's whole dangling array went out in a single piece: measured on the live ARR order, a
+    /// single-plugin sweep of a 2591-ref plugin returned 202,425 chars against an 80,000 cap and reported
+    /// <c>truncated: false</c> — true, and useless, because <c>max_chars</c> had not been applied at all. Testing at
+    /// the entry makes the overshoot unrepresentable rather than smaller.</para>
+    ///
+    /// <para>The field list this summary used to carry has been deleted rather than corrected a second time: it was
+    /// a HAND-KEPT second spelling of the wire names, outside <c>wire-names-guard</c>'s reach, and it had already
+    /// drifted once (it named <c>base_masters_in_scope</c>, which no writer emits). The writer below is the only
+    /// authority — #358's roster lesson, taken at the second drift as that comment itself asked.</para></summary>
     public static string RenderCheckErrors(ErrorCheckResult r, int maxChars, int histogramLimit = 1000)
     {
         int cap = Cap(maxChars);
         bool didDangling = r.Classes.HasFlag(ErrorFindingClass.Dangling);
         bool didMasters = r.Classes.HasFlag(ErrorFindingClass.MissingMasters);
+        var acct = new CheckAccounting(r, cap);
+        int reserve = acct.JsonReserve;
+        int budget = acct.BodyBudget(reserve);
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -1270,65 +1282,73 @@ static class JsonWire
             // is written even when the walk did not run, because it is true either way.
             WriteStringArray(w, "base_masters_swept", r.BaseMastersSwept ?? Array.Empty<string>());
             WriteStringArray(w, "base_masters", HousecarlCore.ErrorCheck.BaseMasters);
+            // Where the BODY begins — see CheckAccounting.CapTooSmall for why it is asked here and not at the end.
+            int headerLength = Size(w, ms);
 
             if (r.CountsOnly)
             {
                 WriteHistogram(w, "dangling_by_target_plugin", r.Histogram, histogramLimit);
                 WriteHistogram(w, "dangling_by_source_plugin", r.DanglingBySource, histogramLimit);   // #344 — the new axis
-                WriteUnreadPlugins(w, r.Reports, ms, cap);
+                acct.UnreadRows(WriteUnreadPlugins(w, r.Reports, ms, budget));
             }
             else
             {
-                w.WriteBoolean("capped", r.Capped);
-                // #344 — WHICH plugins lost entries to the budget. Absent (not empty) when nothing was listed at all,
-                // matching the histograms' null-means-not-computed rule; empty rows mean nothing was dropped.
-                // NOT histogramLimit: that is limit=, the very knob whose smallness caused the omissions — the tighter
-                // the budget, the more plugins lose entries and the fewer of them json would have named (round-1
-                // review). Its own cap, with distinct/rendered disclosing any truncation.
-                WriteHistogram(w, "dangling_not_listed_by_source", r.ListingOmitted, OmittedSourceRows);
                 w.WriteStartArray("plugins");
-                int rendered = 0; bool truncated = false;
                 foreach (var p in r.Reports)
                 {
-                    w.Flush();
-                    if (ms.Length >= cap) { truncated = true; break; }
+                    if (Size(w, ms) >= budget) break;
                     w.WriteStartObject();
                     w.WriteString("plugin", p.Plugin);
                     WriteNullable(w, "scan_error", p.ScanError);
                     WriteStringArray(w, "missing_masters", p.MissingMasters);
+                    // The unscannable fields are written BEFORE the dangling array, not after it. Field order carries
+                    // no meaning to a consumer, and putting them here is what bounds the tail: once the entry loop
+                    // breaks mid-plugin, all that follows is three fixed closing brackets. Written after the array,
+                    // their length rode outside the budget — and unscannable_samples carries up to three exception
+                    // messages, so "outside the budget" was unbounded, not merely untidy.
+                    w.WriteNumber("unscannable_records", p.UnscannableRecords);
+                    WriteStringArray(w, "unscannable_samples", p.UnscannableSamples);
                     w.WriteStartArray("dangling");
                     foreach (var d in p.Dangling)
                     {
+                        // Per ENTRY: one plugin's array can be thousands of rows, and a check taken only at the
+                        // plugin boundary lets all of them out at once (#361, measured at 2.5x the cap).
+                        if (Size(w, ms) >= budget) break;
                         w.WriteStartObject();
                         w.WriteString("source", d.Source.ToString());
                         w.WriteString("source_type", d.SourceType);
                         WriteNullable(w, "source_editorid", d.SourceEditorId);
                         w.WriteString("target", d.Target.ToString());
                         w.WriteEndObject();
+                        acct.Entry(p.Plugin);
                     }
                     w.WriteEndArray();
-                    w.WriteNumber("unscannable_records", p.UnscannableRecords);
-                    WriteStringArray(w, "unscannable_samples", p.UnscannableSamples);
                     w.WriteEndObject();
-                    rendered++;
+                    // Counted where the object CLOSED, so a section is "rendered" only once all of it is in the
+                    // document — the twin of the text lane counting an entry where its line landed.
+                    acct.Section();
                 }
                 w.WriteEndArray();
-                // The same layer rule as the text render: this writer performed this omission, so it states it in its
-                // own terms. rendered + truncated alone did not let a consumer derive HOW MANY sections were dropped —
-                // there was no total to subtract from — so the total rides along and the arithmetic is exact.
-                w.WriteNumber("plugins_with_findings", r.Reports.Count);
-                w.WriteNumber("rendered", rendered);
-                w.WriteBoolean("truncated", truncated);
             }
 
-            w.WriteString("boundary",
-                "checks FormLink resolution, missing masters, and parse failures. Does NOT verify navmesh/terrain spatial " +
-                "integrity (CRC/grid), flag required-but-null fields, list unused-master cleanup, or link-check an owned " +
-                "item's ownership 'variable' word; a null FormLink is a legal optional.");
+            // This transport writes the excluded roster WHOLE, above, so nothing of it is ever missing here — told
+            // to the accounting explicitly rather than left at zero, which would claim every row was dropped.
+            acct.ExcludedRows(r.ExcludedPlugins.Count);
+
+            // §2.1's required in-band accounting rides the accounting's own writer — everything the close emits is
+            // written in one place, which is the same place JsonReserve measures.
+            acct.WriteJson(w);
+            w.WriteString("boundary", ReadSentences.SweepBoundary);
+            if (acct.CapTooSmall(headerLength, reserve) is { } notice) w.WriteString("max_chars_overrun", notice);
             w.WriteEndObject();
         }
         return Finish(ms);
     }
+
+    /// <summary>The document's size so far, without flushing: committed bytes plus what the writer still holds. A
+    /// flush per entry would be the obvious spelling and the wrong one — this is the same number, and it is what
+    /// makes a per-entry budget test affordable.</summary>
+    static int Size(Utf8JsonWriter w, MemoryStream ms) => (int)(ms.Length + w.BytesPending);
 
     /// <summary>check_errors' stamp + coverage as data (PR #305 re-review) — the sweep twin of
     /// <see cref="WriteEpochWithCoverage"/>: <c>epoch_covers_all_inputs</c> is false exactly when off-order files
@@ -1498,7 +1518,7 @@ static class JsonWire
     /// <para>Wrapped in <c>{total, rows, rendered, truncated}</c> rather than a bare array: a budget cut used to drop
     /// trailing rows with NO flag, so a consumer iterating the array believed it had the complete set of what went
     /// unchecked — and the text render said "truncated" for the same result (PR #288 review, finding 4).</para></summary>
-    static void WriteUnreadPlugins(Utf8JsonWriter w, IReadOnlyList<PluginErrors> reports, MemoryStream ms, int cap)
+    static int WriteUnreadPlugins(Utf8JsonWriter w, IReadOnlyList<PluginErrors> reports, MemoryStream ms, int budget)
     {
         w.WriteStartObject("unread");
         w.WriteNumber("total", reports.Count);
@@ -1506,8 +1526,7 @@ static class JsonWire
         int rendered = 0; bool truncated = false;
         foreach (var p in reports)
         {
-            w.Flush();
-            if (ms.Length >= cap) { truncated = true; break; }
+            if (Size(w, ms) >= budget) { truncated = true; break; }
             w.WriteStartObject();
             w.WriteString("plugin", p.Plugin);
             WriteNullable(w, "scan_error", p.ScanError);
@@ -1520,6 +1539,7 @@ static class JsonWire
         w.WriteNumber("rendered", rendered);
         w.WriteBoolean("truncated", truncated);
         w.WriteEndObject();
+        return rendered;
     }
 
     static void WriteExcluded(Utf8JsonWriter w, IReadOnlyDictionary<string, string> excluded)
