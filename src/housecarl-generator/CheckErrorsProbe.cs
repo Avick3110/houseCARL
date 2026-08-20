@@ -1171,6 +1171,22 @@ public static class CheckErrorsProbe
         Check("OVERRUN-REMEDY-CLEARS-IT: raising max_chars to the number the notice names actually removes the notice — a remedy is a claim about a call that has not happened, so the arm makes the call",
             RemedyClearsTheNotice(manyAmple, out var remedyFail), remedyFail);
 
+        // The notice reports a LENGTH, and it is itself part of the response it measures. Measured without itself it
+        // understated by its own length — 1,109 stated on a response of 1,281 — so the arm holds the stated number
+        // against the response actually returned, in both transports, over the caps where the notice fires.
+        var lenBad = new List<string>();
+        foreach (int cap in new[] { 120, 250, 400, 700, 1200 })
+        {
+            var t = Wire.RenderCheckErrors(manyAmple, cap);
+            int stated = StatedLength(t);
+            if (stated != t.Length) lenBad.Add($"text@{cap} says {stated}, is {t.Length}");
+            var j = JsonWire.RenderCheckErrors(manyAmple, cap);
+            int jStated = StatedLength(j.Replace("\\u0027", "'"));
+            if (jStated != j.Length) lenBad.Add($"json@{cap} says {jStated}, is {j.Length}");
+        }
+        Check("OVERRUN-NOTICE-STATES-THE-WHOLE-RESPONSE: the length the notice reports is the length the caller receives, notice included — a sentence about a length that leaves itself out is wrong by its own size",
+            lenBad.Count == 0, lenBad.Count == 0 ? "every notice stated its response's true length" : string.Join("; ", lenBad));
+
         // ---- the two honesty-layer row counts, both directions. They can each be a no-op and print
         //      "0 of 1 plugin(s) that could not be parsed are named above" over a response that named it.
         var withExcluded = ErrorCheck.Run(rm, null, 1000) with
@@ -1484,6 +1500,26 @@ public static class CheckErrorsProbe
         Arm("EXCLUDE-WIRE-JSON-AGREES: the json transport of the same excluded sweep reports the same narrowed totals — one exclusion, one sweep, two renders",
             jsonScanned == 1 && jsonDangling == 2, $"scanned={jsonScanned} dangling={jsonDangling}");
 
+        // The `implicit` group is the only value whose members come from a READ that can fail, and the refusal for
+        // that failure is gated on the caller having asked for that group. Both directions, over a real fault: the
+        // profile's plugins.txt held open exclusively, which is what the gate's own error message is about.
+        string pluginsTxt = Path.Combine(profiles, "plugins.txt");
+        string lockedImplicit, lockedName;
+        using (var hold = new FileStream(pluginsTxt, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            lockedImplicit = ReadTools.CheckErrorsTool(svc, exclude: new[] { SweepExclusion.ImplicitToken });
+            lockedName = ReadTools.CheckErrorsTool(svc, exclude: new[] { "Skyrim.esm" });
+        }
+        Arm("EXCLUDE-WIRE-IMPLICIT-READ-FAILURE-REFUSES: when the profile composition cannot be read, the caller who asked for the implicit GROUP is refused and told why — a group defined by a read that did not happen is not a group that is empty",
+            lockedImplicit.Contains("exclude= could not be resolved", StringComparison.Ordinal)
+            && lockedImplicit.Contains(SweepExclusion.ImplicitToken, StringComparison.Ordinal),
+            First(lockedImplicit));
+        Arm("EXCLUDE-WIRE-NAME-UNAFFECTED-BY-THE-COMPOSITION-READ: the same failure does NOT refuse a caller who named a plugin, because that value needs no composition — a refusal naming a group they never wrote is one they cannot act on",
+            lockedName.Contains("scanned 1 plugin ", StringComparison.Ordinal)
+            && lockedName.Contains("2 dangling ref(s)", StringComparison.Ordinal)
+            && !lockedName.Contains("could not be resolved", StringComparison.Ordinal),
+            First(lockedName));
+
         // Q3 at the surface: a bad value refuses through the tool, not just in the resolver's unit test.
         var refused = ReadTools.CheckErrorsTool(svc, exclude: new[] { "vanilla" });
         Arm("EXCLUDE-WIRE-REFUSAL-REACHES-THE-CALLER: an unknown group refuses at the TOOL surface, naming the value and the real token set, rather than sweeping with the exclusion quietly dropped",
@@ -1586,6 +1622,17 @@ public static class CheckErrorsProbe
             if (rows > 0 && rows < r.Reports.Count) return cap;
         }
         return last;
+    }
+
+    /// <summary>The length the overrun notice claims for the response it sits in, or -1 where it makes no claim.
+    /// </summary>
+    static int StatedLength(string response)
+    {
+        const string lead = "This response is ";
+        int at = response.IndexOf(lead, StringComparison.Ordinal);
+        if (at < 0) return -1;
+        var digits = new string(response[(at + lead.Length)..].TakeWhile(char.IsDigit).ToArray());
+        return int.TryParse(digits, out var n) ? n : -1;
     }
 
     /// <summary>The number the <c>exclude=</c> narrowing note states, or -1 where it states none. Read as a NUMBER

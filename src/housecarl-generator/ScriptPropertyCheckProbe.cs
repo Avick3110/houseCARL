@@ -466,6 +466,30 @@ public static class ScriptPropertyCheckProbe
             && !tinyCap.Contains("scope plugins=", StringComparison.Ordinal),
             $"tail=[{tinyCap.Split('\n').LastOrDefault(l => l.Contains("truncated", StringComparison.Ordinal))}]");
 
+        // The excluded-plugin roster's HEAD is charged to max_chars now (it used to be printed unconditionally), so
+        // a tight cap can drop the whole roster — and the marker that says so used to be a bare
+        // "... [truncated at max_chars]" that leant on a header line which may no longer be there. A marker has to
+        // name its own subject. Both directions: at an ample cap the roster is named and there is no marker.
+        var excludedFat = counts with
+        {
+            ExcludedPlugins = Enumerable.Range(0, 3)
+                .ToDictionary(i => $"HcSpBroken{i}.esp", i => new string('r', 300)),
+        };
+        var rosterWhole = Wire.RenderScriptCheck(excludedFat, 0);
+        // The cap is searched for, not named: which one admits the response but not the roster is a fact about the
+        // fixture. Counts_only, because the listing lane skips the roster entirely once its own record list is cut.
+        var rosterCut = "";
+        for (int cap = 200; cap <= 4000 && !rosterCut.Contains("did not fit max_chars", StringComparison.Ordinal); cap += 20)
+            rosterCut = Wire.RenderScriptCheck(excludedFat, cap);
+        Check("EXCLUDED-ROSTER-CUT-NAMES-ITS-SUBJECT: when max_chars leaves no room for the excluded-plugin roster, the marker says WHAT did not fit and how many plugins are unnamed — it no longer relies on a header line that can itself be dropped",
+            rosterCut.Contains("the excluded-plugin list did not fit max_chars", StringComparison.Ordinal)
+            && rosterCut.Contains("3 plugin(s) the index could not parse are NOT named above", StringComparison.Ordinal)
+            && !rosterCut.Contains("HcSpBroken0.esp", StringComparison.Ordinal)
+            // and the other direction: an ample cap names them and says nothing about a cut
+            && rosterWhole.Contains("HcSpBroken0.esp", StringComparison.Ordinal)
+            && !rosterWhole.Contains("did not fit max_chars", StringComparison.Ordinal),
+            $"cut=[{rosterCut.Split('\n').LastOrDefault(l => l.Contains("excluded-plugin list", StringComparison.Ordinal)) ?? "<no marker>"}] wholeNames={rosterWhole.Contains("HcSpBroken0.esp", StringComparison.Ordinal)}");
+
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "script-property-check-guard: ALL PASS" : $"script-property-check-guard: {failures} FAILURE(S)");
         return failures == 0 ? 0 : 1;
