@@ -133,24 +133,29 @@ internal sealed class CheckAccounting
 
     /// <summary>The chars held back from <c>max_chars</c> so the text accounting and the boundary footer are always
     /// affordable.</summary>
-    internal int TextReserve => _textReserve ??= Compose(Worst()).Length + ReadSentences.SweepBoundary.Length + ReadSentences.SweepBoundaryLabel.Length + Glue;
+    internal int TextReserve => _textReserve ??= Compose(Worst()).Length + ReadSentences.SweepBoundary.Length
+                                                 + ReadSentences.SweepBoundaryLabel.Length + TextGlue;
     int? _textReserve;
 
     /// <summary>The json lane's own reserve. Measured by SERIALIZING the worst case, not by estimating it off the
     /// text line: the two encodings differ in escaping and syntax, and a reserve that is an estimate is a reserve
     /// that is occasionally wrong in the direction that matters.</summary>
-    internal int JsonReserve => _jsonReserve ??= MeasureJson(Worst()) + Glue;
+    internal int JsonReserve => _jsonReserve ??= MeasureJson(Worst()) + JsonGlue;
     int? _jsonReserve;
 
-    /// <summary>Slack over the measured worst case, and it is load-bearing rather than cosmetic. A body's budget
-    /// test is taken BEFORE a line or entry is written, because neither transport can measure one without writing
-    /// it — so the last one always lands slightly over the budget it was tested against, and the reserve absorbs
-    /// exactly that. One dangling entry is two FormID strings, a type name and an EditorID; a kilobyte covers one
-    /// comfortably, plus the brackets that close the document and the newlines the text lane wraps its line in.
+    /// <summary>Slack over the measured worst case, and the two lanes need very different amounts of it.
     ///
-    /// <para>A reserve slightly too large costs a few characters of listing. One slightly too small is #361. The cap
-    /// sweep in check-errors-guard is what holds this honest — not the number's plausibility.</para></summary>
-    const int Glue = 1024;
+    /// <para>The TEXT lane composes each line and tests <c>length + line.Length</c> before appending, so nothing it
+    /// writes can exceed the budget it was tested against. All it needs is the handful of newlines the accounting
+    /// and boundary are wrapped in. The JSON lane cannot do that — a <c>Utf8JsonWriter</c> has no way to measure an
+    /// object without writing it — so its test is taken before the write and the last entry lands over. That slack
+    /// has to cover one whole entry: two FormID strings, a type name and an EditorID.</para>
+    ///
+    /// <para>One number for both cost the text lane a kilobyte of listing at every cap, which at small caps was the
+    /// whole listing. A reserve slightly too large costs characters; one slightly too small is #361. The cap sweep
+    /// in check-errors-guard is what holds both honest — not either number's plausibility.</para></summary>
+    const int TextGlue = 64;
+    const int JsonGlue = 1024;
 
     /// <summary>The values that make the longest line this sweep could produce. Every substitution is at or above
     /// what a real render can reach: the counts are the totals themselves, so their digit widths bound every real
@@ -163,9 +168,13 @@ internal sealed class CheckAccounting
                                .Take(ReadSentences.SweepRosterRows)
                                .Select(c => new SweepCount(c.Key, _found))
                                .ToList();
-        return new Values(Visible: 0, ByBudget: _found, ByCut: _found, Roster: longest,
+        // Every slot at its widest, not at zero. The counts are digits in the rendered line, and a real response's
+        // Visible / Sections / Excluded / Unread are wider than 0 — so a worst case that passed 0 for them was
+        // bounded by the slack rather than by construction, which is not what its own summary claimed.
+        return new Values(Visible: _found, ByBudget: _found, ByCut: _found, Roster: longest,
                           RosterTotal: Math.Max(_bySource.Count, longest.Count),
-                          Sections: 0, Excluded: 0, Unread: 0, Worst: true);
+                          Sections: _sectionsWithFindings, Excluded: _excludedTotal, Unread: _unreadTotal,
+                          Worst: true);
     }
 
     /// <summary>What this response actually did.</summary>
@@ -186,8 +195,10 @@ internal sealed class CheckAccounting
     /// everything" and "#361", and those two must never read alike.</summary>
     internal string? TextLine()
     {
-        if (!_listing && _excluded >= _excludedTotal && _unread >= _unreadTotal) return null;
-        return Compose(Real());
+        var v = Real();
+        // A listing lane always states its accounting, complete or not. Any other lane states one only when
+        // something is actually short — there is no positive claim to make about a listing that never ran.
+        return _listing || Missing(v) ? Compose(v) : null;
     }
 
     string Compose(Values v)
@@ -206,12 +217,15 @@ internal sealed class CheckAccounting
             if (v.ByBudget > 0 || v.Worst) causes.Add(string.Format(ReadSentences.SweepOmittedByBudget, v.ByBudget, _limit));
             if (v.ByCut > 0 || v.Worst) causes.Add(string.Format(ReadSentences.SweepOmittedByCut, v.ByCut, _cap));
             if (causes.Count > 0) sb.Append(string.Join(",", causes)).Append('.');
-
-            // Stated whenever a section did not make it: the entry count cannot answer "is a whole plugin missing",
-            // and a plugin with no section at all is exactly what the roster below exists to recover.
-            if (v.Sections < _sectionsWithFindings || v.Worst)
-                sb.Append(string.Format(ReadSentences.SweepSections, v.Sections, _sectionsWithFindings));
         }
+
+        // OUTSIDE the listing gate, deliberately. A section is dropped by the RENDER, and the render runs whether or
+        // not the dangling walk did: with findings=["missing_masters"] the sweep lists no dangling refs at all, so
+        // _listing is false — and the section loop still cuts. Gated on _listing this clause was absent there, which
+        // put #361's own shape (a cut that leaves no sentence) inside the fix for #361, in the lane the tool's own
+        // description sells as the cheap "is any master missing anywhere" sweep.
+        if (v.Sections < _sectionsWithFindings || v.Worst)
+            sb.Append(string.Format(ReadSentences.SweepSections, v.Sections, _sectionsWithFindings));
 
         // The two honesty-layer rosters. Their rows are what houseCARL could NOT read, so a silent cut there hides
         // the boundary of the answer rather than a finding inside it.
@@ -233,14 +247,26 @@ internal sealed class CheckAccounting
             sb.Append('.');
         }
 
-        if (missing && _listing) sb.Append(ReadSentences.SweepNoSectionRule);
-        sb.Append(missing ? ReadSentences.SweepRemedy : ReadSentences.SweepComplete);
+        // The rule belongs to the roster — it explains what the roster is for, so it is stated where one exists.
+        if (v.Roster.Count > 0) sb.Append(ReadSentences.SweepNoSectionRule);
+        if (missing)
+        {
+            if (v.ByBudget > 0 || v.Worst) sb.Append(ReadSentences.SweepRemedyLimit);
+            if (v.ByCut > 0 || v.Sections < _sectionsWithFindings || v.Excluded < _excludedTotal
+                || v.Unread < _unreadTotal || v.Worst)
+                sb.Append(ReadSentences.SweepRemedyMaxChars);
+            if (v.Roster.Count > 0) sb.Append(ReadSentences.SweepRemedyScope).Append(ReadSentences.SweepRemedyCountsOnly);
+        }
+        sb.Append(ReadSentences.SweepClose);
         return sb.ToString();
     }
 
-    /// <summary>Is anything at all absent from this response? One test, so the remedy and the roster rule can never
-    /// disagree about whether there is something to remedy.</summary>
-    bool Missing(Values v) => v.Worst || v.ByBudget + v.ByCut > 0 || v.Excluded < _excludedTotal || v.Unread < _unreadTotal;
+    /// <summary>Is anything at all absent from this response? ONE test over EVERY subject, so the remedy and the
+    /// clauses above it cannot disagree. Dropped sections belong here: a sweep whose findings are all missing
+    /// masters omits no dangling ref, so without this term a response missing 34 of 41 sections closed as complete —
+    /// with no remedy, no roster, and a json twin that said truncated.</summary>
+    bool Missing(Values v) => v.Worst || v.ByBudget + v.ByCut > 0 || v.Sections < _sectionsWithFindings
+                              || v.Excluded < _excludedTotal || v.Unread < _unreadTotal;
 
     // ---- the json lane ------------------------------------------------------------------------------
 
@@ -257,10 +283,19 @@ internal sealed class CheckAccounting
     {
         // capped is the listing budget's fact, truncated is this response's — both off the ONE computation, so a
         // consumer no longer has to know which layer measured which.
-        w.WriteBoolean("capped", v.ByBudget > 0);
-        w.WriteNumber("plugins_with_findings", _sectionsWithFindings);
-        w.WriteNumber("rendered", v.Sections);
-        w.WriteBoolean("truncated", v.ByCut > 0 || v.Sections < _sectionsWithFindings);
+        //
+        // LISTING LANE ONLY, as on the base commit. Under counts_only there is no listing, and Reports carries the
+        // honesty roster instead — so _sectionsWithFindings is a count of UNREADABLE plugins and _sections is always
+        // 0. Written unconditionally, a counts_only sweep that found 240 dangling refs reported
+        // "plugins_with_findings": 0, and one with an unreadable plugin reported truncated:true beside its own
+        // "unread": {"truncated": false}. A field named for one lane's subject is absent in the other, never zero.
+        if (_listing)
+        {
+            w.WriteBoolean("capped", v.ByBudget > 0);
+            w.WriteNumber("plugins_with_findings", _sectionsWithFindings);
+            w.WriteNumber("rendered", v.Sections);
+            w.WriteBoolean("truncated", v.ByCut > 0 || v.Sections < _sectionsWithFindings);
+        }
         w.WriteStartObject("accounting");
         w.WriteBoolean("listing", _listing);
         if (_listing)
@@ -339,13 +374,24 @@ internal sealed class CheckAccounting
     /// answers today into one that does not, so the accounting ships and the overrun is named with the number that
     /// fixes it.
     ///
-    /// <para><paramref name="headerLength"/> is the response's length where the BODY BEGINS, not where it ends.
-    /// Measured at the end it is the body's own length, which at any cut is about the whole budget — so the notice
-    /// fired on every truncated response and added its own unbudgeted couple of hundred chars, which is how the
-    /// first cut of this class overran a 5000-char cap by 106. The condition is about the fixed part of the
-    /// response, so it is asked before the variable part exists.</para></summary>
-    internal string? CapTooSmall(int headerLength, int reserve) =>
-        headerLength + reserve > _cap ? string.Format(ReadSentences.SweepCapTooSmall, _cap, headerLength + reserve) : null;
+    /// <para>It is asked of the FINISHED response's length, and answers only about that. Predicted from
+    /// <c>headerLength + reserve</c> it was a statement about the worst case the reserve is sized for, and it fired
+    /// over a thousand times in a 200–6000 cap sweep on responses that were well inside their cap.</para>
+    ///
+    /// <para><paramref name="needed"/> is what it takes to carry this response's fixed part plus the accounting —
+    /// the number a caller can set max_chars to and stop seeing this. It is not the current length: raising the cap
+    /// widens the printed max_chars by a digit or two, which the slack below absorbs, and a probe follows the
+    /// remedy at a sweep of caps rather than trusting that reasoning.</para></summary>
+    internal string? CapTooSmall(int contentLength, int needed) =>
+        contentLength > _cap
+            ? string.Format(ReadSentences.SweepCapTooSmall, _cap, needed + RaiseSlack, contentLength)
+            : null;
+
+    /// <summary>Slack on the number the overrun notice tells a caller to raise to. Setting max_chars to exactly the
+    /// length measured under the OLD cap gets the notice back with the number one higher, because max_chars is
+    /// printed inside the accounting and gained a digit — measured, at every 3→4 and 4→5 digit crossing. Two digits
+    /// of headroom per place it is printed clears it, and the follow-the-remedy arm is what holds that.</summary>
+    const int RaiseSlack = 8;
 
     /// <summary>The chars the body may occupy. Never negative — a cap too small for the accounting yields a body
     /// budget of zero and the notice above, not a negative bound that every emission test passes.</summary>
