@@ -89,7 +89,18 @@ public enum AssetSourceVerdict
 public sealed record AssetSourcePick(
     AssetSourceVerdict Verdict,
     PlacementSource? Source,
-    IReadOnlyList<string> ProviderNames);
+    IReadOnlyList<string> ProviderNames)
+{
+    /// <summary>Did the off-order lane actually look for a mod folder of the named provider's name? False when no
+    /// lookup was supplied, when the pole was not Named, or when the universe-first gate answered first. A refusal
+    /// may only say the folder was searched when this is true — the review round that caught the unconditional
+    /// version found the sentence claiming a search the gate had already prevented.</summary>
+    public bool OffOrderFolderSearched { get; init; }
+
+    /// <summary>A folder or archive that could not be READ during that look, named — so an absent answer is never
+    /// rendered as an authoritative "that mod does not have it" (Q3). Null when nothing failed.</summary>
+    public string? OffOrderReadFailure { get; init; }
+}
 
 public static class AssetSourceSelection
 {
@@ -117,7 +128,7 @@ public static class AssetSourceSelection
     ///
     /// <para>The lookup itself is the caller's I/O; this type still decides WHICH provider and renders nothing.</para></summary>
     public static AssetSourcePick Select(PlacementResolution res, AssetSourceChoice choice,
-                                         Func<string?, PlacementSource?>? offOrderLookup = null)
+                                         Func<string?, OffOrderLookup>? offOrderLookup = null)
     {
         var names = new List<string>(res.Sources.Count);
         foreach (var s in res.Sources) names.Add(Describe(s));
@@ -131,13 +142,19 @@ public static class AssetSourceSelection
             foreach (var s in res.Sources)
                 if (string.Equals(s.ProviderName, choice.Spelling ?? "", StringComparison.OrdinalIgnoreCase))
                     return new AssetSourcePick(AssetSourceVerdict.Selected, s, names);
-            if (offOrderLookup?.Invoke(choice.Spelling) is { } offOrder)
+            var off = offOrderLookup?.Invoke(choice.Spelling) ?? OffOrderLookup.NotSearched;
+            if (off.Source is { } offOrder)
                 return new AssetSourcePick(AssetSourceVerdict.Selected, offOrder, names);
             // Which refusal is the SAME question as before this lane existed — does anything else supply the path —
             // so the two verdicts keep meaning exactly what they meant, and the caller's remedy can still only offer
-            // names it actually has.
+            // names it actually has. What the LOOKUP did rides along, because the refusal has to say which places
+            // were searched and cannot infer that from an absent source.
             return new AssetSourcePick(
-                res.Sources.Count == 0 ? AssetSourceVerdict.NoProvider : AssetSourceVerdict.NamedAbsent, null, names);
+                res.Sources.Count == 0 ? AssetSourceVerdict.NoProvider : AssetSourceVerdict.NamedAbsent, null, names)
+            {
+                OffOrderFolderSearched = off.FolderSearched,
+                OffOrderReadFailure = off.ReadFailure,
+            };
         }
 
         if (res.Sources.Count == 0)

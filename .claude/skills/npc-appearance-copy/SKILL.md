@@ -108,7 +108,9 @@ The readback's asset block looks like this, and it is a list to act on rather th
 
 ```
 asset paths the copied records reference (this call does NOT place them — check each with
-housecarl_asset_status, then place what you keep with housecarl_bulk_place_asset):
+housecarl_asset_status, then place what you keep with housecarl_bulk_place_asset; a path only the
+mod you read FROM provides reads as absent in asset_status if MO2 does not load that mod, and is
+still placed by naming it in source_provider=):
   - textures\actors\character\...\hair.dds
 ```
 

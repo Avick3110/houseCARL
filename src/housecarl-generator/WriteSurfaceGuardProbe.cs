@@ -2544,6 +2544,10 @@ public static class WriteSurfaceGuardProbe
             // where the "a named mod folder is read whether or not it is ticked" sentence reaches a caller, and it
             // is the refusal that caller is most likely to be standing in when they need it.
             Render(new PlaceRequest(@"meshes\hcw2\nothing-provides-this.nif", null, null)),
+            // The named-miss refusal's OTHER arm: the provider named is one the active order already provides files
+            // under, so the off-order lane never ran and the refusal may claim no mod-folder search. Both arms have
+            // to reach a render or the conditional is half-wired — the arm above is the disk-searched one.
+            Render(new PlaceRequest(rel, @"meshes\hcw2\absent-everywhere.nif", providers[0])),
         }).ToList();
     }
 

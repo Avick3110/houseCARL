@@ -56,9 +56,11 @@ public static class PlaceAssetTools
                      + "'X - Textures.bsa' — matched exactly. A bare name ALWAYS means a provider of that name, so a mod whose "
                      + "folder happens to carry the pole's word is still reachable and nothing is reserved out of the name space. "
                      + WriteSentences.PlaceSourceNameReachesUnticked + " "
-                     + "housecarl_asset_status shows the names of the mods MO2 loads with a kind annotation after them "
-                     + "('SomeMod (loose)'); pass the name only, without the annotation — and note that a path only an unticked "
-                     + "mod provides reads as ABSENT there while still being placeable by naming that mod here. "
+                     + "housecarl_asset_status lists the PROVIDER names the active order supplies a path under — mod "
+                     + "folders and archive filenames alike — with a kind annotation after them ('SomeMod (loose)', "
+                     + "'X - Textures.bsa (BSA)'); pass the name only, without the annotation, and note that a file inside an "
+                     + "active mod's archive is listed (and reached) under the ARCHIVE's name, not the mod's. A path only a "
+                     + "mod MO2 is not loading provides reads as ABSENT there, while still being placeable by naming that mod here. "
                      + "Omitted = the sole provider, refused if more than one contends. A named "
                      + "provider that doesn't supply the path is refused, never silently replaced by another.")]
             string? source_provider = null,
@@ -224,9 +226,13 @@ static class PlaceWire
                 // line, about the SOURCE; the destination's enable+sort instruction is the block below and stays there.
                 if (r.SourceOffOrderProvider is { } offOrder)
                     sb.Append("        ").Append(WriteSentences.PlaceSourceOffOrder(offOrder)).Append('\n');
+                // "the mod" was unambiguous until the off-order line put a SECOND mod in scope directly above it:
+                // that line ends "enabling it is not required", and this one began "once the mod is enabled", so read
+                // in sequence the two contradicted each other about two different mods (review round 1). Naming the
+                // destination folder here costs nothing and cannot be misread.
                 sb.Append(r.CurrentWinner is not null
                     ? $"        currently wins the VFS: {r.CurrentWinner} — sort the new mod ABOVE it\n"
-                    : "        nothing else provides this path — once the mod is enabled, the placed copy wins\n");
+                    : $"        nothing else provides this path — once '{modFolder ?? "(the new folder)"}' is enabled, the placed copy wins\n");
             }
             else
             {

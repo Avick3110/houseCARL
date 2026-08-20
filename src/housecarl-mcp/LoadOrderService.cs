@@ -1592,17 +1592,27 @@ public sealed class LoadOrderService : IDisposable
             // The off-order lane (F1) is handed to the ONE source policy rather than spelled here: naming a mod means
             // that mod's copy whether or not MO2 ticks it, and both place tools plus the closure copy's asset carry
             // reach that rule through this call.
-            var pick = AssetSourceSelection.Select(srcRes, AssetSourceChoice.Parse(providerSel),
+            var choice = AssetSourceChoice.Parse(providerSel);
+            var pick = AssetSourceSelection.Select(srcRes, choice,
                                                    n => view.TryResolveOffOrderProvider(n, srcRel));
 
             // BOTH named-provider misses render as ONE refusal. They are the same fact — the provider you named does
-            // not supply this path, in either place houseCARL looked — and the only thing that differs is whether
-            // there is anyone else to suggest, which the sentence decides off its own list rather than by being two
-            // sentences. Before F1 the empty case fell through to a refusal that spoke only of the active load order
-            // and never mentioned the name at all.
-            if (pick.Verdict == AssetSourceVerdict.NamedAbsent
-                || (pick.Verdict == AssetSourceVerdict.NoProvider && !string.IsNullOrEmpty(providerSel)))
-                return PlaceResult.Fail(rel, WriteSentences.PlaceSourceNamedAbsent(providerSel!, srcRel, pick.ProviderNames), winner);
+            // not supply this path — and what differs is only which places were searched and whether there is anyone
+            // else to suggest, both of which the sentence takes as inputs rather than being several sentences.
+            //
+            // Gated on the POLE, not on "a provider string was passed". Those are different sets: '*winner' is a
+            // non-empty selector that parses to the WINNER pole, and gating on the string quoted it back as if it
+            // were a mod name, told the caller a mod folder of that name had been searched (impossible — '*' cannot
+            // be in a folder name, which is the whole reason the token is sigiled), and corrected them toward the
+            // spelling they had just used. Measured in review round 1.
+            if (choice.Pole == AssetSourcePole.Named
+                && pick.Verdict is AssetSourceVerdict.NamedAbsent or AssetSourceVerdict.NoProvider)
+                return PlaceResult.Fail(rel, WriteSentences.PlaceSourceNamedAbsent(
+                    providerSel!, srcRel, pick.ProviderNames, pick.OffOrderFolderSearched, pick.OffOrderReadFailure,
+                    // The #283 root-prefix hint, which this refusal used to swallow: a path taken off a record is
+                    // stored relative to meshes\/textures\, and naming a provider does not stop that being the
+                    // caller's actual mistake. Verified before it is offered, like every other site that shows it.
+                    AssetPathHint.AssetRootHint(view, srcRel)), winner);
             if (pick.Verdict == AssetSourceVerdict.Ambiguous)
                 return PlaceResult.Fail(rel, WriteSentences.PlaceSourceAmbiguous(srcRel, pick.ProviderNames), winner);
             if (pick.Verdict == AssetSourceVerdict.NoProvider && sourceNamed)
