@@ -43,7 +43,7 @@ namespace HousecarlGenerator;
 ///   K  a BSA provider named as the pole, and a Data-relative source that merely ENDS in '.bsa'.
 ///   L  the wire field names — PlaceAssetSpec deserialized from the JSON an MCP client actually sends.
 ///   M  the OFF-ORDER source lane (F1) — source_provider= naming a mod MO2 does not tick, served off that mod
-///      folder's disk (loose, then its root archives), and every pole that must NOT widen with it. Twenty-four
+///      folder's disk (loose, then its root archives), and every pole that must NOT widen with it. Twenty-six
 ///      cells; see the block's own header for the grid.
 ///
 /// Self-contained: synthetic folders/instances in temp + the committed fixtures/asset-resolver/FixtureA.bsa, NO BSArch.
@@ -688,10 +688,10 @@ internal static class PlaceAssetProbe
             }
 
             // ================= M: the OFF-ORDER source lane (F1, ruling O1) =================
-            // Naming a mod reaches that mod's copy whether or not MO2 ticks it. TWENTY-FOUR CELLS, enumerated
+            // Naming a mod reaches that mod's copy whether or not MO2 ticks it. TWENTY-SIX CELLS, enumerated
             // rather than inferred: the lane crosses two tools × two source shapes × two provider kinds, and its
             // whole risk is what it must NOT reach — so the not-widened poles get cells of their own, not an
-            // argument. M17–M24 were added after review round 1 measured eight of them empty.
+            // argument. M17–M24 came from review round 1 measuring eight cells empty; M25–M26 from round 2 measuring two more.
             Console.WriteLine();
             Console.WriteLine("--- M: source_provider= names a mod MO2 does not tick — served off disk, and nothing else widens ---");
             {
@@ -887,12 +887,20 @@ internal static class PlaceAssetProbe
                 // ---- M13: the ESCAPE guard. A provider name is joined to mods\, so it is the other half of the
                 // path validation — a name carrying a separator, a '..' or a drive must not address a file outside. ----
                 {
-                    // Placed one level ABOVE mods\ on purpose: '..\outsider' has to REACH something, or the arm
-                    // would pass on a resolver that escapes the mods folder and merely found nothing there.
+                    // EVERY spelling here has to REACH something, or the cell passes on a resolver that escapes and
+                    // merely finds nothing there. Round 2 caught '.' passing for exactly that reason, so all three
+                    // targets are now written: one level ABOVE mods\ for the '..' forms, and the mods ROOT itself for
+                    // '.' (mods\ is not a mod folder, so serving out of it would be just as wrong).
                     var outsider = Path.Combine(inst, "outsider");
                     Directory.CreateDirectory(outsider);
                     WriteLoose(outsider, OnlyDisabled, new byte[] { 0x66, 0x66, 0x66, 0x66, 0x66, 0x66 });
-                    foreach (var bad in new[] { @"..\outsider", "../outsider", @"Disabled1\..\Disabled1", outsider, "." })
+                    WriteLoose(inst, OnlyDisabled, new byte[] { 0x67, 0x67, 0x67, 0x67, 0x67 });     // the '..' target
+                    WriteLoose(mods, OnlyDisabled, new byte[] { 0x68, 0x68, 0x68, 0x68 });           // the '.' target
+                    File.SetLastWriteTimeUtc(Path.Combine(prof, "modlist.txt"), DateTime.UtcNow.AddHours(1));
+                    // '..' and '.' are caught TWICE — by the explicit clause and by the trailing-dot rule, since both
+                    // end in '.'. Defence in depth on a path-escape guard is worth keeping, and the consequence is
+                    // that these two cells are red only to removing BOTH, the way M7 is red only to the compound.
+                    foreach (var bad in new[] { @"..\outsider", "../outsider", @"Disabled1\..\Disabled1", outsider, ".", ".." })
                     {
                         var r = svc.PlaceAssets(new[] { new PlaceRequest(OnlyDisabled, OnlyDisabled, bad) }, null, null).Results[0];
                         Check(!r.Placed, $"M13 a provider name that is a PATH ('{bad}') places nothing  [RED arm] — {(r.Placed ? "PLACED" : "refused")}");
@@ -1011,10 +1019,15 @@ internal static class PlaceAssetProbe
                 // trailing dot would be served off disk and reported as NOT enabled: a false provenance line, which
                 // is the one sentence this lane exists to keep honest. ----
                 {
-                    foreach (var (spelling, why) in new[] { ("Data.", "walks around the universe-first gate"),
-                                                            ("Enabled1.", "would print a false off-order provenance line") })
+                    // The PATH each spelling probes is load-bearing and was wrong. Both cells used to probe
+                    // DataCollision, which 'Enabled1' does not supply — so no off-order provenance line was reachable
+                    // from that cell whatever the guard did, and it passed under the very sabotage it names. Each
+                    // spelling now probes a path its target folder REALLY holds (round 2).
+                    foreach (var (spelling, rel, why) in new[]
+                             { ("Data.",     DataCollision, "walks around the universe-first gate"),
+                               ("Enabled1.", Shared,        "would print a false off-order provenance line for an ENABLED mod") })
                     {
-                        var r = svc.PlaceAssets(new[] { new PlaceRequest(DataCollision, DataCollision, spelling) }, null, null).Results[0];
+                        var r = svc.PlaceAssets(new[] { new PlaceRequest(rel, rel, spelling) }, null, null).Results[0];
                         Check(!r.Placed || r.SourceOffOrderProvider is null,
                               $"M22 a trailing-dot spelling ('{spelling}') never reaches disk — it {why}  [RED arm] — " +
                               $"{(r.Placed ? "PLACED off-order=" + (r.SourceOffOrderProvider ?? "(none)") : "refused")}");
@@ -1047,6 +1060,64 @@ internal static class PlaceAssetProbe
                           && r.Error.Contains(Shared, StringComparison.OrdinalIgnoreCase),
                           $"M24 a named-provider miss still offers the verified root-prefix hint  [RED arm] — {r.Error}");
                 }
+
+                // ---- M25: the render's own ADJACENCY. The off-order provenance line ends "enabling it is not
+                // required"; the line directly under it used to open "once the mod is enabled", about a different
+                // mod. Read in sequence they contradicted. Nothing asserted this string, so reverting the fix left
+                // the whole suite green — a prose fold with no probe is a rewording (round 2). ----
+                {
+                    var text = PlaceAssetTools.PlaceAsset(svc, asset_path: OnlyDisabled, source_provider: "Disabled1",
+                                                          patch_name: "MAdjacency");
+                    var folder = text.Split('\n').FirstOrDefault(l => l.TrimStart().StartsWith("mod folder:", StringComparison.Ordinal))
+                                     ?.Trim()["mod folder:".Length..].Trim();
+                    Check(folder is { Length: > 0 } && text.Contains($"once '{folder}' is enabled", StringComparison.Ordinal),
+                          $"M25 the winner line names the DESTINATION folder, not a bare \"the mod\"  [RED arm] — folder={folder ?? "(none)"}");
+                    Check(!text.Contains("once the mod is enabled", StringComparison.Ordinal),
+                          "…so it cannot be read as the off-order source mod the line above says need not be enabled  [RED arm]");
+                }
+            }
+
+            // ================= M26: the ARCHIVE half of the universe-first gate =================
+            // IsUniverseProviderName tests loose-root names AND active archive filenames. Arm M's fixture has NO
+            // active archives at all, so deleting the archive clause left every cell green — one whole half of the
+            // gate with no coverage (round 2). It gets its own instance rather than an archive in arm M's: making
+            // FixtureA active there would put its facegen path INSIDE the enabled universe and move what M3, M14,
+            // M18, M20 and M21 measure (#333).
+            Console.WriteLine();
+            Console.WriteLine("--- M26: an ACTIVE archive's filename is a universe name too — a mods folder of that name never shadows it ---");
+            {
+                var inst = Path.Combine(root, "svc-m26");
+                var (mods, _, prof) = MakeInstance(inst);
+
+                // Dummy.esp is active and ships Dummy.bsa beside it, so "Dummy.bsa" is an ACTIVE archive name.
+                var host = Path.Combine(mods, "ArchiveHost");
+                Directory.CreateDirectory(host);
+                File.WriteAllText(Path.Combine(host, "Dummy.esp"), "x");
+                File.Copy(fixA, Path.Combine(host, "Dummy.bsa"));
+
+                // …and a mod FOLDER named exactly like that archive, holding a path nothing else supplies. Windows
+                // allows a folder name ending '.bsa', so this collision is constructible, and the branch's own tool
+                // description teaches callers to pass an archive filename here.
+                const string FolderOnly = @"meshes\hcprobe\m26-folder-only.nif";
+                var collide = Path.Combine(mods, "Dummy.bsa");
+                Directory.CreateDirectory(collide);
+                WriteLoose(collide, FolderOnly, new byte[] { 0x26, 0x26, 0x26 });
+
+                WriteProfile(prof, new[] { "Dummy.esp" }, new[] { "*Dummy.esp" }, new[] { "+ArchiveHost" });
+                WriteSkyrimIni(prof, "");
+                using var svc26 = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(root, "user-m26.json")));
+
+                // The premise: "Dummy.bsa" really IS an active archive here, else the gate is not what refuses.
+                var providers = svc26.AssetStatus(new[] { FacegenRel }).Results[0].Hit?.Providers
+                                ?? (IReadOnlyList<AssetProvider>)Array.Empty<AssetProvider>();
+                Check(providers.Any(p => p.Kind == AssetKind.Bsa && p.Source == "Dummy.bsa"),
+                      $"the fixture has an ACTIVE archive named Dummy.bsa — providers: {string.Join(", ", providers.Select(p => p.Source + "/" + p.Kind))}");
+                Check(File.Exists(Path.Combine(collide, FolderOnly)), "…and a mods\\Dummy.bsa FOLDER really holds a path nothing else supplies");
+
+                var r = svc26.PlaceAssets(new[] { new PlaceRequest(FolderOnly, FolderOnly, "Dummy.bsa") }, null, null).Results[0];
+                Check(!r.Placed && r.SourceOffOrderProvider is null,
+                      $"M26 an ACTIVE ARCHIVE's name is answered by the universe and never falls through to a folder of that name  [RED arm] — " +
+                      $"{(r.Placed ? "PLACED off-order=" + (r.SourceOffOrderProvider ?? "(none)") : "refused")}");
             }
         }
         finally { try { Directory.Delete(root, recursive: true); } catch { /* temp scratch */ } }
