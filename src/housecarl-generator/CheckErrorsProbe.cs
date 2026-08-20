@@ -918,6 +918,20 @@ public static class CheckErrorsProbe
                 .ToList(),
         };
         bool capTailsOk = CapSweep(capTails, out var tailsFail);
+        // A source plugin whose json-escaped name is much longer than its plain one. The worst case the reserve is
+        // measured from picks the LONGEST names, and one reserve is measured off a text render and one off a json
+        // one — ranking both by the escaped length let a name that is long in TEXT be pushed out of the sample the
+        // TEXT reserve was sized from. Escaped, each of these characters is six.
+        var capWide = ErrorCheck.Run(rm, null, 1000) with
+        {
+            DanglingBySource = new[]
+            {
+                new SweepCount(new string('\u00e9', 60) + ".esp", 900),
+                new SweepCount(new string('n', 62) + ".esp", 40),
+                new SweepCount("HcCeBulk.esp", 200),
+            },
+        };
+        bool capWideOk = CapSweep(capWide, out var wideFail);
         // The histogram ROWS were unpinned for the same reason: the counts_only fixture's two axes are a few
         // hundred chars, which fits inside the floor at every cap in the ladder, so unbounding them changed
         // nothing any arm could see. Two hundred rows of long keys is the shape the live order actually has —
@@ -931,8 +945,8 @@ public static class CheckErrorsProbe
         };
         bool capHistOk = CapSweep(capHist, out var histFail);
         Check("RESPONSE-NEVER-EXCEEDS-MAX-CHARS (#361): the accounting and the boundary are RESERVED before the body renders, so neither is appended past the cap — across a sweep of caps, in every lane, in both transports",
-            capListing && capFat && capCounts && capMasters && capTailsOk && capHistOk,
-            $"listing=[{capFail}] fat-head=[{fatFail}] counts_only=[{countsFail}] masters-only=[{mastersFail}] fat-tails=[{tailsFail}] fat-histograms=[{histFail}]");
+            capListing && capFat && capCounts && capMasters && capTailsOk && capHistOk && capWideOk,
+            $"listing=[{capFail}] fat-head=[{fatFail}] counts_only=[{countsFail}] masters-only=[{mastersFail}] fat-tails=[{tailsFail}] fat-histograms=[{histFail}] escaped-names=[{wideFail}]");
 
         // The surface the floor formulation deliberately cannot see: anything emitted UNCONDITIONALLY is inside the
         // floor CapSweep measures against. A histogram's title, its empty-case sentence and its "more rows" line are
