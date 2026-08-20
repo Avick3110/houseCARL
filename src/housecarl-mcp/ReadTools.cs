@@ -1143,6 +1143,12 @@ static class Wire
         int cap = Cap(maxChars);
         bool didDangling = r.Classes.HasFlag(ErrorFindingClass.Dangling);
         bool didMasters = r.Classes.HasFlag(ErrorFindingClass.MissingMasters);
+        // ONE accounting for this response, and the body renders inside what it leaves (#361). Everything below
+        // emits through `acct`, and every omission claim is computed from those registrations after emission stops
+        // — there is no truncation flag to miss, and no path that appends the tail past the cap.
+        var acct = new CheckAccounting(r, cap);
+        int reserve = acct.TextReserve;
+        int budget = acct.BodyBudget(reserve);
         var sb = new StringBuilder();
 
         sb.Append("check_errors — load-order integrity sweep\n");
@@ -1158,7 +1164,10 @@ static class Wire
         if (r.OffOrderScanned is { Count: > 0 } off)
             sb.Append("swept OFF-ORDER (on disk, not in the active load order): ").Append(string.Join(", ", off))
               .Append("   [the file's own records; links resolved against the active order + the file's own definitions]\n");
-        AppendBaselineSplit(sb, r);   // #344 — how much of the dangling total is vanilla baseline
+        AppendBaselineSplit(sb, r, acct);   // #344 — how much of the dangling total is vanilla baseline
+        // Where the BODY begins. The overrun arm is a question about the fixed part of the response, so it is asked
+        // here rather than at the end, where the answer would be the body's own length.
+        int headerLength = sb.Length;
 
         if (r.CountsOnly)
         {
@@ -1171,75 +1180,67 @@ static class Wire
             // target histogram directly above has just said.
             AppendHistogram(sb, r.DanglingBySource, histogramLimit,
                             "dangling ref(s) by SOURCE plugin (the plugin the broken refs come FROM)", note: null);
-            AppendScanErrorTail(sb, r.Reports, cap);
-            AppendExcludedPlugins(sb, r.ExcludedPlugins, cap);   // #288 review finding 5: the NAMES, not just the header count
-            AppendCheckErrorsBoundary(sb);
-            return sb.ToString().TrimEnd('\n');
+            acct.UnreadRows(AppendScanErrorTail(sb, r.Reports, budget));
+            acct.ExcludedRows(AppendExcludedPlugins(sb, r.ExcludedPlugins, budget).Appended);   // #288 review finding 5: the NAMES, not just the header count
+            return Close(sb, acct, reserve, headerLength);
         }
 
         if (r.Reports.Count == 0 && r.ExcludedPlugins.Count == 0)
             sb.Append("\nNo errors found in the scanned scope.\n");
 
-        bool truncated = false;
-        int sections = 0;
-        int entries = 0;    // dangling entries actually appended, in the unit the budget line uses
         foreach (var p in r.Reports)
         {
-            if (sb.Length >= cap)
-            {
-                // AN OMISSION SENTENCE IS COMPUTED BY THE LAYER THAT PERFORMED THE OMISSION, AND CLAIMS ONLY THAT
-                // LAYER'S OMISSION. This is the render's cut, so it is counted here, where the loop already knows
-                // what it emitted — and it says nothing about the listing budget, whose own omissions the capped
-                // line below reports in its own terms. The two truncators are independent and do not sum: crossing
-                // that seam is what made rounds 1 and 2 a single class (advisor ruling, 2026-08-18).
-                // The entry count is stated in the BUDGET LINE'S unit, so a reader can answer "how many findings can
-                // I actually see" without subtracting two figures that count different things; it replaces a "may be
-                // partial" hedge that existed only because the loop was counting sections (Aaron's PR #360 review).
-                // REACH: this notice fires where the section loop breaks — at a section BOUNDARY. A cut landing
-                // inside the LAST section ends the inner loop instead, leaving truncated unset and this sentence
-                // unprinted; that path is #361, pre-existing and untouched here.
-                sb.Append("\n... [truncated at max_chars=").Append(cap).Append(": ")
-                  .Append(r.Reports.Count - sections).Append(" of ").Append(r.Reports.Count)
-                  .Append(" plugin section(s) were not rendered; ").Append(entries).Append(" of the ")
-                  .Append(r.Reports.Sum(x => x.Dangling.Count))
-                  .Append(" budget-listed dangling entries appear above. ")
-                  .Append("This is the response being cut, separate from any limit= omission reported below. ")
-                  .Append(SweepNarrowHint).Append("]\n");
-                truncated = true;
-                break;
-            }
-            sb.Append("\n[ERROR] ").Append(p.Plugin).Append('\n');
-            sections++;
+            // Composed then measured, never appended then regretted: the section header decides whether this section
+            // starts at all, and a section that does not start is counted as not rendered rather than half-written.
+            var head = "\n[ERROR] " + p.Plugin + "\n";
+            if (sb.Length + head.Length > budget) break;
+            sb.Append(head);
+            acct.Section();
             if (p.ScanError is not null)
-                sb.Append("  scan error: ").Append(p.ScanError).Append('\n');
+                Fit(sb, "  scan error: " + p.ScanError + "\n", budget);
             if (p.MissingMasters.Count > 0)
-                sb.Append("  missing master(s): ").Append(string.Join(", ", p.MissingMasters))
-                  .Append("   [declared as a dependency but not present in the active order — install/enable it, or this plugin's refs into it dangle]\n");
+                Fit(sb, "  missing master(s): " + string.Join(", ", p.MissingMasters)
+                        + "   [declared as a dependency but not present in the active order — install/enable it, or this plugin's refs into it dangle]\n", budget);
             if (p.Dangling.Count > 0)
             {
-                sb.Append("  dangling reference(s) (").Append(p.Dangling.Count).Append("):\n");
+                Fit(sb, "  dangling reference(s) (" + p.Dangling.Count + "):\n", budget);
                 foreach (var d in p.Dangling)
                 {
-                    if (sb.Length >= cap) break;
-                    entries++;   // counted where one is actually appended: a section total would lie about a partial section
-                    sb.Append("    ").Append(d.Source).Append(" (").Append(d.SourceType);
-                    if (!string.IsNullOrEmpty(d.SourceEditorId)) sb.Append(" '").Append(d.SourceEditorId).Append('\'');
-                    sb.Append(") -> ").Append(d.Target).Append("   [target not defined by any active plugin]\n");
+                    var line = "    " + d.Source + " (" + d.SourceType
+                             + (string.IsNullOrEmpty(d.SourceEditorId) ? "" : " '" + d.SourceEditorId + "'")
+                             + ") -> " + d.Target + "   [target not defined by any active plugin]\n";
+                    if (sb.Length + line.Length > budget) break;
+                    sb.Append(line);
+                    acct.Entry(p.Plugin);   // registered where the line LANDED — the accounting counts the response
                 }
             }
             if (p.UnscannableRecords > 0)
-            {
-                sb.Append("  ").Append(p.UnscannableRecords).Append(" record(s) could not be scanned (Mutagen could not parse their content)");
-                if (p.UnscannableSamples.Count > 0) sb.Append(": ").Append(string.Join("; ", p.UnscannableSamples));
-                sb.Append('\n');
-            }
+                Fit(sb, "  " + p.UnscannableRecords + " record(s) could not be scanned (Mutagen could not parse their content)"
+                        + (p.UnscannableSamples.Count > 0 ? ": " + string.Join("; ", p.UnscannableSamples) : "") + "\n", budget);
         }
 
-        if (r.Capped) AppendCappedLine(sb, r);   // #344 — Q3: a cap that does not say WHICH plugins lost entries is the silent half of the defect
+        acct.ExcludedRows(AppendExcludedPlugins(sb, r.ExcludedPlugins, budget).Appended);
+        return Close(sb, acct, reserve, headerLength);
+    }
 
-        if (!truncated) AppendExcludedPlugins(sb, r.ExcludedPlugins, cap);
+    /// <summary>Append <paramref name="line"/> only if it fits the body budget. A line that does not fit is DROPPED,
+    /// not clipped: half a finding is a finding a caller cannot act on, and what was dropped is accounted for below
+    /// either way.</summary>
+    static void Fit(StringBuilder sb, string line, int budget)
+    {
+        if (sb.Length + line.Length <= budget) sb.Append(line);
+    }
 
-        AppendCheckErrorsBoundary(sb);
+    /// <summary>Close the response: the accounting for what it emitted, then the boundary. Both live inside the
+    /// reserve taken before the body rendered, so this is the ONE place either can be appended and it cannot
+    /// overrun. The single exception — a <c>max_chars</c> smaller than the accounting itself — is stated in-band
+    /// rather than taken silently (#361: appending past the cap without saying so is half of what that issue is).
+    /// </summary>
+    static string Close(StringBuilder sb, CheckAccounting acct, int reserve, int headerLength)
+    {
+        if (acct.TextLine() is { } line) sb.Append('\n').Append(line).Append('\n');
+        sb.Append('\n').Append(ReadSentences.SweepBoundaryLabel).Append(ReadSentences.SweepBoundary).Append('\n');
+        if (acct.CapTooSmall(headerLength, reserve) is { } notice) sb.Append(notice).Append('\n');
         return sb.ToString().TrimEnd('\n');
     }
 
@@ -1257,7 +1258,7 @@ static class Wire
     /// (<see cref="ErrorCheckResult.BaseMastersSwept"/>) rather than the whole definition: "0 of 12 are vanilla" over
     /// a scope that never included vanilla is a true sentence that teaches something false — and so is a "3 of 3"
     /// naming five plugins when the sweep opened one (round-1 review, found independently by two reviewers).</para></summary>
-    static void AppendBaselineSplit(StringBuilder sb, ErrorCheckResult r)
+    static void AppendBaselineSplit(StringBuilder sb, ErrorCheckResult r, CheckAccounting acct)
     {
         if (!r.Classes.HasFlag(ErrorFindingClass.Dangling) || r.BaseMastersSwept is not { Count: > 0 } swept) return;
         sb.Append("baseline: ").Append(r.BaselineDangling).Append(" of ").Append(r.TotalDangling)
@@ -1273,67 +1274,10 @@ static class Wire
         // in the sweep from the resolved targets — comparing PluginsScanned against the swept-base count subtracts two
         // numbers that measure different things and prints this sentence over a base-only scope whenever they diverge
         // (Aaron's PR #360 review: a record scope that filters a base master out, or a repeated plugins= name).
-        if (r.Capped && r.BaselineDangling > 0 && r.NonBaseInScope)
+        if (acct.OmittedByBudget > 0 && r.BaselineDangling > 0 && r.NonBaseInScope)
             sb.Append("  the listing budget (limit=) is spent on every other plugin BEFORE those, so baseline findings ")
               .Append("cannot crowd the rest out of the list; the sections below stay in load order.").Append('\n');
     }
-
-    /// <summary>How many omitted-by-plugin rows the capped line names before it says how many it did NOT name. The
-    /// unnamed count is stated, never implied: on a large order dozens of plugins lose entries, and a roster that
-    /// truncates while claiming to be the only place those plugins appear rebuilds the very hole this fix closes,
-    /// one level down (round-1 review).</summary>
-    const int OmittedPluginsShown = 10;
-
-    /// <summary>#344 — the capped line, whose every subject is the LISTING BUDGET's: an omission sentence is computed
-    /// by the layer that performed the omission and claims only that layer's omission (advisor ruling, 2026-08-18).
-    /// The render's own cut is reported at the truncation notice, in the render's terms. It used to state the true total and stop, which said that entries were dropped
-    /// but never WHICH plugin lost them; a plugin that lost its whole set, and had nothing else to report, has no
-    /// section above at all, so the report gave a reader no way to find it. Q3: what a cap dropped is part of the
-    /// answer, not an omission the caller is expected to infer.</summary>
-    static void AppendCappedLine(StringBuilder sb, ErrorCheckResult r)
-    {
-        // A capped sweep always dropped at least one ref (capped is set only where the budget hit 0 with a finding
-        // in hand), so the count is stated flat rather than behind a test that cannot fail.
-        int notListed = r.ListingOmitted?.Sum(c => c.Count) ?? 0;
-        sb.Append('\n').Append("[the listing budget (limit=) omitted ").Append(notListed)
-          .Append(" dangling ref(s); true total = ").Append(r.TotalDangling);
-        if (r.ListingOmitted is { Count: > 0 } omitted)
-        {
-            sb.Append(", across ").Append(omitted.Count).Append(" source plugin(s). Largest sources");
-            if (omitted.Count > OmittedPluginsShown)
-                sb.Append(" (the ").Append(OmittedPluginsShown).Append(" largest of ").Append(omitted.Count)
-                  .Append("; the rest are not named here)");
-            sb.Append(": ");
-            int shown = 0;
-            foreach (var row in omitted)
-            {
-                if (shown >= OmittedPluginsShown) break;
-                if (shown > 0) sb.Append(", ");
-                sb.Append(row.Key).Append(" (").Append(row.Count).Append(')');
-                shown++;
-            }
-            // A RULE about the budget, not a claim about this response's contents. The conditional it replaces tested
-            // r.Reports — sweep state — to describe what the reader can see, which is the seam the layer rule closes;
-            // the honest fix was to delete the conditional rather than to move its test (#339 precedent).
-            sb.Append(". A plugin whose whole set the budget omitted, with nothing else to report, gets no section of ")
-              .Append("its own.");
-        }
-        else sb.Append('.');
-        // The remedy is a claim about a call that has not happened. Raising limit= always works; scoping re-spends
-        // the WHOLE budget on the named plugin, which is enough unless that plugin's own set is larger than limit=
-        // — on a real order the biggest single source ran to 2591 refs against a default of 1000, so an unqualified
-        // "scope to it" would loop the caller back to this same line (round-1 review, measured).
-        // Every subject in this line is the BUDGET's. What the response itself dropped is the render's fact, stated at
-        // the truncation notice above in its own terms; the two are independent and are never added together.
-        sb.Append(" Raise limit= to list more; scoping plugins= to one of these re-spends the whole budget on that ")
-          .Append("plugin, which lists its set in full unless that set is itself larger than limit=. counts_only=true ")
-          .Append("returns the by-source tally for every plugin, capped only in how many ROWS it prints.]").Append('\n');
-    }
-
-    static void AppendCheckErrorsBoundary(StringBuilder sb)
-        => sb.Append("\nboundary: checks FormLink resolution, missing masters, and parse failures. Does NOT verify navmesh/terrain ")
-             .Append("spatial integrity (CRC/grid), flag required-but-null fields, list unused-master cleanup, or link-check an owned ")
-             .Append("item's ownership 'variable' word (a rank/global Mutagen can't type on an override); a null FormLink is a legal optional.\n");
 
     // ---- shared sweep-render pieces (#282) ----------------------------------------------------------
     /// <summary>The truncation/overflow hint the two sweep tools share. The old wording told the caller to "scope
@@ -1380,33 +1324,44 @@ static class Wire
     /// <summary>The named, reasoned list of plugins the index build could not parse. Shared by the listing and
     /// <c>counts_only=</c> paths — counts_only used to return before it, leaving the header's bare count with no way to
     /// learn WHICH plugin went unchecked without re-running (PR #288 review, finding 5).</summary>
-    static void AppendExcludedPlugins(StringBuilder sb, IReadOnlyDictionary<string, string> excluded, int cap)
+    static (int Appended, bool Stopped) AppendExcludedPlugins(StringBuilder sb, IReadOnlyDictionary<string, string> excluded,
+                                                             int budget)
     {
-        if (excluded.Count == 0) return;
-        sb.Append("\nexcluded plugins (could not be parsed — NOT checked):\n");
+        if (excluded.Count == 0) return (0, false);
+        var head = "\nexcluded plugins (could not be parsed — NOT checked):\n";
+        if (sb.Length + head.Length > budget) return (0, true);
+        sb.Append(head);
+        int n = 0;
         foreach (var kv in excluded)
         {
-            if (sb.Length >= cap) { sb.Append("  ... [truncated at max_chars]\n"); break; }
-            sb.Append("  ").Append(kv.Key).Append(": ").Append(kv.Value).Append('\n');
+            var line = "  " + kv.Key + ": " + kv.Value + "\n";
+            if (sb.Length + line.Length > budget) return (n, true);
+            sb.Append(line);
+            n++;
         }
+        return (n, false);
     }
 
     /// <summary>Under <c>counts_only=</c> the reports list carries the honesty layer only (records/plugins houseCARL
     /// could not read). Emit it verbatim so a counts-only answer still names what it could not check (Q3).</summary>
-    static void AppendScanErrorTail(StringBuilder sb, IReadOnlyList<PluginErrors> reports, int cap)
+    static int AppendScanErrorTail(StringBuilder sb, IReadOnlyList<PluginErrors> reports, int budget)
     {
+        int n = 0;
         foreach (var p in reports)
         {
-            if (sb.Length >= cap) { sb.Append("\n... [truncated at max_chars]\n"); break; }
-            sb.Append("\n[UNREAD] ").Append(p.Plugin).Append(": ");
-            if (p.ScanError is not null) sb.Append(p.ScanError).Append(' ');
+            var line = new StringBuilder("\n[UNREAD] ").Append(p.Plugin).Append(": ");
+            if (p.ScanError is not null) line.Append(p.ScanError).Append(' ');
             if (p.UnscannableRecords > 0)
             {
-                sb.Append(p.UnscannableRecords).Append(" record(s) could not be scanned");
-                if (p.UnscannableSamples.Count > 0) sb.Append(": ").Append(string.Join("; ", p.UnscannableSamples));
+                line.Append(p.UnscannableRecords).Append(" record(s) could not be scanned");
+                if (p.UnscannableSamples.Count > 0) line.Append(": ").Append(string.Join("; ", p.UnscannableSamples));
             }
-            sb.Append('\n');
+            line.Append('\n');
+            if (sb.Length + line.Length > budget) break;
+            sb.Append(line);
+            n++;
         }
+        return n;
     }
 
     // ---- housecarl_validate_scripts -----------------------------------------------------------------
@@ -1450,7 +1405,9 @@ static class Wire
                 if (sb.Length >= cap) { sb.Append("\n... [truncated at max_chars]\n"); break; }
                 if (rec.ScanError is not null) sb.Append("\n[SCAN ERROR] ").Append(rec.Plugin).Append(": ").Append(rec.ScanError).Append('\n');
             }
-            AppendExcludedPlugins(sb, r.ExcludedPlugins, cap);   // #288 review finding 5
+            // The helper reports rather than annotates (it is shared with check_errors, whose accounting states the
+            // same fact in its own terms), so this lane keeps its own marker at its own call site.
+            if (AppendExcludedPlugins(sb, r.ExcludedPlugins, cap).Stopped) sb.Append("  ... [truncated at max_chars]\n");
             AppendScriptCheckBoundary(sb);
             return sb.ToString().TrimEnd('\n');
         }
@@ -1504,7 +1461,8 @@ static class Wire
             sb.Append("\n[finding list capped at limit; true totals = ").Append(UnboundTotalText(r, didObject, didScalar))
               .Append(" + ").Append(NullTotalText(r, didNull)).Append(" — raise limit= to see all]\n");
 
-        if (!truncated) AppendExcludedPlugins(sb, r.ExcludedPlugins, cap);
+        if (!truncated && AppendExcludedPlugins(sb, r.ExcludedPlugins, cap).Stopped)
+            sb.Append("  ... [truncated at max_chars]\n");
 
         AppendScriptCheckBoundary(sb);
         return sb.ToString().TrimEnd('\n');

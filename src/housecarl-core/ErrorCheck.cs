@@ -80,8 +80,8 @@ public static class ErrorCheck
     /// plugin BEFORE the base-game masters (#344 — see <see cref="BaseMasters"/>), whose dangling refs are permanent
     /// vanilla leftovers: on a large order the baseline used to be able to consume it at load-order index 0, and a
     /// plugin that collects an empty list is dropped from <see cref="ErrorCheckResult.Reports"/> entirely. What the
-    /// budget DID drop is reported per source plugin (<see cref="ErrorCheckResult.ListingOmitted"/>), never as a bare
-    /// "capped" flag. A bad/excluded scope name fails
+    /// budget DID drop is reported per source plugin by the response layer, which subtracts against what it actually
+    /// emitted so the claim covers the render's own cut too. A bad/excluded scope name fails
     /// LOUD (Q3) with no partial result.
     /// <para><paramref name="offOrder"/> — plugin FILES to sweep that are NOT in the active order (name + on-disk path;
     /// the caller located them), the pre-enable verify lane (HCBR-2026-07-14-02 gap 3: a patch houseCARL just wrote is
@@ -179,7 +179,6 @@ public static class ErrorCheck
         var reports = new List<PluginErrors>();
         int totalDangling = 0, totalMissing = 0, totalUnscannable = 0;
         int danglingBudget = limit;
-        bool capped = false;
 
         // #344 — the LISTING BUDGET's phase order. limit= is ONE counter, and it used to be spent plugin by plugin in
         // LOAD ORDER with the base-game masters at index 0: on a large order the vanilla baseline could consume it
@@ -252,7 +251,6 @@ public static class ErrorCheck
                                 dangling.Add(new DanglingRef(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, target));
                                 danglingBudget--;
                             }
-                            else capped = true;
                         }
                     }
                     catch (Exception ex)
@@ -357,7 +355,6 @@ public static class ErrorCheck
                                         dangling.Add(new DanglingRef(rec.FormKey, RecordNaming.StripOverlay(rec.GetType().Name), rec.EditorID, target));
                                         danglingBudget--;
                                     }
-                                    else capped = true;
                                 }
                             }
                             catch (Exception ex)
@@ -433,35 +430,18 @@ public static class ErrorCheck
         // layer that knows, so it states the fact rather than leaving a subtraction to stand in for it.
         bool nonBaseInScope = targets.Any(t => !IsBaseMaster(t));
 
-        // Q3 — what the budget DROPPED, by plugin. The old global "capped at limit" line named no plugin, which is the
-        // silent half of this defect: a plugin whose entire list was dropped has no report section to read the loss
-        // off. Built only where a listing was actually attempted — under counts_only nothing is listed BY DESIGN, and
-        // reporting the whole sweep as "omitted" there would read as a failure rather than as the mode working.
-        List<SweepCount>? listingOmitted = null;
-        if (bySource is not null && !countsOnly)
-        {
-            var listed = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            // Accumulate, never assign: plugins= is not de-duplicated upstream (a repeated or case-variant name is
-            // swept twice, pre-existing on main), and an overwrite kept only the last section's count while bySource
-            // had summed both — reporting refs as budget-dropped on a sweep that never capped (round-1 review).
-            foreach (var p in reports)
-                if (p.Dangling.Count > 0)
-                    listed[p.Plugin] = (listed.TryGetValue(p.Plugin, out var had) ? had : 0) + p.Dangling.Count;
-            var acc = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            foreach (var kv in bySource)
-            {
-                int shown = listed.TryGetValue(kv.Key, out var c) ? c : 0;
-                if (kv.Value > shown) acc[kv.Key] = kv.Value - shown;
-            }
-            listingOmitted = SweepFindings.Histogram(acc);
-        }
+        // What the budget dropped, by plugin, is NOT computed here any more. It was `bySource` minus what the
+        // reports listed — the BUDGET's omission — and the render then dropped more without either sentence
+        // knowing. HousecarlMcp.CheckAccounting now subtracts against what the RESPONSE emitted, which covers both
+        // truncators at once and is the one place either is claimed (#361). Everything it needs is below:
+        // DanglingBySource is the per-plugin truth, and the reports carry what the budget admitted.
 
         return new ErrorCheckResult(reports, targets.Count + offOrderScanned.Count, totalDangling, totalMissing,
-                                    totalUnscannable, capped, view.ExcludedPlugins, null, offOrderScanned,
+                                    totalUnscannable, view.ExcludedPlugins, null, offOrderScanned,
                                     filterNote, classes, histogram is null ? null : SweepFindings.Histogram(histogram),
                                     countsOnly, view.Epoch,
                                     bySource is null ? null : SweepFindings.Histogram(bySource),
-                                    baselineDangling, baseSwept, listingOmitted, nonBaseInScope);
+                                    baselineDangling, baseSwept, nonBaseInScope, limit);
     }
 
     /// <summary>The off-order file's record stream, type-scoped when the caller asked for one (#282) — the overlay
@@ -569,7 +549,6 @@ public sealed record ErrorCheckResult(
     int TotalDangling,
     int TotalMissingMasters,
     int TotalUnscannableRecords,
-    bool Capped,
     IReadOnlyDictionary<string, string> ExcludedPlugins,
     string? Error,
     IReadOnlyList<string>? OffOrderScanned = null,
@@ -581,11 +560,12 @@ public sealed record ErrorCheckResult(
     IReadOnlyList<SweepCount>? DanglingBySource = null,
     int BaselineDangling = 0,
     IReadOnlyList<string>? BaseMastersSwept = null,
-    IReadOnlyList<SweepCount>? ListingOmitted = null,
-    bool NonBaseInScope = false)
+    bool NonBaseInScope = false,
+    int Limit = 0)   // the listing budget this sweep was GIVEN. Carried so the response can name the knob it is telling the caller to raise without being passed it a second time — a render-side copy defaults, and a default that disagrees with the sweep puts a wrong number in front of the caller
+
 {
     public bool Success => Error is null;
     public static ErrorCheckResult Fail(string error) =>
-        new(Array.Empty<PluginErrors>(), 0, 0, 0, 0, false,
+        new(Array.Empty<PluginErrors>(), 0, 0, 0, 0,
             new Dictionary<string, string>(), error);
 }

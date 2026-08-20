@@ -175,6 +175,123 @@ internal static class ReadSentences
         + (collection ? MergeCollectionFraming.Length + ClauseFieldsMaxChars + ClauseGlue : 0)
         + (singular ? SingleResolvedFraming.Length + ClauseFieldsMaxChars + ClauseGlue : 0);
 
+    // ---- the sweep response's omission accounting (#344 / #361) -------------------------------------
+    //
+    // These framings are the PROSE half of CheckAccounting; the arithmetic is there, in one place, and every
+    // number below arrives already computed from what the render EMITTED. They live in this class rather than
+    // beside that logic for the same reason ReadSentences exists at all: a sentence born as a render literal is
+    // a sentence that gets copied into the other transport and then drifts. Here they are inside the content net
+    // that walks this class's consts, so emptying one fails a guard instead of a review round.
+
+    /// <summary>The lead, on a response that carries every finding the sweep found. Stated rather than implied by
+    /// silence: "no accounting line" used to mean both "complete" and "the cut landed somewhere that never got to
+    /// print one" (#361), and a reader could not tell those apart. Now the line is unconditional over the listing
+    /// lane, so its absence means the lane did not run, never that the response is whole.</summary>
+    [MustState("appear above", "found by this sweep")]
+    internal const string SweepAllVisible =
+        "[accounting: all {0} dangling ref(s) found by this sweep appear above.";
+
+    /// <summary>The lead, on a response that is missing findings. ONE number for the question a caller actually
+    /// has - how many of these can I see - measured on the live order at plain defaults, where the two sentences
+    /// this replaces said "3996 not listed" and "554 of the 1000 budget-listed appear above" and left the reader
+    /// to work out that 554 of 4996 was the answer.</summary>
+    [MustState("appear above", "found by this sweep")]
+    internal const string SweepVisible =
+        "[accounting: {0} of the {1} dangling ref(s) found by this sweep appear above.";
+
+    /// <summary>The listing budget's share of what is missing. A cause clause is stated only when its own count is
+    /// non-zero - a response cut by max_chars alone must not report the budget dropping 0, which reads as the
+    /// budget being involved when it was not.</summary>
+    [MustState("limit=")]
+    internal const string SweepOmittedByBudget = " {0} were never listed: the listing budget (limit={1}) ran out";
+
+    /// <summary>The response cut's share. Its subject is THIS RESPONSE, and it names max_chars because that is the
+    /// knob that moves it - the layer rule kept as the accounting's internal discipline: one computation, but each
+    /// cause named by the layer that caused it.</summary>
+    [MustState("max_chars=")]
+    internal const string SweepOmittedByCut = " {0} did not fit this response (max_chars={1})";
+
+    /// <summary>How many plugin sections reached the response. Answers what the entry count cannot: a plugin whose
+    /// whole set is missing has no section to read the loss off, so the section count is what tells a reader the
+    /// listing is a window rather than the whole order.</summary>
+    [MustState("plugin section(s)")]
+    internal const string SweepSections = " {0} of {1} plugin section(s) were rendered.";
+
+    /// <summary>The excluded-plugin roster's own cut. Its rows are the plugins houseCARL could not parse at all,
+    /// so losing them silently hides the honesty layer rather than a finding.</summary>
+    [MustState("could not be parsed")]
+    internal const string SweepExcludedCut = " {0} of {1} plugin(s) that could not be parsed are named above.";
+
+    /// <summary>The counts_only lane's unread rows, same rule as the excluded roster.</summary>
+    [MustState("could not be read")]
+    internal const string SweepUnreadCut = " {0} of {1} plugin(s) whose records could not be read are named above.";
+
+    /// <summary>The by-source roster: WHICH plugins are missing entries, and how many each. Under the render-aware
+    /// accounting this is the RESPONSE's roster, not the budget's - a plugin whose entries the budget listed and
+    /// the cut then dropped belongs here, and under the two-layer split it appeared in neither sentence.</summary>
+    [NoClaims("a label introducing the roster rows; every claim it carries is in the rows and the clauses around it")]
+    internal const string SweepRosterLead = " Missing here, by source plugin: ";
+
+    /// <summary>The roster's own truncation. A roster that silently stops rebuilds the hole this accounting closes,
+    /// one level down (#344 round-1 review), so the count it did not name is stated rather than implied.</summary>
+    [MustState("not named here")]
+    internal const string SweepRosterCut = " (the {0} largest of {1}; the rest are not named here)";
+
+    /// <summary>A RULE about the listing, not a claim about this response's contents - so it is unconditional
+    /// (#339: prefer deleting the conditional to moving its test). It is what lets a reader trust the roster: a
+    /// plugin can be absent from the sections entirely and still be findable there.</summary>
+    [MustState("no section of its own")]
+    internal const string SweepNoSectionRule =
+        " A plugin whose whole set is missing here, with nothing else to report, gets no section of its own.";
+
+    /// <summary>The remedy. Each knob is named beside the cause it moves, because a caller cut by max_chars who
+    /// raises limit= gets the identical response back. The scoping clause carries its own bound: on the live order
+    /// the largest single source runs to 2591 refs against a default limit of 1000, so an unqualified "scope to it"
+    /// would loop the caller back to this same line (#344 round-1 review, measured).</summary>
+    [MustState("limit=", "max_chars=", "counts_only=true")]
+    internal const string SweepRemedy =
+        " Raise limit= to list more, max_chars= to fit more; scoping plugins= to one of these re-spends the whole " +
+        "budget on that plugin, which lists its set in full unless that set is itself larger than limit=. " +
+        "counts_only=true returns the by-source tally for every plugin, capped only in how many ROWS it prints.]";
+
+    /// <summary>The closer on a complete response - no remedy, because there is nothing to remedy.</summary>
+    [NoClaims("the bracket closing a line whose every claim is stated before it")]
+    internal const string SweepComplete = "]";
+
+    /// <summary>The one arm where the response is allowed to exceed max_chars, and it says so. A cap smaller than
+    /// the accounting itself leaves no honest response: dropping the accounting restores exactly the silence #361
+    /// IS, and refusing turns a call that answers today into one that does not. So the accounting ships, the
+    /// overrun is NAMED with the number that fixes it, and the invariant a probe can pin becomes "never over
+    /// max_chars, or over it and saying so" rather than a promise with an undocumented hole.</summary>
+    [MustState("max_chars=", "raise it to at least")]
+    internal const string SweepCapTooSmall =
+        " This response is longer than the max_chars={0} it was given: that budget is smaller than the accounting " +
+        "above, which is never dropped, so nothing was listed - raise it to at least {1}.";
+
+    /// <summary>The sweep's honest scope boundary, stated to BOTH transports from here. It was two hand-copied
+    /// twins — the text render's and the json writer's — and they had already drifted: the text one qualified the
+    /// ownership word with "(a rank/global Mutagen can't type on an override)" and the json one did not. The fuller
+    /// reading is the one kept, per the response-layer plan's rule that a twin disagreement resolves to one reading
+    /// and the choice is named in the PR body.
+    ///
+    /// <para>The label is separate because only one transport wants it: text prints "boundary: " ahead of the claim,
+    /// json carries the same claim as the value of a key already called <c>boundary</c>, and repeating the word
+    /// inside the value is how a twin starts.</para></summary>
+    [MustState("Does NOT verify navmesh/terrain", "required-but-null", "unused-master cleanup", "legal optional")]
+    internal const string SweepBoundary =
+        "checks FormLink resolution, missing masters, and parse failures. Does NOT verify navmesh/terrain spatial " +
+        "integrity (CRC/grid), flag required-but-null fields, list unused-master cleanup, or link-check an owned " +
+        "item's ownership 'variable' word (a rank/global Mutagen can't type on an override); a null FormLink is a " +
+        "legal optional.";
+
+    /// <summary>The text transport's label for the claim above.</summary>
+    [NoClaims("a label; the claim it introduces is SweepBoundary")]
+    internal const string SweepBoundaryLabel = "boundary: ";
+
+    /// <summary>How many source plugins the roster names before it says how many it did not. Ten is enough to act
+    /// on; the count of the rest is what keeps the roster from becoming its own silent cut.</summary>
+    internal const int SweepRosterRows = 10;
+
     /// <summary>How many declaring plugins a COLLECTION field names before it summarises the rest. Three names is
     /// enough to go look at; the rest are a count, because this rides EVERY annotated field of every row.</summary>
     internal const int DeclarerNameCap = 3;
