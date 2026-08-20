@@ -2518,6 +2518,10 @@ public static class WriteSurfaceGuardProbe
             File.WriteAllBytes(Path.Combine(dir, "twin.nif"), new byte[] { 1, 2, 3 });
         }
         File.WriteAllText(Path.Combine(mods, providers[0], "Dummy.esp"), "x");
+        // A bound archive that will not open, so this instance's scan is READ-INCOMPLETE and the caveat sentence
+        // reaches a render. Without it the fixture has no active archives at all and the sentence is unobservable
+        // here — the same fixture blindness that let the named-pole refusal stop carrying it (Aaron's review, F1).
+        File.WriteAllBytes(Path.Combine(mods, providers[0], "Dummy.bsa"), new byte[] { 0xDE, 0xAD, 0xBE, 0xEF });
         // Two folders MO2 does not list, so the off-order lane really runs for them: one that simply has no copy of
         // the queried path, one whose root archive will not read. They exist to reach two of the refusal's outcomes.
         Directory.CreateDirectory(Path.Combine(mods, "W2Offline"));

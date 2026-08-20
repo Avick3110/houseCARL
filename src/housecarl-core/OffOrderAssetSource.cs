@@ -81,7 +81,9 @@ public static class OffOrderAssetSource
     ///
     /// <para>Reads DISK at call time. Nothing about an off-order folder is in the resolver's snapshot, so this lane
     /// is not snapshot-pinned and cannot be — the same contract the ancestor's donor-disk carry has always had.
-    /// Never throws: an unreadable folder or archive is simply not a hit, never a false one (Q3).</para></summary>
+    /// Never throws, and never converts a failure into an absence: an unreadable folder, file or archive comes back
+    /// as <see cref="OffOrderReason.FolderUnreadable"/> with a name and a cause, so the caller can say "unknown"
+    /// rather than "this mod does not have it" (Q3).</para></summary>
     public static OffOrderLookup Resolve(string modsDir, Func<string, bool> isUniverseProviderName,
                                          string? providerName, string relPath)
     {
@@ -99,37 +101,49 @@ public static class OffOrderAssetSource
         try { dir = Path.Combine(modsDir, name); }
         catch { return new OffOrderLookup(null, OffOrderReason.NotAFolderName); }
 
-        string? unreadableName = null, unreadableCause = null;
-        if (!SafeDirectoryExists(dir, out var dirCause))
-            return dirCause is null
-                ? new OffOrderLookup(null, OffOrderReason.NoSuchFolder)
-                : new OffOrderLookup(null, OffOrderReason.FolderUnreadable, name, dirCause);
-
-        // ---- loose, exactly as the VFS would layer it if this mod were ticked ----
+        // ---- loose FIRST, exactly as the VFS would layer it if this mod were ticked ----
         string loose;
         try { loose = Path.Combine(dir, relPath); }
-        catch { return new OffOrderLookup(null, OffOrderReason.NoCopyInFolder); }
-        if (SafeFileExists(loose))
-            return new OffOrderLookup(new PlacementSource(name, AssetKind.Loose, LooseFilePath: loose, ArchivePath: null,
-                                                          EntryPath: relPath, OffOrder: true), OffOrderReason.Found);
+        catch (Exception ex) { return new OffOrderLookup(null, OffOrderReason.FolderUnreadable, name, Because(ex)); }
+
+        switch (ProbeFile(loose, out var looseCause))
+        {
+            case Probe.Present:
+                return new OffOrderLookup(new PlacementSource(name, AssetKind.Loose, LooseFilePath: loose, ArchivePath: null,
+                                                              EntryPath: relPath, OffOrder: true), OffOrderReason.Found);
+            case Probe.Unreadable:
+                // The copy may be right there and unreadable. Calling that "this mod does not have it" is the
+                // strongest false claim in the set, and it is the one an appearance flow reads as "the donor has no
+                // mesh" (Aaron's review, F3). An unknown, named, like the archive half beneath it.
+                return new OffOrderLookup(null, OffOrderReason.FolderUnreadable, name, looseCause);
+        }
 
         // ---- the folder's ROOT archives, in a deterministic order ----
-        var (archives, listCause) = RootArchives(dir);
-        if (listCause is not null) { unreadableName = name; unreadableCause = listCause; }
+        // This enumeration is ALSO the folder's existence probe, and that is measured rather than assumed: the
+        // review proved one API-behaviour assumption wrong, and a replacement guess would be another. On a
+        // deny-ACL'd folder Directory.Exists returns TRUE, Directory.GetLastWriteTimeUtc returns a real date, and
+        // File.GetAttributes returns Directory - not one of them can see it. Directory.EnumerateFiles throws
+        // UnauthorizedAccessException there and DirectoryNotFoundException when the folder is genuinely absent, so
+        // it is the only probe here that tells the two apart.
+        var (archives, folderMissing, listCause) = RootArchives(dir);
+        if (listCause is not null) return new OffOrderLookup(null, OffOrderReason.FolderUnreadable, name, listCause);
+        if (folderMissing) return new OffOrderLookup(null, OffOrderReason.NoSuchFolder);
+
+        string? unreadableName = null, unreadableCause = null;
         foreach (var bsa in archives)
         {
             bool has;
-            // An archive that will not READ is not a miss — it is an unknown, and reporting it as "this mod does not
+            // An archive that will not READ is not a miss - it is an unknown, and reporting it as "this mod does not
             // have it" is the silent-wrong-answer class. Named and carried out as DATA; the sentence is the tool's.
             try { has = AssetResolver.ArchiveHasEntry(bsa, relPath); }
             catch (Exception ex)
             {
                 unreadableName ??= Path.GetFileName(bsa);
-                unreadableCause ??= Concise(ex);
+                unreadableCause ??= Because(ex);
                 continue;
             }
             if (has)
-                // ProviderName stays the name the CALLER typed — the mod folder is the provider they chose, and the
+                // ProviderName stays the name the CALLER typed - the mod folder is the provider they chose, and the
                 // archive inside it is named separately by the read description. Spelling it as the .bsa filename
                 // here would answer a different question than the one asked.
                 return new OffOrderLookup(new PlacementSource(name, AssetKind.Bsa, LooseFilePath: null, ArchivePath: bsa,
@@ -159,34 +173,61 @@ public static class OffOrderAssetSource
         catch { return false; }
     }
 
-    static string Concise(Exception ex)
+    /// <summary>WHY a probe failed, as a short phrase that carries NO on-disk path. The exception MESSAGE cannot be
+    /// used here: .NET puts the full path in it ("Access to the path 'C:\...\mods\DonorMod' is denied"), and this
+    /// string is rendered into a REFUSAL — the one place names-not-paths forbids a machine path, because a path in a
+    /// refusal teaches the caller to round-trip one that goes stale between resolve and read. The caller already
+    /// knows which mod it named; what it does not know is WHY, and the exception TYPE is that.</summary>
+    static string Because(Exception ex) => ex switch
     {
-        var s = ex.Message.Replace("\r", "").Replace("\n", " ").Trim();
-        return s.Length > 120 ? s.Substring(0, 120) + "…" : s;
-    }
+        UnauthorizedAccessException => "access denied",
+        IOException                 => "an I/O error",
+        _                           => ex.GetType().Name,
+    };
 
     /// <summary>The archives at the folder's ROOT, sorted so the same folder answers the same way every run (the
     /// resolver's own deterministic tie-break among equal-rank archives). Top level only: a .bsa nested in a subtree
     /// is not one the engine would load for this mod, so reading one would serve bytes the game never would.
-    /// <para>A folder that cannot be LISTED returns its CAUSE rather than an empty list, so "no archives here" and
-    /// "could not see the archives here" stay different answers (Q3). The cause is data; the sentence is the tool's.</para></summary>
-    static (IReadOnlyList<string> Archives, string? Cause) RootArchives(string dir)
+    /// <para>THREE answers, because this call is also the folder's existence probe: the archives, or "there is no
+    /// such folder" (DirectoryNotFoundException), or a CAUSE for anything else - a denied folder throws
+    /// UnauthorizedAccessException here. "no archives here", "no folder here" and "could not see in here" stay
+    /// different answers (Q3). The cause is data; the sentence is the tool's.</para></summary>
+    static (IReadOnlyList<string> Archives, bool FolderMissing, string? Cause) RootArchives(string dir)
     {
         List<string> bsas;
         try { bsas = Directory.EnumerateFiles(dir, "*.bsa", SearchOption.TopDirectoryOnly).ToList(); }
-        catch (Exception ex) { return (Array.Empty<string>(), Concise(ex)); }
+        catch (DirectoryNotFoundException) { return (Array.Empty<string>(), true, null); }
+        catch (Exception ex) { return (Array.Empty<string>(), false, Because(ex)); }
         bsas.Sort((a, b) => string.Compare(Path.GetFileName(a), Path.GetFileName(b), StringComparison.OrdinalIgnoreCase));
-        return (bsas, null);
+        return (bsas, false, null);
     }
 
-    /// <summary>Does the folder exist? A folder that cannot be STATTED is not the same answer as one that is not
-    /// there, and the caller renders the difference.</summary>
-    static bool SafeDirectoryExists(string dir, out string? cause)
+    /// <summary>What a filesystem probe actually learned. Three answers, because two of them used to be one: a
+    /// bool-returning probe collapses "not there" and "there and I cannot read it" into the same false, and any
+    /// sentence built on it then states an absence as a fact it never established.</summary>
+    enum Probe { Present, Absent, Unreadable }
+
+    /// <summary>Probe ONE path with an API whose failures SURFACE. <c>File.Exists</c> cannot serve here: it signals
+    /// every failure, permission errors included, by returning false. <c>File.GetAttributes</c> throws, and throws
+    /// DIFFERENTLY - measured on a real deny-ACL fixture before this was wired:
+    /// <list type="bullet">
+    /// <item>a denied file gives <c>UnauthorizedAccessException</c></item>
+    /// <item>an absent file in a readable folder gives <c>FileNotFoundException</c></item>
+    /// <item>any path under an absent folder gives <c>DirectoryNotFoundException</c></item>
+    /// </list>
+    /// Anything else - an I/O fault, an offline volume - reads as UNREADABLE rather than absent, because the safe
+    /// default for an unknown is to say it is unknown. A path that turns out to be a DIRECTORY reads as absent: it
+    /// is not the file that was asked for, which is what the bool probe said too.</summary>
+    static Probe ProbeFile(string path, out string? cause)
     {
         cause = null;
-        try { return Directory.Exists(dir); }
-        catch (Exception ex) { cause = Concise(ex); return false; }
+        try
+        {
+            var attrs = File.GetAttributes(path);
+            return attrs.HasFlag(FileAttributes.Directory) ? Probe.Absent : Probe.Present;
+        }
+        catch (FileNotFoundException) { return Probe.Absent; }
+        catch (DirectoryNotFoundException) { return Probe.Absent; }
+        catch (Exception ex) { cause = Because(ex); return Probe.Unreadable; }
     }
-
-    static bool SafeFileExists(string path) { try { return File.Exists(path); } catch { return false; } }
 }
