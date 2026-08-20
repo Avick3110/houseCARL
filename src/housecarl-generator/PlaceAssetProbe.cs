@@ -43,7 +43,7 @@ namespace HousecarlGenerator;
 ///   K  a BSA provider named as the pole, and a Data-relative source that merely ENDS in '.bsa'.
 ///   L  the wire field names — PlaceAssetSpec deserialized from the JSON an MCP client actually sends.
 ///   M  the OFF-ORDER source lane (F1) — source_provider= naming a mod MO2 does not tick, served off that mod
-///      folder's disk (loose, then its root archives), and every pole that must NOT widen with it. Twenty-six
+///      folder's disk (loose, then its root archives), and every pole that must NOT widen with it. Thirty-one
 ///      cells; see the block's own header for the grid.
 ///
 /// Self-contained: synthetic folders/instances in temp + the committed fixtures/asset-resolver/FixtureA.bsa, NO BSArch.
@@ -688,10 +688,10 @@ internal static class PlaceAssetProbe
             }
 
             // ================= M: the OFF-ORDER source lane (F1, ruling O1) =================
-            // Naming a mod reaches that mod's copy whether or not MO2 ticks it. TWENTY-SIX CELLS, enumerated
+            // Naming a mod reaches that mod's copy whether or not MO2 ticks it. THIRTY-ONE CELLS, enumerated
             // rather than inferred: the lane crosses two tools × two source shapes × two provider kinds, and its
             // whole risk is what it must NOT reach — so the not-widened poles get cells of their own, not an
-            // argument. M17–M24 came from review round 1 measuring eight cells empty; M25–M26 from round 2 measuring two more.
+            // argument. M17–M24 came from review round 1 measuring eight cells empty; M25–M26 from round 2 measuring two more; M27–M31 from the typed-reason revision and Aaron's probe-blindness review.
             Console.WriteLine();
             Console.WriteLine("--- M: source_provider= names a mod MO2 does not tick — served off disk, and nothing else widens ---");
             {
@@ -1215,6 +1215,44 @@ internal static class PlaceAssetProbe
                 }
             }
 
+            // ================= M31: the FOLDER-listing probe's own cell =================
+            // M30 denies the whole folder, so its LOOSE probe fires first and the enumeration is never reached —
+            // which the RED sweep caught: sabotaging RootArchives' unreadable branch left M30 green. This is the
+            // case that reaches it, and it is F2's exact scenario: deny ONLY the list right, so a path under the
+            // folder still probes as absent and the ENUMERATION is what discovers the folder cannot be read.
+            // Without this the caller is told "there is no MO2 mod folder of that name" for a folder right there.
+            Console.WriteLine();
+            Console.WriteLine("--- M31: a folder that cannot be LISTED is unreadable, not missing ---");
+            {
+                var inst = Path.Combine(root, "svc-m31");
+                var (mods, _, prof) = MakeInstance(inst);
+                Directory.CreateDirectory(Path.Combine(mods, "Anchor"));
+                File.WriteAllText(Path.Combine(mods, "Anchor", "Dummy.esp"), "x");
+                WriteProfile(prof, new[] { "Dummy.esp" }, new[] { "*Dummy.esp" }, new[] { "+Anchor" });
+                WriteSkyrimIni(prof, "");
+                var listDenied = Path.Combine(mods, "ListDenied");
+                Directory.CreateDirectory(listDenied);
+                File.Copy(fixA, Path.Combine(listDenied, "Root.bsa"));
+                using var svc31 = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(root, "user-m31.json")));
+
+                if (!TryDenyList(listDenied))
+                    Check(false, "M31 — this host would not apply a list-deny ACL, so the folder-listing probe is UNPROVEN here. " +
+                                 "Not a pass: a cell that cannot be fixtured honestly is a signal (CLAUDE.md §5 #11), not a gap to skip past.");
+                else
+                    try
+                    {
+                        const string Rel = @"meshes\hcprobe\m31.nif";
+                        var r = svc31.PlaceAssets(new[] { new PlaceRequest(Rel, Rel, "ListDenied") }, null, null).Results[0];
+                        Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceFolderUnreadable, StringComparison.Ordinal),
+                              $"M31 a folder that cannot be listed refuses as UNREADABLE  [RED arm] — {r.Error}");
+                        Check(!r.Error!.Contains(WriteSentences.PlaceSourceNoSuchFolder, StringComparison.Ordinal),
+                              "…and NEVER as \"there is no mod folder of that name\" for a folder that is right there  [RED arm]");
+                        Check(r.Error!.Contains("unscanned rather than absent", StringComparison.Ordinal),
+                              "…carrying the unknown-not-absent caveat");
+                    }
+                    finally { UndenyList(listDenied); }
+            }
+
             // ================= M26: the ARCHIVE half of the universe-first gate =================
             // IsUniverseProviderName tests loose-root names AND active archive filenames. Arm M's fixture has NO
             // active archives at all, so deleting the archive clause left every cell green — one whole half of the
@@ -1263,6 +1301,44 @@ internal static class PlaceAssetProbe
         Console.WriteLine();
         Console.WriteLine(fail == 0 ? "================ ALL PASS ================" : $"================ {fail} CHECK(S) FAILED ================");
         return fail == 0 ? 0 : 1;
+    }
+
+    /// <summary>Deny ONLY the list-directory right on one folder, without inheritance — so a path UNDER it still
+    /// probes as absent while the folder's own enumeration fails. That separation is what makes the folder-listing
+    /// probe independently observable; a deny-everything ACE is caught by the loose probe first.</summary>
+    static bool TryDenyList(string dir)
+    {
+        try
+        {
+            var me = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
+            var di = new DirectoryInfo(dir);
+            var sec = di.GetAccessControl();
+            sec.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(
+                me, System.Security.AccessControl.FileSystemRights.ListDirectory,
+                System.Security.AccessControl.InheritanceFlags.None,
+                System.Security.AccessControl.PropagationFlags.None,
+                System.Security.AccessControl.AccessControlType.Deny));
+            di.SetAccessControl(sec);
+            try { Directory.EnumerateFiles(dir, "*.bsa").ToList(); } catch (UnauthorizedAccessException) { return true; } catch { }
+            UndenyList(dir);
+            return false;
+        }
+        catch { return false; }
+    }
+
+    static void UndenyList(string dir)
+    {
+        try
+        {
+            var me = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
+            var di = new DirectoryInfo(dir);
+            var sec = di.GetAccessControl();
+            sec.RemoveAccessRuleAll(new System.Security.AccessControl.FileSystemAccessRule(
+                me, System.Security.AccessControl.FileSystemRights.ListDirectory,
+                System.Security.AccessControl.AccessControlType.Deny));
+            di.SetAccessControl(sec);
+        }
+        catch { /* best effort; the temp root is removed with recursive delete either way */ }
     }
 
     /// <summary>Apply a deny-everything ACE for the CURRENT user to one directory subtree, and say whether it took.
