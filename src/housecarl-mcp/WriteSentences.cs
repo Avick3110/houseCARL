@@ -452,9 +452,17 @@ internal static class WriteSentences
     /// so it enumerates; it does not fetch, place, or judge them — that decision is the caller's, over
     /// housecarl_asset_status and housecarl_bulk_place_asset.</summary>
     [MustState("does NOT place them", "housecarl_bulk_place_asset")]
+    /// <summary>The list the caller acts on after a copy, and the route to acting on it.
+    /// <para>The absent-reads clause is not decoration. <c>from_source=</c> resolves a plugin wherever it lives, so a
+    /// copy can legitimately read a record out of a mod MO2 does not load — and <c>asset_status</c> answers for the
+    /// mods it DOES load, so every path only that mod provides reads back as absent there. A caller following the
+    /// route without this sentence reads "absent" as "nothing to place" and silently ships a patch with no assets,
+    /// which is the dark-face outcome. Measured on the disabled-donor fixture, not assumed.</para></summary>
     internal const string CopyAssetPathsHeader =
         "asset paths the copied records reference (this call does NOT place them — check each with " +
-        "housecarl_asset_status, then place what you keep with housecarl_bulk_place_asset):";
+        "housecarl_asset_status, then place what you keep with housecarl_bulk_place_asset; a path only the mod you " +
+        "read FROM provides reads as absent in asset_status if MO2 does not load that mod, and is still placed by " +
+        "naming it in source_provider=):";
 
     // ---- dry run -------------------------------------------------------------------------------------
     /// <summary>#225 — the first line of any dry run. It says NOTHING happened before it says what would: a dry run
@@ -574,6 +582,20 @@ internal static class WriteSentences
     [MustState("winner pole is spelled")]
     internal const string PlaceSourcePoleSpelling =
         "(the winner pole is spelled " + AssetSourceChoice.WinnerToken + " — a bare name always means a provider of that name)";
+
+    /// <summary>What a provider NAME reaches, in ONE place, for every surface that has to describe it — both tools'
+    /// parameter descriptions and the auto-resolve refusal's remedy. A const rather than three spellings because the
+    /// parameter descriptions are attribute arguments and the refusal is a sentence, and three copies of a capability
+    /// claim is exactly the surface #386 was filed about: no guard reaches a `[Description]`, so a copy that goes
+    /// stale goes stale silently.
+    /// <para>It states BOTH halves. The second is the load-bearing one: naming is what reaches an unticked mod, and
+    /// an omitted provider still sees only ticked ones — a caller told the first half alone would reasonably expect
+    /// auto-resolve to find a disabled mod's copy, which it deliberately does not.</para></summary>
+    [MustState("whether or not that mod is ticked", "Naming it is what reaches it")]
+    internal const string PlaceSourceNameReachesUnticked =
+        "A mod folder is read whether or not that mod is ticked in MO2 — the copy comes off disk (loose, then that "
+      + "folder's own archives) and the result says so. Naming it is what reaches it: with source_provider= omitted, "
+      + "only the mods MO2 currently loads are considered.";
 
     /// <summary>Both places a named provider is searched, stated in the refusal because a refusal that names only one
     /// of them understates what was checked (Q3, and SPEC §4.2's "a plugin found in neither place is a loud refusal

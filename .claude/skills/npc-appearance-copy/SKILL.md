@@ -114,6 +114,8 @@ housecarl_asset_status, then place what you keep with housecarl_bulk_place_asset
 
 **Decide before you place.** Run `housecarl_asset_status` on each path and read the provider chain. Carry a path only if its bytes would **vanish with the donor** — if another enabled mod still supplies it, the file already resolves and copying it just adds a redundant override. Say which paths you skipped and why; a silent skip and a deliberate one look identical afterwards.
 
+`asset_status` answers for the mods MO2 loads. If the donor's own mod is switched off, every path only it provides reads back **absent** there — which is the carry case, not the skip case. Do not read absent as "nothing to place".
+
 **Place the pair under the new FormID:**
 
 ```
@@ -131,7 +133,9 @@ The destination is computed from the new FormID and the source is the donor's ow
 
 **Both files matter, and a miss is not cosmetic.** The mesh alone renders an untinted head; the tint alone renders the wrong head under the right colour; neither means the engine regenerates the face from the record and discards the tint — the dark-face bug. If a placement reports missing or failed, say the patch is written *without* its assets rather than reporting a successful copy.
 
-**A donor in a disabled MO2 mod is a records-only job today.** Asset sources resolve through the VFS, which is built over enabled mods only, so a disabled donor's files cannot be named. Enable the mod for the placement (and disable it again afterwards if you want). Do not compose a path into the mods folder by hand — that is a guess wearing a path, and it silently places the wrong bytes when the folder name is not what you assumed.
+**A donor in a switched-off MO2 mod carries its assets too.** Name that mod in `source_provider=` and its copy is read off disk — loose first, then that mod folder's own archives — and the result says the source was not enabled. The mod does not have to be switched on for the placement, and switching it on is not a step. Still do not compose a path into the mods folder by hand: that is a guess wearing a path, it silently places the wrong bytes when the folder name is not what you assumed, and it cannot reach a file inside the donor's archives at all.
+
+One thing does not widen: with `source_provider=` **omitted**, resolution still sees only the mods MO2 loads. A switched-off donor's file is reachable because you named it, never by houseCARL finding it.
 
 ## Common mistakes
 
