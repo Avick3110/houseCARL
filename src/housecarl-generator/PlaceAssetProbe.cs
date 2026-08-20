@@ -836,13 +836,13 @@ internal static class PlaceAssetProbe
                 {
                     var r8 = svc.PlaceAssets(new[] { new PlaceRequest(OnlyDisabled, OnlyDisabled, "NoSuchModAnywhere") }, null, null).Results[0];
                     Check(!r8.Placed && r8.Error!.Contains("NoSuchModAnywhere", StringComparison.Ordinal)
-                          && r8.Error.Contains(WriteSentences.PlaceSourceDiskFolderSearched, StringComparison.Ordinal),
-                          $"M8  a name nothing supplies anywhere is refused NAMING it, and says the mod folder WAS looked for  [RED arm] — {r8.Error}");
+                          && r8.Error.Contains(WriteSentences.PlaceSourceNoSuchFolder, StringComparison.Ordinal),
+                          $"M8  a name with no folder anywhere is refused NAMING it, and says there is no such folder  [RED arm] — {r8.Error}");
                     Check(!r8.Error!.Contains("pass one of these names", StringComparison.Ordinal),
                           $"…and offers NO candidate list, because there are no candidates to offer  [RED arm] — {r8.Error}");
 
                     var r9 = svc.PlaceAssets(new[] { new PlaceRequest(Contended, Contended, "NoSuchModAnywhere") }, null, null).Results[0];
-                    Check(!r9.Placed && r9.Error!.Contains(WriteSentences.PlaceSourceDiskFolderSearched, StringComparison.Ordinal)
+                    Check(!r9.Placed && r9.Error!.Contains(WriteSentences.PlaceSourceNoSuchFolder, StringComparison.Ordinal)
                           && r9.Error.Contains("pass one of these names", StringComparison.Ordinal),
                           $"M9  the same miss on a path OTHERS supply lists them as the remedy  [RED arm] — {r9.Error}");
                     Check(r9.Error!.Contains("\"Enabled1\"", StringComparison.Ordinal) && r9.Error.Contains("\"Enabled2\"", StringComparison.Ordinal),
@@ -904,6 +904,11 @@ internal static class PlaceAssetProbe
                     {
                         var r = svc.PlaceAssets(new[] { new PlaceRequest(OnlyDisabled, OnlyDisabled, bad) }, null, null).Results[0];
                         Check(!r.Placed, $"M13 a provider name that is a PATH ('{bad}') places nothing  [RED arm] — {(r.Placed ? "PLACED" : "refused")}");
+                        // …and the REFUSAL says the right thing. The arm stopped at !Placed, so it passed while the
+                        // sentence beside it called a drive-rooted path a name the load order already provides files
+                        // under (review round 2). A path-shaped name is its own outcome now.
+                        Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceNotAFolderName, StringComparison.Ordinal),
+                              $"…and is refused AS a path-shaped name, not as a universe name  [RED arm] — {r.Error}");
                     }
                 }
 
@@ -979,7 +984,9 @@ internal static class PlaceAssetProbe
                 {
                     var r = svc.PlaceAssets(new[] { new PlaceRequest(OnlyDisabled, OnlyDisabled, "Disabled2") }, null, null).Results[0];
                     Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceDiskFolderSearched, StringComparison.Ordinal),
-                          $"M19 an existing off-order folder whose archive lacks the path is REFUSED  [RED arm] — {r.Error}");
+                          $"M19 an existing off-order folder whose archive lacks the path is REFUSED, saying it was SEARCHED  [RED arm] — {r.Error}");
+                    Check(!r.Error!.Contains(WriteSentences.PlaceSourceNoSuchFolder, StringComparison.Ordinal),
+                          "…and NOT that the folder is missing — the two outcomes are different sentences  [RED arm]");
                     Check(Directory.Exists(Path.Combine(mods, "Disabled2")) && !r.Error!.Contains("unscanned", StringComparison.Ordinal),
                           "…and the folder really exists, with no unreadable-archive caveat — a clean miss, not an unknown");
                 }
@@ -1008,7 +1015,8 @@ internal static class PlaceAssetProbe
                     File.WriteAllBytes(Path.Combine(brokenDir, "Broken.bsa"), new byte[] { 0xDE, 0xAD, 0xBE, 0xEF });
                     File.SetLastWriteTimeUtc(Path.Combine(prof, "modlist.txt"), DateTime.UtcNow.AddHours(1));
                     var r = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, "DisabledBroken") }, null, null).Results[0];
-                    Check(!r.Placed && r.Error!.Contains("unscanned rather than absent", StringComparison.Ordinal),
+                    Check(!r.Placed && r.Error!.Contains("unscanned rather than absent", StringComparison.Ordinal)
+                          && r.Error.Contains(WriteSentences.PlaceSourceFolderUnreadable, StringComparison.Ordinal),
                           $"M21 an unreadable archive in the named folder is reported as UNKNOWN, not as absent  [RED arm] — {r.Error}");
                     Check(r.Error!.Contains("Broken.bsa", StringComparison.Ordinal),
                           "…naming the archive that could not be read");
@@ -1031,6 +1039,8 @@ internal static class PlaceAssetProbe
                         Check(!r.Placed || r.SourceOffOrderProvider is null,
                               $"M22 a trailing-dot spelling ('{spelling}') never reaches disk — it {why}  [RED arm] — " +
                               $"{(r.Placed ? "PLACED off-order=" + (r.SourceOffOrderProvider ?? "(none)") : "refused")}");
+                        Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceNotAFolderName, StringComparison.Ordinal),
+                              $"…and SAYS the name is path-shaped rather than one the order already provides  [RED arm] — {r.Error}");
                     }
                 }
 
@@ -1074,6 +1084,34 @@ internal static class PlaceAssetProbe
                           $"M25 the winner line names the DESTINATION folder, not a bare \"the mod\"  [RED arm] — folder={folder ?? "(none)"}");
                     Check(!text.Contains("once the mod is enabled", StringComparison.Ordinal),
                           "…so it cannot be read as the off-order source mod the line above says need not be enabled  [RED arm]");
+                }
+
+                // ---- M27: the two SILENT reasons. The refusal switch is exhaustive by the compiler, so every
+                // outcome has an arm — including the two that deliberately render no clause. `Found` never reaches a
+                // refusal; `NotConsulted` does, whenever a caller selects under the Named pole without supplying the
+                // lookup, and there the only honest thing to say about disk is nothing at all. Driven through the
+                // REAL policy and the REAL render (the write-surface guard's shape for a branch a fixture cannot
+                // otherwise reach). ----
+                {
+                    var res = new PlacementResolution(Contended, new[]
+                    {
+                        new PlacementSource("Enabled1", AssetKind.Loose, @"C:\x\a.nif", null, Contended),
+                        new PlacementSource("Enabled2", AssetKind.Loose, @"C:\x\b.nif", null, Contended),
+                    }, Ambiguous: true, ReadIncomplete: false);
+                    var pick = AssetSourceSelection.Select(res, AssetSourceChoice.Named("NoSuchModAnywhere"));
+                    Check(pick.OffOrderReason == OffOrderReason.NotConsulted,
+                          $"M27 the Named pole with NO lookup supplied reports NotConsulted  [RED arm] — {pick.OffOrderReason}");
+                    var sentence = WriteSentences.PlaceSourceNamedAbsent(
+                        "NoSuchModAnywhere", Contended, pick.ProviderNames, pick.OffOrderReason);
+                    foreach (var claim in new[] { WriteSentences.PlaceSourceUniverseName,
+                                                  WriteSentences.PlaceSourceNotAFolderName,
+                                                  WriteSentences.PlaceSourceNoSuchFolder,
+                                                  WriteSentences.PlaceSourceDiskFolderSearched,
+                                                  WriteSentences.PlaceSourceFolderUnreadable })
+                        Check(!sentence.Contains(claim, StringComparison.Ordinal),
+                              "…and its refusal makes NO claim about the disk, having looked at none  [RED arm]");
+                    Check(sentence.Contains("does not supply", StringComparison.Ordinal),
+                          $"…while still saying the one thing that is true — {sentence}");
                 }
             }
 

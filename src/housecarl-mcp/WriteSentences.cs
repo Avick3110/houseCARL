@@ -607,8 +607,29 @@ internal static class WriteSentences
     /// lookup now reports it and this is rendered only when it is true.</para></summary>
     [MustState("MO2 mod folder of that name")]
     internal const string PlaceSourceDiskFolderSearched =
-        "houseCARL also looked for an MO2 mod folder of that name, and read neither a loose copy there nor one inside "
+        "houseCARL also looked in the MO2 mod folder of that name, and read neither a loose copy there nor one inside "
       + "that folder's own archives";
+
+    /// <summary>The folder was looked for and is not there. Distinct from finding it empty of this path, because the
+    /// caller's next move differs: a name with no folder is a name to check, a folder without the file is a file to
+    /// find elsewhere.</summary>
+    [MustState("no MO2 mod folder of that name")]
+    internal const string PlaceSourceNoSuchFolder =
+        "houseCARL also looked under MO2's mods folder, and there is no MO2 mod folder of that name";
+
+    /// <summary>The name cannot BE a folder name, so no disk look was possible. Its own outcome: collapsing it into
+    /// the universe-first arm is what let a drive-rooted path be refused as a name the load order already provides
+    /// files under (review round 2).</summary>
+    [MustState("named, never pathed")]
+    internal const string PlaceSourceNotAFolderName =
+        "a provider is named, never pathed — this carries a separator, a drive, a '..' or a trailing dot or space, so "
+      + "it is not a name houseCARL looks for on disk at all";
+
+    /// <summary>The folder was searched and something in it would not READ, so an absent answer here is an unknown
+    /// rather than an answer. Pairs with the NOTE clause, which names what failed.</summary>
+    [MustState("could not be read")]
+    internal const string PlaceSourceFolderUnreadable =
+        "houseCARL also looked in the MO2 mod folder of that name, and something there could not be read";
 
     /// <summary>The other arm: the name IS one the active order provides files under, so the off-order lane never
     /// ran and no claim about a mod folder may be made. It states only what is true — the name resolved, the path did
@@ -629,13 +650,27 @@ internal static class WriteSentences
     /// honestly known. The list, when there is one, is the same quoted-name spelling the ambiguity refusal uses, and
     /// for the same reason: this is the caller's next call, not a display.</para></summary>
     internal static string PlaceSourceNamedAbsent(string provider, string rel, IReadOnlyList<string> providerNames,
-                                                  bool folderSearched, string? readFailure = null, string? pathHint = null) =>
-        $"'{provider}' does not supply '{rel}' — "
-      + (folderSearched ? PlaceSourceDiskFolderSearched : PlaceSourceUniverseName) + ". "
+                                                  OffOrderReason reason, string? unreadableName = null,
+                                                  string? unreadableCause = null, string? pathHint = null) =>
+        $"'{provider}' does not supply '{rel}'"
+        // ONE sentence per reason, and a SWITCH EXPRESSION with no default arm: the compiler requires every outcome
+        // the lane can reach to be named here (CS8509 fires on a missing one — verified by removing an arm), so a new
+        // outcome is a build diagnostic rather than a false sentence in front of a caller. Two consecutive review
+        // rounds each found a state the booleans this replaced could not say.
+      + reason switch
+        {
+            OffOrderReason.NotConsulted     => ". ",          // nothing on disk was looked at; claim nothing about it
+            OffOrderReason.Found            => ". ",          // unreachable from a refusal, and silent if it ever is
+            OffOrderReason.UniverseName     => $" — {PlaceSourceUniverseName}. ",
+            OffOrderReason.NotAFolderName   => $" — {PlaceSourceNotAFolderName}. ",
+            OffOrderReason.NoSuchFolder     => $" — {PlaceSourceNoSuchFolder}. ",
+            OffOrderReason.NoCopyInFolder   => $" — {PlaceSourceDiskFolderSearched}. ",
+            OffOrderReason.FolderUnreadable => $" — {PlaceSourceFolderUnreadable}. ",
+        }
         // An unreadable folder or archive makes this an UNKNOWN, not a miss, and saying so is the same caveat the
         // active lane carries for an archive that failed its build. Rendered before the remedy: it changes what the
-        // remedy is worth.
-      + (readFailure is null ? "" : $"NOTE: {readFailure}, so this may be unscanned rather than absent. ")
+        // remedy is worth. The NAME and the cause come typed off the lookup; the sentence is built here.
+      + (unreadableName is null ? "" : $"NOTE: '{unreadableName}' could not be read ({unreadableCause}), so this may be unscanned rather than absent. ")
       + (pathHint is null ? "" : pathHint + " ")
       + (providerNames.Count > 0
             ? $"{PlaceSourceNoSubstitute} — pass one of these names instead, quotes excluded: "

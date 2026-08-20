@@ -62,7 +62,9 @@ public static class PlaceAssetTools
                      + "active mod's archive is listed (and reached) under the ARCHIVE's name, not the mod's. A path only a "
                      + "mod MO2 is not loading provides reads as ABSENT there, while still being placeable by naming that mod here. "
                      + "Omitted = the sole provider, refused if more than one contends. A named "
-                     + "provider that doesn't supply the path is refused, never silently replaced by another.")]
+                     + "provider that doesn't supply the path is refused, never silently replaced by another, and the "
+                     + "refusal says which places were looked in. A name the active order already provides files under "
+                     + "is answered by the active order, so a mod folder of that same name is not consulted.")]
             string? source_provider = null,
         [Description("Optional. Base name for the NEW houseCARL mod folder the file lands in (default 'houseCARL_Assets'); auto-suffixed if taken.")]
             string? patch_name = null,

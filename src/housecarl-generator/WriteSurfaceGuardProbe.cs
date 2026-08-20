@@ -2518,6 +2518,11 @@ public static class WriteSurfaceGuardProbe
             File.WriteAllBytes(Path.Combine(dir, "twin.nif"), new byte[] { 1, 2, 3 });
         }
         File.WriteAllText(Path.Combine(mods, providers[0], "Dummy.esp"), "x");
+        // Two folders MO2 does not list, so the off-order lane really runs for them: one that simply has no copy of
+        // the queried path, one whose root archive will not read. They exist to reach two of the refusal's outcomes.
+        Directory.CreateDirectory(Path.Combine(mods, "W2Offline"));
+        Directory.CreateDirectory(Path.Combine(mods, "W2Broken"));
+        File.WriteAllBytes(Path.Combine(mods, "W2Broken", "Broken.bsa"), new byte[] { 0xDE, 0xAD, 0xBE, 0xEF });
         File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\nDummy.esp\r\n");
         File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*Dummy.esp\r\n");
         File.WriteAllText(Path.Combine(prof, "modlist.txt"),
@@ -2544,10 +2549,12 @@ public static class WriteSurfaceGuardProbe
             // where the "a named mod folder is read whether or not it is ticked" sentence reaches a caller, and it
             // is the refusal that caller is most likely to be standing in when they need it.
             Render(new PlaceRequest(@"meshes\hcw2\nothing-provides-this.nif", null, null)),
-            // The named-miss refusal's OTHER arm: the provider named is one the active order already provides files
-            // under, so the off-order lane never ran and the refusal may claim no mod-folder search. Both arms have
-            // to reach a render or the conditional is half-wired — the arm above is the disk-searched one.
-            Render(new PlaceRequest(rel, @"meshes\hcw2\absent-everywhere.nif", providers[0])),
+            // The named-miss refusal keys ONE sentence per lookup outcome, and each has to reach a render or that
+            // arm is half-wired. The W2NoSuchMod render above is the no-such-folder one; these are the rest.
+            Render(new PlaceRequest(rel, @"meshes\hcw2\absent-everywhere.nif", providers[0])),   // a universe name
+            Render(new PlaceRequest(rel, rel, @"..\nope")),                                      // a path-shaped name
+            Render(new PlaceRequest(rel, rel, "W2Offline")),                                     // a real folder, no copy
+            Render(new PlaceRequest(rel, rel, "W2Broken")),                                      // a real folder, unreadable
         }).ToList();
     }
 
