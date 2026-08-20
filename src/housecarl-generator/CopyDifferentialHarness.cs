@@ -25,7 +25,7 @@ namespace HousecarlGenerator;
 /// would be a difference the inventory says is not one; a difference it shows is either matched or an inventoried
 /// intentional divergence, and anything else is a defect in the successor.</para>
 ///
-/// <para><b>Fixture 3 is the one that can fail informatively</b>, so its contested-ness is CONSTRUCTED and ASSERTED
+/// <para><b>Fixture 3 can fail informatively</b>, so its contested-ness is CONSTRUCTED and ASSERTED
 /// here rather than inferred from a tool: two providers for one facegen path (a loose replacer out-sorting a real
 /// BSA), asserted to hold different bytes, with the loose copy asserted to win. Only once that is measured does a
 /// clean diff there STOPS THE RUN. It is not folded, and it is not reported as a pass.</para>
@@ -37,10 +37,11 @@ namespace HousecarlGenerator;
 /// out which of the three moved (the fixture, the flow, or place_asset's source selection); it does not by itself
 /// identify one. The empirical half of this fixture's evidence is Aaron's pass on the live install.</para>
 ///
-/// <para><b>Fixture 2 is records-only by ruling.</b> The disabled-donor asset lane is not built in this branch, so
-/// the ancestor's donor-disk carry has no counterpart to diff against. That is a stated gap in coverage rather than
-/// a pass, and the deferred comparison belongs to the later PR that builds the lane — while the ancestor still
-/// exists to be compared against.</para>
+/// <para><b>Fixture 2 compares assets too, since F1.</b> It ran records-only under ruling R1, because the successor
+/// had no disabled-donor asset lane for the ancestor's donor-disk carry to be diffed against; F1 built one, and the
+/// comparison (EMPIRICAL_LEDGER EL-2) is the asset half here. It fails informatively for the same reason fixture 3
+/// does, and by the same construction: its contested path and its donor-only paths are both MEASURED before anything
+/// is compared, so a match cannot be a coincidence and a divergence cannot be a fixture accident.</para>
 ///
 /// Run: dotnet run --project src/housecarl-generator -- copy-differential
 /// </summary>
