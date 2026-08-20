@@ -13,6 +13,38 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **Fixed: `housecarl_check_errors` now says how many findings its answer is missing, and stays inside
+  `max_chars`.** The response used to describe what it left out from two separate places, in two different
+  units: the listing budget said how many refs `limit=` never listed, and a truncation notice said how many
+  plugin sections `max_chars` dropped. Neither could see the other, so neither answered "how many of these can
+  I actually see" — on a 3800-plugin order at the defaults the two together reported 3996 not listed and 554
+  of 1000 shown, while 530 of 4996 was the answer. There is now one line, and it states that number first,
+  then splits it by cause and names the knob that moves each. Two things follow from computing it after the
+  response is built rather than where a loop stops. A cut landing inside the LAST report section used to print
+  nothing at all — no notice, and the response ran past `max_chars` while doing it; it is now reported like any
+  other. And `format='json'` used to check its budget once per plugin, so a single plugin with more findings
+  than the cap could hold wrote all of them: one real plugin returned 202,425 characters against an 80,000 cap
+  and reported `truncated: false`, which was true, because the cap had not been applied. The check is now per
+  finding.
+  The accounting and the boundary footer are held back out of `max_chars` before the listing is built, so
+  neither is appended past it. That costs the listing about 1,400 characters of an 80,000 budget. The one case
+  where a response is still longer than the `max_chars` you gave it is a `max_chars` too small to hold the
+  accounting itself, and there the response says so and names the number that fits.
+  A report section is now emitted whole or not at all: what a section says besides its dangling entries — a
+  scan error, the masters it declares that are missing, how many records could not be read — is a finding in
+  its own right, and used to be dropped a line at a time with nothing recording it. The two things a cut can
+  drop are a whole section and a single finding, and the line above states both.
+
+- **New: `exclude=` on `housecarl_check_errors` leaves plugins out of the sweep.** Pass plugin filenames with
+  their extension, or a group name: `base_masters` (the five the game ships with) or `implicit` (every plugin
+  the order force-loads because `plugins.txt` does not list it — this is where Creation Club plugins and
+  `_ResourcePack.esl` are, and it includes the base masters). An excluded plugin is not walked, does not spend
+  `limit=`, and is in no total; the response says the scope was narrowed. What the response calls the vanilla
+  BASELINE does not change with it — that stays the base-master set Mutagen defines, whatever you exclude.
+  A value that is neither a filename nor a group name, a name nothing in scope matches, and an exclusion that
+  removes everything are each refused before the sweep runs; the `exclude=` description lists the group names,
+  and each refusal names what it expected.
+
 - **New: `source_provider=` reaches a mod MO2 is not currently loading.** `housecarl_place_asset` and
   `housecarl_bulk_place_asset` resolve a named provider against the mods MO2 loads, and — when no provider of that
   name is among them — against the MO2 mod folder of that name on disk: the loose file first, then that folder's own
