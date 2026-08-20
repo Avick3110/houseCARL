@@ -60,9 +60,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
   named plugins instead is unaffected, because those need no profile read.
 
 - **Changed: `housecarl_validate_scripts` says what a `max_chars` cut dropped from its excluded-plugin list.**
-  That list is now charged to `max_chars` like the rest of the response, so a tight one can drop it whole. Where
-  that happens the response says which list did not fit and how many plugins the index could not parse are
-  therefore unnamed, instead of a bare "truncated" marker under a heading that may itself be gone.
+  That list is now charged to `max_chars` like the rest of the response, so a tight one can cut it short or drop
+  it whole. Where that happens the response says which list did not fit and how many plugins the index could not
+  parse are therefore unnamed — the count is the ones it did NOT name, so a response that named some of them says
+  so, instead of a bare "truncated" marker under a heading that may itself be gone.
 
 - **New: `source_provider=` reaches a mod MO2 is not currently loading.** `housecarl_place_asset` and
   `housecarl_bulk_place_asset` resolve a named provider against the mods MO2 loads, and — when no provider of that

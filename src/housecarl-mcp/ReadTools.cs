@@ -1379,20 +1379,24 @@ static class Wire
 
     /// <summary>The named, reasoned list of plugins the index build could not parse. Shared by the listing and
     /// <c>counts_only=</c> paths — counts_only used to return before it, leaving the header's bare count with no way to
-    /// learn WHICH plugin went unchecked without re-running (PR #288 review, finding 5).</summary>
-    static void AppendExcludedPlugins(StringBuilder sb, BoundedBody body, IReadOnlyDictionary<string, string> excluded)
+    /// learn WHICH plugin went unchecked without re-running (PR #288 review, finding 5).
+    /// <para>Returns HOW MANY rows it emitted. The roster is cut one row at a time, so "how many are unnamed" is a
+    /// subtraction at the append site and nowhere else: handed the TOTAL instead, the callers that state it said all
+    /// three plugins were unnamed on a response that had just named one of them.</para></summary>
+    static int AppendExcludedPlugins(StringBuilder sb, BoundedBody body, IReadOnlyDictionary<string, string> excluded)
     {
-        if (excluded.Count == 0) return;
+        if (excluded.Count == 0) return 0;
         // The head rides the first ROW, so the list is whole or absent: a head with nothing under it says a roster
         // exists and then names none of it.
         const string head = "\nexcluded plugins (could not be parsed — NOT checked):\n";
-        bool first = true;
+        int emitted = 0;
         foreach (var kv in excluded)
         {
-            var unit = (first ? head : "") + "  " + kv.Key + ": " + kv.Value + "\n";
-            if (!body.Emit(SweepSubject.ExcludedRows, unit.Length, () => sb.Append(unit))) return;
-            first = false;
+            var unit = (emitted == 0 ? head : "") + "  " + kv.Key + ": " + kv.Value + "\n";
+            if (!body.Emit(SweepSubject.ExcludedRows, unit.Length, () => sb.Append(unit))) return emitted;
+            emitted++;
         }
+        return emitted;
     }
 
     /// <summary>Under <c>counts_only=</c> the reports list carries the honesty layer only (records/plugins houseCARL
@@ -1460,8 +1464,9 @@ static class Wire
             }
             // The helper reports rather than annotates (it is shared with check_errors, whose accounting states the
             // same fact in its own terms), so this lane keeps its own marker at its own call site.
-            AppendExcludedPlugins(sb, scriptBody, r.ExcludedPlugins);
-            if (scriptBody.Stopped(SweepSubject.ExcludedRows)) sb.Append(ExcludedRosterCut(r.ExcludedPlugins.Count));
+            int namedExcluded = AppendExcludedPlugins(sb, scriptBody, r.ExcludedPlugins);
+            if (scriptBody.Stopped(SweepSubject.ExcludedRows))
+                sb.Append(ExcludedRosterCut(r.ExcludedPlugins.Count - namedExcluded));
             AppendScriptCheckBoundary(sb);
             return sb.ToString().TrimEnd('\n');
         }
@@ -1518,8 +1523,9 @@ static class Wire
         var listBody = new BoundedBody(null, cap, () => sb.Length);
         if (!truncated)
         {
-            AppendExcludedPlugins(sb, listBody, r.ExcludedPlugins);
-            if (listBody.Stopped(SweepSubject.ExcludedRows)) sb.Append(ExcludedRosterCut(r.ExcludedPlugins.Count));
+            int namedExcluded = AppendExcludedPlugins(sb, listBody, r.ExcludedPlugins);
+            if (listBody.Stopped(SweepSubject.ExcludedRows))
+                sb.Append(ExcludedRosterCut(r.ExcludedPlugins.Count - namedExcluded));
         }
 
         AppendScriptCheckBoundary(sb);
@@ -1550,9 +1556,12 @@ static class Wire
     /// <summary>What validate_scripts says when max_chars leaves no room for the excluded-plugin roster. It used to
     /// be a bare "... [truncated at max_chars]" appended under a header line that was always printed — and once the
     /// roster's HEAD became droppable too, that marker could stand alone with nothing above it saying what had been
-    /// truncated. A marker that names its own subject does not depend on a line that may not be there.</summary>
-    static string ExcludedRosterCut(int total)
-        => $"\n... [the excluded-plugin list did not fit max_chars — {total} plugin(s) the index could not parse are "
+    /// truncated. A marker that names its own subject does not depend on a line that may not be there.
+    /// <para><paramref name="unnamed"/> is the total LESS the rows the render actually emitted, counted at the append
+    /// site. Handed the total, the marker claimed every plugin was unnamed on a roster that had named some of them
+    /// — measured at max_chars=840 over three plugins, one of which is printed on the line directly above it.</para></summary>
+    static string ExcludedRosterCut(int unnamed)
+        => $"\n... [the excluded-plugin list did not fit max_chars — {unnamed} plugin(s) the index could not parse are "
          + "NOT named above; raise max_chars= to see them]\n";
 
     static void AppendScriptCheckBoundary(StringBuilder sb)

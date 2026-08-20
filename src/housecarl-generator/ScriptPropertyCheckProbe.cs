@@ -476,23 +476,76 @@ public static class ScriptPropertyCheckProbe
                 .ToDictionary(i => $"HcSpBroken{i}.esp", i => new string('r', 300)),
         };
         var rosterWhole = Wire.RenderScriptCheck(excludedFat, 0);
-        // The cap is searched for, not named: which one admits the response but not the roster is a fact about the
-        // fixture. Counts_only, because the listing lane skips the roster entirely once its own record list is cut.
+        // The NONE-FIT cap, searched for rather than named: which one admits the response but not a single roster row
+        // is a fact about the fixture.
         var rosterCut = "";
         for (int cap = 200; cap <= 4000 && !rosterCut.Contains("did not fit max_chars", StringComparison.Ordinal); cap += 20)
             rosterCut = Wire.RenderScriptCheck(excludedFat, cap);
         Check("EXCLUDED-ROSTER-CUT-NAMES-ITS-SUBJECT: when max_chars leaves no room for the excluded-plugin roster, the marker says WHAT did not fit and how many plugins are unnamed — it no longer relies on a header line that can itself be dropped",
             rosterCut.Contains("the excluded-plugin list did not fit max_chars", StringComparison.Ordinal)
-            && rosterCut.Contains("3 plugin(s) the index could not parse are NOT named above", StringComparison.Ordinal)
-            && !rosterCut.Contains("HcSpBroken0.esp", StringComparison.Ordinal)
+            && RosterUnnamed(rosterCut) == 3
+            && RosterNamed(excludedFat, rosterCut) == 0
             // and the other direction: an ample cap names them and says nothing about a cut
             && rosterWhole.Contains("HcSpBroken0.esp", StringComparison.Ordinal)
             && !rosterWhole.Contains("did not fit max_chars", StringComparison.Ordinal),
-            $"cut=[{rosterCut.Split('\n').LastOrDefault(l => l.Contains("excluded-plugin list", StringComparison.Ordinal)) ?? "<no marker>"}] wholeNames={rosterWhole.Contains("HcSpBroken0.esp", StringComparison.Ordinal)}");
+            $"named={RosterNamed(excludedFat, rosterCut)} stated={RosterUnnamed(rosterCut)}");
+
+        // THE PARTIAL CUT, in both lanes that carry the marker. The search above stops at the FIRST cap that produces
+        // it, which is by construction the one where no row fits — so the case where the roster names some of its
+        // plugins and then says none of them were named was pinned by nothing. Every cap in the band is walked, and
+        // the marker's number is asserted against rows counted out of the response.
+        var partialBad = new List<string>();
+        RosterMarkerCountsItsRows("counts_only", excludedFat, partialBad);
+        // The listing lane's copy of the same marker. Its roster is only reached while the record list itself was NOT
+        // cut, so the fixture keeps the records and fattens the roster — the same shape, one call site over.
+        var listingFat = res with
+        {
+            ExcludedPlugins = Enumerable.Range(0, 3)
+                .ToDictionary(i => $"HcSpBroken{i}.esp", i => new string('r', 300)),
+        };
+        RosterMarkerCountsItsRows("listing", listingFat, partialBad);
+        Check("EXCLUDED-ROSTER-CUT-COUNTS-THE-ROWS-IT-DROPPED: at a cap that names SOME of the unparseable plugins and not the rest, the marker states how many are UNNAMED — the total, printed over a response that named one of them, is a sentence its own lines contradict",
+            partialBad.Count == 0,
+            partialBad.Count == 0 ? "both lanes state total minus the rows they emitted" : string.Join("; ", partialBad));
 
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "script-property-check-guard: ALL PASS" : $"script-property-check-guard: {failures} FAILURE(S)");
         return failures == 0 ? 0 : 1;
+    }
+
+    /// <summary>How many of the fixture's unparseable plugins this response actually NAMES, counted off its own lines
+    /// rather than inferred from a cap.</summary>
+    static int RosterNamed(ScriptCheckResult r, string text)
+        => r.ExcludedPlugins.Keys.Count(k => text.Contains("  " + k + ": ", StringComparison.Ordinal));
+
+    /// <summary>The number the roster-cut marker states, or -1 where it states none.</summary>
+    static int RosterUnnamed(string text)
+    {
+        const string lead = "did not fit max_chars — ";
+        int at = text.IndexOf(lead, StringComparison.Ordinal);
+        if (at < 0) return -1;
+        var digits = new string(text[(at + lead.Length)..].TakeWhile(char.IsDigit).ToArray());
+        return int.TryParse(digits, out var n) ? n : -1;
+    }
+
+    /// <summary>Walk the caps where the roster marker fires and hold its number against the rows the response
+    /// actually carries. EVERY cap in the band, not the first that produces a marker: the first is always the
+    /// none-fit case, and the defect lives at the caps above it. A band that never splits is reported as a gap in the
+    /// fixture rather than passed over — an arm that never saw a partial cut proves nothing about one.</summary>
+    static void RosterMarkerCountsItsRows(string lane, ScriptCheckResult r, List<string> bad)
+    {
+        bool sawPartial = false;
+        for (int cap = 200; cap <= 6000; cap += 20)
+        {
+            var text = Wire.RenderScriptCheck(r, cap);
+            int stated = RosterUnnamed(text);
+            if (stated < 0) continue;
+            int named = RosterNamed(r, text);
+            if (named > 0) sawPartial = true;
+            if (stated != r.ExcludedPlugins.Count - named)
+                bad.Add($"{lane}@{cap}: {named} named, marker says {stated} unnamed of {r.ExcludedPlugins.Count}");
+        }
+        if (!sawPartial) bad.Add($"{lane}: no cap in 200..6000 names SOME of the roster and cuts the rest");
     }
 
     // ---- fixture builders --------------------------------------------------------------------------
