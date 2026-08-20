@@ -117,6 +117,15 @@ namespace HousecarlGenerator;
 ///   per-record link-walk fault isolation is the SAME try/catch idiom proven by effect-chain-guard + the cross_plugin_query
 ///   scan. The sweep surfaces both verbatim (ExcludedPlugins + the unscannable accounting), it does not re-implement them.
 ///
+/// THE ASSERTION RULE (pinned here after this guard shipped a tautology through two review rounds): AN INVARIANT
+///   ARM ASSERTS AGAINST A FIXTURE-KNOWN EXPECTED VALUE — NEVER AGAINST A PHRASE THE RENDER ITSELF EMITS. The cap
+///   invariant excused every overrun that contained "raise it to at least"; the render appends that notice to every
+///   response longer than its cap, so the arm could not fail and the two folds it was meant to pin were pinned by
+///   nothing. A number the fixture knows (a length, a count, a total the sweep computed) can be wrong and be caught;
+///   a substring the response composed about itself agrees with the response by construction. Where an arm must read
+///   the render's own words — following a remedy to the number it names, say — the words locate the value and the
+///   ASSERTION is still made against something measured independently.
+///
 /// Run: dotnet run --project src/housecarl-generator -- check-errors-guard
 /// </summary>
 public static class CheckErrorsProbe
@@ -1357,27 +1366,61 @@ public static class CheckErrorsProbe
         return bad.Count == 0;
     }
 
+    /// <summary>The caps this invariant is swept over. It used to step 3000 -> 8000, straight over the 4000-7000 band
+    /// the fat-head fixture's plugin object actually bites in: the arm's one real defect lived in a gap in its own
+    /// ladder. The band is now walked rather than jumped.</summary>
+    static readonly int[] CapLadder = { 120, 300, 700, 900, 1500, 3000, 4000, 4500, 5000, 5270, 6000, 7000, 8000, 40000 };
+
     /// <summary>The cap invariant, swept: for a range of max_chars values, NEITHER transport may return more than it
-    /// was given — unless the response says it overran, which is the one declared arm (a cap smaller than the
-    /// accounting itself, which is never dropped). A single cap would pass by luck; the sweep is what makes the
-    /// invariant a claim rather than an anecdote.</summary>
+    /// was given — with ONE legitimate exception, recognised by a FIXTURE-KNOWN LENGTH rather than by a phrase the
+    /// response emits about itself.
+    ///
+    /// <para><b>What this arm used to be, and why it could never fail.</b> It excused any overrun in a response
+    /// containing "raise it to at least". But <c>CheckAccounting.CapTooSmall</c> returns non-null for EVERY response
+    /// longer than its cap and both renders append the notice whenever it is non-null — so an over-cap response
+    /// always carries that phrase, the second conjunct was dead, and the flagship #361 cell was a tautology for two
+    /// whole review rounds. The json twin had the identical shape with <c>max_chars_overrun</c>.</para>
+    ///
+    /// <para><b>The FLOOR is the expected value.</b> The only response that may legitimately run over is the one with
+    /// no body in it at all — header, accounting and boundary, which are reserved and never dropped. That length is a
+    /// property of the FIXTURE: render it at a cap no body can fit under (1) and measure. Every response is then held
+    /// to <c>max(cap, floor + slack)</c>, so a single emitted body unit puts an over-cap response past the floor and
+    /// the arm goes red. The slack covers the one thing that moves the floor between caps — max_chars is printed
+    /// inside the accounting and again inside the overrun notice, so a wider cap widens the floor by its own digits.
+    /// It is bounded by digit width (<see cref="FloorSlack"/>), not by plausibility.</para>
+    ///
+    /// <para><b>What it does NOT bound, stated rather than implied:</b> anything the render emits UNCONDITIONALLY is
+    /// inside the floor it is measured against, so this arm cannot see it. HISTOGRAM-FRAMING-IS-BOUNDED is the arm
+    /// that holds that surface.</para></summary>
     static bool CapSweep(ErrorCheckResult r, out string detail)
     {
         var bad = new List<string>();
-        foreach (int cap in new[] { 120, 300, 700, 900, 1500, 3000, 8000, 40000 })
+        // The irreducible response, per transport, measured off the fixture once.
+        int textFloor = Wire.RenderCheckErrors(r, 1).Length;
+        int jsonFloor = JsonWire.RenderCheckErrors(r, 1).Length;
+        foreach (int cap in CapLadder)
         {
             var text = Wire.RenderCheckErrors(r, cap);
             var json = JsonWire.RenderCheckErrors(r, cap);
-            if (text.Length > cap && !text.Contains("raise it to at least", StringComparison.Ordinal))
-                bad.Add($"text@{cap}={text.Length} with no overrun notice");
-            if (json.Length > cap && !json.Contains("max_chars_overrun", StringComparison.Ordinal))
-                bad.Add($"json@{cap}={json.Length} with no overrun notice");
+            int textAllowed = Math.Max(cap, textFloor + FloorSlack(cap));
+            int jsonAllowed = Math.Max(cap, jsonFloor + FloorSlack(cap));
+            if (text.Length > textAllowed)
+                bad.Add($"text@{cap}={text.Length} over the allowed {textAllowed} (floor {textFloor})");
+            if (json.Length > jsonAllowed)
+                bad.Add($"json@{cap}={json.Length} over the allowed {jsonAllowed} (floor {jsonFloor})");
             try { JsonDocument.Parse(json); }
             catch (Exception ex) { bad.Add($"json@{cap} is not valid json: {ex.GetType().Name}"); }
         }
-        detail = bad.Count == 0 ? "every cap honoured, or overrun declared" : string.Join("; ", bad);
+        detail = bad.Count == 0 ? $"every cap honoured, or bounded by the floor (text {textFloor} / json {jsonFloor})"
+                                : string.Join("; ", bad);
         return bad.Count == 0;
     }
+
+    /// <summary>How much the floor may grow between the cap it was measured at and the cap under test. max_chars is
+    /// printed inside the accounting's by-cut clause and inside the overrun notice (which also prints the number to
+    /// raise to and the length reached) — four printed numbers, each bounded by the cap's own digit width. Four
+    /// digits of headroom per place, not a round number chosen for comfort.</summary>
+    static int FloorSlack(int cap) => 4 * cap.ToString().Length;
 
     internal static bool JsonHasHistogram(string json, string prop)
     {
