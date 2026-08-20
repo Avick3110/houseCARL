@@ -1262,7 +1262,6 @@ static class JsonWire
             WriteStringArray(w, "classes_checked", ClassNames(r.Classes));
             WriteNullable(w, "filter_note", r.FilterNote);
             WriteStringArray(w, "off_order_scanned", r.OffOrderScanned ?? Array.Empty<string>());
-            WriteExcluded(w, r.ExcludedPlugins);
             w.WriteBoolean("counts_only", r.CountsOnly);
 
             // #344 — the baseline split as DATA (the text render's baseline line). base_masters names the set that was
@@ -1284,12 +1283,17 @@ static class JsonWire
             WriteStringArray(w, "base_masters", HousecarlCore.ErrorCheck.BaseMasters);
             // Where the BODY begins — see CheckAccounting.CapTooSmall for why it is asked here and not at the end.
             int headerLength = Size(w, ms);
+            // EVERYTHING BELOW THIS LINE GOES THROUGH `body`, including the excluded roster, which used to be
+            // written up in the header where no budget could reach it — 1,188 chars past the budget on three
+            // 400-character parse reasons, while the TEXT lane bounded the same roster. The fourth instance of one
+            // class, which is why the bound now lives in one helper rather than at each write site.
+            var body = new BoundedBody(acct, budget, () => Size(w, ms));
 
             if (r.CountsOnly)
             {
-                WriteHistogram(w, "dangling_by_target_plugin", r.Histogram, histogramLimit, ms, budget);
-                WriteHistogram(w, "dangling_by_source_plugin", r.DanglingBySource, histogramLimit, ms, budget);   // #344 — the new axis
-                acct.UnreadRows(WriteUnreadPlugins(w, r.Reports, ms, budget));
+                WriteHistogram(w, "dangling_by_target_plugin", r.Histogram, histogramLimit, body);
+                WriteHistogram(w, "dangling_by_source_plugin", r.DanglingBySource, histogramLimit, body);   // #344 — the new axis
+                WriteUnreadPlugins(w, r.Reports, body);
             }
             else
             {
@@ -1303,42 +1307,50 @@ static class JsonWire
                     // chars against a 5,270 cap, silently. The text lane composes its fixed part and measures it;
                     // this is the same rule, and a Utf8JsonWriter can only be measured by writing, so it is written
                     // once into a scratch buffer at the same nesting depth.
-                    if (Size(w, ms) + PluginHeadCost(p) >= budget) break;
-                    w.WriteStartObject();
-                    w.WriteString("plugin", p.Plugin);
-                    WriteNullable(w, "scan_error", p.ScanError);
-                    WriteStringArray(w, "missing_masters", p.MissingMasters);
-                    // The unscannable fields sit before the dangling array so that once the ENTRY loop breaks
-                    // mid-plugin, all that follows is three fixed closing brackets.
-                    w.WriteNumber("unscannable_records", p.UnscannableRecords);
-                    WriteStringArray(w, "unscannable_samples", p.UnscannableSamples);
-                    w.WriteStartArray("dangling");
+                    // The plugin object's fixed part carries a scan-error string and up to three unscannable-record
+                    // exception messages, all unbounded, so it is one of the two units whose cost is MEASURED rather
+                    // than left to the post-check: a two-report fixture whose second plugin carried three ~950-char
+                    // samples returned 7,296 chars against a 5,270 cap, silently.
+                    bool opened = body.Emit(SweepSubject.PluginSections, PluginHeadCost(p), () =>
+                    {
+                        w.WriteStartObject();
+                        w.WriteString("plugin", p.Plugin);
+                        WriteNullable(w, "scan_error", p.ScanError);
+                        WriteStringArray(w, "missing_masters", p.MissingMasters);
+                        // The unscannable fields sit before the dangling array so that once the ENTRY loop breaks
+                        // mid-plugin, all that follows is three fixed closing brackets.
+                        w.WriteNumber("unscannable_records", p.UnscannableRecords);
+                        WriteStringArray(w, "unscannable_samples", p.UnscannableSamples);
+                        w.WriteStartArray("dangling");
+                    });
+                    if (!opened) break;
                     foreach (var d in p.Dangling)
                     {
                         // Per ENTRY: one plugin's array can be thousands of rows, and a check taken only at the
-                        // plugin boundary lets all of them out at once (#361, measured at 2.5x the cap).
-                        if (Size(w, ms) >= budget) break;
-                        w.WriteStartObject();
-                        w.WriteString("source", d.Source.ToString());
-                        w.WriteString("source_type", d.SourceType);
-                        WriteNullable(w, "source_editorid", d.SourceEditorId);
-                        w.WriteString("target", d.Target.ToString());
-                        w.WriteEndObject();
-                        acct.Entry(p.Plugin);
+                        // plugin boundary lets all of them out at once (#361, measured at 2.5x the cap). An entry
+                        // is small and uniform, so it carries no measured cost — the emitter's post-check is what
+                        // stops the loop, and JsonGlue is the reserve sized to absorb the one entry that crosses.
+                        if (!body.Emit(SweepSubject.DanglingEntries, 0, () =>
+                        {
+                            w.WriteStartObject();
+                            w.WriteString("source", d.Source.ToString());
+                            w.WriteString("source_type", d.SourceType);
+                            WriteNullable(w, "source_editorid", d.SourceEditorId);
+                            w.WriteString("target", d.Target.ToString());
+                            w.WriteEndObject();
+                        }, p.Plugin)) break;
                     }
+                    // The section's own closing brackets are what PluginHeadCost already paid for. Counted where its
+                    // content landed, exactly as the text lane counts it: its ENTRIES are accounted separately, so a
+                    // section whose entry loop stopped on the budget is a rendered section carrying fewer entries,
+                    // not a partly-rendered one.
                     w.WriteEndArray();
                     w.WriteEndObject();
-                    // Counted where the section's own content landed, exactly as the text lane counts it: its
-                    // ENTRIES are accounted separately, so a section whose entry loop stopped on the budget is a
-                    // rendered section carrying fewer entries, not a partly-rendered one.
-                    acct.Section();
                 }
                 w.WriteEndArray();
             }
 
-            // This transport writes the excluded roster WHOLE, above, so nothing of it is ever missing here — told
-            // to the accounting explicitly rather than left at zero, which would claim every row was dropped.
-            acct.ExcludedRows(r.ExcludedPlugins.Count);
+            WriteExcluded(w, r.ExcludedPlugins, body);
 
             // §2.1's required in-band accounting rides the accounting's own writer — everything the close emits is
             // written in one place, which is the same place JsonReserve measures.
@@ -1527,12 +1539,15 @@ static class JsonWire
 
     /// <summary>A counts_only histogram: <c>{distinct, rows:[{key,count}], rendered}</c>. Absent when the mode was not
     /// requested; PRESENT with an empty <c>rows</c> when the sweep genuinely found nothing — the two must not look alike.</summary>
-    /// <param name="budget">the bytes this render may occupy; unbounded by default, which is what validate_scripts
-    /// still passes. `distinct` vs `rendered` already discloses a short list, so the bound needs no new field.</param>
+    /// <param name="body">the ONE bounded emission path, or null for validate_scripts, which passes no budget —
+    /// its response layer is not this branch's. `distinct` vs `rendered` already discloses a short list, so the
+    /// bound needs no new field.</param>
     static void WriteHistogram(Utf8JsonWriter w, string name, IReadOnlyList<SweepCount>? rows, int rowLimit,
-                               MemoryStream? ms = null, int budget = int.MaxValue)
+                               BoundedBody? body = null)
     {
         if (rows is null) return;
+        // The object's own three fixed members do not grow with the findings, so they are part of the fixed part;
+        // the ROWS are what the budget gates, and `rendered` is written from what the gate let through.
         w.WriteStartObject(name);
         w.WriteNumber("distinct", rows.Count);
         w.WriteStartArray("rows");
@@ -1540,8 +1555,13 @@ static class JsonWire
         foreach (var row in rows)
         {
             if (shown >= rowLimit) break;
-            if (ms is not null && Size(w, ms) >= budget) break;
-            w.WriteStartObject(); w.WriteString("key", row.Key); w.WriteNumber("count", row.Count); w.WriteEndObject();
+            var r = row;
+            if (body is not null
+                && !body.Emit(SweepSubject.HistogramRows, 0,
+                              () => { w.WriteStartObject(); w.WriteString("key", r.Key); w.WriteNumber("count", r.Count); w.WriteEndObject(); }))
+                break;
+            if (body is null)
+            { w.WriteStartObject(); w.WriteString("key", row.Key); w.WriteNumber("count", row.Count); w.WriteEndObject(); }
             shown++;
         }
         w.WriteEndArray();
@@ -1554,35 +1574,71 @@ static class JsonWire
     /// <para>Wrapped in <c>{total, rows, rendered, truncated}</c> rather than a bare array: a budget cut used to drop
     /// trailing rows with NO flag, so a consumer iterating the array believed it had the complete set of what went
     /// unchecked — and the text render said "truncated" for the same result (PR #288 review, finding 4).</para></summary>
-    static int WriteUnreadPlugins(Utf8JsonWriter w, IReadOnlyList<PluginErrors> reports, MemoryStream ms, int budget)
+    static void WriteUnreadPlugins(Utf8JsonWriter w, IReadOnlyList<PluginErrors> reports, BoundedBody body)
     {
         w.WriteStartObject("unread");
         w.WriteNumber("total", reports.Count);
         w.WriteStartArray("rows");
-        int rendered = 0; bool truncated = false;
+        int rendered = 0;
         foreach (var p in reports)
         {
-            if (Size(w, ms) >= budget) { truncated = true; break; }
+            // The EXACT sibling of the plugin head, and it was missed by that fix: the row carries a scan error and
+            // its unscannable samples, all unbounded, and the budget was tested before writing it — 9,823 chars
+            // against an 8,000 cap while the text twin returned 4,788. So it is the second unit whose cost is
+            // measured rather than left to the post-check.
+            var row = p;
+            if (!body.Emit(SweepSubject.UnreadRows, UnreadRowCost(p), () =>
+            {
+                w.WriteStartObject();
+                w.WriteString("plugin", row.Plugin);
+                WriteNullable(w, "scan_error", row.ScanError);
+                w.WriteNumber("unscannable_records", row.UnscannableRecords);
+                WriteStringArray(w, "unscannable_samples", row.UnscannableSamples);
+                w.WriteEndObject();
+            })) break;
+            rendered++;
+        }
+        w.WriteEndArray();
+        w.WriteNumber("rendered", rendered);
+        w.WriteBoolean("truncated", rendered < reports.Count);
+        w.WriteEndObject();
+    }
+
+    /// <summary>What one unread row costs, encoded exactly as the response will encode it — the same construction as
+    /// <see cref="PluginHeadCost"/>, at this row's own nesting depth.</summary>
+    static int UnreadRowCost(PluginErrors p)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteStartObject("unread");
+            w.WriteStartArray("rows");
             w.WriteStartObject();
             w.WriteString("plugin", p.Plugin);
             WriteNullable(w, "scan_error", p.ScanError);
             w.WriteNumber("unscannable_records", p.UnscannableRecords);
             WriteStringArray(w, "unscannable_samples", p.UnscannableSamples);
             w.WriteEndObject();
-            rendered++;
+            w.WriteEndArray();
+            w.WriteEndObject();
+            w.WriteEndObject();
         }
-        w.WriteEndArray();
-        w.WriteNumber("rendered", rendered);
-        w.WriteBoolean("truncated", truncated);
-        w.WriteEndObject();
-        return rendered;
+        return (int)ms.Length;
     }
 
-    static void WriteExcluded(Utf8JsonWriter w, IReadOnlyDictionary<string, string> excluded)
+    /// <summary>The excluded-plugin roster. <paramref name="body"/> is the bounded emission path; null is
+    /// validate_scripts, which passes no budget here — its response layer is not this branch's.</summary>
+    static void WriteExcluded(Utf8JsonWriter w, IReadOnlyDictionary<string, string> excluded, BoundedBody? body = null)
     {
         w.WriteStartArray("excluded_plugins");
         foreach (var kv in excluded)
-        { w.WriteStartObject(); w.WriteString("plugin", kv.Key); w.WriteString("reason", kv.Value); w.WriteEndObject(); }
+        {
+            var row = kv;
+            void Write() { w.WriteStartObject(); w.WriteString("plugin", row.Key); w.WriteString("reason", row.Value); w.WriteEndObject(); }
+            if (body is null) { Write(); continue; }
+            if (!body.Emit(SweepSubject.ExcludedRows, 0, Write)) break;
+        }
         w.WriteEndArray();
     }
 

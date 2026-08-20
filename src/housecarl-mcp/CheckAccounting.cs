@@ -18,6 +18,18 @@ namespace HousecarlMcp;
 /// layer rule survives as this class's internal discipline: the causes are still named separately, but they are
 /// decomposed out of one computation instead of raced by two.</para>
 ///
+/// <para><b>The DECLARED SUBJECT set, and the boolean it replaces.</b> The first cut of this class carried one
+/// <c>_listing</c> flag standing for two different lane facts — "did the dangling walk run" and "does this mode
+/// build a per-plugin listing" — and a section count read unconditionally off <c>Reports</c>, which means different
+/// things per lane. Six distinct wrong sentences came out of that in two review rounds, three of them created by
+/// the folds for the other three: a <c>findings=["missing_masters"]</c> json response that reported no sections at
+/// all, a <c>counts_only</c> response claiming "0 of 3 plugin section(s) were rendered" over a response that
+/// dropped nothing, an opener inside the gate and its closer outside it. So the accounting is now CONSTRUCTED with
+/// the subjects the lane actually has (<see cref="SweepSubject"/>), each carrying what the sweep FOUND and what the
+/// render EMITTED. Every sentence, every json field, the remedy and the reserve derive from that set. A lane
+/// without sections cannot claim about them, and a lane with them cannot fail to — by construction rather than by
+/// each clause remembering its own gate.</para>
+///
 /// <para><b>How #361 dies here rather than being patched.</b> Two invariants, neither of them a code path that has
 /// to remember to run:
 /// <list type="number">
@@ -30,86 +42,92 @@ namespace HousecarlMcp;
 /// invisible to the <c>truncated</c> flag the auto-spill trigger reads.</item>
 /// </list></para>
 ///
-/// <para><b>Deliberately findings-family-agnostic, and deliberately no further.</b> Its interface speaks in
-/// entries-emitted vs entries-found, which carries to any findings family without knowing what a family is. It
-/// takes no taxonomy parameter and holds no family enum: the merged <c>check</c> surface (SPEC §6.1) is a separate
-/// PR with its own design, and building its machinery here on speculation is what CLAUDE.md §8 names.</para>
+/// <para><b>Deliberately findings-family-agnostic, and deliberately no further.</b> Its subjects are lane facts —
+/// entries, sections, roster rows — which carry to any findings family without knowing what a family is. It takes
+/// no taxonomy parameter and holds no family enum: the merged <c>check</c> surface (SPEC §6.1) is a separate PR
+/// with its own design, and building its machinery here on speculation is what CLAUDE.md §8 names.</para>
 /// </summary>
 internal sealed class CheckAccounting
 {
-    // ---- what the SWEEP found (fixed before the render starts) --------------------------------------
+    // ---- the declared subjects: what this lane HAS, and how much of each the sweep found -------------
+    readonly Dictionary<SweepSubject, int> _found = new();
+    readonly Dictionary<SweepSubject, int> _emitted = new();
+
+    // ---- the dangling subject's own extras ----------------------------------------------------------
     readonly IReadOnlyList<SweepCount> _bySource;   // true dangling count per source plugin, never limit-capped
-    readonly int _found;                            // every dangling ref the sweep counted, in scope
+    readonly Dictionary<string, int> _bySourceEmitted = new(StringComparer.OrdinalIgnoreCase);
     readonly int _budgetListed;                     // the subset the listing budget admitted into the reports
-    readonly int _sectionsWithFindings;
-    readonly int _excludedTotal;
-    readonly int _unreadTotal;
-    readonly bool _listing;                         // is a per-plugin listing being built at all?
     readonly int _cap;
     readonly int _limit;
 
-    // ---- what the RENDER put in (filled as it emits) ------------------------------------------------
-    readonly Dictionary<string, int> _emitted = new(StringComparer.OrdinalIgnoreCase);
-    int _visible, _sections, _excluded, _unread;
-
-    /// <summary>Build the accounting for one response. Under <c>counts_only=true</c> the listing clauses are ABSENT
-    /// rather than zero: nothing is listed there BY DESIGN, and "the budget omitted everything" would report a mode
-    /// working correctly as a failure.</summary>
+    /// <summary>Build the accounting for one response, declaring the subjects this lane has.
+    ///
+    /// <para>Each declaration is a lane fact stated once, here, instead of a gate repeated at every clause:</para>
+    /// <list type="bullet">
+    /// <item><b>Dangling entries</b> — only where a per-plugin listing is built AND the walk that fills it ran.
+    /// Under <c>counts_only</c> nothing is listed BY DESIGN, and "the budget omitted everything" would report a
+    /// mode working correctly as a failure.</item>
+    /// <item><b>Plugin sections</b> — in EVERY listing lane, entries or not. With <c>findings=["missing_masters"]</c>
+    /// the sweep lists no dangling refs at all, and the section loop still cuts; gated on the listing flag those
+    /// responses said nothing in text and wrote no <c>rendered</c>/<c>truncated</c> in json.</item>
+    /// <item><b>Unread rows</b> — only under <c>counts_only</c>, where <c>Reports</c> carries the honesty layer
+    /// rather than findings. In the listing lane those same plugins ARE the sections, so the two subjects exist in
+    /// different lanes and can never double-count a row.</item>
+    /// <item><b>Excluded rows</b> — wherever the index actually excluded something.</item>
+    /// </list></summary>
     internal CheckAccounting(ErrorCheckResult r, int cap)
     {
         _cap = cap;
         _limit = r.Limit;
-        _listing = !r.CountsOnly && r.Classes.HasFlag(ErrorFindingClass.Dangling);
         _bySource = r.DanglingBySource ?? Array.Empty<SweepCount>();
-        _found = r.TotalDangling;
         _budgetListed = r.Reports.Sum(p => p.Dangling.Count);
-        _sectionsWithFindings = r.Reports.Count;
-        _excludedTotal = r.ExcludedPlugins.Count;
-        // counts_only's reports list carries the honesty layer only — plugins whose records could not be read. In
-        // the listing lane those same plugins carry findings and are counted as SECTIONS, so this subject exists
-        // exactly where the other one does not, and the two can never double-count the same row.
-        _unreadTotal = r.CountsOnly ? r.Reports.Count : 0;
+
+        if (!r.CountsOnly && r.Classes.HasFlag(ErrorFindingClass.Dangling)) Declare(SweepSubject.DanglingEntries, r.TotalDangling);
+        if (!r.CountsOnly) Declare(SweepSubject.PluginSections, r.Reports.Count);
+        if (r.CountsOnly) Declare(SweepSubject.UnreadRows, r.Reports.Count);
+        if (r.ExcludedPlugins.Count > 0) Declare(SweepSubject.ExcludedRows, r.ExcludedPlugins.Count);
     }
 
-    // ---- registration: the render tells the accounting what it emitted ------------------------------
+    void Declare(SweepSubject s, int found) { _found[s] = found; _emitted[s] = 0; }
 
-    /// <summary>One dangling entry just went into the response, sourced from <paramref name="plugin"/>. Called where
-    /// the line is APPENDED, never where a section is entered: a section total would claim entries for a section the
-    /// cut left half-written, which is the class of false number this construction exists to make unrepresentable.
-    /// </summary>
-    internal void Entry(string plugin)
+    internal bool Has(SweepSubject s) => _found.ContainsKey(s);
+    int Found(SweepSubject s) => _found.TryGetValue(s, out var n) ? n : 0;
+    int Emitted(SweepSubject s) => _emitted.TryGetValue(s, out var n) ? n : 0;
+
+    // ---- registration: the emission helper tells the accounting what it emitted ---------------------
+
+    /// <summary>One unit of <paramref name="s"/> just went into the response. Called from
+    /// <see cref="BoundedBody.Emit"/> where the unit LANDED, never where a section is entered: a section total would
+    /// claim entries for a section the cut left half-written, which is the class of false number this construction
+    /// exists to make unrepresentable.
+    ///
+    /// <para>A subject this lane did not declare is IGNORED rather than counted. That is what lets the histogram
+    /// rows share the one bounded-emission path without acquiring an accounting sentence of their own — the
+    /// histogram already discloses its own cut in both transports.</para></summary>
+    internal void Emitted(SweepSubject s, string? source = null)
     {
-        _visible++;
-        _emitted[plugin] = (_emitted.TryGetValue(plugin, out var had) ? had : 0) + 1;
+        if (!_found.ContainsKey(s)) return;
+        _emitted[s]++;
+        if (s == SweepSubject.DanglingEntries && source is not null)
+            _bySourceEmitted[source] = (_bySourceEmitted.TryGetValue(source, out var had) ? had : 0) + 1;
     }
 
-    internal void Section() => _sections++;
-
-    /// <summary>Rows the two honesty-layer rosters actually appended. Taken as a COUNT because those helpers are
-    /// shared with validate_scripts, whose response layer is not this PR's — they report what they emitted and each
-    /// caller states it in its own terms, so neither lane's prose leaks into the other's.</summary>
-    internal void ExcludedRows(int n) => _excluded += n;
-    internal void UnreadRows(int n) => _unread += n;
+    /// <summary>Rows a transport wrote WHOLE, outside the emission loop — json writes its excluded roster as one
+    /// array it either completes or does not start. Told explicitly rather than left at zero, which would claim
+    /// every row was dropped.</summary>
+    internal void EmittedAll(SweepSubject s) { if (_found.ContainsKey(s)) _emitted[s] = _found[s]; }
 
     // ---- derived ------------------------------------------------------------------------------------
 
     /// <summary>Refs the listing budget never admitted. A pure SWEEP fact, so it is readable before the body renders
     /// — which is what lets the baseline block's phase-order sentence consult it without waiting for emission.
     /// </summary>
-    internal int OmittedByBudget => _listing ? _found - _budgetListed : 0;
+    internal int OmittedByBudget => Has(SweepSubject.DanglingEntries) ? Found(SweepSubject.DanglingEntries) - _budgetListed : 0;
 
-    internal int Visible => _visible;
-    internal int Found => _found;
-    internal int Omitted => _listing ? _found - _visible : 0;
-
-    /// <summary>Refs the budget admitted and this response then could not fit. The other half of
-    /// <see cref="Omitted"/> BY CONSTRUCTION: both are subtractions off the same total, so the two causes sum to it
+    /// <summary>Refs the budget admitted and this response then could not fit. The other half of the dangling
+    /// subject's omission BY CONSTRUCTION: both are subtractions off the same total, so the two causes sum to it
     /// exactly rather than by two counters happening to agree.</summary>
-    internal int OmittedByCut => _listing ? _budgetListed - _visible : 0;
-
-    internal int SectionsRendered => _sections;
-    internal int SectionsWithFindings => _sectionsWithFindings;
-    internal bool Listing => _listing;
+    internal int OmittedByCut => Has(SweepSubject.DanglingEntries) ? _budgetListed - Emitted(SweepSubject.DanglingEntries) : 0;
 
     /// <summary>WHICH source plugins are missing entries from THIS response, largest first. Computed against what was
     /// emitted, so it covers both causes at once: under the two-layer split, a plugin whose entries the budget listed
@@ -118,11 +136,11 @@ internal sealed class CheckAccounting
     {
         get
         {
-            if (!_listing) return Array.Empty<SweepCount>();
+            if (!Has(SweepSubject.DanglingEntries)) return Array.Empty<SweepCount>();
             var acc = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             foreach (var row in _bySource)
             {
-                int shown = _emitted.TryGetValue(row.Key, out var c) ? c : 0;
+                int shown = _bySourceEmitted.TryGetValue(row.Key, out var c) ? c : 0;
                 if (row.Count > shown) acc[row.Key] = row.Count - shown;
             }
             return SweepFindings.Histogram(acc);
@@ -145,11 +163,13 @@ internal sealed class CheckAccounting
 
     /// <summary>Slack over the measured worst case, and the two lanes need very different amounts of it.
     ///
-    /// <para>The TEXT lane composes each line and tests <c>length + line.Length</c> before appending, so nothing it
-    /// writes can exceed the budget it was tested against. All it needs is the handful of newlines the accounting
-    /// and boundary are wrapped in. The JSON lane cannot do that — a <c>Utf8JsonWriter</c> has no way to measure an
-    /// object without writing it — so its test is taken before the write and the last entry lands over. That slack
-    /// has to cover one whole entry: two FormID strings, a type name and an EditorID.</para>
+    /// <para>The TEXT lane composes each unit and tests <c>length + cost</c> before appending, so nothing it writes
+    /// can exceed the budget it was tested against. All it needs is the handful of newlines the accounting and
+    /// boundary are wrapped in. The JSON lane cannot do that for every unit — a <c>Utf8JsonWriter</c> has no way to
+    /// measure an object without writing it — so its per-entry test is taken before the write and the last entry
+    /// lands over. That slack has to cover one whole entry: two FormID strings, a type name and an EditorID. It is
+    /// also what absorbs <see cref="BoundedBody"/>'s post-check, which stops the body the moment a unit crosses the
+    /// budget rather than pretending it cannot happen.</para>
     ///
     /// <para>One number for both cost the text lane a kilobyte of listing at every cap, which at small caps was the
     /// whole listing. A reserve slightly too large costs characters; one slightly too small is #361. The cap sweep
@@ -161,57 +181,81 @@ internal sealed class CheckAccounting
     /// what a real render can reach: the counts are the totals themselves, so their digit widths bound every real
     /// count; every optional clause is present; and the roster holds the LONGEST source names rather than the
     /// largest, because a partly-listed response can promote a long-named small source into the roster that a
-    /// fully-omitted one would have pushed out — "largest" is not a bound and "longest" is.</summary>
+    /// fully-omitted one would have pushed out — "largest" is not a bound and "longest" is.
+    ///
+    /// <para>Length is taken as the MAXIMUM of the plain and the json-escaped spelling. One reserve is measured off
+    /// a text render and one off a json one, and a name whose escaped form is longer than its plain form (any
+    /// non-ASCII plugin filename) ranks differently in the two — ordering both by the json length let a name that is
+    /// long in text be pushed out of the sample the TEXT reserve was sized from.</para></summary>
     Values Worst()
     {
-        var longest = _bySource.OrderByDescending(c => JsonEncodedText.Encode(c.Key).Value.Length)
-                               .Take(ReadSentences.SweepRosterRows)
-                               .Select(c => new SweepCount(c.Key, _found))
-                               .ToList();
+        int danglingFound = Found(SweepSubject.DanglingEntries);
+        // The roster is the dangling subject's, so a lane without that subject reserves nothing for it. The
+        // by-source tally is collected on EVERY sweep, so a worst case built off it unconditionally held ~700 chars
+        // back from a counts_only response for a roster that lane can never emit — at max_chars=1500 that was the
+        // whole histogram.
+        var longest = Has(SweepSubject.DanglingEntries)
+            ? _bySource.OrderByDescending(c => WidestSpelling(c.Key))
+                       .Take(ReadSentences.SweepRosterRows)
+                       .Select(c => new SweepCount(c.Key, danglingFound))
+                       .ToList()
+            : new List<SweepCount>();
         // Every slot at its widest, not at zero. The counts are digits in the rendered line, and a real response's
-        // Visible / Sections / Excluded / Unread are wider than 0 — so a worst case that passed 0 for them was
-        // bounded by the slack rather than by construction, which is not what its own summary claimed.
-        return new Values(Visible: _found, ByBudget: _found, ByCut: _found, Roster: longest,
-                          RosterTotal: Math.Max(_bySource.Count, longest.Count),
-                          Sections: _sectionsWithFindings, Excluded: _excludedTotal, Unread: _unreadTotal,
-                          Worst: true);
+        // emitted counts are wider than 0 — so a worst case that passed 0 for them was bounded by the slack rather
+        // than by construction, which is not what its own summary claimed.
+        var emitted = new Dictionary<SweepSubject, int>();
+        foreach (var kv in _found) emitted[kv.Key] = kv.Value;
+        emitted[SweepSubject.DanglingEntries] = danglingFound;
+        return new Values(Visible: danglingFound, ByBudget: danglingFound, ByCut: danglingFound, Roster: longest,
+                          RosterTotal: Math.Max(_bySource.Count, longest.Count), Emitted: emitted, Worst: true);
     }
 
-    /// <summary>What this response actually did.</summary>
-    Values Real() => new(_visible, OmittedByBudget, OmittedByCut, MissingBySource, MissingBySource.Count,
-                         _sections, _excluded, _unread, Worst: false);
+    static int WidestSpelling(string name) => Math.Max(name.Length, JsonEncodedText.Encode(name).Value.Length);
 
-    /// <summary>The numbers one rendering of the accounting states. A record rather than eight parameters so the
+    /// <summary>What this response actually did.</summary>
+    Values Real() => new(Emitted(SweepSubject.DanglingEntries), OmittedByBudget, OmittedByCut,
+                         MissingBySource, MissingBySource.Count, _emitted, Worst: false);
+
+    /// <summary>The numbers one rendering of the accounting states. A record rather than a parameter list so the
     /// real case and the worst case go through ONE composer per transport — a second formatter would be a second
     /// spelling, and a reserve computed off a spelling that has since drifted is a reserve that silently stops
     /// bounding anything.</summary>
     readonly record struct Values(int Visible, int ByBudget, int ByCut, IReadOnlyList<SweepCount> Roster,
-                                  int RosterTotal, int Sections, int Excluded, int Unread, bool Worst);
+                                  int RosterTotal, IReadOnlyDictionary<SweepSubject, int> Emitted, bool Worst);
+
+    /// <summary>Is this subject short in this rendering? ONE test, used by the clause that states it, by
+    /// <see cref="Missing"/>, and by the remedy — so the three cannot disagree about the same subject.</summary>
+    bool Short(Values v, SweepSubject s)
+        => Has(s) && (v.Worst || (v.Emitted.TryGetValue(s, out var e) ? e : 0) < Found(s));
+
+    int Shown(Values v, SweepSubject s) => v.Emitted.TryGetValue(s, out var e) ? e : 0;
 
     // ---- the text lane ------------------------------------------------------------------------------
 
     /// <summary>The accounting as the text transport states it, or null where there is nothing at all to account
-    /// for. Present on EVERY listing response, complete or not: silence used to mean both "this response carries
-    /// everything" and "#361", and those two must never read alike.</summary>
+    /// for. Present on EVERY response that has a listing subject, complete or not: silence used to mean both "this
+    /// response carries everything" and "#361", and those two must never read alike. A lane with no listing has no
+    /// completeness to assert, so it states an accounting only when something is actually short.</summary>
     internal string? TextLine()
     {
         var v = Real();
-        // A listing lane always states its accounting, complete or not. Any other lane states one only when
-        // something is actually short — there is no positive claim to make about a listing that never ran.
-        return _listing || Missing(v) ? Compose(v) : null;
+        return Has(SweepSubject.DanglingEntries) || Missing(v) ? Compose(v) : null;
     }
 
     string Compose(Values v)
     {
-        var sb = new StringBuilder();
-        int omitted = v.ByBudget + v.ByCut;
-        bool missing = Missing(v);
+        // The opener and the closer sit OUTSIDE every subject gate, because they are not about any subject. The
+        // opener used to be baked into the two listing leads, so a lane with no listing emitted a bare clause and
+        // an orphan "]" — the accounting's own framing had the shape it exists to forbid.
+        var sb = new StringBuilder(ReadSentences.SweepAccountingLead);
 
-        if (_listing)
+        if (Has(SweepSubject.DanglingEntries))
         {
+            int found = Found(SweepSubject.DanglingEntries);
+            int omitted = v.ByBudget + v.ByCut;
             sb.Append(omitted > 0 || v.Worst
-                ? string.Format(ReadSentences.SweepVisible, v.Visible, _found)
-                : string.Format(ReadSentences.SweepAllVisible, _found));
+                ? string.Format(ReadSentences.SweepVisible, v.Visible, found)
+                : string.Format(ReadSentences.SweepAllVisible, found));
 
             var causes = new List<string>();
             if (v.ByBudget > 0 || v.Worst) causes.Add(string.Format(ReadSentences.SweepOmittedByBudget, v.ByBudget, _limit));
@@ -219,20 +263,21 @@ internal sealed class CheckAccounting
             if (causes.Count > 0) sb.Append(string.Join(",", causes)).Append('.');
         }
 
-        // OUTSIDE the listing gate, deliberately. A section is dropped by the RENDER, and the render runs whether or
-        // not the dangling walk did: with findings=["missing_masters"] the sweep lists no dangling refs at all, so
-        // _listing is false — and the section loop still cuts. Gated on _listing this clause was absent there, which
-        // put #361's own shape (a cut that leaves no sentence) inside the fix for #361, in the lane the tool's own
+        // One clause per short subject, each computed from the subject it names. A section is dropped by the RENDER,
+        // and the render runs whether or not the dangling walk did — with findings=["missing_masters"] the sweep
+        // lists nothing and the section loop still cuts, which is #361's own shape in the lane the tool's own
         // description sells as the cheap "is any master missing anywhere" sweep.
-        if (v.Sections < _sectionsWithFindings || v.Worst)
-            sb.Append(string.Format(ReadSentences.SweepSections, v.Sections, _sectionsWithFindings));
-
+        if (Short(v, SweepSubject.PluginSections))
+            sb.Append(string.Format(ReadSentences.SweepSections, Shown(v, SweepSubject.PluginSections),
+                                    Found(SweepSubject.PluginSections)));
         // The two honesty-layer rosters. Their rows are what houseCARL could NOT read, so a silent cut there hides
         // the boundary of the answer rather than a finding inside it.
-        if (v.Excluded < _excludedTotal || v.Worst)
-            sb.Append(string.Format(ReadSentences.SweepExcludedCut, v.Excluded, _excludedTotal));
-        if (v.Unread < _unreadTotal || v.Worst)
-            sb.Append(string.Format(ReadSentences.SweepUnreadCut, v.Unread, _unreadTotal));
+        if (Short(v, SweepSubject.ExcludedRows))
+            sb.Append(string.Format(ReadSentences.SweepExcludedCut, Shown(v, SweepSubject.ExcludedRows),
+                                    Found(SweepSubject.ExcludedRows)));
+        if (Short(v, SweepSubject.UnreadRows))
+            sb.Append(string.Format(ReadSentences.SweepUnreadCut, Shown(v, SweepSubject.UnreadRows),
+                                    Found(SweepSubject.UnreadRows)));
 
         if (v.Roster.Count > 0)
         {
@@ -245,15 +290,16 @@ internal sealed class CheckAccounting
             if (v.RosterTotal > ReadSentences.SweepRosterRows || v.Worst)
                 sb.Append(string.Format(ReadSentences.SweepRosterCut, ReadSentences.SweepRosterRows, v.RosterTotal));
             sb.Append('.');
+            // The rule belongs to the roster — it explains what the roster is for, so it is stated where one exists.
+            sb.Append(ReadSentences.SweepNoSectionRule);
         }
 
-        // The rule belongs to the roster — it explains what the roster is for, so it is stated where one exists.
-        if (v.Roster.Count > 0) sb.Append(ReadSentences.SweepNoSectionRule);
-        if (missing)
+        if (Missing(v))
         {
             if (v.ByBudget > 0 || v.Worst) sb.Append(ReadSentences.SweepRemedyLimit);
-            if (v.ByCut > 0 || v.Sections < _sectionsWithFindings || v.Excluded < _excludedTotal
-                || v.Unread < _unreadTotal || v.Worst)
+            // max_chars is the knob for every subject except the listing budget's own share.
+            if (v.ByCut > 0 || v.Worst || Short(v, SweepSubject.PluginSections)
+                || Short(v, SweepSubject.ExcludedRows) || Short(v, SweepSubject.UnreadRows))
                 sb.Append(ReadSentences.SweepRemedyMaxChars);
             if (v.Roster.Count > 0) sb.Append(ReadSentences.SweepRemedyScope).Append(ReadSentences.SweepRemedyCountsOnly);
         }
@@ -261,12 +307,15 @@ internal sealed class CheckAccounting
         return sb.ToString();
     }
 
-    /// <summary>Is anything at all absent from this response? ONE test over EVERY subject, so the remedy and the
-    /// clauses above it cannot disagree. Dropped sections belong here: a sweep whose findings are all missing
-    /// masters omits no dangling ref, so without this term a response missing 34 of 41 sections closed as complete —
-    /// with no remedy, no roster, and a json twin that said truncated.</summary>
-    bool Missing(Values v) => v.Worst || v.ByBudget + v.ByCut > 0 || v.Sections < _sectionsWithFindings
-                              || v.Excluded < _excludedTotal || v.Unread < _unreadTotal;
+    /// <summary>Is anything at all absent from this response? ONE test over EVERY DECLARED subject, so the remedy and
+    /// the clauses above it cannot disagree, and a subject the lane does not have cannot make it true. Dropped
+    /// sections belong here: a sweep whose findings are all missing masters omits no dangling ref, so without this
+    /// term a response missing 34 of 41 sections closed as complete — with no remedy, no roster, and a json twin that
+    /// said truncated.</summary>
+    bool Missing(Values v)
+        => v.Worst || v.ByBudget + v.ByCut > 0
+           || Short(v, SweepSubject.PluginSections) || Short(v, SweepSubject.ExcludedRows)
+           || Short(v, SweepSubject.UnreadRows);
 
     // ---- the json lane ------------------------------------------------------------------------------
 
@@ -281,39 +330,44 @@ internal sealed class CheckAccounting
 
     void WriteJson(Utf8JsonWriter w, Values v)
     {
-        // capped is the listing budget's fact, truncated is this response's — both off the ONE computation, so a
-        // consumer no longer has to know which layer measured which.
-        //
-        // LISTING LANE ONLY, as on the base commit. Under counts_only there is no listing, and Reports carries the
-        // honesty roster instead — so _sectionsWithFindings is a count of UNREADABLE plugins and _sections is always
-        // 0. Written unconditionally, a counts_only sweep that found 240 dangling refs reported
-        // "plugins_with_findings": 0, and one with an unreadable plugin reported truncated:true beside its own
-        // "unread": {"truncated": false}. A field named for one lane's subject is absent in the other, never zero.
-        if (_listing)
+        // A field named for a subject is present exactly where that subject is, and absent otherwise — never a zero
+        // standing in for "this lane has no such thing". Written unconditionally, a counts_only sweep that found 240
+        // dangling refs reported "plugins_with_findings": 0; gated on the LISTING flag instead, a
+        // findings=["missing_masters"] sweep wrote no sections, no rendered and no truncated at all, so the json
+        // twin of a text response that stated its cut said nothing about it.
+        bool sections = Has(SweepSubject.PluginSections);
+        bool dangling = Has(SweepSubject.DanglingEntries);
+        if (dangling) w.WriteBoolean("capped", v.ByBudget > 0);
+        if (sections)
         {
-            w.WriteBoolean("capped", v.ByBudget > 0);
-            w.WriteNumber("plugins_with_findings", _sectionsWithFindings);
-            w.WriteNumber("rendered", v.Sections);
-            w.WriteBoolean("truncated", v.ByCut > 0 || v.Sections < _sectionsWithFindings);
+            w.WriteNumber("plugins_with_findings", Found(SweepSubject.PluginSections));
+            w.WriteNumber("rendered", Shown(v, SweepSubject.PluginSections));
+            // truncated is THIS RESPONSE's fact over every subject it has, which is what a consumer deciding
+            // whether to re-ask actually needs; capped above is the listing budget's separate one.
+            w.WriteBoolean("truncated", v.ByCut > 0 || Short(v, SweepSubject.PluginSections)
+                                        || Short(v, SweepSubject.ExcludedRows) || Short(v, SweepSubject.UnreadRows));
         }
         w.WriteStartObject("accounting");
-        w.WriteBoolean("listing", _listing);
-        if (_listing)
+        w.WriteBoolean("listing", dangling);
+        if (dangling)
         {
-            w.WriteNumber("dangling_found", _found);
+            w.WriteNumber("dangling_found", Found(SweepSubject.DanglingEntries));
             w.WriteNumber("dangling_visible", v.Visible);
             w.WriteNumber("dangling_missing", v.ByBudget + v.ByCut);
             w.WriteNumber("dangling_missing_by_budget", v.ByBudget);
             w.WriteNumber("dangling_missing_by_response_cut", v.ByCut);
             w.WriteNumber("limit", _limit);
-            w.WriteNumber("sections_with_findings", _sectionsWithFindings);
-            w.WriteNumber("sections_rendered", v.Sections);
+        }
+        if (sections)
+        {
+            w.WriteNumber("sections_with_findings", Found(SweepSubject.PluginSections));
+            w.WriteNumber("sections_rendered", Shown(v, SweepSubject.PluginSections));
         }
         w.WriteNumber("max_chars", _cap);
-        w.WriteNumber("excluded_plugins_total", _excludedTotal);
-        w.WriteNumber("excluded_plugins_named", v.Excluded);
-        w.WriteNumber("unread_plugins_total", _unreadTotal);
-        w.WriteNumber("unread_plugins_named", v.Unread);
+        w.WriteNumber("excluded_plugins_total", Found(SweepSubject.ExcludedRows));
+        w.WriteNumber("excluded_plugins_named", Shown(v, SweepSubject.ExcludedRows));
+        w.WriteNumber("unread_plugins_total", Found(SweepSubject.UnreadRows));
+        w.WriteNumber("unread_plugins_named", Shown(v, SweepSubject.UnreadRows));
         w.WriteStartArray("dangling_missing_by_source");
         for (int i = 0; i < v.Roster.Count && i < ReadSentences.SweepRosterRows; i++)
         {
@@ -352,18 +406,17 @@ internal sealed class CheckAccounting
         return (int)ms.Length;
     }
 
-    /// <summary>The measuring constructor: enough state for <see cref="WriteJson(Utf8JsonWriter, Values)"/> to write
-    /// the worst case at full width. It is never registered against and never rendered into a response.</summary>
+    /// <summary>The measuring constructor: every subject declared at full width, so
+    /// <see cref="WriteJson(Utf8JsonWriter, Values)"/> writes the worst case with no field missing. It is never
+    /// registered against and never rendered into a response.</summary>
     CheckAccounting(Values v)
     {
         _bySource = v.Roster;
-        _found = v.ByBudget;
         _cap = int.MaxValue;
         _limit = int.MaxValue;
-        _listing = true;
-        _sectionsWithFindings = v.RosterTotal;
-        _excludedTotal = v.RosterTotal;
-        _unreadTotal = v.RosterTotal;
+        _budgetListed = v.ByBudget;
+        foreach (SweepSubject s in Enum.GetValues<SweepSubject>())
+            if (s != SweepSubject.HistogramRows) Declare(s, Math.Max(v.ByBudget, v.RosterTotal));
     }
 
     // ---- the cap floor ------------------------------------------------------------------------------
@@ -381,10 +434,12 @@ internal sealed class CheckAccounting
     /// <para><paramref name="needed"/> is what it takes to carry this response's fixed part plus the accounting —
     /// the number a caller can set max_chars to and stop seeing this. It is not the current length: raising the cap
     /// widens the printed max_chars by a digit or two, which the slack below absorbs, and a probe follows the
-    /// remedy at a sweep of caps rather than trusting that reasoning.</para></summary>
+    /// remedy at a sweep of caps rather than trusting that reasoning. It is also never BELOW the cap the caller
+    /// already passed: a remedy telling them to lower max_chars is one they cannot act on, and the fixed part that
+    /// does not fit is by definition bigger than the budget it did not fit in.</para></summary>
     internal string? CapTooSmall(int contentLength, int needed) =>
         contentLength > _cap
-            ? string.Format(ReadSentences.SweepCapTooSmall, _cap, needed + RaiseSlack, contentLength)
+            ? string.Format(ReadSentences.SweepCapTooSmall, _cap, Math.Max(needed, contentLength) + RaiseSlack, contentLength)
             : null;
 
     /// <summary>Slack on the number the overrun notice tells a caller to raise to. Setting max_chars to exactly the

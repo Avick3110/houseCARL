@@ -187,9 +187,16 @@ internal static class ReadSentences
     /// silence: "no accounting line" used to mean both "complete" and "the cut landed somewhere that never got to
     /// print one" (#361), and a reader could not tell those apart. Now the line is unconditional over the listing
     /// lane, so its absence means the lane did not run, never that the response is whole.</summary>
+    /// <summary>The accounting's own framing. It used to be baked into the two listing leads below, so a lane with
+    /// no listing emitted its clauses with no opener and then the closer on its own — the accounting's framing had
+    /// exactly the shape it exists to forbid. It is not about any subject, so it is stated outside every subject
+    /// gate.</summary>
+    [NoClaims("a label; the claims it introduces are the accounting's own clauses")]
+    internal const string SweepAccountingLead = "[accounting:";
+
     [MustState("appear above", "found by this sweep")]
     internal const string SweepAllVisible =
-        "[accounting: all {0} dangling ref(s) found by this sweep appear above.";
+        " all {0} dangling ref(s) found by this sweep appear above.";
 
     /// <summary>The lead, on a response that is missing findings. ONE number for the question a caller actually
     /// has - how many of these can I see - measured on the live order at plain defaults, where the two sentences
@@ -197,7 +204,7 @@ internal static class ReadSentences
     /// to work out that 554 of 4996 was the answer.</summary>
     [MustState("appear above", "found by this sweep")]
     internal const string SweepVisible =
-        "[accounting: {0} of the {1} dangling ref(s) found by this sweep appear above.";
+        " {0} of the {1} dangling ref(s) found by this sweep appear above.";
 
     /// <summary>The listing budget's share of what is missing. A cause clause is stated only when its own count is
     /// non-zero - a response cut by max_chars alone must not report the budget dropping 0, which reads as the
@@ -288,8 +295,9 @@ internal static class ReadSentences
     /// sentence about a length is asked of the length.</para></summary>
     [MustState("max_chars=", "raise it to at least")]
     internal const string SweepCapTooSmall =
-        " This response is {2} chars, longer than the max_chars={0} it was given: that budget cannot carry the " +
-        "accounting above, which is never dropped - raise it to at least {1}.";
+        " This response is {2} chars, longer than the max_chars={0} it was given: what it must carry whatever the " +
+        "budget - its header, the accounting above, the boundary - does not fit in that many chars, so raise it to " +
+        "at least {1}.";
 
     /// <summary>The sweep's honest scope boundary, stated to BOTH transports from here. It was two hand-copied
     /// twins — the text render's and the json writer's — and they had already drifted: the text one qualified the
