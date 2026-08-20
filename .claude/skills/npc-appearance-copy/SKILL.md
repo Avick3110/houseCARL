@@ -166,6 +166,6 @@ One thing does not widen: with `source_provider=` **omitted**, resolution still 
 
 ## Notes
 
-- `asset_status` takes one path per call today, so the decide-before-you-place pass costs a call per candidate path. That is a handful per NPC and worth it — the alternative is placing files that were never the donor's.
+- `asset_status` takes `asset_paths` — one or many, resolved in order, results returned in the same order — so the decide-before-you-place pass is ONE call over every candidate path, not a call each.
 - The three calls accumulate into one patch when you pass `into=` the same filename, so the result stays one reviewable artifact even though it took three operations to build.
 - A record copied out of a generated plugin (a Synthesis or Reqtificator output, an NPC-merge result) is regenerated output, not authored content — see `tool-output-awareness` before copying from one.
