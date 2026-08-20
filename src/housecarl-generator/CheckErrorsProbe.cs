@@ -1190,14 +1190,15 @@ public static class CheckErrorsProbe
         // check it never made. Both numbers are now asserted, against rows counted out of the document.
         var exDrop = Wire.RenderCheckErrors(withExcluded, 3000);
         int exNamed = withExcluded.ExcludedPlugins.Keys.Count(k => exDrop.Contains("  " + k + ":", StringComparison.Ordinal));
-        var exDropJson = JsonDocument.Parse(JsonWire.RenderCheckErrors(withExcluded, 3000)).RootElement
-                                     .GetProperty("accounting");
-        Check("EXCLUDED-ROWS-COUNTED-WHEN-DROPPED: when the cap leaves no room for the roster, the accounting states how many of how many were named — the count is the rows actually in the document, and json's own field agrees with it",
+        var exDropDoc = JsonDocument.Parse(JsonWire.RenderCheckErrors(withExcluded, 3000)).RootElement;
+        var exDropJson = exDropDoc.GetProperty("accounting");
+        int exJsonRows = exDropDoc.GetProperty("excluded_plugins").GetArrayLength();
+        Check("EXCLUDED-ROWS-COUNTED-WHEN-DROPPED: when the cap leaves no room for the roster, the accounting states how many of how many were named — in each transport the count is the rows actually in THAT document",
             exNamed < withExcluded.ExcludedPlugins.Count
             && exDrop.Contains($" {exNamed} of {withExcluded.ExcludedPlugins.Count} plugin(s) that could not be parsed are named above.", StringComparison.Ordinal)
-            && exDropJson.GetProperty("excluded_plugins_named").GetInt32() == withExcluded.ExcludedPlugins.Count
+            && exDropJson.GetProperty("excluded_plugins_named").GetInt32() == exJsonRows
             && exDropJson.GetProperty("excluded_plugins_total").GetInt32() == withExcluded.ExcludedPlugins.Count,
-            $"namedInText={exNamed} of {withExcluded.ExcludedPlugins.Count} jsonNamed={exDropJson.GetProperty("excluded_plugins_named").GetInt32()} line=[{AccountingLine(exDrop)}]");
+            $"textRows={exNamed} of {withExcluded.ExcludedPlugins.Count} jsonRows={exJsonRows} jsonNamed={exDropJson.GetProperty("excluded_plugins_named").GetInt32()} line=[{AccountingLine(exDrop)}]");
 
         // ---- the unread subject, which nothing pinned: _unreadTotal = 0 and deleting the clause that states it
         //      both stayed green. counts_only's reports list IS the honesty layer, so a cut there hides the boundary
@@ -1276,13 +1277,18 @@ public static class CheckErrorsProbe
             && scarredSections,
             $"scanError={scarredWhole.Contains("scan error:", StringComparison.Ordinal)} sections=[{scarredFail}]");
 
-        var countsForHisto = ErrorCheck.Run(rm, null, 1000, null, null, ErrorFindingClass.All, true);
-        var hCut = Wire.RenderCheckErrors(countsForHisto, 1500);      // stopped by the response
+        // Two hundred rows, the shape a real order produces — with thirteen the band where SOME rows fit and some
+        // do not is a few dozen characters wide, and a cap ladder can step straight over it.
+        var countsForHisto = HistogramSized(rm, 8);
+        // The budget-cut cap is SEARCHED FOR, not named: the histogram's head is charged to the budget now (it used
+        // to bypass it entirely), so which cap splits an axis is a fact about the fixture and moves with the header.
+        int hCap = PartialHistogramCap(countsForHisto);
+        var hCut = Wire.RenderCheckErrors(countsForHisto, hCap);      // stopped by the response
         var hRows = Wire.RenderCheckErrors(countsForHisto, 0, 3);     // stopped by the row limit
         Check("HISTOGRAM-REMEDY-NAMES-ITS-CAUSE: a histogram cut by the response offers max_chars=, one cut by the row limit offers limit= — the knob that stopped it, not the other one",
             hCut.Contains("more row(s) — raise max_chars= to see them", StringComparison.Ordinal)
             && hRows.Contains("more row(s) — raise limit= to see them", StringComparison.Ordinal),
-            $"budget-cut={hCut.Contains("raise max_chars=", StringComparison.Ordinal)} row-cut={hRows.Contains("raise limit=", StringComparison.Ordinal)}");
+            $"cap={hCap} budget-cut={hCut.Contains("raise max_chars=", StringComparison.Ordinal)} row-cut={hRows.Contains("raise limit=", StringComparison.Ordinal)}");
 
         // ---- a record scope can admit nothing from a base master the sweep opened. "Swept" has to mean examined.
         var modOnlyScope = ErrorCheck.Run(rb, null, 1000, null, new SweepScope(null, "HcCeModNpc", null, null));
@@ -1547,6 +1553,23 @@ public static class CheckErrorsProbe
             ExcludedPlugins = Enumerable.Range(0, 3)
                 .ToDictionary(i => $"HcCeBroken{i}.esp", i => new string('r', width)),
         };
+
+    /// <summary>The first max_chars at which a counts_only histogram axis renders SOME of its rows and not all of
+    /// them. Searched for the same reason the honesty tail's cap is: the head is charged to the budget now, so the
+    /// splitting cap is a property of the fixture rather than a number to hardcode and re-tune.</summary>
+    static int PartialHistogramCap(ErrorCheckResult r)
+    {
+        int last = 0;
+        for (int cap = 1500; cap <= 20000; cap += 20)
+        {
+            last = cap;
+            var text = Wire.RenderCheckErrors(r, cap);
+            if (text.Contains("more row(s) — raise max_chars= to see them", StringComparison.Ordinal)
+                && text.Contains(r.Histogram![0].Key, StringComparison.Ordinal))
+                return cap;
+        }
+        return last;
+    }
 
     /// <summary>The first max_chars at which the counts_only honesty tail lands SOME of its rows and not all of
     /// them — the shape the accounting's unread clause is about. Searched rather than hardcoded: the tail renders
