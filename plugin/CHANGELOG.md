@@ -36,7 +36,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `counts_only=true` histograms (which took `limit=` as their only bound, so a wide tally could run many times past
   the `max_chars` it was given), the list of plugins whose records could not be read, and the list of plugins that
   could not be parsed — the last of which `format='json'` wrote with no bound at all. A histogram is emitted with
-  rows or not at all, and where rows were dropped it says how many and which knob to move.
+  rows or not at all, and where rows were dropped it says how many and which knob to move. The two
+  `counts_only=true` axes are cut independently: `limit=` stopping the by-TARGET axis no longer stops the by-SOURCE
+  one, which used to render none of its rows under a "raise `max_chars=`" that would not have moved them. In
+  `format='json'` each histogram object now carries `cut_by` — `"limit"`, `"max_chars"`, or `null` where the axis
+  is whole — so the two formats name the same cause for the same result.
   A report section is now emitted whole or not at all: what a section says besides its dangling entries — a
   scan error, the masters it declares that are missing, how many records could not be read — is a finding in
   its own right, and used to be dropped a line at a time with nothing recording it. The two things a cut can

@@ -415,7 +415,7 @@ internal sealed class CheckAccounting
         _limit = int.MaxValue;
         _budgetListed = v.ByBudget;
         foreach (SweepSubject s in Enum.GetValues<SweepSubject>())
-            if (s != SweepSubject.HistogramRows) Declare(s, Math.Max(v.ByBudget, v.RosterTotal));
+            if (!s.IsHistogram()) Declare(s, Math.Max(v.ByBudget, v.RosterTotal));
     }
 
     // ---- the cap floor ------------------------------------------------------------------------------

@@ -1357,10 +1357,52 @@ public static class CheckErrorsProbe
         int hCap = PartialHistogramCap(countsForHisto);
         var hCut = Wire.RenderCheckErrors(countsForHisto, hCap);      // stopped by the response
         var hRows = Wire.RenderCheckErrors(countsForHisto, 0, 3);     // stopped by the row limit
+        // PER AXIS, both of them. Read as one substring test over the whole response, this arm was satisfied by
+        // whichever axis happened to be right: hRows.Contains("raise limit=") is true of the TARGET axis, so nothing
+        // ever looked at the SOURCE one — which at limit=3 rendered no rows at all, under a remedy naming max_chars=,
+        // at a cap 79,000 chars short of biting.
+        var rowsTarget = HistogramAxis(hRows, TargetAxis);
+        var rowsSource = HistogramAxis(hRows, SourceAxis);
+        var cutTarget = HistogramAxis(hCut, TargetAxis);
+        var cutSource = HistogramAxis(hCut, SourceAxis);
         Check("HISTOGRAM-REMEDY-NAMES-ITS-CAUSE: a histogram cut by the response offers max_chars=, one cut by the row limit offers limit= — the knob that stopped it, not the other one",
-            hCut.Contains("more row(s) — raise max_chars= to see them", StringComparison.Ordinal)
-            && hRows.Contains("more row(s) — raise limit= to see them", StringComparison.Ordinal),
-            $"cap={hCap} budget-cut={hCut.Contains("raise max_chars=", StringComparison.Ordinal)} row-cut={hRows.Contains("raise limit=", StringComparison.Ordinal)}");
+            cutTarget.Knob == "max_chars=" && rowsTarget.Knob == "limit=",
+            $"cap={hCap} budget-cut={cutTarget.Knob} row-cut={rowsTarget.Knob}");
+
+        Check("HISTOGRAM-AXES-CUT-INDEPENDENTLY: at limit=3 over two 200-row axes, EACH renders its three rows and states its own 197 against limit= — one axis's stop is not the other's, and a remedy is only offered by the axis it applies to",
+            rowsTarget.Rows == 3 && rowsTarget.Stated == 197 && rowsTarget.Knob == "limit="
+            && rowsSource.Rows == 3 && rowsSource.Stated == 197 && rowsSource.Knob == "limit=",
+            $"target={rowsTarget} source={rowsSource}");
+
+        // The other direction, or the arm above passes on a render that cuts nothing: with room and no row limit,
+        // both axes carry all 200 rows and neither states a cut.
+        var hWhole = Wire.RenderCheckErrors(countsForHisto, 0);
+        var wholeTarget = HistogramAxis(hWhole, TargetAxis);
+        var wholeSource = HistogramAxis(hWhole, SourceAxis);
+        Check("HISTOGRAM-AXES-WHOLE-WHEN-NOTHING-CUTS: with neither knob biting, each axis renders every one of its 200 rows and states no cut at all",
+            wholeTarget.Rows == 200 && wholeTarget.Stated == -1
+            && wholeSource.Rows == 200 && wholeSource.Stated == -1,
+            $"target={wholeTarget} source={wholeSource}");
+
+        // An EMPTY first axis must not take the second down with it: its empty-case line goes through the same
+        // emission path, and one shared subject meant a refusal there refused every row of the axis below.
+        var emptyTarget = countsForHisto with { Histogram = Array.Empty<SweepCount>() };
+        var emptyTargetText = Wire.RenderCheckErrors(emptyTarget, 0);
+        Check("HISTOGRAM-EMPTY-AXIS-DOES-NOT-SILENCE-THE-NEXT: when the TARGET axis has nothing to tally, the SOURCE axis still renders all 200 of its rows",
+            emptyTargetText.Contains("by TARGET plugin (the plugin the broken refs point INTO): nothing to tally", StringComparison.Ordinal)
+            && HistogramAxis(emptyTargetText, SourceAxis).Rows == 200,
+            $"source={HistogramAxis(emptyTargetText, SourceAxis)}");
+
+        // The json twin of the same result. It never stated a cause at all, so the two transports disagreed about one
+        // sweep: text named a knob and json wrote nothing. Both now read the SAME closing computation.
+        var hRowsJson = JsonDocument.Parse(JsonWire.RenderCheckErrors(countsForHisto, 0, 3)).RootElement;
+        var hWholeJson = JsonDocument.Parse(JsonWire.RenderCheckErrors(countsForHisto, 0)).RootElement;
+        Check("HISTOGRAM-JSON-STATES-THE-SAME-CUT: each json axis carries distinct/rendered and the knob that stopped it, matching its text twin row for row — a cut that reads as a remedy in one transport must not be silent in the other",
+            JsonAxis(hRowsJson, "dangling_by_target_plugin") == (200, 3, "limit")
+            && JsonAxis(hRowsJson, "dangling_by_source_plugin") == (200, 3, "limit")
+            && JsonAxis(hWholeJson, "dangling_by_target_plugin") == (200, 200, null)
+            && JsonAxis(hWholeJson, "dangling_by_source_plugin") == (200, 200, null),
+            $"cut target={JsonAxis(hRowsJson, "dangling_by_target_plugin")} source={JsonAxis(hRowsJson, "dangling_by_source_plugin")} whole target={JsonAxis(hWholeJson, "dangling_by_target_plugin")}");
 
         // ---- a record scope can admit nothing from a base master the sweep opened. "Swept" has to mean examined.
         var modOnlyScope = ErrorCheck.Run(rb, null, 1000, null, new SweepScope(null, "HcCeModNpc", null, null));
@@ -1702,6 +1744,46 @@ public static class CheckErrorsProbe
         if (at < 0) return -1;
         var digits = new string(note[(at + lead.Length)..].TakeWhile(char.IsDigit).ToArray());
         return int.TryParse(digits, out var n) ? n : -1;
+    }
+
+    /// <summary>The two counts_only axes, by the words that distinguish them in the render. Named here so an arm
+    /// cannot ask about "the histogram" and be answered by whichever of the two happens to fit.</summary>
+    const string TargetAxis = "TARGET plugin";
+    const string SourceAxis = "SOURCE plugin";
+
+    /// <summary>What ONE named histogram axis rendered: how many rows, the number its closing line states, and the
+    /// knob that line names. Per axis rather than over the whole response, because a substring test over both is
+    /// satisfied by either — which is how an axis that rendered nothing at all, under a remedy for a knob that
+    /// would not have moved it, sat green through two review rounds.
+    /// <para><c>Stated</c> is -1 and <c>Knob</c> "&lt;none&gt;" where the axis states no cut; <c>Rows</c> is -1 where
+    /// the axis is not in the response at all, which must never read the same as an axis that rendered zero.</para>
+    /// </summary>
+    static (int Rows, int Stated, string Knob) HistogramAxis(string text, string axis)
+    {
+        const string lead = "\ndangling ref(s) by ";
+        int at = text.IndexOf(lead + axis, StringComparison.Ordinal);
+        if (at < 0) return (-1, -1, "<absent>");
+        int end = text.IndexOf(lead, at + lead.Length, StringComparison.Ordinal);
+        var seg = end < 0 ? text[at..] : text[at..end];
+        var lines = seg.Split('\n');
+        int rows = lines.Count(l => l.StartsWith("  ", StringComparison.Ordinal)
+                                 && !l.StartsWith("  ...", StringComparison.Ordinal)
+                                 && l.Trim().Length > 0);
+        const string cutLead = "more row(s) — raise ";
+        int c = seg.IndexOf(cutLead, StringComparison.Ordinal);
+        if (c < 0) return (rows, -1, "<none>");
+        var stated = new string(seg[..c].Reverse().SkipWhile(ch => ch == ' ').TakeWhile(char.IsDigit).Reverse().ToArray());
+        var knob = new string(seg[(c + cutLead.Length)..].TakeWhile(ch => ch != ' ').ToArray());
+        return (rows, int.TryParse(stated, out var n) ? n : -1, knob);
+    }
+
+    /// <summary>The json twin of <see cref="HistogramAxis"/>: the axis object's own three facts. A missing object
+    /// answers (-1, -1, "&lt;absent&gt;") for the same reason.</summary>
+    static (int Distinct, int Rendered, string? CutBy) JsonAxis(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var h)) return (-1, -1, "<absent>");
+        var cut = h.TryGetProperty("cut_by", out var cb) && cb.ValueKind != JsonValueKind.Null ? cb.GetString() : null;
+        return (h.GetProperty("distinct").GetInt32(), h.GetProperty("rendered").GetInt32(), cut);
     }
 
     /// <summary>The size the empty-scope refusal claims for the scope it emptied, or -1 where it claims none. Read as

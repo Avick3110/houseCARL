@@ -25,12 +25,60 @@ internal enum SweepSubject
     /// <summary>Rows of the <c>counts_only</c> honesty layer: the plugins whose records could not be read.</summary>
     UnreadRows,
 
-    /// <summary>Histogram rows under <c>counts_only</c>. Deliberately NOT a declared accounting subject: the
-    /// histogram already discloses its own cut in both transports (a "... N more row(s)" line in text, the
-    /// <c>distinct</c> vs <c>rendered</c> pair in json), and a second statement of one fact is how a twin starts.
-    /// It is a subject HERE so that the framing lines and the rows go through the same bound as everything else.
-    /// </summary>
-    HistogramRows,
+    /// <summary>Rows of the <c>counts_only</c> dangling histogram, by TARGET plugin — the plugin the broken refs
+    /// point INTO.</summary>
+    HistogramByTarget,
+
+    /// <summary>Rows of the <c>counts_only</c> dangling histogram, by SOURCE plugin — the plugin the broken refs
+    /// come FROM (#344's axis).
+    ///
+    /// <para><b>Its own subject, and that is the point.</b> Both axes shared one for a while, and a subject is what
+    /// <see cref="BoundedBody"/> stops: when the TARGET axis closed on <c>limit=</c> it marked the shared subject
+    /// stopped, and every row of the axis below was then refused — at <c>limit=3</c> over two 200-row axes, the
+    /// SOURCE axis rendered no rows at all, at a cap 79,000 chars short of biting, under a remedy naming
+    /// <c>max_chars=</c>, a knob that would have moved nothing. One subject standing for two lane facts is the
+    /// <c>_listing</c> boolean <see cref="CheckAccounting"/> was built to retire, one level down.</para></summary>
+    HistogramBySource,
+
+    /// <summary>Rows of validate_scripts' <c>counts_only</c> histogram, by property NAME.</summary>
+    HistogramByProperty,
+}
+
+/// <summary>
+/// Which subjects are histogram axes. Deliberately NOT declared accounting subjects: an axis discloses its own cut
+/// in both transports (<see cref="HistogramCut"/>), and a second statement of one fact is how a twin starts. They are
+/// subjects at all so that an axis's framing lines and its rows go through the same bound as everything else.
+/// </summary>
+internal static class SweepSubjects
+{
+    internal static bool IsHistogram(this SweepSubject s)
+        => s is SweepSubject.HistogramByTarget or SweepSubject.HistogramBySource or SweepSubject.HistogramByProperty;
+}
+
+/// <summary>
+/// ONE histogram axis's closing fact: how many of its rows this response does not carry, and WHICH knob moves them.
+///
+/// <para>Computed once, from the emitting loop's own three facts, and consumed by BOTH transports — the text lane
+/// renders <see cref="Line"/>, the json lane writes the same two facts as fields. They used to reach it separately:
+/// text composed a sentence and json wrote nothing at all, so one cut read as a stated remedy in one transport and as
+/// a bare <c>rendered &lt; distinct</c> in the other, with no way to tell which knob had done it.</para>
+///
+/// <para>The knob is the one that STOPPED the axis. "raise limit=" over rows the response had no room for names
+/// something that moves nothing, and so does "raise max_chars=" over rows the row budget refused.</para>
+/// </summary>
+internal readonly record struct HistogramCut(int Remaining, bool ByBudget)
+{
+    /// <summary>This axis's cut, or null where it rendered every row it had.</summary>
+    internal static HistogramCut? For(int distinct, int shown, bool byBudget)
+        => shown >= distinct ? null : new HistogramCut(distinct - shown, byBudget);
+
+    /// <summary>The knob a caller raises to see these rows, spelled as the parameter is.</summary>
+    internal string Knob => ByBudget ? "max_chars" : "limit";
+
+    /// <summary>The text lane's spelling, in ONE place: it is composed twice, once to measure the room to hold back
+    /// for it and once to write it, and two spellings of one sentence is how a reserve stops covering what it
+    /// reserves for.</summary>
+    internal string Line => "  ... [" + Remaining + " more row(s) — raise " + Knob + "= to see them]\n";
 }
 
 /// <summary>
