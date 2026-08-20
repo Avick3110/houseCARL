@@ -255,10 +255,16 @@ public static class CheckErrorsProbe
 
         // ---- CAP: limit=1 over Bad's 2 dangling refs. ----
         var capped = ErrorCheck.Run(r, new[] { "HcCeBad.esp" }, 1);
-        Check("CAP: limit=1 returns 1 dangling ref but reports the TRUE total (2) and Capped",
-            capped.TotalDangling == 2 && capped.Capped
-            && capped.Reports.Count == 1 && capped.Reports[0].Dangling.Count == 1,
-            $"total={capped.TotalDangling} capped={capped.Capped} collected={(capped.Reports.Count > 0 ? capped.Reports[0].Dangling.Count : -1)}");
+        var cappedText = Wire.RenderCheckErrors(capped, 0);
+        // The budget's omission is claimed by the RESPONSE now, not by a flag on the result (ErrorCheckResult.Capped
+        // is superseded — see CheckAccounting). So the arm asserts what the caller is told, which is the thing that
+        // has to be true, and it names the budget the SWEEP was given rather than a render default.
+        Check("CAP: limit=1 returns 1 dangling ref, reports the TRUE total (2), and the response says the budget never listed the other",
+            capped.TotalDangling == 2
+            && capped.Reports.Count == 1 && capped.Reports[0].Dangling.Count == 1
+            && cappedText.Contains("1 of the 2 dangling ref(s) found by this sweep appear above", StringComparison.Ordinal)
+            && cappedText.Contains("1 were never listed: the listing budget (limit=1) ran out", StringComparison.Ordinal),
+            $"total={capped.TotalDangling} collected={(capped.Reports.Count > 0 ? capped.Reports[0].Dangling.Count : -1)} line=[{AccountingLine(cappedText)}]");
 
         // ---- #282: the record scope / class filter / counts_only knobs. ONE plugin was the narrowest scope the tool
         //      had, and its whole per-plugin body overflowed the tool-result cap with no way to ask a smaller question. ----
@@ -318,7 +324,10 @@ public static class CheckErrorsProbe
         var histo = countsOnly.Histogram;
         Check("COUNTS-ONLY: totals stay exact (2 dangling), NO per-plugin listing is built, and the histogram keys the refs by TARGET plugin",
             countsOnly.Success && countsOnly.TotalDangling == 2 && countsOnly.CountsOnly
-            && countsOnly.Reports.Count == 0 && !countsOnly.Capped
+            && countsOnly.Reports.Count == 0
+            // counts_only lists nothing BY DESIGN, so the response makes no listing claim at all — absent, never a
+            // zero, which would report a mode working correctly as a mode that dropped everything.
+            && !Wire.RenderCheckErrors(countsOnly, 0).Contains("found by this sweep appear above", StringComparison.Ordinal)
             && histo is not null && histo.Sum(h => h.Count) == 2
             && histo.Any(h => h.Key.Equals("HcCeGhost.esm", StringComparison.OrdinalIgnoreCase) && h.Count == 1)
             && histo.Any(h => h.Key.Equals("HcCeMaster.esm", StringComparison.OrdinalIgnoreCase) && h.Count == 1),
@@ -562,11 +571,12 @@ public static class CheckErrorsProbe
                 ? $"<no report for HcCeBaseMod.esp — it vanished from the sweep> reports=[{string.Join(",", tight.Reports.Select(p => p.Plugin))}] total={tight.TotalDangling}"
                 : $"listed={baseModRep.Dangling.Count} of {tight.TotalDangling} total");
 
-        Check("BASELINE-TOTALS-EXACT: the totals still count every dangling ref (5) and the sweep still reports Capped",
-            tight.TotalDangling == 5 && tight.Capped,
-            $"total={tight.TotalDangling} capped={tight.Capped} vanillaListed={(vanillaRep is null ? -1 : vanillaRep.Dangling.Count)}");
-
         var tightText = Wire.RenderCheckErrors(tight, 0);
+        Check("BASELINE-TOTALS-EXACT: the totals still count every dangling ref (5) and the response still says the budget ran out",
+            tight.TotalDangling == 5
+            && tightText.Contains("were never listed: the listing budget (limit=3) ran out", StringComparison.Ordinal),
+            $"total={tight.TotalDangling} vanillaListed={(vanillaRep is null ? -1 : vanillaRep.Dangling.Count)} line=[{AccountingLine(tightText)}]");
+
         var ample = ErrorCheck.Run(rb, null, 1000);
         var ampleText = Wire.RenderCheckErrors(ample, 0);
         var modOnly = ErrorCheck.Run(rb, new[] { "HcCeBaseMod.esp" }, 1000);
@@ -579,14 +589,13 @@ public static class CheckErrorsProbe
             tight.Reports.Count == 2 && tight.Reports[0].Plugin == "Skyrim.esm" && tight.Reports[1].Plugin == "HcCeBaseMod.esp",
             $"sections=[{string.Join(",", tight.Reports.Select(p => p.Plugin))}]");
 
-        Check("BASELINE-OMITTED-NAMED: the cap names WHICH plugin lost entries and how many — Skyrim.esm (2) — in the result AND in the rendered line (Q3)",
-            tight.ListingOmitted is { Count: 1 } om && om[0].Key == "Skyrim.esm" && om[0].Count == 2
-            && tightText.Contains("Skyrim.esm (2)", StringComparison.Ordinal)
-            && tightText.Contains("the listing budget (limit=) omitted 2 dangling ref(s)", StringComparison.Ordinal)
+        Check("BASELINE-OMITTED-NAMED: the response names WHICH plugin is missing entries and how many — Skyrim.esm (2) — in text AND in json (Q3)",
+            tightText.Contains("Missing here, by source plugin: Skyrim.esm (2)", StringComparison.Ordinal)
+            && JsonRoster(JsonWire.RenderCheckErrors(tight, 0)).SequenceEqual(new[] { "Skyrim.esm:2" })
             // the roster names every plugin here, so the truncation clause must be ABSENT — the other arm of the
             // conditional OMITTED-ROSTER-STATES-ITS-TRUNCATION holds in the true direction.
             && !tightText.Contains("the rest are not named here", StringComparison.Ordinal),
-            $"omitted=[{string.Join(",", (tight.ListingOmitted ?? new List<SweepCount>()).Select(c => $"{c.Key}:{c.Count}"))}]");
+            $"roster=[{string.Join(",", JsonRoster(JsonWire.RenderCheckErrors(tight, 0)))}] line=[{AccountingLine(tightText)}]");
 
         Check("BASELINE-SUMMARY: the split is stated (3 of 5, 2 from the rest) and names ONLY the base master this sweep actually opened — the four it never touched are not named (round-1 review: two reviewers, independently)",
             tight.BaselineDangling == 3 && tight.BaseMastersSwept is { Count: 1 } sw && sw[0] == "Skyrim.esm"
@@ -606,10 +615,12 @@ public static class CheckErrorsProbe
             && ampleText.Contains("baseline: 3 of 5", StringComparison.Ordinal),
             $"capped-has={tightText.Contains("BEFORE those", StringComparison.Ordinal)} ample-has={ampleText.Contains("the listing budget (limit=) is spent", StringComparison.Ordinal)}");
 
-        Check("BASELINE-AMPLE-BUDGET-UNCHANGED: with limit= ample, EVERY plugin's findings are listed in full and nothing is reported omitted (the phase order costs nothing when the budget is not scarce)",
-            !ample.Capped && ample.ListingOmitted is { Count: 0 }
-            && ample.Reports.Sum(p => p.Dangling.Count) == 5,
-            $"capped={ample.Capped} omitted={(ample.ListingOmitted is null ? "<null>" : ample.ListingOmitted.Count.ToString())} listed={ample.Reports.Sum(p => p.Dangling.Count)}");
+        Check("BASELINE-AMPLE-BUDGET-UNCHANGED: with limit= ample, EVERY plugin's findings are listed in full and the response says so positively — completeness is STATED, not left to the absence of a sentence (#361)",
+            ample.Reports.Sum(p => p.Dangling.Count) == 5
+            && ampleText.Contains("all 5 dangling ref(s) found by this sweep appear above", StringComparison.Ordinal)
+            && !ampleText.Contains("Missing here, by source plugin", StringComparison.Ordinal)
+            && !ampleText.Contains("Raise limit= to list more", StringComparison.Ordinal),
+            $"listed={ample.Reports.Sum(p => p.Dangling.Count)} line=[{AccountingLine(ampleText)}]");
 
         Check("SOURCE-HISTOGRAM: counts_only tallies dangling refs by SOURCE plugin (3 vanilla, 2 mod) beside the existing TARGET axis, and renders both",
             baseCounts.DanglingBySource is { Count: 2 } src
@@ -624,8 +635,9 @@ public static class CheckErrorsProbe
             $"source={(baseNoWalk.DanglingBySource is null ? "null" : "present")} target={(baseNoWalk.Histogram is null ? "null" : "present")}");
 
         Check("OMITTED-NULL-UNDER-COUNTS-ONLY: counts_only lists nothing BY DESIGN, so it reports no omissions rather than reporting the whole sweep as dropped",
-            baseCounts.ListingOmitted is null && !baseCounts.Capped,
-            $"omitted={(baseCounts.ListingOmitted is null ? "null" : "present")} capped={baseCounts.Capped}");
+            !baseCountsText.Contains("found by this sweep appear above", StringComparison.Ordinal)
+            && !baseCountsText.Contains("Missing here, by source plugin", StringComparison.Ordinal),
+            $"line=[{AccountingLine(baseCountsText)}]");
 
         // REACH (round-1 review, partially refused): this arm holds the set's CONTENTS — that it equals Mutagen's for
         // this release, matches case-insensitively, and excludes Creation Club / _ResourcePack. It does NOT hold
@@ -669,34 +681,38 @@ public static class CheckErrorsProbe
         var wholeText = Wire.RenderCheckErrors(whole, 0);
         Check("BASELINE-WHOLE-SET-DROPPED: a plugin that loses its ENTIRE set has no section, and the omissions list is the only place it appears — the sentence the render prints, produced",
             whole.Reports.All(p => p.Plugin != "Skyrim.esm")
-            && whole.ListingOmitted is { } wo && wo.Any(c => c.Key == "Skyrim.esm" && c.Count == 3)
+            && JsonRoster(JsonWire.RenderCheckErrors(whole, 0)).Contains("Skyrim.esm:3")
             && wholeText.Contains("Skyrim.esm (3)", StringComparison.Ordinal)
-            && wholeText.Contains("A plugin whose whole set the budget omitted, with nothing else to report, gets no section of its own", StringComparison.Ordinal),
-            $"sections=[{string.Join(",", whole.Reports.Select(p => p.Plugin))}] omitted=[{string.Join(",", (whole.ListingOmitted ?? new List<SweepCount>()).Select(c => $"{c.Key}:{c.Count}"))}]");
+            && wholeText.Contains("A plugin whose whole set is missing here, with nothing else to report, gets no section of its own", StringComparison.Ordinal),
+            $"sections=[{string.Join(",", whole.Reports.Select(p => p.Plugin))}] roster=[{string.Join(",", JsonRoster(JsonWire.RenderCheckErrors(whole, 0)))}]");
 
         // ---- a duplicated plugins= name is swept twice (pre-existing on main). The omissions table must not read the
         //      second sweep's section as the whole of what was listed and report the first sweep's findings as dropped
         //      by a budget that never ran out (round-1 review).
         var dup = ErrorCheck.Run(rb, new[] { "HcCeBaseMod.esp", "HcCeBaseMod.esp" }, 1000);
-        Check("OMITTED-NO-PHANTOM-ON-DUPLICATE-SCOPE: an uncapped sweep reports NOTHING omitted even when a plugin is named twice — a budget that never ran out cannot have dropped anything",
-            !dup.Capped && dup.ListingOmitted is { Count: 0 },
-            $"capped={dup.Capped} omitted=[{string.Join(",", (dup.ListingOmitted ?? new List<SweepCount>()).Select(c => $"{c.Key}:{c.Count}"))}]");
+        var dupText = Wire.RenderCheckErrors(dup, 0);
+        Check("OMITTED-NO-PHANTOM-ON-DUPLICATE-SCOPE: an uncapped sweep reports NOTHING missing even when a plugin is named twice — a response that listed everything cannot have dropped anything",
+            dupText.Contains("found by this sweep appear above", StringComparison.Ordinal)
+            && !dupText.Contains("Missing here, by source plugin", StringComparison.Ordinal)
+            && JsonRoster(JsonWire.RenderCheckErrors(dup, 0)).Length == 0,
+            $"line=[{AccountingLine(dupText)}]");
 
         // ---- json's omissions table must not be capped by limit=, the knob that caused the omissions: the tighter the
         //      budget, the more plugins lose entries and the fewer json would have named (round-1 review).
         var tiny = ErrorCheck.Run(rb, null, 1);
         var tinyJson = JsonWire.RenderCheckErrors(tiny, 0);
-        Check("OMITTED-JSON-NOT-LIMIT-CAPPED: at limit=1 the json still names BOTH plugins that lost entries — the omissions roster does not shrink as the budget does",
-            JsonDocument.Parse(tinyJson).RootElement.GetProperty("dangling_not_listed_by_source") is var t
-            && t.GetProperty("distinct").GetInt32() == 2 && t.GetProperty("rows").GetArrayLength() == 2,
-            tinyJson.Contains("dangling_not_listed_by_source", StringComparison.Ordinal) ? "see json" : "<field missing>");
+        Check("OMITTED-JSON-NOT-LIMIT-CAPPED: at limit=1 the json still names BOTH plugins missing entries — the roster does not shrink as the budget does (the tighter the budget, the MORE plugins lose entries)",
+            JsonRoster(tinyJson).Length == 2
+            && JsonDocument.Parse(tinyJson).RootElement.GetProperty("accounting")
+                           .GetProperty("dangling_missing_by_source_total").GetInt32() == 2,
+            $"roster=[{string.Join(",", JsonRoster(tinyJson))}]");
 
         var tightJson = JsonWire.RenderCheckErrors(tight, 0);
         var countsJson = JsonWire.RenderCheckErrors(baseCounts, 0);
         var noWalkBaseJson = JsonWire.RenderCheckErrors(baseNoWalk, 0);
         Check("BASELINE-JSON-PARITY: the json carries the same split, names the base set, flags scope, and carries both new tables; an unchecked class emits null (not 0)",
             JsonMatches(tightJson, "baseline_dangling", 3) && JsonMatches(tightJson, "non_baseline_dangling", 2)
-            && JsonHasHistogram(tightJson, "dangling_not_listed_by_source")
+            && JsonRoster(tightJson).Length > 0
             && JsonHasHistogram(countsJson, "dangling_by_source_plugin")
             && JsonNull(noWalkBaseJson, "baseline_dangling")
             && JsonDocument.Parse(tightJson).RootElement.GetProperty("base_masters_swept").GetArrayLength() == 1
@@ -728,6 +744,15 @@ public static class CheckErrorsProbe
                 m.BeginWrite.ToPath(mp).WithLoadOrder(new ISkyrimModGetter[] { skyManyOv }).Write();
                 manyPaths.Add(mp);
             }
+            // ONE plugin whose own findings outrun any sane cap. Twelve plugins of three refs cannot produce #361's
+            // shape: the cut has to land INSIDE a section, and with one section it lands inside the LAST one, which
+            // is the path where the old notice was never printed at all. On the live order this shape is ordinary —
+            // the largest single source carries 2591 dangling refs.
+            var bulk = new SkyrimMod(new ModKey("HcCeBulk", ModType.Plugin), SkyrimRelease.SkyrimSE);
+            for (int k = 0; k < 200; k++) { var n = bulk.Npcs.AddNew(); n.EditorID = $"HcCeBulkNpc{k:000}"; n.Race.SetTo(baseDeadFk); }
+            string bulkPath = Path.Combine(manyDir, "HcCeBulk.esp");
+            bulk.BeginWrite.ToPath(bulkPath).WithLoadOrder(new ISkyrimModGetter[] { skyManyOv }).Write();
+            manyPaths.Add(bulkPath);
         }
         catch (Exception ex)
         {
@@ -740,15 +765,18 @@ public static class CheckErrorsProbe
         var manyText = Wire.RenderCheckErrors(many, 0);
         // Count names in the CAPPED LINE, not the whole render: every listed dangling entry also prints its source as
         // "000800:HcCeMany00.esp (Npc ...", so a whole-text match counts plugins the roster never named.
-        string cappedLine = manyText.Split('\n').FirstOrDefault(l => l.Contains("[the listing budget (limit=) omitted", StringComparison.Ordinal)) ?? "";
-        int namedInText = many.ListingOmitted!.Count(c => cappedLine.Contains(c.Key + " (", StringComparison.Ordinal));
-        Check("OMITTED-ROSTER-STATES-ITS-TRUNCATION: with more plugins losing entries than the line names, it says how many it did NOT name and never claims to be the only place they appear",
-            many.ListingOmitted is { Count: > 10 }
-            && namedInText == 10
-            && manyText.Contains("the 10 largest of " + many.ListingOmitted.Count, StringComparison.Ordinal)
+        string cappedLine = AccountingLine(manyText);
+        var manyRoster = JsonRoster(JsonWire.RenderCheckErrors(many, 0));
+        int manyRosterTotal = JsonDocument.Parse(JsonWire.RenderCheckErrors(many, 0)).RootElement
+                                          .GetProperty("accounting").GetProperty("dangling_missing_by_source_total").GetInt32();
+        int namedInText = manyRoster.Count(k => cappedLine.Contains(k.Split(':')[0] + " (", StringComparison.Ordinal));
+        Check("OMITTED-ROSTER-STATES-ITS-TRUNCATION: with more plugins missing entries than the line names, it says how many it did NOT name and never claims to be the only place they appear",
+            manyRosterTotal > 10
+            && manyRoster.Length == 10 && namedInText == 10
+            && manyText.Contains("the 10 largest of " + manyRosterTotal, StringComparison.Ordinal)
             && manyText.Contains("the rest are not named here", StringComparison.Ordinal)
             && !manyText.Contains("this list is the only place", StringComparison.Ordinal),
-            $"omitted={many.ListingOmitted?.Count} namedInText={namedInText} line=[{cappedLine}]");
+            $"rosterTotal={manyRosterTotal} named={namedInText} line=[{cappedLine}]");
 
         Check("OMITTED-REMEDY-DOES-NOT-PROMISE-SCOPING: the remedy qualifies scoping instead of asserting it reads a set in full — a plugin whose own set exceeds limit= would loop the caller back to this line",
             manyText.Contains("Raise limit= to list more", StringComparison.Ordinal)
@@ -782,10 +810,11 @@ public static class CheckErrorsProbe
         var cleanBase = ErrorCheck.Run(rc, null, 2);
         var cleanBaseText = Wire.RenderCheckErrors(cleanBase, 0);
         Check("BASELINE-PHASE-CLAUSE-NEEDS-BASELINE-FINDINGS: a capped sweep whose baseline came back CLEAN states the split but not the phase-order sentence — there were no baseline findings for it to be about",
-            cleanBase.Capped && cleanBase.BaselineDangling == 0 && cleanBase.BaseMastersSwept is { Count: 1 }
+            cleanBaseText.Contains("were never listed: the listing budget (limit=2) ran out", StringComparison.Ordinal)
+            && cleanBase.BaselineDangling == 0 && cleanBase.BaseMastersSwept is { Count: 1 }
             && cleanBaseText.Contains("baseline: 0 of 3", StringComparison.Ordinal)
             && !cleanBaseText.Contains("the listing budget (limit=) is spent", StringComparison.Ordinal),
-            $"capped={cleanBase.Capped} baseline={cleanBase.BaselineDangling}");
+            $"baseline={cleanBase.BaselineDangling} line=[{AccountingLine(cleanBaseText)}]");
         // ---- both axes empty: they must be tellable apart. Two identical untitled "nothing to tally" lines said
         //      neither which axis was which nor that a second one had been computed (round-1 review).
         var cleanCounts = ErrorCheck.Run(r, new[] { "HcCeClean.esp" }, 1000, null, null, ErrorFindingClass.All, countsOnly: true);
@@ -796,41 +825,75 @@ public static class CheckErrorsProbe
             cleanCountsText);
 
 
-        // ---- the render's cut is the RENDER's sentence: computed where the loop breaks, counting what it emitted, and
-        //      saying nothing about the listing budget. The two truncators are independent and never sum (advisor ruling).
+        // ---- the response's cut and the budget's are ONE accounting now: both are subtractions against the sweep's
+        //      own total, taken after emission stops, so "how many can I see" is a stated number rather than one the
+        //      caller derives from two sentences in different units (#361, and the class-stop that produced it).
         // an ample budget so every section exists, then a cap small enough that the RENDER is what drops them
         var manyAmple = ErrorCheck.Run(rm, null, 1000);
-        var truncText = Wire.RenderCheckErrors(manyAmple, 900);
+        // The cap must clear the RESERVE — the accounting and boundary are held back before the body renders, so a
+        // cap at or below the reserve renders an empty body and would let this arm "pass" over a response with
+        // nothing in it. 3000 leaves room for a partial listing over this fixture's 236 findings.
+        const int MultiCut = 3000;
+        var truncText = Wire.RenderCheckErrors(manyAmple, MultiCut);
         int renderedSections = truncText.Split("[ERROR] ").Length - 1;
-        Check("RENDER-CUT-COUNTS-ITS-OWN-OMISSION: the max_chars notice says how many plugin sections IT did not render, out of the total, and names the cut as the response being cut rather than the budget",
-            truncText.Contains("plugin section(s) were not rendered", StringComparison.Ordinal)
-            && truncText.Contains($"{manyAmple.Reports.Count - renderedSections} of {manyAmple.Reports.Count} plugin section(s)", StringComparison.Ordinal)
-            && truncText.Contains("separate from any limit= omission reported below", StringComparison.Ordinal)
-            // the units fold: the render counts ENTRIES it appended, in the same unit the budget line uses, so
-            // "how many findings can I actually see" is answered without subtracting two different measures
-            && truncText.Contains($"of the {manyAmple.Reports.Sum(x => x.Dangling.Count)} budget-listed dangling entries appear above", StringComparison.Ordinal)
-            && !truncText.Contains("may be partial", StringComparison.Ordinal),
-            truncText.Split('\n').FirstOrDefault(l => l.Contains("truncated at max_chars", StringComparison.Ordinal)) ?? "<no truncation notice>");
+        int visibleEntries = truncText.Split("-> ").Length - 1;
+        Check("RESPONSE-CUT-COUNTED-AT-THE-TOTAL: a response cut by max_chars states how many of the SWEEP's findings it carries, names max_chars as the cause, and counts the sections it rendered",
+            truncText.Contains($"{visibleEntries} of the {manyAmple.TotalDangling} dangling ref(s) found by this sweep appear above", StringComparison.Ordinal)
+            && truncText.Contains($"did not fit this response (max_chars={MultiCut})", StringComparison.Ordinal)
+            && truncText.Contains($"{renderedSections} of {manyAmple.Reports.Count} plugin section(s) were rendered", StringComparison.Ordinal)
+            // the budget was ample, so it dropped nothing and must not be named as a cause at all
+            && !truncText.Contains("the listing budget (limit=", StringComparison.Ordinal),
+            AccountingLine(truncText));
 
-        Check("RENDER-CUT-ENTRY-COUNT-IS-WHAT-IT-EMITTED: the entry figure equals the dangling lines actually in the response, not the sum of the sections it started — a section sum would overstate a partial last section",
-            truncText.Contains($"{truncText.Split("-> ").Length - 1} of the ", StringComparison.Ordinal),
-            $"lines={truncText.Split("-> ").Length - 1} notice={truncText.Split('\n').FirstOrDefault(l => l.Contains("budget-listed dangling entries", StringComparison.Ordinal))}");
+        Check("RESPONSE-CUT-ENTRY-COUNT-IS-WHAT-IT-EMITTED: the visible figure equals the dangling lines actually in the response, not the sum of the sections it started — a section sum would overstate a partial last section",
+            truncText.Contains($"[accounting: {visibleEntries} of the ", StringComparison.Ordinal)
+            && visibleEntries > 0 && visibleEntries < manyAmple.TotalDangling,
+            $"lines={visibleEntries} total={manyAmple.TotalDangling} line=[{AccountingLine(truncText)}]");
 
-        Check("RENDER-CUT-SILENT-WHEN-IT-DID-NOT-CUT: an untruncated response carries no such notice — the sentence exists only where the render actually dropped something",
-            !manyText.Contains("plugin section(s) were not rendered", StringComparison.Ordinal)
-            && !manyText.Contains("truncated at max_chars", StringComparison.Ordinal),
-            "untruncated render");
+        // #361's own lane: ONE report section, so the cut lands inside the LAST one. The outer loop then exhausts
+        // instead of breaking, which is exactly the path that used to leave the notice unprinted — measured on the
+        // live order at plain defaults as 644 entries present under a line claiming 1000 were listed.
+        const int OneCut = 5000;
+        var oneSection = ErrorCheck.Run(rm, new[] { "HcCeBulk.esp" }, 1000);
+        var oneText = Wire.RenderCheckErrors(oneSection, OneCut);
+        int oneVisible = oneText.Split("-> ").Length - 1;
+        Check("RESPONSE-CUT-INSIDE-THE-LAST-SECTION-IS-STATED (#361): with a single section, a cut inside it is still accounted — the claim is a subtraction at the total, so there is no exit for it to be missed at",
+            oneSection.Reports.Count == 1 && oneVisible < oneSection.TotalDangling
+            && oneText.Contains($"[accounting: {oneVisible} of the {oneSection.TotalDangling} dangling ref(s) found by this sweep appear above", StringComparison.Ordinal)
+            && oneText.Contains($"did not fit this response (max_chars={OneCut})", StringComparison.Ordinal),
+            $"sections={oneSection.Reports.Count} visible={oneVisible} of {oneSection.TotalDangling} line=[{AccountingLine(oneText)}]");
 
-        // json states its own cut in its own terms: rendered + truncated could not answer "how many were dropped"
-        // without a total to subtract from.
-        var truncJson = JsonDocument.Parse(JsonWire.RenderCheckErrors(manyAmple, 900)).RootElement;
-        Check("RENDER-CUT-JSON-DERIVABLE: plugins_with_findings - rendered gives the dropped section count exactly, beside truncated=true",
-            // TryGetProperty, not GetProperty: a missing field must fail this arm, not throw out of the guard
-            truncJson.GetProperty("truncated").GetBoolean()
-            && truncJson.TryGetProperty("plugins_with_findings", out var pwf)
-            && pwf.GetInt32() == manyAmple.Reports.Count
-            && pwf.GetInt32() - truncJson.GetProperty("rendered").GetInt32() > 0,
-            $"with_findings={(truncJson.TryGetProperty("plugins_with_findings", out var pwf2) ? pwf2.GetInt32().ToString() : "<absent>")} rendered={truncJson.GetProperty("rendered").GetInt32()}");
+        Check("RESPONSE-NEVER-EXCEEDS-MAX-CHARS (#361): the accounting and the boundary are RESERVED before the body renders, so neither is appended past the cap — across a sweep of caps, in both transports",
+            CapSweep(manyAmple, out var capFail), capFail);
+
+        Check("RESPONSE-CUT-COMPLETE-RESPONSE-SAYS-SO: an uncut, unbudgeted response states its completeness rather than staying silent — silence used to mean both 'complete' and #361",
+            manyText.Contains("dangling ref(s) found by this sweep appear above", StringComparison.Ordinal)
+            && !manyText.Contains("did not fit this response", StringComparison.Ordinal)
+            && !manyText.Contains("plugin section(s) were rendered", StringComparison.Ordinal),
+            AccountingLine(manyText));
+
+        // json states the same numbers, from the same computation — the twin cannot disagree because there is only
+        // one place either transport gets them.
+        var truncJson = JsonDocument.Parse(JsonWire.RenderCheckErrors(manyAmple, MultiCut)).RootElement;
+        var jAcct = truncJson.GetProperty("accounting");
+        Check("RESPONSE-CUT-JSON-NUMBERS-MATCH-THE-DOCUMENT: dangling_visible equals the entries actually in the json, and sections_rendered the plugin objects — a number that disagrees with its own document is the defect this replaces",
+            jAcct.GetProperty("dangling_visible").GetInt32()
+                == truncJson.GetProperty("plugins").EnumerateArray().Sum(pl => pl.GetProperty("dangling").GetArrayLength())
+            && jAcct.GetProperty("sections_rendered").GetInt32() == truncJson.GetProperty("plugins").GetArrayLength()
+            && jAcct.GetProperty("sections_with_findings").GetInt32() == manyAmple.Reports.Count
+            && jAcct.GetProperty("dangling_missing_by_response_cut").GetInt32() > 0
+            && jAcct.GetProperty("dangling_missing_by_budget").GetInt32() == 0,
+            $"visible={jAcct.GetProperty("dangling_visible").GetInt32()} inDoc={truncJson.GetProperty("plugins").EnumerateArray().Sum(pl => pl.GetProperty("dangling").GetArrayLength())} rendered={jAcct.GetProperty("sections_rendered").GetInt32()} objects={truncJson.GetProperty("plugins").GetArrayLength()}");
+
+        // #361's json lane: one plugin carrying more entries than the cap can hold. The budget used to be tested
+        // before each plugin OBJECT, so the whole array went out at once — 2.5x the cap on the live order, with
+        // truncated:false, which was true and useless.
+        var oneJson = JsonDocument.Parse(JsonWire.RenderCheckErrors(oneSection, OneCut)).RootElement;
+        Check("RESPONSE-CUT-JSON-PER-ENTRY (#361): one plugin's dangling array is cut at an ENTRY, so a single oversized plugin cannot carry the response past max_chars",
+            JsonWire.RenderCheckErrors(oneSection, OneCut).Length <= OneCut
+            && oneJson.GetProperty("plugins").EnumerateArray().Sum(pl => pl.GetProperty("dangling").GetArrayLength()) < oneSection.TotalDangling
+            && oneJson.GetProperty("truncated").GetBoolean(),
+            $"chars={JsonWire.RenderCheckErrors(oneSection, OneCut).Length} cap={OneCut} truncated={oneJson.GetProperty("truncated").GetBoolean()} overrun={oneJson.TryGetProperty("max_chars_overrun", out _)} entries={oneJson.GetProperty("plugins").EnumerateArray().Sum(pl => pl.GetProperty("dangling").GetArrayLength())} of {oneSection.TotalDangling}");
 
         // ---- a record scope can admit nothing from a base master the sweep opened. "Swept" has to mean examined.
         var modOnlyScope = ErrorCheck.Run(rb, null, 1000, null, new SweepScope(null, "HcCeModNpc", null, null));
@@ -851,10 +914,11 @@ public static class CheckErrorsProbe
         var baseOnly = ErrorCheck.Run(rb, new[] { "Skyrim.esm" }, 2);
         var baseOnlyText = Wire.RenderCheckErrors(baseOnly, 0);
         Check("BASELINE-PHASE-CLAUSE-NEEDS-A-NON-BASE-PLUGIN: a sweep scoped to base masters alone states the split but not the ordering sentence — there is no 'every other plugin' for the budget to reach first",
-            baseOnly.Capped && baseOnly.BaselineDangling > 0 && !baseOnly.NonBaseInScope
+            baseOnlyText.Contains("were never listed: the listing budget (limit=2) ran out", StringComparison.Ordinal)
+            && baseOnly.BaselineDangling > 0 && !baseOnly.NonBaseInScope
             && baseOnlyText.Contains("baseline: 3 of 3", StringComparison.Ordinal)
             && !baseOnlyText.Contains("the listing budget (limit=) is spent on every other plugin", StringComparison.Ordinal),
-            $"capped={baseOnly.Capped} baseline={baseOnly.BaselineDangling} nonBase={baseOnly.NonBaseInScope}");
+            $"baseline={baseOnly.BaselineDangling} nonBase={baseOnly.NonBaseInScope}");
 
         // The arm above cannot tell a correct gate from a subtraction that happens to agree: scoped to one name, the
         // scanned count and the swept-base count coincide. This fixture SEPARATES them — the same plugin named twice is
@@ -863,7 +927,8 @@ public static class CheckErrorsProbe
         var dupBase = ErrorCheck.Run(rb, new[] { "Skyrim.esm", "Skyrim.esm" }, 2);
         var dupBaseText = Wire.RenderCheckErrors(dupBase, 0);
         Check("BASELINE-PHASE-CLAUSE-NOT-A-SUBTRACTION: with the scanned count (2) and the swept-base count (1) deliberately apart, the ordering sentence still does not print — the gate reads a stated fact, not a difference between two counts of different things",
-            dupBase.Capped && dupBase.BaselineDangling > 0
+            dupBaseText.Contains("were never listed: the listing budget (limit=2) ran out", StringComparison.Ordinal)
+            && dupBase.BaselineDangling > 0
             && dupBase.PluginsScanned > (dupBase.BaseMastersSwept?.Count ?? 0)     // the old gate's test is TRUE here
             && !dupBase.NonBaseInScope                                             // and the fact says otherwise
             && !dupBaseText.Contains("the listing budget (limit=) is spent on every other plugin", StringComparison.Ordinal),
@@ -919,6 +984,45 @@ public static class CheckErrorsProbe
                 && (!expectTruncated || u.GetProperty("rendered").GetInt32() < expectTotal);
         }
         catch { return false; }
+    }
+
+    /// <summary>The accounting line out of a rendered response — the one line every omission claim now lives on.
+    /// Arms read it rather than the whole render because a listed dangling entry also prints its own source plugin,
+    /// so a whole-text match counts plugins the roster never named (the trap the line it replaces already paid for).
+    /// </summary>
+    static string AccountingLine(string text)
+        => text.Split('\n').FirstOrDefault(l => l.Contains("[accounting:", StringComparison.Ordinal)) ?? "";
+
+    /// <summary>The json roster as "plugin:count" keys, in the order it was written. The json twin of the text
+    /// line's roster, so an arm can hold the two transports against each other rather than trusting either.</summary>
+    static string[] JsonRoster(string json)
+    {
+        var acct = JsonDocument.Parse(json).RootElement.GetProperty("accounting");
+        return acct.GetProperty("dangling_missing_by_source").EnumerateArray()
+                   .Select(e => e.GetProperty("plugin").GetString() + ":" + e.GetProperty("count").GetInt32())
+                   .ToArray();
+    }
+
+    /// <summary>The cap invariant, swept: for a range of max_chars values, NEITHER transport may return more than it
+    /// was given — unless the response says it overran, which is the one declared arm (a cap smaller than the
+    /// accounting itself, which is never dropped). A single cap would pass by luck; the sweep is what makes the
+    /// invariant a claim rather than an anecdote.</summary>
+    static bool CapSweep(ErrorCheckResult r, out string detail)
+    {
+        var bad = new List<string>();
+        foreach (int cap in new[] { 120, 300, 700, 900, 1500, 3000, 8000, 40000 })
+        {
+            var text = Wire.RenderCheckErrors(r, cap);
+            var json = JsonWire.RenderCheckErrors(r, cap);
+            if (text.Length > cap && !text.Contains("raise it to at least", StringComparison.Ordinal))
+                bad.Add($"text@{cap}={text.Length} with no overrun notice");
+            if (json.Length > cap && !json.Contains("max_chars_overrun", StringComparison.Ordinal))
+                bad.Add($"json@{cap}={json.Length} with no overrun notice");
+            try { JsonDocument.Parse(json); }
+            catch (Exception ex) { bad.Add($"json@{cap} is not valid json: {ex.GetType().Name}"); }
+        }
+        detail = bad.Count == 0 ? "every cap honoured, or overrun declared" : string.Join("; ", bad);
+        return bad.Count == 0;
     }
 
     internal static bool JsonHasHistogram(string json, string prop)
