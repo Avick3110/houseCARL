@@ -28,11 +28,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
   finding.
   The accounting and the boundary footer are held back out of `max_chars` before the listing is built, so
   neither is appended past it. That costs the listing a little of its room: on a 3800-plugin order at the
-  defaults the response lists 538 findings and ends just inside 80,000 characters. The one case
-  where a response is still longer than the `max_chars` you gave it is a `max_chars` too small to hold what the
+  defaults the response lists 538 findings and ends just inside 80,000 characters. There are two cases
+  where a response is still longer than the `max_chars` you gave it. One is a `max_chars` too small to hold what the
   response must carry whatever the budget — its header, that accounting, the boundary; there the response says so,
   states its own length including the sentence saying it, and names the number that clears it, and setting
-  `max_chars` to that number does clear it. Every other part of the answer is now inside the cap: the two
+  `max_chars` to that number does clear it. The other is a `format='json'` response running over by one body unit
+  whose size is not known before it is written; it now says THAT instead — the fixed-part explanation is false
+  there, and it was the one every overrun got. Every other part of the answer is now inside the cap: the two
   `counts_only=true` histograms (which took `limit=` as their only bound, so a wide tally could run many times past
   the `max_chars` it was given), the list of plugins whose records could not be read, and the list of plugins that
   could not be parsed — the last of which `format='json'` wrote with no bound at all. A histogram is emitted with

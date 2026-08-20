@@ -299,6 +299,24 @@ internal static class ReadSentences
         "budget - its header, the accounting above, the boundary - does not fit in that many chars, so raise it to " +
         "at least {1}.";
 
+    /// <summary>The OTHER way a response ends up over its cap, and the reason there are two sentences rather than one
+    /// with a cause that is only sometimes true. A body unit whose size cannot be known before it is written — a json
+    /// entry, whose cost the emitter deliberately leaves at zero — can land past what the budget had left. The fixed
+    /// part FITS in that case: the notice above would tell the caller their header and accounting do not fit in a cap
+    /// that holds them with room to spare, and send them chasing a cap that is not the problem.
+    ///
+    /// <para>Which sentence applies is not new state: the overrun arm is already handed what the fixed part needs, so
+    /// <c>needed &gt; max_chars</c> IS the discriminator. Measured on a json entry carrying a 4,000-character EditorID:
+    /// 7,008 chars against a 4,000 cap, over a fixture whose irreducible response is 2,618.</para>
+    ///
+    /// <para>Both spellings end in the same remedy clause, because the remedy is the same and two spellings of it is
+    /// how the cap sweep stops finding the number it follows.</para></summary>
+    [MustState("max_chars=", "raise it to at least")]
+    internal const string SweepCapOvershot =
+        " This response is {2} chars, longer than the max_chars={0} it was given: what it must carry whatever the " +
+        "budget - its header, the accounting above, the boundary - does fit, but one body unit was written before " +
+        "its size could be measured and ran past what was left, so raise it to at least {1}.";
+
     /// <summary>The sweep's honest scope boundary, stated to BOTH transports from here. It was two hand-copied
     /// twins — the text render's and the json writer's — and they had already drifted: the text one qualified the
     /// ownership word with "(a rank/global Mutagen can't type on an override)" and the json one did not. The fuller

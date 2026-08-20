@@ -948,9 +948,16 @@ public static class CheckErrorsProbe
                 .Select(i => new SweepCount($"HcCeHistogramSourcePlugin{i:000}.esp", 200 - i)).ToList(),
         };
         bool capHistOk = CapSweep(capHist, out var histFail);
+        // The excluded roster, FAT. Nothing in this battery carried one: ExcludedSized is used only by
+        // FLOOR-IGNORES-BODY-SIZE, which renders at cap=1, where no row is let out at all. A parse reason is an
+        // exception message with no length of its own, and the json lane wrote its rows at cost 0 while the text twin
+        // measured unit.Length — 5,453 chars against a 5,000 cap on three 1,200-char reasons, with the text lane
+        // inside the same cap. The width is chosen so the band the row bites in falls inside the ladder.
+        var capExcluded = ExcludedSized(ErrorCheck.Run(rm, null, 1000), 1200);
+        bool capExcludedOk = CapSweep(capExcluded, out var excludedFail);
         Check("RESPONSE-NEVER-EXCEEDS-MAX-CHARS (#361): the accounting and the boundary are RESERVED before the body renders, so neither is appended past the cap — across a sweep of caps, in every lane, in both transports",
-            capListing && capFat && capCounts && capMasters && capTailsOk && capHistOk && capWideOk,
-            $"listing=[{capFail}] fat-head=[{fatFail}] counts_only=[{countsFail}] masters-only=[{mastersFail}] fat-tails=[{tailsFail}] fat-histograms=[{histFail}] escaped-names=[{wideFail}]");
+            capListing && capFat && capCounts && capMasters && capTailsOk && capHistOk && capWideOk && capExcludedOk,
+            $"listing=[{capFail}] fat-head=[{fatFail}] counts_only=[{countsFail}] masters-only=[{mastersFail}] fat-tails=[{tailsFail}] fat-histograms=[{histFail}] escaped-names=[{wideFail}] fat-excluded=[{excludedFail}]");
 
         // The surface the floor formulation deliberately cannot see: anything emitted UNCONDITIONALLY is inside the
         // floor CapSweep measures against. A histogram's title, its empty-case sentence and its "more rows" line are
@@ -1215,6 +1222,38 @@ public static class CheckErrorsProbe
             Wire.RenderCheckErrors(mastersMany, 0) is var mastersManyWhole
             && !mastersManyWhole.Contains("[accounting:", StringComparison.Ordinal),
             AccountingLine(Wire.RenderCheckErrors(mastersMany, 0)));
+
+        // ---- the overrun notice's CAUSE, one arm per branch of the conditional that picks it.
+        //      Both overruns say "raise it to at least", so a cell reading that phrase cannot tell them apart —
+        //      which is how the fixed-part explanation shipped over a body-unit overshoot whose fixed part fit with
+        //      344 chars to spare. What each arm asserts is a FIXTURE-KNOWN length: the floor (the response with no
+        //      body in it) against the cap, which is the same quantity the render branches on.
+        var overshotBase = ErrorCheck.Run(rm, null, 1000);
+        // A json entry whose EditorID is longer than the whole json reserve. Entries carry no measured cost by
+        // design (see BoundedBody), so the post-check stops the body only AFTER this one has landed.
+        var overshot = overshotBase with
+        {
+            Reports = overshotBase.Reports.Take(1).Select(x => new PluginErrors(
+                x.Plugin,
+                new[] { new DanglingRef(x.Dangling[0].Source, "Npc", new string('E', 4000), x.Dangling[0].Target) },
+                x.MissingMasters, 0, Array.Empty<string>(), null)).ToList(),
+        };
+        int overshotFloor = JsonWire.RenderCheckErrors(overshot, 1).Length;   // the fixture's irreducible response
+        const int OvershotCap = 4000;                                        // comfortably above that floor
+        const int TooSmallCap = 1200;                                        // comfortably below it
+        var overshotJson = JsonWire.RenderCheckErrors(overshot, OvershotCap);
+        var tooSmallJson = JsonWire.RenderCheckErrors(overshot, TooSmallCap);
+        Check("OVERRUN-NOTICE-NAMES-THE-OVERRUN-IT-HAD: with the fixed part fitting the cap and a body unit running past what was left, the notice says the fixed part FIT — the other explanation is false there, and it is the one every overrun used to get",
+            overshotFloor < OvershotCap && overshotJson.Length > OvershotCap
+            && overshotJson.Contains("does fit, but one body unit was written before its size could be measured", StringComparison.Ordinal)
+            && !overshotJson.Contains("does not fit in that many chars", StringComparison.Ordinal),
+            $"floor={overshotFloor} cap={OvershotCap} len={overshotJson.Length} notice=[{OverrunNotice(overshotJson)}]");
+
+        Check("OVERRUN-NOTICE-STILL-NAMES-A-CAP-TOO-SMALL: the other branch of the same conditional — a cap below the fixture's own floor still gets the fixed-part explanation, so the arm above cannot pass by making that sentence unreachable",
+            TooSmallCap < overshotFloor && tooSmallJson.Length > TooSmallCap
+            && tooSmallJson.Contains("does not fit in that many chars", StringComparison.Ordinal)
+            && !tooSmallJson.Contains("does fit, but one body unit", StringComparison.Ordinal),
+            $"floor={overshotFloor} cap={TooSmallCap} len={tooSmallJson.Length} notice=[{OverrunNotice(tooSmallJson)}]");
 
         // ---- the overrun notice, in BOTH directions and followed to the letter.
         Check("OVERRUN-NOTICE-ONLY-WHEN-OVER: a response inside its cap never claims to be longer than it — the notice is measured off the finished response, not predicted from the reserve",
@@ -1720,6 +1759,14 @@ public static class CheckErrorsProbe
             if (rows > 0 && rows < r.Reports.Count) return cap;
         }
         return last;
+    }
+
+    /// <summary>The overrun notice as the response spells it, for an arm's failure detail. Never for an assertion:
+    /// every overrun carries one, so its presence proves nothing (the pinned rule at the top of this file).</summary>
+    static string OverrunNotice(string response)
+    {
+        int at = response.IndexOf("This response is ", StringComparison.Ordinal);
+        return at < 0 ? "<none>" : response[at..Math.Min(response.Length, at + 240)];
     }
 
     /// <summary>The length the overrun notice claims for the response it sits in, or -1 where it makes no claim.

@@ -1671,9 +1671,33 @@ static class JsonWire
             var row = kv;
             void Write() { w.WriteStartObject(); w.WriteString("plugin", row.Key); w.WriteString("reason", row.Value); w.WriteEndObject(); }
             if (body is null) { Write(); continue; }
-            if (!body.Emit(SweepSubject.ExcludedRows, 0, Write)) break;
+            // The THIRD unit whose cost is measured rather than left to the post-check, and for the same reason as
+            // the other two: `reason` is a Mutagen parse-failure message with no length of its own. Passed 0, the
+            // post-check let one whole row land over budget and JsonGlue absorbed it only while the row was smaller
+            // than that — 5,456 chars against a 5,000 cap on three 1,200-char reasons, while the TEXT twin, which
+            // has always measured its own unit.Length here, was inside the same cap with room to spare.
+            if (!body.Emit(SweepSubject.ExcludedRows, ExcludedRowCost(row), Write)) break;
         }
         w.WriteEndArray();
+    }
+
+    /// <summary>What one excluded-roster row costs, encoded exactly as the response will encode it — the same
+    /// construction as <see cref="PluginHeadCost"/> and <see cref="UnreadRowCost"/>, at this row's own depth.</summary>
+    static int ExcludedRowCost(KeyValuePair<string, string> row)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteStartArray("excluded_plugins");
+            w.WriteStartObject();
+            w.WriteString("plugin", row.Key);
+            w.WriteString("reason", row.Value);
+            w.WriteEndObject();
+            w.WriteEndArray();
+            w.WriteEndObject();
+        }
+        return (int)ms.Length;
     }
 
     static List<string> ClassNames(ErrorFindingClass c)
