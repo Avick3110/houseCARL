@@ -2540,6 +2540,10 @@ public static class WriteSurfaceGuardProbe
             Render(new PlaceRequest(rel, null, null)),                                          // contended, no pole
             Render(new PlaceRequest(rel, rel, "W2NoSuchMod")),                                  // named, absent (+ the pole-spelling tail)
             Render(new PlaceRequest(rel, Path.Combine(root, "w2-ondisk.nif"), providers[0])),   // pole vs on-disk source
+            // The auto-resolve dead end — nothing provides the DESTINATION and no pole was named. Its remedy is
+            // where the "a named mod folder is read whether or not it is ticked" sentence reaches a caller, and it
+            // is the refusal that caller is most likely to be standing in when they need it.
+            Render(new PlaceRequest(@"meshes\hcw2\nothing-provides-this.nif", null, null)),
         }).ToList();
     }
 

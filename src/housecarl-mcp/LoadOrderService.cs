@@ -1633,6 +1633,11 @@ public sealed class LoadOrderService : IDisposable
                     + (hint is null ? "" : " " + hint)
                     + " Pass source= the copy to place — a Data-relative path (resolved through the VFS, with"
                     + " source_provider= to name which mod's copy), a full loose path, '<archive.bsa>|<entry>', or a '.bsa' path."
+                    // The remedy above used to dead-end for the commonest way of reaching this refusal — the only copy
+                    // living in a mod MO2 does not load — because auto-resolve and the named pole were both
+                    // enabled-only, so "pass source= with source_provider=" routed to a second refusal. Naming a mod
+                    // now reaches it, and the caller who is here is precisely the one who needs to be told.
+                    + " " + WriteSentences.PlaceSourceNameReachesUnticked
                     + (res.ReadIncomplete ? " NOTE: a BSA failed to read this build, so a source may merely be unscanned (see the warnings)." : ""),
                     winner);
             }

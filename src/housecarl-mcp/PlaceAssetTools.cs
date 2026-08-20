@@ -30,7 +30,7 @@ public static class PlaceAssetTools
          "+ kind ('mesh' = the head .nif, 'tint' = the face .dds), which houseCARL computes the path for. Give the SOURCE " +
          "(the copy to place) as source= a DATA-RELATIVE path resolved through the VFS — with source_provider= naming " +
          "whose copy (a mod folder or BSA filename on its own, or " + AssetSourceChoice.WinnerToken + " for the current " +
-         "VFS winner) — or as a full loose " +
+         "VFS winner; a NAMED mod folder need not be one MO2 currently loads — see source_provider=) — or as a full loose " +
          "file path, or '<archive.bsa path>|<entry inside>', or just a '.bsa' path (the entry is taken to be the " +
          "destination — a quick way to pull ONE file out of a BSA as a loose override). A source path DIFFERENT from the " +
          "destination is a RENAME: the bytes of one file land under another file's name, which is how a baked FaceGen " +
@@ -55,8 +55,11 @@ public static class PlaceAssetTools
                      + "or the provider's NAME ALONE — a mod folder name, 'overwrite', 'Data', or a BSA filename like "
                      + "'X - Textures.bsa' — matched exactly. A bare name ALWAYS means a provider of that name, so a mod whose "
                      + "folder happens to carry the pole's word is still reachable and nothing is reserved out of the name space. "
-                     + "housecarl_asset_status shows these names with a kind annotation after them ('SomeMod (loose)'); pass the "
-                     + "name only, without the annotation. Omitted = the sole provider, refused if more than one contends. A named "
+                     + WriteSentences.PlaceSourceNameReachesUnticked + " "
+                     + "housecarl_asset_status shows the names of the mods MO2 loads with a kind annotation after them "
+                     + "('SomeMod (loose)'); pass the name only, without the annotation — and note that a path only an unticked "
+                     + "mod provides reads as ABSENT there while still being placeable by naming that mod here. "
+                     + "Omitted = the sole provider, refused if more than one contends. A named "
                      + "provider that doesn't supply the path is refused, never silently replaced by another.")]
             string? source_provider = null,
         [Description("Optional. Base name for the NEW houseCARL mod folder the file lands in (default 'houseCARL_Assets'); auto-suffixed if taken.")]
@@ -76,7 +79,8 @@ public static class PlaceAssetTools
          "several overrides at once; or, for an NPC, its FaceGen mesh AND tint together). assets is an array of " +
          "{ formid?, kind?, asset_path?, source?, source_provider? }: give EITHER asset_path (any Data-relative path) OR formid (an NPC " +
          "FormID — omit kind to place BOTH the FaceGen mesh and the tint; or set kind='mesh'/'tint' for just one). source " +
-         "is the copy to place (a Data-relative path resolved through the VFS — source_provider names whose copy — a full " +
+         "is the copy to place (a Data-relative path resolved through the VFS — source_provider names whose copy, and a " +
+         "NAMED mod folder need not be one MO2 currently loads — a full " +
          "loose file path, '<archive.bsa>|<entry>', or a '.bsa' path); omit it to resolve the destination path instead " +
          "(an ambiguous or absent source becomes a per-asset error — the rest still place). A per-asset source that " +
          "differs from its destination is a RENAME. When you give " +
@@ -269,7 +273,8 @@ public sealed record PlaceAssetSpec
     [JsonPropertyName("source_provider"), Description("Whose copy to read for a VFS-resolved source: "
         + AssetSourceChoice.WinnerToken + " for the current VFS winner, or the provider's NAME ALONE (a mod folder, 'overwrite', "
         + "'Data', or a BSA filename) — not asset_status's ' (loose)' / ' (BSA)' annotation. A bare name always means a provider "
-        + "of that name. Applies BOTH with a Data-relative source= (whose copy to read it FROM) and with NO source= at all "
+        + "of that name. " + WriteSentences.PlaceSourceNameReachesUnticked + " Applies BOTH with a Data-relative source= (whose "
+        + "copy to read it FROM) and with NO source= at all "
         + "(whose copy of the DESTINATION path to place) — in the second case it is what resolves the contention an omitted "
         + "source is otherwise refused for. Omit for the sole provider (contention is refused). Not valid with an on-disk source.")]
     public string? SourceProvider { get; init; }
