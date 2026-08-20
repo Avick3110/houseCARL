@@ -43,13 +43,19 @@ internal enum SweepSubject
 /// even measured at). Four instances of one class. Every body write now goes through <see cref="Emit"/>, and the
 /// bound is enforced by this class rather than promised by the caller.</para>
 ///
-/// <para><b>The cost is a hint; the post-check is the guarantee.</b> A caller passes a <paramref name="cost"/> only
-/// where one unit can be LARGE — a plugin object carrying three exception messages, an unread row carrying a scan
-/// error — because there the pre-test is what keeps the response inside its cap rather than one unit over it.
-/// Everywhere else the cost is zero and the pre-test degenerates to "is there room at all". What makes a silent
-/// overrun unrepresentable is the check AFTER the write: a unit that took the response past its budget stops the
-/// body, in every subject, and the accounting states what was cut. A site that under-states its cost can make the
-/// response one unit long — never silently long, and never long without saying so.</para>
+/// <para><b>Why a site that under-states its cost still cannot run away.</b> A caller passes a cost only where one
+/// unit can be LARGE — a plugin object carrying three exception messages, an unread row carrying a scan error —
+/// because there the test before the write is what keeps the response inside its cap rather than one unit over it.
+/// Everywhere else the cost is zero and the test degenerates to "is there room at all". That is enough on its own,
+/// because the response's length only ever GROWS: the first unit whose declared cost was too small takes it past
+/// the budget, and from that moment every test — in every subject, whether or not that subject has been tried —
+/// is a comparison against a length already over. So the damage of a forgotten cost is ONE unit, and it is never
+/// silent, because the accounting is a subtraction taken after emission and states what was left out either way.</para>
+///
+/// <para>An explicit "the response has gone over, stop everything" flag was written here first and then deleted:
+/// monotonic length already makes it true, so the flag could be removed with every arm still green. A conditional
+/// that cannot be fixtured honestly is the signal to delete it, not a testing gap to work around (CLAUDE.md §5 #11,
+/// PR #339's precedent).</para>
 ///
 /// <para>The header and the accounting are outside this: the header is the response's fixed part and the accounting
 /// plus boundary are RESERVED out of <c>max_chars</c> before the body renders. Those are the two things a response
@@ -61,7 +67,6 @@ internal sealed class BoundedBody
     readonly Func<int> _length;
     readonly CheckAccounting? _acct;
     readonly HashSet<SweepSubject> _stopped = new();
-    bool _over;
 
     /// <param name="acct">the accounting to register emissions with, or null for a lane that keeps no accounting
     /// (validate_scripts, whose response layer is not this branch's — it still gets the same bound).</param>
@@ -78,18 +83,15 @@ internal sealed class BoundedBody
     /// the caller's loop breaks and the accounting already knows, because the count it will report is the count of
     /// units that came back true.</summary>
     /// <param name="cost">an UPPER BOUND on what <paramref name="commit"/> will append, or 0 where the site has no
-    /// cheap way to measure one. See the class summary: the guarantee is the post-check, not this number.</param>
+    /// cheap way to measure one — see the class summary for why a zero here bounds the damage at one unit.</param>
     /// <param name="source">for <see cref="SweepSubject.DanglingEntries"/>, the plugin the entry came FROM — the
     /// by-source roster is tallied off the same registration as the count, so the two cannot disagree.</param>
     internal bool Emit(SweepSubject subject, int cost, Action commit, string? source = null)
     {
-        if (_over || _stopped.Contains(subject)) return false;
+        if (_stopped.Contains(subject)) return false;
         if (_length() + cost > _budget) { _stopped.Add(subject); return false; }
         commit();
         _acct?.Emitted(subject, source);
-        // The guarantee. A unit whose cost was understated has just taken the response past its budget: nothing
-        // more goes in, in any subject, and the accounting's subtractions report every one of them as missing.
-        if (_length() > _budget) _over = true;
         return true;
     }
 
@@ -103,14 +105,13 @@ internal sealed class BoundedBody
     /// the accounting states.</para></summary>
     internal bool Close(SweepSubject subject, int cost, Action commit)
     {
-        if (_over || _length() + cost > _budget) return false;
+        if (_length() + cost > _budget) return false;
         commit();
         _stopped.Add(subject);   // nothing follows a subject's closing disclosure
-        if (_length() > _budget) _over = true;
         return true;
     }
 
     /// <summary>Did this subject stop short? For the one caller that states the fact in its own words rather than
     /// through the accounting (validate_scripts).</summary>
-    internal bool Stopped(SweepSubject subject) => _over || _stopped.Contains(subject);
+    internal bool Stopped(SweepSubject subject) => _stopped.Contains(subject);
 }

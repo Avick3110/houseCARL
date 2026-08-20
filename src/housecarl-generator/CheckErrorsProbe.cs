@@ -968,16 +968,15 @@ public static class CheckErrorsProbe
         Check("FLOOR-IGNORES-BODY-SIZE: at a cap no body fits under, the response is the same length whether its rows carry four characters each or four hundred — the irreducible part of a response is the header, the accounting and the boundary, and nothing that grows with the findings",
             floorBad.Count == 0, floorBad.Count == 0 ? "every lane's floor is content-independent" : string.Join("; ", floorBad));
 
-        // The emitter's guarantee, driven directly. Every call site now passes a cost for the units that can be
-        // large, so on the product's own fixtures the post-check never has to fire — which means removing it stays
-        // green everywhere. It is the backstop for a site that forgets, so it is exercised where a site HAS: a unit
-        // whose declared cost was smaller than what it wrote.
+        // The emitter's guarantee, driven directly, on the case the product's own fixtures cannot reach: a site
+        // that under-states its cost. The claim is that the damage is ONE unit — every later unit is refused, in
+        // every subject, including one never tried before, because the response's length only grows.
         var emitSb = new System.Text.StringBuilder();
         var emitter = new BoundedBody(null, 100, () => emitSb.Length);
         bool firstLanded = emitter.Emit(SweepSubject.DanglingEntries, 0, () => emitSb.Append(new string('x', 500)));
         bool secondRefused = !emitter.Emit(SweepSubject.PluginSections, 0, () => emitSb.Append("more"));
         bool closeRefused = !emitter.Close(SweepSubject.UnreadRows, 0, () => emitSb.Append("tail"));
-        Check("EMISSION-POST-CHECK-STOPS-AN-UNDERSTATED-UNIT: a unit that declared a cost smaller than what it wrote takes the body over exactly ONCE — every later unit is refused, in every subject, and so is a closing disclosure",
+        Check("EMISSION-AN-UNDERSTATED-COST-COSTS-ONE-UNIT: a unit that declared a cost smaller than what it wrote takes the body over exactly ONCE — every later unit is refused, in every subject, and so is a closing disclosure",
             firstLanded && secondRefused && closeRefused && emitSb.Length == 500,
             $"firstLanded={firstLanded} secondRefused={secondRefused} closeRefused={closeRefused} len={emitSb.Length}");
 
