@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using HousecarlMcp;
 
 namespace HousecarlGenerator;
@@ -26,6 +27,7 @@ public static class CheckMeasureProbe
         Console.WriteLine($"# check-measure — live order at {mo2}");
         Console.WriteLine($"# default max_chars = {cap}, default limit = 1000\n");
 
+        if (Array.IndexOf(args, "--dialogue") >= 0) return RunDialogue(svc, ArgVal(args, "--seed"));
         if (Array.IndexOf(args, "--listing") >= 0) return RunListing(svc);
         if (Array.IndexOf(args, "--budget") >= 0) return RunBudget(svc);
 
@@ -149,6 +151,55 @@ public static class CheckMeasureProbe
     /// <para>Both families are rendered at plain defaults and their sizes reported against the default cap. The
     /// number that matters is the REMAINDER: what the merged response would have left for the family that renders
     /// second under today's serial rule.</para></summary>
+    /// <summary>THE DIALOGUE FAMILY ON THE LIVE ORDER (4b phase 2): the cost-refusal, and then the remedy that
+    /// refusal names, FOLLOWED — because a remedy is a claim about a call that has not happened, and the only way to
+    /// know it works is to make it. The guard follows remedies on fixtures; this one is on the real order the
+    /// refusal's own numbers were measured against.
+    ///
+    /// <para>Bounded by construction: one seed per call, named on the command line or defaulted to a vanilla quest.
+    /// It never runs the unscoped sweep the refusal exists to prevent.</para></summary>
+    static int RunDialogue(LoadOrderService svc, string? seed)
+    {
+        seed ??= "03372B:Skyrim.esm";
+        Console.WriteLine("## 4b-2  the dialogue family on the live order\n");
+
+        // Cell 1 — the refusal a caller gets for asking without seeds, and whether it stops the errors family too.
+        var refused = CheckTools.CheckTool(svc, findings: new[] { "dialogue" }, plugins: new[] { "Skyrim.esm" });
+        Console.WriteLine("### the unseeded call");
+        Console.WriteLine(refused.Length > 2200 ? refused[..2200] + "…" : refused);
+        Console.WriteLine();
+
+        // Cell 2 — FOLLOW THE REMEDY. The refusal spells seeds=["XXXXXX:Plugin.esp"]; this is that call.
+        var sw = Stopwatch.StartNew();
+        var seeded = CheckTools.CheckTool(svc, findings: new[] { "dialogue" }, seeds: new[] { seed });
+        sw.Stop();
+        bool worked = !seeded.Contains("needs seeds=", StringComparison.Ordinal)
+                      && seeded.Contains("[dialogue] ", StringComparison.Ordinal);
+        Console.WriteLine($"### the remedy the refusal named, followed: seeds=[\"{seed}\"]");
+        Console.WriteLine($"    {(worked ? "WORKED" : "DID NOT WORK — the refusal names a call the tool refuses")} — "
+                        + $"{seeded.Length} chars in {sw.ElapsedMilliseconds} ms against the {Wire.DefaultMaxChars} default");
+        foreach (var line in seeded.Split('\n').Where(l => l.StartsWith("scope:", StringComparison.Ordinal)
+                                                        || l.Contains("seed(s) validated", StringComparison.Ordinal)
+                                                        || l.StartsWith("[accounting", StringComparison.Ordinal)))
+            Console.WriteLine("    " + (line.Length > 300 ? line[..300] + "…" : line));
+        Console.WriteLine();
+
+        // Cell 3 — the json twin at the same defaults, and that it parses.
+        var asJson = CheckTools.CheckTool(svc, findings: new[] { "dialogue" }, seeds: new[] { seed }, format: "json");
+        bool parses;
+        try { System.Text.Json.JsonDocument.Parse(asJson); parses = true; }
+        catch { parses = false; }
+        Console.WriteLine($"### json: {asJson.Length} chars, {(parses ? "parses" : "DOES NOT PARSE")}");
+        Console.WriteLine();
+
+        // Cell 4 — several families in one call, which is the whole point of the merged surface.
+        var mixed = CheckTools.CheckTool(svc, plugins: new[] { "Skyrim.esm" },
+                                         findings: new[] { "errors", "dialogue" }, seeds: new[] { seed });
+        Console.WriteLine($"### errors + dialogue in one call: {mixed.Length} chars against {Wire.DefaultMaxChars}, "
+                        + $"sections=[{string.Join(", ", mixed.Split('\n').Where(l => l.StartsWith("[errors]", StringComparison.Ordinal) || l.StartsWith("[dialogue]", StringComparison.Ordinal)).Select(l => l.Split(']')[0] + "]"))}]");
+        return worked && parses ? 0 : 1;
+    }
+
     static int RunListing(LoadOrderService svc)
     {
         Console.WriteLine("## 394-F  the LISTING lane at plain defaults — what a second family would inherit\n");
