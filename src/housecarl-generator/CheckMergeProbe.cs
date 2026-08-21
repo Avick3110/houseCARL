@@ -62,8 +62,15 @@ namespace HousecarlGenerator;
 ///                               absences and must not read alike.
 ///   DIALOGUE-BOUNDARY-UNREFUSABLE — the standing-limits claim is this family's boundary, so it is reserved and
 ///                               written at every cap, including ones that admit no findings at all.
-///   ROSTER-STILL-ONE-WITH-THREE-FAMILIES — the dialogue family declares no excluded-plugin roster, so the roster
-///                               stays owned by exactly one accounting however many families run.
+///   DIALOGUE-FINISHED-SEED-HANDS-BACK-ITS-SHARE / -UNFINISHED-SEED-KEEPS-ITS-SHARE — both arms of one conditional.
+///                               A subject's ceiling is fixed on its first unit against the siblings still pending,
+///                               so a one-seed call must be told the seed subject is finished or half the family's
+///                               room is held for heads that will never be written. Asked at a cap sized from the
+///                               fixture's own floor and block width, because at a cap nothing bites under the arm
+///                               passes either way — which is what the first spelling of it did.
+///   ROSTER-STILL-ONE-WITH-THREE-FAMILIES — the dialogue family reports no excluded-plugin roster of its own, so the
+///                               roster stays owned by exactly one accounting however many families run. Asked of a
+///                               DIALOGUE-ONLY response as well, because that is the half a sabotage can reach.
 ///   CAP-LADDER                — every integer cap 1..12000 plus one far above: neither transport returns more than
 ///                               it was given, bar the floor (the response with no body in it at all), and the json
 ///                               parses at every one. Run twice: over two families, and over all three.
@@ -472,21 +479,34 @@ public static class CheckMergeProbe
         // Both directions are fixtured. The multi-seed case is the other arm of the conditional: with two seeds
         // still to write, the seed subject is NOT finished when the first topic renders, and holding its share is
         // the correct answer rather than the missed one.
+        // The arm has to be asked at a cap where the SHARE is what decides. At a cap nothing bites under, a
+        // one-seed call renders every topic whether or not the share came back — the first spelling of this arm
+        // asserted exactly that and the sabotage sweep found it GREEN in both transports.
+        //
+        // So the cap is chosen from the fixture's own measurements: the response FLOOR (rendered where no body
+        // fits) plus room for two thirds of the topics at their measured width. With the share handed back, that
+        // many land; with half the room held for seed heads that will never be written, at most half that many can.
+        // The expected value is the arithmetic, not a phrase the render prints.
         var oneSeed = DialogueSweep_Run(new[] { "000A01:HcCm.esp" }, 1000);
         var twoSeeds = DialogueSweep_Run(new[] { "000A01:A.esp", "000B02:A.esp" }, 1000);
-        int oneSeedCap = Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, oneSeed), 0).Length;
-        int oneSeedTopics = Count(Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, oneSeed), 0), "  topic ");
-        int twoSeedTopics = Count(Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, twoSeeds), 0), "  topic ");
-        Check($"DIALOGUE-FINISHED-SEED-HANDS-BACK-ITS-SHARE: with its seed heads written, that subject's unspent room goes to the topic blocks — a one-seed call renders all {Topics} of its topics, and a two-seed call renders all {Topics * 2} of its",
-            oneSeedTopics == Topics && twoSeedTopics == Topics * 2 && oneSeedCap <= Wire.DefaultMaxChars,
-            $"oneSeed={oneSeedTopics}/{Topics} twoSeed={twoSeedTopics}/{Topics * 2} chars={oneSeedCap}");
+        var oneSeedSweep = new CheckSweep(Sel("dialogue"), null, null, null, oneSeed);
+        int floor = Wire.RenderCheck(oneSeedSweep, 1).Length;
+        int blockWidth = TopicBlockWidth(oneSeed);
+        int shareCap = floor + blockWidth * (Topics * 2 / 3);
+        int atShareCap = Count(Wire.RenderCheck(oneSeedSweep, shareCap), "  topic ");
+        int halfShareHolds = (shareCap - floor) / (2 * blockWidth);
+        Check($"DIALOGUE-FINISHED-SEED-HANDS-BACK-ITS-SHARE: at a cap sized for two thirds of the topics, MORE than a half share can hold actually land — the seed subject's unspent room went to the blocks",
+            atShareCap > halfShareHolds && atShareCap <= Topics,
+            $"cap={shareCap} floor={floor} block={blockWidth} rendered={atShareCap} halfShareHolds={halfShareHolds}");
 
-        // …and the same question at a cap that actually BITES, which is where the share matters at all. The
-        // fixture's own floor: render at a cap no topic can fit under, then walk up until topics appear.
-        int biting = BitingCap(oneSeed);
-        int atBiting = Count(Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, oneSeed), biting), "  topic ");
-        Check("DIALOGUE-FINISHED-SEED-HANDS-BACK-ITS-SHARE (at a biting cap): at the narrowest cap that admits any topic at all, one lands — the seed subject's held half cannot be what refuses it",
-            atBiting >= 1, $"cap={biting} topics={atBiting}");
+        // …and the other arm of the same conditional: with a second seed head still to write, the subject is NOT
+        // finished when the first topic renders, and holding its share is the right answer rather than the missed
+        // one. Both seeds' heads and every topic land at a cap wide enough for them.
+        int twoSeedTopics = Count(Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, twoSeeds), 0), "  topic ");
+        Check($"DIALOGUE-UNFINISHED-SEED-KEEPS-ITS-SHARE: a two-seed call still writes both heads and all {Topics * 2} topics — handing the share back early would be as wrong as never handing it back",
+            twoSeedTopics == Topics * 2
+            && Count(Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, twoSeeds), 0), "\nseed ") == 2,
+            $"topics={twoSeedTopics}/{Topics * 2}");
 
         // ---- DIALOGUE-BOUNDARY-UNREFUSABLE ---------------------------------------------------------
         // The whole point of making the standing-limits footer this family's BOUNDARY: it is reserved, so the
@@ -616,15 +636,14 @@ public static class CheckMergeProbe
         return new DialogueValidationReport(seed, "quest", "HcCmQuest", "HcCm.esp", topics);
     }
 
-    /// <summary>The narrowest cap at which this response carries any topic block at all — a property of the FIXTURE,
-    /// found by walking up rather than named as a constant, because which cap bites moves whenever the header, the
-    /// scope sentence or the boundary changes and a hard-coded one would quietly stop testing the boundary.</summary>
-    static int BitingCap(DialogueCheckResult r)
+    /// <summary>One topic block's width in the text lane, MEASURED off the fixture's own data through the same
+    /// composer the render uses — never named as a constant, because the block's width moves whenever any line
+    /// inside it changes and a stale number would quietly stop sizing the cap the share arm needs.</summary>
+    static int TopicBlockWidth(DialogueCheckResult r)
     {
-        var s = new CheckSweep(Sel("dialogue"), null, null, null, r);
-        for (int cap = 1; cap <= Wire.DefaultMaxChars; cap += 16)
-            if (Count(Wire.RenderCheck(s, cap), "  topic ") >= 1) return cap;
-        return Wire.DefaultMaxChars;
+        var sb = new System.Text.StringBuilder();
+        DialogueWire.AppendTopic(sb, r.Topics.First().Topic, indent: true, int.MaxValue, includeInfoOrder: false);
+        return sb.Length;
     }
 
     static SweepFamilySelection Sel(params string[] tokens)
