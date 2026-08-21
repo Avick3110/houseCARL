@@ -77,6 +77,10 @@ public static class CiAll
         ("effect-chain-guard", EffectChainProbe.RunGuard),
         ("check-errors-guard", CheckErrorsProbe.RunGuard),
         ("script-property-check-guard", ScriptPropertyCheckProbe.RunGuard),
+        // The merged surface the two above are absorbed into (SPEC §6.1). Its own guard rather than an extension of
+        // either ancestor's: what it holds is the response the MERGE produces — sectioning, one accounting per
+        // family, the roster declared once, and the divided budget — none of which either ancestor can render.
+        ("check-guard", CheckMergeProbe.RunGuard),
         ("source-display-guard", SourceDisplayProbe.RunGuard),
         // BULK-PRIMITIVES Wave 1 — the three type-agnostic cross_plugin_query additions (PLAN P1/P2/P4): defined_in=
         // (definitions vs touches), list-valued references= (OR + matches= un-merge), group_by= (winner|type|

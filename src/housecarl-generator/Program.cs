@@ -53,6 +53,7 @@ if (args.Length > 0 && args[0] == "freshness-capture-guard") return FreshnessCap
 // Script-property binding sweep (housecarl_validate_scripts): a VMAD property declared in the attached script's .pex
 // (or an ancestor it extends) but left unbound is a silent None — the reported quest-script AddSpell(None) footgun.
 if (args.Length > 0 && args[0] == "script-property-check-guard") return ScriptPropertyCheckProbe.RunGuard(args[1..]);
+if (args.Length > 0 && args[0] == "check-guard") return CheckMergeProbe.RunGuard(args[1..]);
 
 // Decompiler baseline hierarchy: emit vanilla-class-parents.json from the CK vanilla sources' own
 // ScriptName-extends headers (committed asset — vanilla sources don't exist on CI; regenerate on game updates).
