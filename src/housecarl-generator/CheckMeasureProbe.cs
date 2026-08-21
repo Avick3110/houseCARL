@@ -29,6 +29,7 @@ public static class CheckMeasureProbe
 
         if (Array.IndexOf(args, "--dialogue") >= 0) return RunDialogue(svc, ArgVal(args, "--seed"));
         if (Array.IndexOf(args, "--listing") >= 0) return RunListing(svc);
+        if (Array.IndexOf(args, "--demand") >= 0) return RunDemand(svc);
         if (Array.IndexOf(args, "--budget") >= 0) return RunBudget(svc);
 
         if (only is null)
@@ -198,6 +199,67 @@ public static class CheckMeasureProbe
         Console.WriteLine($"### errors + dialogue in one call: {mixed.Length} chars against {Wire.DefaultMaxChars}, "
                         + $"sections=[{string.Join(", ", mixed.Split('\n').Where(l => l.StartsWith("[errors]", StringComparison.Ordinal) || l.StartsWith("[dialogue]", StringComparison.Ordinal)).Select(l => l.Split(']')[0] + "]"))}]");
         return worked && parses ? 0 : 1;
+    }
+
+    /// <summary>PIN 6 of #394's ruling: WHAT THE DEMAND PASS COSTS, measured once on the live order rather than
+    /// argued for. The allocation water-fills over MEASURED demand, so every merged response now composes each
+    /// subject's units once before the render as well as once during it. The bound says that costs O(budget) rather
+    /// than O(all rows) — a subject stops being measured the moment it wants more than the room it could be given —
+    /// and this is the cell that turns the bound into a number.
+    ///
+    /// <para>Reported as the pass alone and as its share of the whole render, both families in both transports, on
+    /// the sweep results a plain no-arguments call produces. The sweeps themselves are timed separately and are not
+    /// part of the number: they run once whatever the allocation does.</para></summary>
+    static int RunDemand(LoadOrderService svc)
+    {
+        Console.WriteLine("## 394 pin 6 — what the DEMAND PASS costs on the live order\n");
+
+        var sw = Stopwatch.StartNew();
+        var errors = svc.CheckErrors(null, 1000, null, null, null, null, false, null);
+        long errMs = sw.ElapsedMilliseconds;
+        sw.Restart();
+        var scripts = svc.ValidateScripts(null, 1000, null, null, null, null, null, false, null);
+        long scrMs = sw.ElapsedMilliseconds;
+        Console.WriteLine($"   the sweeps themselves (not part of the number below): errors {errMs} ms, scripts {scrMs} ms");
+        Console.WriteLine($"   findings in scope: {errors.TotalDangling} dangling across {errors.Reports.Count} plugin section(s); "
+                        + $"{scripts.TotalUnbound} unbound across {scripts.Reports.Count} record section(s)\n");
+
+        var sweep = new CheckSweep(Families("errors", "scripts"), errors, scripts);
+        int cap = Wire.DefaultMaxChars;
+
+        // The pass is run REPEATEDLY and the best time taken: it is a few milliseconds against a JIT warm-up and a
+        // scheduler, and a single reading of a small number measures the noise as much as the work.
+        long Best(Func<int> run, int times = 7)
+        {
+            long best = long.MaxValue;
+            for (int i = 0; i < times; i++)
+            {
+                var t = Stopwatch.StartNew();
+                run();
+                best = Math.Min(best, t.ElapsedTicks);
+            }
+            return best * 1_000_000 / Stopwatch.Frequency;   // microseconds: the pass is sub-millisecond and "0 ms" is not a measurement
+        }
+
+        long textDemand = Best(() => SweepDemand.ForText(sweep, cap, 1000).Demand.Count);
+        long textRender = Best(() => Wire.RenderCheck(sweep, cap).Length);
+        long jsonDemand = Best(() => SweepDemand.ForJson(sweep, cap, 1000, new JsonWire.JsonUnitDepths(3)).Demand.Count);
+        long jsonRender = Best(() => JsonWire.RenderCheck(sweep, cap).Length);
+
+        Console.WriteLine($"   text : demand pass {textDemand} us of a {textRender} us whole render");
+        Console.WriteLine($"   json : demand pass {jsonDemand} us of a {jsonRender} us whole render");
+        Console.WriteLine($"\n   The whole render includes the demand pass AND the skeleton pass that measures the");
+        Console.WriteLine($"   fixed part, so what the allocation added is bounded above by the render figures.");
+        return 0;
+    }
+
+    /// <summary>A family selection from its tokens, refusing loudly — a measurement harness that quietly measured
+    /// the wrong families would be worse than one that did not run.</summary>
+    static SweepFamilySelection Families(params string[] tokens)
+    {
+        if (!SweepFamilySelection.TryParse(tokens, out var sel, out var err))
+            throw new InvalidOperationException(err);
+        return sel;
     }
 
     static int RunListing(LoadOrderService svc)
