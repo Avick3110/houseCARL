@@ -116,6 +116,16 @@ internal readonly record struct HistogramAxis(SweepSubject Subject, IReadOnlyLis
     /// second axis existed at all.</summary>
     internal string EmptyLine => "\n" + Title + ": nothing to tally — no findings in the swept scope.\n";
 
+    /// <summary>The axis's note, spelled ONCE. It is written whatever the budget says, so the room for it is held
+    /// back with the closing disclosure rather than taken out of the body's — and the render and the reserve read
+    /// this one string, for the same reason <see cref="HistogramCut.Line"/> has one spelling.</summary>
+    internal string NoteLine => Note is null ? "" : "\n" + Note + "\n";
+
+    /// <summary>What this axis says INSTEAD of a tally when the mode was not requested. Also unconditional, and so
+    /// also reserved: "the walk was not run" is the axis's whole answer, and an answer a budget can drop leaves the
+    /// caller unable to tell it from a tally that came back empty (Q3).</summary>
+    internal string NotComputedLine => Rows is null && NotComputed is not null ? NotComputed + "\n" : "";
+
     /// <summary>The axis's IRREDUCIBLE DISCLOSURE, in text-lane characters: the widest thing
     /// <see cref="BoundedBody.Close"/> can be asked to write for it, which is its head plus a cut line naming
     /// every row — the case where the budget admitted no rows at all. An axis that renders some of its rows
@@ -125,6 +135,17 @@ internal readonly record struct HistogramAxis(SweepSubject Subject, IReadOnlyLis
         => Rows is null ? 0
          : Rows.Count == 0 ? EmptyLine.Length
          : Head.Length + new HistogramCut(Rows.Count, ByBudget: true).Line.Length;
+
+    /// <summary>Everything this axis puts in the response's FIXED PART, in text-lane characters: its unconditional
+    /// lines plus its closing disclosure. ONE reserve for the lot, because they are one thing — what this axis
+    /// writes whatever the budget says.
+    ///
+    /// <para>The notes used to sit outside every reserve. They are appended straight to the builder after the
+    /// header has been measured, so the overrun notice was told a fixed part up to ~184 chars smaller than the one
+    /// the response actually carried; in the band between the two it explained a cap too small for the fixed part
+    /// as a body unit overshooting, over a <c>counts_only</c> response that emitted no body unit at all — 96 caps
+    /// of a 100–6000 sweep on the null-axes lane.</para></summary>
+    internal int TextFixed => NoteLine.Length + NotComputedLine.Length + TextDisclosure;
 }
 
 /// <summary>
@@ -166,10 +187,13 @@ internal readonly record struct HistogramAxis(SweepSubject Subject, IReadOnlyLis
 /// that cannot be fixtured honestly is the signal to delete it, not a testing gap to work around (CLAUDE.md §5 #11,
 /// PR #339's precedent).</para>
 ///
-/// <para>The FIXED PART is outside this helper entirely: the header, every reserved closing disclosure, the
-/// accounting and the boundary. Those are the things a response is never allowed to drop, which is exactly why
-/// none of them is emitted through a helper that can refuse. What a cap too small for the fixed part gets is an
-/// overrun that SAYS SO (<see cref="CheckAccounting.CapTooSmall"/>), never a shorter response with less in it.</para>
+/// <para>The FIXED PART is outside the emission gate entirely: the header, every axis's unconditional lines, every
+/// reserved closing disclosure, the accounting and the boundary. Those are the things a response is never allowed
+/// to drop, which is exactly why none of them goes through <see cref="Emit"/>. What a cap too small for the fixed
+/// part gets is an overrun that SAYS SO (<see cref="CheckAccounting.CapTooSmall"/>), never a shorter response with
+/// less in it. The unconditional writes still come through this class — <see cref="Fixed"/> and
+/// <see cref="Close"/> — so that <see cref="FixedBeyondHeader"/> is MEASURED at the write rather than assembled
+/// from what each site remembered to declare.</para>
 /// </summary>
 internal sealed class BoundedBody
 {
@@ -201,34 +225,62 @@ internal sealed class BoundedBody
     {
         if (_stopped.Contains(subject)) return false;
         if (_length() + cost + Held > _budget) { _stopped.Add(subject); return false; }
+        int before = _length();
         commit();
+        BodyTotal += _length() - before;
         _acct?.Emitted(subject, source);
         return true;
     }
 
-    /// <summary>Hold back the room one subject's CLOSING DISCLOSURE will need, BEFORE any unit is emitted. Every
-    /// emission test then has to leave that room standing, so by the time the subject closes, what it writes is
-    /// already paid for.
+    /// <summary>What the BODY actually appended, measured at each unit as it landed — the declared cost is a budget
+    /// test, never this number. It is the only quantity that separates a response's body from its fixed part, which
+    /// is why it is taken here rather than reconstructed from the counts the accounting keeps.</summary>
+    internal int BodyTotal { get; private set; }
+
+    /// <summary>Hold back the room one subject writes WHATEVER THE BUDGET SAYS — its unconditional lines and its
+    /// closing disclosure — BEFORE any unit is emitted. Every emission test then has to leave that room standing,
+    /// so by the time the subject writes, what it writes is already paid for.
     ///
-    /// <para>Reserving is what makes the disclosure unrefusable, and it has to happen before the FIRST unit of ANY
+    /// <para>Reserving is what makes those writes unrefusable, and it has to happen before the FIRST unit of ANY
     /// subject: an axis that reserved its own room after a sibling had already spent the budget would be the exact
     /// silence this exists to remove.</para></summary>
-    internal void Reserve(SweepSubject subject, int cost)
-    {
-        _held[subject] = cost;
-        ReservedTotal += cost;
-    }
+    internal void Reserve(SweepSubject subject, int cost) => _held[subject] = cost;
 
-    /// <summary>Everything ever reserved here, spent or not. It is the part of the response's fixed part that the
-    /// header does not carry, so the overrun notice needs it to tell a cap too small for the fixed part from a body
-    /// unit that ran past what was left after the fixed part fit.</summary>
-    internal int ReservedTotal { get; private set; }
+    /// <summary>This response's FIXED PART: every char it carries whatever the budget says — the header, each
+    /// axis's unconditional lines, each closing disclosure, the accounting and the boundary.
+    ///
+    /// <para><b>It is SUBTRACTED, not assembled.</b> Everything a cap can refuse goes through <see cref="Emit"/>
+    /// and is measured there (<see cref="BodyTotal"/>); the fixed part is therefore the finished response minus
+    /// that, plus room still held that no unit was allowed to touch. Nothing here enumerates the unconditional
+    /// write sites, which is the point — the number this feeds is what the overrun notice branches on, and every
+    /// version of it that was ASSEMBLED came out wrong in a way nothing could see. Summed from a header measured
+    /// before the axes wrote their notes, a reserve total that still counted room <see cref="Release"/> had given
+    /// back, and a lane's whole json slack, it understated the text lane's fixed part by up to ~184 chars and
+    /// overstated the json raise-to by 85%. Assembled from the write sites instead, it still missed json's empty
+    /// <c>plugins</c> array — a site nobody thinks of as a write.</para>
+    ///
+    /// <para>The one thing it deliberately excludes is the overrun notice, which is why the caller passes the
+    /// length it measured: the notice is gone the moment the response fits, so a fixed part counting it would tell
+    /// a caller to buy room for a sentence they are paying to remove.</para></summary>
+    /// <param name="contentLength">the finished response as the transport measured it, WITHOUT the notice.</param>
+    internal int FixedPart(int contentLength) => contentLength - BodyTotal + Held;
 
     /// <summary>Room reserved and not yet spent. Held against every emission test, including tests of the subject
-    /// that reserved it — a subject may spend the budget on its rows, never on its own disclosure.</summary>
+    /// that reserved it — a subject may spend the budget on its rows, never on what it writes regardless.</summary>
     int Held
     {
         get { int n = 0; foreach (var v in _held.Values) n += v; return n; }
+    }
+
+    /// <summary>Write part of a subject's reserved, UNCONDITIONAL text now — an axis's note, a json axis object's
+    /// own frame. It is not a unit, so it is not registered and it cannot be refused; what it appends is measured
+    /// and charged against the room already held for this subject, so a write and the room held for it are not
+    /// held against the body twice over.</summary>
+    internal void Fixed(SweepSubject subject, Action commit)
+    {
+        int before = _length();
+        commit();
+        if (_held.TryGetValue(subject, out var held)) _held[subject] = Math.Max(0, held - (_length() - before));
     }
 
     /// <summary>Write a subject's own CLOSING DISCLOSURE — the line that says how much of it did not fit. It is not
@@ -247,10 +299,11 @@ internal sealed class BoundedBody
         _stopped.Add(subject);   // nothing follows a subject's closing disclosure
     }
 
-    /// <summary>Give a subject's reserved room back UNSPENT — for the subject that turned out to have nothing to
-    /// disclose, because it rendered everything it had. Without this the room stays held against every later
-    /// subject's emission test, and the subjects after a complete histogram would pay for a sentence nobody
-    /// wrote.</summary>
+    /// <summary>Give a subject's remaining reserved room back UNSPENT — for the subject that turned out to have
+    /// nothing left to say, because it rendered everything it had. Without this the room stays held against every
+    /// later subject's emission test, and the subjects after a complete histogram would pay for a sentence nobody
+    /// wrote. What the subject DID write is already in the response, and <see cref="FixedPart"/> measures it there;
+    /// what is given back here is room, and room nobody wrote is not part of anything's fixed part.</summary>
     internal void Release(SweepSubject subject) => _held.Remove(subject);
 
     /// <summary>Did this subject stop short? For the one caller that states the fact in its own words rather than
