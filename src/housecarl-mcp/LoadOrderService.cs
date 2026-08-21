@@ -2271,8 +2271,14 @@ public sealed class LoadOrderService : IDisposable
     /// verify step: a mid-run resolve/asset failure rides <see cref="DialogueValidationReport.CheckError"/>, and a
     /// not-in-order / not-a-DIAL-or-QUST input is a NAMED <see cref="DialogueValidationReport.Error"/> (Q3).</summary>
     // EPOCH: deliberately NOT stamped (PR #305 third round, named not silent) — the report is one build's answer
-    // (core pins a view) but half its verdicts come off the ASSET substrate (.fuz/.pex presence), outside the
-    // record fingerprint; the dialogue-fold wave (W3) owns an honest stamp for it.
+    // (core pins a view) but many of its verdicts come off the ASSET substrate, outside the record fingerprint.
+    // Measured on the live order (check-differential --only-epoch): one 235-topic quest took 26 verdicts by reading
+    // files through the VFS — the .pex chain behind each result script — and a voiced, start-game-enabled quest adds
+    // the .fuz checks and the .seq lint, whose staleness verdict is a FILE MTIME comparison no record fingerprint
+    // expresses at all. This comment used to name the dialogue-fold wave (W3) as the owner of an honest stamp; W3
+    // has landed without one, because an honest stamp means deciding what an epoch MEANS across two substrates,
+    // which is design work rather than a fold. That decision is issue #396. Until it lands, no stamp: a record
+    // fingerprint here would claim freshness for verdicts it does not describe.
     public DialogueValidationReport ValidateDialogue(FormKey fk) => DialogueValidate.Run(Resolver, Assets, fk);
 
     /// <summary>The merged <c>check</c> surface's DIALOGUE family: <see cref="ValidateDialogue"/> over a seed list,
