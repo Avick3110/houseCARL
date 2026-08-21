@@ -1236,8 +1236,6 @@ static class JsonWire
     public static string RenderCheckErrors(ErrorCheckResult r, int maxChars, int histogramLimit = 1000)
     {
         int cap = Cap(maxChars);
-        bool didDangling = r.Classes.HasFlag(ErrorFindingClass.Dangling);
-        bool didMasters = r.Classes.HasFlag(ErrorFindingClass.MissingMasters);
         var acct = new CheckAccounting(r, cap);
         int reserve = acct.JsonReserve;
         int budget = acct.BodyBudget(reserve);
@@ -1251,104 +1249,16 @@ static class JsonWire
             // Bare stamp only: coverage is an assertion about SWEPT inputs, and a refusal swept none (finding 2).
             if (r.Error is not null) { w.WriteString("error", r.Error); WriteNullable(w, "epoch", r.Epoch); w.WriteEndObject(); w.Flush(); return Finish(ms); }
 
-            w.WriteNumber("scanned_plugins", r.PluginsScanned);
-            WriteSweepEpoch(w, r);   // §2.1.1: the swept INDEXED build + whether it covers every swept input
-            // null (not 0) for a class nobody looked for — see the summary.
-            if (didDangling) { w.WriteNumber("dangling", r.TotalDangling); w.WriteNumber("unscannable_records", r.TotalUnscannableRecords); }
-            else { w.WriteNull("dangling"); w.WriteNull("unscannable_records"); }
-            if (didMasters) w.WriteNumber("missing_masters", r.TotalMissingMasters); else w.WriteNull("missing_masters");
-            WriteStringArray(w, "classes_checked", ClassNames(r.Classes));
-            WriteNullable(w, "filter_note", r.FilterNote);
-            WriteStringArray(w, "off_order_scanned", r.OffOrderScanned ?? Array.Empty<string>());
-            w.WriteBoolean("counts_only", r.CountsOnly);
-
-            // #344 — the baseline split as DATA (the text render's baseline line). base_masters names the set that was
-            // counted, because "baseline" is the whole claim and Mutagen's base set is not the same as the engine's
-            // force-loaded implicit set (Creation Club plugins are in the latter, not the former).
-            // base_masters_swept distinguishes "the baseline came back clean" from "no baseline was swept"; a
-            // consumer reading baseline_dangling==0 without it would draw the wrong conclusion on a scoped sweep.
-            if (didDangling)
-            {
-                w.WriteNumber("baseline_dangling", r.BaselineDangling);
-                w.WriteNumber("non_baseline_dangling", r.TotalDangling - r.BaselineDangling);
-            }
-            else { w.WriteNull("baseline_dangling"); w.WriteNull("non_baseline_dangling"); }
-            // base_masters_swept = the ones this sweep actually opened (empty = none); base_masters = what houseCARL
-            // counts as baseline at all. Both, deliberately: the first is a fact about THIS sweep, the second a
-            // definition a consumer needs in order to know that Creation Club plugins are not in it. The definition
-            // is written even when the walk did not run, because it is true either way.
-            WriteStringArray(w, "base_masters_swept", r.BaseMastersSwept ?? Array.Empty<string>());
-            WriteStringArray(w, "base_masters", HousecarlCore.ErrorCheck.BaseMasters);
+            WriteErrorsHead(w, r);
             // EVERYTHING A CAP CAN REFUSE GOES THROUGH `body`, including the excluded roster, which used to be
             // written up in the header where no budget could reach it — 1,188 chars past the budget on three
             // 400-character parse reasons, while the TEXT lane bounded the same roster. The fourth instance of one
             // class, which is why the bound now lives in one helper rather than at each write site.
             var body = new BoundedBody(acct, budget, () => Size(w, ms));
 
-            if (r.CountsOnly)
-            {
-                // Both axes handed over together, so both frames are reserved before either writes — the json twin
-                // of the text lane's two-pass reserve, for the same reason (#392).
-                WriteHistograms(w, body, histogramLimit,
-                    ("dangling_by_target_plugin", SweepSubject.HistogramByTarget, r.Histogram),
-                    ("dangling_by_source_plugin", SweepSubject.HistogramBySource, r.DanglingBySource));   // #344 — the new axis
-                WriteUnreadPlugins(w, r.Reports, body);
-            }
-            else
-            {
-                w.WriteStartArray("plugins");
-                foreach (var p in r.Reports)
-                {
-                    // A SECTION IS WHOLE OR ABSENT HERE TOO, and the cost is MEASURED rather than assumed small. The
-                    // plugin object's fixed part carries a scan-error string and up to three unscannable-record
-                    // exception messages, all unbounded — tested with a bare `Size(w, ms) >= budget` before writing
-                    // it, a two-report fixture whose second plugin carried three ~950-char samples returned 7,296
-                    // chars against a 5,270 cap, silently. The text lane composes its fixed part and measures it;
-                    // this is the same rule, and a Utf8JsonWriter can only be measured by writing, so it is written
-                    // once into a scratch buffer at the same nesting depth.
-                    // The plugin object's fixed part carries a scan-error string and up to three unscannable-record
-                    // exception messages, all unbounded, so it is one of the two units whose cost is MEASURED rather
-                    // than left to the post-check: a two-report fixture whose second plugin carried three ~950-char
-                    // samples returned 7,296 chars against a 5,270 cap, silently.
-                    bool opened = body.Emit(SweepSubject.PluginSections, PluginHeadCost(p), () =>
-                    {
-                        w.WriteStartObject();
-                        w.WriteString("plugin", p.Plugin);
-                        WriteNullable(w, "scan_error", p.ScanError);
-                        WriteStringArray(w, "missing_masters", p.MissingMasters);
-                        // The unscannable fields sit before the dangling array so that once the ENTRY loop breaks
-                        // mid-plugin, all that follows is three fixed closing brackets.
-                        w.WriteNumber("unscannable_records", p.UnscannableRecords);
-                        WriteStringArray(w, "unscannable_samples", p.UnscannableSamples);
-                        w.WriteStartArray("dangling");
-                    });
-                    if (!opened) break;
-                    foreach (var d in p.Dangling)
-                    {
-                        // Per ENTRY: one plugin's array can be thousands of rows, and a check taken only at the
-                        // plugin boundary lets all of them out at once (#361, measured at 2.5x the cap). An entry
-                        // is small and uniform, so it carries no measured cost — the emitter's post-check is what
-                        // stops the loop, and JsonGlue is the reserve sized to absorb the one entry that crosses.
-                        if (!body.Emit(SweepSubject.DanglingEntries, 0, () =>
-                        {
-                            w.WriteStartObject();
-                            w.WriteString("source", d.Source.ToString());
-                            w.WriteString("source_type", d.SourceType);
-                            WriteNullable(w, "source_editorid", d.SourceEditorId);
-                            w.WriteString("target", d.Target.ToString());
-                            w.WriteEndObject();
-                        }, p.Plugin)) break;
-                    }
-                    // The section's own closing brackets are what PluginHeadCost already paid for. Counted where its
-                    // content landed, exactly as the text lane counts it: its ENTRIES are accounted separately, so a
-                    // section whose entry loop stopped on the budget is a rendered section carrying fewer entries,
-                    // not a partly-rendered one.
-                    w.WriteEndArray();
-                    w.WriteEndObject();
-                }
-                w.WriteEndArray();
-            }
-
+            WriteErrorsSection(w, r, body, histogramLimit);
+            // The excluded roster is a SCOPE fact — the plugins the INDEX could not parse — so it is written once
+            // per RESPONSE rather than per family, and exactly one accounting declares its rows.
             WriteExcluded(w, r.ExcludedPlugins, body);
 
             // §2.1's required in-band accounting rides the accounting's own writer — everything the close emits is
@@ -1375,6 +1285,113 @@ static class JsonWire
             w.WriteEndObject();
         }
         return Finish(ms);
+    }
+
+    /// <summary>The errors family's own head members, written into whatever object is open. Everything above the
+    /// first thing a budget can refuse; the response's own title/scanned framing is the caller's, because the
+    /// merged surface writes these into a per-family object where the single-family tool writes them flat.</summary>
+    static void WriteErrorsHead(Utf8JsonWriter w, ErrorCheckResult r)
+    {
+        bool didDangling = r.Classes.HasFlag(ErrorFindingClass.Dangling);
+        bool didMasters = r.Classes.HasFlag(ErrorFindingClass.MissingMasters);
+        w.WriteNumber("scanned_plugins", r.PluginsScanned);
+        WriteSweepEpoch(w, r);   // §2.1.1: the swept INDEXED build + whether it covers every swept input
+        // null (not 0) for a class nobody looked for — see the summary.
+        if (didDangling) { w.WriteNumber("dangling", r.TotalDangling); w.WriteNumber("unscannable_records", r.TotalUnscannableRecords); }
+        else { w.WriteNull("dangling"); w.WriteNull("unscannable_records"); }
+        if (didMasters) w.WriteNumber("missing_masters", r.TotalMissingMasters); else w.WriteNull("missing_masters");
+        WriteStringArray(w, "classes_checked", ClassNames(r.Classes));
+        WriteNullable(w, "filter_note", r.FilterNote);
+        WriteStringArray(w, "off_order_scanned", r.OffOrderScanned ?? Array.Empty<string>());
+        w.WriteBoolean("counts_only", r.CountsOnly);
+
+        // #344 — the baseline split as DATA (the text render's baseline line). base_masters names the set that was
+        // counted, because "baseline" is the whole claim and Mutagen's base set is not the same as the engine's
+        // force-loaded implicit set (Creation Club plugins are in the latter, not the former).
+        // base_masters_swept distinguishes "the baseline came back clean" from "no baseline was swept"; a
+        // consumer reading baseline_dangling==0 without it would draw the wrong conclusion on a scoped sweep.
+        if (didDangling)
+        {
+            w.WriteNumber("baseline_dangling", r.BaselineDangling);
+            w.WriteNumber("non_baseline_dangling", r.TotalDangling - r.BaselineDangling);
+        }
+        else { w.WriteNull("baseline_dangling"); w.WriteNull("non_baseline_dangling"); }
+        // base_masters_swept = the ones this sweep actually opened (empty = none); base_masters = what houseCARL
+        // counts as baseline at all. Both, deliberately: the first is a fact about THIS sweep, the second a
+        // definition a consumer needs in order to know that Creation Club plugins are not in it. The definition
+        // is written even when the walk did not run, because it is true either way.
+        WriteStringArray(w, "base_masters_swept", r.BaseMastersSwept ?? Array.Empty<string>());
+        WriteStringArray(w, "base_masters", HousecarlCore.ErrorCheck.BaseMasters);
+    }
+
+    /// <summary>The errors family's BODY — everything a cap can refuse. It writes no excluded roster, no accounting
+    /// and no boundary: those are the RESPONSE's, and a section writer that emitted them could not be called twice
+    /// in one document.</summary>
+    static void WriteErrorsSection(Utf8JsonWriter w, ErrorCheckResult r, BoundedBody body, int histogramLimit)
+    {
+        if (r.CountsOnly)
+        {
+            // Both axes handed over together, so both frames are reserved before either writes — the json twin
+            // of the text lane's two-pass reserve, for the same reason (#392).
+            WriteHistograms(w, body, histogramLimit,
+                ("dangling_by_target_plugin", SweepSubject.HistogramByTarget, r.Histogram),
+                ("dangling_by_source_plugin", SweepSubject.HistogramBySource, r.DanglingBySource));   // #344 — the new axis
+            WriteUnreadPlugins(w, r.Reports, body);
+        }
+        else
+        {
+            w.WriteStartArray("plugins");
+            foreach (var p in r.Reports)
+            {
+                // A SECTION IS WHOLE OR ABSENT HERE TOO, and the cost is MEASURED rather than assumed small. The
+                // plugin object's fixed part carries a scan-error string and up to three unscannable-record
+                // exception messages, all unbounded — tested with a bare `Size(w, ms) >= budget` before writing
+                // it, a two-report fixture whose second plugin carried three ~950-char samples returned 7,296
+                // chars against a 5,270 cap, silently. The text lane composes its fixed part and measures it;
+                // this is the same rule, and a Utf8JsonWriter can only be measured by writing, so it is written
+                // once into a scratch buffer at the same nesting depth.
+                // The plugin object's fixed part carries a scan-error string and up to three unscannable-record
+                // exception messages, all unbounded, so it is one of the two units whose cost is MEASURED rather
+                // than left to the post-check: a two-report fixture whose second plugin carried three ~950-char
+                // samples returned 7,296 chars against a 5,270 cap, silently.
+                bool opened = body.Emit(SweepSubject.PluginSections, PluginHeadCost(p), () =>
+                {
+                    w.WriteStartObject();
+                    w.WriteString("plugin", p.Plugin);
+                    WriteNullable(w, "scan_error", p.ScanError);
+                    WriteStringArray(w, "missing_masters", p.MissingMasters);
+                    // The unscannable fields sit before the dangling array so that once the ENTRY loop breaks
+                    // mid-plugin, all that follows is three fixed closing brackets.
+                    w.WriteNumber("unscannable_records", p.UnscannableRecords);
+                    WriteStringArray(w, "unscannable_samples", p.UnscannableSamples);
+                    w.WriteStartArray("dangling");
+                });
+                if (!opened) break;
+                foreach (var d in p.Dangling)
+                {
+                    // Per ENTRY: one plugin's array can be thousands of rows, and a check taken only at the
+                    // plugin boundary lets all of them out at once (#361, measured at 2.5x the cap). An entry
+                    // is small and uniform, so it carries no measured cost — the emitter's post-check is what
+                    // stops the loop, and JsonGlue is the reserve sized to absorb the one entry that crosses.
+                    if (!body.Emit(SweepSubject.DanglingEntries, 0, () =>
+                    {
+                        w.WriteStartObject();
+                        w.WriteString("source", d.Source.ToString());
+                        w.WriteString("source_type", d.SourceType);
+                        WriteNullable(w, "source_editorid", d.SourceEditorId);
+                        w.WriteString("target", d.Target.ToString());
+                        w.WriteEndObject();
+                    }, p.Plugin)) break;
+                }
+                // The section's own closing brackets are what PluginHeadCost already paid for. Counted where its
+                // content landed, exactly as the text lane counts it: its ENTRIES are accounted separately, so a
+                // section whose entry loop stopped on the budget is a rendered section carrying fewer entries,
+                // not a partly-rendered one.
+                w.WriteEndArray();
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+        }
     }
 
     /// <summary>What a plugin object's FIXED part costs, encoded exactly as the response will encode it — same
