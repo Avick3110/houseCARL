@@ -23,6 +23,38 @@ internal static class DialogueSweepRender
 {
     // ---- text ---------------------------------------------------------------------------------------
 
+    // ---- the UNITS, composed once and read by both the demand pass and the write --------------------
+    //
+    // The allocation water-fills over MEASURED demand (BodyAllocation), so a subject's demand is the cumulative
+    // width of its ACTUAL units. Measuring that from a second spelling of a composer would be a number free to
+    // drift from what is written; these exist so there is one spelling, and ALLOCATION-EQUALS-SPEND is the arm
+    // that says so.
+
+    /// <summary>ONE seed's head — its identity line plus the findings that belong to the seed record rather than
+    /// to any topic (the quest-level CK parity and the SEQ lint).</summary>
+    internal static string ComposeSeedUnit(DialogueSeedResult seed)
+    {
+        var report = seed.Report!;
+        return string.Format(ReadSentences.DialogueSeedHead, seed.Seed, KindLabel(report.InputKind),
+                             Edid(report.InputEditorId), report.InputWinnerPlugin ?? "<unknown>",
+                             report.Topics.Count)
+             + ComposeSeedBody(report);
+    }
+
+    /// <summary>ONE topic block. Composed WHOLE and emitted whole: the block is one finding set, and a per-line
+    /// "append if it fits" drops findings with no subject accounting for the loss.</summary>
+    internal static string ComposeTopicBlock(TopicValidation t)
+    {
+        // int.MaxValue because the cap that decides is the emitter's, never this composer's own inline test.
+        var one = new StringBuilder();
+        DialogueWire.AppendTopic(one, t, indent: true, int.MaxValue, includeInfoOrder: false);
+        return one.ToString();
+    }
+
+    /// <summary>ONE unreachable-seed row.</summary>
+    internal static string ComposeRefusalRow(DialogueSeedResult seed)
+        => string.Format(ReadSentences.DialogueSeedRefused, seed.Seed, seed.Refusal);
+
     /// <summary>The family's head: what a budget may never refuse. The scope note, the counts, and — where the
     /// family refused outright — the refusal, which IS the section.</summary>
     internal static void AppendHead(StringBuilder sb, CheckSweep s)
@@ -50,10 +82,7 @@ internal static class DialogueSweepRender
             {
                 var seed = resolved[i];
                 var report = seed.Report!;
-                string head = string.Format(ReadSentences.DialogueSeedHead, seed.Seed, KindLabel(report.InputKind),
-                                            Edid(report.InputEditorId), report.InputWinnerPlugin ?? "<unknown>",
-                                            report.Topics.Count)
-                            + ComposeSeedBody(report);
+                string head = ComposeSeedUnit(seed);
                 if (!body.Emit(SweepSubject.DialogueSeeds, head.Length, () => sb.Append(head))) break;
                 // The LAST seed head is written, so this subject has nothing further to say and its unspent share
                 // belongs to the topic blocks. Told rather than assumed: a subject's ceiling is fixed on its FIRST
@@ -66,12 +95,7 @@ internal static class DialogueSweepRender
                 bool stopped = false;
                 foreach (var t in report.Topics)
                 {
-                    var one = new StringBuilder();
-                    // Composed WHOLE, then emitted whole: the block is one finding set, and a per-line "append if it
-                    // fits" drops findings with no subject accounting for the loss. int.MaxValue because the cap
-                    // that decides is the emitter's, never this composer's own inline test.
-                    DialogueWire.AppendTopic(one, t, indent: true, int.MaxValue, includeInfoOrder: false);
-                    string block = one.ToString();
+                    string block = ComposeTopicBlock(t);
                     if (!body.Emit(SweepSubject.DialogueTopics, block.Length, () => sb.Append(block))) { stopped = true; break; }
                 }
                 if (stopped) break;
@@ -82,7 +106,7 @@ internal static class DialogueSweepRender
         // counts_only does not silence them either.
         foreach (var seed in r.Unresolved)
         {
-            string row = string.Format(ReadSentences.DialogueSeedRefused, seed.Seed, seed.Refusal);
+            string row = ComposeRefusalRow(seed);
             if (!body.Emit(SweepSubject.DialogueSeedRefusals, row.Length, () => sb.Append(row))) break;
         }
     }
@@ -279,4 +303,8 @@ internal static class DialogueSweepRender
         }
         return (int)ms.Length;
     }
+    // ---- unit costs, exposed for the DEMAND pass (see SweepDemand) ---------------------------------
+    internal static int TopicRowCostFor(TopicValidation t) => TopicRowCost(t);
+    internal static int SeedHeadCostFor(DialogueSeedResult seed) => SeedHeadCost(seed);
+    internal static int UnreachableRowCostFor(DialogueSeedResult seed) => UnreachableRowCost(seed);
 }

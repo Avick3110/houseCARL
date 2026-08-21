@@ -1535,7 +1535,11 @@ static class JsonWire
             w.WriteEndArray();
             w.WriteString("findings_scope", s.ScopeSentence());
 
-            var body = BoundedBody.ForFamilies(accts, budget, () => Size(w, ms), s.Plan());
+            // WHAT EACH SUBJECT WANTS, measured before anything is written, so the allocation can water-fill
+            // over it rather than discover shortfalls at render time (SweepDemand, BodyAllocation).
+            var demand = SweepDemand.ForJson(s, budget, histogramLimit);
+            var body = BoundedBody.ForFamilies(accts, budget, () => Size(w, ms), s.Plan(),
+                                               demand.Demand, demand.Reserved);
             w.WriteStartObject("families");
             for (int i = 0; i < sections.Count; i++)
             {
@@ -2678,5 +2682,61 @@ static class JsonWire
         if (report.Cells.Any(c => !c.Interior))
             w.WriteString("grid_occupancy_note", WriteSentences.Twins.GridOccupancy);
         w.WriteEndObject();
+    }
+    // ---- unit costs, exposed for the DEMAND pass ---------------------------------------------------
+    // The allocation water-fills over measured demand (SweepDemand), and a demand must be the SAME number the
+    // emission test declares — so the demand pass calls these rather than spelling the costs a second time.
+
+    internal static int PluginHeadCostFor(PluginErrors p) => PluginHeadCost(p);
+    internal static int ScriptRecordCostFor(RecordScriptFindings rec) => ScriptRecordCost(rec);
+    internal static int ScanErrorRowCostFor(RecordScriptFindings rec) => ScanErrorRowCost(rec);
+    /// <summary>This axis's frame cost, keyed off the SUBJECT so the demand pass and the render name the same
+    /// axis. The json lane carries its own field names for the axes; mapping by subject is what keeps the two
+    /// spellings from drifting into measuring different objects.</summary>
+    internal static int HistogramFrameCostFor(HistogramAxis a)
+        => HistogramFrameCost(AxisJsonName(a.Subject), a.Rows?.Count ?? 0);
+
+    internal static string AxisJsonName(SweepSubject s) => s switch
+    {
+        SweepSubject.HistogramByTarget => "dangling_by_target_plugin",
+        SweepSubject.HistogramBySource => "dangling_by_source_plugin",
+        SweepSubject.HistogramByProperty => "unbound_by_property",
+        _ => s.ToString(),
+    };
+
+    /// <summary>A dangling entry and a histogram row are declared to the emitter at cost 0 today — small, uniform,
+    /// and bounded by the post-check plus JsonGlue. The DEMAND pass cannot use 0: a subject whose demand reads 0
+    /// would be allocated nothing. These measure the row the writer will actually emit.</summary>
+    internal static int DanglingEntryCostFor(DanglingRef d) => MeasureRow(w =>
+    {
+        w.WriteStartObject();
+        w.WriteString("source", d.Source.ToString());
+        w.WriteString("source_type", d.SourceType);
+        WriteNullable(w, "source_editorid", d.SourceEditorId);
+        w.WriteString("target", d.Target.ToString());
+        w.WriteEndObject();
+    });
+
+    internal static int HistogramRowCostFor(SweepCount row) => MeasureRow(w =>
+    {
+        w.WriteStartObject(); w.WriteString("key", row.Key); w.WriteNumber("count", row.Count); w.WriteEndObject();
+    });
+
+    internal static int UnreadRowCostFor(PluginErrors p) => PluginHeadCost(p);
+
+    /// <summary>Measure one row under the RESPONSE's writer options — measuring unindented what is then written
+    /// indented is a number wrong by the whole indentation, which this file's own WriterOptions comment records.</summary>
+    static int MeasureRow(Action<System.Text.Json.Utf8JsonWriter> write)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new System.Text.Json.Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteStartArray("rows");
+            write(w);
+            w.WriteEndArray();
+            w.WriteEndObject();
+        }
+        return (int)ms.Length;
     }
 }

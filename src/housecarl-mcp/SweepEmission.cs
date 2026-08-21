@@ -249,7 +249,7 @@ internal sealed class BoundedBody
     readonly HashSet<SweepSubject> _stopped = new();
     readonly Dictionary<SweepSubject, int> _held = new();
     readonly IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)>? _plan;
-    BodyAllocation? _alloc;
+    readonly BodyAllocation _alloc;
 
     /// <param name="acct">the accounting to register emissions with, or null for a lane that keeps none. The
     /// single-family shape, which is every lane but the merged sweep.</param>
@@ -259,8 +259,10 @@ internal sealed class BoundedBody
     /// for a lane that divides nothing (a single-family response has no siblings to be fair to, and the global
     /// budget alone is then the whole rule). See <see cref="BodyAllocation"/>.</param>
     internal BoundedBody(CheckAccounting? acct, int budget, Func<int> length,
-                         IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)>? plan = null)
-        : this(acct is null ? Array.Empty<CheckAccounting>() : new[] { acct }, budget, length, plan) { }
+                         IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)>? plan = null,
+                         IReadOnlyDictionary<SweepSubject, int>? demand = null, int reservedForRows = 0)
+        : this(acct is null ? Array.Empty<CheckAccounting>() : new[] { acct }, budget, length, plan,
+               demand, reservedForRows) { }
 
     /// <summary>A merged response's body. A static factory rather than a second constructor: a lane passing a bare
     /// <c>null</c> accounting would otherwise be an ambiguous call, and disambiguating it with a cast at every such
@@ -271,25 +273,41 @@ internal sealed class BoundedBody
     /// with every accounting is safe by construction because <see cref="CheckAccounting.Emitted"/> ignores a subject
     /// its lane did not declare — and the one subject two families could both declare, the excluded-plugin roster,
     /// is declared by exactly one of them (it is a fact about the SCOPE, emitted once per response).</param>
+    /// <param name="demand">each planned subject's MEASURED demand (<see cref="BodyAllocation"/>). Omitted, every
+    /// planned subject is unconstrained, which is the honest reading of "nobody measured" and never allocates a
+    /// subject zero by accident.</param>
+    /// <param name="reservedForRows">what this response will hold back for fixed parts, known BEFORE the render.
+    /// The allocation divides the body budget less this, and it is passed rather than read off <see cref="Held"/>
+    /// because the reserves are taken DURING the render, one family at a time — an allocation built at the first
+    /// write divided room that families rendering later had not yet claimed.</param>
     internal static BoundedBody ForFamilies(IReadOnlyList<CheckAccounting> accts, int budget, Func<int> length,
-                                            IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)>? plan = null)
-        => new(accts, budget, length, plan);
+                                            IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)>? plan = null,
+                                            IReadOnlyDictionary<SweepSubject, int>? demand = null,
+                                            int reservedForRows = 0)
+        => new(accts, budget, length, plan, demand, reservedForRows);
 
     BoundedBody(IReadOnlyList<CheckAccounting> accts, int budget, Func<int> length,
-                IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)>? plan)
+                IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)>? plan,
+                IReadOnlyDictionary<SweepSubject, int>? demand, int reservedForRows)
     {
         _accts = accts;
         _budget = budget;
         _length = length;
         _plan = plan;
+        // BUILT HERE, before anything is written. The old rule built it lazily at the first unit any subject
+        // emitted, which made it a function of render order; water-filling over measured demand is a function of
+        // the budget and the demands alone, so the only correct moment to build it is before the render.
+        _alloc = new BodyAllocation(budget - reservedForRows,
+                                    plan ?? Array.Empty<(SweepFamily, IReadOnlyList<SweepSubject>)>(), demand);
     }
 
-    /// <summary>The allocation, built on the FIRST unit any subject emits — which is the only moment it can be
-    /// built correctly. Every <see cref="Reserve"/> has happened by then (the class already requires reserving
-    /// before the first unit of any subject), so the room left for ROWS is the body budget less everything held,
-    /// and that is what gets divided. Built earlier it would divide room the reserves had not yet claimed;
-    /// built later it would divide what an earlier subject had already spent.</summary>
-    BodyAllocation Allocation => _alloc ??= new BodyAllocation(_budget - Spent - Held, _plan ?? Array.Empty<(SweepFamily, IReadOnlyList<SweepSubject>)>());
+    /// <summary>The allocation, built in the constructor from measured demand — see <see cref="BodyAllocation"/>
+    /// for why it cannot be built at the first write.</summary>
+    BodyAllocation Allocation => _alloc!;
+
+    /// <summary>What one subject was allocated — read by the arms, which assert against the allocation rather than
+    /// against a phrase the render printed.</summary>
+    internal int AllocationOf(SweepSubject s) => Allocation.AllocationOf(s);
 
     /// <summary>What of the response so far is charged against the BODY's budget: everything written, less what was
     /// written out of the reserve. A merged response writes a family's accounting line before the next family
