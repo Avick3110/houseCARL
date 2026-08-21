@@ -182,6 +182,15 @@ public static class SweepFindings
     public static string? Describe(ScriptFindingClass c)
         => c == ScriptFindingClass.All ? null : $"findings=[{string.Join(", ", Names(c))}]";
 
+    /// <summary>The class tokens a flag set spells, for a caller that has already PARSED a selection and has to
+    /// hand one family's classes to that family's own sweep. Round-tripping through the same parser the ancestor
+    /// tools use is what keeps there being ONE vocabulary rather than a second path that can drift — and the round
+    /// trip is pinned by an arm over every flag combination rather than assumed.</summary>
+    public static IReadOnlyList<string> Tokens(ErrorFindingClass c) => Names(c).ToList();
+
+    /// <summary>The same, for the scripts family's classes.</summary>
+    public static IReadOnlyList<string> Tokens(ScriptFindingClass c) => Names(c).ToList();
+
     static IEnumerable<string> Names(ErrorFindingClass c)
     {
         if (c.HasFlag(ErrorFindingClass.Dangling)) yield return "dangling";

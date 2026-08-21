@@ -13,6 +13,35 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **New: `housecarl_check` — one sweep, several finding families.** It merges `housecarl_check_errors` and
+  `housecarl_validate_scripts` behind one `findings=` vocabulary: whole families (`errors`, `scripts`) or the
+  classes inside them (`dangling`, `missing_masters`; `unbound_object`, `unbound_scalar`, `unbound`,
+  `bound_null`). Naming several runs each, and the response is sectioned per family with that family's own
+  totals, its own accounting and its own boundary. Both older tools stay registered and unchanged, so nothing
+  you call today moves.
+  `findings=` omitted runs the **errors family alone**, and the response states which families ran, which
+  registered families did not, and the exact `findings=` spelling that adds them. It cannot default to every
+  family: an unscoped scripts sweep took ~8.5 minutes on a 3800-plugin order.
+  `max_chars` is DIVIDED among the families that ran and their parts rather than spent in series. Spent in
+  series on that same order at the defaults, a second family inherited 400 characters of an 80,000 budget —
+  the errors listing alone came to 79,600.
+  `exclude=` now scopes **every** family, including the script sweep, which never had it. `plugins=` naming a
+  file that is on disk but not in the active load order is still swept by the errors family; the scripts
+  family has no off-order lane and the response says, in that family's own section, which files it did not
+  sweep and why.
+
+- **Fixed: `housecarl_validate_scripts` stays inside its own `max_chars`.** On a 3800-plugin order at the
+  defaults it returned 80,673 characters against its 80,000 cap and said nothing about it: the record loop
+  stopped at the cap, and then the truncation marker and the boundary footer were appended anyway. Both are
+  now held back out of `max_chars` before the listing is built, so the response ends inside its cap — the same
+  order and the same defaults now return 79,784. The response also gains the accounting `housecarl_check_errors`
+  already had: how many of the record sections the sweep found appear above, how many of the findings the
+  `limit=` budget admitted (with the true totals restated per class), and which knob moves each.
+
+- **Fixed: `housecarl_validate_scripts` with `format='json'` applies `max_chars` to its record roster.** The
+  roster was written outside the budget entirely, so a `max_chars` you passed did not bound it. Each record is
+  now measured before it is written, and the document states how many of them it carries.
+
 - **Fixed: `housecarl_check_errors` now says how many findings its answer is missing, and stays inside
   `max_chars`.** The response used to describe what it left out from two separate places, in two different
   units: the listing budget said how many refs `limit=` never listed, and a truncation notice said how many

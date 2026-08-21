@@ -75,8 +75,10 @@ public static class ScriptPropertyCheck
     public static ScriptCheckResult Run(LoadOrderResolver resolver, AssetResolver assets,
                                         IReadOnlyList<string>? scope, int limit,
                                         SweepScope? recordScope = null, string? propertyContains = null,
-                                        ScriptFindingClass classes = ScriptFindingClass.All, bool countsOnly = false)
-        => Run(resolver, resolver.Capture(), assets, scope, limit, recordScope, propertyContains, classes, countsOnly);
+                                        ScriptFindingClass classes = ScriptFindingClass.All, bool countsOnly = false,
+                                        SweepExclusion.Resolved? exclude = null, bool noneInScope = false)
+        => Run(resolver, resolver.Capture(), assets, scope, limit, recordScope, propertyContains, classes, countsOnly,
+               exclude, noneInScope);
 
     /// <summary>The view-threaded body (PR #305 re-review) — same contract as <see cref="ErrorCheck"/>'s: the
     /// caller's captured view decides membership, drives the sweep, and stamps success AND refusals, so one call
@@ -86,28 +88,26 @@ public static class ScriptPropertyCheck
     public static ScriptCheckResult Run(LoadOrderResolver resolver, LoadOrderResolver.IndexView view, AssetResolver assets,
                                         IReadOnlyList<string>? scope, int limit,
                                         SweepScope? recordScope = null, string? propertyContains = null,
-                                        ScriptFindingClass classes = ScriptFindingClass.All, bool countsOnly = false)
+                                        ScriptFindingClass classes = ScriptFindingClass.All, bool countsOnly = false,
+                                        SweepExclusion.Resolved? exclude = null, bool noneInScope = false)
     {
         var propFilter = string.IsNullOrWhiteSpace(propertyContains) ? null : propertyContains.Trim();
         bool PropOk(string name) => propFilter is null || name.Contains(propFilter, StringComparison.OrdinalIgnoreCase);
-        // ONE claim rule: the subset claim fires for a RECORD SCOPE and nothing else, because a record scope is the only
-        // narrowing here that touches every reported number. property_contains= does NOT qualify — it narrows the unbound
-        // and bound-but-null counts but leaves RecordsWithScripts (incremented before any property filtering) and
-        // TotalUnverifiable (deliberately never property-gated, so an unread .pex can't be filtered into a false clean)
-        // at their full plugin-wide values (round-3 review). Those two numbers under a blanket subset claim is the same
-        // defect as round-1 finding 3. Instead of a third bespoke claim clause, the two counts property_contains= DOES
-        // narrow now SELF-LABEL in the header — the same way an excluded findings= class self-labels "NOT CHECKED" — so
-        // every number states its own scope and one claim rule covers the sweep.
-        var filterNote = SweepFindings.FilterNote(
-            recordScope is not null ? SweepFindings.ScopedCountsClaim : null,
-            recordScope?.Label,
-            SweepFindings.Describe(classes),
-            propFilter is null ? null : $"property_contains='{propFilter}'");
+        int excludedFromScope = 0;
         var av = assets.Capture();          // ONE asset build → every .pex lookup + ReadIncomplete describe the same build
 
         // --- resolve the plugin set to scan (Q3: a bad or excluded explicit scope name fails loud, never a silent skip). ---
         List<string> targets;
-        if (scope is { Count: > 0 })
+        // NOTHING THIS FAMILY CAN SWEEP, said explicitly rather than by handing the sweep an empty list — an empty
+        // scope means "the whole order" everywhere else in this method, and a caller that reached this state must
+        // not silently get one. It is reached from the merged surface when every plugin the caller named resolved
+        // OFF-ORDER: this family has no off-order lane, so its scope is genuinely empty and its response says so
+        // (the render states which files it did not sweep, and why, in this family's own section).
+        if (noneInScope)
+        {
+            targets = new List<string>();
+        }
+        else if (scope is { Count: > 0 })
         {
             targets = new List<string>(scope.Count);
             foreach (var name in scope)
@@ -130,6 +130,51 @@ public static class ScriptPropertyCheck
             foreach (var n in resolver.PluginNames)
                 if (!view.ExcludedPlugins.ContainsKey(n)) targets.Add(n);
         }
+
+        // The exclusion axis (#344), applied to the SWEEP exactly as ErrorCheck applies it: a plugin the caller
+        // excluded costs no record walk, no .pex chain read and no finding budget. SPEC §2.2's 2026-08-20 amendment
+        // is why this family has it at all — exclude= is about plugin SCOPE, which every findings family shares, so
+        // the merged surface inherits it unchanged and it now scopes this family too.
+        // Skipped where the scope is already empty by construction: "exclude= removed every plugin" would be a
+        // refusal about a narrowing that did nothing, over a scope the caller can only widen somewhere else.
+        if (exclude is not null && !noneInScope)
+        {
+            var drop = new HashSet<string>(exclude.Names, StringComparer.OrdinalIgnoreCase);
+            // Only the names the CALLER TYPED are held against the scope: a typed name that matches nothing is a
+            // typo and refuses; a GROUP member that is not here is the ordinary case.
+            var inScope = new HashSet<string>(targets, StringComparer.OrdinalIgnoreCase);
+            foreach (var name in exclude.TypedNames)
+                if (!inScope.Contains(name))
+                    return ScriptCheckResult.Fail(
+                        $"exclude= names '{name}', which is not in the scope this sweep would cover.{view.AbsenceClause(name)} " +
+                        "Nothing was swept — an exclusion that matches nothing would return the findings you asked to leave out.")
+                           with { Epoch = view.Epoch };
+            int before = targets.Count;
+            targets.RemoveAll(drop.Contains);
+            excludedFromScope = before - targets.Count;
+            if (targets.Count == 0)
+                return ScriptCheckResult.Fail(
+                    $"exclude= removed every plugin this sweep would have covered ({before} in scope, all excluded) — " +
+                    "there is nothing left to check. Narrow exclude=, or widen plugins=.")
+                       with { Epoch = view.Epoch };
+        }
+
+        // ONE claim rule: the subset claim fires for a RECORD SCOPE and nothing else, because a record scope is the only
+        // narrowing here that touches every reported number. property_contains= does NOT qualify — it narrows the unbound
+        // and bound-but-null counts but leaves RecordsWithScripts (incremented before any property filtering) and
+        // TotalUnverifiable (deliberately never property-gated, so an unread .pex can't be filtered into a false clean)
+        // at their full plugin-wide values (round-3 review). Those two numbers under a blanket subset claim is the same
+        // defect as round-1 finding 3. Instead of a third bespoke claim clause, the two counts property_contains= DOES
+        // narrow now SELF-LABEL in the header — the same way an excluded findings= class self-labels "NOT CHECKED" — so
+        // every number states its own scope and one claim rule covers the sweep.
+        var filterNote = SweepFindings.FilterNote(
+            recordScope is not null ? SweepFindings.ScopedCountsClaim : null,
+            recordScope?.Label,
+            SweepFindings.Describe(classes),
+            propFilter is null ? null : $"property_contains='{propFilter}'",
+            // Stated whenever the caller PASSED an exclusion, zero included: an exclude= that leaves no trace reads
+            // as one that was ignored.
+            exclude is not null ? $"exclude= left out {excludedFromScope} plugin(s)" : null);
 
         // A per-sweep .pex property-set cache: many records attach the SAME script class (SPID-distributed abilities,
         // a mod's shared controller), so the chain read is resolved ONCE per class, not once per record.

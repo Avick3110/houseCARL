@@ -303,6 +303,15 @@ internal static class AliasTable
          "absorbed into housecarl_create: records= is unchanged in shape except operations= is ops= (verb= is op=), and it also accepts \"@<absolute path>\". The nested one-shot is unchanged: declare a parent BEFORE the children whose parent= names its editorid, and '@editorid' still references a same-call sibling. patch_name= is patch=, full_readback= is readback=, target=+in_place=true is in_place=\"X.esp\"."),
         ("housecarl_remove_record",
          "absorbed into housecarl_remove: formids= is SET-VALUED — drop many records in one re-serialize (one is a set of one). The houseCARL-patch lane is into=\"MyPatch.esp\" (removal edits an artifact that EXISTS; patch= names a NEW one everywhere else on the surface), and the target=+in_place=true pair is in_place=\"X.esp\"."),
+        // 4b — the derived-findings sweep. Both ancestors stay REGISTERED through the build waves (the W2/W3
+        // precedent), so these rows are dormant by construction: a registered name resolves and never reaches the
+        // retired-name check. They activate at the 2.0.0 clean cut, and nothing in a response mentions them until
+        // then — no deprecation prose, in either tool.
+        ("housecarl_check_errors",
+         "absorbed into housecarl_check: the same sweep is findings=[\"errors\"], which is also the DEFAULT when findings= is omitted. type=/formids=/editorid_contains=/exclude=/counts_only=/limit=/max_chars=/format= are unchanged; the response is sectioned per family and states which families it did not run."),
+        ("housecarl_validate_scripts",
+         "absorbed into housecarl_check: findings=[\"scripts\"] (or a class inside it — 'unbound_object', 'unbound_scalar', 'unbound', 'bound_null'). property_contains= and the record scope are unchanged, exclude= now scopes this family too, and the record listing is under the max_chars bound it was not under before."),
+
         ("housecarl_forward_record",
          "absorbed into housecarl_forward: from_plugin= is source= (an ACTIVE plugin — whose version to copy). patch_name= is patch=, full_readback= is readback=, and the target=+in_place=true pair is in_place=\"X.esp\". formids=, dry_run= and the into= replace-on-collision semantics are unchanged."),
     };
