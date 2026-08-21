@@ -82,7 +82,15 @@ internal sealed record CheckSweep(
     /// family has none and that is its answer rather than an omission: the roster is which plugins the INDEX could
     /// not parse, and a seeded validation produces no such list — what IT could not reach is a SEED, a different
     /// fact about a different thing, stated in its own section (<c>DialogueScopeNote</c> and the unreachable-seed
-    /// rows) rather than merged into a roster about plugins.</summary>
+    /// rows) rather than merged into a roster about plugins.
+    ///
+    /// <para><b>Which half of that an arm can see, said rather than left to be discovered.</b> The OWNERSHIP half is
+    /// unobservable through a multi-family response: <see cref="RosterOwner"/> takes the first section holding a
+    /// roster, and the errors family is always ahead of this one in <see cref="SweepFamilySelection.Registered"/>,
+    /// so sabotaging this arm to hand back a sibling's roster changes nothing the render prints. What IS observable
+    /// is a DIALOGUE-ONLY response, where a non-null answer here would put an unparseable-plugin roster under a
+    /// family that never looked at one — and ROSTER-STILL-ONE-WITH-THREE-FAMILIES asks that question too, which is
+    /// what makes the arm worth its name rather than a claim that happens to hold.</para></summary>
     IReadOnlyDictionary<string, string>? Roster(SweepFamily f) => f switch
     {
         SweepFamily.Errors => Errors?.ExcludedPlugins,

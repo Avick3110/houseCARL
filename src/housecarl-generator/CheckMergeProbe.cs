@@ -502,10 +502,18 @@ public static class CheckMergeProbe
             boundaryMissing.Count == 0, $"absent at caps: {string.Join(", ", boundaryMissing)}");
 
         // ---- ROSTER-STILL-ONE-WITH-THREE -----------------------------------------------------------
-        Check("ROSTER-STILL-ONE-WITH-THREE-FAMILIES: the dialogue family declares no excluded-plugin roster, so the roster stays owned by exactly one accounting however many families run",
+        // The claim has two halves and only one of them is observable through a three-family response: with the
+        // errors family first and holding a roster, it owns the roster whatever the dialogue family answers. What
+        // IS observable is the dialogue-ONLY response — this family reports no unparseable-plugin roster at all,
+        // because a seeded validation does not produce one — so the arm asks THAT question, where a wrong answer
+        // shows up, as well as the ownership one.
+        Check("ROSTER-STILL-ONE-WITH-THREE-FAMILIES: the dialogue family reports no excluded-plugin roster of its own, so the roster stays owned by exactly one accounting however many families run",
             all.RosterOwner != SweepFamily.Dialogue
-            && Count(allText, ReadSentences.SweepRosterLead) <= 1,
-            $"owner={all.RosterOwner} rosterLeads={Count(allText, ReadSentences.SweepRosterLead)}");
+            && Count(allText, ReadSentences.SweepRosterLead) <= 1
+            && dlgOnly.RosterOwner is null
+            && dlgOnly.ExcludedPlugins.Count == 0,
+            $"owner={all.RosterOwner} rosterLeads={Count(allText, ReadSentences.SweepRosterLead)} "
+          + $"dialogueOnlyOwner={dlgOnly.RosterOwner?.ToString() ?? "none"} dialogueOnlyRows={dlgOnly.ExcludedPlugins.Count}");
 
         // ---- CAP-LADDER ----------------------------------------------------------------------------
         Check("CAP-LADDER: at every integer cap from 1 to 12000 (and one far above) neither transport returns more than it was given, bar the floor, and the json parses",
