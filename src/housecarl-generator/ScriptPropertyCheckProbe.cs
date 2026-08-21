@@ -549,6 +549,47 @@ public static class ScriptPropertyCheckProbe
             partialBad.Count == 0,
             partialBad.Count == 0 ? "both lanes state total minus the rows they emitted" : string.Join("; ", partialBad));
 
+        // ---- THE CAP ITSELF (§2.4). ------------------------------------------------------------------
+        // Measured on the live ARR 2.0 order at plain defaults, this lane returned 80,673 characters against its own
+        // 80,000 cap and said nothing about it: the record loop stopped AT the cap, and then the truncation marker
+        // and the boundary footer were appended after the test. Both are inside the reserve now, so the overrun
+        // closes by construction — and this is what holds it, at every integer cap rather than at the one the live
+        // order happens to hit.
+        //
+        // THE FLOOR IS THE EXPECTED VALUE, and it is a property of the FIXTURE: render at a cap no body can fit
+        // under and measure. Every response is then held to max(cap, floor + slack), so a single emitted body unit
+        // puts an over-cap response past the floor and the arm goes red. Excusing an overrun because the response
+        // contains a phrase about being over is the tautology check-errors-guard shipped for two review rounds.
+        var capBad = new List<string>();
+        var capFixture = res with
+        {
+            ExcludedPlugins = Enumerable.Range(0, 3).ToDictionary(i => $"HcSpBroken{i}.esp", i => new string('r', 300)),
+        };
+        foreach (var fixture in new[] { res, counts, capFixture })
+        {
+            int textFloor = Wire.RenderScriptCheck(fixture, 1).Length;
+            int jsonFloor = JsonWire.RenderScriptCheck(fixture, 1).Length;
+            foreach (int cap in Enumerable.Range(1, 12000).Append(40000))
+            {
+                var t = Wire.RenderScriptCheck(fixture, cap);
+                var j = JsonWire.RenderScriptCheck(fixture, cap);
+                // max_chars is printed inside the accounting's own clauses and inside the overrun notice, so the
+                // floor grows with the cap's digit width — bounded by that, not by a round number.
+                int slack = 4 * cap.ToString().Length;
+                if (t.Length > Math.Max(cap, textFloor + slack))
+                    capBad.Add($"text@{cap}={t.Length} over the allowed {Math.Max(cap, textFloor + slack)} (floor {textFloor})");
+                if (j.Length > Math.Max(cap, jsonFloor + slack))
+                    capBad.Add($"json@{cap}={j.Length} over the allowed {Math.Max(cap, jsonFloor + slack)} (floor {jsonFloor})");
+                try { JsonDocument.Parse(j); }
+                catch (Exception ex) { capBad.Add($"json@{cap} is not valid json: {ex.GetType().Name}"); }
+                if (capBad.Count > 8) break;
+            }
+            if (capBad.Count > 8) break;
+        }
+        Check("RESPONSE-NEVER-EXCEEDS-MAX-CHARS (§2.4): at every integer cap from 1 to 12000, in three lanes and both transports, the response is inside the cap or inside the fixture's own irreducible floor — the marker and the boundary footer used to be appended AFTER the cap test, which is how this lane returned 80,673 chars against 80,000 on a real order",
+            capBad.Count == 0,
+            capBad.Count == 0 ? "every cap honoured, or bounded by the floor" : string.Join("; ", capBad.Take(4)));
+
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "script-property-check-guard: ALL PASS" : $"script-property-check-guard: {failures} FAILURE(S)");
         return failures == 0 ? 0 : 1;
