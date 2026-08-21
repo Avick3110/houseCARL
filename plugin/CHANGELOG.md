@@ -13,22 +13,35 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
-- **New: `housecarl_check` — one sweep, several finding families.** It merges `housecarl_check_errors` and
-  `housecarl_validate_scripts` behind one `findings=` vocabulary: whole families (`errors`, `scripts`) or the
-  classes inside them (`dangling`, `missing_masters`; `unbound_object`, `unbound_scalar`, `unbound`,
-  `bound_null`). Naming several runs each, and the response is sectioned per family with that family's own
-  totals, its own accounting and its own boundary. Both older tools stay registered and unchanged, so nothing
-  you call today moves.
+- **New: `housecarl_check` — one sweep, several finding families.** It merges `housecarl_check_errors`,
+  `housecarl_validate_scripts` and `housecarl_validate_dialogue`'s findings behind one `findings=` vocabulary:
+  whole families (`errors`, `scripts`, `dialogue`) or the classes inside them (`dangling`, `missing_masters`;
+  `unbound_object`, `unbound_scalar`, `unbound`, `bound_null`). Naming several runs each, and the response is
+  sectioned per family with that family's own totals, its own accounting and its own boundary. All three older
+  tools stay registered and unchanged, so nothing you call today moves.
   `findings=` omitted runs the **errors family alone**, and the response states which families ran, which
   registered families did not, and the exact `findings=` spelling that adds them. It cannot default to every
   family: an unscoped scripts sweep took ~8.5 minutes on a 3800-plugin order.
   `max_chars` is DIVIDED among the families that ran and their parts rather than spent in series. Spent in
   series on that same order at the defaults, a second family inherited 400 characters of an 80,000 budget —
   the errors listing alone came to 79,600.
-  `exclude=` now scopes **every** family, including the script sweep, which never had it. `plugins=` naming a
+  `exclude=` now scopes every SWEPT family, including the script sweep, which never had it. `plugins=` naming a
   file that is on disk but not in the active load order is still swept by the errors family; the scripts
   family has no off-order lane and the response says, in that family's own section, which files it did not
   sweep and why.
+
+- **New: `findings=['dialogue']` validates the dialogue graph over topics and quests you NAME.** It carries
+  `housecarl_validate_dialogue`'s findings — quest and branch wiring, LinkTo and previous-link targets, silent
+  voiced lines, result scripts that will not fire, malformed conditions, CK-parity subrecords, and a
+  start-game-enabled quest's `.seq` coverage. `seeds=` takes a DIAL (one topic), a QUST (every topic that quest
+  owns), or a DLVW/DLBR (a record-level CK-parity check), and `limit=` caps how many seeds one call expands.
+  This family is **seeded, not swept**: `plugins=`, `type=`, `formids=`, `editorid_contains=` and `exclude=`
+  scope the other two and do not narrow it, the response says so in its own section, and a seed must resolve in
+  the active load order. `findings=['dialogue']` with no `seeds=` is **refused** rather than widened to the
+  whole order, and the refusal states the bound it was measured against and spells the call that works. A seed
+  that resolves to nothing is named with the reason, under `counts_only=true` as well.
+  The effective merged INFO order — which line the game reaches first — is **not** here; the family's boundary
+  says where it lives. `housecarl_validate_dialogue` stays registered and unchanged.
 
 - **Fixed: `housecarl_validate_scripts` stays inside its own `max_chars`.** On a 3800-plugin order at the
   defaults it returned 80,673 characters against its 80,000 cap and said nothing about it: the record loop
