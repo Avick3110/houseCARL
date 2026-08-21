@@ -1505,6 +1505,12 @@ static class JsonWire
     public static string RenderScriptCheck(ScriptCheckResult r, int maxChars, int histogramLimit = 1000)
     {
         int cap = Cap(maxChars);
+        // The same accounting the text lane states in prose, so the two transports cannot disagree about what this
+        // response is missing. It is also what brings the record roster under the max_chars bound — it was not
+        // before (PR #391's stated LOW-1 residual): the loop tested `ms.Length >= cap` before each record and the
+        // roster's own `rendered`/`truncated` were written past that test.
+        var acct = new CheckAccounting(r, cap);
+        int budget = acct.BodyBudget(acct.JsonReserve);
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -1512,112 +1518,171 @@ static class JsonWire
             // w.Flush() before Finish — same latent empty-refusal bug as RenderCheckErrors' early return (see there).
             if (r.Error is not null) { w.WriteString("error", r.Error); WriteNullable(w, "epoch", r.Epoch); w.WriteEndObject(); w.Flush(); return Finish(ms); }
 
-            bool didObject = r.Classes.HasFlag(ScriptFindingClass.UnboundObject);
-            bool didScalar = r.Classes.HasFlag(ScriptFindingClass.UnboundScalar);
-            bool didNull = r.Classes.HasFlag(ScriptFindingClass.BoundNull);
+            WriteScriptsHead(w, r);
+            var body = new BoundedBody(acct, budget, () => Size(w, ms));
+            WriteScriptsSection(w, r, body, histogramLimit);
+            // The excluded roster is a SCOPE fact, written once per response and bounded like everything else.
+            WriteExcluded(w, r.ExcludedPlugins, body);
 
-            w.WriteNumber("scanned_plugins", r.PluginsScanned);
-            WriteNullable(w, "epoch", r.Epoch);   // §2.1.1: the swept build
-            w.WriteNumber("records_with_scripts", r.RecordsWithScripts);
-            // null, NOT 0, for a class the caller excluded — a 0 here is parsed as "looked, found none" about a class
-            // nobody looked for (PR #288 review, finding 1). The per-class keys make each number's scope self-evident
-            // rather than something the consumer has to cross-reference against classes_checked.
-            if (didObject || didScalar) w.WriteNumber("unbound", r.TotalUnbound); else w.WriteNull("unbound");
-            if (didObject) w.WriteNumber("unbound_object", r.TotalUnboundObject); else w.WriteNull("unbound_object");
-            if (didScalar) w.WriteNumber("unbound_scalar", r.TotalUnboundScalar); else w.WriteNull("unbound_scalar");
-            if (didNull) w.WriteNumber("bound_but_null", r.TotalNullObject); else w.WriteNull("bound_but_null");
-            w.WriteNumber("unverifiable", r.TotalUnverifiable);   // never filterable — always a real count
-            WriteStringArray(w, "classes_checked", ScriptClassNames(r.Classes));
-            // The property filter rides as DATA, not just prose in filter_note: `unbound` / `bound_but_null` count only
-            // matching findings, while `records_with_scripts` and `unverifiable` are plugin-wide regardless of it — a
-            // consumer needs to be able to read that asymmetry off the document (round-3 review).
-            WriteNullable(w, "property_contains", r.PropertyContains);
-            WriteNullable(w, "filter_note", r.FilterNote);
-            w.WriteBoolean("read_incomplete", r.ReadIncomplete);
-            WriteExcluded(w, r.ExcludedPlugins);
-            w.WriteBoolean("counts_only", r.CountsOnly);
-
-            if (r.CountsOnly)
+            acct.WriteJson(w);
+            w.WriteString("boundary", ReadSentences.SweepScriptBoundary);
+            int closed = Size(w, ms) + Framing.RootClose;
+            int needed = body.FixedPart(closed);
+            if (acct.CapTooSmall(closed, needed) is { } notice)
             {
-                WriteHistogram(w, "unbound_by_property", SweepSubject.HistogramByProperty, r.Histogram, histogramLimit);
-                // Wrapped + budget-flagged for the same reason check_errors' `unread` is (#288 review finding 4): a
-                // silently short honesty list reads as a complete one.
-                var scanErrors = r.Reports.Where(x => x.ScanError is not null).ToList();
-                w.WriteStartObject("scan_errors");
-                w.WriteNumber("total", scanErrors.Count);
-                w.WriteStartArray("rows");
-                int seRendered = 0; bool seTruncated = false;
-                foreach (var rec in scanErrors)
-                {
-                    w.Flush();
-                    if (ms.Length >= cap) { seTruncated = true; break; }
-                    w.WriteStartObject(); w.WriteString("plugin", rec.Plugin); w.WriteString("scan_error", rec.ScanError!); w.WriteEndObject();
-                    seRendered++;
-                }
-                w.WriteEndArray();
-                w.WriteNumber("rendered", seRendered);
-                w.WriteBoolean("truncated", seTruncated);
-                w.WriteEndObject();
+                int cost = OverrunNoticeCost(notice);
+                var settled = acct.CapTooSmall(closed + cost, needed, cost)!;
+                if (OverrunNoticeCost(settled) != cost)
+                    settled = acct.CapTooSmall(closed + OverrunNoticeCost(settled), needed, OverrunNoticeCost(settled))!;
+                w.WriteString("max_chars_overrun", settled);
             }
-            else
-            {
-                w.WriteBoolean("capped", r.Capped);
-                w.WriteStartArray("records");
-                int rendered = 0; bool truncated = false;
-                foreach (var rec in r.Reports)
-                {
-                    w.Flush();
-                    if (ms.Length >= cap) { truncated = true; break; }
-                    w.WriteStartObject();
-                    if (rec.ScanError is not null)
-                    {
-                        w.WriteString("plugin", rec.Plugin);
-                        w.WriteString("scan_error", rec.ScanError);
-                        w.WriteEndObject();
-                        rendered++;
-                        continue;
-                    }
-                    w.WriteString("formid", rec.Record.ToString());
-                    w.WriteString("type", rec.RecordType);
-                    WriteNullable(w, "editorid", rec.EditorId);
-                    w.WriteString("plugin", rec.Plugin);
-                    w.WriteStartArray("unbound");
-                    // Object/form types first — the same severity ordering the text render applies (D2).
-                    foreach (var u in rec.Unbound.OrderByDescending(u => u.IsObjectType))
-                    {
-                        w.WriteStartObject();
-                        w.WriteString("property", u.PropertyName);
-                        w.WriteString("pex_type", u.PexTypeName);
-                        w.WriteString("script", u.Script);
-                        w.WriteString("declared_in", u.DeclaringScript);
-                        w.WriteString("class", u.IsObjectType ? "unbound_object" : "unbound_scalar");
-                        w.WriteString("severity", u.IsObjectType ? "high" : "medium");
-                        w.WriteEndObject();
-                    }
-                    w.WriteEndArray();
-                    w.WriteStartArray("bound_but_null");
-                    foreach (var n in rec.NullObjects)
-                    { w.WriteStartObject(); w.WriteString("property", n.PropertyName); w.WriteString("script", n.Script); w.WriteEndObject(); }
-                    w.WriteEndArray();
-                    w.WriteStartArray("unverifiable");
-                    foreach (var uv in rec.Unverifiable)
-                    { w.WriteStartObject(); w.WriteString("script", uv.Script); w.WriteString("reason", uv.Reason); w.WriteEndObject(); }
-                    w.WriteEndArray();
-                    w.WriteEndObject();
-                    rendered++;
-                }
-                w.WriteEndArray();
-                w.WriteNumber("rendered", rendered);
-                w.WriteBoolean("truncated", truncated);
-            }
-
-            w.WriteString("boundary",
-                "checks Auto (CK-editable) properties across the extends chain — not code-driven full properties. An " +
-                "unbound object property is the silent-None footgun but CAN be intentional (filled at runtime) — a finding " +
-                "is a flag to VERIFY. A script whose .pex is not on disk is reported unverifiable, never passed clean.");
             w.WriteEndObject();
         }
         return Finish(ms);
+    }
+
+    /// <summary>The scripts family's own head members, written into whatever object is open. A finding CLASS the
+    /// caller excluded is emitted as <c>null</c>, NOT as 0 — the json counterpart of the text render's NOT CHECKED,
+    /// so a class nobody looked for cannot be parsed as one that came back clean (PR #288 review, finding 1).
+    /// <c>unverifiable</c> is never null: it cannot be filtered out.</summary>
+    static void WriteScriptsHead(Utf8JsonWriter w, ScriptCheckResult r)
+    {
+        bool didObject = r.Classes.HasFlag(ScriptFindingClass.UnboundObject);
+        bool didScalar = r.Classes.HasFlag(ScriptFindingClass.UnboundScalar);
+        bool didNull = r.Classes.HasFlag(ScriptFindingClass.BoundNull);
+
+        w.WriteNumber("scanned_plugins", r.PluginsScanned);
+        WriteNullable(w, "epoch", r.Epoch);   // §2.1.1: the swept build
+        w.WriteNumber("records_with_scripts", r.RecordsWithScripts);
+        if (didObject || didScalar) w.WriteNumber("unbound", r.TotalUnbound); else w.WriteNull("unbound");
+        if (didObject) w.WriteNumber("unbound_object", r.TotalUnboundObject); else w.WriteNull("unbound_object");
+        if (didScalar) w.WriteNumber("unbound_scalar", r.TotalUnboundScalar); else w.WriteNull("unbound_scalar");
+        if (didNull) w.WriteNumber("bound_but_null", r.TotalNullObject); else w.WriteNull("bound_but_null");
+        w.WriteNumber("unverifiable", r.TotalUnverifiable);   // never filterable — always a real count
+        WriteStringArray(w, "classes_checked", ScriptClassNames(r.Classes));
+        // The property filter rides as DATA, not just prose in filter_note: `unbound` / `bound_but_null` count only
+        // matching findings, while `records_with_scripts` and `unverifiable` are plugin-wide regardless of it — a
+        // consumer needs to be able to read that asymmetry off the document (round-3 review).
+        WriteNullable(w, "property_contains", r.PropertyContains);
+        WriteNullable(w, "filter_note", r.FilterNote);
+        w.WriteBoolean("read_incomplete", r.ReadIncomplete);
+        w.WriteBoolean("counts_only", r.CountsOnly);
+    }
+
+    /// <summary>The scripts family's BODY — everything a cap can refuse. It writes no excluded roster, no accounting
+    /// and no boundary: those are the RESPONSE's, and they are also where <c>capped</c>, <c>rendered</c> and
+    /// <c>truncated</c> now come from, because <see cref="CheckAccounting.JsonReserve"/> measures that writer and a
+    /// field written anywhere else is a field outside the reserve.</summary>
+    static void WriteScriptsSection(Utf8JsonWriter w, ScriptCheckResult r, BoundedBody body, int histogramLimit)
+    {
+        if (r.CountsOnly)
+        {
+            WriteHistograms(w, body, histogramLimit,
+                ("unbound_by_property", SweepSubject.HistogramByProperty, r.Histogram));
+            // The honesty layer, on its own subject and its own bound — a silently short list of what could NOT be
+            // read is the boundary of the answer going missing, not a finding inside it (#288 review finding 4).
+            w.WriteStartArray("scan_errors");
+            foreach (var rec in r.Reports)
+            {
+                if (rec.ScanError is null) continue;
+                var row = rec;
+                if (!body.Emit(SweepSubject.ScriptScanRows, ScanErrorRowCost(row), () =>
+                {
+                    w.WriteStartObject();
+                    w.WriteString("plugin", row.Plugin);
+                    w.WriteString("scan_error", row.ScanError!);
+                    w.WriteEndObject();
+                })) break;
+            }
+            w.WriteEndArray();
+            return;
+        }
+
+        w.WriteStartArray("records");
+        foreach (var rec in r.Reports)
+        {
+            // A RECORD OBJECT IS WHOLE OR ABSENT, and its cost is MEASURED rather than assumed small: a record
+            // carries an unbounded EditorID, an unbounded set of property names and an unbounded "could not verify"
+            // reason per script, so the post-check alone would let one whole record land past the budget.
+            var row = rec;
+            if (!body.Emit(SweepSubject.ScriptRecords, ScriptRecordCost(row), () => WriteScriptRecord(w, row))) break;
+        }
+        w.WriteEndArray();
+    }
+
+    /// <summary>One record object, written at the response's own nesting depth.</summary>
+    static void WriteScriptRecord(Utf8JsonWriter w, RecordScriptFindings rec)
+    {
+        w.WriteStartObject();
+        if (rec.ScanError is not null)
+        {
+            w.WriteString("plugin", rec.Plugin);
+            w.WriteString("scan_error", rec.ScanError);
+            w.WriteEndObject();
+            return;
+        }
+        w.WriteString("formid", rec.Record.ToString());
+        w.WriteString("type", rec.RecordType);
+        WriteNullable(w, "editorid", rec.EditorId);
+        w.WriteString("plugin", rec.Plugin);
+        w.WriteStartArray("unbound");
+        // Object/form types first — the same severity ordering the text render applies (D2).
+        foreach (var u in rec.Unbound.OrderByDescending(u => u.IsObjectType))
+        {
+            w.WriteStartObject();
+            w.WriteString("property", u.PropertyName);
+            w.WriteString("pex_type", u.PexTypeName);
+            w.WriteString("script", u.Script);
+            w.WriteString("declared_in", u.DeclaringScript);
+            w.WriteString("class", u.IsObjectType ? "unbound_object" : "unbound_scalar");
+            w.WriteString("severity", u.IsObjectType ? "high" : "medium");
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+        w.WriteStartArray("bound_but_null");
+        foreach (var n in rec.NullObjects)
+        { w.WriteStartObject(); w.WriteString("property", n.PropertyName); w.WriteString("script", n.Script); w.WriteEndObject(); }
+        w.WriteEndArray();
+        w.WriteStartArray("unverifiable");
+        foreach (var uv in rec.Unverifiable)
+        { w.WriteStartObject(); w.WriteString("script", uv.Script); w.WriteString("reason", uv.Reason); w.WriteEndObject(); }
+        w.WriteEndArray();
+        w.WriteEndObject();
+    }
+
+    /// <summary>What ONE record object costs, encoded exactly as the response will encode it — the same
+    /// construction as <see cref="PluginHeadCost"/>, at this object's own nesting depth. Over-counts by the scratch
+    /// wrapper's own braces, which is the safe direction for a budget test.</summary>
+    static int ScriptRecordCost(RecordScriptFindings rec)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteStartArray("records");
+            WriteScriptRecord(w, rec);
+            w.WriteEndArray();
+            w.WriteEndObject();
+        }
+        return (int)ms.Length;
+    }
+
+    /// <summary>What one <c>scan_errors</c> row costs, same construction, same depth.</summary>
+    static int ScanErrorRowCost(RecordScriptFindings rec)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteStartArray("scan_errors");
+            w.WriteStartObject();
+            w.WriteString("plugin", rec.Plugin);
+            w.WriteString("scan_error", rec.ScanError ?? "");
+            w.WriteEndObject();
+            w.WriteEndArray();
+            w.WriteEndObject();
+        }
+        return (int)ms.Length;
     }
 
     // ---- shared sweep writers (#282) ---------------------------------------------------------------

@@ -274,7 +274,7 @@ public static class ScriptPropertyCheck
         return new ScriptCheckResult(reports, targets.Count, recordsWithScripts, totalUnbound, totalNull,
                                      totalUnverifiable, capped, av.ReadIncomplete, view.ExcludedPlugins, null,
                                      filterNote, histogram is null ? null : SweepFindings.Histogram(histogram), countsOnly,
-                                     classes, totalUnboundObject, totalUnboundScalar, propFilter, view.Epoch);
+                                     classes, totalUnboundObject, totalUnboundScalar, propFilter, view.Epoch, limit);
     }
 
     /// <summary>Every script attachment on the record: the adapter's own <see cref="IAVirtualMachineAdapterGetter.Scripts"/>
@@ -468,7 +468,8 @@ public sealed record ScriptCheckResult(
     int TotalUnboundObject = 0,
     int TotalUnboundScalar = 0,
     string? PropertyContains = null,
-    string? Epoch = null)   // the swept build's fingerprint (SPEC §2.1.1); null only on the pre-sweep refusals
+    string? Epoch = null,   // the swept build's fingerprint (SPEC §2.1.1); null only on the pre-sweep refusals
+    int Limit = 0)   // the finding budget this sweep was GIVEN, carried for the same reason ErrorCheckResult.Limit is: the response names the knob it tells the caller to raise, off the number the sweep actually used
 {
     public bool Success => Error is null;
     public static ScriptCheckResult Fail(string error) =>

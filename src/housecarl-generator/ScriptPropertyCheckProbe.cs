@@ -386,17 +386,19 @@ public static class ScriptPropertyCheckProbe
         // #288 RE-REVIEW finding 2: the header gained class-awareness; the capped tail restated the totals in its own
         // words and so reintroduced the literal "0 unbound" the header no longer prints. CLASS-NOT-CHECKED-TOTAL missed
         // it only because it runs at limit=1000 and never trips Capped.
-        // Capped is forced rather than provoked: the fixture carries exactly ONE bound-but-null finding, so no limit=
-        // can trip the cap on this arm's class. The contract under test is the RENDER's wording, which this reaches
-        // directly. (CAPPED-TAIL-SYMMETRIC below trips the real cap, so the natural path is covered too.)
-        var cappedNullOnly = nullOnly with { Capped = true };
+        // The tail is now the ACCOUNTING's listing-budget clause, and it is provoked rather than forced: the clause
+        // fires off a SUBTRACTION (findings found minus findings the budget admitted), so a Capped flag set by hand
+        // no longer produces it. The fixture carries exactly ONE bound-but-null finding, so limit=0 is the value
+        // that cuts it — the same state a limit= smaller than the findings reaches on any larger sweep.
+        var cappedNullOnly = ScriptPropertyCheck.Run(resolver, assets, null, 0, null, null, ScriptFindingClass.BoundNull);
         var cappedText = Wire.RenderScriptCheck(cappedNullOnly, 0);
-        Check("CAPPED-TAIL-CLASS-AWARE: the capped tail says 'unbound NOT CHECKED' too — a small limit must not reintroduce the 0 the header dropped",
+        Check("CAPPED-TAIL-CLASS-AWARE: the accounting's listing-budget clause restates the class-aware totals — a small limit must not reintroduce the 0 the header dropped",
             cappedNullOnly.Capped
-            && cappedText.Contains("finding list capped at limit", StringComparison.Ordinal)
+            && AccountingListed(cappedText) == 0 && AccountingFound(cappedText) == 1   // fixture: one bound-but-null finding, none admitted
+            && cappedText.Contains("True totals:", StringComparison.Ordinal)
             && cappedText.Contains("unbound NOT CHECKED", StringComparison.Ordinal)
             && !cappedText.Contains("0 unbound", StringComparison.Ordinal),
-            $"tail=[{cappedText.Split('\n').FirstOrDefault(l => l.Contains("capped at limit", StringComparison.Ordinal))}]");
+            $"listed={AccountingListed(cappedText)} found={AccountingFound(cappedText)} capped={cappedNullOnly.Capped}");
 
         var cappedObjOnly = ScriptPropertyCheck.Run(resolver, assets, null, 1, null, null, ScriptFindingClass.UnboundObject);
         var cappedObjText = Wire.RenderScriptCheck(cappedObjOnly, 0);
@@ -404,7 +406,7 @@ public static class ScriptPropertyCheckProbe
             cappedObjOnly.Capped
             && cappedObjText.Contains("bound-but-null NOT CHECKED", StringComparison.Ordinal)
             && !cappedObjText.Contains("0 bound-but-null", StringComparison.Ordinal),
-            $"tail=[{cappedObjText.Split('\n').FirstOrDefault(l => l.Contains("capped at limit", StringComparison.Ordinal))}]");
+            $"listed={AccountingListed(cappedObjText)} found={AccountingFound(cappedObjText)} capped={cappedObjOnly.Capped}");
 
         // #288 RE-REVIEW finding 3: a class filter narrows which findings are COUNTED, not which records were swept, so
         // the "not the whole plugin(s)" claim must not fire on findings= alone — the number it sits under is complete.
@@ -456,19 +458,35 @@ public static class ScriptPropertyCheckProbe
             && xt.Contains("header could not be parsed", StringComparison.Ordinal),
             $"tail=[{Wire.RenderScriptCheck(withExcluded, 0).Split('\n').FirstOrDefault(l => l.Contains("HcSpBroken", StringComparison.Ordinal)) ?? "<absent>"}]");
 
-        // The truncation notice used to advise "scope plugins=" — the one scope the caller had already applied. It must
-        // now name knobs that exist (#282), or the tool tells you to do the thing that did not work.
-        var tinyCap = Wire.RenderScriptCheck(res, 400);
-        Check("TRUNCATION-HINT: the max_chars cut names the narrowing knobs that EXIST, and no longer advises 'scope plugins='",
-            tinyCap.Contains("truncated at max_chars", StringComparison.Ordinal)
-            && tinyCap.Contains("formids=", StringComparison.Ordinal)
-            && tinyCap.Contains("counts_only=true", StringComparison.Ordinal)
-            && !tinyCap.Contains("scope plugins=", StringComparison.Ordinal),
-            $"tail=[{tinyCap.Split('\n').LastOrDefault(l => l.Contains("truncated", StringComparison.Ordinal))}]");
+        // What the bespoke truncation marker was replaced BY, pinned against the response's own rows rather than
+        // against its wording. The marker said "truncated at max_chars" and named some knobs; it could not say how
+        // much of the listing had gone, because this lane kept no accounting. The accounting states that number, and
+        // the number has to equal the record sections the response actually carries — at EVERY cap in the band, not
+        // at one chosen cap, since a count that is right at one cap and wrong at the next is the defect.
+        var cutBad = new List<string>();
+        bool sawRecordCut = false;
+        for (int cap = 200; cap <= 6000; cap += 20)
+        {
+            var t = Wire.RenderScriptCheck(res, cap);
+            int stated = AccountingRendered(t);
+            int carried = RecordSectionsIn(t);
+            if (stated < 0) { cutBad.Add($"@{cap}: the accounting states no record-section count at all"); continue; }
+            if (stated != carried) cutBad.Add($"@{cap}: accounting says {stated} section(s), response carries {carried}");
+            if (carried < res.Reports.Count)
+            {
+                sawRecordCut = true;
+                if (!t.Contains("Raise max_chars=", StringComparison.Ordinal))
+                    cutBad.Add($"@{cap}: cut short and names no max_chars= remedy");
+            }
+        }
+        if (!sawRecordCut) cutBad.Add("no cap in 200..6000 cut the record listing — the arm never saw the case it is for");
+        Check("RECORD-CUT-IS-ACCOUNTED: at every cap the accounting's record-section count equals the sections the response carries, and a cut one names max_chars= — replacing a marker that could say a cut happened but not how much of the listing it took",
+            cutBad.Count == 0,
+            cutBad.Count == 0 ? $"every cap agreed (fixture has {res.Reports.Count} section(s))" : string.Join("; ", cutBad.Take(4)) + $" ({cutBad.Count} total)");
 
         // #392's scope note, held here. This lane's single counts_only axis has the identical shape as
-        // check_errors' two — AppendHistogram is shared — and this lane keeps NO accounting at all, so the axis's
-        // own closing line is the only thing that can report a cut. Charged to the same budget as its rows, a cap
+        // check_errors' two — AppendHistogram is shared — and a histogram axis is deliberately NOT an accounting
+        // subject in either family, so the axis's own closing line is the only thing that can report a cut. Charged to the same budget as its rows, a cap
         // that refused the rows refused the report of them and the axis left the response unmentioned. It is
         // reserved out of max_chars now, and this walks every cap in the band rather than sampling one.
         var axisBad = new List<string>();
@@ -483,7 +501,7 @@ public static class ScriptPropertyCheckProbe
             if (shown >= axisDistinct) { if (stated != -1) axisBad.Add($"@{cap} rendered all {axisDistinct} and claims {stated}"); }
             else if (stated != axisDistinct - shown) axisBad.Add($"@{cap} rendered {shown} of {axisDistinct} and states {stated}");
         }
-        Check("HISTOGRAM-AXIS-NEVER-DROPS-SILENTLY (#392): at every cap across the band the counts_only axis is IN the response and states how many of its rows are missing — this lane keeps no accounting, so that line is the only thing that can say a cut happened",
+        Check("HISTOGRAM-AXIS-NEVER-DROPS-SILENTLY (#392): at every cap across the band the counts_only axis is IN the response and states how many of its rows are missing — the axes are deliberately not accounting subjects, so that line is the only thing that can say a cut happened",
             axisBad.Count == 0,
             axisBad.Count == 0 ? $"the axis stated itself at every cap (distinct {axisDistinct})" : string.Join("; ", axisBad.Take(4)) + $" ({axisBad.Count} total)");
 
@@ -498,18 +516,20 @@ public static class ScriptPropertyCheckProbe
         };
         var rosterWhole = Wire.RenderScriptCheck(excludedFat, 0);
         // The NONE-FIT cap, searched for rather than named: which one admits the response but not a single roster row
-        // is a fact about the fixture.
+        // is a fact about the fixture. The bespoke marker this replaces is gone — the accounting states the same
+        // fact, in one spelling, in both transports, and it names its own subject the same way.
         var rosterCut = "";
-        for (int cap = 200; cap <= 4000 && !rosterCut.Contains("did not fit max_chars", StringComparison.Ordinal); cap += 20)
+        for (int cap = 200; cap <= 4000 && RosterNamedInAccounting(rosterCut) != 0; cap += 20)
             rosterCut = Wire.RenderScriptCheck(excludedFat, cap);
-        Check("EXCLUDED-ROSTER-CUT-NAMES-ITS-SUBJECT: when max_chars leaves no room for the excluded-plugin roster, the marker says WHAT did not fit and how many plugins are unnamed — it no longer relies on a header line that can itself be dropped",
-            rosterCut.Contains("the excluded-plugin list did not fit max_chars", StringComparison.Ordinal)
-            && RosterUnnamed(rosterCut) == 3
+        Check("EXCLUDED-ROSTER-CUT-NAMES-ITS-SUBJECT: when max_chars leaves no room for the excluded-plugin roster, the accounting says WHAT did not fit and how many plugins are unnamed — it no longer relies on a header line that can itself be dropped",
+            RosterNamedInAccounting(rosterCut) == 0 && RosterTotalInAccounting(rosterCut) == 3
             && RosterNamed(excludedFat, rosterCut) == 0
-            // and the other direction: an ample cap names them and says nothing about a cut
+            && rosterCut.Contains("could not be parsed", StringComparison.Ordinal)
+            && rosterCut.Contains("Raise max_chars=", StringComparison.Ordinal)
+            // and the other direction: an ample cap names them and states no cut at all
             && rosterWhole.Contains("HcSpBroken0.esp", StringComparison.Ordinal)
-            && !rosterWhole.Contains("did not fit max_chars", StringComparison.Ordinal),
-            $"named={RosterNamed(excludedFat, rosterCut)} stated={RosterUnnamed(rosterCut)}");
+            && RosterNamedInAccounting(rosterWhole) == -1,
+            $"named={RosterNamed(excludedFat, rosterCut)} stated={RosterNamedInAccounting(rosterCut)}/{RosterTotalInAccounting(rosterCut)}");
 
         // THE PARTIAL CUT, in both lanes that carry the marker. The search above stops at the FIRST cap that produces
         // it, which is by construction the one where no row fits — so the case where the roster names some of its
@@ -525,7 +545,7 @@ public static class ScriptPropertyCheckProbe
                 .ToDictionary(i => $"HcSpBroken{i}.esp", i => new string('r', 300)),
         };
         RosterMarkerCountsItsRows("listing", listingFat, partialBad);
-        Check("EXCLUDED-ROSTER-CUT-COUNTS-THE-ROWS-IT-DROPPED: at a cap that names SOME of the unparseable plugins and not the rest, the marker states how many are UNNAMED — the total, printed over a response that named one of them, is a sentence its own lines contradict",
+        Check("EXCLUDED-ROSTER-CUT-COUNTS-THE-ROWS-IT-DROPPED: at a cap that names SOME of the unparseable plugins and not the rest, the accounting states how many ARE named — a count that disagrees with the rows above it is a sentence its own response contradicts",
             partialBad.Count == 0,
             partialBad.Count == 0 ? "both lanes state total minus the rows they emitted" : string.Join("; ", partialBad));
 
@@ -551,14 +571,69 @@ public static class ScriptPropertyCheckProbe
     static int RosterNamed(ScriptCheckResult r, string text)
         => r.ExcludedPlugins.Keys.Count(k => text.Contains("  " + k + ": ", StringComparison.Ordinal));
 
-    /// <summary>The number the roster-cut marker states, or -1 where it states none.</summary>
-    static int RosterUnnamed(string text)
+    /// <summary>The two numbers the accounting's excluded-roster clause states — how many of the unparseable
+    /// plugins this response NAMED, and how many there are — or -1 where it states no cut. Read as NUMBERS, not as
+    /// a substring: "contains a sentence about the roster somewhere" is satisfied by any response that has one.</summary>
+    static int RosterNamedInAccounting(string text) => RosterClauseNumber(text, first: true);
+    static int RosterTotalInAccounting(string text) => RosterClauseNumber(text, first: false);
+
+    static int RosterClauseNumber(string text, bool first)
     {
-        const string lead = "did not fit max_chars — ";
-        int at = text.IndexOf(lead, StringComparison.Ordinal);
+        const string tail = " plugin(s) that could not be parsed are named above.";
+        int at = text.IndexOf(tail, StringComparison.Ordinal);
         if (at < 0) return -1;
-        var digits = new string(text[(at + lead.Length)..].TakeWhile(char.IsDigit).ToArray());
-        return int.TryParse(digits, out var n) ? n : -1;
+        // " {0} of {1} plugin(s) that could not be parsed are named above." — walk back over "N of M".
+        var head = text[..at];
+        var second = new string(head.Reverse().TakeWhile(char.IsDigit).Reverse().ToArray());
+        if (!first) return int.TryParse(second, out var m) ? m : -1;
+        var rest = head[..(head.Length - second.Length)];
+        if (!rest.EndsWith(" of ", StringComparison.Ordinal)) return -1;
+        var firstDigits = new string(rest[..^4].Reverse().TakeWhile(char.IsDigit).Reverse().ToArray());
+        return int.TryParse(firstDigits, out var n) ? n : -1;
+    }
+
+    /// <summary>How many record sections the accounting says this response carries, or -1 where it says nothing.
+    /// Both leads carry the number in the same place: "all N record section(s)…" / "N of the M record section(s)…".</summary>
+    static int AccountingRendered(string text)
+    {
+        const string tail = " record section(s) found by this sweep appear above.";
+        int at = text.IndexOf(tail, StringComparison.Ordinal);
+        if (at < 0) return -1;
+        var head = text[..at];
+        // The whole-listing lead ends "all N"; the cut lead ends "N of the M". Either way the LAST number before the
+        // tail is the total, and the count rendered is the first number of the pair (or the same number when whole).
+        var last = new string(head.Reverse().TakeWhile(char.IsDigit).Reverse().ToArray());
+        if (!int.TryParse(last, out var total)) return -1;
+        var rest = head[..(head.Length - last.Length)];
+        if (rest.EndsWith(" all ", StringComparison.Ordinal)) return total;
+        if (!rest.EndsWith(" of the ", StringComparison.Ordinal)) return -1;
+        var shown = new string(rest[..^8].Reverse().TakeWhile(char.IsDigit).Reverse().ToArray());
+        return int.TryParse(shown, out var n) ? n : -1;
+    }
+
+    /// <summary>How many record sections the response actually carries, counted off its own lines.</summary>
+    static int RecordSectionsIn(string text)
+        => text.Split('\n').Count(l => l.StartsWith("[UNBOUND] ", StringComparison.Ordinal)
+                                    || l.StartsWith("[CHECK] ", StringComparison.Ordinal)
+                                    || l.StartsWith("[SCAN ERROR] ", StringComparison.Ordinal));
+
+    /// <summary>The findings the accounting says the listing budget admitted, and the total it found. -1 where the
+    /// clause is absent, which is the case whenever the budget dropped nothing.</summary>
+    static int AccountingListed(string text) => FindingsClauseNumber(text, first: true);
+    static int AccountingFound(string text) => FindingsClauseNumber(text, first: false);
+
+    static int FindingsClauseNumber(string text, bool first)
+    {
+        const string tail = " property finding(s) this sweep found were listed";
+        int at = text.IndexOf(tail, StringComparison.Ordinal);
+        if (at < 0) return -1;
+        var head = text[..at];
+        var second = new string(head.Reverse().TakeWhile(char.IsDigit).Reverse().ToArray());
+        if (!first) return int.TryParse(second, out var m) ? m : -1;
+        var rest = head[..(head.Length - second.Length)];
+        if (!rest.EndsWith(" of the ", StringComparison.Ordinal)) return -1;
+        var firstDigits = new string(rest[..^8].Reverse().TakeWhile(char.IsDigit).Reverse().ToArray());
+        return int.TryParse(firstDigits, out var n) ? n : -1;
     }
 
     /// <summary>Walk the caps where the roster marker fires and hold its number against the rows the response
@@ -571,12 +646,14 @@ public static class ScriptPropertyCheckProbe
         for (int cap = 200; cap <= 6000; cap += 20)
         {
             var text = Wire.RenderScriptCheck(r, cap);
-            int stated = RosterUnnamed(text);
+            int stated = RosterNamedInAccounting(text);
             if (stated < 0) continue;
             int named = RosterNamed(r, text);
-            if (named > 0) sawPartial = true;
-            if (stated != r.ExcludedPlugins.Count - named)
-                bad.Add($"{lane}@{cap}: {named} named, marker says {stated} unnamed of {r.ExcludedPlugins.Count}");
+            if (named > 0 && named < r.ExcludedPlugins.Count) sawPartial = true;
+            if (stated != named)
+                bad.Add($"{lane}@{cap}: {named} named, accounting says {stated} of {RosterTotalInAccounting(text)}");
+            if (RosterTotalInAccounting(text) != r.ExcludedPlugins.Count)
+                bad.Add($"{lane}@{cap}: accounting states a total of {RosterTotalInAccounting(text)}, sweep excluded {r.ExcludedPlugins.Count}");
         }
         if (!sawPartial) bad.Add($"{lane}: no cap in 200..6000 names SOME of the roster and cuts the rest");
     }

@@ -52,6 +52,21 @@ internal enum SweepSubject
     /// HISTOGRAM-JSON-STATES-THE-SAME-CUT pins what json does say about a cut.</para></summary>
     HistogramBySource,
 
+    /// <summary>Per-record sections of the scripts family's listing — its analogue of
+    /// <see cref="PluginSections"/>. A section is emitted WHOLE or not at all, for the reason the errors family's
+    /// sections are: everything inside one (the unbound findings, the bound-but-null advisory, the "could not
+    /// verify" notes) is a finding in its own right, and a per-line "append if it fits" drops them with no subject
+    /// accounting for the loss. Before this subject existed the scripts listing tested <c>sb.Length &gt;= cap</c>
+    /// inline and kept no accounting at all, which is how <c>validate_scripts</c> returned 80,673 chars against its
+    /// own 80,000 cap on the live order, undeclared.</summary>
+    ScriptRecords,
+
+    /// <summary>Rows of the scripts family's <c>counts_only</c> honesty layer: plugins whose record enumeration
+    /// faulted. Its own subject rather than <see cref="UnreadRows"/>, because a merged response can run both
+    /// families in that mode and one subject standing for two families' rows is a double count — the same rule that
+    /// split <see cref="HistogramBySource"/> off its sibling, one level up.</summary>
+    ScriptScanRows,
+
     /// <summary>Rows of validate_scripts' <c>counts_only</c> histogram, by property NAME.</summary>
     HistogramByProperty,
 }
