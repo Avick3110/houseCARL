@@ -1152,8 +1152,6 @@ static class Wire
     {
         if (r.Error is not null) return "error: " + r.Error + (r.Epoch is not null ? $"\nepoch={r.Epoch}" : "");
         int cap = Cap(maxChars);
-        bool didDangling = r.Classes.HasFlag(ErrorFindingClass.Dangling);
-        bool didMasters = r.Classes.HasFlag(ErrorFindingClass.MissingMasters);
         // ONE accounting for this response, and the body renders inside what it leaves (#361). Everything below
         // emits through `acct`, and every omission claim is computed from those registrations after emission stops
         // — there is no truncation flag to miss, and no path that appends the tail past the cap.
@@ -1163,6 +1161,28 @@ static class Wire
         var sb = new StringBuilder();
 
         sb.Append("check_errors — load-order integrity sweep\n");
+        AppendErrorsHead(sb, r, acct);
+        // EVERYTHING A CAP CAN REFUSE GOES THROUGH `body`. What the header above, the axes' own lines, the reserved
+        // closing disclosures, the accounting and the boundary come to is therefore whatever the finished response
+        // is MINUS what `body` let through — which is how the overrun notice is told the fixed part's size
+        // (BoundedBody.FixedPart), rather than by a header length captured here and summed with a reserve.
+        var body = new BoundedBody(acct, budget, () => sb.Length);
+        AppendErrorsSection(sb, r, body, histogramLimit);
+        // The excluded-plugin roster is a SCOPE fact, not a family fact — which plugins the INDEX could not parse
+        // at all. It is emitted once per RESPONSE, after every section, which is why it sits here rather than
+        // inside the section renderer: on the merged surface a roster written per family would be the same rows
+        // twice, declared by two accountings and counted by both.
+        AppendExcludedPlugins(sb, body, r.ExcludedPlugins);
+        return Close(sb, acct, body);
+    }
+
+    /// <summary>The errors family's own head: what it swept and what it found. Everything above the first thing a
+    /// budget can refuse, and everything below the response's title — which is the caller's, because the merged
+    /// surface titles a SECTION where the single-family tool titles the whole response.</summary>
+    static void AppendErrorsHead(StringBuilder sb, ErrorCheckResult r, CheckAccounting acct)
+    {
+        bool didDangling = r.Classes.HasFlag(ErrorFindingClass.Dangling);
+        bool didMasters = r.Classes.HasFlag(ErrorFindingClass.MissingMasters);
         sb.Append("scanned ").Append(r.PluginsScanned).Append(r.PluginsScanned == 1 ? " plugin · " : " plugins · ")
           .Append(didDangling ? $"{r.TotalDangling} dangling ref(s)" : "dangling refs NOT CHECKED (findings= excluded 'dangling')").Append(" · ")
           .Append(didMasters ? $"{r.TotalMissingMasters} missing master(s)" : "missing masters NOT CHECKED (findings= excluded 'missing_masters')").Append(" · ")
@@ -1176,12 +1196,13 @@ static class Wire
             sb.Append("swept OFF-ORDER (on disk, not in the active load order): ").Append(string.Join(", ", off))
               .Append("   [the file's own records; links resolved against the active order + the file's own definitions]\n");
         AppendBaselineSplit(sb, r, acct);   // #344 — how much of the dangling total is vanilla baseline
-        // EVERYTHING A CAP CAN REFUSE GOES THROUGH `body`. What the header above, the axes' own lines, the reserved
-        // closing disclosures, the accounting and the boundary come to is therefore whatever the finished response
-        // is MINUS what `body` let through — which is how the overrun notice is told the fixed part's size
-        // (BoundedBody.FixedPart), rather than by a header length captured here and summed with a reserve.
-        var body = new BoundedBody(acct, budget, () => sb.Length);
+    }
 
+    /// <summary>The errors family's BODY — everything a cap can refuse, and nothing else. It writes no roster, no
+    /// accounting and no boundary: those are the response's, and a section renderer that wrote them could not be
+    /// called twice in one response.</summary>
+    static void AppendErrorsSection(StringBuilder sb, ErrorCheckResult r, BoundedBody body, int histogramLimit)
+    {
         if (r.CountsOnly)
         {
             // Both axes are handed over TOGETHER so both are reserved before either renders. #344's SOURCE axis —
@@ -1195,8 +1216,7 @@ static class Wire
                 new HistogramAxis(SweepSubject.HistogramBySource, r.DanglingBySource,
                                   "dangling ref(s) by SOURCE plugin (the plugin the broken refs come FROM)"));
             AppendScanErrorTail(sb, body, r.Reports);
-            AppendExcludedPlugins(sb, body, r.ExcludedPlugins);   // #288 review finding 5: the NAMES, not just the header count
-            return Close(sb, acct, body);
+            return;
         }
 
         if (r.Reports.Count == 0 && r.ExcludedPlugins.Count == 0)
@@ -1238,9 +1258,6 @@ static class Wire
                 if (!body.Emit(SweepSubject.DanglingEntries, line.Length, () => sb.Append(line), p.Plugin)) break;
             }
         }
-
-        AppendExcludedPlugins(sb, body, r.ExcludedPlugins);
-        return Close(sb, acct, body);
     }
 
     /// <summary>Close the response: the accounting for what it emitted, then the boundary. Both live inside the
