@@ -225,14 +225,14 @@ internal sealed class BoundedBody
 {
     readonly int _budget;
     readonly Func<int> _length;
-    readonly CheckAccounting? _acct;
+    readonly IReadOnlyList<CheckAccounting> _accts;
     readonly HashSet<SweepSubject> _stopped = new();
     readonly Dictionary<SweepSubject, int> _held = new();
     readonly IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)>? _plan;
     BodyAllocation? _alloc;
 
-    /// <param name="acct">the accounting to register emissions with, or null for a lane that keeps no accounting
-    /// (validate_scripts, whose response layer is not this branch's — it still gets the same bound).</param>
+    /// <param name="acct">the accounting to register emissions with, or null for a lane that keeps none. The
+    /// single-family shape, which is every lane but the merged sweep.</param>
     /// <param name="budget">the chars the BODY may occupy: the caller's max_chars less the accounting's reserve.</param>
     /// <param name="length">what the response has emitted so far, in the transport's own unit.</param>
     /// <param name="plan">the families this response renders and which of each family's subjects have rows, or null
@@ -240,8 +240,25 @@ internal sealed class BoundedBody
     /// budget alone is then the whole rule). See <see cref="BodyAllocation"/>.</param>
     internal BoundedBody(CheckAccounting? acct, int budget, Func<int> length,
                          IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)>? plan = null)
+        : this(acct is null ? Array.Empty<CheckAccounting>() : new[] { acct }, budget, length, plan) { }
+
+    /// <summary>A merged response's body. A static factory rather than a second constructor: a lane passing a bare
+    /// <c>null</c> accounting would otherwise be an ambiguous call, and disambiguating it with a cast at every such
+    /// site is a worse trade than naming the multi-family case.</summary>
+    /// <param name="accts">ONE ACCOUNTING PER FAMILY, all reading the same emissions. 4a's invariant is one source
+    /// per sentence across the two TRANSPORTS, not one accounting across all families: the numbers an accounting
+    /// states are per-family, and a merged one would have to name which family each number belonged to. Registering
+    /// with every accounting is safe by construction because <see cref="CheckAccounting.Emitted"/> ignores a subject
+    /// its lane did not declare — and the one subject two families could both declare, the excluded-plugin roster,
+    /// is declared by exactly one of them (it is a fact about the SCOPE, emitted once per response).</param>
+    internal static BoundedBody ForFamilies(IReadOnlyList<CheckAccounting> accts, int budget, Func<int> length,
+                                            IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)>? plan = null)
+        => new(accts, budget, length, plan);
+
+    BoundedBody(IReadOnlyList<CheckAccounting> accts, int budget, Func<int> length,
+                IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)>? plan)
     {
-        _acct = acct;
+        _accts = accts;
         _budget = budget;
         _length = length;
         _plan = plan;
@@ -252,7 +269,25 @@ internal sealed class BoundedBody
     /// before the first unit of any subject), so the room left for ROWS is the body budget less everything held,
     /// and that is what gets divided. Built earlier it would divide room the reserves had not yet claimed;
     /// built later it would divide what an earlier subject had already spent.</summary>
-    BodyAllocation Allocation => _alloc ??= new BodyAllocation(_budget - _length() - Held, _plan ?? Array.Empty<(SweepFamily, IReadOnlyList<SweepSubject>)>());
+    BodyAllocation Allocation => _alloc ??= new BodyAllocation(_budget - Spent - Held, _plan ?? Array.Empty<(SweepFamily, IReadOnlyList<SweepSubject>)>());
+
+    /// <summary>What of the response so far is charged against the BODY's budget: everything written, less what was
+    /// written out of the reserve. A merged response writes a family's accounting line before the next family
+    /// renders, and that line's room was subtracted from the budget once already — counted again here it would be
+    /// charged twice, and the second family would pay for a sentence the first one's reserve had bought.</summary>
+    int Spent => _length() - _reservedSpent;
+    int _reservedSpent;
+
+    /// <summary>Write text whose room was already held back OUT of the body budget — a family's accounting line, in
+    /// a merged response where a later family still has to render. It is not a unit, so it is not registered and it
+    /// cannot be refused; what it appends is MEASURED and discounted from what the body is charged with, so a
+    /// reserve spent where it was meant to be spent does not also come out of the rows.</summary>
+    internal void Reserved(Action commit)
+    {
+        int before = _length();
+        commit();
+        _reservedSpent += _length() - before;
+    }
 
     /// <summary>Emit one unit of <paramref name="subject"/>, or refuse. Returns false when the unit did not fit —
     /// the caller's loop breaks and the accounting already knows, because the count it will report is the count of
@@ -264,7 +299,7 @@ internal sealed class BoundedBody
     internal bool Emit(SweepSubject subject, int cost, Action commit, string? source = null)
     {
         if (_stopped.Contains(subject)) return false;
-        if (_length() + cost + Held > _budget) { Stop(subject); return false; }
+        if (Spent + cost + Held > _budget) { Stop(subject); return false; }
         // The subject's OWN share, on top of the response-wide test rather than instead of it (#394). A subject
         // may spend its ceiling and no more even while the response has room to spare — that room belongs to the
         // siblings that have not rendered yet, and giving it away first-come is exactly the serial rule this
@@ -278,7 +313,7 @@ internal sealed class BoundedBody
         // and a ceiling kept in the units of a test rather than of the writing would drift the moment a site
         // declared 0 (which most of them do).
         Allocation.Charge(subject, wrote);
-        _acct?.Emitted(subject, source);
+        foreach (var a in _accts) a.Emitted(subject, source);
         return true;
     }
 

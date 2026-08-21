@@ -239,8 +239,19 @@ internal sealed class CheckAccounting
     /// <summary>The json lane's own reserve. Measured by SERIALIZING the worst case, not by estimating it off the
     /// text line: the two encodings differ in escaping and syntax, and a reserve that is an estimate is a reserve
     /// that is occasionally wrong in the direction that matters.</summary>
-    internal int JsonReserve => _jsonReserve ??= MeasureJson(Worst(escaped: true)) + JsonGlue;
+    internal int JsonReserve => JsonAccountingReserve + JsonGlue;
+
+    /// <summary>This lane's accounting + boundary, in json bytes, WITHOUT the entry slack. Separate for the same
+    /// reason <see cref="TextAccountingReserve"/> is: a merged document holds one accounting per family but only
+    /// ever lands ONE unit over its budget, because the body stops the moment a unit crosses — so the slack is the
+    /// response's, not each family's.</summary>
+    internal int JsonAccountingReserve => _jsonReserve ??= MeasureJson(Worst(escaped: true));
     int? _jsonReserve;
+
+    /// <summary>The slack a json response holds for the one unit that can land past the budget. A
+    /// <c>Utf8JsonWriter</c> cannot measure an object without writing it, so a unit whose cost the site left at
+    /// zero is tested before the write and lands over; this covers one whole entry.</summary>
+    internal const int JsonEntrySlack = JsonGlue;
 
     /// <summary>Slack over the measured worst case, and the two lanes need very different amounts of it.
     ///

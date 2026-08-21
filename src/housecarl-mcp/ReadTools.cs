@@ -1437,6 +1437,103 @@ static class Wire
         }
     }
 
+    // ---- housecarl_check — the merged, multi-family response (SPEC §6.1) ---------------------------
+    /// <summary>The merged sweep: ONE header, one section per selected family, each family's own accounting under
+    /// its section, one boundary block, and the excluded-plugin roster once for the whole response.
+    ///
+    /// <para><b>The families' section renderers are the ancestors' own bodies</b> with their title, roster,
+    /// accounting and boundary lifted out — so what a family says about itself here is what it said as a whole
+    /// response, and the 131 arms that hold those renders hold this one's sections too.</para>
+    ///
+    /// <para><b>The body budget is DIVIDED, not spent in series</b> (#394, ruling item 1): one
+    /// <see cref="BoundedBody"/> for the response, carrying the allocation plan, so a family that renders second
+    /// does not inherit whatever the first one left. Measured on the live order at plain defaults, a serial second
+    /// family inherited 400 characters of an 80,000 budget — at the no-arguments call, not at a cap anyone
+    /// tightened.</para>
+    ///
+    /// <para><b>Each family's accounting is written under its own section</b>, and its room comes out of the
+    /// reserve rather than out of the rows: <see cref="BoundedBody.Reserved"/> discounts what it wrote, so the
+    /// family rendering after it is not charged for a sentence the reserve already bought.</para></summary>
+    public static string RenderCheck(CheckSweep s, int maxChars, int histogramLimit = 1000)
+    {
+        if (s.Error is not null) return "error: " + s.Error + (s.Epoch is not null ? $"\nepoch={s.Epoch}" : "");
+        int cap = Cap(maxChars);
+        var sections = s.Sections;
+        var accts = s.Accountings(cap);
+        // The reserve: one accounting line PER FAMILY, and ONE boundary line per family, held before anything
+        // renders. Summing whole TextReserves would hold the boundary once per family — room for a sentence
+        // written once, taken out of the rows that could have used it.
+        int reserve = 0;
+        for (int i = 0; i < accts.Count; i++)
+            reserve += accts[i].TextAccountingReserve
+                     + accts[i].Boundary.Length
+                     + string.Format(ReadSentences.SweepBoundaryLabelFor,
+                                     SweepFamilySelection.Token(sections[i])).Length + BoundaryWrap;
+        int budget = Math.Max(0, cap - reserve);
+
+        var sb = new StringBuilder();
+        sb.Append(ReadSentences.SweepMergedTitle).Append('\n');
+        // The scope sentence, above everything a budget can refuse: which families ran and which registered ones did
+        // not, with the spelling that gets them. The default narrows only because the response says so (Q3).
+        sb.Append(s.ScopeSentence()).Append('\n');
+
+        var body = BoundedBody.ForFamilies(accts, budget, () => sb.Length, s.Plan());
+        for (int i = 0; i < sections.Count; i++)
+        {
+            var f = sections[i];
+            sb.Append('\n').Append(string.Format(ReadSentences.SweepFamilySectionHead,
+                                                 SweepFamilySelection.Token(f), SweepFamilySelection.Title(f)))
+              .Append('\n');
+            if (f == SweepFamily.Errors)
+            {
+                AppendErrorsHead(sb, s.Errors!, accts[i]);
+                AppendErrorsSection(sb, s.Errors!, body, histogramLimit);
+            }
+            else
+            {
+                // The off-order asymmetry sits IN this family's section, above its own counts: a "0 unbound" over a
+                // scope this family could not sweep reads as "looked, found none" — the exact Q3 misreading the
+                // NOT CHECKED wording exists to prevent — unless the reason is right beside it.
+                if (s.OffOrderSentence() is { } skipped) sb.Append(skipped).Append('\n');
+                AppendScriptsHead(sb, s.Scripts!);
+                AppendScriptsSection(sb, s.Scripts!, body, histogramLimit);
+            }
+            // This family's accounting, under this family's section, out of the room held for it.
+            if (accts[i].TextLine() is { } line)
+            {
+                var acct = accts[i];
+                body.Reserved(() => sb.Append('\n').Append(line).Append('\n'));
+            }
+        }
+
+        AppendExcludedPlugins(sb, body, s.ExcludedPlugins);
+
+        // ONE boundary block, one line per family that ran — the two families claim different things, so a single
+        // sentence for both would be a claim neither of them makes.
+        for (int i = 0; i < sections.Count; i++)
+            sb.Append('\n')
+              .Append(string.Format(ReadSentences.SweepBoundaryLabelFor, SweepFamilySelection.Token(sections[i])))
+              .Append(accts[i].Boundary).Append('\n');
+
+        // The overrun question, asked of the FINISHED response exactly as the single-family close asks it. The
+        // notice is part of the response whose length it states, so the composition runs to a fixed point.
+        var response = sb.ToString().TrimEnd('\n');
+        int needed = body.FixedPart(response.Length);
+        // Which accounting states it: the FIRST, because the sentence is about the whole response rather than about
+        // any family, and every accounting was built with the same cap. Stating it once is the point — a notice per
+        // family would tell the caller three times that one response was too long.
+        var overrun = accts.Count > 0 ? accts[0] : null;
+        if (overrun?.CapTooSmall(response.Length, needed) is not { } notice) return response;
+        var settled = overrun.CapTooSmall(response.Length + notice.Length, needed, notice.Length)!;
+        if (settled.Length != notice.Length)
+            settled = overrun.CapTooSmall(response.Length + settled.Length, needed, settled.Length)!;
+        return response + settled;
+    }
+
+    /// <summary>The newlines a boundary line is wrapped in, held back with it. Two in the render; this is the same
+    /// headroom the accounting's own wrap uses, per block rather than once for the lot.</summary>
+    const int BoundaryWrap = 32;
+
     // ---- housecarl_validate_scripts -----------------------------------------------------------------
     /// <summary>Render the script-property sweep. <paramref name="histogramLimit"/> (#282) caps the
     /// <c>counts_only=</c> histogram rows.</summary>

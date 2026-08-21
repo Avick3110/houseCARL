@@ -436,6 +436,68 @@ internal static class ReadSentences
         "finding is a flag to VERIFY. A script whose .pex is not on disk is reported unverifiable, never passed " +
         "clean.";
 
+    /// <summary>WHICH FAMILIES THIS CALL RAN, AND WHICH REGISTERED ONES IT DID NOT — the sentence that makes the
+    /// narrowed default honest (ruling item 2, 2026-08-21).
+    ///
+    /// <para><b>Why the default narrows at all.</b> <c>findings=</c> omitted runs the errors family alone. It
+    /// cannot be every family: an unscoped scripts sweep is 468 seconds on a 3800-plugin order, measured, and an
+    /// unscoped dialogue sweep is a declared cost-refusal (SPEC §6.1 F1.2). A default that narrowed silently would
+    /// be the sweep answering a question the caller did not ask and not saying which one — so the response states
+    /// what ran, what did not, and the exact <c>findings=</c> spelling that adds it.</para>
+    ///
+    /// <para><b>It is ONE COMPLETE SENTENCE, stated whole by BOTH transports.</b> Not a lead each transport
+    /// finishes its own way: that shape has failed twice (#337, f907350), because a pin on a shared lead vouches
+    /// for nothing about what either transport actually says. The pin is on this string, and this string is what
+    /// the text render prints and what the json document carries — so a transport that stops saying it fails by
+    /// name.</para></summary>
+    [MustState("findings=", "did NOT run", "ask for it with")]
+    internal const string SweepFamiliesDefaulted =
+        "findings= was not given, so this sweep ran the default family only: {0}. It did NOT run: {1} — ask for it " +
+        "with the findings= spelling named beside each.";
+
+    /// <summary>The same fact when the caller DID choose. "You did not ask for these" and "you asked for these and
+    /// not those" are different sentences, and one wording for both tells the second caller something false about
+    /// their own call.</summary>
+    [MustState("findings=", "did NOT run", "ask for it with")]
+    internal const string SweepFamiliesChosen =
+        "findings= selected: {0}. It did NOT run: {1} — ask for it with the findings= spelling named beside each.";
+
+    /// <summary>Every registered family ran, so there is nothing to name as absent — and the sentence says THAT,
+    /// rather than going quiet. Silence would read the same as a response whose sentence had been dropped.</summary>
+    [MustState("findings=", "every findings family")]
+    internal const string SweepFamiliesAll =
+        "findings= ran every findings family this surface registers: {0}.";
+
+    /// <summary>One entry in the did-NOT-run list: what asking for it would buy, and the exact spelling that asks.
+    /// A remedy that names a knob without spelling it is one the caller has to guess at.</summary>
+    [NoClaims("a list item; the claims are the family description it quotes and the spelling it prints")]
+    internal const string SweepFamilyNotRun = "{0} ({1})";
+
+    /// <summary>The scripts family has no off-order lane: <c>check_errors</c> resolves a plugin that is on disk but
+    /// not in the active order and sweeps it anyway, and the script sweep refuses such a name outright. On one
+    /// <c>plugins=</c> list feeding several families that asymmetry has to be STATED rather than resolved by
+    /// silently widening one family or refusing the whole call — extending the off-order lane to another family is
+    /// capability growth, and it belongs in an issue rather than in a merge.</summary>
+    [MustState("off-order", "did NOT sweep")]
+    internal const string SweepFamilyOffOrderSkipped =
+        "the {0} family did NOT sweep {1}: that plugin is on disk but not in the active load order, and only the " +
+        "errors family has an off-order lane. Its findings for that file are absent, not clean.";
+
+    /// <summary>The merged response's boundary label. Each family states its OWN boundary — the two claim different
+    /// things — so the label names which family's claim follows it. The single-family tools keep
+    /// <see cref="SweepBoundaryLabel"/>, whose response has only one.</summary>
+    [NoClaims("a label; the claim it introduces is the named family's own boundary")]
+    internal const string SweepBoundaryLabelFor = "boundary ({0}): ";
+
+    /// <summary>The merged response's own title.</summary>
+    [NoClaims("a title; the response's claims are its families' own")]
+    internal const string SweepMergedTitle = "check — derived-findings sweep";
+
+    /// <summary>One family's section head in a merged response: the token a caller spells in <c>findings=</c>, and
+    /// the title that family's ancestor tool used for a whole response.</summary>
+    [NoClaims("a section label; the claims below it are the family's own")]
+    internal const string SweepFamilySectionHead = "[{0}] {1}";
+
     /// <summary>The text transport's label for the claim above.</summary>
     [NoClaims("a label; the claim it introduces is SweepBoundary")]
     internal const string SweepBoundaryLabel = "boundary: ";
