@@ -1671,6 +1671,26 @@ public static class CheckErrorsProbe
             && twoAxesText.Contains("by SOURCE plugin", StringComparison.Ordinal),
             $"note occurrences={twoAxesText.Split("counts_only=true — totals above are exact", StringSplitOptions.None).Length - 1}");
 
+        // ---- the overrun sentence's enumeration, measured against the response it describes.
+        // "its header, the accounting above, the boundary" was the whole list for a branch after this lane gained a
+        // third member. Both directions, because the member is conditional: a counts_only overrun DOES carry the
+        // closing lines and the sentence names them; a listing-lane overrun carries none, and the phrase is written
+        // so that stays true rather than naming something that lane has not got.
+        // Measured off the RESPONSE, not recomposed: the head line and the cut line each axis actually wrote at a
+        // cap no row fits under, which is the case the sentence is explaining.
+        var enumText = Wire.RenderCheckErrors(countsForHisto, 1);
+        int closingChars = enumText.Split('\n')
+            .Where(l => l.Contains("more row(s)", StringComparison.Ordinal) || l.Contains(" distinct):", StringComparison.Ordinal))
+            .Sum(l => l.Length + 1);
+        int closingLines = enumText.Split('\n').Count(l => l.Contains("more row(s)", StringComparison.Ordinal));
+        var listingOverrun = Wire.RenderCheckErrors(SectionsSized(manyAmple, 1200), 1);
+        Check("OVERRUN-SENTENCE-ENUMERATES-WHAT-THE-RESPONSE-CARRIES: the sentence explaining an overrun lists the closing lines the response cannot drop, and they are a material share of what did not fit — while the lane that owes none still reads true, because the member is stated conditionally",
+            enumText.Contains("the closing line for anything it cut short", StringComparison.Ordinal)
+            && closingLines == 2 && closingChars >= 250 && closingChars < enumText.Length
+            && listingOverrun.Contains("the closing line for anything it cut short", StringComparison.Ordinal)
+            && !listingOverrun.Contains("more row(s)", StringComparison.Ordinal),
+            $"counts_only@1 len={enumText.Length} closingLines={closingLines} closingChars={closingChars}; listing@1 len={listingOverrun.Length} carries an axis close={listingOverrun.Contains("more row(s)", StringComparison.Ordinal)}");
+
         // ---- a lane that cannot write an accounting line must not hold room for one.
         // The plain counts_only lane declares no listing subject and has nothing unread or unparseable, so
         // CheckAccounting.TextLine() is null for every value it could be handed. Reserved unconditionally, that
