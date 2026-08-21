@@ -53,11 +53,17 @@ public static class CheckDifferentialProbe
         string errPlugin = ArgVal(args, "--plugin") ?? "Skyrim.esm";
         string scrPlugin = ArgVal(args, "--script-plugin") ?? "Skyrim.esm";
 
-        RefusedFamilyJson(svc);
-        ErrorsDifferential(svc, errPlugin);
-        ScriptsDifferential(svc, scrPlugin);
-        AcceptanceBand394(svc);
-        DialogueEpochSubstrates(svc, ArgVal(args, "--seed") ?? "03372B:Skyrim.esm");
+        // Lane selectors. The whole run is ~30 minutes of live sweeps, and re-reading ONE lane after a change to it
+        // should not cost the other four — but the DEFAULT is everything, so acceptance evidence is never quoted
+        // from a partial run by accident.
+        bool all = args.All(a => !a.StartsWith("--only", StringComparison.Ordinal));
+        bool Only(string lane) => all || Array.IndexOf(args, "--only-" + lane) >= 0;
+
+        if (Only("refused")) RefusedFamilyJson(svc);
+        if (Only("errors")) ErrorsDifferential(svc, errPlugin);
+        if (Only("scripts")) ScriptsDifferential(svc, scrPlugin);
+        if (Only("394")) AcceptanceBand394(svc);
+        if (Only("epoch")) DialogueEpochSubstrates(svc, ArgVal(args, "--seed") ?? "03372B:Skyrim.esm");
 
         Console.WriteLine($"\n================ {_cells} cell(s), {_diverged} with divergences ================");
         return 0;
@@ -298,6 +304,49 @@ public static class CheckDifferentialProbe
             string mer = CheckTools.CheckTool(svc, counts_only: true, findings: new[] { "errors" }, format: "json", max_chars: cap);
             Console.WriteLine($"   {cap,6} {"ancestor",10} {anc.Length,7} {JsonRows(anc, null, "dangling_by_target_plugin"),12} {JsonRows(anc, null, "dangling_by_source_plugin"),12}");
             Console.WriteLine($"   {cap,6} {"check",10} {mer.Length,7} {JsonRows(mer, "errors", "dangling_by_target_plugin"),12} {JsonRows(mer, "errors", "dangling_by_source_plugin"),12}");
+        }
+
+        // THE BAND, READ RATHER THAN TABULATED. A row count is a summary, and at the tightest cap the summary is
+        // the thing most likely to be lying: an axis that renders its header and then only its "N more row(s)" line
+        // counts as zero rows here, which is a different fact from an axis that is absent. Both caps are printed
+        // whole for the merged surface so the numbers above can be checked against what a caller actually receives.
+        foreach (int cap in new[] { 2000, 4000 })
+        {
+            Console.WriteLine($"\n   --- merged text at max_chars={cap}, the histogram region verbatim ---");
+            string mer = CheckTools.CheckTool(svc, counts_only: true, findings: new[] { "errors" }, max_chars: cap);
+            bool inAxes = false;
+            foreach (var l in mer.Replace("\r", "").Split('\n'))
+            {
+                if (l.Contains("by TARGET plugin", StringComparison.Ordinal)) inAxes = true;
+                if (inAxes) Console.WriteLine("   | " + (l.Length > 200 ? l[..200] + "…" : l));
+                if (inAxes && l.StartsWith("[accounting", StringComparison.Ordinal)) break;
+            }
+        }
+
+        // WHAT THE MERGED FRAMING COSTS, and where it stops mattering. #394 is about FAIRNESS between two axes, and
+        // the merged surface answers it — but it also carries framing the single-family ancestor does not: one
+        // title, the ruled SCOPE SENTENCE (unrefusable, above everything a budget can touch), a section head, and a
+        // family-labelled boundary. That is body room the rows do not get, and at a tight enough cap it costs more
+        // rows than the fair split wins back. A band reported without it would be the fair half of a trade.
+        Console.WriteLine("\n   TOTAL rows rendered across BOTH axes — the fair split against what the framing costs");
+        Console.WriteLine($"   {"cap",7} {"ancestor",10} {"check",10}   {"verdict",-24}");
+        foreach (int cap in new[] { 2000, 3000, 4000, 5000, 6000, 8000, 10000, 12000, 20000 })
+        {
+            string a = ReadTools.CheckErrorsTool(svc, counts_only: true, max_chars: cap);
+            string m = CheckTools.CheckTool(svc, counts_only: true, findings: new[] { "errors" }, max_chars: cap);
+            int at = AxisRows(a, "TARGET plugin").rows + AxisRows(a, "SOURCE plugin").rows;
+            int mt = AxisRows(m, "TARGET plugin").rows + AxisRows(m, "SOURCE plugin").rows;
+            Console.WriteLine($"   {cap,7} {at,10} {mt,10}   {(mt >= at ? "merged >= ancestor" : "merged loses " + (at - mt) + " row(s)"),-24}");
+        }
+        {
+            // The framing itself, measured off a REAL response rather than inferred from the difference: the scope
+            // sentence is the biggest part of it and it is written on every response, so its cost is a number the PR
+            // body owes the reader. Read out of the json twin, which carries the identical string.
+            string j = CheckTools.CheckTool(svc, counts_only: true, findings: new[] { "errors" }, format: "json", max_chars: Unbounded);
+            using var d = JsonDocument.Parse(j);
+            string sentence = d.RootElement.GetProperty("findings_scope").GetString() ?? "";
+            Console.WriteLine($"\n   the ruled scope sentence, at the default: {sentence.Length} chars, above everything a budget can refuse");
+            Console.WriteLine("   | " + sentence);
         }
 
         // The other half of the same rule, and the one the counts_only band cannot reach: a SECOND family in the
