@@ -1291,8 +1291,11 @@ static class JsonWire
 
             if (r.CountsOnly)
             {
-                WriteHistogram(w, "dangling_by_target_plugin", SweepSubject.HistogramByTarget, r.Histogram, histogramLimit, body);
-                WriteHistogram(w, "dangling_by_source_plugin", SweepSubject.HistogramBySource, r.DanglingBySource, histogramLimit, body);   // #344 — the new axis
+                // Both axes handed over together, so both frames are reserved before either writes — the json twin
+                // of the text lane's two-pass reserve, for the same reason (#392).
+                WriteHistograms(w, body, histogramLimit,
+                    ("dangling_by_target_plugin", SweepSubject.HistogramByTarget, r.Histogram),
+                    ("dangling_by_source_plugin", SweepSubject.HistogramBySource, r.DanglingBySource));   // #344 — the new axis
                 WriteUnreadPlugins(w, r.Reports, body);
             }
             else
@@ -1360,12 +1363,16 @@ static class JsonWire
             // like the text lane, the notice is part of the document whose length it states, so its own encoded cost
             // is counted in and the composition is run to a fixed point.
             int closed = Size(w, ms) + Framing.RootClose;
-            if (acct.CapTooSmall(closed, headerLength + reserve) is { } notice)
+            // The response's FIXED PART: the header, plus everything reserved out of max_chars before the body
+            // rendered — the accounting, the boundary, and every axis's own frame. It is what the notice branches
+            // on, so a reserve missing from it would explain a cap too small for the fixed part as a body overshoot.
+            int fixedPart = reserve + body.ReservedTotal;
+            if (acct.CapTooSmall(closed, headerLength + fixedPart) is { } notice)
             {
                 int cost = OverrunNoticeCost(notice);
-                var settled = acct.CapTooSmall(closed + cost, headerLength + reserve)!;
+                var settled = acct.CapTooSmall(closed + cost, headerLength + fixedPart)!;
                 if (OverrunNoticeCost(settled) != cost)
-                    settled = acct.CapTooSmall(closed + OverrunNoticeCost(settled), headerLength + reserve)!;
+                    settled = acct.CapTooSmall(closed + OverrunNoticeCost(settled), headerLength + fixedPart)!;
                 w.WriteString("max_chars_overrun", settled);
             }
             w.WriteEndObject();
@@ -1600,6 +1607,46 @@ static class JsonWire
     }
 
     // ---- shared sweep writers (#282) ---------------------------------------------------------------
+    /// <summary>Reserve every axis's OBJECT FRAME out of the body budget, then write the axes. The frame — the
+    /// <c>distinct</c>/<c>rendered</c>/<c>cut_by</c> members around the rows — is this transport's whole disclosure
+    /// that the axis exists and how much of it is here, so it is written unconditionally and the room for it comes
+    /// out of <c>max_chars</c> first, exactly as the text lane reserves its closing line (#392).
+    ///
+    /// <para>The reserve covers the frame's LEADING members as well as its trailing ones, and the leading ones are
+    /// already written by the time this axis's own rows are tested — so an axis over-reserves against itself by
+    /// that much. Over-reserving costs characters; under-reserving is the thing this exists to stop, so the
+    /// simpler arithmetic is taken in the safe direction deliberately.</para></summary>
+    static void WriteHistograms(Utf8JsonWriter w, BoundedBody? body, int rowLimit,
+                                params (string Name, SweepSubject Subject, IReadOnlyList<SweepCount>? Rows)[] axes)
+    {
+        if (body is not null)
+            foreach (var a in axes)
+                if (a.Rows is not null) body.Reserve(a.Subject, HistogramFrameCost(a.Name, a.Rows.Count));
+        foreach (var a in axes) WriteHistogram(w, a.Name, a.Subject, a.Rows, rowLimit, body);
+    }
+
+    /// <summary>What ONE axis object costs with no rows in it, encoded exactly as the response will encode it — the
+    /// same construction as <see cref="PluginHeadCost"/>, at this object's own nesting depth, with every member at
+    /// its widest: <c>rendered</c> can print as many digits as <c>distinct</c>, and <c>cut_by</c> carries the longer
+    /// of the two knob names.</summary>
+    static int HistogramFrameCost(string name, int distinct)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteStartObject(name);
+            w.WriteNumber("distinct", distinct);
+            w.WriteStartArray("rows");
+            w.WriteEndArray();
+            w.WriteNumber("rendered", distinct);
+            w.WriteString("cut_by", "max_chars");
+            w.WriteEndObject();
+            w.WriteEndObject();
+        }
+        return (int)ms.Length;
+    }
+
     /// <summary>A counts_only histogram: <c>{distinct, rows:[{key,count}], rendered, cut_by}</c>. Absent when the mode
     /// was not requested; PRESENT with an empty <c>rows</c> when the sweep genuinely found nothing — the two must not
     /// look alike.</summary>
@@ -1610,7 +1657,7 @@ static class JsonWire
     static void WriteHistogram(Utf8JsonWriter w, string name, SweepSubject subject, IReadOnlyList<SweepCount>? rows,
                                int rowLimit, BoundedBody? body = null)
     {
-        if (rows is null) return;
+        if (rows is null) { body?.Release(subject); return; }
         // The object's own fixed members do not grow with the findings, so they are part of the fixed part; the ROWS
         // are what the budget gates, and `rendered` is written from what the gate let through.
         w.WriteStartObject(name);
@@ -1639,6 +1686,9 @@ static class JsonWire
         if (HistogramCut.For(rows.Count, shown, cutByBudget) is { } cut) w.WriteString("cut_by", cut.Knob);
         else w.WriteNull("cut_by");
         w.WriteEndObject();
+        // The frame is written, so the room held for it is spent — and holding it any longer would charge the
+        // unread and excluded rows below for a disclosure that is already on the document.
+        body?.Release(subject);
     }
 
     /// <summary>Under counts_only, check_errors' reports carry the honesty layer only — plugins whose records could not

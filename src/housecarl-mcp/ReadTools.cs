@@ -1186,19 +1186,19 @@ static class Wire
 
         if (r.CountsOnly)
         {
-            AppendHistogram(sb, body, SweepSubject.HistogramByTarget, r.Histogram, histogramLimit,
-                            "dangling ref(s) by TARGET plugin (the plugin the broken refs point INTO)",
-                            "counts_only=true — totals above are exact; no per-plugin listing was built.",
-                            notComputed: "no dangling histogram, by target or by source — the link walk was not run (findings= excluded 'dangling').");
-            // #344 — the SOURCE axis: which plugin the broken refs come FROM. The target axis names the absent
-            // dependency behind a wall of findings; only this one answers "how much of this is vanilla, and how much
-            // did the mods introduce". No note and no not-computed line of its own — both would repeat what the
-            // target histogram directly above has just said.
-            AppendHistogram(sb, body, SweepSubject.HistogramBySource, r.DanglingBySource, histogramLimit,
-                            "dangling ref(s) by SOURCE plugin (the plugin the broken refs come FROM)", note: null);
+            // Both axes are handed over TOGETHER so both are reserved before either renders. #344's SOURCE axis —
+            // which plugin the broken refs come FROM — carries no note and no not-computed line of its own: both
+            // would repeat what the TARGET axis directly above has just said.
+            AppendHistograms(sb, body, histogramLimit,
+                new HistogramAxis(SweepSubject.HistogramByTarget, r.Histogram,
+                                  "dangling ref(s) by TARGET plugin (the plugin the broken refs point INTO)",
+                                  "counts_only=true — totals above are exact; no per-plugin listing was built.",
+                                  "no dangling histogram, by target or by source — the link walk was not run (findings= excluded 'dangling')."),
+                new HistogramAxis(SweepSubject.HistogramBySource, r.DanglingBySource,
+                                  "dangling ref(s) by SOURCE plugin (the plugin the broken refs come FROM)"));
             AppendScanErrorTail(sb, body, r.Reports);
             AppendExcludedPlugins(sb, body, r.ExcludedPlugins);   // #288 review finding 5: the NAMES, not just the header count
-            return Close(sb, acct, reserve, headerLength);
+            return Close(sb, acct, reserve + body.ReservedTotal, headerLength);
         }
 
         if (r.Reports.Count == 0 && r.ExcludedPlugins.Count == 0)
@@ -1242,7 +1242,7 @@ static class Wire
         }
 
         AppendExcludedPlugins(sb, body, r.ExcludedPlugins);
-        return Close(sb, acct, reserve, headerLength);
+        return Close(sb, acct, reserve + body.ReservedTotal, headerLength);
     }
 
     /// <summary>Close the response: the accounting for what it emitted, then the boundary. Both live inside the
@@ -1250,7 +1250,11 @@ static class Wire
     /// overrun. The single exception — a <c>max_chars</c> smaller than the accounting itself — is stated in-band
     /// rather than taken silently (#361: appending past the cap without saying so is half of what that issue is).
     /// </summary>
-    static string Close(StringBuilder sb, CheckAccounting acct, int reserve, int headerLength)
+    /// <param name="reserved">everything held out of <c>max_chars</c> before the body rendered: the accounting, the
+    /// boundary, and every subject's closing disclosure. With the header it IS the response's fixed part, which is
+    /// the quantity the overrun notice branches on — a disclosure reserved but left out of this number would get a
+    /// cap too small for the fixed part explained as a body unit overshooting.</param>
+    static string Close(StringBuilder sb, CheckAccounting acct, int reserved, int headerLength)
     {
         if (acct.TextLine() is { } line) sb.Append('\n').Append(line).Append('\n');
         sb.Append('\n').Append(ReadSentences.SweepBoundaryLabel).Append(ReadSentences.SweepBoundary).Append('\n');
@@ -1259,10 +1263,10 @@ static class Wire
         // own length: 1,109 stated on a response of 1,281. Composing it changes only the width of one printed
         // number, so a second pass settles it and a third is only ever needed when that width moved.
         var response = sb.ToString().TrimEnd('\n');
-        if (acct.CapTooSmall(response.Length, headerLength + reserve) is not { } notice) return response;
-        var settled = acct.CapTooSmall(response.Length + notice.Length, headerLength + reserve)!;
+        if (acct.CapTooSmall(response.Length, headerLength + reserved) is not { } notice) return response;
+        var settled = acct.CapTooSmall(response.Length + notice.Length, headerLength + reserved)!;
         if (settled.Length != notice.Length)
-            settled = acct.CapTooSmall(response.Length + settled.Length, headerLength + reserve)!;
+            settled = acct.CapTooSmall(response.Length + settled.Length, headerLength + reserved)!;
         return response + settled;
     }
 
@@ -1320,63 +1324,65 @@ static class Wire
     /// exists so the two sweep headers stay textually identical (one shape, no drift).</summary>
     static string EpochOffOrderQualifier(ScriptCheckResult r) => "";
 
-    /// <summary>Render a <c>counts_only=</c> histogram, capped at <paramref name="rowLimit"/> with the true distinct-key
-    /// count always stated. A null histogram means the mode was not requested; an EMPTY one means the sweep genuinely
-    /// found nothing, and the two read differently (Q3).</summary>
-    /// <param name="body">the ONE bounded emission path. Its framing goes through it as well as its rows: the title,
-    /// the empty-case sentence and the "more rows" line used to bypass the budget entirely (~650 chars past a tight
-    /// cap), and a title with no rows under it is a section head with no section — the whole-or-absent rule this
-    /// render follows everywhere else. So the title rides the FIRST ROW as one unit.</param>
-    /// <param name="subject">this axis's OWN emission subject, never one shared with a sibling axis. A subject is
-    /// what <see cref="BoundedBody"/> stops, and the close below stops it: shared, the first axis to close refused
-    /// every row of the next one (see <see cref="SweepSubject.HistogramBySource"/>).</param>
-    static void AppendHistogram(StringBuilder sb, BoundedBody body, SweepSubject subject,
-                                IReadOnlyList<SweepCount>? rows, int rowLimit,
-                                string title, string? note, string? notComputed = null)
+    /// <summary>Reserve EVERY axis's closing disclosure, then render them all. The two passes are the point: an axis
+    /// that reserved its own room only when its turn came would find a sibling had already spent the budget, which
+    /// is the silence the reserve exists to remove. Reserving is therefore not something each axis does for itself.
+    /// </summary>
+    static void AppendHistograms(StringBuilder sb, BoundedBody body, int rowLimit, params HistogramAxis[] axes)
+    {
+        foreach (var a in axes) body.Reserve(a.Subject, a.TextDisclosure);
+        foreach (var a in axes) AppendHistogram(sb, body, rowLimit, a);
+    }
+
+    /// <summary>Render ONE <c>counts_only=</c> histogram axis, capped at <paramref name="rowLimit"/> with the true
+    /// distinct-key count always stated. A null histogram means the mode was not requested; an EMPTY one means the
+    /// sweep genuinely found nothing, and the two read differently (Q3).</summary>
+    /// <param name="body">the ONE bounded emission path. The axis's ROWS go through it and can be refused; the
+    /// axis's own statement about itself cannot — that room was reserved out of <c>max_chars</c> before the body
+    /// rendered, and <see cref="BoundedBody.Close"/> spends it without asking. Charging the statement to the same
+    /// budget as the rows is what let a whole axis disappear with nothing saying so (#392): the pressure that cut
+    /// the rows cut the sentence reporting the cut.</param>
+    static void AppendHistogram(StringBuilder sb, BoundedBody body, int rowLimit, HistogramAxis axis)
     {
         // The note and the not-computed line are fixed text that does not grow with the findings, and the second is
         // this axis's whole answer — a "the walk was not run" that a budget could drop would be the silence the
         // sentence exists to break. They are part of the response's fixed part, deliberately.
-        if (note is not null) sb.Append('\n').Append(note).Append('\n');
-        if (rows is null) { if (notComputed is not null) sb.Append(notComputed).Append('\n'); return; }
-        // The title rides the empty case too: two axes that both came back empty rendered as two identical untitled
-        // sentences, with no way to tell which was which — or that a second axis existed at all (round-1 review).
-        if (rows.Count == 0)
+        if (axis.Note is not null) sb.Append('\n').Append(axis.Note).Append('\n');
+        if (axis.Rows is not { } rows)
         {
-            var empty = "\n" + title + ": nothing to tally — no findings in the swept scope.\n";
-            body.Emit(subject, empty.Length, () => sb.Append(empty));
+            if (axis.NotComputed is not null) sb.Append(axis.NotComputed).Append('\n');
+            body.Release(axis.Subject);
             return;
         }
-        // The "more rows" line is HELD BACK rather than emitted on hope: rows shown without the count of the rows
-        // that were not is the silent cut one level down. Its widest spelling is bounded by the row count's digits,
-        // and by the longer of the two knob names — which is max_chars.
-        var head = "\n" + title + " (" + rows.Count + " distinct):\n";
+        // The title rides the empty case too: two axes that both came back empty rendered as two identical untitled
+        // sentences, with no way to tell which was which — or that a second axis existed at all (round-1 review).
+        // "Nothing to tally" is this axis's entire answer, so it closes with it rather than emitting it: an answer a
+        // tight cap can refuse leaves the caller unable to tell "no findings" from "this axis was never computed".
+        if (rows.Count == 0) { body.Close(axis.Subject, () => sb.Append(axis.EmptyLine)); return; }
+        var head = axis.Head;
         int shown = 0;
         bool cutByBudget = false;
-        var moreReserve = new HistogramCut(rows.Count, ByBudget: true).Line.Length;
         foreach (var row in rows)
         {
             if (shown >= rowLimit) break;
             var line = "  " + row.Count.ToString().PadLeft(6) + "  " + row.Key + "\n";
             var unit = shown == 0 ? head + line : line;
-            if (!body.Emit(subject, unit.Length + moreReserve, () => sb.Append(unit)))
-            { cutByBudget = true; break; }
+            // The row pays for itself only. What the closing line costs is already held back, against this axis's
+            // own tests as much as its siblings' — a subject may spend the budget on its rows, never on its own
+            // disclosure.
+            if (!body.Emit(axis.Subject, unit.Length, () => sb.Append(unit))) { cutByBudget = true; break; }
             shown++;
         }
         // The closing disclosure, from ONE computation the json lane reads too. The remedy names the knob that
         // STOPPED THIS AXIS: "raise limit=" on rows the response had no room for is a knob that moves nothing, and so
-        // is "raise max_chars=" on rows the row budget refused. An axis that rendered every row it had says nothing.
+        // is "raise max_chars=" on rows the row budget refused. An axis that rendered every row it had says nothing,
+        // and gives its reserved room back for the subjects rendering after it.
         //
-        // An axis the budget admitted NO rows of still says so, head and count together as one unit: an axis that
-        // exists and renders nothing at all is the same silent cut, one level down.
-        if (HistogramCut.For(rows.Count, shown, cutByBudget) is not { } cut) return;
-        if (shown == 0)
-        {
-            var only = head + cut.Line;
-            body.Close(subject, only.Length, () => sb.Append(only));
-        }
-        else
-            body.Close(subject, 0, () => sb.Append(cut.Line));
+        // An axis the budget admitted NO rows of still says so, head and count together: an axis that exists and
+        // renders nothing at all is the same silent cut, one level down.
+        if (HistogramCut.For(rows.Count, shown, cutByBudget) is not { } cut) { body.Release(axis.Subject); return; }
+        if (shown == 0) body.Close(axis.Subject, () => sb.Append(head).Append(cut.Line));
+        else body.Close(axis.Subject, () => sb.Append(cut.Line));
     }
 
     /// <summary>The named, reasoned list of plugins the index build could not parse. Shared by the listing and
@@ -1456,10 +1462,13 @@ static class Wire
             // validate_scripts' response layer is not this branch's, so it keeps no accounting — but it goes through
             // the same bounded emission path, because a second appending path is a second place to forget the bound.
             var scriptBody = new BoundedBody(null, cap, () => sb.Length);
-            AppendHistogram(sb, scriptBody, SweepSubject.HistogramByProperty, r.Histogram, histogramLimit,
-                            "unbound properties by NAME",
-                            "counts_only=true — totals above are exact; no per-record listing was built.",
-                            notComputed: "no unbound histogram — findings= excluded both unbound classes, so nothing was tallied.");
+            // This lane's axis has the identical shape and the identical exposure, and it keeps no accounting at
+            // all — so the reserved closing disclosure is the ONLY thing standing between a tight cap and an axis
+            // that vanishes without a word (#392's scope note).
+            AppendHistograms(sb, scriptBody, histogramLimit,
+                new HistogramAxis(SweepSubject.HistogramByProperty, r.Histogram, "unbound properties by NAME",
+                                  "counts_only=true — totals above are exact; no per-record listing was built.",
+                                  "no unbound histogram — findings= excluded both unbound classes, so nothing was tallied."));
             foreach (var rec in r.Reports)   // the honesty layer: plugins whose record enumeration faulted
             {
                 if (sb.Length >= cap) { sb.Append("\n... [truncated at max_chars]\n"); break; }

@@ -960,17 +960,21 @@ public static class CheckErrorsProbe
             $"listing=[{capFail}] fat-head=[{fatFail}] counts_only=[{countsFail}] masters-only=[{mastersFail}] fat-tails=[{tailsFail}] fat-histograms=[{histFail}] escaped-names=[{wideFail}] fat-excluded=[{excludedFail}]");
 
         // The surface the floor formulation deliberately cannot see: anything emitted UNCONDITIONALLY is inside the
-        // floor CapSweep measures against. A histogram's title, its empty-case sentence and its "more rows" line are
-        // exactly that — they bypassed the budget entirely. At a cap that admits no ROWS, a title is a section head
-        // with no section, which the whole-or-absent rule already forbids everywhere else.
+        // floor CapSweep measures against. A histogram axis's own statement about itself is now exactly that, and
+        // deliberately so — it is reserved out of max_chars with the accounting and the boundary, not charged to
+        // the budget its rows are charged to (#392). This is the arm that holds the surface, and it holds BOTH
+        // halves: at a cap that admits no ROWS, each axis is still in the response and says its whole tally is
+        // missing, and not one row key is in the response. A title alone would be a section head with no section;
+        // a title with its cut line under it is the one thing max_chars may not take away.
         var histFixture = ErrorCheck.Run(rm, null, 1000, null, null, ErrorFindingClass.All, true);
         var histFloor = Wire.RenderCheckErrors(histFixture, 1);
-        Check("HISTOGRAM-FRAMING-IS-BOUNDED: at a cap that admits no histogram rows, the histogram's own title and framing lines are absent too — a title with nothing under it is a section head with no section, and it is charged to the budget like every other unit",
-            histFixture.Histogram is { Count: > 0 }
-            && !histFloor.Contains("dangling ref(s) by TARGET plugin", StringComparison.Ordinal)
-            && !histFloor.Contains("dangling ref(s) by SOURCE plugin", StringComparison.Ordinal)
-            && !histFloor.Contains("more row(s)", StringComparison.Ordinal),
-            $"floorLen={histFloor.Length} distinct={histFixture.Histogram?.Count}");
+        var floorTarget = HistogramAxis(histFloor, TargetAxis);
+        var floorSource = HistogramAxis(histFloor, SourceAxis);
+        Check("HISTOGRAM-FRAMING-IS-RESERVED-NOT-BUDGETED: at a cap that admits no histogram rows, EACH axis is still in the response and states its whole tally as cut by max_chars — the rows are bounded, the axis's statement about itself is not",
+            histFixture.Histogram is { Count: > 0 } && histFixture.DanglingBySource is { Count: > 0 }
+            && floorTarget.Rows == 0 && floorTarget.Stated == histFixture.Histogram!.Count && floorTarget.Knob == "max_chars="
+            && floorSource.Rows == 0 && floorSource.Stated == histFixture.DanglingBySource!.Count && floorSource.Knob == "max_chars=",
+            $"floorLen={histFloor.Length} target={floorTarget} (of {histFixture.Histogram?.Count}) source={floorSource} (of {histFixture.DanglingBySource?.Count})");
 
         // The arm CapSweep's floor formulation needs standing beside it. A floor measured off the fixture under test
         // is inflated by any write site that ignores the budget, and an inflated floor excuses the very overrun it
@@ -1000,20 +1004,49 @@ public static class CheckErrorsProbe
         var emitter = new BoundedBody(null, 100, () => emitSb.Length);
         bool firstLanded = emitter.Emit(SweepSubject.DanglingEntries, 0, () => emitSb.Append(new string('x', 500)));
         bool secondRefused = !emitter.Emit(SweepSubject.PluginSections, 0, () => emitSb.Append("more"));
-        bool closeRefused = !emitter.Close(SweepSubject.UnreadRows, 0, () => emitSb.Append("tail"));
-        Check("EMISSION-AN-UNDERSTATED-COST-COSTS-ONE-UNIT: a unit that declared a cost smaller than what it wrote takes the body over exactly ONCE — every later unit is refused, in every subject, and so is a closing disclosure",
-            firstLanded && secondRefused && closeRefused && emitSb.Length == 500,
-            $"firstLanded={firstLanded} secondRefused={secondRefused} closeRefused={closeRefused} len={emitSb.Length}");
+        Check("EMISSION-AN-UNDERSTATED-COST-COSTS-ONE-UNIT: a unit that declared a cost smaller than what it wrote takes the body over exactly ONCE — every later unit is refused, in every subject, including one never tried before",
+            firstLanded && secondRefused && emitSb.Length == 500,
+            $"firstLanded={firstLanded} secondRefused={secondRefused} len={emitSb.Length}");
+
+        // …and the ONE thing that still gets written in that state. A closing disclosure is not a unit: its room
+        // came out of max_chars before anything was emitted, so the budget the rows exhausted cannot also refuse
+        // the sentence reporting them. It used to be budget-gated, and a whole counts_only axis left the response
+        // with nothing saying it had ever existed (#392).
+        var closeSb = new System.Text.StringBuilder();
+        var closer = new BoundedBody(null, 100, () => closeSb.Length);
+        closer.Reserve(SweepSubject.UnreadRows, 4);
+        bool ranOver = closer.Emit(SweepSubject.DanglingEntries, 0, () => closeSb.Append(new string('x', 500)));
+        bool ownRowsRefused = !closer.Emit(SweepSubject.UnreadRows, 0, () => closeSb.Append("row"));
+        closer.Close(SweepSubject.UnreadRows, () => closeSb.Append("tail"));
+        Check("EMISSION-A-CLOSING-DISCLOSURE-IS-NEVER-REFUSED: with the body already past its budget and the subject's OWN rows refused, the subject still says what it dropped — a disclosure a budget can refuse is not a disclosure",
+            ranOver && ownRowsRefused && closeSb.Length == 504
+            && closeSb.ToString().EndsWith("tail", StringComparison.Ordinal),
+            $"ranOver={ranOver} ownRowsRefused={ownRowsRefused} len={closeSb.Length}");
 
         // The other direction, or the arm above would pass on an emitter that refuses everything.
         var okSb = new System.Text.StringBuilder();
         var okEmitter = new BoundedBody(null, 100, () => okSb.Length);
+        okEmitter.Reserve(SweepSubject.UnreadRows, 4);
         bool a = okEmitter.Emit(SweepSubject.DanglingEntries, 10, () => okSb.Append(new string('y', 10)));
         bool b = okEmitter.Emit(SweepSubject.PluginSections, 10, () => okSb.Append(new string('z', 10)));
-        bool c = okEmitter.Close(SweepSubject.UnreadRows, 4, () => okSb.Append("tail"));
+        okEmitter.Close(SweepSubject.UnreadRows, () => okSb.Append("tail"));
         Check("EMISSION-HONEST-COSTS-ALL-LAND: units that state their true cost and fit are all emitted, and the closing disclosure with them — the stop is a bound, not a refusal to write",
-            a && b && c && okSb.Length == 24,
-            $"a={a} b={b} c={c} len={okSb.Length}");
+            a && b && okSb.Length == 24,
+            $"a={a} b={b} len={okSb.Length}");
+
+        // A reserve has to BITE, or it is a promise with nothing behind it: while the room stands, a unit that
+        // would eat into it is refused — and once the subject it was held for turns out to have nothing to say,
+        // the same unit fits. Both directions, because a Reserve that held nothing and a Release that freed
+        // nothing would each leave every product arm green.
+        var heldSb = new System.Text.StringBuilder();
+        var heldBody = new BoundedBody(null, 100, () => heldSb.Length);
+        heldBody.Reserve(SweepSubject.HistogramBySource, 40);
+        bool refusedWhileHeld = !heldBody.Emit(SweepSubject.HistogramByTarget, 61, () => heldSb.Append(new string('h', 61)));
+        heldBody.Release(SweepSubject.HistogramBySource);
+        bool landsOnceReleased = heldBody.Emit(SweepSubject.UnreadRows, 61, () => heldSb.Append(new string('h', 61)));
+        Check("EMISSION-A-RESERVE-IS-ROOM-THE-ROWS-CANNOT-HAVE: a unit that would spend a standing closing-disclosure reserve is refused, and the identical unit lands once that reserve is released",
+            refusedWhileHeld && landsOnceReleased && heldSb.Length == 61 && heldBody.ReservedTotal == 40,
+            $"refusedWhileHeld={refusedWhileHeld} landsOnceReleased={landsOnceReleased} len={heldSb.Length} reserved={heldBody.ReservedTotal}");
 
         Check("SECTION-IS-WHOLE-OR-ABSENT: across a sweep of caps, a section that starts also carries everything it has to say — the only things a cut may drop are a whole section or an entry, which are the two the accounting states",
             SectionsWhole(new[] { manyAmple, tight, ErrorCheck.Run(r, null, 1000) }, out var wholeFail), wholeFail);
@@ -1431,9 +1464,13 @@ public static class CheckErrorsProbe
         var rowsSource = HistogramAxis(hRows, SourceAxis);
         var cutTarget = HistogramAxis(hCut, TargetAxis);
         var cutSource = HistogramAxis(hCut, SourceAxis);
-        Check("HISTOGRAM-REMEDY-NAMES-ITS-CAUSE: a histogram cut by the response offers max_chars=, one cut by the row limit offers limit= — the knob that stopped it, not the other one",
-            cutTarget.Knob == "max_chars=" && rowsTarget.Knob == "limit=",
-            $"cap={hCap} budget-cut={cutTarget.Knob} row-cut={rowsTarget.Knob}");
+        // PER AXIS means BOTH axes are read, and both are asserted. cutSource was computed here and never looked
+        // at — the same "one substring over the whole response" hole this arm was rewritten to close, left open one
+        // axis over. Asserting it is what would have gone red on #392 at authoring time.
+        Check("HISTOGRAM-REMEDY-NAMES-ITS-CAUSE: a histogram cut by the response offers max_chars=, one cut by the row limit offers limit= — the knob that stopped it, not the other one, on EACH axis",
+            cutTarget.Knob == "max_chars=" && cutSource.Knob == "max_chars="
+            && rowsTarget.Knob == "limit=" && rowsSource.Knob == "limit=",
+            $"cap={hCap} budget-cut target={cutTarget.Knob} source={cutSource.Knob} row-cut target={rowsTarget.Knob} source={rowsSource.Knob}");
 
         Check("HISTOGRAM-AXES-CUT-INDEPENDENTLY: at limit=3 over two 200-row axes, EACH renders its three rows and states its own 197 against limit= — one axis's stop is not the other's, and a remedy is only offered by the axis it applies to",
             rowsTarget.Rows == 3 && rowsTarget.Stated == 197 && rowsTarget.Knob == "limit="
@@ -1469,6 +1506,14 @@ public static class CheckErrorsProbe
             && JsonAxis(hWholeJson, "dangling_by_target_plugin") == (200, 200, null)
             && JsonAxis(hWholeJson, "dangling_by_source_plugin") == (200, 200, null),
             $"cut target={JsonAxis(hRowsJson, "dangling_by_target_plugin")} source={JsonAxis(hRowsJson, "dangling_by_source_plugin")} whole target={JsonAxis(hWholeJson, "dangling_by_target_plugin")}");
+
+        // #392, and the reason the whole revision exists. Every cap in the band three independent reviewers
+        // measured the drop in — on a 200-row fixture the by-SOURCE axis was silently absent at EVERY cap from
+        // 1000 upward — asked of BOTH transports, because the two disagreed exactly here: json's object framing
+        // was written unconditionally while the text lane emitted nothing at all, so one transport reported a cut
+        // the other was silent about.
+        Check("HISTOGRAM-AXIS-NEVER-DROPS-SILENTLY (#392): at every cap across the band, each axis is IN the response and states how many of its rows are missing — an axis may lose its rows to max_chars, never its statement that it had them",
+            EveryAxisStatesItself(countsForHisto, 400, 8000, 20, out var axisFail), axisFail);
 
         // ---- a record scope can admit nothing from a base master the sweep opened. "Swept" has to mean examined.
         var modOnlyScope = ErrorCheck.Run(rb, null, 1000, null, new SweepScope(null, "HcCeModNpc", null, null));
@@ -1977,6 +2022,55 @@ public static class CheckErrorsProbe
         return bad.Count == 0;
     }
 
+    /// <summary>Every histogram axis states itself at EVERY cap in a band. An axis may lose its ROWS to
+    /// <c>max_chars</c>; it may never lose the line saying so — that line is reserved out of <c>max_chars</c> with
+    /// the accounting and the boundary, so the pressure it exists to report cannot refuse it (#392).
+    ///
+    /// <para>Swept one cap at a time rather than over a ladder, because the defect this replaces was a BAND, not a
+    /// point: on a 200-row fixture the by-SOURCE axis was silently absent at every cap from 1000 upward, and a
+    /// ladder that happened to land outside it would have reported nothing.</para>
+    ///
+    /// <para>Both transports, because they disagreed exactly here — json's object framing was written
+    /// unconditionally while the text lane emitted nothing at all, so one transport declared a cut the other was
+    /// silent about. And what each axis STATES is held against the fixture's own distinct count and the rows the
+    /// response actually carries: an axis that is present and lying is not something this arm passes.</para>
+    /// </summary>
+    static bool EveryAxisStatesItself(ErrorCheckResult r, int from, int to, int step, out string detail)
+    {
+        var bad = new List<string>();
+        int targetDistinct = r.Histogram!.Count, sourceDistinct = r.DanglingBySource!.Count;
+        for (int cap = from; cap <= to; cap += step)
+        {
+            var text = Wire.RenderCheckErrors(r, cap);
+            AxisStatesItself(bad, $"text@{cap} TARGET", HistogramAxis(text, TargetAxis), targetDistinct);
+            AxisStatesItself(bad, $"text@{cap} SOURCE", HistogramAxis(text, SourceAxis), sourceDistinct);
+            var root = JsonDocument.Parse(JsonWire.RenderCheckErrors(r, cap)).RootElement;
+            var jt = JsonAxis(root, "dangling_by_target_plugin");
+            var js = JsonAxis(root, "dangling_by_source_plugin");
+            if (jt.Distinct != targetDistinct) bad.Add($"json@{cap} TARGET distinct={jt.Distinct} (fixture has {targetDistinct})");
+            if (js.Distinct != sourceDistinct) bad.Add($"json@{cap} SOURCE distinct={js.Distinct} (fixture has {sourceDistinct})");
+            if (jt.Rendered < jt.Distinct && jt.CutBy is null) bad.Add($"json@{cap} TARGET short by {jt.Distinct - jt.Rendered} and names no knob");
+            if (js.Rendered < js.Distinct && js.CutBy is null) bad.Add($"json@{cap} SOURCE short by {js.Distinct - js.Rendered} and names no knob");
+        }
+        detail = bad.Count == 0 ? $"every axis stated itself at all {1 + (to - from) / step} caps, both transports"
+                                : string.Join("; ", bad.Take(4)) + $" ({bad.Count} total)";
+        return bad.Count == 0;
+    }
+
+    /// <summary>One text axis, held to the two things it must never do: be absent from the response, and state a
+    /// number that is not the rows it left out.</summary>
+    static void AxisStatesItself(List<string> bad, string where, (int Rows, int Stated, string Knob) axis, int distinct)
+    {
+        if (axis.Rows < 0) { bad.Add($"{where} absent from the response entirely"); return; }
+        if (axis.Rows >= distinct)
+        {
+            if (axis.Stated != -1) bad.Add($"{where} rendered all {distinct} rows and still claims {axis.Stated} missing");
+            return;
+        }
+        if (axis.Stated != distinct - axis.Rows)
+            bad.Add($"{where} rendered {axis.Rows} of {distinct} and states {axis.Stated}");
+    }
+
     /// <summary>The caps this invariant is swept over. It used to step 3000 -> 8000, straight over the 4000-7000 band
     /// the fat-head fixture's plugin object actually bites in: the arm's one real defect lived in a gap in its own
     /// ladder. The band is now walked rather than jumped.</summary>
@@ -2001,8 +2095,17 @@ public static class CheckErrorsProbe
     /// It is bounded by digit width (<see cref="FloorSlack"/>), not by plausibility.</para>
     ///
     /// <para><b>What it does NOT bound, stated rather than implied:</b> anything the render emits UNCONDITIONALLY is
-    /// inside the floor it is measured against, so this arm cannot see it. HISTOGRAM-FRAMING-IS-BOUNDED is the arm
-    /// that holds that surface.</para></summary>
+    /// inside the floor it is measured against, so this arm cannot see it.
+    /// HISTOGRAM-FRAMING-IS-RESERVED-NOT-BUDGETED is the arm that holds that surface.</para>
+    ///
+    /// <para><b>What the reserved disclosures do to the floor, since the floor is what this arm allows.</b> Each
+    /// counts_only axis now holds back its own closing line, so a counts_only floor is roughly 120 characters per
+    /// axis — about 240 for check_errors' two — larger than it was, whether or not anything is cut. That is the
+    /// stated price of #392's fix and it is real: it is body budget a caller does not get, and at caps near the
+    /// floor it is the difference between an axis that says what it dropped and one that vanishes. It does NOT
+    /// loosen this arm, because the floor is measured off the fixture rather than declared — a write site that
+    /// escapes the budget still inflates the floor, and FLOOR-IGNORES-BODY-SIZE is what catches that.</para>
+    /// </summary>
     static bool CapSweep(ErrorCheckResult r, out string detail)
     {
         var bad = new List<string>();

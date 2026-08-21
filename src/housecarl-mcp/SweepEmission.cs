@@ -1,3 +1,5 @@
+using HousecarlCore;
+
 namespace HousecarlMcp;
 
 /// <summary>
@@ -92,6 +94,40 @@ internal readonly record struct HistogramCut(int Remaining, bool ByBudget)
 }
 
 /// <summary>
+/// ONE counts_only histogram axis, as both the RESERVE and the RENDER need it.
+///
+/// <para>They read the same object for the same reason the cut line has one spelling: a reserve is a promise about
+/// a specific sentence, and room measured off a different title or a different row count is not a reserve for the
+/// sentence that gets written. Handing the two a single value makes them the same sentence by construction rather
+/// than by two call sites agreeing.</para>
+/// </summary>
+/// <param name="Rows">the axis's tally, or null where the mode was not requested — an ABSENT axis and an EMPTY one
+/// are different answers and must not render alike (Q3).</param>
+/// <param name="NotComputed">what to say instead when <paramref name="Rows"/> is null: the axis's whole answer, and
+/// fixed text that does not grow with the findings.</param>
+internal readonly record struct HistogramAxis(SweepSubject Subject, IReadOnlyList<SweepCount>? Rows, string Title,
+                                              string? Note = null, string? NotComputed = null)
+{
+    /// <summary>The axis's section head. Ridden by its first row, so a title never stands over nothing.</summary>
+    internal string Head => "\n" + Title + " (" + (Rows?.Count ?? 0) + " distinct):\n";
+
+    /// <summary>What an axis with nothing to tally says. Two axes that both came back empty rendered as two
+    /// identical untitled sentences before the title rode this too, with no way to tell which was which — or that a
+    /// second axis existed at all.</summary>
+    internal string EmptyLine => "\n" + Title + ": nothing to tally — no findings in the swept scope.\n";
+
+    /// <summary>The axis's IRREDUCIBLE DISCLOSURE, in text-lane characters: the widest thing
+    /// <see cref="BoundedBody.Close"/> can be asked to write for it, which is its head plus a cut line naming
+    /// every row — the case where the budget admitted no rows at all. An axis that renders some of its rows
+    /// discloses in less than this, and an axis that renders all of them gives the room back
+    /// (<see cref="BoundedBody.Release"/>).</summary>
+    internal int TextDisclosure
+        => Rows is null ? 0
+         : Rows.Count == 0 ? EmptyLine.Length
+         : Head.Length + new HistogramCut(Rows.Count, ByBudget: true).Line.Length;
+}
+
+/// <summary>
 /// THE ONE PLACE either sweep transport appends anything the caller's <c>max_chars</c> can refuse.
 ///
 /// <para><b>Why one helper rather than a test per write site.</b> Boundedness used to be asserted at each site, so
@@ -107,17 +143,33 @@ internal readonly record struct HistogramCut(int Remaining, bool ByBudget)
 /// Everywhere else the cost is zero and the test degenerates to "is there room at all". That is enough on its own,
 /// because the response's length only ever GROWS: the first unit whose declared cost was too small takes it past
 /// the budget, and from that moment every test — in every subject, whether or not that subject has been tried —
-/// is a comparison against a length already over. So the damage of a forgotten cost is ONE unit, and it is never
-/// silent, because the accounting is a subtraction taken after emission and states what was left out either way.</para>
+/// is a comparison against a length already over. So the damage of a forgotten cost is ONE unit.</para>
+///
+/// <para><b>Why that damage is never SILENT, stated as it actually holds.</b> A response has exactly two ways of
+/// telling a caller what it left out, and the guarantee is that neither of them is emitted through this helper:
+/// <list type="bullet">
+/// <item>the ACCOUNTING — a subtraction against the sweep's own totals, taken after emission stops, computed from
+/// the subjects the lane DECLARED (<see cref="CheckAccounting"/>) and written inside a reserve; and</item>
+/// <item>a subject's OWN CLOSING DISCLOSURE — the line that says how much of that subject did not fit, written by
+/// <see cref="Close"/> out of room <see cref="Reserve"/> held back before the body rendered.</item>
+/// </list>
+/// This paragraph used to name only the first, and read it as covering everything: "the accounting states what was
+/// left out either way". It does not. The histogram axes are deliberately NOT declared accounting subjects (see
+/// <see cref="SweepSubjects"/>), so for them the first route does not exist — and the second was budget-gated like
+/// a row, which means the pressure that cut the rows also cut the line reporting the cut. A whole
+/// <c>counts_only</c> axis therefore left the response with nothing anywhere saying so, at every cap in a wide band
+/// (#392). A disclosure that the budget can refuse is not a disclosure, so it is now part of the response's fixed
+/// part like the header and the accounting: reserved first, written unconditionally.</para>
 ///
 /// <para>An explicit "the response has gone over, stop everything" flag was written here first and then deleted:
 /// monotonic length already makes it true, so the flag could be removed with every arm still green. A conditional
 /// that cannot be fixtured honestly is the signal to delete it, not a testing gap to work around (CLAUDE.md §5 #11,
 /// PR #339's precedent).</para>
 ///
-/// <para>The header and the accounting are outside this: the header is the response's fixed part and the accounting
-/// plus boundary are RESERVED out of <c>max_chars</c> before the body renders. Those are the two things a response
-/// is never allowed to drop, which is exactly why they are not emitted through a helper that can refuse.</para>
+/// <para>The FIXED PART is outside this helper entirely: the header, every reserved closing disclosure, the
+/// accounting and the boundary. Those are the things a response is never allowed to drop, which is exactly why
+/// none of them is emitted through a helper that can refuse. What a cap too small for the fixed part gets is an
+/// overrun that SAYS SO (<see cref="CheckAccounting.CapTooSmall"/>), never a shorter response with less in it.</para>
 /// </summary>
 internal sealed class BoundedBody
 {
@@ -125,6 +177,7 @@ internal sealed class BoundedBody
     readonly Func<int> _length;
     readonly CheckAccounting? _acct;
     readonly HashSet<SweepSubject> _stopped = new();
+    readonly Dictionary<SweepSubject, int> _held = new();
 
     /// <param name="acct">the accounting to register emissions with, or null for a lane that keeps no accounting
     /// (validate_scripts, whose response layer is not this branch's — it still gets the same bound).</param>
@@ -147,27 +200,58 @@ internal sealed class BoundedBody
     internal bool Emit(SweepSubject subject, int cost, Action commit, string? source = null)
     {
         if (_stopped.Contains(subject)) return false;
-        if (_length() + cost > _budget) { _stopped.Add(subject); return false; }
+        if (_length() + cost + Held > _budget) { _stopped.Add(subject); return false; }
         commit();
         _acct?.Emitted(subject, source);
         return true;
     }
 
-    /// <summary>Emit a subject's own CLOSING DISCLOSURE — the line that says how much of it did not fit. It is not
-    /// a unit, so it is not registered and it is not refused because the subject stopped: a subject that stopped is
-    /// exactly when this has to be said. The budget still applies, and the room for it is what the caller held back
-    /// while emitting the units.
+    /// <summary>Hold back the room one subject's CLOSING DISCLOSURE will need, BEFORE any unit is emitted. Every
+    /// emission test then has to leave that room standing, so by the time the subject closes, what it writes is
+    /// already paid for.
     ///
-    /// <para>Without this it was refused by its own subject's stop flag, and a histogram cut by max_chars rendered
-    /// its rows and then said nothing about the ones it had dropped — the silent cut, one level down from the one
-    /// the accounting states.</para></summary>
-    internal bool Close(SweepSubject subject, int cost, Action commit)
+    /// <para>Reserving is what makes the disclosure unrefusable, and it has to happen before the FIRST unit of ANY
+    /// subject: an axis that reserved its own room after a sibling had already spent the budget would be the exact
+    /// silence this exists to remove.</para></summary>
+    internal void Reserve(SweepSubject subject, int cost)
     {
-        if (_length() + cost > _budget) return false;
+        _held[subject] = cost;
+        ReservedTotal += cost;
+    }
+
+    /// <summary>Everything ever reserved here, spent or not. It is the part of the response's fixed part that the
+    /// header does not carry, so the overrun notice needs it to tell a cap too small for the fixed part from a body
+    /// unit that ran past what was left after the fixed part fit.</summary>
+    internal int ReservedTotal { get; private set; }
+
+    /// <summary>Room reserved and not yet spent. Held against every emission test, including tests of the subject
+    /// that reserved it — a subject may spend the budget on its rows, never on its own disclosure.</summary>
+    int Held
+    {
+        get { int n = 0; foreach (var v in _held.Values) n += v; return n; }
+    }
+
+    /// <summary>Write a subject's own CLOSING DISCLOSURE — the line that says how much of it did not fit. It is not
+    /// a unit, so it is not registered, and it is <b>NEVER REFUSED</b>: not because the subject stopped (a subject
+    /// that stopped is exactly when this has to be said), and not on the budget either. The room came out of
+    /// <see cref="Reserve"/> before the body rendered, which is what makes writing it unconditionally safe rather
+    /// than merely hopeful.
+    ///
+    /// <para>It used to take a budget, and a subject whose rows the budget refused had its disclosure refused by
+    /// the same pressure — the whole axis then left the response with nothing saying it had ever existed. A
+    /// disclosure a budget can refuse is not a disclosure (#392).</para></summary>
+    internal void Close(SweepSubject subject, Action commit)
+    {
+        _held.Remove(subject);   // spent here, and only here
         commit();
         _stopped.Add(subject);   // nothing follows a subject's closing disclosure
-        return true;
     }
+
+    /// <summary>Give a subject's reserved room back UNSPENT — for the subject that turned out to have nothing to
+    /// disclose, because it rendered everything it had. Without this the room stays held against every later
+    /// subject's emission test, and the subjects after a complete histogram would pay for a sentence nobody
+    /// wrote.</summary>
+    internal void Release(SweepSubject subject) => _held.Remove(subject);
 
     /// <summary>Did this subject stop short? For the one caller that states the fact in its own words rather than
     /// through the accounting (validate_scripts).</summary>
