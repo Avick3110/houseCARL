@@ -638,23 +638,48 @@ internal sealed class CheckAccounting
             w.WriteNumber("seeds_unreachable_total", Found(SweepSubject.DialogueSeedRefusals));
             w.WriteNumber("seeds_unreachable_named", Shown(v, SweepSubject.DialogueSeedRefusals));
         }
+        // Facts about the CALL rather than about any subject, so they are true of every lane and written by every
+        // lane: what this section listed at all, and the cap it was given.
         w.WriteNumber("max_chars", _cap);
-        w.WriteNumber("excluded_plugins_total", Found(SweepSubject.ExcludedRows));
-        w.WriteNumber("excluded_plugins_named", Shown(v, SweepSubject.ExcludedRows));
-        w.WriteNumber("unread_plugins_total", Found(SweepSubject.UnreadRows));
-        w.WriteNumber("unread_plugins_named", Shown(v, SweepSubject.UnreadRows));
-        w.WriteStartArray("dangling_missing_by_source");
-        for (int i = 0; i < v.Roster.Count && i < ReadSentences.SweepRosterRows; i++)
+        // THE SAME RULE THE HEAD OF THIS METHOD STATES, applied to the three remaining unconditional blocks: a field
+        // named for a subject is present exactly where that subject is. Written unconditionally they were zeros
+        // standing in for "this lane has no such thing" — the very reading the rule exists to make unrepresentable.
+        // The shape that surfaced it is one this merge INVENTED: before it, a refusal early-returned {error, epoch}
+        // and never reached this writer, so no response could carry a section for a family that did not run beside
+        // sections for families that did. A dialogue family refused on cost then stated `excluded_plugins_total: 0`
+        // and `unread_plugins_total: 0` — about a plugin scope it does not have (it is seeded, not swept) — and an
+        // empty `dangling_missing_by_source`, which is the ERRORS family's roster, inside the dialogue family's
+        // object. Meanwhile the TEXT lane wrote no accounting line at all for that family (CanStateAccounting), so
+        // the two transports said different things about one family, which is the failure this branch's own
+        // one-source rule is about.
+        if (Has(SweepSubject.ExcludedRows))
         {
-            w.WriteStartObject();
-            w.WriteString("plugin", v.Roster[i].Key);
-            w.WriteNumber("count", v.Roster[i].Count);
-            w.WriteEndObject();
+            w.WriteNumber("excluded_plugins_total", Found(SweepSubject.ExcludedRows));
+            w.WriteNumber("excluded_plugins_named", Shown(v, SweepSubject.ExcludedRows));
         }
-        w.WriteEndArray();
-        // The roster's own bound, disclosed rather than implied — the same rule the text line follows, so a machine
-        // consumer and a reading one learn the same thing about how complete the roster is.
-        w.WriteNumber("dangling_missing_by_source_total", v.RosterTotal);
+        if (Has(SweepSubject.UnreadRows))
+        {
+            w.WriteNumber("unread_plugins_total", Found(SweepSubject.UnreadRows));
+            w.WriteNumber("unread_plugins_named", Shown(v, SweepSubject.UnreadRows));
+        }
+        // The roster is the DANGLING subject's — Worst() already reserves for it on exactly that test, and a lane
+        // without that subject can never fill it. On findings=["missing_masters"] and under counts_only it was an
+        // empty array claiming no source plugin lost dangling findings, over a sweep that listed none.
+        if (dangling)
+        {
+            w.WriteStartArray("dangling_missing_by_source");
+            for (int i = 0; i < v.Roster.Count && i < ReadSentences.SweepRosterRows; i++)
+            {
+                w.WriteStartObject();
+                w.WriteString("plugin", v.Roster[i].Key);
+                w.WriteNumber("count", v.Roster[i].Count);
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+            // The roster's own bound, disclosed rather than implied — the same rule the text line follows, so a
+            // machine consumer and a reading one learn the same thing about how complete the roster is.
+            w.WriteNumber("dangling_missing_by_source_total", v.RosterTotal);
+        }
         w.WriteEndObject();
     }
 
