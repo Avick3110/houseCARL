@@ -30,9 +30,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
   neither is appended past it. That costs the listing a little of its room: on a 3800-plugin order at the
   defaults the response lists 538 findings and ends just inside 80,000 characters. There are two cases
   where a response is still longer than the `max_chars` you gave it. One is a `max_chars` too small to hold what the
-  response must carry whatever the budget — its header, that accounting, the boundary; there the response says so,
-  states its own length including the sentence saying it, and names the number that clears it, and setting
-  `max_chars` to that number does clear it. The other is a `format='json'` response running over by one body unit
+  response must carry whatever the budget — its header, that accounting, the closing line for anything it cut short,
+  the boundary; there the response says so, states its own length including the sentence saying it, and names the
+  number that clears it. That number is the smallest `max_chars` the response fits in, within a few characters:
+  setting `max_chars` to it clears the notice, and it is measured off what the response actually carries rather than
+  counting the notice itself or a lane's spare room. On a 3800-plugin order, `counts_only=true` at `max_chars=1200`
+  returns 1,540 characters and names 1,277; that call returns 1,269. The other is a `format='json'` response running
+  over by one body unit
   whose size is not known before it is written; it now says THAT instead — the fixed-part explanation is false
   there, and it was the one every overrun got. Every other part of the answer is now inside the cap: the two
   `counts_only=true` histograms (which took `limit=` as their only bound, so a wide tally could run many times past
@@ -40,10 +44,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
   could not be parsed — the last of which `format='json'` wrote with no bound at all. A `counts_only=true` histogram
   can lose its ROWS to `max_chars`, but never the line saying how many are missing and which knob moves them: that
   line is held back out of `max_chars` alongside the accounting, so the pressure that dropped the rows cannot drop
-  the report of it, and an axis with nothing to tally says that instead of nothing at all. Each axis holds back
-  about 120 characters for its line while it renders, which is body room its rows do not get — an axis that
-  turns out to have nothing to say gives that room back, so on a 3800-plugin order at the defaults, where both
-  axes render whole, the response is the same 10,530 characters it was before. The two
+  the report of it, and an axis with nothing to tally says that instead of nothing at all. Each axis holds back its
+  own line — 145 and 144 characters, plus 77 for the mode note the first axis carries — which is body room its rows
+  do not get; an axis that turns out to have nothing to say gives that room back, so on a 3800-plugin order at the
+  defaults, where both axes render whole, the response is the same 10,530 characters it was before. A
+  `counts_only=true` response with nothing to account for — nothing unread, nothing unparseable, no listing — no
+  longer holds room for the accounting line either, because that lane cannot write one; measured on a two-axis
+  result of that shape, 186 characters go back to the histograms, worth three rows at a cap that bites. A response
+  whose sweep DID have something to account for reserves what it always did. The two
   `counts_only=true` axes are cut independently: `limit=` stopping the by-TARGET axis no longer stops the by-SOURCE
   one, which used to render none of its rows under a "raise `max_chars=`" that would not have moved them. In
   `format='json'` each histogram object now carries `cut_by` — `"limit"`, `"max_chars"`, or `null` where the axis
