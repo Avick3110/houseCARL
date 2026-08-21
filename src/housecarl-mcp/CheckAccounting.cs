@@ -59,6 +59,16 @@ internal sealed class CheckAccounting
     readonly int _budgetListed;                     // the subset the listing budget admitted into the reports
     readonly int _cap;
     readonly int _limit;
+    // The scripts family's own listing budget, decomposed exactly as the dangling subject's is: the population the
+    // sweep found, and the subset the budget admitted into the reports. Both zero on the errors lane, whose
+    // findings are the dangling entries above.
+    readonly int _scriptFindingsFound;
+    readonly int _scriptFindingsListed;
+    readonly string _scriptTotals = "";   // the class-aware true totals, restated where the cut is reported
+    // What THIS lane closes with. The two families state different boundaries, and TextReserve holds room for the
+    // one that will actually be written — a reserve sized off the other family's sentence is room for a sentence
+    // this lane cannot write, which is the defect CanStateAccounting exists to name.
+    readonly string _boundary;
 
     /// <summary>Build the accounting for one response, declaring the subjects this lane has.
     ///
@@ -75,18 +85,64 @@ internal sealed class CheckAccounting
     /// different lanes and can never double-count a row.</item>
     /// <item><b>Excluded rows</b> — wherever the index actually excluded something.</item>
     /// </list></summary>
-    internal CheckAccounting(ErrorCheckResult r, int cap)
+    /// <param name="declareExcluded">whether THIS accounting owns the excluded-plugin roster. The roster is a
+    /// SCOPE fact — which plugins the index could not parse — emitted once per response however many families ran,
+    /// so exactly one accounting may declare its rows. Two that declared it would each subtract the same rows from
+    /// the same total and the response would state the cut twice, which is the double count that keeping one
+    /// subject per lane fact exists to make unrepresentable.</param>
+    internal CheckAccounting(ErrorCheckResult r, int cap, bool declareExcluded = true)
     {
         _cap = cap;
         _limit = r.Limit;
+        _boundary = ReadSentences.SweepBoundary;
         _bySource = r.DanglingBySource ?? Array.Empty<SweepCount>();
         _budgetListed = r.Reports.Sum(p => p.Dangling.Count);
 
         if (!r.CountsOnly && r.Classes.HasFlag(ErrorFindingClass.Dangling)) Declare(SweepSubject.DanglingEntries, r.TotalDangling);
         if (!r.CountsOnly) Declare(SweepSubject.PluginSections, r.Reports.Count);
         if (r.CountsOnly) Declare(SweepSubject.UnreadRows, r.Reports.Count);
-        if (r.ExcludedPlugins.Count > 0) Declare(SweepSubject.ExcludedRows, r.ExcludedPlugins.Count);
+        if (declareExcluded && r.ExcludedPlugins.Count > 0) Declare(SweepSubject.ExcludedRows, r.ExcludedPlugins.Count);
     }
+
+    /// <summary>The scripts family's accounting — the same class, declaring that family's own subjects.
+    ///
+    /// <para><b>Why the scripts family gets one at all.</b> Its listing used to test <c>sb.Length &gt;= cap</c>
+    /// inline, write its own truncation marker and keep no accounting, so the two things a response owes about
+    /// what it dropped were neither computed nor bounded: on the live ARR 2.0 order at plain defaults
+    /// <c>validate_scripts</c> returned <b>80,673 chars against its own 80,000 cap</b>, with the marker and the
+    /// boundary footer appended unconditionally AFTER the test. Rendering through the reserved fixed part is what
+    /// closes that by construction rather than by a second length check.</para>
+    ///
+    /// <para>The subjects, and why each is declared where it is:</para>
+    /// <list type="bullet">
+    /// <item><b>Record sections</b> — in the LISTING lane, findings or not. Under <c>counts_only</c> nothing is
+    /// listed by design.</item>
+    /// <item><b>Script scan rows</b> — only under <c>counts_only</c>, where <c>Reports</c> carries the honesty
+    /// layer alone. In the listing lane those same entries ARE sections, so the two subjects live in different
+    /// lanes and cannot double-count a row.</item>
+    /// <item><b>Excluded rows</b> — wherever the index excluded something AND this accounting owns the roster.</item>
+    /// </list></summary>
+    internal CheckAccounting(ScriptCheckResult r, int cap, bool declareExcluded = true)
+    {
+        _cap = cap;
+        _limit = r.Limit;
+        _boundary = ReadSentences.SweepScriptBoundary;
+        _bySource = Array.Empty<SweepCount>();
+        // The dangling subject's decomposition, in the scripts family's own population: what the sweep found, and
+        // what its finding budget admitted into the reports. Both MEASURED off the result — the totals the sweep
+        // counted regardless of the cap, and the findings the reports actually carry.
+        _scriptFindingsFound = r.CountsOnly ? 0 : r.TotalUnbound + r.TotalNullObject;
+        _scriptFindingsListed = r.CountsOnly ? 0 : r.Reports.Sum(x => x.Unbound.Count + x.NullObjects.Count);
+        _scriptTotals = ReadSentences.ScriptTotals(r);
+
+        if (!r.CountsOnly) Declare(SweepSubject.ScriptRecords, r.Reports.Count);
+        if (r.CountsOnly) Declare(SweepSubject.ScriptScanRows, r.Reports.Count(x => x.ScanError is not null));
+        if (declareExcluded && r.ExcludedPlugins.Count > 0) Declare(SweepSubject.ExcludedRows, r.ExcludedPlugins.Count);
+    }
+
+    /// <summary>What this lane's response closes with — read by the render rather than chosen there, so the
+    /// sentence reserved and the sentence written are the same one.</summary>
+    internal string Boundary => _boundary;
 
     void Declare(SweepSubject s, int found) { _found[s] = found; _emitted[s] = 0; }
 
@@ -124,6 +180,11 @@ internal sealed class CheckAccounting
     /// exactly rather than by two counters happening to agree.</summary>
     internal int OmittedByCut => Has(SweepSubject.DanglingEntries) ? _budgetListed - Emitted(SweepSubject.DanglingEntries) : 0;
 
+    /// <summary>Property findings the scripts family's listing budget never admitted into the reports. A pure SWEEP
+    /// fact, like <see cref="OmittedByBudget"/> — both terms are counted while the sweep runs, so it is readable
+    /// before the body renders and is the same number in the worst case as in the real one.</summary>
+    int ScriptOmittedByBudget => Has(SweepSubject.ScriptRecords) ? _scriptFindingsFound - _scriptFindingsListed : 0;
+
     /// <summary>WHICH source plugins are missing entries from THIS response, largest first. Computed against what was
     /// emitted, so it covers both causes at once: under the two-layer split, a plugin whose entries the budget listed
     /// and the cut then dropped appeared in neither sentence.</summary>
@@ -155,10 +216,16 @@ internal sealed class CheckAccounting
     /// sentence it is structurally unable to write: dead body budget in exactly the lane #392 is about, where every
     /// held char is a histogram row the caller does not see. Measured on a 74/180-row fixture at
     /// <c>max_chars=1200</c>, the response came back 315 chars under its own cap with both axes at zero rows.</para></summary>
-    internal int TextReserve => _textReserve ??= (CanStateAccounting ? Compose(Worst(escaped: false)).Length + TextWrap : 0)
-                                                 + ReadSentences.SweepBoundary.Length
-                                                 + ReadSentences.SweepBoundaryLabel.Length + TextWrap;
+    internal int TextReserve => TextAccountingReserve + TextBoundaryReserve;
     int? _textReserve;
+
+    /// <summary>The accounting LINE's own room, without the boundary's. Separate because a merged response has one
+    /// boundary block and one accounting PER FAMILY: summing whole TextReserves would reserve the boundary once per
+    /// family, and room held for a sentence written once is a subtraction from the answer.</summary>
+    internal int TextAccountingReserve => _textReserve ??= CanStateAccounting ? Compose(Worst(escaped: false)).Length + TextWrap : 0;
+
+    /// <summary>The room this lane's boundary needs, label and wrap included.</summary>
+    internal int TextBoundaryReserve => _boundary.Length + ReadSentences.SweepBoundaryLabel.Length + TextWrap;
 
     /// <summary>Can this lane write an accounting line at ALL? Literally <see cref="TextLine"/>'s own test, asked
     /// of the WORST case instead of the real one — so it is true wherever any rendering of this lane could produce
@@ -166,7 +233,8 @@ internal sealed class CheckAccounting
     /// subjects, because the two disagreeing is the whole defect: a reserve is room for a specific sentence, and
     /// room held for a sentence this lane cannot write is not a reserve, it is a subtraction from the
     /// answer.</summary>
-    bool CanStateAccounting => Has(SweepSubject.DanglingEntries) || Missing(Worst(escaped: false));
+    bool CanStateAccounting => Has(SweepSubject.DanglingEntries) || Has(SweepSubject.ScriptRecords)
+                               || Missing(Worst(escaped: false));
 
     /// <summary>The json lane's own reserve. Measured by SERIALIZING the worst case, not by estimating it off the
     /// text line: the two encodings differ in escaping and syntax, and a reserve that is an estimate is a reserve
@@ -270,7 +338,7 @@ internal sealed class CheckAccounting
     internal string? TextLine()
     {
         var v = Real();
-        return Has(SweepSubject.DanglingEntries) || Missing(v) ? Compose(v) : null;
+        return Has(SweepSubject.DanglingEntries) || Has(SweepSubject.ScriptRecords) || Missing(v) ? Compose(v) : null;
     }
 
     string Compose(Values v)
@@ -293,6 +361,25 @@ internal sealed class CheckAccounting
             if (v.ByCut > 0 || v.Worst) causes.Add(string.Format(ReadSentences.SweepOmittedByCut, v.ByCut, _cap));
             if (causes.Count > 0) sb.Append(string.Join(",", causes)).Append('.');
         }
+
+        // The scripts family's own lead + budget clause, the same two-part shape the dangling subject has one
+        // family over: a completeness assertion off what the response emitted, then the listing budget's share of
+        // what is absent, decomposed against the sweep's own totals rather than reported as a bare "capped" flag.
+        if (Has(SweepSubject.ScriptRecords))
+        {
+            sb.Append(Short(v, SweepSubject.ScriptRecords)
+                ? string.Format(ReadSentences.SweepScriptVisible, Shown(v, SweepSubject.ScriptRecords),
+                                Found(SweepSubject.ScriptRecords))
+                : string.Format(ReadSentences.SweepScriptAllVisible, Found(SweepSubject.ScriptRecords)));
+            if (ScriptOmittedByBudget > 0 || v.Worst)
+                sb.Append(string.Format(ReadSentences.SweepScriptFindings, _scriptFindingsListed,
+                                        _scriptFindingsFound, _limit, _scriptTotals));
+        }
+        // The scripts family's counts_only honesty layer. Same rule as the errors family's unread rows, in that
+        // family's own subject — its rows are the plugins whose record enumeration faulted.
+        if (Short(v, SweepSubject.ScriptScanRows))
+            sb.Append(string.Format(ReadSentences.SweepUnreadCut, Shown(v, SweepSubject.ScriptScanRows),
+                                    Found(SweepSubject.ScriptScanRows)));
 
         // One clause per short subject, each computed from the subject it names. A section is dropped by the RENDER,
         // and the render runs whether or not the dangling walk did — with findings=["missing_masters"] the sweep
@@ -327,10 +414,11 @@ internal sealed class CheckAccounting
 
         if (Missing(v))
         {
-            if (v.ByBudget > 0 || v.Worst) sb.Append(ReadSentences.SweepRemedyLimit);
+            if (v.ByBudget > 0 || ScriptOmittedByBudget > 0 || v.Worst) sb.Append(ReadSentences.SweepRemedyLimit);
             // max_chars is the knob for every subject except the listing budget's own share.
             if (v.ByCut > 0 || v.Worst || Short(v, SweepSubject.PluginSections)
-                || Short(v, SweepSubject.ExcludedRows) || Short(v, SweepSubject.UnreadRows))
+                || Short(v, SweepSubject.ExcludedRows) || Short(v, SweepSubject.UnreadRows)
+                || Short(v, SweepSubject.ScriptRecords) || Short(v, SweepSubject.ScriptScanRows))
                 sb.Append(ReadSentences.SweepRemedyMaxChars);
             if (v.Roster.Count > 0) sb.Append(ReadSentences.SweepRemedyScope).Append(ReadSentences.SweepRemedyCountsOnly);
         }
@@ -349,9 +437,10 @@ internal sealed class CheckAccounting
     /// its counts are the totals and <see cref="Short"/> is true of every subject that can ever be short — so the
     /// reserve stays an upper bound while dropping what no rendering could reach.</para></summary>
     bool Missing(Values v)
-        => v.ByBudget + v.ByCut > 0
+        => v.ByBudget + v.ByCut > 0 || ScriptOmittedByBudget > 0
            || Short(v, SweepSubject.PluginSections) || Short(v, SweepSubject.ExcludedRows)
-           || Short(v, SweepSubject.UnreadRows);
+           || Short(v, SweepSubject.UnreadRows)
+           || Short(v, SweepSubject.ScriptRecords) || Short(v, SweepSubject.ScriptScanRows);
 
     // ---- the json lane ------------------------------------------------------------------------------
 
@@ -373,7 +462,12 @@ internal sealed class CheckAccounting
         // twin of a text response that stated its cut said nothing about it.
         bool sections = Has(SweepSubject.PluginSections);
         bool dangling = Has(SweepSubject.DanglingEntries);
+        // The scripts family's own listing subject. Its `capped` / `rendered` / `truncated` used to be written at
+        // the render's call site — outside what JsonReserve measures, which is exactly how that lane's roster ended
+        // up unbounded. Everything the close emits is written here, and therefore measured.
+        bool scriptSections = Has(SweepSubject.ScriptRecords);
         if (dangling) w.WriteBoolean("capped", v.ByBudget > 0);
+        else if (scriptSections) w.WriteBoolean("capped", ScriptOmittedByBudget > 0);
         if (sections)
         {
             w.WriteNumber("plugins_with_findings", Found(SweepSubject.PluginSections));
@@ -383,8 +477,15 @@ internal sealed class CheckAccounting
             w.WriteBoolean("truncated", v.ByCut > 0 || Short(v, SweepSubject.PluginSections)
                                         || Short(v, SweepSubject.ExcludedRows) || Short(v, SweepSubject.UnreadRows));
         }
+        if (scriptSections)
+        {
+            w.WriteNumber("records_with_findings", Found(SweepSubject.ScriptRecords));
+            w.WriteNumber("rendered", Shown(v, SweepSubject.ScriptRecords));
+            w.WriteBoolean("truncated", Short(v, SweepSubject.ScriptRecords)
+                                        || Short(v, SweepSubject.ExcludedRows) || Short(v, SweepSubject.ScriptScanRows));
+        }
         w.WriteStartObject("accounting");
-        w.WriteBoolean("listing", dangling);
+        w.WriteBoolean("listing", dangling || scriptSections);
         if (dangling)
         {
             w.WriteNumber("dangling_found", Found(SweepSubject.DanglingEntries));
@@ -398,6 +499,22 @@ internal sealed class CheckAccounting
         {
             w.WriteNumber("sections_with_findings", Found(SweepSubject.PluginSections));
             w.WriteNumber("sections_rendered", Shown(v, SweepSubject.PluginSections));
+        }
+        if (scriptSections)
+        {
+            // The scripts family's decomposition, in its own units: the findings the sweep counted, the subset the
+            // listing budget admitted, and the record sections this response actually carried.
+            w.WriteNumber("script_findings_found", _scriptFindingsFound);
+            w.WriteNumber("script_findings_listed", _scriptFindingsListed);
+            w.WriteNumber("script_findings_missing_by_budget", ScriptOmittedByBudget);
+            w.WriteNumber("record_sections_with_findings", Found(SweepSubject.ScriptRecords));
+            w.WriteNumber("record_sections_rendered", Shown(v, SweepSubject.ScriptRecords));
+            w.WriteNumber("limit", _limit);
+        }
+        if (Has(SweepSubject.ScriptScanRows))
+        {
+            w.WriteNumber("script_scan_errors_total", Found(SweepSubject.ScriptScanRows));
+            w.WriteNumber("script_scan_errors_named", Shown(v, SweepSubject.ScriptScanRows));
         }
         w.WriteNumber("max_chars", _cap);
         w.WriteNumber("excluded_plugins_total", Found(SweepSubject.ExcludedRows));
@@ -425,7 +542,7 @@ internal sealed class CheckAccounting
     /// <para>Under the RESPONSE's writer options, not the default ones. Measuring unindented what is then written
     /// indented is a reserve that is wrong by the whole indentation, and it was: the first cut of this measured with
     /// a bare writer and a 5000-char cap returned 5673.</para></summary>
-    static int MeasureJson(Values v)
+    int MeasureJson(Values v)
     {
         // A standalone writer needs an enclosing object for a named property, and the wrapper's own two braces are
         // covered by Glue.
@@ -433,10 +550,10 @@ internal sealed class CheckAccounting
         using (var w = new Utf8JsonWriter(ms, JsonWire.WriterOptions))
         {
             w.WriteStartObject();
-            new CheckAccounting(v).WriteJson(w, v);
+            new CheckAccounting(v, this).WriteJson(w, v);
             // The boundary rides the measurement rather than being added as a raw char count: json escapes the
             // apostrophes in it, so its encoded length is not its string length.
-            w.WriteString("boundary", ReadSentences.SweepBoundary);
+            w.WriteString("boundary", _boundary);
             w.WriteEndObject();
         }
         return (int)ms.Length;
@@ -445,14 +562,29 @@ internal sealed class CheckAccounting
     /// <summary>The measuring constructor: every subject declared at full width, so
     /// <see cref="WriteJson(Utf8JsonWriter, Values)"/> writes the worst case with no field missing. It is never
     /// registered against and never rendered into a response.</summary>
-    CheckAccounting(Values v)
+    /// <param name="real">the accounting being measured FOR. It used to declare every non-histogram subject there
+    /// is, which made the worst case wider than any rendering of this lane could be — and once the scripts family's
+    /// subjects joined the enum, every errors-lane response would have reserved room for two numbers it can never
+    /// write. A field a lane cannot write is not a reserve, it is a subtraction from the answer (the text lane's
+    /// <see cref="CanStateAccounting"/>, in this transport). The scripts family's two finding counts are copied
+    /// rather than substituted, because they are SWEEP facts: the widest value they can print is the value they
+    /// will print, and a stand-in derived from the dangling roster is 0 on the very lane that writes them.</param>
+    CheckAccounting(Values v, CheckAccounting real)
     {
+        _boundary = "";
         _bySource = v.Roster;
         _cap = int.MaxValue;
         _limit = int.MaxValue;
         _budgetListed = v.ByBudget;
-        foreach (SweepSubject s in Enum.GetValues<SweepSubject>())
-            if (!s.IsHistogram()) Declare(s, Math.Max(v.ByBudget, v.RosterTotal));
+        _scriptFindingsFound = real._scriptFindingsFound;
+        _scriptFindingsListed = real._scriptFindingsListed;
+        _scriptTotals = real._scriptTotals;
+        // Each subject at the WIDEST number this lane can print for it: the dangling-derived worst case, or the
+        // subject's own found count where that is larger. A subject whose population is neither the dangling total
+        // nor the roster — the scripts family's record sections — printed 0 in the worst case and its real count in
+        // the response, which is a reserve short by the difference in digits.
+        foreach (var s in real._found.Keys)
+            if (!s.IsHistogram()) Declare(s, Math.Max(real.Found(s), Math.Max(v.ByBudget, v.RosterTotal)));
     }
 
     // ---- the cap floor ------------------------------------------------------------------------------

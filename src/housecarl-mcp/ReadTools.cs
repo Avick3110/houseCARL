@@ -1272,7 +1272,7 @@ static class Wire
     static string Close(StringBuilder sb, CheckAccounting acct, BoundedBody body)
     {
         if (acct.TextLine() is { } line) sb.Append('\n').Append(line).Append('\n');
-        sb.Append('\n').Append(ReadSentences.SweepBoundaryLabel).Append(ReadSentences.SweepBoundary).Append('\n');
+        sb.Append('\n').Append(ReadSentences.SweepBoundaryLabel).Append(acct.Boundary).Append('\n');
         // The overrun question is asked of the FINISHED response, so the string is built first and measured — and
         // the notice is PART of the response it reports the length of. Measured without itself it understated by its
         // own length: 1,109 stated on a response of 1,281. Composing it changes only the width of one printed
@@ -1322,12 +1322,6 @@ static class Wire
     }
 
     // ---- shared sweep-render pieces (#282) ----------------------------------------------------------
-    /// <summary>The truncation/overflow hint the two sweep tools share. The old wording told the caller to "scope
-    /// plugins=" when plugins= was already the narrowest scope either tool had — advice that could not be taken. It now
-    /// names the knobs that actually exist.</summary>
-    const string SweepNarrowHint =
-        "narrow with type= / formids= / editorid_contains= / findings=, ask counts_only=true for just the totals, or raise max_chars";
-
     /// <summary>The epoch stamp's coverage qualifier (PR #305 review): when off-order files were swept beside the
     /// index, the fingerprint does NOT cover their content (they are located on disk, outside the fingerprinted
     /// order) — say so next to the stamp, so equal epochs are never read as "same inputs" across such sweeps. The
@@ -1406,12 +1400,12 @@ static class Wire
     /// <summary>The named, reasoned list of plugins the index build could not parse. Shared by the listing and
     /// <c>counts_only=</c> paths — counts_only used to return before it, leaving the header's bare count with no way to
     /// learn WHICH plugin went unchecked without re-running (PR #288 review, finding 5).
-    /// <para>Returns HOW MANY rows it emitted. The roster is cut one row at a time, so "how many are unnamed" is a
-    /// subtraction at the append site and nowhere else: handed the TOTAL instead, the callers that state it said all
-    /// three plugins were unnamed on a response that had just named one of them.</para></summary>
-    static int AppendExcludedPlugins(StringBuilder sb, BoundedBody body, IReadOnlyDictionary<string, string> excluded)
+    /// <para>How many rows it emitted is no longer returned: the accounting states that fact, from the same
+    /// registrations, in both transports. The one caller that counted rows here composed a second spelling of it —
+    /// and got it wrong first, claiming every plugin was unnamed on a response that had just named one.</para></summary>
+    static void AppendExcludedPlugins(StringBuilder sb, BoundedBody body, IReadOnlyDictionary<string, string> excluded)
     {
-        if (excluded.Count == 0) return 0;
+        if (excluded.Count == 0) return;
         // The head rides the first ROW, so the list is whole or absent: a head with nothing under it says a roster
         // exists and then names none of it.
         const string head = "\nexcluded plugins (could not be parsed — NOT checked):\n";
@@ -1419,10 +1413,9 @@ static class Wire
         foreach (var kv in excluded)
         {
             var unit = (emitted == 0 ? head : "") + "  " + kv.Key + ": " + kv.Value + "\n";
-            if (!body.Emit(SweepSubject.ExcludedRows, unit.Length, () => sb.Append(unit))) return emitted;
+            if (!body.Emit(SweepSubject.ExcludedRows, unit.Length, () => sb.Append(unit))) return;
             emitted++;
         }
-        return emitted;
     }
 
     /// <summary>Under <c>counts_only=</c> the reports list carries the honesty layer only (records/plugins houseCARL
@@ -1451,20 +1444,39 @@ static class Wire
     {
         if (r.Error is not null) return "error: " + r.Error + (r.Epoch is not null ? $"\nepoch={r.Epoch}" : "");
         int cap = Cap(maxChars);
+        // The scripts family now renders through the same accounting and the same bounded body the errors family
+        // does. What it replaces: an inline `sb.Length >= cap` test, a truncation marker of its own, and a boundary
+        // footer appended unconditionally AFTER that test — which is why validate_scripts returned 80,673 chars
+        // against its own 80,000 cap on the live order, undeclared. The footer is now inside the reserve, so the
+        // overrun closes by construction rather than by a second length check.
+        var acct = new CheckAccounting(r, cap);
+        int budget = acct.BodyBudget(acct.TextReserve);
         var sb = new StringBuilder();
 
+        sb.Append("validate_scripts — VMAD script-property binding sweep\n");
+        AppendScriptsHead(sb, r);
+        var body = new BoundedBody(acct, budget, () => sb.Length);
+        AppendScriptsSection(sb, r, body, histogramLimit);
+        AppendExcludedPlugins(sb, body, r.ExcludedPlugins);
+        return Close(sb, acct, body);
+    }
+
+    /// <summary>The scripts family's own head: what it swept and what it found. Every count states its own scope —
+    /// a class the caller excluded reads NOT CHECKED and never 0, and the two counts <c>property_contains=</c>
+    /// narrows carry their own label — so no number here can be read as a wider claim than it is.</summary>
+    static void AppendScriptsHead(StringBuilder sb, ScriptCheckResult r)
+    {
         bool didObject = r.Classes.HasFlag(ScriptFindingClass.UnboundObject);
         bool didScalar = r.Classes.HasFlag(ScriptFindingClass.UnboundScalar);
         bool didNull = r.Classes.HasFlag(ScriptFindingClass.BoundNull);
 
-        sb.Append("validate_scripts — VMAD script-property binding sweep\n");
         sb.Append("scanned ").Append(r.PluginsScanned).Append(r.PluginsScanned == 1 ? " plugin · " : " plugins · ")
           .Append(r.RecordsWithScripts).Append(" record(s) with scripts · ")
           // A class the caller excluded reads as NOT CHECKED, never as a 0 — a 0 would say "looked, found none" about
           // the HIGH silent-None class nobody looked for (PR #288 review, finding 1).
-          .Append(UnboundTotalText(r, didObject, didScalar))
+          .Append(ReadSentences.ScriptUnboundTotal(r, didObject, didScalar))
           .Append(" · ")
-          .Append(NullTotalText(r, didNull))
+          .Append(ReadSentences.ScriptNullTotal(r, didNull))
           .Append(" · ")
           .Append(r.TotalUnverifiable).Append(" unverifiable");
         if (r.ExcludedPlugins.Count > 0)
@@ -1474,130 +1486,76 @@ static class Wire
         if (r.FilterNote is not null) sb.Append(r.FilterNote).Append('\n');
         if (r.ReadIncomplete)
             sb.Append("note: a BSA failed to read this build — a '.pex not on disk' below may merely be unscanned, not truly absent (Q3).\n");
+    }
 
+    /// <summary>The scripts family's BODY — everything a cap can refuse. Like the errors family's, it writes no
+    /// roster, no accounting and no boundary: those are the response's.</summary>
+    static void AppendScriptsSection(StringBuilder sb, ScriptCheckResult r, BoundedBody body, int histogramLimit)
+    {
         if (r.CountsOnly)
         {
-            // validate_scripts' response layer is not this branch's, so it keeps no accounting — but it goes through
-            // the same bounded emission path, because a second appending path is a second place to forget the bound.
-            var scriptBody = new BoundedBody(null, cap, () => sb.Length);
-            // This lane's axis has the identical shape and the identical exposure, and it keeps no accounting at
-            // all — so the reserved closing disclosure is the ONLY thing standing between a tight cap and an axis
-            // that vanishes without a word (#392's scope note).
-            AppendHistograms(sb, scriptBody, histogramLimit,
+            AppendHistograms(sb, body, histogramLimit,
                 new HistogramAxis(SweepSubject.HistogramByProperty, r.Histogram, "unbound properties by NAME",
                                   "counts_only=true — totals above are exact; no per-record listing was built.",
                                   "no unbound histogram — findings= excluded both unbound classes, so nothing was tallied."));
-            foreach (var rec in r.Reports)   // the honesty layer: plugins whose record enumeration faulted
+            // The honesty layer: plugins whose record enumeration faulted. Its own subject, so a response that could
+            // not carry every row states how many it named instead of stopping with a bare marker.
+            foreach (var rec in r.Reports)
             {
-                if (sb.Length >= cap) { sb.Append("\n... [truncated at max_chars]\n"); break; }
-                if (rec.ScanError is not null) sb.Append("\n[SCAN ERROR] ").Append(rec.Plugin).Append(": ").Append(rec.ScanError).Append('\n');
+                if (rec.ScanError is null) continue;
+                var row = "\n[SCAN ERROR] " + rec.Plugin + ": " + rec.ScanError + "\n";
+                if (!body.Emit(SweepSubject.ScriptScanRows, row.Length, () => sb.Append(row))) break;
             }
-            // The helper reports rather than annotates (it is shared with check_errors, whose accounting states the
-            // same fact in its own terms), so this lane keeps its own marker at its own call site.
-            int namedExcluded = AppendExcludedPlugins(sb, scriptBody, r.ExcludedPlugins);
-            if (scriptBody.Stopped(SweepSubject.ExcludedRows))
-                sb.Append(ExcludedRosterCut(r.ExcludedPlugins.Count - namedExcluded));
-            AppendScriptCheckBoundary(sb);
-            return sb.ToString().TrimEnd('\n');
+            return;
         }
 
         if (r.Reports.Count == 0 && r.ExcludedPlugins.Count == 0)
             sb.Append("\nNo unbound script properties found in the scanned scope.\n");
 
-        bool truncated = false;
         foreach (var rec in r.Reports)
         {
-            if (sb.Length >= cap)
-            {
-                sb.Append("\n... [truncated at max_chars=").Append(cap).Append("; ").Append(SweepNarrowHint)
-                  .Append(", or property_contains= to chase one property]\n");
-                truncated = true;
-                break;
-            }
-            if (rec.ScanError is not null) { sb.Append("\n[SCAN ERROR] ").Append(rec.Plugin).Append(": ").Append(rec.ScanError).Append('\n'); continue; }
-
-            sb.Append('\n').Append(rec.Unbound.Count > 0 ? "[UNBOUND] " : "[CHECK] ")
-              .Append(rec.Record).Append(" (").Append(rec.RecordType);
-            if (!string.IsNullOrEmpty(rec.EditorId)) sb.Append(" '").Append(rec.EditorId).Append('\'');
-            sb.Append(") in ").Append(rec.Plugin).Append('\n');
-
-            // Unbound findings, object/form types (silent None) FIRST, then uninitialized scalars.
-            foreach (var u in rec.Unbound.OrderByDescending(u => u.IsObjectType))
-            {
-                if (sb.Length >= cap) break;
-                sb.Append("  ").Append(u.IsObjectType ? "! " : "· ")
-                  .Append(u.PropertyName).Append(" (").Append(u.PexTypeName).Append(") on script ").Append(u.Script);
-                if (!string.Equals(u.DeclaringScript, u.Script, StringComparison.OrdinalIgnoreCase))
-                    sb.Append(" [declared in ").Append(u.DeclaringScript).Append(']');
-                sb.Append(u.IsObjectType
-                    ? " — declared but NOT bound → None at runtime (HIGH: object/form type — the silent no-op)\n"
-                    : " — declared but NOT bound → defaults to 0/false/\"\" (scalar, no baked default)\n");
-            }
-            if (rec.NullObjects.Count > 0 && sb.Length < cap)
-                sb.Append("  bound-but-null object propert").Append(rec.NullObjects.Count == 1 ? "y: " : "ies: ")
-                  .Append(string.Join(", ", rec.NullObjects.Select(n => $"{n.PropertyName} ({n.Script})")))
-                  .Append("   [advisory — a None link; sometimes intentional, filled at runtime]\n");
-            foreach (var uv in rec.Unverifiable)
-            {
-                if (sb.Length >= cap) break;
-                sb.Append("  could not verify script ").Append(uv.Script).Append(": ").Append(uv.Reason).Append('\n');
-            }
+            // A RECORD SECTION IS EMITTED WHOLE, OR NOT AT ALL — the errors family's rule, in this family's units.
+            // Everything inside one is a finding in its own right (an unbound property, the bound-but-null advisory,
+            // a "could not verify" note), and the per-line "append if it fits" this replaces dropped them with no
+            // subject accounting for the loss: half a record's findings under a header claiming the whole record.
+            var section = ComposeScriptRecord(rec);
+            if (!body.Emit(SweepSubject.ScriptRecords, section.Length, () => sb.Append(section))) break;
         }
-
-        // The capped tail restates the totals, so it needs the SAME class-awareness as the header — otherwise a small
-        // limit= reintroduces the literal "0 unbound" that the header no longer prints (re-review finding 2).
-        if (r.Capped)
-            sb.Append("\n[finding list capped at limit; true totals = ").Append(UnboundTotalText(r, didObject, didScalar))
-              .Append(" + ").Append(NullTotalText(r, didNull)).Append(" — raise limit= to see all]\n");
-
-        var listBody = new BoundedBody(null, cap, () => sb.Length);
-        if (!truncated)
-        {
-            int namedExcluded = AppendExcludedPlugins(sb, listBody, r.ExcludedPlugins);
-            if (listBody.Stopped(SweepSubject.ExcludedRows))
-                sb.Append(ExcludedRosterCut(r.ExcludedPlugins.Count - namedExcluded));
-        }
-
-        AppendScriptCheckBoundary(sb);
-        return sb.ToString().TrimEnd('\n');
     }
 
-    /// <summary>The unbound total, spelled so it can never claim a class nobody checked. ONE definition, used by both
-    /// the header and the capped tail — the tail restating the numbers in its own words is how "0 unbound" survived the
-    /// header fix (re-review finding 2).
-    /// <para>It also carries the <c>property_contains=</c> label when one is in force, so this number states its own
-    /// scope rather than leaning on a blanket claim the sweep's other counts would not satisfy (round-3 review).</para></summary>
-    static string UnboundTotalText(ScriptCheckResult r, bool didObject, bool didScalar)
-        => !didObject && !didScalar ? "unbound NOT CHECKED (findings= excluded both unbound classes)"
-         : didObject && didScalar   ? $"{r.TotalUnbound} unbound{PropLabel(r)}"
-         : didObject                ? $"{r.TotalUnboundObject} unbound{PropLabel(r)} (object only — unbound_scalar NOT CHECKED)"
-                                    : $"{r.TotalUnboundScalar} unbound{PropLabel(r)} (scalar only — unbound_object NOT CHECKED)";
+    /// <summary>One record's whole section, composed before it is offered to the budget — the same construction the
+    /// errors family's plugin sections use, and for the same reason: a unit measured before the write is a unit the
+    /// response cannot land over its cap with.</summary>
+    static string ComposeScriptRecord(RecordScriptFindings rec)
+    {
+        if (rec.ScanError is not null)
+            return "\n[SCAN ERROR] " + rec.Plugin + ": " + rec.ScanError + "\n";
 
-    /// <summary>The bound-but-null total, same contract as <see cref="UnboundTotalText"/>.</summary>
-    static string NullTotalText(ScriptCheckResult r, bool didNull)
-        => didNull ? $"{r.TotalNullObject} bound-but-null{PropLabel(r)}"
-                   : "bound-but-null NOT CHECKED (findings= excluded 'bound_null')";
+        var sb = new StringBuilder();
+        sb.Append('\n').Append(rec.Unbound.Count > 0 ? "[UNBOUND] " : "[CHECK] ")
+          .Append(rec.Record).Append(" (").Append(rec.RecordType);
+        if (!string.IsNullOrEmpty(rec.EditorId)) sb.Append(" '").Append(rec.EditorId).Append('\'');
+        sb.Append(") in ").Append(rec.Plugin).Append('\n');
 
-    /// <summary>The per-number <c>property_contains=</c> label, on exactly the two counts that filter narrows. Absent
-    /// from records-with-scripts and unverifiable, which it does not narrow — that asymmetry is the whole point.</summary>
-    static string PropLabel(ScriptCheckResult r)
-        => r.PropertyContains is null ? "" : $" matching '{r.PropertyContains}'";
-
-    /// <summary>What validate_scripts says when max_chars leaves no room for the excluded-plugin roster. It used to
-    /// be a bare "... [truncated at max_chars]" appended under a header line that was always printed — and once the
-    /// roster's HEAD became droppable too, that marker could stand alone with nothing above it saying what had been
-    /// truncated. A marker that names its own subject does not depend on a line that may not be there.
-    /// <para><paramref name="unnamed"/> is the total LESS the rows the render actually emitted, counted at the append
-    /// site. Handed the total, the marker claimed every plugin was unnamed on a roster that had named some of them
-    /// — measured at max_chars=840 over three plugins, one of which is printed on the line directly above it.</para></summary>
-    static string ExcludedRosterCut(int unnamed)
-        => $"\n... [the excluded-plugin list did not fit max_chars — {unnamed} plugin(s) the index could not parse are "
-         + "NOT named above; raise max_chars= to see them]\n";
-
-    static void AppendScriptCheckBoundary(StringBuilder sb)
-        => sb.Append("\nboundary: checks Auto (CK-editable) properties across the extends chain — not code-driven full ")
-             .Append("properties. An unbound object property is the silent-None footgun, but CAN be intentional (filled at runtime) — a ")
-             .Append("finding is a flag to VERIFY. A script whose .pex is not on disk is reported unverifiable, never passed clean.\n");
+        // Unbound findings, object/form types (silent None) FIRST, then uninitialized scalars.
+        foreach (var u in rec.Unbound.OrderByDescending(u => u.IsObjectType))
+        {
+            sb.Append("  ").Append(u.IsObjectType ? "! " : "· ")
+              .Append(u.PropertyName).Append(" (").Append(u.PexTypeName).Append(") on script ").Append(u.Script);
+            if (!string.Equals(u.DeclaringScript, u.Script, StringComparison.OrdinalIgnoreCase))
+                sb.Append(" [declared in ").Append(u.DeclaringScript).Append(']');
+            sb.Append(u.IsObjectType
+                ? " — declared but NOT bound → None at runtime (HIGH: object/form type — the silent no-op)\n"
+                : " — declared but NOT bound → defaults to 0/false/\"\" (scalar, no baked default)\n");
+        }
+        if (rec.NullObjects.Count > 0)
+            sb.Append("  bound-but-null object propert").Append(rec.NullObjects.Count == 1 ? "y: " : "ies: ")
+              .Append(string.Join(", ", rec.NullObjects.Select(n => $"{n.PropertyName} ({n.Script})")))
+              .Append("   [advisory — a None link; sometimes intentional, filled at runtime]\n");
+        foreach (var uv in rec.Unverifiable)
+            sb.Append("  could not verify script ").Append(uv.Script).Append(": ").Append(uv.Reason).Append('\n');
+        return sb.ToString();
+    }
 
     // ---- shared building blocks ---------------------------------------------------------------------
 

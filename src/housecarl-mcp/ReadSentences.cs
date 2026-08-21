@@ -348,6 +348,94 @@ internal static class ReadSentences
         "item's ownership 'variable' word (a rank/global Mutagen can't type on an override); a null FormLink is a " +
         "legal optional.";
 
+    /// <summary>The unbound total, spelled so it can never claim a class nobody checked. ONE definition, used by
+    /// the header AND by the accounting's listing-budget clause — the accounting restating the numbers in its own
+    /// words is how "0 unbound" survived the header fix once already (PR #288 re-review, finding 2).
+    ///
+    /// <para>It also carries the <c>property_contains=</c> label when one is in force, so this number states its own
+    /// scope rather than leaning on a blanket claim the sweep's other counts would not satisfy (round-3 review).</para>
+    ///
+    /// <para>It lives here rather than in the render because it is a SENTENCE with claims in it, and a sentence born
+    /// as a render literal is one the content net cannot see. The four spellings below are its claims.</para></summary>
+    internal static string ScriptUnboundTotal(ScriptCheckResult r, bool didObject, bool didScalar)
+        => !didObject && !didScalar ? SweepScriptUnboundNotChecked
+         : didObject && didScalar   ? $"{r.TotalUnbound} unbound{ScriptPropLabel(r)}"
+         : didObject                ? $"{r.TotalUnboundObject} unbound{ScriptPropLabel(r)}{SweepScriptObjectOnly}"
+                                    : $"{r.TotalUnboundScalar} unbound{ScriptPropLabel(r)}{SweepScriptScalarOnly}";
+
+    /// <summary>The bound-but-null total, same contract as <see cref="ScriptUnboundTotal"/>.</summary>
+    internal static string ScriptNullTotal(ScriptCheckResult r, bool didNull)
+        => didNull ? $"{r.TotalNullObject} bound-but-null{ScriptPropLabel(r)}" : SweepScriptNullNotChecked;
+
+    /// <summary>Both totals as the accounting restates them, in one string — so the clause that names the listing
+    /// budget also says what the true totals are, per class, right where the cut is reported.</summary>
+    internal static string ScriptTotals(ScriptCheckResult r)
+        => ScriptUnboundTotal(r, r.Classes.HasFlag(ScriptFindingClass.UnboundObject),
+                                 r.Classes.HasFlag(ScriptFindingClass.UnboundScalar))
+         + " + " + ScriptNullTotal(r, r.Classes.HasFlag(ScriptFindingClass.BoundNull));
+
+    /// <summary>The per-number <c>property_contains=</c> label, on exactly the two counts that filter narrows.
+    /// Absent from records-with-scripts and unverifiable, which it does not narrow — that asymmetry is the whole
+    /// point.</summary>
+    [NoClaims("a scope label; the claim is the count it qualifies")]
+    internal const string SweepScriptPropLabelFormat = " matching '{0}'";
+
+    static string ScriptPropLabel(ScriptCheckResult r)
+        => r.PropertyContains is null ? "" : string.Format(SweepScriptPropLabelFormat, r.PropertyContains);
+
+    /// <summary>Both unbound classes excluded: the total reads NOT CHECKED, never 0. A 0 would say "looked, found
+    /// none" about the HIGH silent-None class nobody looked for.</summary>
+    [MustState("NOT CHECKED", "findings=")]
+    internal const string SweepScriptUnboundNotChecked = "unbound NOT CHECKED (findings= excluded both unbound classes)";
+
+    /// <summary>One unbound class excluded — the number is real, and says which half it is not about.</summary>
+    [MustState("NOT CHECKED", "unbound_scalar")]
+    internal const string SweepScriptObjectOnly = " (object only — unbound_scalar NOT CHECKED)";
+
+    /// <summary>The other half, same rule.</summary>
+    [MustState("NOT CHECKED", "unbound_object")]
+    internal const string SweepScriptScalarOnly = " (scalar only — unbound_object NOT CHECKED)";
+
+    /// <summary>The advisory class excluded, same rule again.</summary>
+    [MustState("NOT CHECKED", "bound_null")]
+    internal const string SweepScriptNullNotChecked = "bound-but-null NOT CHECKED (findings= excluded 'bound_null')";
+
+    /// <summary>The scripts family's lead when its listing is whole. It exists for the reason
+    /// <see cref="SweepAllVisible"/> does: without it, silence means both "this response carries everything" and
+    /// "something was dropped and nothing said so", and those two must never read alike.</summary>
+    [MustState("appear above", "found by this sweep")]
+    internal const string SweepScriptAllVisible =
+        " all {0} record section(s) found by this sweep appear above.";
+
+    /// <summary>The scripts family's lead when it is not. A "record section" and a "plugin section" are different
+    /// units, so this is its own sentence rather than <see cref="SweepVisible"/> reworded — one sentence for both
+    /// would misname whichever family it was not written for.</summary>
+    [MustState("appear above", "found by this sweep")]
+    internal const string SweepScriptVisible =
+        " {0} of the {1} record section(s) found by this sweep appear above.";
+
+    /// <summary>The scripts family's listing budget, decomposed the same way the errors family's is: a subtraction
+    /// against the sweep's own totals rather than a bare "capped" flag.
+    ///
+    /// <para>It restates the TRUE TOTALS, per class, from <see cref="ScriptTotals"/> — the same one definition the
+    /// header uses. A <c>findings=</c> filter narrows the population this clause counts, so a bare "property
+    /// finding(s)" here would read as a claim about classes nobody looked for; restating the totals in the
+    /// header's own NOT CHECKED wording is what the marker this clause replaces did, and it carries.</para></summary>
+    [MustState("limit=", "True totals")]
+    internal const string SweepScriptFindings =
+        " {0} of the {1} property finding(s) this sweep found were listed: the listing budget (limit={2}) ran out. " +
+        "True totals: {3}.";
+
+    /// <summary>The scripts family's honest scope boundary, stated to BOTH transports from here. It was two
+    /// hand-copied twins that had already drifted by a comma; the fuller reading is kept, per the same rule
+    /// <see cref="SweepBoundary"/> was unified under.</summary>
+    [MustState("Auto (CK-editable)", "not code-driven full properties", "flag to VERIFY", "never passed clean")]
+    internal const string SweepScriptBoundary =
+        "checks Auto (CK-editable) properties across the extends chain — not code-driven full properties. An " +
+        "unbound object property is the silent-None footgun, but CAN be intentional (filled at runtime) — a " +
+        "finding is a flag to VERIFY. A script whose .pex is not on disk is reported unverifiable, never passed " +
+        "clean.";
+
     /// <summary>The text transport's label for the claim above.</summary>
     [NoClaims("a label; the claim it introduces is SweepBoundary")]
     internal const string SweepBoundaryLabel = "boundary: ";
