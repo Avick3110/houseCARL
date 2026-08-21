@@ -466,6 +466,27 @@ public static class ScriptPropertyCheckProbe
             && !tinyCap.Contains("scope plugins=", StringComparison.Ordinal),
             $"tail=[{tinyCap.Split('\n').LastOrDefault(l => l.Contains("truncated", StringComparison.Ordinal))}]");
 
+        // #392's scope note, held here. This lane's single counts_only axis has the identical shape as
+        // check_errors' two — AppendHistogram is shared — and this lane keeps NO accounting at all, so the axis's
+        // own closing line is the only thing that can report a cut. Charged to the same budget as its rows, a cap
+        // that refused the rows refused the report of them and the axis left the response unmentioned. It is
+        // reserved out of max_chars now, and this walks every cap in the band rather than sampling one.
+        var axisBad = new List<string>();
+        int axisDistinct = counts.Histogram!.Count;
+        for (int cap = 200; cap <= 4000; cap += 20)
+        {
+            var t = Wire.RenderScriptCheck(counts, cap);
+            if (!t.Contains("unbound properties by NAME", StringComparison.Ordinal))
+            { axisBad.Add($"@{cap} axis absent from the response entirely"); continue; }
+            int shown = counts.Histogram!.Count(h => t.Contains("  " + h.Key + "\n", StringComparison.Ordinal));
+            int stated = HistogramStated(t);
+            if (shown >= axisDistinct) { if (stated != -1) axisBad.Add($"@{cap} rendered all {axisDistinct} and claims {stated}"); }
+            else if (stated != axisDistinct - shown) axisBad.Add($"@{cap} rendered {shown} of {axisDistinct} and states {stated}");
+        }
+        Check("HISTOGRAM-AXIS-NEVER-DROPS-SILENTLY (#392): at every cap across the band the counts_only axis is IN the response and states how many of its rows are missing — this lane keeps no accounting, so that line is the only thing that can say a cut happened",
+            axisBad.Count == 0,
+            axisBad.Count == 0 ? $"the axis stated itself at every cap (distinct {axisDistinct})" : string.Join("; ", axisBad.Take(4)) + $" ({axisBad.Count} total)");
+
         // The excluded-plugin roster's HEAD is charged to max_chars now (it used to be printed unconditionally), so
         // a tight cap can drop the whole roster — and the marker that says so used to be a bare
         // "... [truncated at max_chars]" that leant on a header line which may no longer be there. A marker has to
@@ -511,6 +532,18 @@ public static class ScriptPropertyCheckProbe
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "script-property-check-guard: ALL PASS" : $"script-property-check-guard: {failures} FAILURE(S)");
         return failures == 0 ? 0 : 1;
+    }
+
+    /// <summary>The number the histogram's closing line states, or -1 where the axis states no cut. Read as a
+    /// NUMBER, not as a substring: a response either says how many rows it dropped or it does not, and "contains a
+    /// remedy somewhere" is satisfied by any axis at all.</summary>
+    static int HistogramStated(string text)
+    {
+        const string lead = "more row(s) — raise ";
+        int at = text.IndexOf(lead, StringComparison.Ordinal);
+        if (at < 0) return -1;
+        var digits = new string(text[..at].Reverse().SkipWhile(c => c == ' ').TakeWhile(char.IsDigit).Reverse().ToArray());
+        return int.TryParse(digits, out var n) ? n : -1;
     }
 
     /// <summary>How many of the fixture's unparseable plugins this response actually NAMES, counted off its own lines
