@@ -274,6 +274,36 @@ public static class CheckMergeProbe
                 ? $"first scripts section at max_chars={firstScriptsCap}; a serial walk needed {serialWouldNeed} (floor {mergedFloor} + the errors family's whole {errorsWholeBody})"
                 : string.Join("; ", asymmetric.Take(3)) + $" ({asymmetric.Count} total)");
 
+        // ---- THE THREE HARD PROPERTIES OF THE WATER-FILL (ruling pins 3(i), 3(ii), 3(iv)) ----------
+        // Each is a claim the rule makes BY CONSTRUCTION, so each gets an arm that can fail if the construction
+        // stops holding — a guarantee nothing asks about is a guarantee nobody knows they lost.
+
+        // (i) MONOTONE IN max_chars. lambda is non-decreasing in the row budget and every subject is allocated
+        // min(demand, lambda), so widening the cap can never render LESS of anything. Asked of what each subject
+        // actually SPENT, at every integer cap across a band that starts below the fixture's floor and ends above
+        // its whole — not of a phrase the response printed. The old rule failed this: at max_chars=3206 the
+        // response carried a scripts section and at 3,226 it carried none, because the errors family's newly
+        // affordable dangling entry cost the scripts family its whole section.
+        Check("ALLOCATION-MONOTONE-IN-MAX-CHARS (#394 pin 3(i)): across every integer cap in a 9,000-wide band, no subject of a three-family response ever spends FEWER characters than it did at a narrower cap — in both transports. A wider cap returning less is what makes the response's own printed remedy false",
+            Monotone(all, out var monoDetail), monoDetail);
+
+        // (ii) NO STRANDING — Defect 1's own fixture, made permanent. Its total demand fits inside the default
+        // budget, so everything renders and nothing claims a cut. Measured before the rebuild: the errors family
+        // alone came to 8,998 characters and the scripts family alone to 38,253, so both whole was 47,251 inside an
+        // 80,000 default — and the merged response stopped at 49,440 with 5 of its 40 record sections cut, said
+        // truncated, told the caller to raise max_chars=, and left 30,560 characters unspent.
+        Check("ALLOCATION-NO-STRANDING (#394 pin 3(ii)): a merged call whose whole demand fits inside its budget renders every unit it has and claims no cut — the same counts as the same sweep with no cap at all, in both transports, at the DEFAULT max_chars nobody tightened",
+            NothingStranded(both, out var strandDetail), strandDetail);
+
+        // (iv) DEMAND EXACTNESS. With nothing cut, a subject's allocation IS its measured demand, so allocation and
+        // spend are the same number to the byte or the measurement is not measuring the write. This is the arm that
+        // refuses the upper-bound concession: a cost that over-counts allocates a subject room it will not spend
+        // (Defect 1 one level down), and one that under-counts is a response over its own cap — the json lane
+        // returned 6,246 characters against an allowed 5,709 while its rows were measured two nesting levels
+        // shallower than they are written.
+        Check("ALLOCATION-EQUALS-SPEND (#394 pin 3(iv)): on a full three-family response with nothing cut, every governed subject spends EXACTLY what it was allocated — in both transports, which measure their units in different ways and must both be exact",
+            AllocationEqualsSpend(all, out var exactDetail), exactDetail);
+
         // ---- SCOPE-SENTENCE ------------------------------------------------------------------------
         var defaulted = new CheckSweep(Sel(), errors);
         var defText = Wire.RenderCheck(defaulted, 0);
@@ -709,6 +739,110 @@ public static class CheckMergeProbe
         var sb = new System.Text.StringBuilder();
         DialogueWire.AppendTopic(sb, r.Topics.First().Topic, indent: true, int.MaxValue, includeInfoOrder: false);
         return sb.Length;
+    }
+
+    /// <summary>Pin 3(i): no subject ever spends less at a wider cap, in either transport. Read off the allocation
+    /// the render built rather than off the response's prose — what a subject SPENT is the quantity "renders less"
+    /// is about, and counting phrases would only pin the phrases.</summary>
+    static bool Monotone(CheckSweep s, out string detail)
+    {
+        var bad = new List<string>();
+        var subjects = s.Plan().SelectMany(p => p.Subjects).Distinct().ToArray();
+        foreach (var lane in new[] { "text", "json" })
+        {
+            var previous = new Dictionary<SweepSubject, (int Cap, int Spent)>();
+            for (int cap = 1; cap <= 9000; cap++)
+            {
+                BoundedBody? body;
+                if (lane == "text") Wire.RenderCheck(s, cap, 1000, out body);
+                else JsonWire.RenderCheck(s, cap, 1000, out body);
+                if (body is null) { bad.Add($"{lane}@{cap}: the render built no allocation"); break; }
+                foreach (var subject in subjects)
+                {
+                    int spent = body.SpentOn(subject);
+                    if (previous.TryGetValue(subject, out var was) && spent < was.Spent && bad.Count < 4)
+                        bad.Add($"{lane} {subject}: {spent} chars at cap {cap}, {was.Spent} at the narrower {was.Cap}");
+                    previous[subject] = (cap, spent);
+                }
+            }
+        }
+        detail = bad.Count == 0 ? $"{subjects.Length} subjects, 9,000 caps, both transports, never once less"
+                                : string.Join("; ", bad);
+        return bad.Count == 0;
+    }
+
+    /// <summary>Pin 3(ii): the whole demand fits, so everything renders and nothing claims a cut. Held against the
+    /// SAME sweep rendered with no cap at all — the counts a response with unlimited room produces are the counts
+    /// a response with enough room owes.</summary>
+    static bool NothingStranded(CheckSweep s, out string detail)
+    {
+        const int Default = 80000;   // what max_chars= defaults to; the cap Defect 1 stranded 30,560 characters of
+        var bad = new List<string>();
+
+        string uncapped = Wire.RenderCheck(s, 0);
+        string capped = Wire.RenderCheck(s, Default, 1000, out var body);
+        // The fixture has to FIT, or the arm is asking nothing.
+        if (uncapped.Length >= Default) bad.Add($"the uncapped response is {uncapped.Length} chars — the fixture no longer fits the default and this arm proves nothing");
+        foreach (var unit in new[] { "[ERROR] ", "[UNBOUND] ", "  dangling ref " })
+        {
+            int whole = Count(uncapped, unit), got = Count(capped, unit);
+            if (got != whole) bad.Add($"text '{unit.Trim()}': {got} rendered inside the default, {whole} with no cap at all");
+        }
+        // …and nothing may CLAIM a cut it did not make.
+        foreach (var claim in new[] { "did not fit this response", "were rendered.", "Raise max_chars=" })
+            if (capped.Contains(claim, StringComparison.Ordinal))
+                bad.Add($"text claims a cut it did not make: '{claim}'");
+        if (body is not null)
+            foreach (var subject in s.Plan().SelectMany(p => p.Subjects).Distinct())
+                if (body.SpentOn(subject) != body.AllocationOf(subject))
+                    bad.Add($"text {subject}: allocated {body.AllocationOf(subject)}, spent {body.SpentOn(subject)} — room left standing");
+
+        var jsonWhole = JsonDocument.Parse(JsonWire.RenderCheck(s, 0)).RootElement;
+        var jsonCapped = JsonDocument.Parse(JsonWire.RenderCheck(s, Default)).RootElement;
+        foreach (var (family, array) in new[] { ("errors", "plugins"), ("scripts", "records"), ("dialogue", "seeds") })
+        {
+            int whole = ArrayLength(jsonWhole, family, array), got = ArrayLength(jsonCapped, family, array);
+            if (got != whole) bad.Add($"json {family}.{array}: {got} rendered inside the default, {whole} with no cap at all");
+        }
+        foreach (var family in new[] { "errors", "scripts", "dialogue" })
+            if (jsonCapped.GetProperty("families").TryGetProperty(family, out var f)
+                && f.TryGetProperty("accounting", out var a)
+                && a.TryGetProperty("truncated", out var t) && t.GetBoolean())
+                bad.Add($"json {family} reports truncated:true inside a cap its whole answer fits");
+
+        detail = bad.Count == 0
+            ? $"the whole response is {uncapped.Length} of the {Default} default, and every unit of it renders"
+            : string.Join("; ", bad.Take(4));
+        return bad.Count == 0;
+    }
+
+    /// <summary>How many elements one family's row array carries, or -1 where the family or the array is absent.</summary>
+    static int ArrayLength(JsonElement root, string family, string array)
+        => root.GetProperty("families").TryGetProperty(family, out var f) && f.TryGetProperty(array, out var rows)
+            ? rows.GetArrayLength() : -1;
+
+    /// <summary>Pin 3(iv): with nothing cut, allocation IS demand, so allocation must equal spend exactly. Asked at
+    /// a cap far above the fixture's whole response, in both transports.</summary>
+    static bool AllocationEqualsSpend(CheckSweep s, out string detail)
+    {
+        var bad = new List<string>();
+        var seen = new List<string>();
+        foreach (var lane in new[] { "text", "json" })
+        {
+            BoundedBody? body;
+            if (lane == "text") Wire.RenderCheck(s, 4000000, 1000, out body);
+            else JsonWire.RenderCheck(s, 4000000, 1000, out body);
+            if (body is null) { bad.Add($"{lane}: the render built no allocation"); continue; }
+            foreach (var subject in s.Plan().SelectMany(p => p.Subjects).Distinct())
+            {
+                int allocated = body.AllocationOf(subject), spent = body.SpentOn(subject);
+                if (spent == 0) bad.Add($"{lane} {subject}: spent nothing at a cap nothing could cut — the arm would pass on a subject that never rendered");
+                else if (allocated != spent) bad.Add($"{lane} {subject}: allocated {allocated}, spent {spent} (off by {allocated - spent})");
+                else seen.Add($"{lane}:{subject}={spent}");
+            }
+        }
+        detail = bad.Count == 0 ? string.Join(" ", seen) : string.Join("; ", bad.Take(6));
+        return bad.Count == 0;
     }
 
     static SweepFamilySelection Sel(params string[] tokens)
