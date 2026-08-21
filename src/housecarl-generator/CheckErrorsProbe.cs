@@ -1496,6 +1496,28 @@ public static class CheckErrorsProbe
             && HistogramAxis(emptyTargetText, SourceAxis).Rows == 200,
             $"source={HistogramAxis(emptyTargetText, SourceAxis)}");
 
+        // "Nothing to tally" is an empty axis's WHOLE answer, so it is reserved like any other closing disclosure
+        // rather than emitted like a row. Charged to the budget it disappears at a tight cap, and a caller then
+        // cannot tell an axis that found nothing from an axis that was never computed — the Q3 distinction the
+        // empty-versus-absent split exists to make. Every cap in the band, not one sample at an unbounded cap.
+        var bothEmpty = countsForHisto with
+        {
+            Histogram = Array.Empty<SweepCount>(),
+            DanglingBySource = Array.Empty<SweepCount>(),
+        };
+        var emptyBad = new List<string>();
+        for (int cap = 200; cap <= 4000; cap += 20)
+        {
+            var t = Wire.RenderCheckErrors(bothEmpty, cap);
+            foreach (var axis in new[] { TargetAxis, SourceAxis })
+                if (!t.Contains(axis + " (the plugin the broken refs " + (axis == TargetAxis ? "point INTO" : "come FROM") + "): nothing to tally", StringComparison.Ordinal))
+                    emptyBad.Add($"text@{cap} {axis} says nothing (len {t.Length})");
+        }
+        Check("HISTOGRAM-EMPTY-AXIS-IS-NEVER-DROPPED: at every cap in the band, an axis with nothing to tally still SAYS so — its one sentence is its whole answer, and an answer a budget can refuse leaves 'found nothing' looking like 'never computed'",
+            emptyBad.Count == 0,
+            emptyBad.Count == 0 ? "both empty axes stated themselves at every cap"
+                                : string.Join("; ", emptyBad.Take(3)) + $" ({emptyBad.Count} total)");
+
         // The json twin of the same result. It never stated a cause at all, so the two transports disagreed about one
         // sweep: text named a knob and json wrote nothing. Both now read the SAME closing computation.
         var hRowsJson = JsonDocument.Parse(JsonWire.RenderCheckErrors(countsForHisto, 0, 3)).RootElement;
