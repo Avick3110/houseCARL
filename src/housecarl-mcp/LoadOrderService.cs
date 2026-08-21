@@ -4690,7 +4690,8 @@ public sealed class LoadOrderService : IDisposable
     public ScriptCheckResult ValidateScripts(IReadOnlyList<string>? plugins, int limit,
                                              IReadOnlyList<string>? formids = null, string? editoridContains = null,
                                              string? type = null, string? propertyContains = null,
-                                             IReadOnlyList<string>? findings = null, bool countsOnly = false)
+                                             IReadOnlyList<string>? findings = null, bool countsOnly = false,
+                                             IReadOnlyList<string>? exclude = null, bool noneInScope = false)
     {
         var (recordScope, scopeErr) = BuildSweepScope(formids, editoridContains, type);
         if (scopeErr is not null) return ScriptCheckResult.Fail(scopeErr);
@@ -4698,8 +4699,22 @@ public sealed class LoadOrderService : IDisposable
             return ScriptCheckResult.Fail(classErr!);
         // ONE resolver + view threaded through, same contract as CheckErrors (PR #305 re-review).
         var resolver = Resolver;
-        return ScriptPropertyCheck.Run(resolver, resolver.Capture(), Assets, plugins, limit, recordScope, propertyContains, classes, countsOnly);
+        // The exclusion resolves HERE, where the MO2 composition lives, exactly as it does for CheckErrors — the
+        // core sweep receives plain filenames, and a bad value refuses having done no work (Q3).
+        bool wantsImplicit = exclude?.Any(v => (v ?? "").Trim().Equals(SweepExclusion.ImplicitToken, StringComparison.OrdinalIgnoreCase)) == true;
+        var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames() : (Array.Empty<string>(), null);
+        if (implicitErr is not null) return ScriptCheckResult.Fail(implicitErr);
+        var (excluded, excludeErr) = SweepExclusion.Resolve(exclude, implicitNames);
+        if (excludeErr is not null) return ScriptCheckResult.Fail(excludeErr);
+        return ScriptPropertyCheck.Run(resolver, resolver.Capture(), Assets, plugins, limit, recordScope,
+                                       propertyContains, classes, countsOnly, excluded, noneInScope);
     }
+
+    /// <summary>The active order's plugin filenames. A thin accessor for the ONE caller that has to decide which of
+    /// several findings families can sweep a plugin the caller named — the errors family resolves an out-of-order
+    /// file on disk and sweeps it, the scripts family has no such lane. The logic that USES this lives in the merged
+    /// sweep's own file, not here.</summary>
+    internal IReadOnlyList<string> ActivePluginNames => Resolver.PluginNames;
 
     // ---- writes (§8.4 Beat C: housecarl_set_field / housecarl_bulk_apply) -------------------------------
 
