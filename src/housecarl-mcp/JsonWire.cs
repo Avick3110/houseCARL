@@ -1615,7 +1615,16 @@ static class JsonWire
     /// <para>The reserve covers the frame's LEADING members as well as its trailing ones, and the leading ones are
     /// already written by the time this axis's own rows are tested — so an axis over-reserves against itself by
     /// that much. Over-reserving costs characters; under-reserving is the thing this exists to stop, so the
-    /// simpler arithmetic is taken in the safe direction deliberately.</para></summary>
+    /// simpler arithmetic is taken in the safe direction deliberately.</para>
+    ///
+    /// <para><b>No arm can see this reserve today, and that is said here rather than left to be discovered.</b>
+    /// Sabotaged to reserve nothing, every arm in both guards stays green: the two frames together are about 180
+    /// bytes and <see cref="CheckAccounting"/>'s json slack is 1024, so the room sized for one whole entry absorbs
+    /// them at every cap a fixture can reach. It is kept anyway, because "bounded by a slack sized for something
+    /// else" is exactly the posture that produced four unbounded write sites in a row — the frame is written
+    /// unconditionally, so its room is reserved by construction rather than borrowed. The guarantee it belongs to
+    /// is pinned in the TEXT lane (HISTOGRAM-AXIS-NEVER-DROPS-SILENTLY,
+    /// OVERRUN-IN-THE-TEXT-LANE-IS-ALWAYS-A-CAP-TOO-SMALL); no arm claims to pin it here.</para></summary>
     static void WriteHistograms(Utf8JsonWriter w, BoundedBody? body, int rowLimit,
                                 params (string Name, SweepSubject Subject, IReadOnlyList<SweepCount>? Rows)[] axes)
     {
