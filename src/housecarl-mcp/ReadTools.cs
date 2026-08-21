@@ -1198,6 +1198,88 @@ static class Wire
         AppendBaselineSplit(sb, r, acct);   // #344 — how much of the dangling total is vanilla baseline
     }
 
+    /// <summary>The errors family's two counts_only axes, built ONCE and read by both the render and the
+    /// DEMAND pass — a second construction here would be a second Head, and the demand would be measuring a
+    /// row that is not the row written.</summary>
+    internal static HistogramAxis[] ErrorsAxes(ErrorCheckResult r) => new[]
+    {
+        new HistogramAxis(SweepSubject.HistogramByTarget, r.Histogram,
+                          "dangling ref(s) by TARGET plugin (the plugin the broken refs point INTO)",
+                          "counts_only=true — totals above are exact; no per-plugin listing was built.",
+                          "no dangling histogram, by target or by source — the link walk was not run (findings= excluded 'dangling')."),
+        new HistogramAxis(SweepSubject.HistogramBySource, r.DanglingBySource,
+                          "dangling ref(s) by SOURCE plugin (the plugin the broken refs come FROM)"),
+    };
+
+    /// <summary>The scripts family's one counts_only axis. Same reason.</summary>
+    internal static HistogramAxis[] ScriptsAxes(ScriptCheckResult r) => new[]
+    {
+        new HistogramAxis(SweepSubject.HistogramByProperty, r.Histogram, "unbound properties by NAME",
+                          "counts_only=true — totals above are exact; no per-record listing was built.",
+                          "no unbound histogram — findings= excluded both unbound classes, so nothing was tallied."),
+    };
+
+    /// <summary>ONE plugin section's fixed part — everything the section says besides its dangling entries. It
+    /// is a UNIT: emitted whole or not at all, because a scan error, the missing masters it declares and its
+    /// unscannable-record count are each a finding in their own right, and no accounting subject covers half of
+    /// one.
+    ///
+    /// <para><b>Extracted so the DEMAND pass and the WRITE read ONE source.</b> The allocation water-fills over
+    /// MEASURED demand (<see cref="BodyAllocation"/>), and a demand taken from a second spelling of this composer
+    /// would be free to drift from what is written — the divergence ALLOCATION-EQUALS-SPEND makes a stop rather
+    /// than a slack factor.</para></summary>
+    internal static string ComposeErrorSection(PluginErrors p)
+    {
+        var fixedPart = new StringBuilder("\n[ERROR] ").Append(p.Plugin).Append('\n');
+        if (p.ScanError is not null)
+            fixedPart.Append("  scan error: ").Append(p.ScanError).Append('\n');
+        if (p.MissingMasters.Count > 0)
+            fixedPart.Append("  missing master(s): ").Append(string.Join(", ", p.MissingMasters))
+                     .Append("   [declared as a dependency but not present in the active order — install/enable it, or this plugin's refs into it dangle]\n");
+        if (p.UnscannableRecords > 0)
+        {
+            fixedPart.Append("  ").Append(p.UnscannableRecords).Append(" record(s) could not be scanned (Mutagen could not parse their content)");
+            if (p.UnscannableSamples.Count > 0) fixedPart.Append(": ").Append(string.Join("; ", p.UnscannableSamples));
+            fixedPart.Append('\n');
+        }
+        if (p.Dangling.Count > 0)
+            fixedPart.Append("  dangling reference(s) (").Append(p.Dangling.Count).Append("):\n");
+        return fixedPart.ToString();
+    }
+
+    /// <summary>ONE dangling entry — the one thing this family's accounting states a unit at a time. Shared by the
+    /// demand pass and the write; see <see cref="ComposeErrorSection"/>.</summary>
+    internal static string ComposeDanglingLine(DanglingRef d)
+    {
+            return "    " + d.Source + " (" + d.SourceType
+                     + (string.IsNullOrEmpty(d.SourceEditorId) ? "" : " '" + d.SourceEditorId + "'")
+                     + ") -> " + d.Target + "   [target not defined by any active plugin]\n";
+            // Registered where the line LANDS — the accounting counts the response, and the by-source roster is
+            // tallied off the same registration, so the count and the roster cannot disagree.
+    }
+
+    /// <summary>ONE unread-plugin row, the <c>counts_only</c> lane's honesty layer. Shared, for the same reason.</summary>
+    internal static string ComposeUnreadRow(PluginErrors p)
+    {
+        var line = new StringBuilder("\n[UNREAD] ").Append(p.Plugin).Append(": ");
+        if (p.ScanError is not null) line.Append(p.ScanError).Append(' ');
+        if (p.UnscannableRecords > 0)
+        {
+            line.Append(p.UnscannableRecords).Append(" record(s) could not be scanned");
+            if (p.UnscannableSamples.Count > 0) line.Append(": ").Append(string.Join("; ", p.UnscannableSamples));
+        }
+        line.Append('\n');
+        return line.ToString();
+    }
+
+    /// <summary>ONE histogram row. The FIRST row of an axis carries the axis head, so its width differs from the
+    /// rest — the demand pass asks with the same row index the write will use.</summary>
+    internal static string ComposeHistogramRow(HistogramAxis axis, SweepCount row, bool first)
+    {
+        var line = "  " + row.Count.ToString().PadLeft(6) + "  " + row.Key + "\n";
+        return first ? axis.Head + line : line;
+    }
+
     /// <summary>The errors family's BODY — everything a cap can refuse, and nothing else. It writes no roster, no
     /// accounting and no boundary: those are the response's, and a section renderer that wrote them could not be
     /// called twice in one response.</summary>
@@ -1209,12 +1291,7 @@ static class Wire
             // which plugin the broken refs come FROM — carries no note and no not-computed line of its own: both
             // would repeat what the TARGET axis directly above has just said.
             AppendHistograms(sb, body, histogramLimit,
-                new HistogramAxis(SweepSubject.HistogramByTarget, r.Histogram,
-                                  "dangling ref(s) by TARGET plugin (the plugin the broken refs point INTO)",
-                                  "counts_only=true — totals above are exact; no per-plugin listing was built.",
-                                  "no dangling histogram, by target or by source — the link walk was not run (findings= excluded 'dangling')."),
-                new HistogramAxis(SweepSubject.HistogramBySource, r.DanglingBySource,
-                                  "dangling ref(s) by SOURCE plugin (the plugin the broken refs come FROM)"));
+                ErrorsAxes(r));
             AppendScanErrorTail(sb, body, r.Reports);
             return;
         }
@@ -1231,30 +1308,12 @@ static class Wire
             // the tool's own parameter text promises master-table findings are "always listed in full". Composing
             // the fixed part first makes the only droppable units the two the accounting already states — a whole
             // section, or an entry.
-            var fixedPart = new StringBuilder("\n[ERROR] ").Append(p.Plugin).Append('\n');
-            if (p.ScanError is not null)
-                fixedPart.Append("  scan error: ").Append(p.ScanError).Append('\n');
-            if (p.MissingMasters.Count > 0)
-                fixedPart.Append("  missing master(s): ").Append(string.Join(", ", p.MissingMasters))
-                         .Append("   [declared as a dependency but not present in the active order — install/enable it, or this plugin's refs into it dangle]\n");
-            if (p.UnscannableRecords > 0)
-            {
-                fixedPart.Append("  ").Append(p.UnscannableRecords).Append(" record(s) could not be scanned (Mutagen could not parse their content)");
-                if (p.UnscannableSamples.Count > 0) fixedPart.Append(": ").Append(string.Join("; ", p.UnscannableSamples));
-                fixedPart.Append('\n');
-            }
-            if (p.Dangling.Count > 0)
-                fixedPart.Append("  dangling reference(s) (").Append(p.Dangling.Count).Append("):\n");
-            var section = fixedPart.ToString();
+            var section = ComposeErrorSection(p);
             if (!body.Emit(SweepSubject.PluginSections, section.Length, () => sb.Append(section))) break;
 
             foreach (var d in p.Dangling)
             {
-                var line = "    " + d.Source + " (" + d.SourceType
-                         + (string.IsNullOrEmpty(d.SourceEditorId) ? "" : " '" + d.SourceEditorId + "'")
-                         + ") -> " + d.Target + "   [target not defined by any active plugin]\n";
-                // Registered where the line LANDS — the accounting counts the response, and the by-source roster is
-                // tallied off the same registration, so the count and the roster cannot disagree.
+                var line = ComposeDanglingLine(d);
                 if (!body.Emit(SweepSubject.DanglingEntries, line.Length, () => sb.Append(line), p.Plugin)) break;
             }
         }
@@ -1377,8 +1436,7 @@ static class Wire
         foreach (var row in rows)
         {
             if (shown >= rowLimit) break;
-            var line = "  " + row.Count.ToString().PadLeft(6) + "  " + row.Key + "\n";
-            var unit = shown == 0 ? head + line : line;
+            var unit = ComposeHistogramRow(axis, row, shown == 0);
             // The row pays for itself only. What the closing line costs is already held back, against this axis's
             // own tests as much as its siblings' — a subject may spend the budget on its rows, never on its own
             // disclosure.
@@ -1424,15 +1482,7 @@ static class Wire
     {
         foreach (var p in reports)
         {
-            var line = new StringBuilder("\n[UNREAD] ").Append(p.Plugin).Append(": ");
-            if (p.ScanError is not null) line.Append(p.ScanError).Append(' ');
-            if (p.UnscannableRecords > 0)
-            {
-                line.Append(p.UnscannableRecords).Append(" record(s) could not be scanned");
-                if (p.UnscannableSamples.Count > 0) line.Append(": ").Append(string.Join("; ", p.UnscannableSamples));
-            }
-            line.Append('\n');
-            var row = line.ToString();
+            var row = ComposeUnreadRow(p);
             if (!body.Emit(SweepSubject.UnreadRows, row.Length, () => sb.Append(row))) return;
         }
     }
@@ -1477,7 +1527,11 @@ static class Wire
         // not, with the spelling that gets them. The default narrows only because the response says so (Q3).
         sb.Append(s.ScopeSentence()).Append('\n');
 
-        var body = BoundedBody.ForFamilies(accts, budget, () => sb.Length, s.Plan());
+        // WHAT EACH SUBJECT WANTS, measured before anything is written, so the allocation can water-fill
+        // over it rather than discover shortfalls at render time (SweepDemand, BodyAllocation).
+        var demand = SweepDemand.ForText(s, budget, histogramLimit);
+        var body = BoundedBody.ForFamilies(accts, budget, () => sb.Length, s.Plan(),
+                                           demand.Demand, demand.Reserved);
         for (int i = 0; i < sections.Count; i++)
         {
             var f = sections[i];
@@ -1600,15 +1654,13 @@ static class Wire
         if (r.CountsOnly)
         {
             AppendHistograms(sb, body, histogramLimit,
-                new HistogramAxis(SweepSubject.HistogramByProperty, r.Histogram, "unbound properties by NAME",
-                                  "counts_only=true — totals above are exact; no per-record listing was built.",
-                                  "no unbound histogram — findings= excluded both unbound classes, so nothing was tallied."));
+                ScriptsAxes(r));
             // The honesty layer: plugins whose record enumeration faulted. Its own subject, so a response that could
             // not carry every row states how many it named instead of stopping with a bare marker.
             foreach (var rec in r.Reports)
             {
                 if (rec.ScanError is null) continue;
-                var row = "\n[SCAN ERROR] " + rec.Plugin + ": " + rec.ScanError + "\n";
+                var row = ComposeScriptRecordUnit(rec);
                 if (!body.Emit(SweepSubject.ScriptScanRows, row.Length, () => sb.Append(row))) break;
             }
             return;
@@ -1623,7 +1675,7 @@ static class Wire
             // Everything inside one is a finding in its own right (an unbound property, the bound-but-null advisory,
             // a "could not verify" note), and the per-line "append if it fits" this replaces dropped them with no
             // subject accounting for the loss: half a record's findings under a header claiming the whole record.
-            var section = ComposeScriptRecord(rec);
+            var section = ComposeScriptRecordUnit(rec);
             if (!body.Emit(SweepSubject.ScriptRecords, section.Length, () => sb.Append(section))) break;
         }
     }
@@ -1631,7 +1683,7 @@ static class Wire
     /// <summary>One record's whole section, composed before it is offered to the budget — the same construction the
     /// errors family's plugin sections use, and for the same reason: a unit measured before the write is a unit the
     /// response cannot land over its cap with.</summary>
-    static string ComposeScriptRecord(RecordScriptFindings rec)
+    internal static string ComposeScriptRecordUnit(RecordScriptFindings rec)
     {
         if (rec.ScanError is not null)
             return "\n[SCAN ERROR] " + rec.Plugin + ": " + rec.ScanError + "\n";
