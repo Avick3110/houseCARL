@@ -1031,8 +1031,6 @@ static class JsonWire
         return Finish(ms);
     }
 
-    /// <summary>The P5 scoped-vs-winner fields note, shared verbatim by the json and dense renders (D2 — one wording,
-    /// two renders that can't drift).</summary>
     /// <summary>The P5 scoped-vs-winner field-source note, as one of a 4-way matrix over (winner_fields=, where_source=).
     /// <paramref name="whereWinner"/> (#233) is true when the MATCH decided on the live winner (where_source=winner) —
     /// then the note must NOT claim the match was selected on the scoped body (the D2 no-drift rule). Shared by the

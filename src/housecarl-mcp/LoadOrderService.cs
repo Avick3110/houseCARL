@@ -7181,10 +7181,6 @@ public sealed class LoadOrderService : IDisposable
         return report.IsEmpty ? outcome : outcome with { CellShell = report };
     }
 
-    /// <summary>Map a wire field-op to a core <see cref="WriteRequest"/> for CREATE: RecordType is the create type (not
-    /// derived), and a create op carries NO formid (it sets a field on the new record, whose id is auto-allocated) — a
-    /// stray formid is refused loud (Q3) rather than silently ignored. Builds the composition <see cref="StructSpec"/> the
-    /// same way <see cref="MapEdit"/> does (so a created Spell's Effects / LeveledItem's Entries compose identically).</summary>
     /// <summary>The CALLING tool's vocabulary for a create op, threaded down so a refusal never names a spelling the
     /// caller cannot see (PR #311 review 6 [low]; the same rule as <c>origins</c>, <c>sourceParam</c>,
     /// <c>offerModParam</c> and <c>InPlaceAgainHint</c>). <paramref name="Element"/> is the ops-list member word;
@@ -7196,6 +7192,10 @@ public sealed class LoadOrderService : IDisposable
         public static readonly CreateOpNaming Legacy = new("op", "CopyFrom / from_plugin");
     }
 
+    /// <summary>Map a wire field-op to a core <see cref="WriteRequest"/> for CREATE: RecordType is the create type (not
+    /// derived), and a create op carries NO formid (it sets a field on the new record, whose id is auto-allocated) — a
+    /// stray formid is refused loud (Q3) rather than silently ignored. Builds the composition <see cref="StructSpec"/> the
+    /// same way <see cref="MapEdit"/> does (so a created Spell's Effects / LeveledItem's Entries compose identically).</summary>
     WriteRequest? MapCreateEdit(BulkOp op, int index, string recordType, CreateOpNaming naming, out string? error)
     {
         error = null;

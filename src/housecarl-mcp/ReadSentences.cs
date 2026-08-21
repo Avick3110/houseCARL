@@ -183,10 +183,6 @@ internal static class ReadSentences
     // a sentence that gets copied into the other transport and then drifts. Here they are inside the content net
     // that walks this class's consts, so emptying one fails a guard instead of a review round.
 
-    /// <summary>The lead, on a response that carries every finding the sweep found. Stated rather than implied by
-    /// silence: "no accounting line" used to mean both "complete" and "the cut landed somewhere that never got to
-    /// print one" (#361), and a reader could not tell those apart. Now the line is unconditional over the listing
-    /// lane, so its absence means the lane did not run, never that the response is whole.</summary>
     /// <summary>The accounting's own framing. It used to be baked into the two listing leads below, so a lane with
     /// no listing emitted its clauses with no opener and then the closer on its own — the accounting's framing had
     /// exactly the shape it exists to forbid. It is not about any subject, so it is stated outside every subject
@@ -282,6 +278,22 @@ internal static class ReadSentences
     [NoClaims("punctuation closing the accounting line")]
     internal const string SweepClose = "]";
 
+    /// <summary>The lead both overrun sentences share, and the ENUMERATION of what a response carries whatever the
+    /// budget says. One constant because the two sentences differ only in what happened next — spelled twice, the
+    /// list drifted: it said "its header, the accounting above, the boundary" for a whole branch after this lane
+    /// gained a third member, each cut axis's own closing disclosure, reserved out of <c>max_chars</c> before the
+    /// body renders. On a two-200-row-axis counts_only overrun those disclosures are ~289 chars of what did not
+    /// fit, and the sentence explaining the overrun named everything except them — leaving a reader to blame a
+    /// short header and a boundary they can measure.
+    ///
+    /// <para>The third member is stated CONDITIONALLY ("for anything it cut short") because the listing lane has
+    /// no histogram axes and owes no closing line — an unconditional member would be a list naming something that
+    /// lane does not carry, which is the same class of wrong the addition fixes.</para></summary>
+    [MustState("its header", "the accounting above", "cut short", "the boundary")]
+    internal const string SweepFixedPartLead =
+        " This response is {2} chars, longer than the max_chars={0} it was given: what it must carry whatever the " +
+        "budget — its header, the accounting above, the closing line for anything it cut short, the boundary — ";
+
     /// <summary>The one arm where the response is allowed to exceed max_chars, and it says so. A cap smaller than
     /// the accounting itself leaves no honest response: dropping the accounting restores exactly the silence #361
     /// IS, and refusing turns a call that answers today into one that does not. So the accounting ships and the
@@ -295,9 +307,7 @@ internal static class ReadSentences
     /// sentence about a length is asked of the length.</para></summary>
     [MustState("max_chars=", "raise it to at least")]
     internal const string SweepCapTooSmall =
-        " This response is {2} chars, longer than the max_chars={0} it was given: what it must carry whatever the " +
-        "budget - its header, the accounting above, the boundary - does not fit in that many chars, so raise it to " +
-        "at least {1}.";
+        SweepFixedPartLead + "does not fit in that many chars, so raise it to at least {1}.";
 
     /// <summary>The OTHER way a response ends up over its cap, and the reason there are two sentences rather than one
     /// with a cause that is only sometimes true. A body unit whose size cannot be known before it is written — a json
@@ -313,9 +323,8 @@ internal static class ReadSentences
     /// how the cap sweep stops finding the number it follows.</para></summary>
     [MustState("max_chars=", "raise it to at least")]
     internal const string SweepCapOvershot =
-        " This response is {2} chars, longer than the max_chars={0} it was given: what it must carry whatever the " +
-        "budget - its header, the accounting above, the boundary - does fit, but one body unit was written before " +
-        "its size could be measured and ran past what was left, so raise it to at least {1}.";
+        SweepFixedPartLead + "does fit, but one body unit was written before its size could be measured and ran " +
+        "past what was left, so raise it to at least {1}.";
 
     /// <summary>The sweep's honest scope boundary, stated to BOTH transports from here. It was two hand-copied
     /// twins — the text render's and the json writer's — and they had already drifted: the text one qualified the
