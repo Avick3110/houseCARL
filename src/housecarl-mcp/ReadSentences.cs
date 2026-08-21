@@ -305,7 +305,12 @@ internal static class ReadSentences
     /// were comfortably shorter: 1032 caps out of a 200–6000 sweep in the default text lane alone, and every cap
     /// from 800 up in the missing-masters lane, where the reserve is held for a line that lane never emitted. A
     /// sentence about a length is asked of the length.</para></summary>
-    [MustState("max_chars=", "raise it to at least")]
+    /// <summary>Pinned on the COMPLETED sentence as well as on the lead, because sharing the lead is a
+    /// construction and a construction can be undone: sabotaged to spell its own opener with a shortened list,
+    /// this sentence passed everything. The phrases are the enumeration's members, so a sentence that stops
+    /// carrying one fails by name whether it dropped the member or dropped the lead.</summary>
+    [MustState("max_chars=", "raise it to at least", "its header", "the accounting above",
+               "the closing line for anything it cut short", "the boundary")]
     internal const string SweepCapTooSmall =
         SweepFixedPartLead + "does not fit in that many chars, so raise it to at least {1}.";
 
@@ -321,7 +326,8 @@ internal static class ReadSentences
     ///
     /// <para>Both spellings end in the same remedy clause, because the remedy is the same and two spellings of it is
     /// how the cap sweep stops finding the number it follows.</para></summary>
-    [MustState("max_chars=", "raise it to at least")]
+    [MustState("max_chars=", "raise it to at least", "its header", "the accounting above",
+               "the closing line for anything it cut short", "the boundary")]
     internal const string SweepCapOvershot =
         SweepFixedPartLead + "does fit, but one body unit was written before its size could be measured and ran " +
         "past what was left, so raise it to at least {1}.";
