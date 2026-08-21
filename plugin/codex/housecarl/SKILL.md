@@ -36,7 +36,7 @@ Beyond the core workflow, reach for the right group. Depth for the specialist ar
 - `housecarl_resolve` — resolve a list of FormIDs to identity; `housecarl_diff_record` — diff two plugins' versions of a record.
 - `housecarl_effect_chain` — trace a magic effect to every spell / enchantment / potion / scroll / ingredient that carries it.
 - `housecarl_load_order_status` — enabled/disabled mods & plugins; `housecarl_check_errors` — dangling refs, missing masters, broken links.
-- `housecarl_check` — the merged derived-findings sweep: `findings=` picks the family (`errors` — dangling refs, missing masters, parse failures, the default; `scripts` — unbound VMAD script properties) or a class inside one, in one call.
+- `housecarl_check` — the merged derived-findings sweep: `findings=` picks the family (`errors` — dangling refs, missing masters, parse failures, the default; `scripts` — unbound VMAD script properties; `dialogue` — the dialogue graph over the topics and quests `seeds=` names) or a class inside one, in one call.
 
 **Runtime layers (what xEdit can't see)**
 - `housecarl_skypatcher_read` — a record's true state after the SkyPatcher INI layer replays; `housecarl_skypatcher_layer` — the INIs, apply order, conflicts.
