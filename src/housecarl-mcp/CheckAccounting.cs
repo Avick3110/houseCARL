@@ -112,11 +112,6 @@ internal sealed class CheckAccounting
             _bySourceEmitted[source] = (_bySourceEmitted.TryGetValue(source, out var had) ? had : 0) + 1;
     }
 
-    /// <summary>Rows a transport wrote WHOLE, outside the emission loop — json writes its excluded roster as one
-    /// array it either completes or does not start. Told explicitly rather than left at zero, which would claim
-    /// every row was dropped.</summary>
-    internal void EmittedAll(SweepSubject s) { if (_found.ContainsKey(s)) _emitted[s] = _found[s]; }
-
     // ---- derived ------------------------------------------------------------------------------------
 
     /// <summary>Refs the listing budget never admitted. A pure SWEEP fact, so it is readable before the body renders
@@ -187,7 +182,15 @@ internal sealed class CheckAccounting
     /// only ever adds characters, so a "longest by either spelling" rule is just the escaped one wearing a hat: it
     /// ranks a short non-ASCII name above a much longer ASCII one, and a text reserve sized from that sample is
     /// short by the difference. The two lanes disagree about which names are longest, so each asks its own
-    /// question.</para></summary>
+    /// question.</para>
+    ///
+    /// <para><b>Which lane an arm can see this in, said rather than left to be discovered.</b> The TEXT half is
+    /// pinned: ranked by the escaped spelling instead, the escaped-names fixture overruns the text cap by 300-plus
+    /// characters at eight caps in the sweep. The JSON half is not — sabotaged to rank by the plain spelling, every
+    /// arm in both guards stays green, because the json reserve carries a kilobyte of slack sized for one whole
+    /// entry and it absorbs the difference at every cap a fixture can reach. Asking each lane its own question is
+    /// kept anyway: a reserve that happens to be covered by slack meant for something else is not a reserve, and
+    /// that posture is what produced four unbounded write sites in a row.</para></summary>
     Values Worst(bool escaped)
     {
         int danglingFound = Found(SweepSubject.DanglingEntries);
