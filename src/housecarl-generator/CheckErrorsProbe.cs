@@ -1282,6 +1282,33 @@ public static class CheckErrorsProbe
         Check("OVERRUN-NOTICE-STATES-THE-WHOLE-RESPONSE: the length the notice reports is the length the caller receives, notice included — a sentence about a length that leaves itself out is wrong by its own size",
             lenBad.Count == 0, lenBad.Count == 0 ? "every notice stated its response's true length" : string.Join("; ", lenBad));
 
+        // ---- the smallest overrun there is: ONE character, in the lane that cannot measure its document directly.
+        //      json decides whether to fire the notice from a COMPUTED length — the document so far plus what
+        //      closing the root still costs — and that closing cost was a hand-kept 2 where an indented writer
+        //      truly spends 3. A document of exactly cap+1 therefore compared as cap and said nothing, while the
+        //      length the notice STATES stayed right, because a second hand-kept number over-counted by the same
+        //      one and cancelled it. Both are now read off one measurement of the writer itself.
+        //      The cap here is a FIXTURE-KNOWN length: a result with no droppable body renders to ONE document
+        //      whatever the cap, so measuring that document and asking for one character less than it is a cap the
+        //      response is over by exactly one. The cap itself is printed inside the accounting, so its digit width
+        //      is part of that length — the arm holds both caps to the same width rather than assuming it.
+        var noBody = ErrorCheck.Run(rm, null, 1000) with
+        {
+            Reports = Array.Empty<PluginErrors>(),
+            ExcludedPlugins = new Dictionary<string, string>(),
+        };
+        const int RoomyCap = 4000;
+        var noBodyRoomy = JsonWire.RenderCheckErrors(noBody, RoomyCap);
+        int edgeCap = noBodyRoomy.Length - 1;
+        var oneOver = JsonWire.RenderCheckErrors(noBody, edgeCap);
+        int oneOverStated = StatedLength(oneOver.Replace("\\u0027", "'"));
+        Check("JSON-ONE-CHAR-OVERRUN-IS-DECLARED: a json document ONE character past its cap says so — the comparison that fires the notice is taken on the closed document, and a root-close cost kept by hand instead of measured made the smallest overrun the one nobody hears about",
+            noBodyRoomy.Length <= RoomyCap && edgeCap.ToString().Length == RoomyCap.ToString().Length
+            && !noBodyRoomy.Contains("max_chars_overrun", StringComparison.Ordinal)
+            && oneOver.Contains("max_chars_overrun", StringComparison.Ordinal)
+            && oneOverStated == oneOver.Length,
+            $"document={noBodyRoomy.Length} edgeCap={edgeCap} len={oneOver.Length} stated={oneOverStated}");
+
         // ---- the two honesty-layer row counts, both directions. They can each be a no-op and print
         //      "0 of 1 plugin(s) that could not be parsed are named above" over a response that named it.
         var withExcluded = ErrorCheck.Run(rm, null, 1000) with
