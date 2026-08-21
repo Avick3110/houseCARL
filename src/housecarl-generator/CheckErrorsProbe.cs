@@ -1139,30 +1139,46 @@ public static class CheckErrorsProbe
             && serialFirstTakesAll && serialSecondStarved && serialSb.Length == 100,
             $"first={firstTakesItsShare} stops={firstStopsThere} second={secondStillHasItsShare} len={fairSb.Length} | serialAll={serialFirstTakesAll} serialStarved={serialSecondStarved}");
 
-        // Redistribution, which is the half of the rule that keeps it from being worse than serial at an ample
-        // cap: a subject that rendered everything it had leaves its share to the ones after it. Without this the
-        // second subject would be held to 50 while 40 characters sat unspendable behind a finished sibling.
+        // WATER-FILLING'S OWN PROPERTY, in place of the recount this replaces. A subject that wants LESS than an
+        // equal share is allocated exactly what it wants, and what it did not want is in its siblings' shares
+        // BEFORE anything is written — nothing signals completion, and there is nothing to hand back. The arm the
+        // sequential recount had here asked the opposite question (does a Release move room?) and its answer is
+        // now "no, because the room was never held": min(demand, lambda) is a function of the demands alone.
         var backSb = new System.Text.StringBuilder();
         var backBody = new BoundedBody(null, 100, () => backSb.Length, new (SweepFamily, IReadOnlyList<SweepSubject>)[]
         {
             (SweepFamily.Errors, new[] { SweepSubject.HistogramByTarget, SweepSubject.HistogramBySource }),
+        }, new Dictionary<SweepSubject, int>
+        {
+            [SweepSubject.HistogramByTarget] = 10,
+            [SweepSubject.HistogramBySource] = 90,
         });
-        bool shortSubjectWrites = backBody.Emit(SweepSubject.HistogramByTarget, 10, () => backSb.Append(new string('t', 10)));
-        backBody.Release(SweepSubject.HistogramByTarget);            // it rendered everything it had
-        bool secondGetsTheRemainder = backBody.Emit(SweepSubject.HistogramBySource, 90, () => backSb.Append(new string('s', 90)));
-        Check("ALLOCATION-A-FINISHED-SUBJECT-HANDS-BACK-WHAT-IT-DID-NOT-SPEND: a subject that rendered all it had leaves the rest of its share to the siblings after it — the one that follows spends 90 of a 100 body, not the 50 an unrecounted split would have held it to",
-            shortSubjectWrites && secondGetsTheRemainder && backSb.Length == 100,
-            $"shortWrites={shortSubjectWrites} secondGetsRemainder={secondGetsTheRemainder} len={backSb.Length} (want 100)");
+        bool cheapSubjectWrites = backBody.Emit(SweepSubject.HistogramByTarget, 10, () => backSb.Append(new string('t', 10)));
+        bool cheapSubjectStopsAtItsDemand = !backBody.Emit(SweepSubject.HistogramByTarget, 1, () => backSb.Append('t'));
+        bool expensiveSubjectHasTheRest = backBody.Emit(SweepSubject.HistogramBySource, 90, () => backSb.Append(new string('s', 90)));
+        // The control, and the reason this arm is not vacuous: the SAME plan with nothing measured is an equal
+        // split, where the second subject is held to 50 and 40 characters sit behind a sibling that wanted 10.
+        var evenSb = new System.Text.StringBuilder();
+        var evenBody = new BoundedBody(null, 100, () => evenSb.Length, new (SweepFamily, IReadOnlyList<SweepSubject>)[]
+        {
+            (SweepFamily.Errors, new[] { SweepSubject.HistogramByTarget, SweepSubject.HistogramBySource }),
+        });
+        bool unmeasuredSecondHeldToHalf = evenBody.Emit(SweepSubject.HistogramBySource, 50, () => evenSb.Append(new string('s', 50)))
+                                       && !evenBody.Emit(SweepSubject.HistogramBySource, 1, () => evenSb.Append('s'));
+        Check("ALLOCATION-A-CHEAP-DEMAND-TAKES-ONLY-WHAT-IT-WANTS: a subject wanting 10 of a 100 body is allocated 10 and stops there, and the sibling wanting 90 is allocated 90 — before either writes, with nothing handed back. The same plan with nothing MEASURED is the equal split that holds the second to 50",
+            cheapSubjectWrites && cheapSubjectStopsAtItsDemand && expensiveSubjectHasTheRest && backSb.Length == 100
+            && unmeasuredSecondHeldToHalf && evenSb.Length == 50,
+            $"cheapWrites={cheapSubjectWrites} cheapStops={cheapSubjectStopsAtItsDemand} restToSibling={expensiveSubjectHasTheRest} len={backSb.Length} (want 100) | unmeasuredHalf={unmeasuredSecondHeldToHalf} evenLen={evenSb.Length} (want 50)");
 
-        // Allocation divides the BODY, never the reserved fixed part. A standing reserve shrinks the pool the
-        // shares come out of; it is not itself shared out. Told otherwise, a subject would be handed a ceiling
-        // that included room already promised to a closing disclosure, and the disclosure it was reserved for
-        // would be the thing that did not fit.
+        // Allocation divides the BODY, never the reserved fixed part. What is held back is subtracted from the
+        // pool the shares come out of BEFORE the fill runs — it is not itself shared out. Told otherwise, a
+        // subject would be handed a ceiling that included room already promised to a closing disclosure, and the
+        // disclosure it was reserved for would be the thing that did not fit.
         var reservedSb = new System.Text.StringBuilder();
         var reservedBody = new BoundedBody(null, 100, () => reservedSb.Length, new (SweepFamily, IReadOnlyList<SweepSubject>)[]
         {
             (SweepFamily.Errors, new[] { SweepSubject.HistogramByTarget, SweepSubject.HistogramBySource }),
-        });
+        }, demand: null, reservedForRows: 40);
         reservedBody.Reserve(SweepSubject.UnreadRows, 40);
         bool halfOfWhatIsLeftLands = reservedBody.Emit(SweepSubject.HistogramByTarget, 30, () => reservedSb.Append(new string('t', 30)));
         bool aboveHalfOfWhatIsLeftRefused = !reservedBody.Emit(SweepSubject.HistogramByTarget, 1, () => reservedSb.Append('t'));
@@ -1393,14 +1409,13 @@ public static class CheckErrorsProbe
             && !mastersManyWhole.Contains("[accounting:", StringComparison.Ordinal),
             AccountingLine(Wire.RenderCheckErrors(mastersMany, 0)));
 
-        // ---- the overrun notice's CAUSE, one arm per branch of the conditional that picks it.
-        //      Both overruns say "raise it to at least", so a cell reading that phrase cannot tell them apart —
-        //      which is how the fixed-part explanation shipped over a body-unit overshoot whose fixed part fit with
-        //      344 chars to spare. What each arm asserts is a FIXTURE-KNOWN length: the floor (the response with no
-        //      body in it) against the cap, which is the same quantity the render branches on.
+        // ---- the overrun notice's CAUSE, one cell per branch of the conditional that picks it.
+        //      Both overruns end in "raise it to at least", so the CAUSE sentence is the whole of what tells them
+        //      apart — which is how the fixed-part explanation once shipped over a body-unit overshoot whose fixed
+        //      part fit with 344 chars to spare.
         var overshotBase = ErrorCheck.Run(rm, null, 1000);
-        // A json entry whose EditorID is longer than the whole json reserve. Entries carry no measured cost by
-        // design (see BoundedBody), so the post-check stops the body only AFTER this one has landed.
+        // A json entry whose EditorID is longer than the whole json reserve. Under the rule this branch replaces,
+        // entries carried no measured cost and the post-check stopped the body only AFTER this one had landed.
         var overshot = overshotBase with
         {
             Reports = overshotBase.Reports.Take(1).Select(x => new PluginErrors(
@@ -1411,20 +1426,38 @@ public static class CheckErrorsProbe
         int overshotFloor = JsonWire.RenderCheckErrors(overshot, 1).Length;   // the fixture's irreducible response
         const int OvershotCap = 4000;                                        // comfortably above that floor
         const int TooSmallCap = 1200;                                        // comfortably below it
-        var overshotJson = JsonWire.RenderCheckErrors(overshot, OvershotCap);
         var tooSmallJson = JsonWire.RenderCheckErrors(overshot, TooSmallCap);
-        Check("OVERRUN-NOTICE-NAMES-THE-OVERRUN-IT-HAD: with the fixed part fitting the cap and a body unit running past what was left, the notice says the fixed part FIT — the other explanation is false there, and it is the one every overrun used to get",
-            overshotFloor < OvershotCap && overshotJson.Length > OvershotCap
-            && overshotJson.Contains("does fit, but one body unit was written before its size could be measured", StringComparison.Ordinal)
-            && !overshotJson.Contains("does not fit in that many chars", StringComparison.Ordinal),
-            $"floor={overshotFloor} cap={OvershotCap} len={overshotJson.Length} notice=[{OverrunNotice(overshotJson)}]");
 
-        Check("OVERRUN-NOTICE-STILL-NAMES-A-CAP-TOO-SMALL: the other branch of the same conditional — a cap below the fixture's own floor still gets the fixed-part explanation, so the arm above cannot pass by making that sentence unreachable",
+        // THE DISCRIMINATOR ITSELF, asked of the arm that computes it rather than through a render — a CHANGE this
+        // branch made, stated rather than hidden. The overshoot branch fires when a body unit writes more than it
+        // declared, and no emission site declares less than it writes any longer: #394's allocation divides room BY
+        // the declared costs, so every one of them is now measured at the unit's own nesting depth and sibling
+        // position. The cell below sweeps the provoking fixture and finds the branch unreachable end to end. It is
+        // kept anyway — it is where a future unit declaring 0 lands, and the other sentence would lie to that
+        // caller — so it is pinned where its logic lives instead of behind a cell that cannot fail.
+        var discriminator = new CheckAccounting(overshot, OvershotCap);
+        var overshotNotice = discriminator.CapTooSmall(OvershotCap + 500, needed: OvershotCap - 500);
+        var tooSmallNotice = discriminator.CapTooSmall(OvershotCap + 500, needed: OvershotCap + 100);
+        Check("OVERRUN-NOTICE-NAMES-THE-OVERRUN-IT-HAD: a response over its cap whose FIXED PART fits is told a body unit ran past what was left — never that its header and accounting did not fit, which is the explanation every overrun used to get",
+            overshotNotice is not null
+            && overshotNotice.Contains("does fit, but one body unit was written before its size could be measured", StringComparison.Ordinal)
+            && !overshotNotice.Contains("does not fit in that many chars", StringComparison.Ordinal)
+            // the other branch of the same ternary, so this cell cannot pass by making one sentence unreachable
+            && tooSmallNotice is not null
+            && tooSmallNotice.Contains("does not fit in that many chars", StringComparison.Ordinal)
+            && !tooSmallNotice.Contains("does fit, but one body unit", StringComparison.Ordinal)
+            // and neither fires on a response that is inside its cap
+            && discriminator.CapTooSmall(OvershotCap, needed: OvershotCap - 500) is null,
+            $"overshot=[{overshotNotice}] tooSmall=[{tooSmallNotice}]");
+
+        Check("OVERSHOOT-IS-CLOSED-BY-MEASUREMENT: the fixture built to make a body unit overshoot never lands over its cap at any cap in a 12,000-wide band in EITHER transport, and every overrun it does report is a genuine cap-too-small — because no unit is offered to the budget at a cost smaller than it writes",
+            OvershootIsClosed(overshot, out var overshootFail), overshootFail);
+
+        Check("OVERRUN-NOTICE-STILL-NAMES-A-CAP-TOO-SMALL: end to end, a cap below the fixture's own floor gets the fixed-part explanation — the branch a render can still reach, asked of a render",
             TooSmallCap < overshotFloor && tooSmallJson.Length > TooSmallCap
             && tooSmallJson.Contains("does not fit in that many chars", StringComparison.Ordinal)
             && !tooSmallJson.Contains("does fit, but one body unit", StringComparison.Ordinal),
             $"floor={overshotFloor} cap={TooSmallCap} len={tooSmallJson.Length} notice=[{OverrunNotice(tooSmallJson)}]");
-
         // ---- the overrun notice, in BOTH directions and followed to the letter.
         Check("OVERRUN-NOTICE-ONLY-WHEN-OVER: a response inside its cap never claims to be longer than it — the notice is measured off the finished response, not predicted from the reserve",
             Wire.RenderCheckErrors(manyAmple, 0) is var wholeResp
@@ -2184,6 +2217,42 @@ public static class CheckErrorsProbe
         return acct.GetProperty("dangling_missing_by_source").EnumerateArray()
                    .Select(e => e.GetProperty("plugin").GetString() + ":" + e.GetProperty("count").GetInt32())
                    .ToArray();
+    }
+
+    /// <summary>Sweep a fixture built to make a body unit overshoot across a wide cap band in both transports:
+    /// nothing may exceed its cap, and any overrun that DOES fire must be a genuine cap-too-small.
+    ///
+    /// <para>This is the cell that earns the direct-call arm above. Every emission site now declares a cost measured
+    /// at the unit's own depth and sibling position — the allocation divides room by those numbers, so an
+    /// under-declared one is a wrong division and not merely a loose test — and the branch that explained an
+    /// overshoot is therefore unreachable through a render. Saying that out loud, and holding it, is the honest
+    /// alternative to leaving an end-to-end arm that passes because its fixture can no longer provoke
+    /// anything.</para></summary>
+    static bool OvershootIsClosed(ErrorCheckResult r, out string detail)
+    {
+        var bad = new List<string>();
+        int overruns = 0;
+        for (int cap = 1; cap <= 12000; cap++)
+        {
+            foreach (var (lane, response) in new[]
+                     {
+                         ("text", Wire.RenderCheckErrors(r, cap)),
+                         ("json", JsonWire.RenderCheckErrors(r, cap)),
+                     })
+            {
+                if (response.Length <= cap) continue;
+                overruns++;
+                if (response.Contains("does fit, but one body unit", StringComparison.Ordinal) && bad.Count < 3)
+                    bad.Add($"{lane}@{cap} overshot len={response.Length}");
+                else if (!response.Contains("does not fit in that many chars", StringComparison.Ordinal) && bad.Count < 3)
+                    bad.Add($"{lane}@{cap} over cap ({response.Length}) with NO overrun notice at all");
+            }
+        }
+        // An all-clear that swept no overruns at all would be a sweep proving nothing: the fixture's floor is above
+        // the low caps by construction, so some must fire.
+        if (overruns == 0) bad.Add("no overrun fired anywhere — the fixture no longer provokes one");
+        detail = bad.Count == 0 ? $"{overruns} overruns, all cap-too-small" : string.Join("; ", bad);
+        return bad.Count == 0;
     }
 
     /// <summary>The whole-or-absent rule, swept over caps. A section says more than its dangling entries — a scan
