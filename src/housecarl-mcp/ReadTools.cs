@@ -1489,7 +1489,7 @@ static class Wire
                 AppendErrorsHead(sb, s.Errors!, accts[i]);
                 AppendErrorsSection(sb, s.Errors!, body, histogramLimit);
             }
-            else
+            else if (f == SweepFamily.Scripts)
             {
                 // The off-order asymmetry sits IN this family's section, above its own counts: a "0 unbound" over a
                 // scope this family could not sweep reads as "looked, found none" — the exact Q3 misreading the
@@ -1497,6 +1497,14 @@ static class Wire
                 if (s.OffOrderSentence() is { } skipped) sb.Append(skipped).Append('\n');
                 AppendScriptsHead(sb, s.Scripts!);
                 AppendScriptsSection(sb, s.Scripts!, body, histogramLimit);
+            }
+            else
+            {
+                // The dialogue family's own asymmetry sits in the same place and for the same reason: it is SEEDED,
+                // so the scope parameters beside it did not narrow it, and a caller who passed plugins= would
+                // otherwise read a seeded answer as a scoped one.
+                DialogueSweepRender.AppendHead(sb, s);
+                DialogueSweepRender.AppendSection(sb, s, body);
             }
             // This family's accounting, under this family's section, out of the room held for it.
             if (accts[i].TextLine() is { } line)

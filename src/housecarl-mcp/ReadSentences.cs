@@ -502,6 +502,143 @@ internal static class ReadSentences
     [NoClaims("a label; the claim it introduces is SweepBoundary")]
     internal const string SweepBoundaryLabel = "boundary: ";
 
+    // ---- the dialogue family (SPEC §6.1, classes 1-7) ------------------------------------------------
+
+    /// <summary>THE COST-REFUSAL (SPEC §6.1 F1.2). The dialogue family is SEEDED, not swept (F1.1): a call naming it
+    /// with no <c>seeds=</c> has given it an empty scope, and resolving that to "the whole order" would be the
+    /// whole-order dialogue sweep this rule refuses. So it refuses, states its own behaviour, and spells the call
+    /// that works.
+    ///
+    /// <para><b>The numbers are measured, and named with the order they were measured on.</b> §2 rule 1 category (c)
+    /// asks a declared cost-refusal to carry its bound and its numbers rather than an adjective. On ARR 2.0
+    /// (2026-08-21): the active order carries 82,343 dialogue topics, and validating ONE quest's 235 owned topics
+    /// took 13.6 seconds — which is the shape of the cost, not an extrapolation of the total.</para></summary>
+    [MustState("seeds=", "will NOT sweep the whole load order", "82,343")]
+    internal const string DialogueNeedsSeeds =
+        "findings=[\"dialogue\"] needs seeds=. This family validates the topics and quests you NAME, and it will " +
+        "NOT sweep the whole load order — that is a declared cost bound, not a missing feature: a whole-order pass " +
+        "is a per-topic graph walk across every plugin that touches each topic, and the order this bound was " +
+        "measured on carries 82,343 dialogue topics (one quest's 235 owned topics alone took 13.6 s). " +
+        "Name what to validate: seeds=[\"XXXXXX:Plugin.esp\"] takes a dialogue topic (DIAL), a quest (QUST) — which " +
+        "expands to every topic that quest owns — a dialogue view (DLVW), or a dialogue branch (DLBR).";
+
+    /// <summary>Every seed named failed to resolve, so the family validated nothing. A section of nothing under a
+    /// heading would read as "looked, found none" — the same misreading the off-order sentence exists to stop, one
+    /// family over.</summary>
+    [MustState("validated NOTHING", "ACTIVE load order")]
+    internal const string DialogueNoSeedResolved =
+        "findings=[\"dialogue\"] validated NOTHING: not one of the {0} seed(s) named resolved. {1} A seed is a DIAL, " +
+        "QUST, DLVW or DLBR FormID spelled 'XXXXXX:Plugin.esp' and is resolved against the ACTIVE load order — a " +
+        "record only a disabled plugin defines is not reachable here.";
+
+    /// <summary>ONE unresolved seed, named with why. Carried rather than dropped: this family's scope IS its seed
+    /// list, so a discarded seed is a silently narrowed scope the caller reads as a clean answer (Q3).</summary>
+    [MustState("NOT validated")]
+    internal const string DialogueSeedRefused = "  [X] {0} — NOT validated: {1}\n";
+
+    /// <summary>THE SCOPE ASYMMETRY, stated in this family's own section beside its own counts. The sweep families
+    /// take plugin scope; this one takes seeds (F1.1), so the scope parameters a caller passed alongside it did not
+    /// narrow it — and it has no off-order lane either, for a different reason than the scripts family: a seed is a
+    /// RECORD, resolved against the active order, and there is no on-disk lane for a record.
+    ///
+    /// <para>Unstated, a caller who wrote <c>plugins=["MyMod.esp"] findings=["errors","dialogue"]</c> would read the
+    /// dialogue section as scoped to their plugin when it is scoped to their seeds — the two answers differ and
+    /// nothing in the response would say which one they were reading.</para></summary>
+    [MustState("seeded, not swept", "do NOT scope it", "no off-order lane")]
+    internal const string DialogueScopeNote =
+        "scope: the dialogue family is seeded, not swept — plugins=, type=, formids=, editorid_contains= and " +
+        "exclude= scope the sweep families and do NOT scope it. It validated exactly the {0} seed(s) given in " +
+        "seeds=. It has no off-order lane: a seed is a record, and it must resolve in the ACTIVE load order.";
+
+    /// <summary>The dialogue family's honest boundary — <c>validate_dialogue</c>'s always-printed standing-limits
+    /// footer, carried whole into the merged surface as this family's closing claim. It is the family's BOUNDARY
+    /// rather than a body line, so it is reserved and unrefusable: a validator whose whole point is that a clean
+    /// structural pass is not "this will play" cannot let a budget drop the sentence that says so.
+    ///
+    /// <para>Its last clause is the F1 SPLIT, disclosed rather than left to be discovered: class 8, the effective
+    /// merged INFO order, is not a finding and did not fold here. A caller chasing "why does the wrong line play"
+    /// would otherwise read a clean dialogue section as having looked.</para></summary>
+    [MustState("does NOT mean the dialogue will play as intended", "cannot EVALUATE",
+               "records project=info_order")]
+    internal const string DialogueBoundary =
+        "validates the dialogue graph at the data layer — quest and branch wiring, LinkTo and previous-link targets " +
+        "(an EMPTY previous-link is the vanilla norm and is never flagged), each voiced line's .fuz on disk, each " +
+        "result script bound and compiled, the CK-parity subrecords, and a subset of MALFORMED conditions. It " +
+        "cannot EVALUATE whether a WELL-FORMED condition passes — only the running game can{0} — and it does not " +
+        "check lip-sync or audio content, so a clean pass here does NOT mean the dialogue will play as intended. " +
+        "The per-line checks audit the WINNING topic's INFO list only. The effective merged INFO order — which line " +
+        "the game reaches FIRST — is not a finding and is not here: ask records project=info_order for it.{1}";
+
+    /// <summary>The conditioned-line clause of the boundary above, present only where there are conditioned lines to
+    /// count. Summed over EVERY topic the validation found, not the rendered ones: it is a global honesty note about
+    /// what could not be evaluated, never a description of the listing.</summary>
+    [NoClaims("a clause of DialogueBoundary; the claim is that sentence's cannot-EVALUATE")]
+    internal const string DialogueConditioned =
+        " — {0} line(s) here carry conditions, checked for malformedness but not evaluated";
+
+    /// <summary>The asset-layer caveat, riding the boundary where a BSA failed to read: an "absent" .fuz or .pex
+    /// above may merely be unscanned.</summary>
+    [MustState("may merely be unscanned")]
+    internal const string DialogueReadIncomplete =
+        " A BSA failed to read this build, so an \"absent\" voice file or .pex above may merely be unscanned — see " +
+        "housecarl_load_order_status.";
+
+    /// <summary>The dialogue family's completeness assertion when every topic it found is in the response.</summary>
+    [MustState("every one of the")]
+    internal const string SweepDialogueAllVisible =
+        " every one of the {0} topic(s) these seeds own is listed.";
+
+    /// <summary>…and when the response could not carry them all.</summary>
+    [MustState("max_chars")]
+    internal const string SweepDialogueVisible =
+        " {0} of the {1} topic(s) these seeds own are listed; the rest did not fit this response's max_chars.";
+
+    /// <summary>The seed budget's own share of what is absent — seeds the call never validated at all, which is a
+    /// different absence from topics that did not fit and must not read alike.</summary>
+    [MustState("limit=", "were NOT validated")]
+    internal const string SweepDialogueSeedsCut =
+        " {0} of the {1} seed(s) named were validated; {2} were NOT validated because the seed budget (limit={3}) " +
+        "ran out.";
+
+    /// <summary>What the validation FOUND, restated where the listing is short — the totals are never capped, and a
+    /// short listing with no total beside it reads as the whole answer.</summary>
+    [MustState("True totals")]
+    internal const string SweepDialogueProblems =
+        " True totals: {0} finding(s) across {1} topic(s).";
+
+    /// <summary>The unresolved-seed roster's own cut. Its rows are seeds houseCARL could NOT reach, so a silent cut
+    /// there hides the boundary of the answer rather than a finding inside it.</summary>
+    [MustState("could not be validated")]
+    internal const string SweepDialogueRefusalsCut =
+        " {0} of the {1} seed(s) that could not be validated are named above.";
+
+    /// <summary>ONE SEED's head inside the merged response: what it is, what it resolved to, and how far it fans
+    /// out. Its own sentence rather than <c>validate_dialogue</c>'s opening line, which names that tool — a section
+    /// of a merged response naming a different tool is a caller reading the wrong surface's answer.</summary>
+    [NoClaims("a seed head; the claims are the findings under it and this family's boundary")]
+    internal const string DialogueSeedHead = "seed {0} — {1} {2}, winner {3}, {4} topic(s)\n";
+
+    /// <summary>A QUEST seed that owns no dialogue at all. Said, rather than left as a head with nothing under it:
+    /// "this quest owns no topics" and "the topics did not fit" are different answers (Q3).</summary>
+    [MustState("owns NO dialogue topics")]
+    internal const string DialogueSeedNoTopics =
+        "  this quest owns NO dialogue topics in the active load order — nothing to validate. If you expected some, " +
+        "check those topics set DialogTopic.Quest to this quest and that their plugin is enabled.\n";
+
+    /// <summary>The dialogue family's counts line: what the validation found, above everything a budget can refuse.
+    /// A caller whose topic blocks were all cut still learns the totals.</summary>
+    [MustState("finding(s) across")]
+    internal const string DialogueCounts =
+        "{0} seed(s) validated, {1} topic(s), {2} finding(s) across them.\n";
+
+    /// <summary>What <c>counts_only=true</c> leaves out for this family, stated where the listing would have been —
+    /// a mode that renders no blocks must say that is what it did, never look like a validation that found nothing
+    /// to show.</summary>
+    [MustState("counts_only=true", "no per-topic blocks")]
+    internal const string DialogueCountsOnly =
+        "counts_only=true: the totals above and the unreachable seeds below, and no per-topic blocks. Drop " +
+        "counts_only= to see each topic's findings.\n";
+
     /// <summary>How many source plugins the roster names before it says how many it did not. Ten is enough to act
     /// on; the count of the rest is what keeps the roster from becoming its own silent cut.</summary>
     internal const int SweepRosterRows = 10;

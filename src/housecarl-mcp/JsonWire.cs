@@ -1546,12 +1546,17 @@ static class JsonWire
                     WriteErrorsHead(w, s.Errors!);
                     WriteErrorsSection(w, s.Errors!, body, histogramLimit);
                 }
-                else
+                else if (f == SweepFamily.Scripts)
                 {
                     // In this family's own object, beside its own counts — see the text lane for why.
                     if (s.OffOrderSentence() is { } skipped) w.WriteString("off_order_not_swept", skipped);
                     WriteScriptsHead(w, s.Scripts!);
                     WriteScriptsSection(w, s.Scripts!, body, histogramLimit);
+                }
+                else
+                {
+                    DialogueSweepRender.WriteHead(w, s);
+                    DialogueSweepRender.WriteSection(w, s, body);
                 }
                 // This family's accounting and boundary, out of the room held for them rather than out of the rows
                 // the next family still has to render.

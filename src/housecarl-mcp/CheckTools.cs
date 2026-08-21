@@ -5,8 +5,9 @@ using ModelContextProtocol.Server;
 namespace HousecarlMcp;
 
 /// <summary>
-/// <c>housecarl_check</c> — the merged derived-findings sweep (SPEC §6.1): <c>housecarl_check_errors</c> plus
-/// <c>housecarl_validate_scripts</c>, with <c>findings=</c> selecting the taxonomy.
+/// <c>housecarl_check</c> — the merged derived-findings sweep (SPEC §6.1): <c>housecarl_check_errors</c>,
+/// <c>housecarl_validate_scripts</c> and <c>housecarl_validate_dialogue</c>'s findings (its classes 1-7), with
+/// <c>findings=</c> selecting the taxonomy.
 ///
 /// <para><b>Both ancestors stay registered.</b> That is the W2/W3 precedent (<c>housecarl_records</c> sits beside
 /// the eight reads it absorbs) and it is what makes the build waves land non-breaking: the alias rows for the old
@@ -14,11 +15,17 @@ namespace HousecarlMcp;
 /// activate at the 2.0.0 clean cut, when the ancestors are unregistered. No response carries deprecation prose.</para>
 ///
 /// <para><b>What lives here and what does not.</b> This file holds the merged tool and the ORCHESTRATION a merged
-/// tool needs — which families to run, and which plugins each of them can actually sweep. The per-family sweeps are
-/// the ancestors' own service calls, unchanged; the renders are their transports' (<c>Wire.RenderCheck</c>,
-/// <c>JsonWire.RenderCheck</c>), where the section renderers they call already live. Splitting a render from the
-/// helpers it is assembled out of would have widened a dozen members to reach across files, which is a worse trade
-/// than keeping a transport's shapes together.</para>
+/// tool needs — which families to run, and what scope each of them can actually take. The per-family sweeps are
+/// the ancestors' own service calls, unchanged; the sweep families' renders are their transports'
+/// (<c>Wire.RenderCheck</c>, <c>JsonWire.RenderCheck</c>), where the section renderers they call already live, and
+/// the dialogue family's is <see cref="DialogueSweepRender"/>, beside the <c>DialogueWire</c> helpers IT is
+/// assembled out of. Both follow the same rule — a render lives with its helpers — which is why they land in
+/// different files.</para>
+///
+/// <para><b>The families do not share one scope.</b> The two sweep families take plugins and records; the dialogue
+/// family takes SEEDS (SPEC §6.1 F1.1), so <c>plugins=</c> / <c>exclude=</c> and friends narrow the first two and
+/// not the third. That is stated in the dialogue section rather than resolved by giving one parameter two meanings,
+/// and an unseeded dialogue call is refused on cost (F1.2) rather than widened to the whole order.</para>
 /// </summary>
 public static class CheckTools
 {
@@ -26,14 +33,15 @@ public static class CheckTools
      Description(
          // ---- what it is, and what selects a family ------------------------------------------------
          "DERIVED-FINDINGS SWEEP over the load order — one call, several finding FAMILIES, selected by findings=. " +
-         "Read-only; writes nothing. Two families today: 'errors' (load-order integrity) and 'scripts' (VMAD " +
-         "script-property binding). findings= takes whole families ('errors', 'scripts') or the classes inside them " +
+         "Read-only; writes nothing. Resolves against the load-order WINNERS, like every other read. Three families: " +
+         "'errors' (load-order integrity), 'scripts' (VMAD script-property binding) and 'dialogue' (dialogue graph " +
+         "validation over SEEDED topics and quests). findings= takes whole families or the classes inside them " +
          "('dangling', 'missing_masters'; 'unbound_object', 'unbound_scalar', 'unbound', 'bound_null') — naming a " +
-         "class runs its family narrowed to that class. " +
+         "class runs its family narrowed to that class; the dialogue family narrows by seeds=, not by class. " +
          "DEFAULT: findings= omitted runs the ERRORS family alone, and the response STATES which families ran, which " +
          "registered families did not, and the exact findings= spelling that adds them — the default narrows only " +
          "because the response says so. It cannot be every family: an unscoped scripts sweep is ~8 minutes on a " +
-         "3800-plugin order (measured). " +
+         "3800-plugin order (measured), and an unscoped dialogue sweep is refused outright (below). " +
          // ---- family: errors (harvested from housecarl_check_errors) -------------------------------
          "ERRORS FAMILY — the data-layer twin of the Creation Kit's 'Check For Errors' / xEdit's error check. For " +
          "each plugin in scope it walks every record's FormLinks and reports three classes: (1) DANGLING references " +
@@ -65,16 +73,39 @@ public static class CheckTools
          "properties; 'unbound may be intentional' (a runtime-filled link), so a finding is a flag to VERIFY; and if " +
          "a script's .pex is not on disk (uncompiled / not in the order) the attachment is reported UNVERIFIABLE, " +
          "never passed clean. " +
+         // ---- family: dialogue (harvested from housecarl_validate_dialogue) ------------------------
+         "DIALOGUE FAMILY — a topic's whole graph as the GAME sees it, and it is SEEDED, not swept: seeds= names " +
+         "what to validate and findings=['dialogue'] without it is REFUSED on cost (a whole-order pass is a " +
+         "per-topic graph walk across every touching plugin, and the order this bound was measured on carries " +
+         "82,343 dialogue topics). A seed is a DIAL (one topic), a QUST (EVERY topic that quest owns, plus the " +
+         "quest's own CK-parity subrecords and its .seq, checked once), or a DLVW/DLBR (a record-level CK-parity " +
+         "check — a bare DLVW crashes the CK's Dialogue Views editor). It checks what houseCARL CAN verify at the " +
+         "data layer: the topic is wired to a quest, the branch resolves, the INFO.LinkTo conversation chain has no " +
+         "dangling targets, and no previous-link (PNAM) is dangling — an EMPTY PNAM is NORMAL (vanilla selects among " +
+         "a topic's lines by their conditions, not a previous-link chain), so absence is never flagged; each voiced " +
+         "line's .fuz is on disk and each result script is bound + compiled; non-ASCII characters in the " +
+         "player-facing text (topic name, line prompt, response text) are flagged as likely in-game MOJIBAKE (the " +
+         "CK/Papyrus surface is Windows-1252/ASCII); each line's CTDA conditions are statically checked for a " +
+         "meaningful subset of MALFORMED shapes (a dangling form reference, a dead quest-alias index, an unset Run " +
+         "On reference, GetIsID pointed at a placed instance); and a Start-Game-Enabled quest's .seq is checked for " +
+         "coverage and staleness (without it the quest is dormant on a fresh save and its dialogue never shows). " +
+         "BOUNDARY: it cannot EVALUATE whether a WELL-FORMED condition passes — only the running game can — and it " +
+         "does not check lip-sync or audio content, so 'checks passed' never reads as 'this will play'. NOT HERE: " +
+         "the effective merged INFO order — the sequence the game walks, which line MOVED and which plugin moved it, " +
+         "the answer to 'why does the wrong line play' — is an ordered sequence rather than a finding and lives on " +
+         "housecarl_records project='info_order'. To CREATE dialogue lines use housecarl_create_record; to inspect " +
+         "one record use housecarl_read_record. " +
          // ---- narrowing, shared, with each family's own cost teaching ------------------------------
          "NARROWING: beyond plugins= it takes a record scope (type= / formids= / editorid_contains=), " +
          "property_contains= (the scripts family — chasing one property name), a findings= filter, counts_only=true " +
          "for the totals plus per-family histograms (errors: dangling by TARGET plugin and by SOURCE plugin; " +
-         "scripts: unbound by PROPERTY NAME), and format='json'. A script-heavy plugin (~180 scripted records) does " +
+         "scripts: unbound by PROPERTY NAME; dialogue: the totals alone, no per-topic blocks), and format='json'. A script-heavy plugin (~180 scripted records) does " +
          "not fit a tool result unnarrowed, and limit= alone will not help there because it caps FINDINGS, not the " +
          "record roster — counts_only=true or a record scope is what does. Narrowing narrows the COUNTS too: they " +
          "are always the counts for the scope actually swept, and the response says so. exclude= drops named plugins " +
          "or whole groups (base_masters / implicit) out of the sweep entirely rather than merely accounting for " +
-         "them; it scopes EVERY family. " +
+         "them; it scopes every SWEPT family. The dialogue family is seeded rather than swept, so no plugin scope " +
+         "narrows it — the response says so in that family's own section. " +
          // ---- the accounting, harvested from both ---------------------------------------------------
          "Results cap at limit= and max_chars (both overruns explicit, per family): the response states how much of " +
          "each family's listing it carries, why the rest is absent, and which knob moves it — a capped errors " +
@@ -100,15 +131,17 @@ public static class CheckTools
              "member that is not in this order is the ordinary case and is simply dropped. This does not change what " +
              "counts as the vanilla BASELINE the errors family splits out — that is always Mutagen's own base-master set.")]
             string[]? exclude = null,
-        [Description("Optional. Which finding FAMILIES and CLASSES to look for, in one vocabulary. Families: 'errors', 'scripts'. Classes inside them: 'dangling', 'missing_masters' (errors); 'unbound_object' (HIGH — the silent-None footgun), 'unbound_scalar' (MEDIUM), 'unbound' (both), 'bound_null' (advisory) (scripts). A family token means every class in it; a class token runs its family narrowed to that class; naming several runs each. DEFAULT (omitted) = the errors family alone, and the response states what it did not run and how to ask for it. Excluding 'dangling' SKIPS the per-record link walk entirely — that is how you ask 'is any master missing anywhere in my order' without paying for a full sweep. An excluded class renders as 'not checked', never as 0. Unscannable records, scan errors and unverifiable script attachments are ALWAYS reported and cannot be filtered out (a suppressed 'could not read' would read as a clean result).")]
+        [Description("Optional. Which finding FAMILIES and CLASSES to look for, in one vocabulary. Families: 'errors', 'scripts'. Classes inside them: 'dangling', 'missing_masters' (errors); 'unbound_object' (HIGH — the silent-None footgun), 'unbound_scalar' (MEDIUM), 'unbound' (both), 'bound_null' (advisory) (scripts). The DIALOGUE family has no class token — it narrows by seeds=, which it requires. A family token means every class in it; a class token runs its family narrowed to that class; naming several runs each. DEFAULT (omitted) = the errors family alone, and the response states what it did not run and how to ask for it. Excluding 'dangling' SKIPS the per-record link walk entirely — that is how you ask 'is any master missing anywhere in my order' without paying for a full sweep. An excluded class renders as 'not checked', never as 0. Unscannable records, scan errors and unverifiable script attachments are ALWAYS reported and cannot be filtered out (a suppressed 'could not read' would read as a clean result).")]
             string[]? findings = null,
         [Description("Optional. true = return ONLY the header totals plus each running family's histograms, with no per-plugin or per-record listing. Errors: dangling-by-TARGET-plugin (which plugin the broken refs point INTO — the one absent dependency behind a wall of findings) and dangling-by-SOURCE-plugin (which plugin they come FROM — how much is vanilla baseline and how much your mods introduced). Scripts: unbound-by-PROPERTY-NAME. The cheap before/after-a-fix comparison; totals stay exact (never limit-capped) and limit= caps the histogram ROWS instead.")]
             bool counts_only = false,
         [Description("Optional. 'text' (default) or 'json' — the machine-readable twin carrying the same data, sectioned per family, with the totals/capped/truncated accounting in-band.")]
             string? format = null,
-        [Description("Optional. Max findings to list per family (default 1000). The TRUE totals are always reported; over the cap the response says so, and for the errors family says how many plugins lost entries, names the ones that lost the most (a count each), and states how many it did not name. Master-table findings and unverifiable notes are always listed in full (they are few). Under counts_only=true this caps the histogram ROWS instead.")]
+        [Description("Optional. Max findings to list per family (default 1000). The TRUE totals are always reported; over the cap the response says so, and for the errors family says how many plugins lost entries, names the ones that lost the most (a count each), and states how many it did not name. Master-table findings and unverifiable notes are always listed in full (they are few). Under counts_only=true this caps the histogram ROWS instead. For the DIALOGUE family it caps how many SEEDS one call expands, and the response names how many it did not reach.")]
             int limit = 1000,
-        [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k). The budget is DIVIDED among the families that ran and their parts, not spent in series — a family that renders second does not inherit what the first one left over.")]
+        [Description("Optional. The DIALOGUE family only, and required by it: the topics and quests to validate, as FormIDs ('0F1AC1:Skyrim.esm'). A DIAL validates one topic; a QUST validates EVERY topic that quest owns (plus the quest's own CK-parity subrecords and its .seq, checked once); a DLVW or DLBR runs a record-level CK-parity check. This family is SEEDED, not swept — plugins=/type=/formids=/editorid_contains=/exclude= do not scope it — and findings=['dialogue'] with no seeds is REFUSED on cost, never widened to the whole order. limit= caps how many seeds one call expands.")]
+            string[]? seeds = null,
+        [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k). The budget is DIVIDED among the families that ran and their parts, not spent in series — a family that renders second does not inherit what the first one left over. Raise it for a quest that owns many topics.")]
             int max_chars = 0) => Guard.Tool("housecarl_check", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
@@ -141,8 +174,14 @@ public static class CheckTools
                                           // has given this family an empty scope. Passing null instead would widen it
                                           // to the whole order — a 3800-plugin sweep the caller did not ask for.
                                           noneInScope: named.Length > 0 && activeNamed.Length == 0);
+        DialogueCheckResult? dialogue = null;
+        if (selection.Ran.Contains(SweepFamily.Dialogue))
+            // Its own scope, and NOT the plugins= list: this family selects records, not plugins (SPEC §6.1 F1.1).
+            // Handing it `plugins` would be a second meaning for one parameter; handing it nothing when the caller
+            // gave no seeds is the cost-refusal (F1.2), which DialogueSweep raises rather than widening to the order.
+            dialogue = svc.CheckDialogue(seeds, lim, counts_only);
 
-        var sweep = new CheckSweep(selection, errors, scripts, offOrder);
+        var sweep = new CheckSweep(selection, errors, scripts, offOrder, dialogue);
         return json ? JsonWire.RenderCheck(sweep, max_chars, lim) : Wire.RenderCheck(sweep, max_chars, lim);
     });
 }
