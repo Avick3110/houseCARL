@@ -278,6 +278,11 @@ if (args.Length > 0 && args[0] == "native-pairing-real") return NativePairingPro
 // single-section cells. SKIPs without --mo2.
 if (args.Length > 0 && args[0] == "check-measure") return CheckMeasureProbe.RunMeasure(args[1..]);
 
+// 4b phase 2's BINDING measurement: are the dialogue family's rows width-computable before they are written? The
+// #394 ruling made the allocation shape conditional on the answer, and re-escalation — never approximation — is
+// what a "no" buys. Live-order only (needs --mo2); bounded by its seed count, never a whole-order dialogue sweep.
+if (args.Length > 0 && args[0] == "dialogue-width-measure") return DialogueWidthProbe.Run(args[1..]);
+
 // UNKNOWN MODE — refused, not silently taken as an output directory (2.0 tidy-up scar, W3 PR 3 housekeeping).
 // Every dispatch above matched nothing, and the corpus fallthrough below reads args[0] as the OUTPUT DIRECTORY. So a
 // mistyped probe name generated the whole corpus into a folder of that name and exited 0: two of them put 13.5 MB of

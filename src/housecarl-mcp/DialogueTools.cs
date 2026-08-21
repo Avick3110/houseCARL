@@ -60,14 +60,14 @@ public static class DialogueTools
 /// topic (or per-topic-of-a-quest) block with its graph issues, voice + result-script verdicts, and ALWAYS the
 /// standing-limits footer (grill-rev C2 — the un-checkable CTDA/lip-sync set, so a clean structural pass is never
 /// mistaken for "this will play"). Budget-bounded like the read tools (explicit cut at max_chars, never silent).</summary>
-static class DialogueWire
+internal static class DialogueWire
 {
     /// <summary>The ONE home for rendering a finding list — each as "[X]/[!] message" at <paramref name="pad"/>,
     /// budget-aware: at the cap it appends an EXPLICIT truncation notice and returns false so the caller can stop
     /// (max_chars' "cut with an explicit notice (never silent)" contract, Q3). Shared by the per-topic graph
     /// issues and the input-level (quest/DLVW/DLBR) findings, so the severity glyph and the cap discipline can
     /// never diverge between the two levels of one report.</summary>
-    static bool AppendIssues(StringBuilder sb, IReadOnlyList<DialogueIssue> issues, string pad, int cap)
+    internal static bool AppendIssues(StringBuilder sb, IReadOnlyList<DialogueIssue> issues, string pad, int cap)
     {
         foreach (var iss in issues)
         {
@@ -144,14 +144,14 @@ static class DialogueWire
         return sb.ToString().TrimEnd('\n');
     }
 
-    static int SumConditioned(DialogueValidationReport r)
+    internal static int SumConditioned(DialogueValidationReport r)
     {
         int n = 0;
         foreach (var t in r.Topics) n += t.ConditionedInfoCount;
         return n;
     }
 
-    static void AppendTopic(StringBuilder sb, TopicValidation t, bool indent, int cap)
+    internal static void AppendTopic(StringBuilder sb, TopicValidation t, bool indent, int cap)
     {
         string pad = indent ? "  " : "";
         sb.Append(pad).Append("topic ").Append(Edid(t.TopicEditorId)).Append(" (").Append(t.Topic).Append(')')
@@ -402,7 +402,7 @@ static class DialogueWire
     /// (winner != defining) — since that override may itself be the plugin that flags SGE and need its OWN .seq, a
     /// not-covered verdict is surfaced as an ambiguity, never a confident "dormant" against the wrong plugin (Q3).
     /// Plus the inverse guidance that stops needless regen. Skipped entirely for a non-SGE quest (SeqLint null).</summary>
-    static void AppendSeq(StringBuilder sb, SeqLintFinding? s)
+    internal static void AppendSeq(StringBuilder sb, SeqLintFinding? s)
     {
         if (s is null || !s.QuestIsSge) return;
         string fid = $"0x{s.OnDiskFormId:X8}";
@@ -447,7 +447,7 @@ static class DialogueWire
     /// must enumerate what it could NOT verify — the CTDA gate (semantic, game-only) and lip-sync/audio — so a clean
     /// structural pass is never mistaken for "this dialogue will play as intended". The BSA read-incomplete caveat
     /// rides here too when an archive failed to read (an "absent" above may merely be unscanned, Q3).</summary>
-    static void AppendStandingLimits(StringBuilder sb, int conditioned, bool readIncomplete)
+    internal static void AppendStandingLimits(StringBuilder sb, int conditioned, bool readIncomplete)
     {
         sb.Append("standing limits — what houseCARL could NOT verify (so a clean pass above does NOT mean the dialogue will play as intended):\n");
         sb.Append("  • CTDA conditions gate WHEN each line fires. houseCARL statically catches a meaningful subset of MALFORMED conditions (a dangling form reference, a dead quest-alias index, an unset Run On reference — surfaced above as graph issues); it still cannot EVALUATE whether a WELL-FORMED condition passes — only the running game can, so a well-formed but wrong condition can still silently stop a line from ever playing");
