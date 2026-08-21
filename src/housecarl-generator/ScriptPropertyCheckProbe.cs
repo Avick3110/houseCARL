@@ -661,7 +661,7 @@ public static class ScriptPropertyCheckProbe
     // ---- fixture builders --------------------------------------------------------------------------
 
     /// <summary>A VMAD binding ONE script <paramref name="scriptClass"/> with the given bound properties.</summary>
-    static VirtualMachineAdapter Vmad(string scriptClass, params ScriptProperty[] props)
+    internal static VirtualMachineAdapter Vmad(string scriptClass, params ScriptProperty[] props)
     {
         var entry = new ScriptEntry { Name = scriptClass };
         foreach (var p in props) entry.Properties.Add(p);
@@ -670,7 +670,7 @@ public static class ScriptPropertyCheckProbe
         return vmad;
     }
 
-    static ScriptObjectProperty ObjProp(string name, FormKey obj)
+    internal static ScriptObjectProperty ObjProp(string name, FormKey obj)
     {
         var p = new ScriptObjectProperty { Name = name, Alias = -1 };
         if (!obj.IsNull) p.Object.SetTo(obj);
@@ -687,7 +687,7 @@ public static class ScriptPropertyCheckProbe
     /// has one, <c>::Name_var</c> — an object/scalar with no initializer carries Null data, an initialized scalar
     /// carries the baked literal). Modeled on a real Skyrim .pex: an Auto property is Flags = Read|Write|AutoVar with
     /// NO handler functions (the backing var IS the handler), a non-null DocString, and the autovar name set.</summary>
-    sealed record Decl(PexObjectProperty Prop, PexObjectVariable Backing);
+    internal sealed record Decl(PexObjectProperty Prop, PexObjectVariable Backing);
 
     static Decl Auto(string name, string typeName, int? initInt)
     {
@@ -707,15 +707,15 @@ public static class ScriptPropertyCheckProbe
     }
 
     /// <summary>An Auto object/form property (no baked default — a FormID can't be a literal).</summary>
-    static Decl AutoObj(string name, string typeName) => Auto(name, typeName, null);
+    internal static Decl AutoObj(string name, string typeName) => Auto(name, typeName, null);
 
     /// <summary>An Auto scalar property, optionally with a baked initializer on its backing variable.</summary>
-    static Decl AutoScalar(string name, string typeName, int? initInt) => Auto(name, typeName, initInt);
+    internal static Decl AutoScalar(string name, string typeName, int? initInt) => Auto(name, typeName, initInt);
 
     /// <summary>Write a single-object .pex with the given Auto properties + backing variables to <paramref name="path"/>
     /// via Mutagen's native Pex writer. The object carries a non-null DocString, an empty auto-state, and the empty
     /// '' state — the minimal byte-valid shell a real Skyrim .pex has (verified round-trippable, see --diag).</summary>
-    static void WritePex(string path, string name, string? parent, params Decl[] decls)
+    internal static void WritePex(string path, string name, string? parent, params Decl[] decls)
     {
         var obj = new PexObject { Name = name, ParentClassName = parent ?? "", DocString = "", AutoStateName = "" };
         obj.States.Add(new PexObjectState { Name = "" });
