@@ -173,8 +173,12 @@ internal static class SweepDemand
     // ---- json ---------------------------------------------------------------------------------------
 
     /// <summary>The same question in the other transport. Its units are measured by the SAME cost helpers the
-    /// render's <c>Emit</c> calls declare, so demand and the emission test read one number.</summary>
-    internal static Result ForJson(CheckSweep s, int room, int histogramLimit)
+    /// render's <c>Emit</c> calls declare, at the SAME depth and sibling position, so demand and the emission test
+    /// read one number.</summary>
+    /// <param name="depths">where each unit sits in the document (<see cref="JsonWire.JsonUnitDepths"/>). The render
+    /// reads its anchor off the live writer; this pass is handed the same anchor, and
+    /// <c>ALLOCATION-EQUALS-SPEND</c> is what catches the two disagreeing.</param>
+    internal static Result ForJson(CheckSweep s, int room, int histogramLimit, JsonWire.JsonUnitDepths depths)
     {
         var t = new Tally(room);
         int reserved = 0;
@@ -185,29 +189,40 @@ internal static class SweepDemand
             {
                 foreach (var a in Wire.ErrorsAxes(e))
                 {
-                    reserved += JsonWire.HistogramFrameCostFor(a);
-                    JsonRows(t, a, histogramLimit);
+                    reserved += JsonWire.HistogramFrameCostFor(a, depths.AxisFrame);
+                    JsonRows(t, a, histogramLimit, depths);
                 }
                 t.Declare(SweepSubject.UnreadRows);
+                int unread = 0;
                 foreach (var p in e.Reports)
                 {
                     if (t.Done(SweepSubject.UnreadRows)) break;
-                    t.Add(SweepSubject.UnreadRows, JsonWire.UnreadRowCostFor(p));
+                    t.Add(SweepSubject.UnreadRows,
+                          JsonWire.UnreadRowCostFor(p, depths.HistogramRows, unread > 0));
+                    unread++;
                 }
             }
             else
             {
                 t.Declare(SweepSubject.PluginSections);
                 t.Declare(SweepSubject.DanglingEntries);
+                int sections = 0;
                 foreach (var p in e.Reports)
                 {
                     if (!t.Done(SweepSubject.PluginSections))
-                        t.Add(SweepSubject.PluginSections, JsonWire.PluginHeadCostFor(p));
+                    {
+                        t.Add(SweepSubject.PluginSections,
+                              JsonWire.PluginHeadCostFor(p, depths.PluginSections, sections > 0));
+                        sections++;
+                    }
                     if (t.Done(SweepSubject.DanglingEntries)) continue;
+                    int entries = 0;
                     foreach (var d in p.Dangling)
                     {
                         if (t.Done(SweepSubject.DanglingEntries)) break;
-                        t.Add(SweepSubject.DanglingEntries, JsonWire.DanglingEntryCostFor(d));
+                        t.Add(SweepSubject.DanglingEntries,
+                              JsonWire.DanglingEntryCostFor(d, depths.DanglingEntries, entries > 0));
+                        entries++;
                     }
                 }
             }
@@ -219,24 +234,30 @@ internal static class SweepDemand
             {
                 foreach (var a in Wire.ScriptsAxes(sc))
                 {
-                    reserved += JsonWire.HistogramFrameCostFor(a);
-                    JsonRows(t, a, histogramLimit);
+                    reserved += JsonWire.HistogramFrameCostFor(a, depths.AxisFrame);
+                    JsonRows(t, a, histogramLimit, depths);
                 }
                 t.Declare(SweepSubject.ScriptScanRows);
+                int rows = 0;
                 foreach (var rec in sc.Reports)
                 {
                     if (rec.ScanError is null) continue;
                     if (t.Done(SweepSubject.ScriptScanRows)) break;
-                    t.Add(SweepSubject.ScriptScanRows, JsonWire.ScanErrorRowCostFor(rec));
+                    t.Add(SweepSubject.ScriptScanRows,
+                          JsonWire.ScanErrorRowCostFor(rec, depths.ScriptRecords, rows > 0));
+                    rows++;
                 }
             }
             else
             {
                 t.Declare(SweepSubject.ScriptRecords);
+                int records = 0;
                 foreach (var rec in sc.Reports)
                 {
                     if (t.Done(SweepSubject.ScriptRecords)) break;
-                    t.Add(SweepSubject.ScriptRecords, JsonWire.ScriptRecordCostFor(rec));
+                    t.Add(SweepSubject.ScriptRecords,
+                          JsonWire.ScriptRecordCostFor(rec, depths.ScriptRecords, records > 0));
+                    records++;
                 }
             }
         }
@@ -247,37 +268,48 @@ internal static class SweepDemand
             {
                 t.Declare(SweepSubject.DialogueSeeds);
                 t.Declare(SweepSubject.DialogueTopics);
+                int seeds = 0;
                 foreach (var seed in d2.Resolved)
                 {
                     if (!t.Done(SweepSubject.DialogueSeeds))
-                        t.Add(SweepSubject.DialogueSeeds, DialogueSweepRender.SeedHeadCostFor(seed));
+                    {
+                        t.Add(SweepSubject.DialogueSeeds,
+                              DialogueSweepRender.SeedHeadCostFor(seed, depths.DialogueSeeds, seeds > 0));
+                        seeds++;
+                    }
                     if (t.Done(SweepSubject.DialogueTopics)) continue;
+                    int topics = 0;
                     foreach (var topic in seed.Report!.Topics)
                     {
                         if (t.Done(SweepSubject.DialogueTopics)) break;
-                        t.Add(SweepSubject.DialogueTopics, DialogueSweepRender.TopicRowCostFor(topic));
+                        t.Add(SweepSubject.DialogueTopics,
+                              DialogueSweepRender.TopicRowCostFor(topic, depths.DialogueTopics, topics > 0));
+                        topics++;
                     }
                 }
             }
             t.Declare(SweepSubject.DialogueSeedRefusals);
+            int refusals = 0;
             foreach (var seed in d2.Unresolved)
             {
                 if (t.Done(SweepSubject.DialogueSeedRefusals)) break;
-                t.Add(SweepSubject.DialogueSeedRefusals, DialogueSweepRender.UnreachableRowCostFor(seed));
+                t.Add(SweepSubject.DialogueSeedRefusals,
+                      DialogueSweepRender.UnreachableRowCostFor(seed, depths.DialogueSeeds, refusals > 0));
+                refusals++;
             }
         }
 
         return new Result(t.Take(), reserved);
     }
 
-    static void JsonRows(Tally t, HistogramAxis a, int rowLimit)
+    static void JsonRows(Tally t, HistogramAxis a, int rowLimit, JsonWire.JsonUnitDepths depths)
     {
         t.Declare(a.Subject);
         if (a.Rows is not { } rows) return;
         for (int i = 0; i < rows.Count && i < rowLimit; i++)
         {
             if (t.Done(a.Subject)) break;
-            t.Add(a.Subject, JsonWire.HistogramRowCostFor(rows[i]));
+            t.Add(a.Subject, JsonWire.HistogramRowCostFor(rows[i], depths.HistogramRows, i > 0));
         }
     }
 }

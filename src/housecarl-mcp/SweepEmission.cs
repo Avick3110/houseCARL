@@ -250,6 +250,7 @@ internal sealed class BoundedBody
     readonly Dictionary<SweepSubject, int> _held = new();
     readonly IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)>? _plan;
     readonly BodyAllocation _alloc;
+    bool _skeleton;
 
     /// <param name="acct">the accounting to register emissions with, or null for a lane that keeps none. The
     /// single-family shape, which is every lane but the merged sweep.</param>
@@ -286,6 +287,25 @@ internal sealed class BoundedBody
                                             int reservedForRows = 0)
         => new(accts, budget, length, plan, demand, reservedForRows);
 
+    /// <summary>A body that REFUSES EVERY UNIT — for the pass that measures a response's FIXED PART.
+    ///
+    /// <para>The fixed part is everything a response writes whatever the budget says, and the allocation has to
+    /// exclude all of it or it divides room that does not exist (measured: the merged sweep's title, scope sentence
+    /// and per-family heads came to hundreds of characters the row budget still counted as row room, so the global
+    /// test bit before any subject reached its share and render order decided who lost). The number is MEASURED,
+    /// not assembled: the caller composes the WHOLE response through this body — the same title, the same heads,
+    /// the same one-source composers — and what comes back with no units in it is the fixed part. Nothing
+    /// enumerates the unconditional write sites, which is the point: every version of that number that was
+    /// assembled from a roster of sites came out wrong in a way nothing could see
+    /// (<see cref="FixedPart"/> carries that history).</para>
+    ///
+    /// <para>What the skeleton CANNOT compose is the part that varies with the cut — a closing disclosure says a
+    /// different thing at a different length depending on what fit. Those go through <see cref="Reserve"/> as an
+    /// upper bound exactly as before, and <see cref="ReservedWritten"/> is what the caller subtracts so the two
+    /// mechanisms do not both charge for the same characters.</para></summary>
+    internal static BoundedBody Skeleton(IReadOnlyList<CheckAccounting> accts, Func<int> length)
+        => new(accts, budget: 0, length, plan: null, demand: null, reservedForRows: 0) { _skeleton = true };
+
     BoundedBody(IReadOnlyList<CheckAccounting> accts, int budget, Func<int> length,
                 IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)>? plan,
                 IReadOnlyDictionary<SweepSubject, int>? demand, int reservedForRows)
@@ -309,6 +329,11 @@ internal sealed class BoundedBody
     /// against a phrase the render printed.</summary>
     internal int AllocationOf(SweepSubject s) => Allocation.AllocationOf(s);
 
+    /// <summary>What one subject actually SPENT, charged unit by unit as each landed. Read beside
+    /// <see cref="AllocationOf"/> by <c>ALLOCATION-EQUALS-SPEND</c>: on a response with nothing cut the two are the
+    /// same number, and a measurement that drifted from what the render writes shows up here as the gap.</summary>
+    internal int SpentOn(SweepSubject s) => Allocation.SpentOn(s);
+
     /// <summary>What of the response so far is charged against the BODY's budget: everything written, less what was
     /// written out of the reserve. A merged response writes a family's accounting line before the next family
     /// renders, and that line's room was subtracted from the budget once already — counted again here it would be
@@ -324,8 +349,17 @@ internal sealed class BoundedBody
     {
         int before = _length();
         commit();
-        _reservedSpent += _length() - before;
+        int wrote = _length() - before;
+        _reservedSpent += wrote;
+        ReservedWritten += wrote;
     }
+
+    /// <summary>What this response has written OUT OF THE RESERVE — through <see cref="Reserved"/>,
+    /// <see cref="Fixed"/> and <see cref="Close"/>. Read by the SKELETON pass, which measures the fixed part as
+    /// "everything the composition wrote with no units in it" and has to subtract the reserved writes from it: the
+    /// room for those was already held back out of <c>max_chars</c>, so counting them again would take the same
+    /// characters out of the rows twice.</summary>
+    internal int ReservedWritten { get; private set; }
 
     /// <summary>Emit one unit of <paramref name="subject"/>, or refuse. Returns false when the unit did not fit —
     /// the caller's loop breaks and the accounting already knows, because the count it will report is the count of
@@ -336,6 +370,7 @@ internal sealed class BoundedBody
     /// by-source roster is tallied off the same registration as the count, so the two cannot disagree.</param>
     internal bool Emit(SweepSubject subject, int cost, Action commit, string? source = null)
     {
+        if (_skeleton) { Stop(subject); return false; }   // the fixed-part pass: no units, by construction
         if (_stopped.Contains(subject)) return false;
         if (Spent + cost + Held > _budget) { Stop(subject); return false; }
         // The subject's OWN share, on top of the response-wide test rather than instead of it (#394). A subject
@@ -361,6 +396,24 @@ internal sealed class BoundedBody
     {
         _stopped.Add(subject);
         _alloc?.Done(subject);
+    }
+
+    /// <summary>FINISH a unit already admitted — the closing brackets a bounded json section owes once the rows
+    /// nested inside it have been written. Unconditional (refusing it would leave a half-written object on the
+    /// document) and charged to the SAME subject the opening was, because the two are one unit.
+    ///
+    /// <para><b>Why it is charged rather than treated as fixed.</b> These closers scale with how many units
+    /// rendered, so the skeleton pass — which renders none — cannot see them, and a fixed part that misses them is
+    /// a row budget larger than the room that exists. Charged here, the unit's measured demand covers its whole
+    /// footprint and <c>ALLOCATION-EQUALS-SPEND</c> holds: what the cost helper measured for the unit is exactly
+    /// what the unit wrote, opening and closing together.</para></summary>
+    internal void Complete(SweepSubject subject, Action commit)
+    {
+        int before = _length();
+        commit();
+        int wrote = _length() - before;
+        BodyTotal += wrote;
+        Allocation.Charge(subject, wrote);
     }
 
     /// <summary>What the BODY actually appended, measured at each unit as it landed — the declared cost is a budget
@@ -411,7 +464,9 @@ internal sealed class BoundedBody
     {
         int before = _length();
         commit();
-        if (_held.TryGetValue(subject, out var held)) _held[subject] = Math.Max(0, held - (_length() - before));
+        int wrote = _length() - before;
+        ReservedWritten += wrote;
+        if (_held.TryGetValue(subject, out var held)) _held[subject] = Math.Max(0, held - wrote);
     }
 
     /// <summary>Write a subject's own CLOSING DISCLOSURE — the line that says how much of it did not fit. It is not
@@ -427,7 +482,9 @@ internal sealed class BoundedBody
     {
         _held.Remove(subject);   // spent here, and only here
         _alloc?.Done(subject);   // and its share is finished with too, whatever it did not spend
+        int before = _length();
         commit();
+        ReservedWritten += _length() - before;
         _stopped.Add(subject);   // nothing follows a subject's closing disclosure
     }
 
@@ -439,9 +496,9 @@ internal sealed class BoundedBody
     internal void Release(SweepSubject subject)
     {
         _held.Remove(subject);
-        // A subject that rendered everything it had is the case the recount exists for: its unspent SHARE is what
-        // the siblings after it divide. Telling the allocation here is what makes the redistribution happen at all
-        // — without it a short subject's room stays reserved against a sibling that could have used it.
+        // The ROOM is what is given back here, and giving it back is the whole job: held any longer it would be
+        // charged against every later subject's emission test. The allocation is told too, but under water-filling
+        // that is a no-op by design — a subject's SHARE was never anyone else's to inherit (BodyAllocation.Done).
         _alloc?.Done(subject);
     }
 

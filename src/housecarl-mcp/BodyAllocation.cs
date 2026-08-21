@@ -63,10 +63,18 @@ namespace HousecarlMcp;
 /// O(all rows) on a sweep carrying 180,028 findings. An unconstrained subject is one that will be cut whatever λ
 /// turns out to be, and <c>min(demand, λ)</c> needs nothing more precise than that about it.</para>
 ///
-/// <para><b>What it deliberately does NOT divide.</b> The reserved fixed part — the header, the accounting, each
-/// subject's unconditional lines and its closing disclosure, the boundary — is outside allocation entirely. Those
-/// are the things a response may never drop, and a share of the body is not what pays for them
-/// (<see cref="BoundedBody.Reserve"/>). Allocation divides the room left for ROWS.</para>
+/// <para><b>What it deliberately does NOT divide, and how that number is arrived at.</b> The fixed part — the
+/// title, the scope sentence, every family's section head and its own head, each subject's unconditional lines and
+/// its closing disclosure, the accounting, the boundary — is outside allocation entirely. Those are the things a
+/// response may never drop, and a share of the body is not what pays for them. It is MEASURED, never assembled:
+/// the render composes the WHOLE response once through a <see cref="BoundedBody.Skeleton"/>, which refuses every
+/// unit, and what comes back is the fixed part. The pieces that vary with the CUT — a closing disclosure says a
+/// different thing at a different length depending on what fit — cannot be skeleton-composed and go through
+/// <see cref="BoundedBody.Reserve"/> as an upper bound instead, which is the one place a bound is still taken.
+/// <b>Counting only the pieces that happened to call Reserve was the defect this replaces:</b> the row budget then
+/// included the response's own title and heads, so the global test bit before any subject reached its share and
+/// render order decided who lost — the order-dependence water-filling exists to remove, re-entering one level
+/// up.</para>
 ///
 /// <para><b>Whole-unit granularity.</b> A subject renders the largest PREFIX of its units that fits its
 /// allocation; a unit is emitted whole or not at all. 4a's one-unit residual posture stands — a site that declares
@@ -191,6 +199,11 @@ internal sealed class BodyAllocation
     /// <summary>What this subject was allocated — for the arms, which assert against it rather than against a
     /// number the render printed.</summary>
     internal int AllocationOf(SweepSubject s) => _allocation.TryGetValue(s, out var n) ? n : 0;
+
+    /// <summary>What this subject actually spent — charged unit by unit with what each one wrote. Beside
+    /// <see cref="AllocationOf"/> it is the exactness test: with nothing cut, a subject's allocation IS its measured
+    /// demand, so the two numbers agree exactly or the measurement is not measuring the write.</summary>
+    internal int SpentOn(SweepSubject s) => Spent(s);
 
     int Spent(SweepSubject s) => _spent.TryGetValue(s, out var n) ? n : 0;
 }
