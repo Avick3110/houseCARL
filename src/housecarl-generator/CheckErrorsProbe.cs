@@ -2144,8 +2144,9 @@ public static class CheckErrorsProbe
     /// header does.</para>
     ///
     /// <para><b>What it costs, measured rather than assumed:</b> eight fixtures times twelve thousand caps times
-    /// two transports is a hundred and ninety-two thousand renders, and it takes the guard from 6.0 seconds to
-    /// 11.4 — which is why it is enumerated rather than sampled.</para></summary>
+    /// two transports is a hundred and ninety-two thousand renders. Inside <c>ci-all</c> that takes this guard
+    /// from under 1.4 seconds (it was not in the slowest eight) to 6.1, and the whole run from 0.73 to 0.83 of a
+    /// minute. Six seconds is why it is enumerated rather than sampled.</para></summary>
     static readonly int[] CapLadder = Enumerable.Range(1, 12000).Append(40000).ToArray();
 
     /// <summary>The cap invariant, swept: for a range of max_chars values, NEITHER transport may return more than it
