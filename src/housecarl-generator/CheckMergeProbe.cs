@@ -434,8 +434,12 @@ public static class CheckMergeProbe
                 && !dlgAcct.TryGetProperty("dangling_missing_by_source", out _)
                 && !dlgAcct.TryGetProperty("dangling_missing_by_source_total", out _)
                 // What IS true of every lane is still stated: the cap this call was given, and that it listed nothing.
-                && dlgAcct.GetProperty("max_chars").GetInt32() == Wire.DefaultMaxChars
-                && !dlgAcct.GetProperty("listing").GetBoolean()
+                // Asked as PRESENCE-then-value, never GetProperty alone: a gate put on one of these makes the field
+                // ABSENT, and GetProperty on an absent key throws — which leaves the guard crashing instead of
+                // failing, and a sweep reading FAIL lines then records the cell as green. The sabotage sweep caught
+                // exactly that on the max_chars cell.
+                && dlgAcct.TryGetProperty("max_chars", out var dlgCap) && dlgCap.GetInt32() == Wire.DefaultMaxChars
+                && dlgAcct.TryGetProperty("listing", out var dlgListing) && !dlgListing.GetBoolean()
                 // The other direction, in the same response: the errors family HAS the dangling subject, so it still
                 // carries the roster's two fields — and its own counts are untouched, which is the half a gate put
                 // on the wrong predicate would break. (The roster's VALUE is the count of source plugins that lost
