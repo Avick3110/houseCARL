@@ -10,8 +10,11 @@ namespace HousecarlGenerator;
 /// <summary>
 /// SELF-CONTAINED CI REGRESSION GUARD for the MERGED derived-findings sweep (housecarl_check — SPEC §6.1). Drives
 /// the real renders (<see cref="Wire.RenderCheck"/> / <see cref="JsonWire.RenderCheck"/>) over a synthesized order
-/// whose one plugin carries BOTH families' findings at once: NPCs whose Race links into an absent master (dangling),
-/// and weapons whose VMAD binds none of the properties their .pex declares (unbound).
+/// whose one plugin carries BOTH sweep families' findings at once: NPCs whose Race links into an absent master
+/// (dangling), and weapons whose VMAD binds none of the properties their .pex declares (unbound). The DIALOGUE
+/// family's fixture is a result rather than a plugin, built through the real <c>DialogueSweep.Run</c> with a stub
+/// validator — that family selects RECORDS by seed, so what its arms are about is the seed grammar, the section and
+/// the accounting; <c>dialogue-validate-guard</c> owns the validation itself.
 ///
 /// THE ASSERTION RULE, inherited from check-errors-guard and restated because it is what makes these arms worth
 /// anything: AN INVARIANT ARM ASSERTS AGAINST A FIXTURE-KNOWN EXPECTED VALUE — NEVER AGAINST A PHRASE THE RENDER
@@ -41,9 +44,29 @@ namespace HousecarlGenerator;
 ///   CLASS-TOKEN-ROUND-TRIP    — every flag combination the merged parser produces spells tokens the family parsers
 ///                               read back as the same flags. The merged tool hands each family its classes through
 ///                               that round trip, so a disagreement would silently widen or narrow a sweep.
+///   REGISTERED-IS-THE-MEMBERSHIP — every family the refusal OFFERS is one the parser ACCEPTS. Both read the one
+///                               Registered list, so a family added there cannot be named in a spelling that then
+///                               fails to parse.
+///   DIALOGUE-REFUSED-WITHOUT-SEEDS — the seeded family's cost-refusal (F1.2) is FAMILY-LOCAL: it fills its own
+///                               section, spells the seeds= that works, asserts no completeness about a validation
+///                               that never ran, and does not refuse a call another family answered.
+///   DIALOGUE-NOT-PLUGIN-SCOPED — the section states that the plugin-scope parameters do not narrow this family and
+///                               that it has no off-order lane. Unstated, a seeded answer reads as a scoped one.
+///   DIALOGUE-CLASS-8-ABSENT   — the effective merged INFO order is NOT rendered here (it is records' surface), and
+///                               the boundary names where it lives. The fixture's topics carry one, so the arm pins
+///                               the gate rather than the absence of data to gate.
+///   DIALOGUE-UNREACHABLE-SEEDS-NAMED — a seed that resolved to nothing is named with why, in the listing lane AND
+///                               under counts_only: it bounds the answer rather than sitting inside it.
+///   DIALOGUE-SEED-BUDGET      — limit= means SEEDS for this family, and the accounting names how many it never
+///                               reached. A seed never looked at and a topic that did not fit are different
+///                               absences and must not read alike.
+///   DIALOGUE-BOUNDARY-UNREFUSABLE — the standing-limits claim is this family's boundary, so it is reserved and
+///                               written at every cap, including ones that admit no findings at all.
+///   ROSTER-STILL-ONE-WITH-THREE-FAMILIES — the dialogue family declares no excluded-plugin roster, so the roster
+///                               stays owned by exactly one accounting however many families run.
 ///   CAP-LADDER                — every integer cap 1..12000 plus one far above: neither transport returns more than
 ///                               it was given, bar the floor (the response with no body in it at all), and the json
-///                               parses at every one.
+///                               parses at every one. Run twice: over two families, and over all three.
 ///
 /// Run: dotnet run --project src/housecarl-generator -- check-guard
 /// </summary>
@@ -63,6 +86,13 @@ public static class CheckMergeProbe
     // than against one the render printed.
     const int Npcs = 40;        // each with a Race link into the absent master ⇒ 40 dangling refs
     const int Weapons = 40;     // each with an unbound-property VMAD ⇒ 40 record sections
+    const int Topics = 12;      // the dialogue seed's owned topics ⇒ 12 topic blocks
+    const int IssuesPerTopic = 2;
+    const int SilentPerTopic = 1;
+    const int UnreachableSeeds = 2;   // seeds named that resolve to nothing — this family's own excluded scope
+    // What the dialogue fixture FOUND, arithmetic this file does rather than a number the render prints:
+    // per topic its issues plus its silent line, over every topic.
+    const int DialogueFindings = Topics * (IssuesPerTopic + SilentPerTopic);
 
     static int RunChecks(string tmpDir)
     {
@@ -126,9 +156,22 @@ public static class CheckMergeProbe
             errors.TotalDangling == Npcs && scripts.Reports.Count == Weapons,
             $"dangling={errors.TotalDangling} (want {Npcs}) records={scripts.Reports.Count} (want {Weapons})");
 
+        // The DIALOGUE family's fixture. Built as a result rather than as a plugin: this family consumes a seed
+        // list, and DialogueSweep.Run is driven with a stub validator below so the seed grammar — the parse, the
+        // cost-refusal, the budget — is exercised on the real code path rather than mimed here.
+        var dialogue = DialogueFixture();
+        Check($"FIXTURE (dialogue): one seed owning {Topics} topics with {DialogueFindings} findings, plus {UnreachableSeeds} seeds that resolve to nothing",
+            dialogue.TopicsFound == Topics && dialogue.ProblemsFound == DialogueFindings
+            && dialogue.Unresolved.Count == UnreachableSeeds && dialogue.Resolved.Count() == 1,
+            $"topics={dialogue.TopicsFound} findings={dialogue.ProblemsFound} unreachable={dialogue.Unresolved.Count}");
+
         var both = new CheckSweep(Sel("errors", "scripts"), errors, scripts);
         var text = Wire.RenderCheck(both, 0);
         var json = JsonWire.RenderCheck(both, 0);
+        // Every registered family at once — what the ALL sentence and the cap ladder are asked about.
+        var all = new CheckSweep(Sel("errors", "scripts", "dialogue"), errors, scripts, null, dialogue);
+        var allText = Wire.RenderCheck(all, 0);
+        var allJson = JsonWire.RenderCheck(all, 0);
 
         // ---- SECTION-PER-FAMILY -------------------------------------------------------------------
         Check("SECTION-PER-FAMILY: one header, a section head per selected family in Registered order, and a boundary line for EACH — the two families claim different things",
@@ -245,10 +288,15 @@ public static class CheckMergeProbe
                 root.GetProperty("findings_scope").GetString() == defaulted.ScopeSentence()
                 && root.GetProperty("findings_scope").GetString()!.Contains("did NOT run", StringComparison.Ordinal)
                 && root.GetProperty("findings_defaulted").GetBoolean()
-                && notRun.GetArrayLength() == 1
+                // TWO registered families the default does not run — the fixture-known count, not Registered.Count-1:
+                // a fourth family landing must turn this red so somebody decides what the default means, rather than
+                // sliding through on arithmetic that agrees with whatever the list happens to hold.
+                && notRun.GetArrayLength() == 2
                 && notRun[0].GetProperty("family").GetString() == "scripts"
+                && notRun[1].GetProperty("family").GetString() == "dialogue"
                 && notRun[0].GetProperty("findings").GetString() == spelling
-                && !root.GetProperty("families").TryGetProperty("scripts", out _),
+                && !root.GetProperty("families").TryGetProperty("scripts", out _)
+                && !root.GetProperty("families").TryGetProperty("dialogue", out _),
                 Trim(defJson));
         }
 
@@ -261,9 +309,12 @@ public static class CheckMergeProbe
             FirstLineWith(chosenText, "findings="));
 
         Check("SCOPE-SENTENCE-ALL: with every registered family run there is nothing to name as absent, and the sentence says THAT rather than going quiet",
-            text.Contains("ran every findings family", StringComparison.Ordinal)
-            && !text.Contains("did NOT run", StringComparison.Ordinal),
-            FirstLineWith(text, "findings="));
+            allText.Contains("ran every findings family", StringComparison.Ordinal)
+            && !allText.Contains("did NOT run", StringComparison.Ordinal)
+            // …and a call running only two of the three is NOT that sentence: it names the third.
+            && !text.Contains("ran every findings family", StringComparison.Ordinal)
+            && text.Contains("did NOT run", StringComparison.Ordinal),
+            FirstLineWith(allText, "findings="));
 
         // ---- OFF-ORDER-STATED-PER-FAMILY -----------------------------------------------------------
         var offOrder = new CheckSweep(Sel("errors", "scripts"), errors, scripts, new[] { "FreshPatch.esp" });
@@ -306,9 +357,161 @@ public static class CheckMergeProbe
         Check("CLASS-TOKEN-ROUND-TRIP: every class set the merged parser produces spells tokens the family parsers read back as the same set — the merged tool hands each family its classes through exactly this trip",
             roundTripBad.Count == 0, string.Join("; ", roundTripBad));
 
+        // ---- REGISTERED-IS-THE-MEMBERSHIP ----------------------------------------------------------
+        // The seam this fold closed: Vocabulary offers every REGISTERED family's token, and TryParse used to accept
+        // a hand-written case per family. A family in the list without a case was one the refusal named and the
+        // parser rejected — a response spelling a call that does not work.
+        var unaskable = new List<string>();
+        foreach (var f in SweepFamilySelection.Registered)
+        {
+            string tok = SweepFamilySelection.Token(f);
+            if (!SweepFamilySelection.Vocabulary.Contains("'" + tok + "'", StringComparison.Ordinal))
+                unaskable.Add($"{tok}: the refusal does not offer it");
+            if (!SweepFamilySelection.TryParse(new[] { tok }, out var sel, out var perr) || !sel.Ran.Contains(f))
+                unaskable.Add($"{tok}: the refusal offers it and the parser rejects it ({perr ?? "not selected"})");
+        }
+        Check("REGISTERED-IS-THE-MEMBERSHIP: every family the refusal OFFERS is one the parser ACCEPTS — the two read one list, so they cannot name different sets",
+            unaskable.Count == 0, string.Join("; ", unaskable));
+
+        // ---- DIALOGUE-REFUSED-WITHOUT-SEEDS --------------------------------------------------------
+        // F1.2's cost-refusal, and the thing that makes it family-LOCAL: it must not refuse a call another family
+        // answered. Driven through DialogueSweep.Run, the real parse path, not a hand-built result.
+        var unseeded = DialogueSweep_Run(null, 1000);
+        var mixed = new CheckSweep(Sel("errors", "dialogue"), errors, null, null, unseeded);
+        var mixedText = Wire.RenderCheck(mixed, 0);
+        var mixedJson = JsonWire.RenderCheck(mixed, 0);
+        if (Environment.GetEnvironmentVariable("HC_DUMP") is not null)
+            Console.WriteLine("=== MIXED ===\n" + mixedText + "\n=== END ===");
+        using (var doc = JsonDocument.Parse(mixedJson))
+        {
+            var fams = doc.RootElement.GetProperty("families");
+            Check("DIALOGUE-REFUSED-WITHOUT-SEEDS: an unseeded dialogue family refuses on cost IN ITS OWN SECTION, spells the seeds= that works, and does not refuse the errors family's answer",
+                unseeded.Error is not null
+                && mixedText.Contains("[dialogue] ", StringComparison.Ordinal)
+                && mixedText.Contains("will NOT sweep the whole load order", StringComparison.Ordinal)
+                && mixedText.Contains("82,343", StringComparison.Ordinal)
+                && mixedText.Contains("seeds=[\"XXXXXX:Plugin.esp\"]", StringComparison.Ordinal)
+                // …and a refused family asserts NO completeness: "every one of the 0 topic(s) these seeds own is
+                // listed" over a validation that never ran is the "looked, found none" reading this whole surface
+                // exists to prevent.
+                && !mixedText.Contains("topic(s) these seeds own", StringComparison.Ordinal)
+                && !fams.GetProperty("dialogue").GetProperty("accounting").TryGetProperty("dialogue_topics_found", out _)
+                && !fams.GetProperty("dialogue").GetProperty("accounting").TryGetProperty("seeds_validated", out _)
+                && !fams.GetProperty("dialogue").GetProperty("accounting").GetProperty("listing").GetBoolean()
+                // the errors family still answered, in full
+                && StatedPair(mixedText, " dangling ref(s) found by this sweep appear above") == Npcs
+                && !mixedText.StartsWith("error:", StringComparison.Ordinal)
+                && fams.GetProperty("dialogue").GetProperty("refused").GetString()!.Contains("seeds=", StringComparison.Ordinal)
+                && fams.TryGetProperty("errors", out _),
+                Trim(mixedText));
+        }
+
+        // ---- DIALOGUE-NOT-PLUGIN-SCOPED ------------------------------------------------------------
+        var dlgOnly = new CheckSweep(Sel("dialogue"), null, null, null, dialogue);
+        var dlgText = Wire.RenderCheck(dlgOnly, 0);
+        var dlgJson = JsonWire.RenderCheck(dlgOnly, 0);
+        using (var doc = JsonDocument.Parse(dlgJson))
+        {
+            var fam = doc.RootElement.GetProperty("families").GetProperty("dialogue");
+            Check("DIALOGUE-NOT-PLUGIN-SCOPED: the section states that plugins=/exclude= do not narrow this family and that it has no off-order lane — in both transports, beside its own counts",
+                dlgText.Contains("seeded, not swept", StringComparison.Ordinal)
+                && dlgText.Contains("do NOT scope it", StringComparison.Ordinal)
+                && dlgText.Contains("no off-order lane", StringComparison.Ordinal)
+                && fam.GetProperty("scope").GetString() == string.Format(ReadSentences.DialogueScopeNote, dialogue.SeedsNamed)
+                && fam.GetProperty("seeded_not_swept").GetBoolean(),
+                FirstLineWith(dlgText, "scope:"));
+
+            Check($"DIALOGUE-COUNTS: the section states what the validation FOUND ({Topics} topics, {DialogueFindings} findings) above anything a budget can refuse, in both transports",
+                dlgText.Contains($"1 seed(s) validated, {Topics} topic(s), {DialogueFindings} finding(s)", StringComparison.Ordinal)
+                && fam.GetProperty("topics_validated").GetInt32() == Topics
+                && fam.GetProperty("findings_found").GetInt32() == DialogueFindings
+                && fam.GetProperty("seeds_named").GetInt32() == 1 + UnreachableSeeds,
+                FirstLineWith(dlgText, "seed(s) validated"));
+        }
+
+        // ---- DIALOGUE-CLASS-8-ABSENT ---------------------------------------------------------------
+        // The split (SPEC §6.1): the effective merged INFO order is records' surface, not this one. The fixture's
+        // topics carry an InfoOrder, so a render that forgot the gate would print it — and the boundary has to say
+        // where the answer went, or a caller reads a clean dialogue section as having looked.
+        Check("DIALOGUE-CLASS-8-ABSENT: no effective-INFO-order render in the dialogue section, and the boundary names the surface that carries it",
+            !dlgText.Contains("effective INFO order", StringComparison.Ordinal)
+            && !dlgText.Contains("INFO order:", StringComparison.Ordinal)
+            && !dlgJson.Contains("info_order\":", StringComparison.Ordinal)
+            && dlgText.Contains("records project=info_order", StringComparison.Ordinal)
+            && dlgJson.Contains("records project=info_order", StringComparison.Ordinal),
+            FirstLineWith(dlgText, "boundary (dialogue)"));
+
+        // ---- DIALOGUE-UNREACHABLE-SEEDS-NAMED ------------------------------------------------------
+        var dlgCounts = dialogue with { CountsOnly = true };
+        var countsText = Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, dlgCounts), 0);
+        Check($"DIALOGUE-UNREACHABLE-SEEDS-NAMED: all {UnreachableSeeds} seeds that resolved to nothing are named with why — in the listing lane AND under counts_only, which silences the blocks and not the boundary of the answer",
+            Count(dlgText, "NOT validated:") == UnreachableSeeds
+            && Count(countsText, "NOT validated:") == UnreachableSeeds
+            && countsText.Contains("no per-topic blocks", StringComparison.Ordinal)
+            && !countsText.Contains("HcCmTopic00", StringComparison.Ordinal)
+            && dlgText.Contains("HcCmTopic00", StringComparison.Ordinal),
+            $"listing={Count(dlgText, "NOT validated:")} counts_only={Count(countsText, "NOT validated:")}");
+
+        // ---- DIALOGUE-SEED-BUDGET ------------------------------------------------------------------
+        // limit= means SEEDS for this family. The arm asserts the fixture's own arithmetic: five named, two
+        // expanded, three never reached — and the accounting has to say so rather than let them read as clean.
+        var budgeted = DialogueSweep_Run(new[] { "000001:A.esp", "000002:A.esp", "000003:A.esp", "000004:A.esp", "000005:A.esp" }, 2);
+        var budgetText = Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, budgeted), 0);
+        Check("DIALOGUE-SEED-BUDGET: limit= caps how many SEEDS a call expands, and the accounting names how many it never reached and which knob moves them",
+            budgeted.SeedsNamed == 5 && budgeted.Seeds.Count == 2
+            && budgetText.Contains("2 of the 5 seed(s) named were validated; 3 were NOT validated", StringComparison.Ordinal)
+            && budgetText.Contains("limit=", StringComparison.Ordinal),
+            FirstLineWith(budgetText, "seed(s) named were validated"));
+
+        // ---- DIALOGUE-FINISHED-SEED-HANDS-BACK-ITS-SHARE -------------------------------------------
+        // A subject's ceiling is fixed on its FIRST unit against the siblings still pending, so the topic blocks of
+        // a ONE-SEED call are capped at half the family's share unless the seed subject says it is finished. The arm
+        // measures the topic count at a cap wide enough to bite, against the fixture's own arithmetic: with the
+        // share handed back the response carries MORE THAN HALF the topics it owns; without it, at most half.
+        //
+        // Both directions are fixtured. The multi-seed case is the other arm of the conditional: with two seeds
+        // still to write, the seed subject is NOT finished when the first topic renders, and holding its share is
+        // the correct answer rather than the missed one.
+        var oneSeed = DialogueSweep_Run(new[] { "000A01:HcCm.esp" }, 1000);
+        var twoSeeds = DialogueSweep_Run(new[] { "000A01:A.esp", "000B02:A.esp" }, 1000);
+        int oneSeedCap = Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, oneSeed), 0).Length;
+        int oneSeedTopics = Count(Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, oneSeed), 0), "  topic ");
+        int twoSeedTopics = Count(Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, twoSeeds), 0), "  topic ");
+        Check($"DIALOGUE-FINISHED-SEED-HANDS-BACK-ITS-SHARE: with its seed heads written, that subject's unspent room goes to the topic blocks — a one-seed call renders all {Topics} of its topics, and a two-seed call renders all {Topics * 2} of its",
+            oneSeedTopics == Topics && twoSeedTopics == Topics * 2 && oneSeedCap <= Wire.DefaultMaxChars,
+            $"oneSeed={oneSeedTopics}/{Topics} twoSeed={twoSeedTopics}/{Topics * 2} chars={oneSeedCap}");
+
+        // …and the same question at a cap that actually BITES, which is where the share matters at all. The
+        // fixture's own floor: render at a cap no topic can fit under, then walk up until topics appear.
+        int biting = BitingCap(oneSeed);
+        int atBiting = Count(Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, oneSeed), biting), "  topic ");
+        Check("DIALOGUE-FINISHED-SEED-HANDS-BACK-ITS-SHARE (at a biting cap): at the narrowest cap that admits any topic at all, one lands — the seed subject's held half cannot be what refuses it",
+            atBiting >= 1, $"cap={biting} topics={atBiting}");
+
+        // ---- DIALOGUE-BOUNDARY-UNREFUSABLE ---------------------------------------------------------
+        // The whole point of making the standing-limits footer this family's BOUNDARY: it is reserved, so the
+        // pressure that cuts the findings it qualifies cannot cut it. Swept, because a disclosure present at the
+        // caps a fixture happens to try is not a disclosure that is always present.
+        var boundaryMissing = new List<int>();
+        foreach (int cap in new[] { 1, 2, 5, 10, 50, 200, 800, 2000, 6000, 12000, 40000 })
+        {
+            if (!Wire.RenderCheck(dlgOnly, cap).Contains("does NOT mean the dialogue will play as intended", StringComparison.Ordinal))
+                boundaryMissing.Add(cap);
+        }
+        Check("DIALOGUE-BOUNDARY-UNREFUSABLE: the standing-limits claim is this family's boundary, so it is written at every cap — including the ones that admit no findings at all",
+            boundaryMissing.Count == 0, $"absent at caps: {string.Join(", ", boundaryMissing)}");
+
+        // ---- ROSTER-STILL-ONE-WITH-THREE -----------------------------------------------------------
+        Check("ROSTER-STILL-ONE-WITH-THREE-FAMILIES: the dialogue family declares no excluded-plugin roster, so the roster stays owned by exactly one accounting however many families run",
+            all.RosterOwner != SweepFamily.Dialogue
+            && Count(allText, ReadSentences.SweepRosterLead) <= 1,
+            $"owner={all.RosterOwner} rosterLeads={Count(allText, ReadSentences.SweepRosterLead)}");
+
         // ---- CAP-LADDER ----------------------------------------------------------------------------
         Check("CAP-LADDER: at every integer cap from 1 to 12000 (and one far above) neither transport returns more than it was given, bar the floor, and the json parses",
             CapSweep(both, out var capDetail), capDetail);
+        Check("CAP-LADDER (dialogue-inclusive): the same sweep over a response carrying ALL THREE families — a third section, a third accounting and a third boundary to hold inside one cap",
+            CapSweep(all, out var allCapDetail), allCapDetail);
 
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "check-guard: ALL PASS" : $"check-guard: {failures} FAILURE(S)");
@@ -350,6 +553,71 @@ public static class CheckMergeProbe
     /// printed inside each family's accounting and inside the overrun notice, each bounded by the cap's own digit
     /// width. Two families print it twice, so the headroom is per family rather than a round number.</summary>
     static int FloorSlack(int cap) => 8 * cap.ToString().Length;
+
+    /// <summary>The dialogue family's fixture, built through <c>DialogueSweep.Run</c> — the real seed grammar — with
+    /// a stub validator standing in for the load order. One seed resolves to a quest owning <see cref="Topics"/>
+    /// topics; <see cref="UnreachableSeeds"/> more resolve to nothing, which is this family's own excluded scope.
+    ///
+    /// <para>A result rather than a plugin because this family selects RECORDS, not plugins: what its arms are about
+    /// is the seed grammar, the section and the accounting, and a synthesized DIAL/QUST tree would test Mutagen's
+    /// writer on the way to the same three. <c>dialogue-validate-guard</c> owns the validation itself.</para></summary>
+    static DialogueCheckResult DialogueFixture()
+        => DialogueSweep_Run(new[] { "000A01:HcCm.esp", "000B02:HcCm.esp", "not-a-formid" }, 1000);
+
+    /// <summary>Drive the real <c>DialogueSweep.Run</c> with a stub validator: <c>000A01</c> is a quest owning
+    /// <see cref="Topics"/> topics, and every other resolvable seed is a named miss.</summary>
+    static DialogueCheckResult DialogueSweep_Run(IReadOnlyList<string>? seeds, int limit)
+        => DialogueSweep.Run(fk => fk.ID == 0x000A01 || fk.ModKey.Name == "A" ? QuestReport(fk)
+                                 : DialogueValidationReport.ForError(fk, "no DIAL, QUST, DLVW or DLBR with this FormID is in the active order"),
+                             seeds, limit);
+
+    /// <summary>One quest report whose numbers this file KNOWS: <see cref="Topics"/> topics, each carrying
+    /// <see cref="IssuesPerTopic"/> graph issues and <see cref="SilentPerTopic"/> silent voiced line. Each topic also
+    /// carries an INFO ORDER, so a render that forgot to gate class 8 would print one and DIALOGUE-CLASS-8-ABSENT
+    /// goes red — the arm proves the gate rather than the absence of data to gate.</summary>
+    static DialogueValidationReport QuestReport(FormKey seed)
+    {
+        var topics = new List<TopicValidation>();
+        for (int i = 0; i < Topics; i++)
+        {
+            var topicFk = new FormKey(seed.ModKey, (uint)(0x000C00 + i));
+            var infoFk = new FormKey(seed.ModKey, (uint)(0x000D00 + i));
+            var issues = Enumerable.Range(0, IssuesPerTopic)
+                .Select(n => new DialogueIssue(DialogueIssueSeverity.Problem,
+                    $"LinkTo target {topicFk} is not defined by any plugin in the active order (issue {n})"))
+                .ToArray();
+            var voice = Enumerable.Range(0, SilentPerTopic)
+                .Select(n => new VoiceLine(infoFk, $"HcCmTopic{i:D2}", n + 1,
+                    $"Sound\\Voice\\HcCm.esp\\MaleNord\\{infoFk.ID:X8}_{n + 1}.fuz", false, null, false,
+                    $"Sound\\Voice\\HcCm.esp\\MaleNord\\{infoFk.ID:X8}_{n + 1}.lip", false, false))
+                .ToArray();
+            topics.Add(new TopicValidation(
+                topicFk, $"HcCmTopic{i:D2}", "HcCm.esp",
+                InfoCount: 3, ConditionedInfoCount: 2, DeletedInfoCount: 0, FragmentInfoCount: 1,
+                Category: "Topic", Subtype: "CUST", SubtypeName: "Custom",
+                Issues: issues, VoiceLines: voice,
+                VoiceUndetermined: Array.Empty<VoiceUndetermined>(),
+                ScriptFindings: Array.Empty<ScriptBindingFinding>())
+            {
+                InfoOrder = new InfoOrderView(
+                    new[] { new InfoOrderEntry(infoFk, 0, "HcCm.esp", InfoPlacement.Tail, 0, false, false) },
+                    new[] { "HcCm.esp", "HcCmOther.esp" },
+                    Array.Empty<InfoOrderEntry>(), null),
+            });
+        }
+        return new DialogueValidationReport(seed, "quest", "HcCmQuest", "HcCm.esp", topics);
+    }
+
+    /// <summary>The narrowest cap at which this response carries any topic block at all — a property of the FIXTURE,
+    /// found by walking up rather than named as a constant, because which cap bites moves whenever the header, the
+    /// scope sentence or the boundary changes and a hard-coded one would quietly stop testing the boundary.</summary>
+    static int BitingCap(DialogueCheckResult r)
+    {
+        var s = new CheckSweep(Sel("dialogue"), null, null, null, r);
+        for (int cap = 1; cap <= Wire.DefaultMaxChars; cap += 16)
+            if (Count(Wire.RenderCheck(s, cap), "  topic ") >= 1) return cap;
+        return Wire.DefaultMaxChars;
+    }
 
     static SweepFamilySelection Sel(params string[] tokens)
     {
