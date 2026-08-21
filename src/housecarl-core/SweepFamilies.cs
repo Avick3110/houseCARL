@@ -77,6 +77,15 @@ public sealed class SweepFamilySelection
         _ => f.ToString().ToLowerInvariant(),
     };
 
+    /// <summary>The family's own section title in a merged response — the title its ancestor tool put at the top
+    /// of a whole response, now naming a section of one.</summary>
+    public static string Title(SweepFamily f) => f switch
+    {
+        SweepFamily.Errors => "load-order integrity sweep",
+        SweepFamily.Scripts => "VMAD script-property binding sweep",
+        _ => Token(f),
+    };
+
     /// <summary>What this family is, in the fewest words that still distinguish it — for the sentence naming a
     /// family that did not run, where the token alone ("scripts") does not say what asking for it would buy.</summary>
     public static string Describe(SweepFamily f) => f switch

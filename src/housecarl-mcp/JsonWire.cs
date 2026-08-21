@@ -1493,6 +1493,92 @@ static class JsonWire
         w.WriteBoolean("epoch_covers_all_inputs", r.OffOrderScanned is not { Count: > 0 });
     }
 
+    // ---- housecarl_check — the merged, multi-family document (SPEC §6.1) ----------------------------
+    /// <summary>The merged sweep as json: the scope facts flat at the top, then a <c>families</c> object keyed by
+    /// family token, each carrying exactly what that family's ancestor tool wrote as a whole document — its head,
+    /// its body, its own accounting and its own boundary. A single-family call is therefore not shaped differently
+    /// from a multi-family one, which is what lets phase 2 add a family without changing any consumer's parse.
+    ///
+    /// <para>The excluded-plugin roster and the overrun notice are RESPONSE-level and written once: the first is a
+    /// fact about the scope every family shares, the second a fact about the document as a whole.</para></summary>
+    public static string RenderCheck(CheckSweep s, int maxChars, int histogramLimit = 1000)
+    {
+        int cap = Cap(maxChars);
+        var sections = s.Sections;
+        var accts = s.Accountings(cap);
+        // One accounting + boundary reserve per family, and ONE entry slack for the response: the body stops the
+        // moment a unit crosses the budget, so at most one unit can land over however many families rendered.
+        int reserve = CheckAccounting.JsonEntrySlack;
+        foreach (var a in accts) reserve += a.JsonAccountingReserve;
+        int budget = Math.Max(0, cap - reserve);
+
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            if (s.Error is not null)
+            { w.WriteString("error", s.Error); WriteNullable(w, "epoch", s.Epoch); w.WriteEndObject(); w.Flush(); return Finish(ms); }
+
+            // The scope facts, as DATA and as the SENTENCE. The sentence is the same string the text lane prints —
+            // one source, stated whole by both transports, so a pin on it vouches for what each of them says.
+            WriteStringArray(w, "families_ran", s.Selection.Ran.Select(SweepFamilySelection.Token).ToArray());
+            w.WriteBoolean("findings_defaulted", s.Selection.Defaulted);
+            w.WriteStartArray("families_not_run");
+            foreach (var f in s.Selection.NotRun)
+            {
+                w.WriteStartObject();
+                w.WriteString("family", SweepFamilySelection.Token(f));
+                w.WriteString("describes", SweepFamilySelection.Describe(f));
+                w.WriteString("findings", SweepFamilySelection.Spelling(f));
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+            w.WriteString("findings_scope", s.ScopeSentence());
+
+            var body = BoundedBody.ForFamilies(accts, budget, () => Size(w, ms), s.Plan());
+            w.WriteStartObject("families");
+            for (int i = 0; i < sections.Count; i++)
+            {
+                var f = sections[i];
+                w.WriteStartObject(SweepFamilySelection.Token(f));
+                if (f == SweepFamily.Errors)
+                {
+                    WriteErrorsHead(w, s.Errors!);
+                    WriteErrorsSection(w, s.Errors!, body, histogramLimit);
+                }
+                else
+                {
+                    // In this family's own object, beside its own counts — see the text lane for why.
+                    if (s.OffOrderSentence() is { } skipped) w.WriteString("off_order_not_swept", skipped);
+                    WriteScriptsHead(w, s.Scripts!);
+                    WriteScriptsSection(w, s.Scripts!, body, histogramLimit);
+                }
+                // This family's accounting and boundary, out of the room held for them rather than out of the rows
+                // the next family still has to render.
+                var acct = accts[i];
+                body.Reserved(() => { acct.WriteJson(w); w.WriteString("boundary", acct.Boundary); });
+                w.WriteEndObject();
+            }
+            w.WriteEndObject();
+
+            WriteExcluded(w, s.ExcludedPlugins, body);
+
+            int closed = Size(w, ms) + Framing.RootClose;
+            int needed = body.FixedPart(closed);
+            var overrun = accts.Count > 0 ? accts[0] : null;
+            if (overrun?.CapTooSmall(closed, needed) is { } notice)
+            {
+                int cost = OverrunNoticeCost(notice);
+                var settled = overrun.CapTooSmall(closed + cost, needed, cost)!;
+                if (OverrunNoticeCost(settled) != cost)
+                    settled = overrun.CapTooSmall(closed + OverrunNoticeCost(settled), needed, OverrunNoticeCost(settled))!;
+                w.WriteString("max_chars_overrun", settled);
+            }
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
     // ---- housecarl_validate_scripts (#282) ---------------------------------------------------------
     /// <summary>The script-property sweep as JSON: <c>{scanned_plugins, records_with_scripts, unbound, unbound_object,
     /// unbound_scalar, bound_but_null, unverifiable, classes_checked, filter_note, read_incomplete, excluded_plugins,
