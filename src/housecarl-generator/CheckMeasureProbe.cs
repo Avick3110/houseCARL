@@ -48,6 +48,11 @@ public static class CheckMeasureProbe
             foreach (int c in new[] { 2000, 1200 })
                 AxisCell($"F  counts_only axis-drop band, max_chars={c}", c,
                          () => ReadTools.CheckErrorsTool(svc, counts_only: true, max_chars: c));
+            // FOLLOW THE REMEDY, on live data. The guard follows it on fixtures; a remedy is a claim about a call
+            // that has not happened, and the caller making it is on a real order. Whatever number the 1200 cell's
+            // notice named, this is that call.
+            FollowRemedy(ReadTools.CheckErrorsTool(svc, counts_only: true, max_chars: 1200),
+                         n => ReadTools.CheckErrorsTool(svc, counts_only: true, max_chars: n));
             return 0;
         }
 
@@ -57,6 +62,23 @@ public static class CheckMeasureProbe
         Cell($"D  plugins=[{only}] text, defaults", () => ReadTools.CheckErrorsTool(svc, new[] { only }));
         Cell($"E  plugins=[{only}] json, defaults", () => ReadTools.CheckErrorsTool(svc, new[] { only }, format: "json"));
         return 0;
+    }
+
+    /// <summary>Read the number an overrun notice tells the caller to raise <c>max_chars</c> to, make that call, and
+    /// report what comes back — on the LIVE order rather than on a fixture. Two claims land here: the notice must be
+    /// gone (the remedy works), and the raised cap must not be materially larger than it needed to be, which the
+    /// re-rendered length is the evidence for.</summary>
+    static void FollowRemedy(string overrun, Func<int, string> render)
+    {
+        int at = overrun.IndexOf("raise it to at least ", StringComparison.Ordinal);
+        if (at < 0) { Console.WriteLine("## F  follow the remedy: the 1200 response named no number"); return; }
+        var digits = new string(overrun[(at + 21)..].TakeWhile(char.IsDigit).ToArray());
+        if (!int.TryParse(digits, out int raised)) { Console.WriteLine("## F  follow the remedy: unparseable number"); return; }
+        var again = render(raised);
+        Console.WriteLine($"## F  follow the remedy, max_chars={raised}");
+        Console.WriteLine($"   chars      : {again.Length}  (cap {raised}, unused {raised - again.Length})");
+        Console.WriteLine($"   notice gone: {!again.Contains("raise it to at least", StringComparison.Ordinal)}");
+        Console.WriteLine($"   inside cap : {again.Length <= raised}");
     }
 
     /// <summary>Report, for a counts_only response, whether EITHER axis is missing outright and whether the response
@@ -93,6 +115,14 @@ public static class CheckMeasureProbe
         bool notice = s.Contains("raise it to at least", StringComparison.Ordinal);
         Console.WriteLine($"   accounting line present : {acct}");
         Console.WriteLine($"   overrun notice present  : {notice}");
+        // WHICH overrun it named and what it told the caller to raise to. Both are decided by the fixed part the
+        // notice is handed, and on a counts_only response that emits no body unit the wrong branch is the one that
+        // says a body unit overshot. Printed rather than inferred, because "a notice fired" is not the claim.
+        if (notice)
+        {
+            int at = s.IndexOf(" This response is ", StringComparison.Ordinal);
+            Console.WriteLine($"   overrun notice says     : {(at < 0 ? "(not found)" : s[at..].Trim())}");
+        }
         // WHAT the accounting says matters as much as whether it exists: a line that discloses a different subject
         // entirely is not a disclosure of the axes, and the distinction is the whole question.
         if (acct)
