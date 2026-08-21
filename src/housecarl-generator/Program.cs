@@ -283,6 +283,11 @@ if (args.Length > 0 && args[0] == "check-measure") return CheckMeasureProbe.RunM
 // what a "no" buys. Live-order only (needs --mo2); bounded by its seed count, never a whole-order dialogue sweep.
 if (args.Length > 0 && args[0] == "dialogue-width-measure") return DialogueWidthProbe.Run(args[1..]);
 
+// 4b phase 3 ACCEPTANCE: the zero-capability-loss differential for housecarl_check against the two ancestors still
+// registered beside it, plus #394's own measured band re-taken on the merged tool. Deliberately not in ci-all —
+// same standing as copy-differential. Needs --mo2 <inst>; every scope bounded, no unscoped scripts/dialogue sweep.
+if (args.Length > 0 && args[0] == "check-differential") return CheckDifferentialProbe.Run(args[1..]);
+
 // UNKNOWN MODE — refused, not silently taken as an output directory (2.0 tidy-up scar, W3 PR 3 housekeeping).
 // Every dispatch above matched nothing, and the corpus fallthrough below reads args[0] as the OUTPUT DIRECTORY. So a
 // mistyped probe name generated the whole corpus into a folder of that name and exited 0: two of them put 13.5 MB of
