@@ -1619,10 +1619,14 @@ static class JsonWire
     /// <para><b>No arm can see this reserve today, and that is said here rather than left to be discovered.</b>
     /// Sabotaged to reserve nothing, every arm in both guards stays green: the two frames together are about 180
     /// bytes and <see cref="CheckAccounting"/>'s json slack is 1024, so the room sized for one whole entry absorbs
-    /// them at every cap a fixture can reach. It is kept anyway, because "bounded by a slack sized for something
-    /// else" is exactly the posture that produced four unbounded write sites in a row — the frame is written
-    /// unconditionally, so its room is reserved by construction rather than borrowed. The guarantee it belongs to
-    /// is pinned in the TEXT lane (HISTOGRAM-AXIS-NEVER-DROPS-SILENTLY,
+    /// them at every cap a fixture can reach. The same is true of routing the frame's writes through
+    /// <see cref="BoundedBody.Fixed"/> rather than writing them straight to the writer — sabotaged back, every arm
+    /// stays green, because the fixed part the overrun notice branches on is SUBTRACTED from the finished document
+    /// and the frame is inside it either way. Both are kept, because "bounded by a slack sized for something else"
+    /// is exactly the posture that produced four unbounded write sites in a row — the frame is written
+    /// unconditionally, so its room is reserved by construction rather than borrowed, and charged against that room
+    /// as it lands rather than held until after the rows it should no longer be blocking. The guarantee it belongs
+    /// to is pinned in the TEXT lane (HISTOGRAM-AXIS-NEVER-DROPS-SILENTLY,
     /// OVERRUN-IN-THE-TEXT-LANE-IS-ALWAYS-A-CAP-TOO-SMALL); no arm claims to pin it here.</para></summary>
     static void WriteHistograms(Utf8JsonWriter w, BoundedBody? body, int rowLimit,
                                 params (string Name, SweepSubject Subject, IReadOnlyList<SweepCount>? Rows)[] axes)

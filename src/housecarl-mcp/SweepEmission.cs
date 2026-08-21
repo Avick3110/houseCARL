@@ -140,11 +140,22 @@ internal readonly record struct HistogramAxis(SweepSubject Subject, IReadOnlyLis
     /// lines plus its closing disclosure. ONE reserve for the lot, because they are one thing — what this axis
     /// writes whatever the budget says.
     ///
-    /// <para>The notes used to sit outside every reserve. They are appended straight to the builder after the
-    /// header has been measured, so the overrun notice was told a fixed part up to ~184 chars smaller than the one
-    /// the response actually carried; in the band between the two it explained a cap too small for the fixed part
-    /// as a body unit overshooting, over a <c>counts_only</c> response that emitted no body unit at all — 96 caps
-    /// of a 100–6000 sweep on the null-axes lane.</para></summary>
+    /// <para>The notes used to sit outside every reserve, appended straight to the builder after the header had
+    /// been measured. That is what made the overrun notice's fixed part up to ~184 chars smaller than the one the
+    /// response carried, and in the band between the two it explained a cap too small for the fixed part as a body
+    /// unit overshooting — over a <c>counts_only</c> response that emitted no body unit at all, at 96 caps of a
+    /// 100–6000 sweep on the null-axes lane.</para>
+    ///
+    /// <para><b>What fixed THAT is the subtraction (<see cref="BoundedBody.FixedPart"/>), not this — and no arm
+    /// pins this, which is said here rather than left to be discovered.</b> Sabotaged to reserve only the closing
+    /// disclosure and write the notes straight to the builder, every arm in both guards stays green. It cannot
+    /// bite while the only noted axis is the FIRST one: its note is written before any axis has spent anything, so
+    /// holding the room and writing it early are the same thing. It is reserved anyway, because that equality is a
+    /// property of today's axis ORDER rather than of the design — a second axis carrying a note would write it
+    /// after the first axis had emptied the budget, and land past the cap. The mechanism itself is pinned at the
+    /// unit level (EMISSION-THE-FIXED-PART-IS-WHAT-THE-BODY-DID-NOT-WRITE, and EMISSION-A-RESERVE-IS-ROOM-THE-ROWS-
+    /// CANNOT-HAVE goes red when <see cref="BoundedBody.Reserve"/> holds nothing); what no fixture reaches is a
+    /// response where this term changes the answer.</para></summary>
     internal int TextFixed => NoteLine.Length + NotComputedLine.Length + TextDisclosure;
 }
 
