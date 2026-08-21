@@ -773,10 +773,23 @@ public static class CheckMergeProbe
 
     /// <summary>Pin 3(ii): the whole demand fits, so everything renders and nothing claims a cut. Held against the
     /// SAME sweep rendered with no cap at all — the counts a response with unlimited room produces are the counts
-    /// a response with enough room owes.</summary>
+    /// a response with enough room owes.
+    ///
+    /// <para>Asked at TWO caps, because the default alone cannot see half of what strands. At the default the
+    /// fixture has thousands of characters to spare, so a row budget that is a few hundred too SMALL still renders
+    /// everything and the cell passes on a response that was quietly short-changed — proven, by sabotaging the
+    /// fixed part to be subtracted twice and watching this arm stay green. The second cap is the TIGHT one: the
+    /// smallest cap at which nothing is cut, which must sit within a fixture-known margin of the response the
+    /// sweep actually returns. Every character the row budget gives away moves that threshold up by one.</para></summary>
     static bool NothingStranded(CheckSweep s, out string detail)
     {
         const int Default = 80000;   // what max_chars= defaults to; the cap Defect 1 stranded 30,560 characters of
+        // What the two lanes may legitimately need above their own length before nothing is cut: the reserve each
+        // holds for an accounting and a boundary it has not written yet, plus json's one-entry slack. Fixture-known
+        // and generous — the point is that it is BOUNDED, so a fixed part counted twice (measured: +1,873 in text,
+        // +2,041 in json) lands outside it.
+        const int TextSlack = 1500;
+        const int JsonSlack = 1500;
         var bad = new List<string>();
 
         string uncapped = Wire.RenderCheck(s, 0);
@@ -810,10 +823,50 @@ public static class CheckMergeProbe
                 && a.TryGetProperty("truncated", out var t) && t.GetBoolean())
                 bad.Add($"json {family} reports truncated:true inside a cap its whole answer fits");
 
+        // THE TIGHT FIT. Monotone in max_chars (pin 3(i)), so the threshold can be found by bisection.
+        int textFloor = SmallestWholeCap(c => TextUnits(Wire.RenderCheck(s, c)), TextUnits(uncapped), uncapped.Length);
+        string jsonUncapped = JsonWire.RenderCheck(s, 0);
+        int jsonFloor = SmallestWholeCap(c => JsonUnits(JsonWire.RenderCheck(s, c)), JsonUnits(jsonUncapped), jsonUncapped.Length);
+        if (textFloor < 0) bad.Add("text: no cap up to three times the response renders it whole");
+        else if (textFloor - uncapped.Length > TextSlack)
+            bad.Add($"text needs {textFloor} to render whole, {textFloor - uncapped.Length} above the {uncapped.Length} it returns (allowed {TextSlack})");
+        if (jsonFloor < 0) bad.Add("json: no cap up to three times the response renders it whole");
+        else if (jsonFloor - jsonUncapped.Length > JsonSlack)
+            bad.Add($"json needs {jsonFloor} to render whole, {jsonFloor - jsonUncapped.Length} above the {jsonUncapped.Length} it returns (allowed {JsonSlack})");
+
         detail = bad.Count == 0
-            ? $"the whole response is {uncapped.Length} of the {Default} default, and every unit of it renders"
+            ? $"whole at the {Default} default; tight fit text {textFloor} vs {uncapped.Length} returned (+{textFloor - uncapped.Length}), "
+            + $"json {jsonFloor} vs {jsonUncapped.Length} (+{jsonFloor - jsonUncapped.Length})"
             : string.Join("; ", bad.Take(4));
         return bad.Count == 0;
+    }
+
+    /// <summary>The smallest cap at which the render carries every unit the uncapped one does, by bisection over a
+    /// band starting at the uncapped length. Bisection is only sound because the allocation is monotone in
+    /// max_chars — the property ALLOCATION-MONOTONE-IN-MAX-CHARS holds independently, so this is a use of that
+    /// guarantee and not a second assumption.</summary>
+    static int SmallestWholeCap(Func<int, string> unitsAt, string whole, int from)
+    {
+        int lo = Math.Max(1, from), hi = Math.Max(lo + 1, from * 3);
+        if (unitsAt(hi) != whole) return -1;
+        while (lo < hi)
+        {
+            int mid = lo + (hi - lo) / 2;
+            if (unitsAt(mid) == whole) hi = mid; else lo = mid + 1;
+        }
+        return lo;
+    }
+
+    /// <summary>A response's rendered-unit fingerprint in the text lane — what "renders everything" means, counted
+    /// rather than read off a sentence the response prints about itself.</summary>
+    static string TextUnits(string t)
+        => $"{Count(t, "[ERROR] ")}/{Count(t, "[UNBOUND] ")}/{Count(t, "  dangling ref ")}/{Count(t, "\nseed ")}/{Count(t, "  topic ")}";
+
+    /// <summary>The same fingerprint in json, off the arrays themselves.</summary>
+    static string JsonUnits(string j)
+    {
+        var root = JsonDocument.Parse(j).RootElement;
+        return $"{ArrayLength(root, "errors", "plugins")}/{ArrayLength(root, "scripts", "records")}/{ArrayLength(root, "dialogue", "seeds")}";
     }
 
     /// <summary>How many elements one family's row array carries, or -1 where the family or the array is absent.</summary>
