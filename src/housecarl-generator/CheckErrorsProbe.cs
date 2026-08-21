@@ -1048,6 +1048,22 @@ public static class CheckErrorsProbe
             refusedWhileHeld && landsOnceReleased && heldSb.Length == 61 && heldBody.ReservedTotal == 40,
             $"refusedWhileHeld={refusedWhileHeld} landsOnceReleased={landsOnceReleased} len={heldSb.Length} reserved={heldBody.ReservedTotal}");
 
+        // A subject that stopped STAYS stopped, even when room comes back. Releasing a sibling's reserve lowers
+        // what every test has to leave standing, so the budget on its own would let a stopped subject through
+        // again — the stop flag is the only thing that does not. It has its own arm because the product's loops
+        // break on the first refusal and never ask twice, which left the flag looking like a redundancy of
+        // monotonic length; with reserves in play it is no longer one.
+        var stopSb = new System.Text.StringBuilder();
+        var stopBody = new BoundedBody(null, 100, () => stopSb.Length);
+        stopBody.Reserve(SweepSubject.HistogramBySource, 60);
+        bool stoppedOnce = !stopBody.Emit(SweepSubject.HistogramByTarget, 50, () => stopSb.Append(new string('s', 50)));
+        stopBody.Release(SweepSubject.HistogramBySource);
+        bool stillStopped = !stopBody.Emit(SweepSubject.HistogramByTarget, 50, () => stopSb.Append(new string('s', 50)));
+        bool freshSubjectLands = stopBody.Emit(SweepSubject.UnreadRows, 50, () => stopSb.Append(new string('u', 50)));
+        Check("EMISSION-A-STOPPED-SUBJECT-STAYS-STOPPED: a subject the budget refused is not tried again when a released reserve makes room — and a subject that never stopped still emits at that same moment, so the arm cannot pass on an emitter that refuses everything",
+            stoppedOnce && stillStopped && freshSubjectLands && stopSb.Length == 50,
+            $"stoppedOnce={stoppedOnce} stillStopped={stillStopped} freshLands={freshSubjectLands} len={stopSb.Length}");
+
         Check("SECTION-IS-WHOLE-OR-ABSENT: across a sweep of caps, a section that starts also carries everything it has to say — the only things a cut may drop are a whole section or an entry, which are the two the accounting states",
             SectionsWhole(new[] { manyAmple, tight, ErrorCheck.Run(r, null, 1000) }, out var wholeFail), wholeFail);
 

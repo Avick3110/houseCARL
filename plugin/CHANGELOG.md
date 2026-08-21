@@ -37,18 +37,37 @@ saying it sets an expectation their install may contradict. Say what is known, a
   there, and it was the one every overrun got. Every other part of the answer is now inside the cap: the two
   `counts_only=true` histograms (which took `limit=` as their only bound, so a wide tally could run many times past
   the `max_chars` it was given), the list of plugins whose records could not be read, and the list of plugins that
-  could not be parsed — the last of which `format='json'` wrote with no bound at all. A histogram is emitted with
-  rows or not at all, and where rows were dropped it says how many and which knob to move. The two
+  could not be parsed — the last of which `format='json'` wrote with no bound at all. A `counts_only=true` histogram
+  can lose its ROWS to `max_chars`, but never the line saying how many are missing and which knob moves them: that
+  line is held back out of `max_chars` alongside the accounting, so the pressure that dropped the rows cannot drop
+  the report of it, and an axis with nothing to tally says that instead of nothing at all. Each axis holds back
+  about 120 characters for its line whether or not anything is cut, which is body room you do not get; on a
+  3800-plugin order at the defaults a `counts_only=true` response uses about 10,800 of its 80,000. The two
   `counts_only=true` axes are cut independently: `limit=` stopping the by-TARGET axis no longer stops the by-SOURCE
   one, which used to render none of its rows under a "raise `max_chars=`" that would not have moved them. In
   `format='json'` each histogram object now carries `cut_by` — `"limit"`, `"max_chars"`, or `null` where the axis
-  is whole — so the two formats name the same cause for the same result.
+  is whole — so the two formats name the same cause for the same result. A `format='json'` response exactly one
+  character past its cap also now reports the overrun; the length it compared was short by the cost of closing the
+  document, so the smallest overrun there is was the one that said nothing.
   A report section is now emitted whole or not at all: what a section says besides its dangling entries — a
   scan error, the masters it declares that are missing, how many records could not be read — is a finding in
   its own right, and used to be dropped a line at a time with nothing recording it. The two things a cut can
   drop are a whole section and a single finding, and the line above states both — including on
   `findings=["missing_masters"]`, which lists no dangling refs at all and so makes no claim about them, but
   still says how many plugin sections of how many it rendered.
+
+- **Changed: `housecarl_check_errors`'s `format='json'` names the plugins that lost findings in one place, and names
+  ten of them.** The top-level `dangling_not_listed_by_source` object is gone; the same roster is now
+  `accounting.dangling_missing_by_source`, beside the counts it belongs to;
+  `accounting.dangling_missing_by_source_total` states how many source plugins there were in all. It carries the
+  ten with the most findings, where the field it replaces carried two hundred. Both changes follow from the
+  accounting being held back out of `max_chars` before the response is built: a field written from a second
+  source could disagree with the counts beside it, and a two-hundred-row roster cannot be held back — measured
+  on a sweep whose findings come from two hundred plugins, reserving two hundred rows raises what a
+  `format='json'` response must carry whatever the budget from 2,812 characters to 20,864, which is room taken
+  from every response whether or not anything was dropped. Ten is what the text render has always named. If
+  you were reading the wider list, read
+  `accounting.dangling_missing_by_source_total` for the count and re-run with `plugins=` to get the rest.
 
 - **New: `exclude=` on `housecarl_check_errors` leaves plugins out of the sweep.** Pass plugin filenames with
   their extension, or a group name: `base_masters` (the five the game ships with) or `implicit` (every plugin
@@ -65,11 +84,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
   out at all and a call that asked for that group is refused rather than quietly excluding nothing; a call that
   named plugins instead is unaffected, because those need no profile read.
 
-- **Changed: `housecarl_validate_scripts` says what a `max_chars` cut dropped from its excluded-plugin list.**
-  That list is now charged to `max_chars` like the rest of the response, so a tight one can cut it short or drop
-  it whole. Where that happens the response says which list did not fit and how many plugins the index could not
-  parse are therefore unnamed — the count is the ones it did NOT name, so a response that named some of them says
-  so, instead of a bare "truncated" marker under a heading that may itself be gone.
+- **Changed: `housecarl_validate_scripts`'s TEXT response says what a `max_chars` cut dropped from its
+  excluded-plugin list.** In that render the list is now charged to `max_chars` like the rest of the response, so
+  a tight one can cut it short or drop it whole. Where that happens the response says which list did not fit and
+  how many plugins the index could not parse are therefore unnamed — the count is the ones it did NOT name, so a
+  response that named some of them says so, instead of a bare "truncated" marker under a heading that may itself
+  be gone. `format='json'` is unchanged here: its copy of that list is not charged to `max_chars`, and this entry
+  makes no claim about it.
 
 - **New: `source_provider=` reaches a mod MO2 is not currently loading.** `housecarl_place_asset` and
   `housecarl_bulk_place_asset` resolve a named provider against the mods MO2 loads, and — when no provider of that
