@@ -145,10 +145,28 @@ internal sealed class CheckAccounting
     // ---- the reserve --------------------------------------------------------------------------------
 
     /// <summary>The chars held back from <c>max_chars</c> so the text accounting and the boundary footer are always
-    /// affordable.</summary>
-    internal int TextReserve => _textReserve ??= Compose(Worst(escaped: false)).Length + ReadSentences.SweepBoundary.Length
-                                                 + ReadSentences.SweepBoundaryLabel.Length + TextGlue;
+    /// affordable. Two terms, and only the boundary's is unconditional: the boundary is written on every response,
+    /// the accounting line only where this lane can write one.
+    ///
+    /// <para><b>Reserved per LANE, off the same predicate the line itself uses.</b> <see cref="TextLine"/> returns
+    /// null unless the lane declared the dangling subject or something it declared is short, so in the plain
+    /// <c>counts_only</c> lane — no listing, nothing unparseable, nothing unread — no value of anything can make it
+    /// non-null. Reserved unconditionally, that lane held ~154 chars of worst-case accounting plus its wrap for a
+    /// sentence it is structurally unable to write: dead body budget in exactly the lane #392 is about, where every
+    /// held char is a histogram row the caller does not see. Measured on a 74/180-row fixture at
+    /// <c>max_chars=1200</c>, the response came back 315 chars under its own cap with both axes at zero rows.</para></summary>
+    internal int TextReserve => _textReserve ??= (CanStateAccounting ? Compose(Worst(escaped: false)).Length + TextWrap : 0)
+                                                 + ReadSentences.SweepBoundary.Length
+                                                 + ReadSentences.SweepBoundaryLabel.Length + TextWrap;
     int? _textReserve;
+
+    /// <summary>Can this lane write an accounting line at ALL? Literally <see cref="TextLine"/>'s own test, asked
+    /// of the WORST case instead of the real one — so it is true wherever any rendering of this lane could produce
+    /// a line, and false only where none could. Written as the same expression rather than as a second list of
+    /// subjects, because the two disagreeing is the whole defect: a reserve is room for a specific sentence, and
+    /// room held for a sentence this lane cannot write is not a reserve, it is a subtraction from the
+    /// answer.</summary>
+    bool CanStateAccounting => Has(SweepSubject.DanglingEntries) || Missing(Worst(escaped: false));
 
     /// <summary>The json lane's own reserve. Measured by SERIALIZING the worst case, not by estimating it off the
     /// text line: the two encodings differ in escaping and syntax, and a reserve that is an estimate is a reserve
@@ -168,8 +186,13 @@ internal sealed class CheckAccounting
     ///
     /// <para>One number for both cost the text lane a kilobyte of listing at every cap, which at small caps was the
     /// whole listing. A reserve slightly too large costs characters; one slightly too small is #361. The cap sweep
-    /// in check-errors-guard is what holds both honest — not either number's plausibility.</para></summary>
-    const int TextGlue = 64;
+    /// in check-errors-guard is what holds both honest — not either number's plausibility.</para>
+    ///
+    /// <para><see cref="TextWrap"/> is the text lane's glue charged PER WRAPPED BLOCK rather than once for both,
+    /// because the two blocks are not both always written. Each is two newlines in the render; 32 is headroom, and
+    /// twice 32 is the 64 this was before the split, so a lane writing both reserves exactly what it always
+    /// did.</para></summary>
+    const int TextWrap = 32;
     const int JsonGlue = 1024;
 
     /// <summary>The values that make the longest line this sweep could produce. Every substitution is at or above
@@ -226,9 +249,15 @@ internal sealed class CheckAccounting
                                   int RosterTotal, IReadOnlyDictionary<SweepSubject, int> Emitted, bool Worst);
 
     /// <summary>Is this subject short in this rendering? ONE test, used by the clause that states it, by
-    /// <see cref="Missing"/>, and by the remedy — so the three cannot disagree about the same subject.</summary>
+    /// <see cref="Missing"/>, and by the remedy — so the three cannot disagree about the same subject.
+    ///
+    /// <para><c>Found(s) &gt; 0</c> is not a shortcut for the real case, where it is already implied — nothing can
+    /// be emitted short of zero. It is what makes the WORST case honest: a lane declares
+    /// <see cref="SweepSubject.UnreadRows"/> on every <c>counts_only</c> sweep, empty or not, and with
+    /// <c>v.Worst</c> alone a declared-but-empty subject reserved room for a clause no rendering of it can
+    /// write.</para></summary>
     bool Short(Values v, SweepSubject s)
-        => Has(s) && (v.Worst || (v.Emitted.TryGetValue(s, out var e) ? e : 0) < Found(s));
+        => Has(s) && Found(s) > 0 && (v.Worst || (v.Emitted.TryGetValue(s, out var e) ? e : 0) < Found(s));
 
     int Shown(Values v, SweepSubject s) => v.Emitted.TryGetValue(s, out var e) ? e : 0;
 
@@ -314,8 +343,13 @@ internal sealed class CheckAccounting
     /// sections belong here: a sweep whose findings are all missing masters omits no dangling ref, so without this
     /// term a response missing 34 of 41 sections closed as complete — with no remedy, no roster, and a json twin that
     /// said truncated.</summary>
+    /// <para>It does NOT take <c>v.Worst</c> as an answer on its own. The worst case is every DECLARED subject at
+    /// its widest, not every subject declared: read as "assume something is missing", it wrote the remedy clauses
+    /// into a reserve for a lane where nothing can be. The worst case still dominates the real one term by term —
+    /// its counts are the totals and <see cref="Short"/> is true of every subject that can ever be short — so the
+    /// reserve stays an upper bound while dropping what no rendering could reach.</para></summary>
     bool Missing(Values v)
-        => v.Worst || v.ByBudget + v.ByCut > 0
+        => v.ByBudget + v.ByCut > 0
            || Short(v, SweepSubject.PluginSections) || Short(v, SweepSubject.ExcludedRows)
            || Short(v, SweepSubject.UnreadRows);
 
