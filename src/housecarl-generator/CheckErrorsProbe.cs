@@ -1515,6 +1515,30 @@ public static class CheckErrorsProbe
         Check("HISTOGRAM-AXIS-NEVER-DROPS-SILENTLY (#392): at every cap across the band, each axis is IN the response and states how many of its rows are missing — an axis may lose its rows to max_chars, never its statement that it had them",
             EveryAxisStatesItself(countsForHisto, 400, 8000, 20, out var axisFail), axisFail);
 
+        // The other half of making a disclosure part of the fixed part: the number the overrun notice branches on
+        // has to know about it. In the TEXT lane every unit is composed and measured before it is written, so no
+        // body unit can ever run past the budget — which makes "this response is longer than its cap" and "the cap
+        // could not hold the fixed part" the same statement there. Told a fixed-part size that leaves the reserved
+        // disclosures out, the caps in between get the other explanation — "the fixed part does fit, but one body
+        // unit was written before its size could be measured" — over a response that wrote no body unit at all.
+        //
+        // json is deliberately NOT swept here: its entries carry no measured cost by design, so a body overshoot is
+        // a real thing that happens in that lane and the same claim would be false about it.
+        var overrunCauseBad = new List<string>();
+        int overrunCaps = 0;
+        for (int cap = 200; cap <= 2000; cap += 20)
+        {
+            var t = Wire.RenderCheckErrors(countsForHisto, cap);
+            if (t.Length <= cap) continue;
+            overrunCaps++;
+            if (!t.Contains("does not fit in that many chars", StringComparison.Ordinal))
+                overrunCauseBad.Add($"text@{cap} len={t.Length} says [{OverrunNotice(t)}]");
+        }
+        Check("OVERRUN-IN-THE-TEXT-LANE-IS-ALWAYS-A-CAP-TOO-SMALL: every text response longer than its cap says the FIXED PART did not fit — the reserved closing disclosures are part of that fixed part, and this lane measures every body unit before writing it, so nothing else can put it over",
+            overrunCauseBad.Count == 0 && overrunCaps > 0,
+            overrunCauseBad.Count == 0 ? $"{overrunCaps} over-cap responses, every one naming the fixed part"
+                                       : string.Join("; ", overrunCauseBad.Take(3)) + $" ({overrunCauseBad.Count} of {overrunCaps} over-cap caps)");
+
         // ---- a record scope can admit nothing from a base master the sweep opened. "Swept" has to mean examined.
         var modOnlyScope = ErrorCheck.Run(rb, null, 1000, null, new SweepScope(null, "HcCeModNpc", null, null));
         var modOnlyScopeText = Wire.RenderCheckErrors(modOnlyScope, 0);
