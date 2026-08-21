@@ -1359,7 +1359,7 @@ static class JsonWire
             // Measured, like the text lane: Size() is the document so far, plus what closing it still costs — and
             // like the text lane, the notice is part of the document whose length it states, so its own encoded cost
             // is counted in and the composition is run to a fixed point.
-            int closed = Size(w, ms) + RootClose;
+            int closed = Size(w, ms) + Framing.RootClose;
             if (acct.CapTooSmall(closed, headerLength + reserve) is { } notice)
             {
                 int cost = OverrunNoticeCost(notice);
@@ -1398,13 +1398,51 @@ static class JsonWire
         return (int)ms.Length;
     }
 
-    /// <summary>What closing the root object still costs an INDENTED writer: a newline and the brace. It was
-    /// counted as one char, and the notice then stated a length one short of the document the caller received.
-    /// </summary>
-    const int RootClose = 2;
+    /// <summary>What THIS writer's own framing costs, measured against the writer rather than kept by hand: opening
+    /// the root object, closing it, and the separator a property pays for not being the first one inside it.
+    ///
+    /// <para><b>Why one measurement rather than a number per site.</b> These were two hand-kept constants —
+    /// <c>RootClose = 2</c> here, and a <c>- 2</c> for "the scratch wrapper's own braces" inside
+    /// <see cref="OverrunNoticeCost"/> — and both were wrong by one, in opposite directions. An indented writer
+    /// closes the root with a newline and a brace, and the newline this platform's writer emits is a CR/LF pair, so
+    /// that close costs three characters and not two. The scratch wrapper therefore costs one more than it was
+    /// credited with, and the notice, written into an object that already has properties, also pays for a separator
+    /// the scratch document never wrote. The two
+    /// errors CANCELLED in the length the notice states, so the arm holding that number stayed green while the
+    /// comparison that decides whether a notice fires at all stayed one character short — a document of exactly
+    /// <c>cap + 1</c> read as <c>cap</c> and said nothing about it. Derived from one measurement, the two cannot
+    /// drift apart again: either both are right, or the same measurement is wrong for both.</para></summary>
+    static readonly WriterFraming Framing = MeasureFraming();
+
+    /// <summary>The three costs <see cref="MeasureFraming"/> reads off the writer, in bytes of the encoded
+    /// document.</summary>
+    readonly record struct WriterFraming(int Open, int RootClose, int Separator);
+
+    /// <summary>Write two BYTE-IDENTICAL properties into a root object and take the deltas: what the first cost
+    /// above the bare <c>{</c> is one property, what the second cost above the first is that same property PLUS the
+    /// separator, and what the finished document holds above the still-open one is the root close.</summary>
+    static WriterFraming MeasureFraming()
+    {
+        using var ms = new MemoryStream();
+        int opened, first, second;
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            opened = Size(w, ms);
+            w.WriteString("f", "");
+            first = Size(w, ms);
+            w.WriteString("f", "");
+            second = Size(w, ms);
+            w.WriteEndObject();
+        }
+        return new WriterFraming(Open: opened, RootClose: (int)ms.Length - second,
+                                 Separator: (second - first) - (first - opened));
+    }
 
     /// <summary>What the overrun notice costs the document, encoded as the response will encode it — json escapes
-    /// what a raw char count would miss, and the notice's own length is part of the length it reports.</summary>
+    /// what a raw char count would miss, and the notice's own length is part of the length it reports. The scratch
+    /// document is a root object of its own, so what the REAL document pays is the scratch less the wrapper it
+    /// already has, plus the separator the notice owes for following the properties written before it.</summary>
     static int OverrunNoticeCost(string notice)
     {
         using var ms = new MemoryStream();
@@ -1414,7 +1452,7 @@ static class JsonWire
             w.WriteString("max_chars_overrun", notice);
             w.WriteEndObject();
         }
-        return (int)ms.Length - 2;   // the scratch wrapper's own braces
+        return (int)ms.Length - (Framing.Open + Framing.RootClose) + Framing.Separator;
     }
 
     /// <summary>The document's size so far, without flushing: committed bytes plus what the writer still holds. A
