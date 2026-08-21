@@ -1671,6 +1671,43 @@ public static class CheckErrorsProbe
             && twoAxesText.Contains("by SOURCE plugin", StringComparison.Ordinal),
             $"note occurrences={twoAxesText.Split("counts_only=true — totals above are exact", StringSplitOptions.None).Length - 1}");
 
+        // ---- a lane that cannot write an accounting line must not hold room for one.
+        // The plain counts_only lane declares no listing subject and has nothing unread or unparseable, so
+        // CheckAccounting.TextLine() is null for every value it could be handed. Reserved unconditionally, that
+        // lane still held the worst-case accounting out of max_chars — dead body budget in exactly the lane #392
+        // is about, where the room comes out of the histograms. Both directions, or the arm passes on a reserve
+        // that holds nothing anywhere.
+        var plainCounts = HistogramSized(rm, 3) with { Reports = Array.Empty<PluginErrors>(), ExcludedPlugins = new Dictionary<string, string>() };
+        var statingCounts = plainCounts with { Reports = UnreadSized(rm, 4).Reports };
+        int boundary = ReadSentences.SweepBoundary.Length + ReadSentences.SweepBoundaryLabel.Length;
+        var plainAcct = new CheckAccounting(plainCounts, 80000);
+        var statingAcct = new CheckAccounting(statingCounts, 80000);
+        int plainOver = plainAcct.TextReserve - boundary, statingOver = statingAcct.TextReserve - boundary;
+        Check("ACCOUNTING-RESERVE-IS-LANE-AWARE: a lane whose accounting line cannot be written reserves the boundary and nothing else, and a lane that CAN write one still reserves its worst case — a reserve is room for a specific sentence, and room held for a sentence this lane cannot write is a subtraction from the answer",
+            plainAcct.TextLine() is null && plainOver <= 32
+            && statingAcct.TextLine() is not null && statingOver >= 150,
+            $"plain: line={plainAcct.TextLine() ?? "(null)"} reserve-beyond-boundary={plainOver}; stating: reserve-beyond-boundary={statingOver}");
+
+        // …and what the caller gets for it: the room goes back to the rows. Same result, same cap, one unread
+        // plugin apart — the lane that has something to account for reserves more and renders fewer rows, and the
+        // plain lane must not be paying that price for a sentence it never writes.
+        var rowsBad = new List<string>();
+        int strictlyMore = 0, mostBy = 0;
+        for (int cap = 900; cap <= 2400; cap += 20)
+        {
+            int plainRows = HistogramAxis(Wire.RenderCheckErrors(plainCounts, cap), TargetAxis).Rows;
+            int statingRows = HistogramAxis(Wire.RenderCheckErrors(statingCounts, cap), TargetAxis).Rows;
+            // Never FEWER at any cap: the lane with nothing to account for cannot be the one paying for the
+            // accounting. Both at zero is a cap below either floor and says nothing either way, which is why the
+            // arm also needs the second half rather than the band being trimmed until it passes.
+            if (plainRows < statingRows) rowsBad.Add($"@{cap} plain={plainRows} FEWER than stating={statingRows}");
+            if (plainRows > statingRows) { strictlyMore++; mostBy = Math.Max(mostBy, plainRows - statingRows); }
+        }
+        Check("ACCOUNTING-RESERVE-DEAD-ROOM-GOES-TO-THE-ROWS: across the band, the lane with no accounting to write never renders FEWER histogram rows than the otherwise identical lane that has one, and at biting caps renders strictly more — the dead reserve was body budget, and this is where it went",
+            rowsBad.Count == 0 && strictlyMore > 0,
+            rowsBad.Count == 0 ? $"never fewer; strictly more at {strictlyMore} of 76 caps, by up to {mostBy} row(s)"
+                               : string.Join("; ", rowsBad.Take(3)) + $" ({rowsBad.Count} caps)");
+
         // ---- #344's exclude= pole, driven end to end through the TOOL surface over a synthetic MO2 instance.
         //      Every cell above calls the core directly, so nothing held the parameter's journey across two layers.
         failures += ExcludeWireChecks(Path.Combine(tmpDir, "wire"), Check);
@@ -2304,12 +2341,23 @@ public static class CheckErrorsProbe
     /// HISTOGRAM-FRAMING-IS-RESERVED-NOT-BUDGETED is the arm that holds that surface.</para>
     ///
     /// <para><b>What the reserved disclosures do to the floor, since the floor is what this arm allows.</b> Each
-    /// counts_only axis now holds back its own closing line, so a counts_only floor is roughly 120 characters per
-    /// axis — about 240 for check_errors' two — larger than it was, whether or not anything is cut. That is the
+    /// counts_only axis holds back its own closing line, and the noted axis its note as well. MEASURED on the
+    /// 200-row fixture: the closing lines are 145 and 144 characters, and the counts_only note another 77 — 366
+    /// for check_errors' two axes, whether or not anything is cut. (This paragraph said "roughly 120 per axis,
+    /// about 240 for the two" from an estimate; the numbers above are what the axes actually compose.) That is the
     /// stated price of #392's fix and it is real: it is body budget a caller does not get, and at caps near the
-    /// floor it is the difference between an axis that says what it dropped and one that vanishes. It does NOT
-    /// loosen this arm, because the floor is measured off the fixture rather than declared — a write site that
-    /// escapes the budget still inflates the floor, and FLOOR-IGNORES-BODY-SIZE is what catches that.</para>
+    /// floor it is the difference between an axis that says what it dropped and one that vanishes.</para>
+    ///
+    /// <para>The accounting's reserve is no longer part of that price in this lane. The plain counts_only lane —
+    /// no listing, nothing unread, nothing unparseable — cannot write an accounting line at all, and used to
+    /// reserve its worst case anyway. Measured on this guard's own fixture, as the chars reserved BEYOND the
+    /// boundary footer: <b>218 before, 32 after</b>. Those 186 were held out of every response in the one lane
+    /// where the room comes straight out of the histograms
+    /// (ACCOUNTING-RESERVE-IS-LANE-AWARE, ACCOUNTING-RESERVE-DEAD-ROOM-GOES-TO-THE-ROWS).</para>
+    ///
+    /// <para>None of it loosens this arm, because the floor is measured off the fixture rather than declared — a
+    /// write site that escapes the budget still inflates the floor, and FLOOR-IGNORES-BODY-SIZE is what catches
+    /// that.</para>
     /// </summary>
     static bool CapSweep(ErrorCheckResult r, out string detail)
     {
