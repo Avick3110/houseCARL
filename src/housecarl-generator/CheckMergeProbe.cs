@@ -499,6 +499,21 @@ public static class CheckMergeProbe
             atShareCap > halfShareHolds && atShareCap <= Topics,
             $"cap={shareCap} floor={floor} block={blockWidth} rendered={atShareCap} halfShareHolds={halfShareHolds}");
 
+        // The SAME question of the json lane, whose row width and floor are its own. Threaded because the hand-back
+        // is written in both transports and a pin on one of them vouches for nothing about the other — the sabotage
+        // sweep found this half green while the text half was red, which is exactly the drift the response layer's
+        // one-source rule exists to catch one level up.
+        int jsonFloor = JsonWire.RenderCheck(oneSeedSweep, 1).Length;
+        int jsonRow = (JsonWire.RenderCheck(oneSeedSweep, 0).Length
+                       - JsonWire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, WithTopics(oneSeed, 1)), 0).Length)
+                      / (Topics - 1);
+        int jsonCap = jsonFloor + jsonRow * (Topics * 2 / 3);
+        int jsonRendered = Count(JsonWire.RenderCheck(oneSeedSweep, jsonCap), "\"topic\":");
+        int jsonHalfHolds = (jsonCap - jsonFloor) / (2 * jsonRow);
+        Check("DIALOGUE-FINISHED-SEED-HANDS-BACK-ITS-SHARE (json): the same, in the transport's own units — a pin on one lane vouches for nothing about the other",
+            jsonRendered > jsonHalfHolds && jsonRendered <= Topics,
+            $"cap={jsonCap} floor={jsonFloor} row={jsonRow} rendered={jsonRendered} halfShareHolds={jsonHalfHolds}");
+
         // …and the other arm of the same conditional: with a second seed head still to write, the subject is NOT
         // finished when the first topic renders, and holding its share is the right answer rather than the missed
         // one. Both seeds' heads and every topic land at a cap wide enough for them.
@@ -634,6 +649,16 @@ public static class CheckMergeProbe
             });
         }
         return new DialogueValidationReport(seed, "quest", "HcCmQuest", "HcCm.esp", topics);
+    }
+
+    /// <summary>The same fixture with its seed trimmed to <paramref name="n"/> topics — so a row's width in either
+    /// transport can be MEASURED as the difference two renders make, rather than modelled.</summary>
+    static DialogueCheckResult WithTopics(DialogueCheckResult r, int n)
+    {
+        var seed = r.Resolved.First();
+        var trimmed = seed with { Report = seed.Report! with { Topics = seed.Report!.Topics.Take(n).ToArray() } };
+        var seeds = r.Seeds.Select(s => ReferenceEquals(s, seed) ? trimmed : s).ToArray();
+        return r with { Seeds = seeds, TopicsFound = n };
     }
 
     /// <summary>One topic block's width in the text lane, MEASURED off the fixture's own data through the same
