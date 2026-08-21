@@ -41,8 +41,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   can lose its ROWS to `max_chars`, but never the line saying how many are missing and which knob moves them: that
   line is held back out of `max_chars` alongside the accounting, so the pressure that dropped the rows cannot drop
   the report of it, and an axis with nothing to tally says that instead of nothing at all. Each axis holds back
-  about 120 characters for its line whether or not anything is cut, which is body room you do not get; on a
-  3800-plugin order at the defaults a `counts_only=true` response uses about 10,800 of its 80,000. The two
+  about 120 characters for its line while it renders, which is body room its rows do not get — an axis that
+  turns out to have nothing to say gives that room back, so on a 3800-plugin order at the defaults, where both
+  axes render whole, the response is the same 10,530 characters it was before. The two
   `counts_only=true` axes are cut independently: `limit=` stopping the by-TARGET axis no longer stops the by-SOURCE
   one, which used to render none of its rows under a "raise `max_chars=`" that would not have moved them. In
   `format='json'` each histogram object now carries `cut_by` — `"limit"`, `"max_chars"`, or `null` where the axis
