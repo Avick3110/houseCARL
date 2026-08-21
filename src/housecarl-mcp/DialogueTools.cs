@@ -151,7 +151,13 @@ internal static class DialogueWire
         return n;
     }
 
-    internal static void AppendTopic(StringBuilder sb, TopicValidation t, bool indent, int cap)
+    /// <param name="includeInfoOrder">render the effective merged INFO order (class 8) inside this block.
+    /// <c>validate_dialogue</c> does; the merged <c>check</c> surface's dialogue family does NOT, because an ordered
+    /// sequence over the touching-plugin stack is not a findings list and SPEC §6.1 routes it to
+    /// <c>records project=info_order</c>. ONE composer with the class gated here rather than two spellings of a
+    /// topic block: the same facts rendered twice is how the two surfaces would drift apart.</param>
+    internal static void AppendTopic(StringBuilder sb, TopicValidation t, bool indent, int cap,
+                                     bool includeInfoOrder = true)
     {
         string pad = indent ? "  " : "";
         sb.Append(pad).Append("topic ").Append(Edid(t.TopicEditorId)).Append(" (").Append(t.Topic).Append(')')
@@ -187,7 +193,7 @@ internal static class DialogueWire
             if (!AppendIssues(sb, t.Issues, pad + "    ", cap)) return;
         }
 
-        if (!AppendInfoOrder(sb, t, pad, cap, indent)) return;
+        if (includeInfoOrder && !AppendInfoOrder(sb, t, pad, cap, indent)) return;
 
         AppendVoice(sb, t, pad, cap);
         AppendScripts(sb, t, pad, cap);

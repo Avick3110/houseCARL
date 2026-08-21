@@ -2275,6 +2275,14 @@ public sealed class LoadOrderService : IDisposable
     // record fingerprint; the dialogue-fold wave (W3) owns an honest stamp for it.
     public DialogueValidationReport ValidateDialogue(FormKey fk) => DialogueValidate.Run(Resolver, Assets, fk);
 
+    /// <summary>The merged <c>check</c> surface's DIALOGUE family: <see cref="ValidateDialogue"/> over a seed list,
+    /// tallied for one section of a merged response (SPEC §6.1, classes 1-7). A thin call: the family's own
+    /// grammar — the seed parse, the cost-refusal, the seed budget and the tally — lives in
+    /// <see cref="DialogueSweep"/>, because a new family's logic landing here is what CLAUDE.md §8's
+    /// don't-append-a-new-domain rule names.</summary>
+    public DialogueCheckResult CheckDialogue(IReadOnlyList<string>? seeds, int limit, bool countsOnly = false)
+        => DialogueSweep.Run(ValidateDialogue, seeds, limit, countsOnly);
+
     /// <summary>The read body, answered entirely off ONE captured view (HCBR-2026-06-11-02): excluded-check, winner,
     /// and touching-plugin list all describe the SAME build — a freshness rebuild landing mid-read can no longer make
     /// a record's reported winner disagree with its own TOUCHING LIST. (The body fetch reads the file on disk through

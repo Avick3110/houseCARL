@@ -69,6 +69,26 @@ internal enum SweepSubject
 
     /// <summary>Rows of validate_scripts' <c>counts_only</c> histogram, by property NAME.</summary>
     HistogramByProperty,
+
+    /// <summary>The dialogue family's per-seed heads — one per seed that RESOLVED. Its analogue of
+    /// <see cref="PluginSections"/>, in the units this family selects by: a seed, not a plugin.</summary>
+    DialogueSeeds,
+
+    /// <summary>The dialogue family's per-topic blocks — the rows under a seed head, and its analogue of
+    /// <see cref="ScriptRecords"/>. A block is emitted WHOLE or not at all for that subject's reason: everything
+    /// inside one (the graph issues, the silent voice lines, the result scripts that will not fire) is a finding in
+    /// its own right, and a per-line "append if it fits" drops them with nothing accounting for the loss.
+    ///
+    /// <para>MEASURED width-computable before the write, in both transports, before this family was built: 237 units
+    /// of a 235-topic quest composed independently and concatenated are byte-identical to the one-pass render, and
+    /// every json row's pre-write cost bounds its write (<c>dialogue-width-measure</c>, live ARR 2.0 order,
+    /// 2026-08-21). The #394 ruling made the allocation shape conditional on that answer.</para></summary>
+    DialogueTopics,
+
+    /// <summary>The dialogue family's honesty layer: seeds that could NOT be validated, one row each. Its own
+    /// subject and present in BOTH lanes, unlike the heads and blocks — a seed nobody could reach is the boundary of
+    /// the answer, not a finding inside it, so <c>counts_only</c> must not silence it either.</summary>
+    DialogueSeedRefusals,
 }
 
 /// <summary>

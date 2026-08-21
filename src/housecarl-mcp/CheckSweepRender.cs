@@ -20,12 +20,25 @@ internal sealed record CheckSweep(
     SweepFamilySelection Selection,
     ErrorCheckResult? Errors = null,
     ScriptCheckResult? Scripts = null,
-    IReadOnlyList<string>? ScriptsSkippedOffOrder = null)
+    IReadOnlyList<string>? ScriptsSkippedOffOrder = null,
+    DialogueCheckResult? Dialogue = null)
 {
     /// <summary>The refusal, if any family refused. A sweep that could not run at all answers with one error rather
     /// than a partly-rendered response — the pre-sweep refusals (a malformed FormID, an unknown type, a plugin
     /// nothing provides) are decided before anything is swept, so they are the whole answer when they fire.</summary>
     internal string? Error => Errors?.Error ?? Scripts?.Error;
+
+    /// <summary>A FAMILY-LOCAL refusal: this family could not run, and the others are unaffected. Only the dialogue
+    /// family has one, because only it has a scope of its own — its seeds (SPEC §6.1 F1.1). The sweep families'
+    /// refusals come off the SHARED scope trio, so a malformed FormID or an unknown type is malformed input for the
+    /// whole call and answers as <see cref="Error"/> above.
+    ///
+    /// <para>A family-local refusal is rendered in that family's OWN SECTION, never at response level, for the
+    /// reason F1.3 gives: a call naming several families runs each over its own declared selection. Raised to
+    /// response level it would refuse a call the errors family answered perfectly well; dropped, the response would
+    /// name the dialogue family in its scope sentence and then render nothing under it, which is silence where a
+    /// refusal belongs (Q3).</para></summary>
+    internal string? Refusal(SweepFamily f) => f == SweepFamily.Dialogue ? Dialogue?.Error : null;
 
     /// <summary>The epoch any family stamped, for a refusal render. Both families capture the same build.</summary>
     internal string? Epoch => Errors?.Epoch ?? Scripts?.Epoch;
@@ -35,12 +48,17 @@ internal sealed record CheckSweep(
     {
         SweepFamily.Errors => Errors is { Error: null },
         SweepFamily.Scripts => Scripts is { Error: null },
+        SweepFamily.Dialogue => Dialogue is { Error: null },
         _ => false,
     };
 
     /// <summary>The families this response actually renders, in <see cref="SweepFamilySelection.Registered"/> order
     /// — never the order the caller named them, so two calls selecting the same families render alike.</summary>
-    internal IReadOnlyList<SweepFamily> Sections => Selection.Ran.Where(Ran).ToArray();
+    /// <summary>The families this response actually renders, in <see cref="SweepFamilySelection.Registered"/> order
+    /// — never the order the caller named them, so two calls selecting the same families render alike. A family that
+    /// refused LOCALLY is still a section: its refusal is what that section says.</summary>
+    internal IReadOnlyList<SweepFamily> Sections
+        => Selection.Ran.Where(f => Ran(f) || Refusal(f) is not null).ToArray();
 
     /// <summary>The excluded-plugin roster: which plugins the INDEX could not parse. A SCOPE fact, identical
     /// whichever family reports it (both read it off the same captured build), so the response emits it ONCE and
@@ -53,12 +71,24 @@ internal sealed record CheckSweep(
         {
             foreach (var f in Sections)
             {
-                var ex = f == SweepFamily.Errors ? Errors!.ExcludedPlugins : Scripts!.ExcludedPlugins;
-                if (ex.Count > 0) return ex;
+                var ex = Roster(f);
+                if (ex is { Count: > 0 }) return ex;
             }
             return new Dictionary<string, string>();
         }
     }
+
+    /// <summary>The excluded-plugin roster THIS family carries, or null where it has none to carry. The dialogue
+    /// family has none and that is its answer rather than an omission: the roster is which plugins the INDEX could
+    /// not parse, and a seeded validation produces no such list — what IT could not reach is a SEED, a different
+    /// fact about a different thing, stated in its own section (<c>DialogueScopeNote</c> and the unreachable-seed
+    /// rows) rather than merged into a roster about plugins.</summary>
+    IReadOnlyDictionary<string, string>? Roster(SweepFamily f) => f switch
+    {
+        SweepFamily.Errors => Errors?.ExcludedPlugins,
+        SweepFamily.Scripts => Scripts?.ExcludedPlugins,
+        _ => null,
+    };
 
     /// <summary>WHICH family's accounting owns the roster: the first section that has one to declare. "Exactly one"
     /// is what matters, not which — every rendering family read the same roster off the same build.</summary>
@@ -67,7 +97,7 @@ internal sealed record CheckSweep(
         get
         {
             foreach (var f in Sections)
-                if ((f == SweepFamily.Errors ? Errors!.ExcludedPlugins : Scripts!.ExcludedPlugins).Count > 0) return f;
+                if (Roster(f) is { Count: > 0 }) return f;
             return null;
         }
     }
@@ -103,7 +133,7 @@ internal sealed record CheckSweep(
                     if (r.Reports.Any(p => p.Dangling.Count > 0)) subjects.Add(SweepSubject.DanglingEntries);
                 }
             }
-            else
+            else if (f == SweepFamily.Scripts)
             {
                 var r = Scripts!;
                 if (r.CountsOnly)
@@ -116,6 +146,18 @@ internal sealed record CheckSweep(
                     if (r.Reports.Count > 0) subjects.Add(SweepSubject.ScriptRecords);
                 }
             }
+            else if (Dialogue is { Error: null } d)
+            {
+                // The unreachable-seed rows are in the plan in BOTH lanes: they are rendered rows like any other, and
+                // a family whose every seed failed still has rows to fit. A family that refused outright contributes
+                // no subjects at all and drops out of the plan below — its section is one sentence.
+                if (!d.CountsOnly)
+                {
+                    if (d.Resolved.Any()) subjects.Add(SweepSubject.DialogueSeeds);
+                    if (d.TopicsFound > 0) subjects.Add(SweepSubject.DialogueTopics);
+                }
+                if (d.Unresolved.Count > 0) subjects.Add(SweepSubject.DialogueSeedRefusals);
+            }
             if (subjects.Count > 0) plan.Add((f, subjects));
         }
         return plan;
@@ -123,9 +165,15 @@ internal sealed record CheckSweep(
 
     /// <summary>One accounting PER FAMILY, in section order, with the roster declared by exactly one of them.</summary>
     internal IReadOnlyList<CheckAccounting> Accountings(int cap)
-        => Sections.Select(f => f == SweepFamily.Errors
-                ? new CheckAccounting(Errors!, cap, declareExcluded: RosterOwner == SweepFamily.Errors)
-                : new CheckAccounting(Scripts!, cap, declareExcluded: RosterOwner == SweepFamily.Scripts))
+        => Sections.Select(f => f switch
+           {
+               SweepFamily.Errors => new CheckAccounting(Errors!, cap, declareExcluded: RosterOwner == SweepFamily.Errors),
+               SweepFamily.Scripts => new CheckAccounting(Scripts!, cap, declareExcluded: RosterOwner == SweepFamily.Scripts),
+               // A dialogue family that REFUSED still gets one: it declares no subject and states no accounting line,
+               // but it owns this family's boundary — the standing-limits sentence — and that is reserved and written
+               // whatever the budget says.
+               _ => new CheckAccounting(Dialogue ?? DialogueCheckResult.Fail(""), cap),
+           })
            .ToArray();
 
     /// <summary>The SCOPE SENTENCE (ruling item 2): which families ran, which registered ones did not, and the exact

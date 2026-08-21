@@ -65,6 +65,12 @@ internal sealed class CheckAccounting
     readonly int _scriptFindingsFound;
     readonly int _scriptFindingsListed;
     readonly string _scriptTotals = "";   // the class-aware true totals, restated where the cut is reported
+    // The dialogue family's own three quantities: what the validation FOUND (never capped), how many seeds the
+    // caller named, and how many the seed budget let this call actually try. The last two differ exactly where the
+    // budget stopped the loop, and that difference is an absence no other subject accounts for.
+    readonly int _dialogueProblems;
+    readonly int _dialogueSeedsNamed;
+    readonly int _dialogueSeedsTried;
     // What THIS lane closes with. The two families state different boundaries, and TextReserve holds room for the
     // one that will actually be written — a reserve sized off the other family's sentence is room for a sentence
     // this lane cannot write, which is the defect CanStateAccounting exists to name.
@@ -140,6 +146,42 @@ internal sealed class CheckAccounting
         if (declareExcluded && r.ExcludedPlugins.Count > 0) Declare(SweepSubject.ExcludedRows, r.ExcludedPlugins.Count);
     }
 
+    /// <summary>The DIALOGUE family's accounting — the same class again, declaring the subjects a SEEDED family has.
+    ///
+    /// <para><b>It declares no excluded-plugin roster, and that is the answer rather than an omission.</b> The
+    /// roster is which plugins the INDEX could not parse; a dialogue validation does not produce one, and its
+    /// ancestor never reported one either. What this family cannot reach is a SEED, which is a different fact about
+    /// a different thing — so it gets its own subject (<see cref="SweepSubject.DialogueSeedRefusals"/>) inside this
+    /// family's own section, and the response-level roster stays declared by exactly one accounting.</para>
+    ///
+    /// <para>The BOUNDARY carries the standing-limits footer <c>validate_dialogue</c> always printed. Making it the
+    /// boundary is what makes it unrefusable: it is reserved out of <c>max_chars</c> before the body renders, so the
+    /// sentence saying a clean structural pass is not "this will play" cannot be dropped by the pressure that cut
+    /// the findings it qualifies.</para></summary>
+    internal CheckAccounting(DialogueCheckResult r, int cap)
+    {
+        _cap = cap;
+        _limit = r.Limit;
+        _bySource = Array.Empty<SweepCount>();
+        _boundary = string.Format(ReadSentences.DialogueBoundary,
+            r.ConditionedInfos > 0 ? string.Format(ReadSentences.DialogueConditioned, r.ConditionedInfos) : "",
+            r.ReadIncomplete ? ReadSentences.DialogueReadIncomplete : "");
+        _dialogueProblems = r.ProblemsFound;
+        _dialogueSeedsNamed = r.SeedsNamed;
+        _dialogueSeedsTried = r.Seeds.Count;
+
+        // A REFUSED family declares NOTHING. Declaring its subjects anyway made the accounting state "every one of
+        // the 0 topic(s) these seeds own is listed" under a section whose whole content is a cost-refusal — a
+        // completeness claim over a validation that never ran, which reads exactly like "looked, found none" (Q3).
+        // The refusal is that section's whole answer; a lane with nothing declared has no completeness to assert.
+        if (!r.Success) return;
+
+        if (!r.CountsOnly) Declare(SweepSubject.DialogueSeeds, r.Resolved.Count());
+        if (!r.CountsOnly) Declare(SweepSubject.DialogueTopics, r.TopicsFound);
+        // In BOTH lanes: a seed nobody could reach bounds the answer, so counts_only must not silence it either.
+        Declare(SweepSubject.DialogueSeedRefusals, r.Unresolved.Count);
+    }
+
     /// <summary>What this lane's response closes with — read by the render rather than chosen there, so the
     /// sentence reserved and the sentence written are the same one.</summary>
     internal string Boundary => _boundary;
@@ -184,6 +226,10 @@ internal sealed class CheckAccounting
     /// fact, like <see cref="OmittedByBudget"/> — both terms are counted while the sweep runs, so it is readable
     /// before the body renders and is the same number in the worst case as in the real one.</summary>
     int ScriptOmittedByBudget => Has(SweepSubject.ScriptRecords) ? _scriptFindingsFound - _scriptFindingsListed : 0;
+
+    /// <summary>Seeds the caller named that the seed budget never let this call try. A pure SWEEP fact like the two
+    /// above — counted before anything renders, and the same number in the worst case as in the real one.</summary>
+    int DialogueSeedsUnreached => Math.Max(0, _dialogueSeedsNamed - _dialogueSeedsTried);
 
     /// <summary>WHICH source plugins are missing entries from THIS response, largest first. Computed against what was
     /// emitted, so it covers both causes at once: under the two-layer split, a plugin whose entries the budget listed
@@ -234,6 +280,7 @@ internal sealed class CheckAccounting
     /// room held for a sentence this lane cannot write is not a reserve, it is a subtraction from the
     /// answer.</summary>
     bool CanStateAccounting => Has(SweepSubject.DanglingEntries) || Has(SweepSubject.ScriptRecords)
+                               || Has(SweepSubject.DialogueTopics)
                                || Missing(Worst(escaped: false));
 
     /// <summary>The json lane's own reserve. Measured by SERIALIZING the worst case, not by estimating it off the
@@ -349,7 +396,8 @@ internal sealed class CheckAccounting
     internal string? TextLine()
     {
         var v = Real();
-        return Has(SweepSubject.DanglingEntries) || Has(SweepSubject.ScriptRecords) || Missing(v) ? Compose(v) : null;
+        return Has(SweepSubject.DanglingEntries) || Has(SweepSubject.ScriptRecords)
+               || Has(SweepSubject.DialogueTopics) || Missing(v) ? Compose(v) : null;
     }
 
     string Compose(Values v)
@@ -386,6 +434,32 @@ internal sealed class CheckAccounting
                 sb.Append(string.Format(ReadSentences.SweepScriptFindings, _scriptFindingsListed,
                                         _scriptFindingsFound, _limit, _scriptTotals));
         }
+        // The dialogue family's own two-part shape, in the units a SEEDED family has: a completeness assertion over
+        // the topics its seeds own, then the seed budget's own share of what is absent. They are separate clauses
+        // because they are separate absences — a topic that did not fit is a rendering fact, a seed the budget never
+        // reached is a scope fact, and one sentence for both would tell a caller to raise the wrong knob.
+        if (Has(SweepSubject.DialogueTopics))
+        {
+            sb.Append(Short(v, SweepSubject.DialogueTopics)
+                ? string.Format(ReadSentences.SweepDialogueVisible, Shown(v, SweepSubject.DialogueTopics),
+                                Found(SweepSubject.DialogueTopics))
+                : string.Format(ReadSentences.SweepDialogueAllVisible, Found(SweepSubject.DialogueTopics)));
+        }
+        if (DialogueSeedsUnreached > 0 || (v.Worst && Has(SweepSubject.DialogueSeedRefusals)))
+            sb.Append(string.Format(ReadSentences.SweepDialogueSeedsCut, _dialogueSeedsTried, _dialogueSeedsNamed,
+                                    DialogueSeedsUnreached, _limit));
+        // The totals, restated wherever this family's listing is short — they are never capped, and a short listing
+        // with no total beside it reads as the whole answer.
+        if (Has(SweepSubject.DialogueTopics) && (Short(v, SweepSubject.DialogueTopics) || DialogueSeedsUnreached > 0 || v.Worst))
+            sb.Append(string.Format(ReadSentences.SweepDialogueProblems, _dialogueProblems,
+                                    Found(SweepSubject.DialogueTopics)));
+        if (Short(v, SweepSubject.DialogueSeeds))
+            sb.Append(string.Format(ReadSentences.SweepSections, Shown(v, SweepSubject.DialogueSeeds),
+                                    Found(SweepSubject.DialogueSeeds)));
+        if (Short(v, SweepSubject.DialogueSeedRefusals))
+            sb.Append(string.Format(ReadSentences.SweepDialogueRefusalsCut, Shown(v, SweepSubject.DialogueSeedRefusals),
+                                    Found(SweepSubject.DialogueSeedRefusals)));
+
         // The scripts family's counts_only honesty layer. Same rule as the errors family's unread rows, in that
         // family's own subject — its rows are the plugins whose record enumeration faulted.
         if (Short(v, SweepSubject.ScriptScanRows))
@@ -425,11 +499,14 @@ internal sealed class CheckAccounting
 
         if (Missing(v))
         {
-            if (v.ByBudget > 0 || ScriptOmittedByBudget > 0 || v.Worst) sb.Append(ReadSentences.SweepRemedyLimit);
+            if (v.ByBudget > 0 || ScriptOmittedByBudget > 0 || DialogueSeedsUnreached > 0 || v.Worst)
+                sb.Append(ReadSentences.SweepRemedyLimit);
             // max_chars is the knob for every subject except the listing budget's own share.
             if (v.ByCut > 0 || v.Worst || Short(v, SweepSubject.PluginSections)
                 || Short(v, SweepSubject.ExcludedRows) || Short(v, SweepSubject.UnreadRows)
-                || Short(v, SweepSubject.ScriptRecords) || Short(v, SweepSubject.ScriptScanRows))
+                || Short(v, SweepSubject.ScriptRecords) || Short(v, SweepSubject.ScriptScanRows)
+                || Short(v, SweepSubject.DialogueSeeds) || Short(v, SweepSubject.DialogueTopics)
+                || Short(v, SweepSubject.DialogueSeedRefusals))
                 sb.Append(ReadSentences.SweepRemedyMaxChars);
             if (v.Roster.Count > 0) sb.Append(ReadSentences.SweepRemedyScope).Append(ReadSentences.SweepRemedyCountsOnly);
         }
@@ -448,10 +525,12 @@ internal sealed class CheckAccounting
     /// its counts are the totals and <see cref="Short"/> is true of every subject that can ever be short — so the
     /// reserve stays an upper bound while dropping what no rendering could reach.</para></summary>
     bool Missing(Values v)
-        => v.ByBudget + v.ByCut > 0 || ScriptOmittedByBudget > 0
+        => v.ByBudget + v.ByCut > 0 || ScriptOmittedByBudget > 0 || DialogueSeedsUnreached > 0
            || Short(v, SweepSubject.PluginSections) || Short(v, SweepSubject.ExcludedRows)
            || Short(v, SweepSubject.UnreadRows)
-           || Short(v, SweepSubject.ScriptRecords) || Short(v, SweepSubject.ScriptScanRows);
+           || Short(v, SweepSubject.ScriptRecords) || Short(v, SweepSubject.ScriptScanRows)
+           || Short(v, SweepSubject.DialogueSeeds) || Short(v, SweepSubject.DialogueTopics)
+           || Short(v, SweepSubject.DialogueSeedRefusals);
 
     // ---- the json lane ------------------------------------------------------------------------------
 
@@ -477,8 +556,13 @@ internal sealed class CheckAccounting
         // the render's call site — outside what JsonReserve measures, which is exactly how that lane's roster ended
         // up unbounded. Everything the close emits is written here, and therefore measured.
         bool scriptSections = Has(SweepSubject.ScriptRecords);
+        // The dialogue family's listing subject. Its "capped" is the SEED budget — the knob that decides how many
+        // seeds a call expands — which is a different quantity from the sibling families' finding budgets even
+        // though all three are spelled limit=.
+        bool dialogueTopics = Has(SweepSubject.DialogueTopics);
         if (dangling) w.WriteBoolean("capped", v.ByBudget > 0);
         else if (scriptSections) w.WriteBoolean("capped", ScriptOmittedByBudget > 0);
+        else if (dialogueTopics) w.WriteBoolean("capped", DialogueSeedsUnreached > 0);
         if (sections)
         {
             w.WriteNumber("plugins_with_findings", Found(SweepSubject.PluginSections));
@@ -495,8 +579,15 @@ internal sealed class CheckAccounting
             w.WriteBoolean("truncated", Short(v, SweepSubject.ScriptRecords)
                                         || Short(v, SweepSubject.ExcludedRows) || Short(v, SweepSubject.ScriptScanRows));
         }
+        if (dialogueTopics)
+        {
+            w.WriteNumber("topics_validated", Found(SweepSubject.DialogueTopics));
+            w.WriteNumber("rendered", Shown(v, SweepSubject.DialogueTopics));
+            w.WriteBoolean("truncated", Short(v, SweepSubject.DialogueTopics) || Short(v, SweepSubject.DialogueSeeds)
+                                        || Short(v, SweepSubject.DialogueSeedRefusals));
+        }
         w.WriteStartObject("accounting");
-        w.WriteBoolean("listing", dangling || scriptSections);
+        w.WriteBoolean("listing", dangling || scriptSections || dialogueTopics);
         if (dangling)
         {
             w.WriteNumber("dangling_found", Found(SweepSubject.DanglingEntries));
@@ -526,6 +617,26 @@ internal sealed class CheckAccounting
         {
             w.WriteNumber("script_scan_errors_total", Found(SweepSubject.ScriptScanRows));
             w.WriteNumber("script_scan_errors_named", Shown(v, SweepSubject.ScriptScanRows));
+        }
+        if (dialogueTopics)
+        {
+            // The dialogue family's decomposition, in a SEEDED family's units: the seeds named, the seeds the budget
+            // let this call try, the topics those seeds own, what the response carried, and the findings the
+            // validation counted — which no budget caps.
+            w.WriteNumber("seeds_named", _dialogueSeedsNamed);
+            w.WriteNumber("seeds_validated", _dialogueSeedsTried);
+            w.WriteNumber("seeds_not_reached_by_budget", DialogueSeedsUnreached);
+            w.WriteNumber("dialogue_topics_found", Found(SweepSubject.DialogueTopics));
+            w.WriteNumber("dialogue_topics_rendered", Shown(v, SweepSubject.DialogueTopics));
+            w.WriteNumber("dialogue_findings_found", _dialogueProblems);
+            w.WriteNumber("limit", _limit);
+        }
+        // In BOTH lanes, for the reason the subject is declared in both: a seed nobody could reach bounds the answer
+        // rather than sitting inside it, so counts_only states it too.
+        if (Has(SweepSubject.DialogueSeedRefusals))
+        {
+            w.WriteNumber("seeds_unreachable_total", Found(SweepSubject.DialogueSeedRefusals));
+            w.WriteNumber("seeds_unreachable_named", Shown(v, SweepSubject.DialogueSeedRefusals));
         }
         w.WriteNumber("max_chars", _cap);
         w.WriteNumber("excluded_plugins_total", Found(SweepSubject.ExcludedRows));
