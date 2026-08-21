@@ -55,6 +55,19 @@ saying it sets an expectation their install may contradict. Say what is known, a
   roster was written outside the budget entirely, so a `max_chars` you passed did not bound it. Each record is
   now measured before it is written, and the document states how many of them it carries.
 
+- **Changed: `format='json'` no longer writes accounting counts for subjects a response does not have.**
+  `accounting.excluded_plugins_total` / `_named`, `accounting.unread_plugins_total` / `_named` and
+  `accounting.dangling_missing_by_source` / `_total` were written on every response, so a response that could
+  not have any of them reported `0` and an empty list — the same "looked, found none" reading the fields beside
+  them already avoid by being present only where their subject is. They now follow that rule too. Where you will
+  see it: `findings=['missing_masters']` lists no dangling references, so it carries no dangling-by-source
+  roster; a `counts_only=true` response carries none either; and on `housecarl_check` a family refused before it
+  ran — `findings=['dialogue']` with no `seeds=` — now states its refusal and the `max_chars` it was given, and
+  nothing about a plugin scope it does not have. The text render already said nothing there, so this is the two
+  formats agreeing rather than a new claim. If you read one of these fields unconditionally, check it is present
+  first: absent means this response has no such subject, which `accounting.listing` and the family's own counts
+  already tell you.
+
 - **Fixed: `housecarl_check_errors` now says how many findings its answer is missing, and stays inside
   `max_chars`.** The response used to describe what it left out from two separate places, in two different
   units: the listing budget said how many refs `limit=` never listed, and a truncation notice said how many

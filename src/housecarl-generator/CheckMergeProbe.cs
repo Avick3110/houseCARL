@@ -413,6 +413,42 @@ public static class CheckMergeProbe
                 Trim(mixedText));
         }
 
+        // ---- REFUSED-FAMILY-DECLARES-NO-SUBJECT-COUNTS ---------------------------------------------
+        // BOTH DIRECTIONS of the three conditionals the json accounting gained, asked of ONE response so the two
+        // halves cannot be satisfied by different fixtures: the refused family has none of those subjects and must
+        // carry none of their counts; the errors family BESIDE IT has the dangling subject and must still carry its
+        // roster. Asked of both transports, because the two disagreeing IS the defect — the text lane wrote no
+        // accounting line at all for a refused family (CanStateAccounting) while the json lane wrote
+        // excluded_plugins_total: 0 and unread_plugins_total: 0 about a plugin scope this family does not have (it is
+        // seeded, not swept) and an empty dangling_missing_by_source, which is the ERRORS family's roster.
+        using (var doc = JsonDocument.Parse(mixedJson))
+        {
+            var fams = doc.RootElement.GetProperty("families");
+            var dlgAcct = fams.GetProperty("dialogue").GetProperty("accounting");
+            var errAcct = fams.GetProperty("errors").GetProperty("accounting");
+            Check("REFUSED-FAMILY-DECLARES-NO-SUBJECT-COUNTS: a family that never ran states its refusal and the cap it was given — never zeros about subjects it does not have — while the family beside it that HAS one still states it, and the text lane writes ONE accounting line for the two",
+                !dlgAcct.TryGetProperty("excluded_plugins_total", out _)
+                && !dlgAcct.TryGetProperty("excluded_plugins_named", out _)
+                && !dlgAcct.TryGetProperty("unread_plugins_total", out _)
+                && !dlgAcct.TryGetProperty("unread_plugins_named", out _)
+                && !dlgAcct.TryGetProperty("dangling_missing_by_source", out _)
+                && !dlgAcct.TryGetProperty("dangling_missing_by_source_total", out _)
+                // What IS true of every lane is still stated: the cap this call was given, and that it listed nothing.
+                && dlgAcct.GetProperty("max_chars").GetInt32() == Wire.DefaultMaxChars
+                && !dlgAcct.GetProperty("listing").GetBoolean()
+                // The other direction, in the same response: the errors family HAS the dangling subject, so it still
+                // carries the roster's two fields — and its own counts are untouched, which is the half a gate put
+                // on the wrong predicate would break. (The roster's VALUE is the count of source plugins that lost
+                // findings — 0 in a response that cut nothing — and what it is worth is pinned by the roster arms;
+                // what this arm asks is that a lane WITH the subject still declares it.)
+                && errAcct.TryGetProperty("dangling_missing_by_source", out _)
+                && errAcct.TryGetProperty("dangling_missing_by_source_total", out _)
+                && errAcct.GetProperty("dangling_found").GetInt32() == Npcs
+                // The transports agree: one accounting line for the family that can state one, none for the other.
+                && Count(mixedText, ReadSentences.SweepAccountingLead) == 1,
+                $"dialogueAcct={Trim(dlgAcct.GetRawText())} textAccountingLines={Count(mixedText, ReadSentences.SweepAccountingLead)}");
+        }
+
         // ---- DIALOGUE-NOT-PLUGIN-SCOPED ------------------------------------------------------------
         var dlgOnly = new CheckSweep(Sel("dialogue"), null, null, null, dialogue);
         var dlgText = Wire.RenderCheck(dlgOnly, 0);
