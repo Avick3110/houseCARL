@@ -26,6 +26,9 @@ public static class CheckMeasureProbe
         Console.WriteLine($"# check-measure — live order at {mo2}");
         Console.WriteLine($"# default max_chars = {cap}, default limit = 1000\n");
 
+        if (Array.IndexOf(args, "--listing") >= 0) return RunListing(svc);
+        if (Array.IndexOf(args, "--budget") >= 0) return RunBudget(svc);
+
         if (only is null)
         {
             // Cell A — the whole-order text sweep at plain defaults: what a caller who types
@@ -62,6 +65,177 @@ public static class CheckMeasureProbe
         Cell($"D  plugins=[{only}] text, defaults", () => ReadTools.CheckErrorsTool(svc, new[] { only }));
         Cell($"E  plugins=[{only}] json, defaults", () => ReadTools.CheckErrorsTool(svc, new[] { only }, format: "json"));
         return 0;
+    }
+
+    /// <summary>#394's measurement, on the live order: what SERIAL budget spending gives each counts_only histogram
+    /// axis across a cap ladder, and what the same lanes cost when a second findings FAMILY shares the response.
+    ///
+    /// <para>The issue's own reproduction is one cap on one shape. What the 4b budget-policy decision needs instead
+    /// is the BAND — where the serial split starts biting and where it stops mattering — plus the number no single
+    /// cap can show: whether the merged surface's combined counts_only response fits a plain default at all. A rule
+    /// that is invisible at every cap a caller actually passes is a different decision from one that starves a
+    /// family on the no-arguments call.</para>
+    ///
+    /// <para>Per-axis ROW COST is printed beside the row counts, because the candidate splits differ only in how
+    /// they divide room among rows of known width: an equal split of R chars over two axes whose rows cost c1 and
+    /// c2 renders R/2c1 and R/2c2 rows, and that arithmetic is only worth doing over measured widths.</para>
+    /// </summary>
+    static int RunBudget(LoadOrderService svc)
+    {
+        Console.WriteLine("## 394-A  errors family, counts_only TEXT — the serial spend across a cap ladder");
+        Console.WriteLine("   (rows/distinct per axis; cap 80000 is the plain default)\n");
+        Console.WriteLine($"   {"cap",8} {"chars",8} {"TARGET",14} {"SOURCE",14}");
+        foreach (int c in new[] { 0, 40000, 20000, 10000, 6000, 4000, 3000, 2500, 2000, 1600, 1400, 1200, 1000 })
+        {
+            string s = ReadTools.CheckErrorsTool(svc, counts_only: true, max_chars: c);
+            var (tr, td) = AxisRows(s, "TARGET plugin");
+            var (sr, sd) = AxisRows(s, "SOURCE plugin");
+            int eff = c > 0 ? c : Wire.DefaultMaxChars;
+            Console.WriteLine($"   {eff,8} {s.Length,8} {tr + "/" + td,14} {sr + "/" + sd,14}");
+        }
+
+        Console.WriteLine("\n## 394-B  errors family, counts_only JSON — the same question, the other transport\n");
+        Console.WriteLine($"   {"cap",8} {"chars",8} {"TARGET",14} {"SOURCE",14}");
+        foreach (int c in new[] { 0, 10000, 6000, 4000, 3000, 2000, 1600, 1200 })
+        {
+            string s = ReadTools.CheckErrorsTool(svc, counts_only: true, format: "json", max_chars: c);
+            int eff = c > 0 ? c : Wire.DefaultMaxChars;
+            Console.WriteLine($"   {eff,8} {s.Length,8} {JsonAxisRows(s, "dangling_by_target_plugin"),14} {JsonAxisRows(s, "dangling_by_source_plugin"),14}");
+        }
+
+        Console.WriteLine("\n## 394-C  per-axis ROW COST, measured off the rows a whole render writes");
+        {
+            string s = ReadTools.CheckErrorsTool(svc, counts_only: true);
+            Console.WriteLine($"   TARGET axis: {RowCost(s, "TARGET plugin")}");
+            Console.WriteLine($"   SOURCE axis: {RowCost(s, "SOURCE plugin")}");
+        }
+
+        Console.WriteLine("\n## 394-D  the SCRIPTS family, counts_only — the second family the merge puts in one response");
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            string s = ReadTools.ValidateScriptsTool(svc, counts_only: true);
+            sw.Stop();
+            Console.WriteLine($"   chars      : {s.Length}  (cap {Wire.DefaultMaxChars})  elapsed {sw.ElapsedMilliseconds} ms");
+            var (rows, distinct) = AxisRows(s, "unbound properties by NAME", "\nunbound properties by NAME");
+            Console.WriteLine($"   by-PROPERTY axis: rows={rows} distinct={distinct}");
+            foreach (var l in s.Split('\n'))
+                if (l.StartsWith("scanned ", StringComparison.Ordinal)) Console.WriteLine("   > " + Trim(l));
+        }
+
+        Console.WriteLine("\n## 394-E  what the MERGE puts in ONE response: the families' counts_only sizes, summed");
+        {
+            string e = ReadTools.CheckErrorsTool(svc, counts_only: true);
+            string p = ReadTools.ValidateScriptsTool(svc, counts_only: true);
+            int sum = e.Length + p.Length;
+            Console.WriteLine($"   errors  counts_only : {e.Length}");
+            Console.WriteLine($"   scripts counts_only : {p.Length}");
+            Console.WriteLine($"   sum                 : {sum}   (default cap {Wire.DefaultMaxChars}; "
+                              + (sum > Wire.DefaultMaxChars ? "OVER by " + (sum - Wire.DefaultMaxChars)
+                                                            : "fits with " + (Wire.DefaultMaxChars - sum) + " to spare") + ")");
+            Console.WriteLine("   NOTE: an upper bound for the merged render — the merge writes ONE header and ONE boundary,");
+            Console.WriteLine("   so the true combined size is this less one lane's framing. What it answers is the");
+            Console.WriteLine("   FAMILY-COUNT question: whether a plain-default combined call can starve a family at all.");
+        }
+        return 0;
+    }
+
+    /// <summary>The LISTING lane's family-budget measurement, which is the one the counts_only question does not
+    /// reach. #394 is stated over the <c>counts_only</c> histogram axes, where the two axes together cost ten
+    /// thousand characters against an eighty-thousand default and the serial split is invisible unless a caller
+    /// tightens the cap by hand. The listing lane is the opposite shape: on a real order the errors family alone
+    /// renders to within a few hundred characters of the plain default, so a SECOND family spending after it in
+    /// series receives whatever that leaves — at the no-arguments call, not at a tightened one.
+    ///
+    /// <para>Both families are rendered at plain defaults and their sizes reported against the default cap. The
+    /// number that matters is the REMAINDER: what the merged response would have left for the family that renders
+    /// second under today's serial rule.</para></summary>
+    static int RunListing(LoadOrderService svc)
+    {
+        Console.WriteLine("## 394-F  the LISTING lane at plain defaults — what a second family would inherit\n");
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        string e = ReadTools.CheckErrorsTool(svc);
+        long eMs = sw.ElapsedMilliseconds;
+        Console.WriteLine($"   errors  listing : {e.Length} chars, {eMs} ms");
+        foreach (var l in e.Split('\n'))
+            if (l.StartsWith("scanned ", StringComparison.Ordinal)) Console.WriteLine("   > " + Trim(l));
+        foreach (var l in e.Split('\n'))
+            if (l.Contains("[accounting:", StringComparison.Ordinal)) Console.WriteLine("   > " + Trim(l));
+
+        sw.Restart();
+        string p = ReadTools.ValidateScriptsTool(svc);
+        long pMs = sw.ElapsedMilliseconds;
+        Console.WriteLine($"\n   scripts listing : {p.Length} chars, {pMs} ms");
+        foreach (var l in p.Split('\n'))
+            if (l.StartsWith("scanned ", StringComparison.Ordinal)) Console.WriteLine("   > " + Trim(l));
+
+        int cap = Wire.DefaultMaxChars;
+        Console.WriteLine($"\n   default cap                              : {cap}");
+        Console.WriteLine($"   errors listing leaves, spending in series : {cap - e.Length}");
+        Console.WriteLine($"   scripts listing wants                     : {p.Length}");
+        Console.WriteLine($"   sum of the two lanes                      : {e.Length + p.Length}"
+                          + (e.Length + p.Length > cap ? $"   OVER the default by {e.Length + p.Length - cap}" : ""));
+        Console.WriteLine("\n   The remainder is what a serial second family receives at the NO-ARGUMENTS call.");
+        return 0;
+    }
+
+    /// <summary>Rendered rows and the distinct count for one text-lane axis, read off the RENDER rather than the
+    /// model — what the caller can see, which is the whole subject of #394.</summary>
+    static (int Rows, int Distinct) AxisRows(string s, string axis, string? lead = null)
+    {
+        string needle = lead ?? ("\ndangling ref(s) by " + axis);
+        int at = s.IndexOf(needle, StringComparison.Ordinal);
+        if (at < 0) return (-1, -1);
+        int end = s.IndexOf("\n\n", at + 2, StringComparison.Ordinal);
+        var seg = end < 0 ? s[at..] : s[at..end];
+        int rows = seg.Split('\n').Count(l => l.StartsWith("  ", StringComparison.Ordinal)
+                                           && !l.StartsWith("  ...", StringComparison.Ordinal) && l.Trim().Length > 0);
+        var m = System.Text.RegularExpressions.Regex.Match(seg, @"\((\d+) distinct\)");
+        return (rows, m.Success ? int.Parse(m.Groups[1].Value) : -1);
+    }
+
+    /// <summary>Rendered rows and distinct count for one json-lane axis. Read off the axis object's OWN
+    /// <c>rendered</c>/<c>distinct</c>/<c>cut_by</c> members rather than by counting row objects: the axis states
+    /// those itself, and a counter that re-derives them can disagree with the document it is measuring.</summary>
+    static string JsonAxisRows(string s, string field)
+    {
+        int at = s.IndexOf("\"" + field + "\"", StringComparison.Ordinal);
+        if (at < 0) return "ABSENT";
+        int close = s.IndexOf("]", at, StringComparison.Ordinal);
+        var seg = s[at..Math.Min(s.Length, close > 0 ? close + 400 : s.Length)];
+        // Read each member by name off the axis object's own text. Deliberately not a regex: the pattern would
+        // have to carry escaped quotes, and a measurement instrument that is hard to read is one nobody checks.
+        string N(string k)
+        {
+            int i = seg.IndexOf('"' + k + '"', StringComparison.Ordinal);
+            if (i < 0) return "?";
+            i = seg.IndexOf(':', i) + 1;
+            var digits = new string(seg[i..].SkipWhile(c => c == ' ').TakeWhile(char.IsDigit).ToArray());
+            return digits.Length > 0 ? digits : "?";
+        }
+        int c = seg.IndexOf("\"cut_by\"", StringComparison.Ordinal);
+        string cut = "";
+        if (c >= 0)
+        {
+            var tail = seg[(seg.IndexOf(':', c) + 1)..].TrimStart();
+            if (!tail.StartsWith("null", StringComparison.Ordinal))
+                cut = " " + new string(tail.Skip(1).TakeWhile(ch => ch != '"').ToArray());
+        }
+        return N("rendered") + "/" + N("distinct") + cut;
+    }
+
+    /// <summary>The width of one axis's rendered rows — min/mean/max/total, over the rows actually written. The
+    /// input every candidate split rule is priced against.</summary>
+    static string RowCost(string s, string axis)
+    {
+        int at = s.IndexOf("\ndangling ref(s) by " + axis, StringComparison.Ordinal);
+        if (at < 0) return "ABSENT";
+        int end = s.IndexOf("\n\n", at + 2, StringComparison.Ordinal);
+        var rows = (end < 0 ? s[at..] : s[at..end]).Split('\n')
+            .Where(l => l.StartsWith("  ", StringComparison.Ordinal) && !l.StartsWith("  ...", StringComparison.Ordinal) && l.Trim().Length > 0)
+            .Select(l => l.Length + 1).ToList();
+        return rows.Count == 0 ? "no rows"
+             : $"n={rows.Count} min={rows.Min()} mean={rows.Average():F1} max={rows.Max()} total={rows.Sum()}";
     }
 
     /// <summary>Read the number an overrun notice tells the caller to raise <c>max_chars</c> to, make that call, and
