@@ -1087,6 +1087,104 @@ public static class CheckErrorsProbe
             stoppedOnce && stillStopped && freshSubjectLands && stopSb.Length == 50,
             $"stoppedOnce={stoppedOnce} stillStopped={stillStopped} freshLands={freshSubjectLands} len={stopSb.Length}");
 
+
+        // ---- the body allocation (#394, ruled 2026-08-21) ------------------------------------------------
+        // Driven directly, because the product's own fixtures cannot reach a two-FAMILY response until the merged
+        // render exists, and the rule has to be right before it does. Every expected value below is fixture-known
+        // arithmetic over the room the emitter was given — never a phrase the render emits.
+
+        // THE HIERARCHY ARM. Two families, one with a single subject and one with three. The families split the
+        // body equally BETWEEN THEMSELVES; the three subjects then split their own family's half. A flat walk over
+        // the four leaf subjects would give each 25 and hand the subject-rich family 75 of the 100 purely for
+        // having more parts — which is the 148:1 complaint arriving one level down.
+        var hierSb = new System.Text.StringBuilder();
+        var hierBody = new BoundedBody(null, 100, () => hierSb.Length, new (SweepFamily, IReadOnlyList<SweepSubject>)[]
+        {
+            (SweepFamily.Errors,  new[] { SweepSubject.DanglingEntries }),
+            (SweepFamily.Scripts, new[] { SweepSubject.HistogramByProperty, SweepSubject.UnreadRows, SweepSubject.ExcludedRows }),
+        });
+        bool loneSubjectGetsHalf = hierBody.Emit(SweepSubject.DanglingEntries, 50, () => hierSb.Append(new string('d', 50)));
+        bool loneSubjectStopsAtHalf = !hierBody.Emit(SweepSubject.DanglingEntries, 1, () => hierSb.Append('d'));
+        // Its family is finished, so the other family's share is the 50 that is left — divided by THREE, not by
+        // the one subject asking. 50/3 = 16, and the boundary is probed in the ONE direction a subject survives:
+        // sixteen lands, and the very next character does not. A subject the ceiling refuses is stopped for good
+        // (EMISSION-A-STOPPED-SUBJECT-STAYS-STOPPED), so asking it for seventeen first would prove nothing about
+        // sixteen — it would only prove the stop.
+        bool siblingRichLandsAt16 = hierBody.Emit(SweepSubject.HistogramByProperty, 16, () => hierSb.Append(new string('p', 16)));
+        bool siblingRichStopsThere = !hierBody.Emit(SweepSubject.HistogramByProperty, 1, () => hierSb.Append('p'));
+        Check("ALLOCATION-FAMILY-SHARES-IGNORE-SUBJECT-COUNT: two families split the body between THEMSELVES — a family with one subject gets the same half as a family with three, and the three then divide that half; a flat walk over leaf subjects would have given each 25 and the subject-rich family three shares of four",
+            loneSubjectGetsHalf && loneSubjectStopsAtHalf && siblingRichLandsAt16 && siblingRichStopsThere
+            && hierSb.Length == 66,
+            $"loneGetsHalf={loneSubjectGetsHalf} stopsAtHalf={loneSubjectStopsAtHalf} landsAt16={siblingRichLandsAt16} stopsThere={siblingRichStopsThere} len={hierSb.Length} (want 66)");
+
+        // #394 ITSELF, at the unit level: the first subject may not spend what belongs to the second. This is the
+        // measured defect — the by-SOURCE axis rendered 5 rows of 180 at max_chars=4000 while the axis above it
+        // rendered all 74 — reduced to the arithmetic that caused it.
+        var fairSb = new System.Text.StringBuilder();
+        var fairBody = new BoundedBody(null, 100, () => fairSb.Length, new (SweepFamily, IReadOnlyList<SweepSubject>)[]
+        {
+            (SweepFamily.Errors, new[] { SweepSubject.HistogramByTarget, SweepSubject.HistogramBySource }),
+        });
+        bool firstTakesItsShare = fairBody.Emit(SweepSubject.HistogramByTarget, 50, () => fairSb.Append(new string('t', 50)));
+        bool firstStopsThere = !fairBody.Emit(SweepSubject.HistogramByTarget, 1, () => fairSb.Append('t'));
+        bool secondStillHasItsShare = fairBody.Emit(SweepSubject.HistogramBySource, 50, () => fairSb.Append(new string('s', 50)));
+        // The control, and the reason this arm is not vacuous: the SAME emitter with no plan is the serial rule,
+        // and there the first subject takes everything and the second gets nothing.
+        var serialSb = new System.Text.StringBuilder();
+        var serialBody = new BoundedBody(null, 100, () => serialSb.Length);
+        bool serialFirstTakesAll = serialBody.Emit(SweepSubject.HistogramByTarget, 100, () => serialSb.Append(new string('t', 100)));
+        bool serialSecondStarved = !serialBody.Emit(SweepSubject.HistogramBySource, 1, () => serialSb.Append('s'));
+        Check("ALLOCATION-A-SUBJECT-CANNOT-SPEND-A-SIBLINGS-SHARE: with a plan, two subjects of one family each render half the body and the first cannot take the second's half — and the same emitter WITHOUT a plan is the serial rule that starved it, first subject taking all 100",
+            firstTakesItsShare && firstStopsThere && secondStillHasItsShare && fairSb.Length == 100
+            && serialFirstTakesAll && serialSecondStarved && serialSb.Length == 100,
+            $"first={firstTakesItsShare} stops={firstStopsThere} second={secondStillHasItsShare} len={fairSb.Length} | serialAll={serialFirstTakesAll} serialStarved={serialSecondStarved}");
+
+        // Redistribution, which is the half of the rule that keeps it from being worse than serial at an ample
+        // cap: a subject that rendered everything it had leaves its share to the ones after it. Without this the
+        // second subject would be held to 50 while 40 characters sat unspendable behind a finished sibling.
+        var backSb = new System.Text.StringBuilder();
+        var backBody = new BoundedBody(null, 100, () => backSb.Length, new (SweepFamily, IReadOnlyList<SweepSubject>)[]
+        {
+            (SweepFamily.Errors, new[] { SweepSubject.HistogramByTarget, SweepSubject.HistogramBySource }),
+        });
+        bool shortSubjectWrites = backBody.Emit(SweepSubject.HistogramByTarget, 10, () => backSb.Append(new string('t', 10)));
+        backBody.Release(SweepSubject.HistogramByTarget);            // it rendered everything it had
+        bool secondGetsTheRemainder = backBody.Emit(SweepSubject.HistogramBySource, 90, () => backSb.Append(new string('s', 90)));
+        Check("ALLOCATION-A-FINISHED-SUBJECT-HANDS-BACK-WHAT-IT-DID-NOT-SPEND: a subject that rendered all it had leaves the rest of its share to the siblings after it — the one that follows spends 90 of a 100 body, not the 50 an unrecounted split would have held it to",
+            shortSubjectWrites && secondGetsTheRemainder && backSb.Length == 100,
+            $"shortWrites={shortSubjectWrites} secondGetsRemainder={secondGetsTheRemainder} len={backSb.Length} (want 100)");
+
+        // Allocation divides the BODY, never the reserved fixed part. A standing reserve shrinks the pool the
+        // shares come out of; it is not itself shared out. Told otherwise, a subject would be handed a ceiling
+        // that included room already promised to a closing disclosure, and the disclosure it was reserved for
+        // would be the thing that did not fit.
+        var reservedSb = new System.Text.StringBuilder();
+        var reservedBody = new BoundedBody(null, 100, () => reservedSb.Length, new (SweepFamily, IReadOnlyList<SweepSubject>)[]
+        {
+            (SweepFamily.Errors, new[] { SweepSubject.HistogramByTarget, SweepSubject.HistogramBySource }),
+        });
+        reservedBody.Reserve(SweepSubject.UnreadRows, 40);
+        bool halfOfWhatIsLeftLands = reservedBody.Emit(SweepSubject.HistogramByTarget, 30, () => reservedSb.Append(new string('t', 30)));
+        bool aboveHalfOfWhatIsLeftRefused = !reservedBody.Emit(SweepSubject.HistogramByTarget, 1, () => reservedSb.Append('t'));
+        Check("ALLOCATION-DIVIDES-ONLY-THE-BODY: a standing 40-char reserve leaves 60 for rows and the two subjects split THAT — 30 each, not 50 each out of a budget that still owed a closing disclosure",
+            halfOfWhatIsLeftLands && aboveHalfOfWhatIsLeftRefused && reservedSb.Length == 30,
+            $"landsAt30={halfOfWhatIsLeftLands} refusedAbove={aboveHalfOfWhatIsLeftRefused} len={reservedSb.Length} (want 30)");
+
+        // The MEASURED pin. A ceiling kept in the units of the declared cost drifts the moment a site declares 0,
+        // which most of them do — so what a subject has spent is what it WROTE. Here a zero-cost unit writes 40
+        // of a 50 ceiling; the next unit declaring 11 must be refused, which is only true if the 40 was charged.
+        var chargeSb = new System.Text.StringBuilder();
+        var chargeBody = new BoundedBody(null, 100, () => chargeSb.Length, new (SweepFamily, IReadOnlyList<SweepSubject>)[]
+        {
+            (SweepFamily.Errors, new[] { SweepSubject.HistogramByTarget, SweepSubject.HistogramBySource }),
+        });
+        bool zeroCostUnitLands = chargeBody.Emit(SweepSubject.HistogramByTarget, 0, () => chargeSb.Append(new string('t', 40)));
+        bool tenMoreFitsExactly = chargeBody.Emit(SweepSubject.HistogramByTarget, 10, () => chargeSb.Append(new string('t', 10)));
+        bool andThenItStops = !chargeBody.Emit(SweepSubject.HistogramByTarget, 1, () => chargeSb.Append('t'));
+        Check("ALLOCATION-CHARGES-WHAT-WAS-WRITTEN-NOT-WHAT-WAS-DECLARED: a unit declaring 0 that writes 40 has spent 40 of its 50 ceiling — ten more fit exactly and the next character does not. Charged the DECLARED cost instead, the subject would read as having spent 10 of 50 and that last character would land",
+            zeroCostUnitLands && tenMoreFitsExactly && andThenItStops && chargeSb.Length == 50,
+            $"zeroCostLands={zeroCostUnitLands} tenFitsExactly={tenMoreFitsExactly} thenStops={andThenItStops} len={chargeSb.Length} (want 50)");
+
         Check("SECTION-IS-WHOLE-OR-ABSENT: across a sweep of caps, a section that starts also carries everything it has to say — the only things a cut may drop are a whole section or an entry, which are the two the accounting states",
             SectionsWhole(new[] { manyAmple, tight, ErrorCheck.Run(r, null, 1000) }, out var wholeFail), wholeFail);
 

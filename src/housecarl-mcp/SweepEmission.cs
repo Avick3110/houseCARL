@@ -213,17 +213,31 @@ internal sealed class BoundedBody
     readonly CheckAccounting? _acct;
     readonly HashSet<SweepSubject> _stopped = new();
     readonly Dictionary<SweepSubject, int> _held = new();
+    readonly IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)>? _plan;
+    BodyAllocation? _alloc;
 
     /// <param name="acct">the accounting to register emissions with, or null for a lane that keeps no accounting
     /// (validate_scripts, whose response layer is not this branch's — it still gets the same bound).</param>
     /// <param name="budget">the chars the BODY may occupy: the caller's max_chars less the accounting's reserve.</param>
     /// <param name="length">what the response has emitted so far, in the transport's own unit.</param>
-    internal BoundedBody(CheckAccounting? acct, int budget, Func<int> length)
+    /// <param name="plan">the families this response renders and which of each family's subjects have rows, or null
+    /// for a lane that divides nothing (a single-family response has no siblings to be fair to, and the global
+    /// budget alone is then the whole rule). See <see cref="BodyAllocation"/>.</param>
+    internal BoundedBody(CheckAccounting? acct, int budget, Func<int> length,
+                         IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)>? plan = null)
     {
         _acct = acct;
         _budget = budget;
         _length = length;
+        _plan = plan;
     }
+
+    /// <summary>The allocation, built on the FIRST unit any subject emits — which is the only moment it can be
+    /// built correctly. Every <see cref="Reserve"/> has happened by then (the class already requires reserving
+    /// before the first unit of any subject), so the room left for ROWS is the body budget less everything held,
+    /// and that is what gets divided. Built earlier it would divide room the reserves had not yet claimed;
+    /// built later it would divide what an earlier subject had already spent.</summary>
+    BodyAllocation Allocation => _alloc ??= new BodyAllocation(_budget - _length() - Held, _plan ?? Array.Empty<(SweepFamily, IReadOnlyList<SweepSubject>)>());
 
     /// <summary>Emit one unit of <paramref name="subject"/>, or refuse. Returns false when the unit did not fit —
     /// the caller's loop breaks and the accounting already knows, because the count it will report is the count of
@@ -235,12 +249,30 @@ internal sealed class BoundedBody
     internal bool Emit(SweepSubject subject, int cost, Action commit, string? source = null)
     {
         if (_stopped.Contains(subject)) return false;
-        if (_length() + cost + Held > _budget) { _stopped.Add(subject); return false; }
+        if (_length() + cost + Held > _budget) { Stop(subject); return false; }
+        // The subject's OWN share, on top of the response-wide test rather than instead of it (#394). A subject
+        // may spend its ceiling and no more even while the response has room to spare — that room belongs to the
+        // siblings that have not rendered yet, and giving it away first-come is exactly the serial rule this
+        // replaces.
+        if (!Allocation.Fits(subject, cost)) { Stop(subject); return false; }
         int before = _length();
         commit();
-        BodyTotal += _length() - before;
+        int wrote = _length() - before;
+        BodyTotal += wrote;
+        // Charged with what it ACTUALLY wrote, never with the declared cost — the cost is a test before a write,
+        // and a ceiling kept in the units of a test rather than of the writing would drift the moment a site
+        // declared 0 (which most of them do).
+        Allocation.Charge(subject, wrote);
         _acct?.Emitted(subject, source);
         return true;
+    }
+
+    /// <summary>This subject emits nothing further. Told to the allocation as well as recorded here, so the room
+    /// it did not spend is back in the arithmetic for the siblings after it.</summary>
+    void Stop(SweepSubject subject)
+    {
+        _stopped.Add(subject);
+        _alloc?.Done(subject);
     }
 
     /// <summary>What the BODY actually appended, measured at each unit as it landed — the declared cost is a budget
@@ -306,6 +338,7 @@ internal sealed class BoundedBody
     internal void Close(SweepSubject subject, Action commit)
     {
         _held.Remove(subject);   // spent here, and only here
+        _alloc?.Done(subject);   // and its share is finished with too, whatever it did not spend
         commit();
         _stopped.Add(subject);   // nothing follows a subject's closing disclosure
     }
@@ -315,7 +348,14 @@ internal sealed class BoundedBody
     /// later subject's emission test, and the subjects after a complete histogram would pay for a sentence nobody
     /// wrote. What the subject DID write is already in the response, and <see cref="FixedPart"/> measures it there;
     /// what is given back here is room, and room nobody wrote is not part of anything's fixed part.</summary>
-    internal void Release(SweepSubject subject) => _held.Remove(subject);
+    internal void Release(SweepSubject subject)
+    {
+        _held.Remove(subject);
+        // A subject that rendered everything it had is the case the recount exists for: its unspent SHARE is what
+        // the siblings after it divide. Telling the allocation here is what makes the redistribution happen at all
+        // — without it a short subject's room stays reserved against a sibling that could have used it.
+        _alloc?.Done(subject);
+    }
 
     /// <summary>Did this subject stop short? For the one caller that states the fact in its own words rather than
     /// through the accounting (validate_scripts).</summary>
