@@ -1042,11 +1042,34 @@ public static class CheckErrorsProbe
         var heldBody = new BoundedBody(null, 100, () => heldSb.Length);
         heldBody.Reserve(SweepSubject.HistogramBySource, 40);
         bool refusedWhileHeld = !heldBody.Emit(SweepSubject.HistogramByTarget, 61, () => heldSb.Append(new string('h', 61)));
+        int fixedWhileHeld = heldBody.FixedPart(heldSb.Length);
         heldBody.Release(SweepSubject.HistogramBySource);
         bool landsOnceReleased = heldBody.Emit(SweepSubject.UnreadRows, 61, () => heldSb.Append(new string('h', 61)));
         Check("EMISSION-A-RESERVE-IS-ROOM-THE-ROWS-CANNOT-HAVE: a unit that would spend a standing closing-disclosure reserve is refused, and the identical unit lands once that reserve is released",
-            refusedWhileHeld && landsOnceReleased && heldSb.Length == 61 && heldBody.ReservedTotal == 40,
-            $"refusedWhileHeld={refusedWhileHeld} landsOnceReleased={landsOnceReleased} len={heldSb.Length} reserved={heldBody.ReservedTotal}");
+            refusedWhileHeld && landsOnceReleased && heldSb.Length == 61 && fixedWhileHeld == 40,
+            $"refusedWhileHeld={refusedWhileHeld} landsOnceReleased={landsOnceReleased} len={heldSb.Length} fixedWhileHeld={fixedWhileHeld}");
+
+        // The number the overrun notice branches on, driven directly, in the two directions it can be wrong.
+        // Everything a cap could have refused is SUBTRACTED, so an unconditional write nobody reserved is still
+        // inside the fixed part; and room a subject GAVE BACK is outside it, because nothing wrote it. Told the
+        // gross reserve instead, this number was too large by every release and too small by every unreserved
+        // unconditional line — and the discriminator it feeds took the wrong branch in the gap between.
+        var measSb = new System.Text.StringBuilder();
+        var measBody = new BoundedBody(null, 500, () => measSb.Length);
+        measSb.Append(new string('h', 30));                                                        // the header
+        measBody.Reserve(SweepSubject.HistogramByTarget, 40);
+        measBody.Reserve(SweepSubject.HistogramBySource, 40);
+        measBody.Fixed(SweepSubject.HistogramByTarget, () => measSb.Append(new string('n', 10)));   // an axis's note
+        int afterNote = measBody.FixedPart(measSb.Length);
+        bool rowLanded = measBody.Emit(SweepSubject.HistogramByTarget, 25, () => measSb.Append(new string('r', 25)));
+        int afterRow = measBody.FixedPart(measSb.Length);
+        measSb.Append(new string('u', 7));                                                          // never reserved
+        measBody.Close(SweepSubject.HistogramByTarget, () => measSb.Append(new string('c', 12)));    // its cut line
+        measBody.Release(SweepSubject.HistogramBySource);                                            // rendered whole
+        int finalFixed = measBody.FixedPart(measSb.Length);
+        Check("EMISSION-THE-FIXED-PART-IS-WHAT-THE-BODY-DID-NOT-WRITE: the number the overrun notice branches on is the response less what the emitter let through — a row does not raise it, an unreserved unconditional line does, and room a subject gave back is not in it at all",
+            rowLanded && afterNote == 110 && afterRow == 110 && finalFixed == 59 && measSb.Length == 84,
+            $"rowLanded={rowLanded} afterNote={afterNote} (want 110) afterRow={afterRow} (want 110) final={finalFixed} (want 59) len={measSb.Length} (want 84)");
 
         // A subject that stopped STAYS stopped, even when room comes back. Releasing a sibling's reserve lowers
         // what every test has to leave standing, so the budget on its own would let a stopped subject through
@@ -1562,20 +1585,38 @@ public static class CheckErrorsProbe
         //
         // json is deliberately NOT swept here: its entries carry no measured cost by design, so a body overshoot is
         // a real thing that happens in that lane and the same claim would be false about it.
-        var overrunCauseBad = new List<string>();
-        int overrunCaps = 0;
-        for (int cap = 200; cap <= 2000; cap += 20)
+        //
+        // TWO fixtures, and the second is the one this arm could not reach before. countsForHisto has non-null axes
+        // and no excluded or unread rows, so the only unconditional line it writes is the counts_only note — and
+        // the worst-case accounting slack happened to cover it. The NOTES lane writes a note AND a not-computed
+        // line for an absent axis, and carries rows for two subjects that reserve nothing, so the un-reserved
+        // unconditional text stood ~184 chars clear of anything: 96 of its 855 over-cap caps got the body-overshoot
+        // sentence over a response that emitted no body unit at all.
+        //
+        // And the band is SEARCHED, not sampled: from cap 1 to the first cap the fixture fits in, so there is no
+        // rung to pick badly. The defect lived in caps 859-954 of a fixture whose old ladder started at 200 and
+        // stepped 20 — it would have been caught there, and the ladder-gap class is retired anyway.
+        var notesLane = ErrorCheck.Run(rm, null, 1000, null, null, ErrorFindingClass.MissingMasters, true) with
         {
-            var t = Wire.RenderCheckErrors(countsForHisto, cap);
-            if (t.Length <= cap) continue;
-            overrunCaps++;
-            if (!t.Contains("does not fit in that many chars", StringComparison.Ordinal))
-                overrunCauseBad.Add($"text@{cap} len={t.Length} says [{OverrunNotice(t)}]");
-        }
-        Check("OVERRUN-IN-THE-TEXT-LANE-IS-ALWAYS-A-CAP-TOO-SMALL: every text response longer than its cap says the FIXED PART did not fit — the reserved closing disclosures are part of that fixed part, and this lane measures every body unit before writing it, so nothing else can put it over",
-            overrunCauseBad.Count == 0 && overrunCaps > 0,
-            overrunCauseBad.Count == 0 ? $"{overrunCaps} over-cap responses, every one naming the fixed part"
-                                       : string.Join("; ", overrunCauseBad.Take(3)) + $" ({overrunCauseBad.Count} of {overrunCaps} over-cap caps)");
+            Reports = UnreadSized(rm, 4).Reports,
+            ExcludedPlugins = ExcludedSized(ErrorCheck.Run(rm, null, 1000), 4).ExcludedPlugins,
+        };
+        Check("OVERRUN-IN-THE-TEXT-LANE-IS-ALWAYS-A-CAP-TOO-SMALL: every text response longer than its cap says the FIXED PART did not fit — the axes' own unconditional lines and their reserved closing disclosures are part of that fixed part, and this lane measures every body unit before writing it, so nothing else can put it over",
+            OverrunAlwaysNamesTheFixedPart(new (string, ErrorCheckResult)[]
+                { ("axes", countsForHisto), ("notes", notesLane) }, out var overrunCauseFail), overrunCauseFail);
+
+        // The remedy's NUMBER, held against the smallest cap that actually works rather than against the fact that
+        // it works at all. RemedyClearsTheNotice says the number is big enough; nothing said it was not far too
+        // big, and it was: the raise-to summed the overrun notice's own length — which disappears the moment the
+        // response fits — with a fixed part carrying the json lane's whole 1024-char entry slack. Measured at 234
+        // chars over the true first fitting cap in text and 1,278 (85%) in json, on the fixture below.
+        var raiseFixture = countsForHisto with
+        {
+            Reports = UnreadSized(rm, 4).Reports.Take(1).ToList(),
+            ExcludedPlugins = ExcludedSized(ErrorCheck.Run(rm, null, 1000), 4).ExcludedPlugins,
+        };
+        Check($"OVERRUN-REMEDY-IS-THE-SMALLEST-CAP-THAT-FITS: the number the notice names is the smallest max_chars this response fits in, within {RaiseToSlack} chars — never below it (the remedy has to work) and never materially above it (a caller who follows it pays for the room)",
+            RemedyIsNearTheSmallestFittingCap(raiseFixture, out var raiseFail), raiseFail);
 
         // ---- a record scope can admit nothing from a base master the sweep opened. "Swept" has to mean examined.
         var modOnlyScope = ErrorCheck.Run(rb, null, 1000, null, new SweepScope(null, "HcCeModNpc", null, null));
@@ -2062,6 +2103,95 @@ public static class CheckErrorsProbe
         return set;
     }
 
+    /// <summary>Every text response longer than its cap names the FIXED PART as the cause, over the SEARCHED band:
+    /// every cap from 1 up to the first one the fixture fits in. Sampled rungs cannot hold this — the class of
+    /// defect it catches is a BAND a few hundred chars wide, and where a fixture's band sits moves whenever the
+    /// header does.
+    ///
+    /// <para>Each fixture must produce at least one over-cap response, or the arm passes on a fixture it never
+    /// tested.</para></summary>
+    static bool OverrunAlwaysNamesTheFixedPart((string Lane, ErrorCheckResult Result)[] fixtures, out string detail)
+    {
+        var bad = new List<string>();
+        var counted = new List<string>();
+        foreach (var (lane, r) in fixtures)
+        {
+            int fits = FirstFittingCap(c => Wire.RenderCheckErrors(r, c));
+            if (fits < 0) { bad.Add($"{lane}: no cap up to 40000 renders inside itself"); continue; }
+            int over = 0, wrong = 0;
+            for (int cap = 1; cap < fits; cap++)
+            {
+                var t = Wire.RenderCheckErrors(r, cap);
+                if (t.Length <= cap) continue;
+                over++;
+                if (t.Contains("does not fit in that many chars", StringComparison.Ordinal)) continue;
+                wrong++;
+                if (wrong <= 2) bad.Add($"{lane}@{cap} len={t.Length} says [{OverrunNotice(t)}]");
+            }
+            if (over == 0) bad.Add($"{lane}: no over-cap response below {fits} — the fixture tests nothing");
+            counted.Add($"{lane} {over} over-cap caps below {fits}" + (wrong > 0 ? $", {wrong} MISCLASSIFIED" : ""));
+        }
+        detail = bad.Count == 0 ? string.Join("; ", counted) : string.Join("; ", bad.Take(4));
+        return bad.Count == 0;
+    }
+
+    /// <summary>How far above the smallest cap that fits the remedy's number is allowed to sit. It is
+    /// <c>CheckAccounting.RaiseSlack</c> (8, the digit-width headroom that stops the notice returning one char
+    /// wider) plus one more digit of the same, and nothing else — not a comfort margin. Measured on the fixture
+    /// below the true gap is 7-8 chars in both transports.</summary>
+    const int RaiseToSlack = 16;
+
+    /// <summary>The remedy's number, held against a SEARCHED answer: the smallest max_chars at which this result
+    /// renders inside its cap with no notice at all. Both transports.
+    ///
+    /// <para>Never below it, or the caller follows the remedy and gets the notice back — which is
+    /// <see cref="RemedyClearsTheNotice"/>'s claim, and this subsumes it with the number rather than the outcome.
+    /// Never materially above it either: "raise it to at least N" reads as the size of what the response must
+    /// carry, and a caller who takes it at its word buys that much context.</para></summary>
+    static bool RemedyIsNearTheSmallestFittingCap(ErrorCheckResult r, out string detail)
+    {
+        var bad = new List<string>();
+        var seen = new List<string>();
+        foreach (var (lane, render) in new (string, Func<int, string>)[]
+                 { ("text", c => Wire.RenderCheckErrors(r, c)), ("json", c => JsonWire.RenderCheckErrors(r, c)) })
+        {
+            int smallest = FirstFittingCap(render);
+            if (smallest < 0) { bad.Add($"{lane}: no cap up to 40000 renders inside itself"); continue; }
+            foreach (int cap in new[] { 120, 250, 400, 700, 1200, 2000 })
+            {
+                if (RaiseTo(render(cap)) is not { } says) continue;
+                if (says < smallest) bad.Add($"{lane}@{cap} says raise to {says}, below the smallest fitting cap {smallest}");
+                else if (says - smallest > RaiseToSlack) bad.Add($"{lane}@{cap} says raise to {says}, {says - smallest} over the smallest fitting cap {smallest}");
+                else seen.Add($"{lane}@{cap}+{says - smallest}");
+            }
+        }
+        detail = bad.Count == 0 ? "every remedy within " + RaiseToSlack + " of the searched answer: " + string.Join(" ", seen)
+                                : string.Join("; ", bad.Take(3));
+        return bad.Count == 0 && seen.Count > 0;
+    }
+
+    /// <summary>The smallest max_chars at which a render fits inside its own cap AND names no overrun, searched
+    /// rather than reasoned about. -1 if none up to 40000.</summary>
+    static int FirstFittingCap(Func<int, string> render)
+    {
+        for (int cap = 1; cap <= 40000; cap++)
+        {
+            var s = render(cap);
+            if (s.Length <= cap && !s.Contains("raise it to at least", StringComparison.Ordinal)) return cap;
+        }
+        return -1;
+    }
+
+    /// <summary>The number an overrun notice tells the caller to raise max_chars to, or null where there is no
+    /// notice. One reader for both transports — json carries the same sentence as a string value.</summary>
+    static int? RaiseTo(string rendered)
+    {
+        int at = rendered.IndexOf("raise it to at least ", StringComparison.Ordinal);
+        if (at < 0) return null;
+        var digits = new string(rendered[(at + 21)..].TakeWhile(char.IsDigit).ToArray());
+        return int.TryParse(digits, out int n) ? n : null;
+    }
+
     /// <summary>Follow the overrun notice's own remedy: read the number it tells the caller to raise max_chars to,
     /// re-render at exactly that, and see whether the notice is gone. A remedy is a claim about a call that has not
     /// happened, so the only honest way to hold it is to make the call (CLAUDE.md §5 #11).</summary>
@@ -2071,10 +2201,12 @@ public static class CheckErrorsProbe
         foreach (int cap in new[] { 120, 250, 400, 700, 1200, 2000, 3000 })
         {
             var text = Wire.RenderCheckErrors(r, cap);
-            int at = text.IndexOf("raise it to at least ", StringComparison.Ordinal);
-            if (at < 0) { if (text.Length > cap) bad.Add($"text@{cap} over by {text.Length - cap} with no notice"); continue; }
-            var digits = new string(text[(at + 21)..].TakeWhile(char.IsDigit).ToArray());
-            if (!int.TryParse(digits, out int raised)) { bad.Add($"text@{cap} notice names no number"); continue; }
+            if (RaiseTo(text) is not { } raised)
+            {
+                if (text.Length > cap) bad.Add($"text@{cap} over by {text.Length - cap} with no notice");
+                else if (text.Contains("raise it to at least", StringComparison.Ordinal)) bad.Add($"text@{cap} notice names no number");
+                continue;
+            }
             var again = Wire.RenderCheckErrors(r, raised);
             if (again.Contains("raise it to at least", StringComparison.Ordinal))
                 bad.Add($"text@{cap} said raise to {raised}; at {raised} the notice fired again (len {again.Length})");

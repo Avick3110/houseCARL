@@ -1281,9 +1281,7 @@ static class JsonWire
             // is written even when the walk did not run, because it is true either way.
             WriteStringArray(w, "base_masters_swept", r.BaseMastersSwept ?? Array.Empty<string>());
             WriteStringArray(w, "base_masters", HousecarlCore.ErrorCheck.BaseMasters);
-            // Where the BODY begins — see CheckAccounting.CapTooSmall for why it is asked here and not at the end.
-            int headerLength = Size(w, ms);
-            // EVERYTHING BELOW THIS LINE GOES THROUGH `body`, including the excluded roster, which used to be
+            // EVERYTHING A CAP CAN REFUSE GOES THROUGH `body`, including the excluded roster, which used to be
             // written up in the header where no budget could reach it — 1,188 chars past the budget on three
             // 400-character parse reasons, while the TEXT lane bounded the same roster. The fourth instance of one
             // class, which is why the bound now lives in one helper rather than at each write site.
@@ -1363,16 +1361,17 @@ static class JsonWire
             // like the text lane, the notice is part of the document whose length it states, so its own encoded cost
             // is counted in and the composition is run to a fixed point.
             int closed = Size(w, ms) + Framing.RootClose;
-            // The response's FIXED PART: the header, plus everything reserved out of max_chars before the body
-            // rendered — the accounting, the boundary, and every axis's own frame. It is what the notice branches
-            // on, so a reserve missing from it would explain a cap too small for the fixed part as a body overshoot.
-            int fixedPart = reserve + body.ReservedTotal;
-            if (acct.CapTooSmall(closed, headerLength + fixedPart) is { } notice)
+            // The response's FIXED PART, by SUBTRACTION (CheckAccounting.CapTooSmall states the rule): the document
+            // just measured, less what the entries and rows put in it. Handed the RESERVE instead it carried this
+            // lane's whole JsonGlue — a kilobyte sized to absorb one entry, inside a number describing a fixed part
+            // that never spends it — and the raise-to it feeds came out 85% above the smallest cap that fits.
+            int needed = body.FixedPart(closed);
+            if (acct.CapTooSmall(closed, needed) is { } notice)
             {
                 int cost = OverrunNoticeCost(notice);
-                var settled = acct.CapTooSmall(closed + cost, headerLength + fixedPart)!;
+                var settled = acct.CapTooSmall(closed + cost, needed, cost)!;
                 if (OverrunNoticeCost(settled) != cost)
-                    settled = acct.CapTooSmall(closed + OverrunNoticeCost(settled), headerLength + fixedPart)!;
+                    settled = acct.CapTooSmall(closed + OverrunNoticeCost(settled), needed, OverrunNoticeCost(settled))!;
                 w.WriteString("max_chars_overrun", settled);
             }
             w.WriteEndObject();
@@ -1668,10 +1667,15 @@ static class JsonWire
     {
         if (rows is null) { body?.Release(subject); return; }
         // The object's own fixed members do not grow with the findings, so they are part of the fixed part; the ROWS
-        // are what the budget gates, and `rendered` is written from what the gate let through.
-        w.WriteStartObject(name);
-        w.WriteNumber("distinct", rows.Count);
-        w.WriteStartArray("rows");
+        // are what the budget gates, and `rendered` is written from what the gate let through. The frame goes
+        // through the body so what it costs is MEASURED into the response's fixed part rather than inferred from
+        // the reserve that held room for it — the same rule the text lane's notes now follow.
+        Unconditional(body, subject, () =>
+        {
+            w.WriteStartObject(name);
+            w.WriteNumber("distinct", rows.Count);
+            w.WriteStartArray("rows");
+        });
         int shown = 0;
         bool cutByBudget = false;
         foreach (var row in rows)
@@ -1686,18 +1690,32 @@ static class JsonWire
             { w.WriteStartObject(); w.WriteString("key", row.Key); w.WriteNumber("count", row.Count); w.WriteEndObject(); }
             shown++;
         }
-        w.WriteEndArray();
-        w.WriteNumber("rendered", shown);
-        // WHICH knob stopped it, from the SAME computation the text lane renders as a sentence. distinct vs rendered
-        // says an axis is short; it cannot say which parameter a consumer would have to change, and this lane said
-        // nothing at all while the text twin named a knob — one sweep, two transports, two different answers.
-        // Null where the axis is whole, so "complete" is read rather than inferred from two numbers.
-        if (HistogramCut.For(rows.Count, shown, cutByBudget) is { } cut) w.WriteString("cut_by", cut.Knob);
-        else w.WriteNull("cut_by");
-        w.WriteEndObject();
-        // The frame is written, so the room held for it is spent — and holding it any longer would charge the
-        // unread and excluded rows below for a disclosure that is already on the document.
+        int rendered = shown;
+        Unconditional(body, subject, () =>
+        {
+            w.WriteEndArray();
+            w.WriteNumber("rendered", rendered);
+            // WHICH knob stopped it, from the SAME computation the text lane renders as a sentence. distinct vs
+            // rendered says an axis is short; it cannot say which parameter a consumer would have to change, and
+            // this lane said nothing at all while the text twin named a knob — one sweep, two transports, two
+            // different answers. Null where the axis is whole, so "complete" is read rather than inferred from two
+            // numbers.
+            if (HistogramCut.For(rows.Count, rendered, cutByBudget) is { } cut) w.WriteString("cut_by", cut.Knob);
+            else w.WriteNull("cut_by");
+            w.WriteEndObject();
+        });
+        // The frame is written and charged, so whatever room is still held for it goes back — holding it any longer
+        // would charge the unread and excluded rows below for a disclosure already on the document.
         body?.Release(subject);
+    }
+
+    /// <summary>Write part of an axis object's own FRAME: unconditional, never refused, and measured into the
+    /// response's fixed part when there is a body to measure it with. validate_scripts passes none — its response
+    /// layer is not this branch's — and then this is a plain write.</summary>
+    static void Unconditional(BoundedBody? body, SweepSubject subject, Action commit)
+    {
+        if (body is null) commit();
+        else body.Fixed(subject, commit);
     }
 
     /// <summary>Under counts_only, check_errors' reports carry the honesty layer only — plugins whose records could not

@@ -439,13 +439,34 @@ internal sealed class CheckAccounting
     /// <c>headerLength + reserve</c> it was a statement about the worst case the reserve is sized for, and it fired
     /// over a thousand times in a 200–6000 cap sweep on responses that were well inside their cap.</para>
     ///
+    /// <para><b>THE RULE THIS ARM IS BUILT ON: every quantity it reads is MEASURED, none derived.</b>
+    /// <paramref name="contentLength"/> is the finished response's own length; <paramref name="noticeLength"/> is
+    /// how much of that this notice is; <paramref name="needed"/> is that same length less what the emitter let
+    /// through, which <see cref="BoundedBody.FixedPart"/> measures at each unit as it lands. Not one of them is a
+    /// hand-kept running total or a worst case standing in for a real one.</para>
+    ///
+    /// <para>That is not a style preference. This branch fixed exactly this disease at the json writer's framing —
+    /// two constants kept by hand until <see cref="MeasureFraming"/> derived both from one measurement — and left
+    /// it alive one level up, where this arm's inputs were SUMMED from components captured at different moments: a
+    /// header measured before the histogram axes wrote their notes, a reserve total that still counted room
+    /// <see cref="BoundedBody.Release"/> had given back, and a lane's whole json entry slack. Each error was
+    /// invisible on its own, they did not cancel, and the first attempt to fix them by ADDING UP the write sites
+    /// instead missed json's empty <c>plugins</c> array. Subtracting the body is the form that cannot miss one.</para>
+    ///
     /// <para><paramref name="needed"/> is what it takes to carry this response's fixed part plus the accounting —
     /// the number a caller can set max_chars to and stop seeing this. It is not the current length: raising the cap
     /// widens the printed max_chars by a digit or two, which the slack below absorbs, and a probe follows the
     /// remedy at a sweep of caps rather than trusting that reasoning. It is also never BELOW the cap the caller
     /// already passed: a remedy telling them to lower max_chars is one they cannot act on, and the fixed part that
     /// does not fit is by definition bigger than the budget it did not fit in.</para></summary>
-    internal string? CapTooSmall(int contentLength, int needed)
+    /// <param name="contentLength">the WHOLE response, this notice included — it is part of what the caller
+    /// receives, so the cap test is asked of it.</param>
+    /// <param name="needed">this response's fixed part, every term measured (see the summary).</param>
+    /// <param name="noticeLength">how many of <paramref name="contentLength"/>'s chars are this notice. It
+    /// disappears the moment the response fits, so a remedy that counts it tells the caller to buy room for a
+    /// sentence they are paying to remove — measured at 234 chars over the true smallest fitting cap in the text
+    /// lane and 1,278 (85%) in json, the other half of that being the json slack the fixed part never needed.</param>
+    internal string? CapTooSmall(int contentLength, int needed, int noticeLength = 0)
     {
         if (contentLength <= _cap) return null;
         // WHICH overrun this is, from what the arm was already handed. A cap that cannot hold the fixed part is one
@@ -453,7 +474,8 @@ internal sealed class CheckAccounting
         // sentence told that caller their header and accounting did not fit in a cap holding them with room to
         // spare. needed IS the fixed part's size, so no state is added to tell them apart.
         var sentence = needed > _cap ? ReadSentences.SweepCapTooSmall : ReadSentences.SweepCapOvershot;
-        return string.Format(sentence, _cap, Math.Max(needed, contentLength) + RaiseSlack, contentLength);
+        int raiseTo = Math.Max(needed, contentLength - noticeLength) + RaiseSlack;
+        return string.Format(sentence, _cap, raiseTo, contentLength);
     }
 
     /// <summary>Slack on the number the overrun notice tells a caller to raise to. Setting max_chars to exactly the

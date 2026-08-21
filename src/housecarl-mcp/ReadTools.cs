@@ -1176,12 +1176,10 @@ static class Wire
             sb.Append("swept OFF-ORDER (on disk, not in the active load order): ").Append(string.Join(", ", off))
               .Append("   [the file's own records; links resolved against the active order + the file's own definitions]\n");
         AppendBaselineSplit(sb, r, acct);   // #344 — how much of the dangling total is vanilla baseline
-        // Where the BODY begins. The overrun arm is a question about the fixed part of the response, so it is asked
-        // here rather than at the end, where the answer would be the body's own length.
-        int headerLength = sb.Length;
-        // EVERYTHING BELOW THIS LINE GOES THROUGH `body`. The header above is the response's fixed part and the
-        // accounting plus boundary are reserved out of max_chars before it renders — those two are the only things
-        // a response may never drop, which is why they are not emitted through a helper that can refuse.
+        // EVERYTHING A CAP CAN REFUSE GOES THROUGH `body`. What the header above, the axes' own lines, the reserved
+        // closing disclosures, the accounting and the boundary come to is therefore whatever the finished response
+        // is MINUS what `body` let through — which is how the overrun notice is told the fixed part's size
+        // (BoundedBody.FixedPart), rather than by a header length captured here and summed with a reserve.
         var body = new BoundedBody(acct, budget, () => sb.Length);
 
         if (r.CountsOnly)
@@ -1198,7 +1196,7 @@ static class Wire
                                   "dangling ref(s) by SOURCE plugin (the plugin the broken refs come FROM)"));
             AppendScanErrorTail(sb, body, r.Reports);
             AppendExcludedPlugins(sb, body, r.ExcludedPlugins);   // #288 review finding 5: the NAMES, not just the header count
-            return Close(sb, acct, reserve + body.ReservedTotal, headerLength);
+            return Close(sb, acct, body);
         }
 
         if (r.Reports.Count == 0 && r.ExcludedPlugins.Count == 0)
@@ -1242,7 +1240,7 @@ static class Wire
         }
 
         AppendExcludedPlugins(sb, body, r.ExcludedPlugins);
-        return Close(sb, acct, reserve + body.ReservedTotal, headerLength);
+        return Close(sb, acct, body);
     }
 
     /// <summary>Close the response: the accounting for what it emitted, then the boundary. Both live inside the
@@ -1250,11 +1248,11 @@ static class Wire
     /// overrun. The single exception — a <c>max_chars</c> smaller than the accounting itself — is stated in-band
     /// rather than taken silently (#361: appending past the cap without saying so is half of what that issue is).
     /// </summary>
-    /// <param name="reserved">everything held out of <c>max_chars</c> before the body rendered: the accounting, the
-    /// boundary, and every subject's closing disclosure. With the header it IS the response's fixed part, which is
-    /// the quantity the overrun notice branches on — a disclosure reserved but left out of this number would get a
-    /// cap too small for the fixed part explained as a body unit overshooting.</param>
-    static string Close(StringBuilder sb, CheckAccounting acct, int reserved, int headerLength)
+    /// <param name="body">the bounded body, for what the BODY wrote
+    /// (<see cref="BoundedBody.FixedPart"/> subtracts it). The rest of the finished response is its fixed part —
+    /// the quantity the overrun notice branches on. Given a fixed part that leaves out an unconditional line, a cap
+    /// too small for that line gets explained as a body unit overshooting.</param>
+    static string Close(StringBuilder sb, CheckAccounting acct, BoundedBody body)
     {
         if (acct.TextLine() is { } line) sb.Append('\n').Append(line).Append('\n');
         sb.Append('\n').Append(ReadSentences.SweepBoundaryLabel).Append(ReadSentences.SweepBoundary).Append('\n');
@@ -1263,10 +1261,11 @@ static class Wire
         // own length: 1,109 stated on a response of 1,281. Composing it changes only the width of one printed
         // number, so a second pass settles it and a third is only ever needed when that width moved.
         var response = sb.ToString().TrimEnd('\n');
-        if (acct.CapTooSmall(response.Length, headerLength + reserved) is not { } notice) return response;
-        var settled = acct.CapTooSmall(response.Length + notice.Length, headerLength + reserved)!;
+        int needed = body.FixedPart(response.Length);
+        if (acct.CapTooSmall(response.Length, needed) is not { } notice) return response;
+        var settled = acct.CapTooSmall(response.Length + notice.Length, needed, notice.Length)!;
         if (settled.Length != notice.Length)
-            settled = acct.CapTooSmall(response.Length + settled.Length, headerLength + reserved)!;
+            settled = acct.CapTooSmall(response.Length + settled.Length, needed, settled.Length)!;
         return response + settled;
     }
 
@@ -1324,13 +1323,13 @@ static class Wire
     /// exists so the two sweep headers stay textually identical (one shape, no drift).</summary>
     static string EpochOffOrderQualifier(ScriptCheckResult r) => "";
 
-    /// <summary>Reserve EVERY axis's closing disclosure, then render them all. The two passes are the point: an axis
-    /// that reserved its own room only when its turn came would find a sibling had already spent the budget, which
-    /// is the silence the reserve exists to remove. Reserving is therefore not something each axis does for itself.
-    /// </summary>
+    /// <summary>Reserve EVERY axis's FIXED PART — its unconditional lines and its closing disclosure — then render
+    /// them all. The two passes are the point: an axis that reserved its own room only when its turn came would
+    /// find a sibling had already spent the budget, which is the silence the reserve exists to remove. Reserving is
+    /// therefore not something each axis does for itself.</summary>
     static void AppendHistograms(StringBuilder sb, BoundedBody body, int rowLimit, params HistogramAxis[] axes)
     {
-        foreach (var a in axes) body.Reserve(a.Subject, a.TextDisclosure);
+        foreach (var a in axes) body.Reserve(a.Subject, a.TextFixed);
         foreach (var a in axes) AppendHistogram(sb, body, rowLimit, a);
     }
 
@@ -1346,11 +1345,13 @@ static class Wire
     {
         // The note and the not-computed line are fixed text that does not grow with the findings, and the second is
         // this axis's whole answer — a "the walk was not run" that a budget could drop would be the silence the
-        // sentence exists to break. They are part of the response's fixed part, deliberately.
-        if (axis.Note is not null) sb.Append('\n').Append(axis.Note).Append('\n');
+        // sentence exists to break. They are part of the response's fixed part, deliberately — and they go through
+        // `body` so that fixed part is MEASURED. Appended straight to the builder they were invisible to the
+        // overrun notice, which then explained a cap too small for them as a body unit overshooting (#391 review).
+        if (axis.NoteLine.Length > 0) body.Fixed(axis.Subject, () => sb.Append(axis.NoteLine));
         if (axis.Rows is not { } rows)
         {
-            if (axis.NotComputed is not null) sb.Append(axis.NotComputed).Append('\n');
+            if (axis.NotComputedLine.Length > 0) body.Fixed(axis.Subject, () => sb.Append(axis.NotComputedLine));
             body.Release(axis.Subject);
             return;
         }
