@@ -24,7 +24,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
   family: an unscoped scripts sweep took ~8.5 minutes on a 3800-plugin order.
   `max_chars` is DIVIDED among the families that ran and their parts rather than spent in series. Spent in
   series on that same order at the defaults, a second family inherited 400 characters of an 80,000 budget —
-  the errors listing alone came to 79,600.
+  the errors listing alone came to 79,600. The division is max-min fair over what each part actually needs,
+  measured before anything is written: a part that needs less than an even share takes only what it needs and
+  the rest goes to the parts that want more. Two things follow, and both are held by CI. Raising `max_chars`
+  can never render LESS of anything. And a call whose whole answer fits inside `max_chars` renders all of it and
+  reports no cut — before this, a merged call whose two families came to 47,251 characters stopped at 49,440 of
+  an 80,000 default, dropped 5 of 40 record sections, said it was truncated, told you to raise `max_chars=`, and
+  left 30,560 characters unspent.
   `exclude=` now scopes every SWEPT family, including the script sweep, which never had it. `plugins=` naming a
   file that is on disk but not in the active load order is still swept by the errors family; the scripts
   family has no off-order lane and the response says, in that family's own section, which files it did not
@@ -54,6 +60,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
 - **Fixed: `housecarl_validate_scripts` with `format='json'` applies `max_chars` to its record roster.** The
   roster was written outside the budget entirely, so a `max_chars` you passed did not bound it. Each record is
   now measured before it is written, and the document states how many of them it carries.
+
+- **Fixed: `format='json'` sizes every row it writes, at the depth it writes it at.** Dangling entries,
+  `counts_only` histogram rows and excluded-roster rows were offered to the budget at a declared size of zero or
+  measured two nesting levels shallower than they are written — an indented document pays two spaces a line per
+  level, so the shortfall grew with the row. A response could therefore land over the `max_chars` you passed:
+  measured, `housecarl_check` returned 6,246 characters against an allowed 5,709. Every row is now measured as
+  the document will encode it, including its indentation and the separator it owes for following another row, so
+  a response ends inside its cap and the cut it reports is the cut it made.
 
 - **Changed: `format='json'` no longer writes accounting counts for subjects a response does not have.**
   `accounting.excluded_plugins_total` / `_named`, `accounting.unread_plugins_total` / `_named` and
