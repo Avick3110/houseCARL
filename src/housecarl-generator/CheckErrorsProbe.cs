@@ -2133,10 +2133,20 @@ public static class CheckErrorsProbe
             bad.Add($"{where} rendered {axis.Rows} of {distinct} and states {axis.Stated}");
     }
 
-    /// <summary>The caps this invariant is swept over. It used to step 3000 -> 8000, straight over the 4000-7000 band
-    /// the fat-head fixture's plugin object actually bites in: the arm's one real defect lived in a gap in its own
-    /// ladder. The band is now walked rather than jumped.</summary>
-    static readonly int[] CapLadder = { 120, 300, 700, 900, 1500, 3000, 4000, 4500, 5000, 5270, 6000, 7000, 8000, 40000 };
+    /// <summary>The caps this invariant is swept over: EVERY INTEGER from 1 to 12000, plus one cap far above
+    /// anything the fixtures need.
+    ///
+    /// <para>It used to be fourteen rungs, and it stepped 3000 -> 8000 straight over the 4000-7000 band the
+    /// fat-head fixture's plugin object actually bites in — the arm's one real defect lived in a gap in its own
+    /// ladder. Widening the rungs fixes the gap that was found; enumerating the caps retires the whole class,
+    /// because there are no gaps left to pick badly. It is not a thoroughness gesture: the defects this arm exists
+    /// to catch are BANDS a few hundred characters wide, and which band a fixture bites in moves whenever the
+    /// header does.</para>
+    ///
+    /// <para><b>What it costs, measured rather than assumed:</b> eight fixtures times twelve thousand caps times
+    /// two transports is a hundred and ninety-two thousand renders, and it takes the guard from 6.0 seconds to
+    /// 11.4 — which is why it is enumerated rather than sampled.</para></summary>
+    static readonly int[] CapLadder = Enumerable.Range(1, 12000).Append(40000).ToArray();
 
     /// <summary>The cap invariant, swept: for a range of max_chars values, NEITHER transport may return more than it
     /// was given — with ONE legitimate exception, recognised by a FIXTURE-KNOWN LENGTH rather than by a phrase the
