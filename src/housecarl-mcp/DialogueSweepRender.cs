@@ -84,14 +84,16 @@ internal static class DialogueSweepRender
                 var report = seed.Report!;
                 string head = ComposeSeedUnit(seed);
                 if (!body.Emit(SweepSubject.DialogueSeeds, head.Length, () => sb.Append(head))) break;
-                // The LAST seed head is written, so this subject has nothing further to say and its unspent share
-                // belongs to the topic blocks. Told rather than assumed: a subject's ceiling is fixed on its FIRST
-                // unit against the siblings still PENDING, so without this the topics of a one-seed call are capped
-                // at half the family's share and the other half — held for seed heads that will never be written —
-                // goes nowhere. Measured on the live order (ARR 2.0, one 235-topic quest, plain defaults): 53 topics in
-                // 40,296 chars of an 80,000 cap before this, 82 in 79,186 after.
-                if (i == resolved.Length - 1) body.Release(SweepSubject.DialogueSeeds);
-
+                // A hand-back on the LAST seed head used to sit here, and it is gone rather than kept: under the
+                // sequential recount a subject's ceiling was fixed on its FIRST unit against the siblings still
+                // pending, so the topics of a one-seed call were capped at half the family's share unless the
+                // seed subject announced it was finished. Water-filling allocates the seed heads their MEASURED
+                // demand and the topic blocks everything else, before either writes, so there is no share to hand
+                // back and the conditional could not be made to change any response — which is the signal to
+                // delete it (CLAUDE.md §5 #11, PR #339's precedent) rather than leave an arm that cannot fail.
+                // What it bought is now bought by construction: measured on the live order (ARR 2.0, one
+                // 235-topic quest, plain defaults) that fix took 53 topics in 40,296 chars of an 80,000 cap to 82
+                // in 79,186, and DIALOGUE-FINISHED-SEED-HANDS-BACK-ITS-SHARE holds the same property here.
                 bool stopped = false;
                 foreach (var t in report.Topics)
                 {
@@ -158,6 +160,7 @@ internal static class DialogueSweepRender
     internal static void WriteSection(Utf8JsonWriter w, CheckSweep s, BoundedBody body)
     {
         if (s.Dialogue is not { Error: null } r) return;
+        var depths = new JsonWire.JsonUnitDepths(w.CurrentDepth);
 
         w.WriteStartArray("seeds");
         if (!r.CountsOnly)
@@ -166,24 +169,37 @@ internal static class DialogueSweepRender
             for (int i = 0; i < resolved.Length; i++)
             {
                 var seed = resolved[i];
-                if (!body.Emit(SweepSubject.DialogueSeeds, SeedHeadCost(seed), () => WriteSeedHead(w, seed))) break;
-                if (i == resolved.Length - 1) body.Release(SweepSubject.DialogueSeeds);   // see the text lane
+                if (!body.Emit(SweepSubject.DialogueSeeds,
+                               SeedHeadCost(seed, depths.DialogueSeeds, i > 0),
+                               () => WriteSeedHead(w, seed))) break;
                 bool stopped = false;
+                int topics = 0;
                 foreach (var t in seed.Report!.Topics)
                 {
-                    if (!body.Emit(SweepSubject.DialogueTopics, TopicRowCost(t), () => WriteTopicRow(w, t))) { stopped = true; break; }
+                    var topic = t;
+                    if (!body.Emit(SweepSubject.DialogueTopics,
+                                   TopicRowCost(topic, depths.DialogueTopics, topics > 0),
+                                   () => WriteTopicRow(w, topic))) { stopped = true; break; }
+                    topics++;
                 }
-                w.WriteEndArray();      // topics
-                w.WriteEndObject();     // the seed
+                // The seed's own closing brackets finish a unit already admitted, so they are charged to the
+                // subject that opened it — SeedHeadCost measured them as part of the same unit (see
+                // BoundedBody.Complete).
+                body.Complete(SweepSubject.DialogueSeeds, () => { w.WriteEndArray(); w.WriteEndObject(); });
                 if (stopped) break;
             }
         }
         w.WriteEndArray();
 
         w.WriteStartArray("seeds_unreachable");
+        int refusals = 0;
         foreach (var seed in r.Unresolved)
         {
-            if (!body.Emit(SweepSubject.DialogueSeedRefusals, UnreachableRowCost(seed), () => WriteUnreachable(w, seed))) break;
+            var row = seed;
+            if (!body.Emit(SweepSubject.DialogueSeedRefusals,
+                           UnreachableRowCost(row, depths.DialogueSeeds, refusals > 0),
+                           () => WriteUnreachable(w, row))) break;
+            refusals++;
         }
         w.WriteEndArray();
     }
@@ -280,31 +296,40 @@ internal static class DialogueSweepRender
     // ---- the pre-write costs ------------------------------------------------------------------------
     //
     // A Utf8JsonWriter cannot measure an object without writing one, so each row's width is taken by serializing it
-    // into a throwaway writer inside the frame the live one writes it in. The number is therefore MEASURED and an
-    // upper bound on the write (the frame is counted too) — which is what BoundedBody's ceiling asks for, since it
-    // charges the ceiling with what the row actually wrote.
+    // into a throwaway writer through JsonWire.MeasureUnit — the response's own WriterOptions, the DEPTH the row is
+    // written at, and the sibling position it is written in. All three change what a row costs the document and
+    // none of them is knowable from the row alone: measured two levels shallower than it is written, a topic row
+    // under-counted by the whole of its indentation, and the allocation that trusts the number returned 6,246
+    // characters against an allowed 5,709.
 
-    static int TopicRowCost(TopicValidation t) => Measure(w => WriteTopicRow(w, t));
+    static int TopicRowCost(TopicValidation t, int depth, bool subsequent)
+        => JsonWire.MeasureUnit(depth, subsequent, w => WriteTopicRow(w, t));
 
-    static int SeedHeadCost(DialogueSeedResult seed) => Measure(w => { WriteSeedHead(w, seed); w.WriteEndArray(); w.WriteEndObject(); });
-
-    static int UnreachableRowCost(DialogueSeedResult seed) => Measure(w => WriteUnreachable(w, seed));
-
-    static int Measure(Action<Utf8JsonWriter> write)
-    {
-        using var ms = new MemoryStream();
-        using (var w = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = false }))
+    /// <summary>The seed's head AND the brackets that close it after its topics — one unit, one subject, one
+    /// cost.</summary>
+    static int SeedHeadCost(DialogueSeedResult seed, int depth, bool subsequent)
+        => JsonWire.MeasureUnit(depth, subsequent, (w, size) =>
         {
-            w.WriteStartObject();
-            w.WriteStartArray("rows");
-            write(w);
+            int before = size();
+            WriteSeedHead(w, seed);
+            int head = size() - before;
+            // A topics array that ends up non-empty closes on a line of its own; an empty one closes with a single
+            // bracket. The throwaway row below buys the right answer and is counted by neither span.
+            if (seed.Report!.Topics.Count > 0) WriteTopicRow(w, seed.Report.Topics[0]);
+            before = size();
             w.WriteEndArray();
             w.WriteEndObject();
-        }
-        return (int)ms.Length;
-    }
+            return head + (size() - before);
+        });
+
+    static int UnreachableRowCost(DialogueSeedResult seed, int depth, bool subsequent)
+        => JsonWire.MeasureUnit(depth, subsequent, w => WriteUnreachable(w, seed));
+
     // ---- unit costs, exposed for the DEMAND pass (see SweepDemand) ---------------------------------
-    internal static int TopicRowCostFor(TopicValidation t) => TopicRowCost(t);
-    internal static int SeedHeadCostFor(DialogueSeedResult seed) => SeedHeadCost(seed);
-    internal static int UnreachableRowCostFor(DialogueSeedResult seed) => UnreachableRowCost(seed);
+    internal static int TopicRowCostFor(TopicValidation t, int depth, bool subsequent)
+        => TopicRowCost(t, depth, subsequent);
+    internal static int SeedHeadCostFor(DialogueSeedResult seed, int depth, bool subsequent)
+        => SeedHeadCost(seed, depth, subsequent);
+    internal static int UnreachableRowCostFor(DialogueSeedResult seed, int depth, bool subsequent)
+        => UnreachableRowCost(seed, depth, subsequent);
 }

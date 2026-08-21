@@ -1329,18 +1329,23 @@ static class JsonWire
     /// in one document.</summary>
     static void WriteErrorsSection(Utf8JsonWriter w, ErrorCheckResult r, BoundedBody body, int histogramLimit)
     {
+        // The depths every unit in this section is measured at, anchored on the object this family is writing into
+        // — 1 in the ancestor's root document, 3 in a merged one. Read off the writer rather than passed in, so it
+        // cannot be told the wrong answer.
+        var depths = new JsonUnitDepths(w.CurrentDepth);
         if (r.CountsOnly)
         {
             // Both axes handed over together, so both frames are reserved before either writes — the json twin
             // of the text lane's two-pass reserve, for the same reason (#392).
-            WriteHistograms(w, body, histogramLimit,
+            WriteHistograms(w, body, histogramLimit, depths,
                 ("dangling_by_target_plugin", SweepSubject.HistogramByTarget, r.Histogram),
                 ("dangling_by_source_plugin", SweepSubject.HistogramBySource, r.DanglingBySource));   // #344 — the new axis
-            WriteUnreadPlugins(w, r.Reports, body);
+            WriteUnreadPlugins(w, r.Reports, body, depths);
         }
         else
         {
             w.WriteStartArray("plugins");
+            int sections = 0;
             foreach (var p in r.Reports)
             {
                 // A SECTION IS WHOLE OR ABSENT HERE TOO, and the cost is MEASURED rather than assumed small. The
@@ -1350,74 +1355,83 @@ static class JsonWire
                 // chars against a 5,270 cap, silently. The text lane composes its fixed part and measures it;
                 // this is the same rule, and a Utf8JsonWriter can only be measured by writing, so it is written
                 // once into a scratch buffer at the same nesting depth.
-                // The plugin object's fixed part carries a scan-error string and up to three unscannable-record
-                // exception messages, all unbounded, so it is one of the two units whose cost is MEASURED rather
-                // than left to the post-check: a two-report fixture whose second plugin carried three ~950-char
-                // samples returned 7,296 chars against a 5,270 cap, silently.
-                bool opened = body.Emit(SweepSubject.PluginSections, PluginHeadCost(p), () =>
-                {
-                    w.WriteStartObject();
-                    w.WriteString("plugin", p.Plugin);
-                    WriteNullable(w, "scan_error", p.ScanError);
-                    WriteStringArray(w, "missing_masters", p.MissingMasters);
-                    // The unscannable fields sit before the dangling array so that once the ENTRY loop breaks
-                    // mid-plugin, all that follows is three fixed closing brackets.
-                    w.WriteNumber("unscannable_records", p.UnscannableRecords);
-                    WriteStringArray(w, "unscannable_samples", p.UnscannableSamples);
-                    w.WriteStartArray("dangling");
-                });
+                var head = p;
+                bool opened = body.Emit(SweepSubject.PluginSections,
+                                        PluginHeadCost(p, depths.PluginSections, sections > 0),
+                                        () => WritePluginHead(w, head));
                 if (!opened) break;
+                sections++;
+                int entries = 0;
                 foreach (var d in p.Dangling)
                 {
                     // Per ENTRY: one plugin's array can be thousands of rows, and a check taken only at the
-                    // plugin boundary lets all of them out at once (#361, measured at 2.5x the cap). An entry
-                    // is small and uniform, so it carries no measured cost — the emitter's post-check is what
-                    // stops the loop, and JsonGlue is the reserve sized to absorb the one entry that crosses.
-                    if (!body.Emit(SweepSubject.DanglingEntries, 0, () =>
-                    {
-                        w.WriteStartObject();
-                        w.WriteString("source", d.Source.ToString());
-                        w.WriteString("source_type", d.SourceType);
-                        WriteNullable(w, "source_editorid", d.SourceEditorId);
-                        w.WriteString("target", d.Target.ToString());
-                        w.WriteEndObject();
-                    }, p.Plugin)) break;
+                    // plugin boundary lets all of them out at once (#361, measured at 2.5x the cap). Its cost is
+                    // measured like everything else the allocation divides room by — passed 0 it was the one unit
+                    // whose demand and whose emission test read two different numbers.
+                    var entry = d;
+                    if (!body.Emit(SweepSubject.DanglingEntries,
+                                   DanglingEntryCost(d, depths.DanglingEntries, entries > 0),
+                                   () => WriteDanglingEntry(w, entry), p.Plugin)) break;
+                    entries++;
                 }
-                // The section's own closing brackets are what PluginHeadCost already paid for. Counted where its
-                // content landed, exactly as the text lane counts it: its ENTRIES are accounted separately, so a
-                // section whose entry loop stopped on the budget is a rendered section carrying fewer entries,
-                // not a partly-rendered one.
-                w.WriteEndArray();
-                w.WriteEndObject();
+                // The section's own closing brackets FINISH a unit already admitted, so they are charged to the
+                // subject that opened it — PluginHeadCost measured them as part of the same unit. Written as an
+                // unattributed fixed part they would scale with how many sections rendered, which is precisely
+                // what the skeleton pass cannot see.
+                body.Complete(SweepSubject.PluginSections, () => { w.WriteEndArray(); w.WriteEndObject(); });
             }
             w.WriteEndArray();
         }
     }
 
-    /// <summary>What a plugin object's FIXED part costs, encoded exactly as the response will encode it — same
-    /// writer options, same nesting depth, so escaping and indentation are counted rather than estimated. Over-counts
-    /// by the scratch wrapper's own braces, which is the safe direction for a budget test.</summary>
-    static int PluginHeadCost(PluginErrors p)
+    /// <summary>One plugin object's FIXED head, opening the <c>dangling</c> array its entries are written into. The
+    /// ONE spelling of it: the cost helper writes this same method into its scratch document, so what was measured
+    /// and what was written cannot be two different things.</summary>
+    static void WritePluginHead(Utf8JsonWriter w, PluginErrors p)
     {
-        using var ms = new MemoryStream();
-        using (var w = new Utf8JsonWriter(ms, Opts))
-        {
-            w.WriteStartObject();
-            w.WriteStartArray("plugins");
-            w.WriteStartObject();
-            w.WriteString("plugin", p.Plugin);
-            WriteNullable(w, "scan_error", p.ScanError);
-            WriteStringArray(w, "missing_masters", p.MissingMasters);
-            w.WriteNumber("unscannable_records", p.UnscannableRecords);
-            WriteStringArray(w, "unscannable_samples", p.UnscannableSamples);
-            w.WriteStartArray("dangling");
-            w.WriteEndArray();
-            w.WriteEndObject();
-            w.WriteEndArray();
-            w.WriteEndObject();
-        }
-        return (int)ms.Length;
+        w.WriteStartObject();
+        w.WriteString("plugin", p.Plugin);
+        WriteNullable(w, "scan_error", p.ScanError);
+        WriteStringArray(w, "missing_masters", p.MissingMasters);
+        // The unscannable fields sit before the dangling array so that once the ENTRY loop breaks
+        // mid-plugin, all that follows is three fixed closing brackets.
+        w.WriteNumber("unscannable_records", p.UnscannableRecords);
+        WriteStringArray(w, "unscannable_samples", p.UnscannableSamples);
+        w.WriteStartArray("dangling");
     }
+
+    /// <summary>ONE dangling entry. Shared by the write and the measurement, for the same reason.</summary>
+    static void WriteDanglingEntry(Utf8JsonWriter w, DanglingRef d)
+    {
+        w.WriteStartObject();
+        w.WriteString("source", d.Source.ToString());
+        w.WriteString("source_type", d.SourceType);
+        WriteNullable(w, "source_editorid", d.SourceEditorId);
+        w.WriteString("target", d.Target.ToString());
+        w.WriteEndObject();
+    }
+
+    /// <summary>What ONE plugin object costs the document — its head AND the brackets that close it once its
+    /// entries have been written, because those are one unit and one subject pays for both.</summary>
+    static int PluginHeadCost(PluginErrors p, int depth, bool subsequent)
+        => MeasureUnit(depth, subsequent, (w, size) =>
+        {
+            int before = size();
+            WritePluginHead(w, p);
+            int head = size() - before;
+            // A non-empty array closes on a line of its own; an empty one closes with a single bracket. Which it
+            // will be is known from the data here, so one throwaway entry — written between the two measured spans
+            // and counted by neither — buys the right close rather than a hopeful one.
+            if (p.Dangling.Count > 0) WriteDanglingEntry(w, p.Dangling[0]);
+            before = size();
+            w.WriteEndArray();
+            w.WriteEndObject();
+            return head + (size() - before);
+        });
+
+    /// <summary>What ONE dangling entry costs, at its own depth and sibling position.</summary>
+    static int DanglingEntryCost(DanglingRef d, int depth, bool subsequent)
+        => MeasureUnit(depth, subsequent, w => WriteDanglingEntry(w, d));
 
     /// <summary>What THIS writer's own framing costs, measured against the writer rather than kept by hand: opening
     /// the root object, closing it, and the separator a property pays for not being the first one inside it.
@@ -1481,6 +1495,85 @@ static class JsonWire
     /// makes a per-entry budget test affordable.</summary>
     static int Size(Utf8JsonWriter w, MemoryStream ms) => (int)(ms.Length + w.BytesPending);
 
+    /// <summary>WHERE EACH JSON UNIT SITS, from one anchor: the depth of the object a family writes its own members
+    /// into (1 in an ancestor's root document, 3 in a merged one — root, <c>families</c>, the family).
+    ///
+    /// <para><b>Why depth is load-bearing rather than cosmetic.</b> The response is written INDENTED, so every
+    /// nesting level costs two spaces on every line of every unit inside it. A cost measured two levels shallower
+    /// than the unit is written is an under-measure that grows with the unit — and once the allocation TRUSTS the
+    /// number rather than merely testing against it with slack, an under-measure is a response over its own cap.
+    /// Measured: the dialogue-inclusive cap ladder returned 6,246 characters against an allowed 5,709.</para>
+    ///
+    /// <para>The offsets are stated ONCE here and read by both the demand pass and the write, so the two cannot
+    /// drift; <c>ALLOCATION-EQUALS-SPEND</c> is the arm that catches an anchor that does.</para></summary>
+    /// <param name="Section">the depth of the object holding a family's members.</param>
+    internal readonly record struct JsonUnitDepths(int Section)
+    {
+        /// <summary>Elements of <c>plugins</c>.</summary>
+        internal int PluginSections => Section + 1;
+        /// <summary>Elements of a plugin object's <c>dangling</c>.</summary>
+        internal int DanglingEntries => Section + 3;
+        /// <summary>Elements of <c>records</c>, and of <c>scan_errors</c> under counts_only.</summary>
+        internal int ScriptRecords => Section + 1;
+        /// <summary>Elements of a histogram axis's <c>rows</c>, and of <c>unread.rows</c>.</summary>
+        internal int HistogramRows => Section + 2;
+        /// <summary>A histogram axis OBJECT, written as a member of the family object itself.</summary>
+        internal int AxisFrame => Section;
+        /// <summary>Elements of <c>seeds</c> and of <c>seeds_unreachable</c>.</summary>
+        internal int DialogueSeeds => Section + 1;
+        /// <summary>Elements of a seed's <c>topics</c>.</summary>
+        internal int DialogueTopics => Section + 3;
+    }
+
+    /// <summary>What ONE UNIT costs the finished document, measured where it will land.
+    ///
+    /// <para>A <see cref="Utf8JsonWriter"/> cannot be asked what something would cost without writing it, so the
+    /// unit is written into a throwaway document positioned exactly as the live one will be: the same
+    /// <see cref="Opts"/>, the same nesting <paramref name="depth"/> (indentation is per line and per level), and
+    /// the same sibling position — an array element after another pays a one-character separator the first element
+    /// does not.</para>
+    ///
+    /// <para><b>A DELTA, not a document length.</b> The old spelling returned the whole scratch document, wrapper
+    /// braces and all, and called the over-count "the safe direction for a budget test". It was, while the number
+    /// was only a test; it stopped being safe when the allocation began dividing room by it, because a demand that
+    /// over-counts is room allocated to a subject that will not spend it. What is returned here is what the unit
+    /// itself appended, which is the number <c>ALLOCATION-EQUALS-SPEND</c> holds to the byte.</para></summary>
+    /// <param name="depth">the live writer's <c>CurrentDepth</c> where the unit is written — for an array element,
+    /// the depth of the array.</param>
+    /// <param name="subsequent">is something already in that array? A later element pays a separator.</param>
+    /// <param name="measure">writes the unit and returns its cost, reading the scratch length through the delegate
+    /// it is handed — so a unit written in TWO spans, an opening and the brackets that close it after its children,
+    /// can measure both and leave the children it wrote in between uncounted.</param>
+    internal static int MeasureUnit(int depth, bool subsequent, Func<Utf8JsonWriter, Func<int>, int> measure)
+    {
+        using var ms = new MemoryStream();
+        using var w = new Utf8JsonWriter(ms, Opts);
+        w.WriteStartObject();
+        for (int i = 2; i < depth; i++) w.WriteStartObject("n");
+        w.WriteStartArray("rows");
+        if (subsequent) w.WriteNullValue();
+        return measure(w, () => Size(w, ms));
+    }
+
+    /// <summary>The common case: a unit written in one span.</summary>
+    internal static int MeasureUnit(int depth, bool subsequent, Action<Utf8JsonWriter> write)
+        => MeasureUnit(depth, subsequent, (w, size) => { int before = size(); write(w); return size() - before; });
+
+    /// <summary>The same measurement for a NAMED MEMBER rather than an array element — a histogram axis's own
+    /// object, which is a property of the family object and not a row of anything.</summary>
+    /// <param name="depth">the depth of the object the member is written into.</param>
+    static int MeasureMember(int depth, Action<Utf8JsonWriter> write)
+    {
+        using var ms = new MemoryStream();
+        using var w = new Utf8JsonWriter(ms, Opts);
+        w.WriteStartObject();
+        for (int i = 1; i < depth; i++) w.WriteStartObject("n");
+        w.WriteString("before", "");   // the member is never the first thing in a family object, so it pays a separator
+        int before = Size(w, ms);
+        write(w);
+        return Size(w, ms) - before;
+    }
+
     /// <summary>check_errors' stamp + coverage as data (PR #305 re-review) — the sweep twin of
     /// <see cref="WriteEpochWithCoverage"/>: <c>epoch_covers_all_inputs</c> is false exactly when off-order files
     /// were swept beside the index (their content is outside the fingerprint; <c>off_order_scanned</c> names them).
@@ -1502,7 +1595,13 @@ static class JsonWire
     /// <para>The excluded-plugin roster and the overrun notice are RESPONSE-level and written once: the first is a
     /// fact about the scope every family shares, the second a fact about the document as a whole.</para></summary>
     public static string RenderCheck(CheckSweep s, int maxChars, int histogramLimit = 1000)
+        => RenderCheck(s, maxChars, histogramLimit, out _);
+
+    /// <summary>The same render, handing back the ALLOCATION it built — for <c>ALLOCATION-EQUALS-SPEND</c>. An
+    /// internal seam: the public render is the one every caller uses.</summary>
+    internal static string RenderCheck(CheckSweep s, int maxChars, int histogramLimit, out BoundedBody? measured)
     {
+        measured = null;
         int cap = Cap(maxChars);
         var sections = s.Sections;
         var accts = s.Accountings(cap);
@@ -1512,65 +1611,54 @@ static class JsonWire
         foreach (var a in accts) reserve += a.JsonAccountingReserve;
         int budget = Math.Max(0, cap - reserve);
 
+        if (s.Error is not null)
+        {
+            using var ems = new MemoryStream();
+            using (var ew = new Utf8JsonWriter(ems, Opts))
+            {
+                ew.WriteStartObject();
+                ew.WriteString("error", s.Error);
+                WriteNullable(ew, "epoch", s.Epoch);
+                ew.WriteEndObject();
+                ew.Flush();
+            }
+            return Finish(ems);
+        }
+
+        // A family's members are written into the family object, which sits under `families`, which sits in the
+        // root — so a unit's depth is anchored two levels below the root object this render opens. The section
+        // writers read the same anchor off the live writer; ALLOCATION-EQUALS-SPEND is what catches the two
+        // disagreeing.
+        var depths = new JsonUnitDepths(FamilySectionDepth);
+        // WHAT EACH SUBJECT WANTS, measured before anything is written, so the allocation can water-fill
+        // over it rather than discover shortfalls at render time (SweepDemand, BodyAllocation).
+        var demand = SweepDemand.ForJson(s, budget, histogramLimit, depths);
+        // AND WHAT THE DOCUMENT OWES WHATEVER THE BUDGET SAYS: composed with no units in it and measured, never
+        // assembled from a roster of write sites. See the text lane for why the row budget has to exclude the
+        // whole of it.
+        int fixedPart;
+        {
+            using var sms = new MemoryStream();
+            var skeletonAccts = s.Accountings(cap);
+            BoundedBody skeletonBody;
+            using (var sw = new Utf8JsonWriter(sms, Opts))
+            {
+                skeletonBody = BoundedBody.Skeleton(skeletonAccts, () => Size(sw, sms));
+                sw.WriteStartObject();
+                Compose(sw, s, sections, skeletonAccts, skeletonBody, histogramLimit);
+                sw.WriteEndObject();
+            }
+            fixedPart = (int)sms.Length - skeletonBody.ReservedWritten;
+        }
+
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
-            if (s.Error is not null)
-            { w.WriteString("error", s.Error); WriteNullable(w, "epoch", s.Epoch); w.WriteEndObject(); w.Flush(); return Finish(ms); }
-
-            // The scope facts, as DATA and as the SENTENCE. The sentence is the same string the text lane prints —
-            // one source, stated whole by both transports, so a pin on it vouches for what each of them says.
-            WriteStringArray(w, "families_ran", s.Selection.Ran.Select(SweepFamilySelection.Token).ToArray());
-            w.WriteBoolean("findings_defaulted", s.Selection.Defaulted);
-            w.WriteStartArray("families_not_run");
-            foreach (var f in s.Selection.NotRun)
-            {
-                w.WriteStartObject();
-                w.WriteString("family", SweepFamilySelection.Token(f));
-                w.WriteString("describes", SweepFamilySelection.Describe(f));
-                w.WriteString("findings", SweepFamilySelection.Spelling(f));
-                w.WriteEndObject();
-            }
-            w.WriteEndArray();
-            w.WriteString("findings_scope", s.ScopeSentence());
-
-            // WHAT EACH SUBJECT WANTS, measured before anything is written, so the allocation can water-fill
-            // over it rather than discover shortfalls at render time (SweepDemand, BodyAllocation).
-            var demand = SweepDemand.ForJson(s, budget, histogramLimit);
             var body = BoundedBody.ForFamilies(accts, budget, () => Size(w, ms), s.Plan(),
-                                               demand.Demand, demand.Reserved);
-            w.WriteStartObject("families");
-            for (int i = 0; i < sections.Count; i++)
-            {
-                var f = sections[i];
-                w.WriteStartObject(SweepFamilySelection.Token(f));
-                if (f == SweepFamily.Errors)
-                {
-                    WriteErrorsHead(w, s.Errors!);
-                    WriteErrorsSection(w, s.Errors!, body, histogramLimit);
-                }
-                else if (f == SweepFamily.Scripts)
-                {
-                    // In this family's own object, beside its own counts — see the text lane for why.
-                    if (s.OffOrderSentence() is { } skipped) w.WriteString("off_order_not_swept", skipped);
-                    WriteScriptsHead(w, s.Scripts!);
-                    WriteScriptsSection(w, s.Scripts!, body, histogramLimit);
-                }
-                else
-                {
-                    DialogueSweepRender.WriteHead(w, s);
-                    DialogueSweepRender.WriteSection(w, s, body);
-                }
-                // This family's accounting and boundary, out of the room held for them rather than out of the rows
-                // the next family still has to render.
-                var acct = accts[i];
-                body.Reserved(() => { acct.WriteJson(w); w.WriteString("boundary", acct.Boundary); });
-                w.WriteEndObject();
-            }
-            w.WriteEndObject();
-
-            WriteExcluded(w, s.ExcludedPlugins, body);
+                                               demand.Demand, demand.Reserved + fixedPart);
+            measured = body;
+            Compose(w, s, sections, accts, body, histogramLimit);
 
             int closed = Size(w, ms) + Framing.RootClose;
             int needed = body.FixedPart(closed);
@@ -1586,6 +1674,66 @@ static class JsonWire
             w.WriteEndObject();
         }
         return Finish(ms);
+    }
+
+    /// <summary>The depth a family writes its own members at: the root object, <c>families</c>, the family. Named
+    /// once because the demand pass has no writer to read it off — the section writers take theirs from the live
+    /// <c>CurrentDepth</c>, and a disagreement between the two shows up as allocation not equalling spend.</summary>
+    const int FamilySectionDepth = 3;
+
+    /// <summary>THE WHOLE MERGED DOCUMENT BAR THE ROOT BRACES AND THE OVERRUN NOTICE, composed through one
+    /// <paramref name="body"/>. Run twice per render: once with a <see cref="BoundedBody.Skeleton"/>, whose refusal
+    /// of every unit leaves exactly the fixed part behind to be measured, and once for real.</summary>
+    static void Compose(Utf8JsonWriter w, CheckSweep s, IReadOnlyList<SweepFamily> sections,
+                        IReadOnlyList<CheckAccounting> accts, BoundedBody body, int histogramLimit)
+    {
+        // The scope facts, as DATA and as the SENTENCE. The sentence is the same string the text lane prints —
+        // one source, stated whole by both transports, so a pin on it vouches for what each of them says.
+        WriteStringArray(w, "families_ran", s.Selection.Ran.Select(SweepFamilySelection.Token).ToArray());
+        w.WriteBoolean("findings_defaulted", s.Selection.Defaulted);
+        w.WriteStartArray("families_not_run");
+        foreach (var f in s.Selection.NotRun)
+        {
+            w.WriteStartObject();
+            w.WriteString("family", SweepFamilySelection.Token(f));
+            w.WriteString("describes", SweepFamilySelection.Describe(f));
+            w.WriteString("findings", SweepFamilySelection.Spelling(f));
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+        w.WriteString("findings_scope", s.ScopeSentence());
+
+        w.WriteStartObject("families");
+        for (int i = 0; i < sections.Count; i++)
+        {
+            var f = sections[i];
+            w.WriteStartObject(SweepFamilySelection.Token(f));
+            if (f == SweepFamily.Errors)
+            {
+                WriteErrorsHead(w, s.Errors!);
+                WriteErrorsSection(w, s.Errors!, body, histogramLimit);
+            }
+            else if (f == SweepFamily.Scripts)
+            {
+                // In this family's own object, beside its own counts — see the text lane for why.
+                if (s.OffOrderSentence() is { } skipped) w.WriteString("off_order_not_swept", skipped);
+                WriteScriptsHead(w, s.Scripts!);
+                WriteScriptsSection(w, s.Scripts!, body, histogramLimit);
+            }
+            else
+            {
+                DialogueSweepRender.WriteHead(w, s);
+                DialogueSweepRender.WriteSection(w, s, body);
+            }
+            // This family's accounting and boundary, out of the room held for them rather than out of the rows
+            // the next family still has to render.
+            var acct = accts[i];
+            body.Reserved(() => { acct.WriteJson(w); w.WriteString("boundary", acct.Boundary); });
+            w.WriteEndObject();
+        }
+        w.WriteEndObject();
+
+        WriteExcluded(w, s.ExcludedPlugins, body);
     }
 
     // ---- housecarl_validate_scripts (#282) ---------------------------------------------------------
@@ -1670,39 +1818,52 @@ static class JsonWire
     /// field written anywhere else is a field outside the reserve.</summary>
     static void WriteScriptsSection(Utf8JsonWriter w, ScriptCheckResult r, BoundedBody body, int histogramLimit)
     {
+        var depths = new JsonUnitDepths(w.CurrentDepth);
         if (r.CountsOnly)
         {
-            WriteHistograms(w, body, histogramLimit,
+            WriteHistograms(w, body, histogramLimit, depths,
                 ("unbound_by_property", SweepSubject.HistogramByProperty, r.Histogram));
             // The honesty layer, on its own subject and its own bound — a silently short list of what could NOT be
             // read is the boundary of the answer going missing, not a finding inside it (#288 review finding 4).
             w.WriteStartArray("scan_errors");
+            int rows = 0;
             foreach (var rec in r.Reports)
             {
                 if (rec.ScanError is null) continue;
                 var row = rec;
-                if (!body.Emit(SweepSubject.ScriptScanRows, ScanErrorRowCost(row), () =>
-                {
-                    w.WriteStartObject();
-                    w.WriteString("plugin", row.Plugin);
-                    w.WriteString("scan_error", row.ScanError!);
-                    w.WriteEndObject();
-                })) break;
+                if (!body.Emit(SweepSubject.ScriptScanRows,
+                               ScanErrorRowCost(row, depths.ScriptRecords, rows > 0),
+                               () => WriteScanErrorRow(w, row))) break;
+                rows++;
             }
             w.WriteEndArray();
             return;
         }
 
         w.WriteStartArray("records");
+        int records = 0;
         foreach (var rec in r.Reports)
         {
             // A RECORD OBJECT IS WHOLE OR ABSENT, and its cost is MEASURED rather than assumed small: a record
             // carries an unbounded EditorID, an unbounded set of property names and an unbounded "could not verify"
             // reason per script, so the post-check alone would let one whole record land past the budget.
             var row = rec;
-            if (!body.Emit(SweepSubject.ScriptRecords, ScriptRecordCost(row), () => WriteScriptRecord(w, row))) break;
+            if (!body.Emit(SweepSubject.ScriptRecords,
+                           ScriptRecordCost(row, depths.ScriptRecords, records > 0),
+                           () => WriteScriptRecord(w, row))) break;
+            records++;
         }
         w.WriteEndArray();
+    }
+
+    /// <summary>ONE <c>scan_errors</c> row — the counts_only honesty layer's unit, shared by the write and the
+    /// measurement.</summary>
+    static void WriteScanErrorRow(Utf8JsonWriter w, RecordScriptFindings rec)
+    {
+        w.WriteStartObject();
+        w.WriteString("plugin", rec.Plugin);
+        w.WriteString("scan_error", rec.ScanError ?? "");
+        w.WriteEndObject();
     }
 
     /// <summary>One record object, written at the response's own nesting depth.</summary>
@@ -1745,41 +1906,15 @@ static class JsonWire
         w.WriteEndObject();
     }
 
-    /// <summary>What ONE record object costs, encoded exactly as the response will encode it — the same
-    /// construction as <see cref="PluginHeadCost"/>, at this object's own nesting depth. Over-counts by the scratch
-    /// wrapper's own braces, which is the safe direction for a budget test.</summary>
-    static int ScriptRecordCost(RecordScriptFindings rec)
-    {
-        using var ms = new MemoryStream();
-        using (var w = new Utf8JsonWriter(ms, Opts))
-        {
-            w.WriteStartObject();
-            w.WriteStartArray("records");
-            WriteScriptRecord(w, rec);
-            w.WriteEndArray();
-            w.WriteEndObject();
-        }
-        return (int)ms.Length;
-    }
+    /// <summary>What ONE record object costs, encoded exactly as the response will encode it — at its own nesting
+    /// depth and sibling position, and returned as the DELTA the unit appended rather than a scratch document's
+    /// whole length (see <see cref="MeasureUnit"/>).</summary>
+    static int ScriptRecordCost(RecordScriptFindings rec, int depth, bool subsequent)
+        => MeasureUnit(depth, subsequent, w => WriteScriptRecord(w, rec));
 
     /// <summary>What one <c>scan_errors</c> row costs, same construction, same depth.</summary>
-    static int ScanErrorRowCost(RecordScriptFindings rec)
-    {
-        using var ms = new MemoryStream();
-        using (var w = new Utf8JsonWriter(ms, Opts))
-        {
-            w.WriteStartObject();
-            w.WriteStartArray("scan_errors");
-            w.WriteStartObject();
-            w.WriteString("plugin", rec.Plugin);
-            w.WriteString("scan_error", rec.ScanError ?? "");
-            w.WriteEndObject();
-            w.WriteEndArray();
-            w.WriteEndObject();
-        }
-        return (int)ms.Length;
-    }
-
+    static int ScanErrorRowCost(RecordScriptFindings rec, int depth, bool subsequent)
+        => MeasureUnit(depth, subsequent, w => WriteScanErrorRow(w, rec));
     // ---- shared sweep writers (#282) ---------------------------------------------------------------
     /// <summary>Reserve every axis's OBJECT FRAME out of the body budget, then write the axes. The frame — the
     /// <c>distinct</c>/<c>rendered</c>/<c>cut_by</c> members around the rows — is this transport's whole disclosure
@@ -1803,25 +1938,22 @@ static class JsonWire
     /// as it lands rather than held until after the rows it should no longer be blocking. The guarantee it belongs
     /// to is pinned in the TEXT lane (HISTOGRAM-AXIS-NEVER-DROPS-SILENTLY,
     /// OVERRUN-IN-THE-TEXT-LANE-IS-ALWAYS-A-CAP-TOO-SMALL); no arm claims to pin it here.</para></summary>
-    static void WriteHistograms(Utf8JsonWriter w, BoundedBody? body, int rowLimit,
+    static void WriteHistograms(Utf8JsonWriter w, BoundedBody? body, int rowLimit, JsonUnitDepths depths,
                                 params (string Name, SweepSubject Subject, IReadOnlyList<SweepCount>? Rows)[] axes)
     {
         if (body is not null)
             foreach (var a in axes)
-                if (a.Rows is not null) body.Reserve(a.Subject, HistogramFrameCost(a.Name, a.Rows.Count));
-        foreach (var a in axes) WriteHistogram(w, a.Name, a.Subject, a.Rows, rowLimit, body);
+                if (a.Rows is not null)
+                    body.Reserve(a.Subject, HistogramFrameCost(a.Name, a.Rows.Count, depths.AxisFrame));
+        foreach (var a in axes) WriteHistogram(w, a.Name, a.Subject, a.Rows, rowLimit, body, depths);
     }
-
     /// <summary>What ONE axis object costs with no rows in it, encoded exactly as the response will encode it — the
     /// same construction as <see cref="PluginHeadCost"/>, at this object's own nesting depth, with every member at
     /// its widest: <c>rendered</c> can print as many digits as <c>distinct</c>, and <c>cut_by</c> carries the longer
     /// of the two knob names.</summary>
-    static int HistogramFrameCost(string name, int distinct)
-    {
-        using var ms = new MemoryStream();
-        using (var w = new Utf8JsonWriter(ms, Opts))
+    static int HistogramFrameCost(string name, int distinct, int depth)
+        => MeasureMember(depth, w =>
         {
-            w.WriteStartObject();
             w.WriteStartObject(name);
             w.WriteNumber("distinct", distinct);
             w.WriteStartArray("rows");
@@ -1829,10 +1961,7 @@ static class JsonWire
             w.WriteNumber("rendered", distinct);
             w.WriteString("cut_by", "max_chars");
             w.WriteEndObject();
-            w.WriteEndObject();
-        }
-        return (int)ms.Length;
-    }
+        });
 
     /// <summary>A counts_only histogram: <c>{distinct, rows:[{key,count}], rendered, cut_by}</c>. Absent when the mode
     /// was not requested; PRESENT with an empty <c>rows</c> when the sweep genuinely found nothing — the two must not
@@ -1842,7 +1971,7 @@ static class JsonWire
     /// <param name="subject">this axis's OWN emission subject. Two axes sharing one meant the first to stop stopped
     /// the second (see <see cref="SweepSubject.HistogramBySource"/>).</param>
     static void WriteHistogram(Utf8JsonWriter w, string name, SweepSubject subject, IReadOnlyList<SweepCount>? rows,
-                               int rowLimit, BoundedBody? body = null)
+                               int rowLimit, BoundedBody? body, JsonUnitDepths depths)
     {
         if (rows is null) { body?.Release(subject); return; }
         // The object's own fixed members do not grow with the findings, so they are part of the fixed part; the ROWS
@@ -1861,12 +1990,13 @@ static class JsonWire
         {
             if (shown >= rowLimit) break;
             var r = row;
+            // The row's cost is MEASURED like every other unit the allocation divides room by. Passed 0 it was one
+            // of the two units whose demand and whose emission test read two different numbers.
             if (body is not null
-                && !body.Emit(subject, 0,
-                              () => { w.WriteStartObject(); w.WriteString("key", r.Key); w.WriteNumber("count", r.Count); w.WriteEndObject(); }))
+                && !body.Emit(subject, HistogramRowCost(r, depths.HistogramRows, shown > 0),
+                              () => WriteHistogramRow(w, r)))
             { cutByBudget = true; break; }
-            if (body is null)
-            { w.WriteStartObject(); w.WriteString("key", row.Key); w.WriteNumber("count", row.Count); w.WriteEndObject(); }
+            if (body is null) WriteHistogramRow(w, row);
             shown++;
         }
         int rendered = shown;
@@ -1888,6 +2018,19 @@ static class JsonWire
         body?.Release(subject);
     }
 
+    /// <summary>ONE histogram row, shared by the write and the measurement.</summary>
+    static void WriteHistogramRow(Utf8JsonWriter w, SweepCount row)
+    {
+        w.WriteStartObject();
+        w.WriteString("key", row.Key);
+        w.WriteNumber("count", row.Count);
+        w.WriteEndObject();
+    }
+
+    /// <summary>What one histogram row costs, at its own depth and sibling position.</summary>
+    static int HistogramRowCost(SweepCount row, int depth, bool subsequent)
+        => MeasureUnit(depth, subsequent, w => WriteHistogramRow(w, row));
+
     /// <summary>Write part of an axis object's own FRAME: unconditional, never refused, and measured into the
     /// response's fixed part when there is a body to measure it with. validate_scripts passes none — its response
     /// layer is not this branch's — and then this is a plain write.</summary>
@@ -1902,7 +2045,8 @@ static class JsonWire
     /// <para>Wrapped in <c>{total, rows, rendered, truncated}</c> rather than a bare array: a budget cut used to drop
     /// trailing rows with NO flag, so a consumer iterating the array believed it had the complete set of what went
     /// unchecked — and the text render said "truncated" for the same result (PR #288 review, finding 4).</para></summary>
-    static void WriteUnreadPlugins(Utf8JsonWriter w, IReadOnlyList<PluginErrors> reports, BoundedBody body)
+    static void WriteUnreadPlugins(Utf8JsonWriter w, IReadOnlyList<PluginErrors> reports, BoundedBody body,
+                                   JsonUnitDepths depths)
     {
         w.WriteStartObject("unread");
         w.WriteNumber("total", reports.Count);
@@ -1915,15 +2059,9 @@ static class JsonWire
             // against an 8,000 cap while the text twin returned 4,788. So it is the second unit whose cost is
             // measured rather than left to the post-check.
             var row = p;
-            if (!body.Emit(SweepSubject.UnreadRows, UnreadRowCost(p), () =>
-            {
-                w.WriteStartObject();
-                w.WriteString("plugin", row.Plugin);
-                WriteNullable(w, "scan_error", row.ScanError);
-                w.WriteNumber("unscannable_records", row.UnscannableRecords);
-                WriteStringArray(w, "unscannable_samples", row.UnscannableSamples);
-                w.WriteEndObject();
-            })) break;
+            if (!body.Emit(SweepSubject.UnreadRows,
+                           UnreadRowCost(p, depths.HistogramRows, rendered > 0),
+                           () => WriteUnreadRow(w, row))) break;
             rendered++;
         }
         w.WriteEndArray();
@@ -1932,34 +2070,29 @@ static class JsonWire
         w.WriteEndObject();
     }
 
-    /// <summary>What one unread row costs, encoded exactly as the response will encode it — the same construction as
-    /// <see cref="PluginHeadCost"/>, at this row's own nesting depth.</summary>
-    static int UnreadRowCost(PluginErrors p)
+    /// <summary>ONE unread row, shared by the write and the measurement.</summary>
+    static void WriteUnreadRow(Utf8JsonWriter w, PluginErrors p)
     {
-        using var ms = new MemoryStream();
-        using (var w = new Utf8JsonWriter(ms, Opts))
-        {
-            w.WriteStartObject();
-            w.WriteStartObject("unread");
-            w.WriteStartArray("rows");
-            w.WriteStartObject();
-            w.WriteString("plugin", p.Plugin);
-            WriteNullable(w, "scan_error", p.ScanError);
-            w.WriteNumber("unscannable_records", p.UnscannableRecords);
-            WriteStringArray(w, "unscannable_samples", p.UnscannableSamples);
-            w.WriteEndObject();
-            w.WriteEndArray();
-            w.WriteEndObject();
-            w.WriteEndObject();
-        }
-        return (int)ms.Length;
+        w.WriteStartObject();
+        w.WriteString("plugin", p.Plugin);
+        WriteNullable(w, "scan_error", p.ScanError);
+        w.WriteNumber("unscannable_records", p.UnscannableRecords);
+        WriteStringArray(w, "unscannable_samples", p.UnscannableSamples);
+        w.WriteEndObject();
     }
+
+    /// <summary>What one unread row costs, at its own depth and sibling position.</summary>
+    static int UnreadRowCost(PluginErrors p, int depth, bool subsequent)
+        => MeasureUnit(depth, subsequent, w => WriteUnreadRow(w, p));
 
     /// <summary>The excluded-plugin roster. <paramref name="body"/> is the bounded emission path; null is
     /// validate_scripts, which passes no budget here — its response layer is not this branch's.</summary>
     static void WriteExcluded(Utf8JsonWriter w, IReadOnlyDictionary<string, string> excluded, BoundedBody? body = null)
     {
+        // A RESPONSE-level roster, so its depth is the writer's own here rather than any family's.
+        int depth = w.CurrentDepth + 1;
         w.WriteStartArray("excluded_plugins");
+        int rendered = 0;
         foreach (var kv in excluded)
         {
             var row = kv;
@@ -1970,29 +2103,21 @@ static class JsonWire
             // post-check let one whole row land over budget and JsonGlue absorbed it only while the row was smaller
             // than that — 5,456 chars against a 5,000 cap on three 1,200-char reasons, while the TEXT twin, which
             // has always measured its own unit.Length here, was inside the same cap with room to spare.
-            if (!body.Emit(SweepSubject.ExcludedRows, ExcludedRowCost(row), Write)) break;
+            if (!body.Emit(SweepSubject.ExcludedRows, ExcludedRowCost(row, depth, rendered > 0), Write)) break;
+            rendered++;
         }
         w.WriteEndArray();
     }
 
-    /// <summary>What one excluded-roster row costs, encoded exactly as the response will encode it — the same
-    /// construction as <see cref="PluginHeadCost"/> and <see cref="UnreadRowCost"/>, at this row's own depth.</summary>
-    static int ExcludedRowCost(KeyValuePair<string, string> row)
-    {
-        using var ms = new MemoryStream();
-        using (var w = new Utf8JsonWriter(ms, Opts))
+    /// <summary>What one excluded-roster row costs, at its own depth and sibling position.</summary>
+    static int ExcludedRowCost(KeyValuePair<string, string> row, int depth, bool subsequent)
+        => MeasureUnit(depth, subsequent, w =>
         {
-            w.WriteStartObject();
-            w.WriteStartArray("excluded_plugins");
             w.WriteStartObject();
             w.WriteString("plugin", row.Key);
             w.WriteString("reason", row.Value);
             w.WriteEndObject();
-            w.WriteEndArray();
-            w.WriteEndObject();
-        }
-        return (int)ms.Length;
-    }
+        });
 
     static List<string> ClassNames(ErrorFindingClass c)
     {
@@ -2685,16 +2810,28 @@ static class JsonWire
     }
     // ---- unit costs, exposed for the DEMAND pass ---------------------------------------------------
     // The allocation water-fills over measured demand (SweepDemand), and a demand must be the SAME number the
-    // emission test declares — so the demand pass calls these rather than spelling the costs a second time.
+    // emission test declares — so the demand pass calls these rather than spelling the costs a second time. Each
+    // takes the DEPTH the unit is written at and whether it follows a sibling, because both change what the unit
+    // costs the document and neither is knowable from the unit alone.
 
-    internal static int PluginHeadCostFor(PluginErrors p) => PluginHeadCost(p);
-    internal static int ScriptRecordCostFor(RecordScriptFindings rec) => ScriptRecordCost(rec);
-    internal static int ScanErrorRowCostFor(RecordScriptFindings rec) => ScanErrorRowCost(rec);
+    internal static int PluginHeadCostFor(PluginErrors p, int depth, bool subsequent)
+        => PluginHeadCost(p, depth, subsequent);
+    internal static int ScriptRecordCostFor(RecordScriptFindings rec, int depth, bool subsequent)
+        => ScriptRecordCost(rec, depth, subsequent);
+    internal static int ScanErrorRowCostFor(RecordScriptFindings rec, int depth, bool subsequent)
+        => ScanErrorRowCost(rec, depth, subsequent);
+    internal static int DanglingEntryCostFor(DanglingRef d, int depth, bool subsequent)
+        => DanglingEntryCost(d, depth, subsequent);
+    internal static int HistogramRowCostFor(SweepCount row, int depth, bool subsequent)
+        => HistogramRowCost(row, depth, subsequent);
+    internal static int UnreadRowCostFor(PluginErrors p, int depth, bool subsequent)
+        => UnreadRowCost(p, depth, subsequent);
+
     /// <summary>This axis's frame cost, keyed off the SUBJECT so the demand pass and the render name the same
     /// axis. The json lane carries its own field names for the axes; mapping by subject is what keeps the two
     /// spellings from drifting into measuring different objects.</summary>
-    internal static int HistogramFrameCostFor(HistogramAxis a)
-        => HistogramFrameCost(AxisJsonName(a.Subject), a.Rows?.Count ?? 0);
+    internal static int HistogramFrameCostFor(HistogramAxis a, int depth)
+        => HistogramFrameCost(AxisJsonName(a.Subject), a.Rows?.Count ?? 0, depth);
 
     internal static string AxisJsonName(SweepSubject s) => s switch
     {
@@ -2703,40 +2840,4 @@ static class JsonWire
         SweepSubject.HistogramByProperty => "unbound_by_property",
         _ => s.ToString(),
     };
-
-    /// <summary>A dangling entry and a histogram row are declared to the emitter at cost 0 today — small, uniform,
-    /// and bounded by the post-check plus JsonGlue. The DEMAND pass cannot use 0: a subject whose demand reads 0
-    /// would be allocated nothing. These measure the row the writer will actually emit.</summary>
-    internal static int DanglingEntryCostFor(DanglingRef d) => MeasureRow(w =>
-    {
-        w.WriteStartObject();
-        w.WriteString("source", d.Source.ToString());
-        w.WriteString("source_type", d.SourceType);
-        WriteNullable(w, "source_editorid", d.SourceEditorId);
-        w.WriteString("target", d.Target.ToString());
-        w.WriteEndObject();
-    });
-
-    internal static int HistogramRowCostFor(SweepCount row) => MeasureRow(w =>
-    {
-        w.WriteStartObject(); w.WriteString("key", row.Key); w.WriteNumber("count", row.Count); w.WriteEndObject();
-    });
-
-    internal static int UnreadRowCostFor(PluginErrors p) => PluginHeadCost(p);
-
-    /// <summary>Measure one row under the RESPONSE's writer options — measuring unindented what is then written
-    /// indented is a number wrong by the whole indentation, which this file's own WriterOptions comment records.</summary>
-    static int MeasureRow(Action<System.Text.Json.Utf8JsonWriter> write)
-    {
-        using var ms = new MemoryStream();
-        using (var w = new System.Text.Json.Utf8JsonWriter(ms, Opts))
-        {
-            w.WriteStartObject();
-            w.WriteStartArray("rows");
-            write(w);
-            w.WriteEndArray();
-            w.WriteEndObject();
-        }
-        return (int)ms.Length;
-    }
 }

@@ -1505,7 +1505,14 @@ static class Wire
     /// reserve rather than out of the rows: <see cref="BoundedBody.Reserved"/> discounts what it wrote, so the
     /// family rendering after it is not charged for a sentence the reserve already bought.</para></summary>
     public static string RenderCheck(CheckSweep s, int maxChars, int histogramLimit = 1000)
+        => RenderCheck(s, maxChars, histogramLimit, out _);
+
+    /// <summary>The same render, handing back the ALLOCATION it built — for <c>ALLOCATION-EQUALS-SPEND</c>, which
+    /// asserts against what each subject was given and what it spent rather than against anything the response
+    /// printed. An internal seam: the public render is the one every caller uses.</summary>
+    internal static string RenderCheck(CheckSweep s, int maxChars, int histogramLimit, out BoundedBody? measured)
     {
+        measured = null;
         if (s.Error is not null) return "error: " + s.Error + (s.Epoch is not null ? $"\nepoch={s.Epoch}" : "");
         int cap = Cap(maxChars);
         var sections = s.Sections;
@@ -1521,17 +1528,55 @@ static class Wire
                                      SweepFamilySelection.Token(sections[i])).Length + BoundaryWrap;
         int budget = Math.Max(0, cap - reserve);
 
+        // WHAT EACH SUBJECT WANTS, measured before anything is written, so the allocation can water-fill
+        // over it rather than discover shortfalls at render time (SweepDemand, BodyAllocation).
+        var demand = SweepDemand.ForText(s, budget, histogramLimit);
+        // AND WHAT THE RESPONSE OWES WHATEVER THE BUDGET SAYS, measured the same way: composed, not assembled.
+        // The row budget has to exclude the WHOLE fixed part — the title, the scope sentence, every family's
+        // section head and its own head, the "no findings" line — and not only the pieces that happen to call
+        // Reserve. Left in, the allocation divides room that does not exist, the global test bites before any
+        // subject reaches its share, and render order decides who loses: the order-dependence water-filling is
+        // here to remove, re-entering one level up.
+        var skeleton = new StringBuilder();
+        var skeletonAccts = s.Accountings(cap);
+        var skeletonBody = BoundedBody.Skeleton(skeletonAccts, () => skeleton.Length);
+        Compose(skeleton, s, sections, skeletonAccts, skeletonBody, histogramLimit);
+        int fixedPart = skeleton.Length - skeletonBody.ReservedWritten;
+
         var sb = new StringBuilder();
+        var body = BoundedBody.ForFamilies(accts, budget, () => sb.Length, s.Plan(),
+                                           demand.Demand, demand.Reserved + fixedPart);
+        measured = body;
+        Compose(sb, s, sections, accts, body, histogramLimit);
+
+        // The overrun question, asked of the FINISHED response exactly as the single-family close asks it. The
+        // notice is part of the response whose length it states, so the composition runs to a fixed point.
+        var response = sb.ToString().TrimEnd('\n');
+        int needed = body.FixedPart(response.Length);
+        // Which accounting states it: the FIRST, because the sentence is about the whole response rather than about
+        // any family, and every accounting was built with the same cap. Stating it once is the point — a notice per
+        // family would tell the caller three times that one response was too long.
+        var overrun = accts.Count > 0 ? accts[0] : null;
+        if (overrun?.CapTooSmall(response.Length, needed) is not { } notice) return response;
+        var settled = overrun.CapTooSmall(response.Length + notice.Length, needed, notice.Length)!;
+        if (settled.Length != notice.Length)
+            settled = overrun.CapTooSmall(response.Length + settled.Length, needed, settled.Length)!;
+        return response + settled;
+    }
+
+    /// <summary>THE WHOLE MERGED RESPONSE BAR ITS OVERRUN NOTICE, composed through one <paramref name="body"/>.
+    /// Run twice per render: once with a <see cref="BoundedBody.Skeleton"/>, which refuses every unit and so leaves
+    /// exactly the fixed part behind to be measured, and once for real. One routine rather than two, because a
+    /// second spelling of the fixed part is a number free to drift from the response it is meant to describe.
+    /// </summary>
+    static void Compose(StringBuilder sb, CheckSweep s, IReadOnlyList<SweepFamily> sections,
+                        IReadOnlyList<CheckAccounting> accts, BoundedBody body, int histogramLimit)
+    {
         sb.Append(ReadSentences.SweepMergedTitle).Append('\n');
         // The scope sentence, above everything a budget can refuse: which families ran and which registered ones did
         // not, with the spelling that gets them. The default narrows only because the response says so (Q3).
         sb.Append(s.ScopeSentence()).Append('\n');
 
-        // WHAT EACH SUBJECT WANTS, measured before anything is written, so the allocation can water-fill
-        // over it rather than discover shortfalls at render time (SweepDemand, BodyAllocation).
-        var demand = SweepDemand.ForText(s, budget, histogramLimit);
-        var body = BoundedBody.ForFamilies(accts, budget, () => sb.Length, s.Plan(),
-                                           demand.Demand, demand.Reserved);
         for (int i = 0; i < sections.Count; i++)
         {
             var f = sections[i];
@@ -1562,34 +1607,22 @@ static class Wire
             }
             // This family's accounting, under this family's section, out of the room held for it.
             if (accts[i].TextLine() is { } line)
-            {
-                var acct = accts[i];
                 body.Reserved(() => sb.Append('\n').Append(line).Append('\n'));
-            }
         }
 
         AppendExcludedPlugins(sb, body, s.ExcludedPlugins);
 
         // ONE boundary block, one line per family that ran — the two families claim different things, so a single
-        // sentence for both would be a claim neither of them makes.
+        // sentence for both would be a claim neither of them makes. Written through the reserve, because that is
+        // where its room came from: counted as body it would be charged to the rows a second time.
         for (int i = 0; i < sections.Count; i++)
-            sb.Append('\n')
-              .Append(string.Format(ReadSentences.SweepBoundaryLabelFor, SweepFamilySelection.Token(sections[i])))
-              .Append(accts[i].Boundary).Append('\n');
-
-        // The overrun question, asked of the FINISHED response exactly as the single-family close asks it. The
-        // notice is part of the response whose length it states, so the composition runs to a fixed point.
-        var response = sb.ToString().TrimEnd('\n');
-        int needed = body.FixedPart(response.Length);
-        // Which accounting states it: the FIRST, because the sentence is about the whole response rather than about
-        // any family, and every accounting was built with the same cap. Stating it once is the point — a notice per
-        // family would tell the caller three times that one response was too long.
-        var overrun = accts.Count > 0 ? accts[0] : null;
-        if (overrun?.CapTooSmall(response.Length, needed) is not { } notice) return response;
-        var settled = overrun.CapTooSmall(response.Length + notice.Length, needed, notice.Length)!;
-        if (settled.Length != notice.Length)
-            settled = overrun.CapTooSmall(response.Length + settled.Length, needed, settled.Length)!;
-        return response + settled;
+        {
+            int at = i;
+            body.Reserved(() => sb.Append('\n')
+                                  .Append(string.Format(ReadSentences.SweepBoundaryLabelFor,
+                                                        SweepFamilySelection.Token(sections[at])))
+                                  .Append(accts[at].Boundary).Append('\n'));
+        }
     }
 
     /// <summary>The newlines a boundary line is wrapped in, held back with it. Two in the render; this is the same
