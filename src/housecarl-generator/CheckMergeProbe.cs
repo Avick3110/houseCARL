@@ -937,10 +937,22 @@ public static class CheckMergeProbe
                      && fams.TryGetProperty("errors", out var er) && !er.TryGetProperty("refused", out _);
         }
         catch { jsonLocal = false; }
-        Arm($"ORCH-A-FAMILY-LOCAL-REFUSAL-DOES-NOT-REFUSE-THE-CALL: exclude= emptying the SCRIPTS family's own scope refuses that family in its own section and leaves the errors family's {OffOrderNpcs} off-order dangling refs standing — raised to response level it threw away a sweep that had answered and told the caller to narrow exclude=",
+        // …and the refused family asserts NO completeness. This writer is reachable with a failed result for the
+        // first time, so "all 0 record section(s) found by this sweep appear above" over a sweep that never ran is
+        // newly possible — the same claim-over-nothing the dialogue accounting was already guarded against.
+        bool refusedDeclaresNothing = !localRefusal.Contains("record section(s) found by this sweep appear above", StringComparison.Ordinal);
+        try
+        {
+            using var d = JsonDocument.Parse(localRefusalJson);
+            refusedDeclaresNothing &= d.RootElement.GetProperty("families").GetProperty("scripts")
+                                       .GetProperty("accounting").TryGetProperty("record_sections_with_findings", out _) == false;
+        }
+        catch { refusedDeclaresNothing = false; }
+        Arm($"ORCH-A-FAMILY-LOCAL-REFUSAL-DOES-NOT-REFUSE-THE-CALL: exclude= emptying the SCRIPTS family's own scope refuses that family in its own section, asserts no completeness there, and leaves the errors family's {OffOrderNpcs} off-order dangling refs standing — raised to response level it threw away a sweep that had answered and told the caller to narrow exclude=",
             !localRefusal.StartsWith("error", StringComparison.OrdinalIgnoreCase)
             && localRefusal.Contains($"{OffOrderNpcs} dangling ref(s)", StringComparison.Ordinal)
             && localRefusal.Contains("exclude= removed every plugin", StringComparison.Ordinal)
+            && refusedDeclaresNothing
             && Count(localRefusal, "\n[errors] ") == 1 && Count(localRefusal, "\n[scripts] ") == 1
             && jsonLocal,
             Trim(localRefusal));
