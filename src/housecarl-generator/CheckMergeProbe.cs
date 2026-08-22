@@ -407,13 +407,23 @@ public static class CheckMergeProbe
         int scriptsHeadAt = offText.IndexOf("[scripts] ", StringComparison.Ordinal);
         int skippedAt = offText.IndexOf("did NOT sweep FreshPatch.esp", StringComparison.Ordinal);
         using (var doc = JsonDocument.Parse(offJson))
+        {
+            // PRESENCE BEFORE VALUE on the field this arm is ABOUT. Read with GetProperty, a render that stops
+            // writing off_order_not_swept made this arm THROW rather than fail — and a guard that throws prints no
+            // FAIL line, so the sabotage cell for that very deletion came back green. Found by the second sweep,
+            // after the same defect had already been fixed once in GROUNDS-ARE-ONE: the pattern, not the arm.
+            bool offPerFamily = doc.RootElement.TryGetProperty("families", out var offFams)
+                          && offFams.TryGetProperty("scripts", out var offScripts)
+                          && offScripts.TryGetProperty("off_order_not_swept", out var offVal)
+                          && offVal.GetString()!.Contains("FreshPatch.esp", StringComparison.Ordinal)
+                          && offFams.TryGetProperty("errors", out var offErrors)
+                          && !offErrors.TryGetProperty("off_order_not_swept", out _);
             Check("OFF-ORDER-STATED-PER-FAMILY: the family with no off-order lane names the file it did not sweep, inside its OWN section where its zero counts are — in both transports",
                 skippedAt > scriptsHeadAt && scriptsHeadAt >= 0
                 && offText.Contains("only the errors family has an off-order lane", StringComparison.Ordinal)
-                && doc.RootElement.GetProperty("families").GetProperty("scripts")
-                      .GetProperty("off_order_not_swept").GetString()!.Contains("FreshPatch.esp", StringComparison.Ordinal)
-                && !doc.RootElement.GetProperty("families").GetProperty("errors").TryGetProperty("off_order_not_swept", out _),
-                $"scriptsHead@{scriptsHeadAt} skipped@{skippedAt}");
+                && offPerFamily,
+                $"scriptsHead@{scriptsHeadAt} skipped@{skippedAt} json={offPerFamily}");
+        }
 
         // ---- PLAN-LEAVES-EMPTY-SUBJECTS-OUT --------------------------------------------------------
         var noFindings = scripts with { Reports = Array.Empty<RecordScriptFindings>() };
@@ -658,8 +668,8 @@ public static class CheckMergeProbe
                 dlgText.Contains("seeded, not swept", StringComparison.Ordinal)
                 && dlgText.Contains("do NOT scope it", StringComparison.Ordinal)
                 && dlgText.Contains("no off-order lane", StringComparison.Ordinal)
-                && fam.GetProperty("scope").GetString() == FirstLineWith(dlgText, "scope:")
-                && fam.GetProperty("seeded_not_swept").GetBoolean(),
+                && Str(fam, "scope") == FirstLineWith(dlgText, "scope:")
+                && Bool(fam, "seeded_not_swept") == true,
                 FirstLineWith(dlgText, "scope:"));
 
             // The counts line states VALIDATED against REACHED, in the outcome's vocabulary — and the head carries
@@ -667,12 +677,12 @@ public static class CheckMergeProbe
             // expected values are the FIXTURE's arithmetic: one seed produced a report, every named seed was tried.
             Check($"DIALOGUE-COUNTS: the section states what the validation FOUND ({Topics} topics, {DialogueFindings} findings) above anything a budget can refuse, in both transports, with validated stated against reached rather than as a bare number",
                 dlgText.Contains($"1 of the {1 + UnreachableSeeds} seed(s) reached were validated, {Topics} topic(s), {DialogueFindings} finding(s)", StringComparison.Ordinal)
-                && fam.GetProperty("topics_found").GetInt32() == Topics
-                && fam.GetProperty("findings_found").GetInt32() == DialogueFindings
-                && fam.GetProperty("seeds_named").GetInt32() == 1 + UnreachableSeeds
-                && fam.GetProperty("seeds_reached").GetInt32() == 1 + UnreachableSeeds
-                && fam.GetProperty("seeds_validated").GetInt32() == 1
-                && fam.GetProperty("seeds_unreachable_total").GetInt32() == UnreachableSeeds,
+                && Num(fam, "topics_found") == Topics
+                && Num(fam, "findings_found") == DialogueFindings
+                && Num(fam, "seeds_named") == 1 + UnreachableSeeds
+                && Num(fam, "seeds_reached") == 1 + UnreachableSeeds
+                && Num(fam, "seeds_validated") == 1
+                && Num(fam, "seeds_unreachable_total") == UnreachableSeeds,
                 FirstLineWith(dlgText, "reached were validated"));
         }
 
@@ -1662,6 +1672,24 @@ public static class CheckMergeProbe
 
     static string FirstLineWith(string text, string needle)
         => text.Split('\n').FirstOrDefault(l => l.Contains(needle, StringComparison.Ordinal)) ?? "<absent>";
+
+    /// <summary>READ A FIELD THAT MIGHT NOT BE THERE, without throwing — the three shapes an arm needs.
+    ///
+    /// <para><b>Why these exist rather than <c>GetProperty</c>.</b> An arm asserting that a field carries a value
+    /// is exactly the arm a sabotage DELETING that field must redden. Read with <c>GetProperty</c> it does not
+    /// redden, it THROWS — and a guard that throws prints no FAIL line, so a sabotage sweep scanning for FAIL lines
+    /// records the cell as a pass and every arm after it is skipped. This session hit that three times in the first
+    /// sweep and once more in the second, in four different arms; it is a pattern, not an arm. An absent field is
+    /// <c>null</c> here, which fails the comparison it is written into.</para></summary>
+    static int? Num(JsonElement e, string name)
+        => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : null;
+
+    static string? Str(JsonElement e, string name)
+        => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    static bool? Bool(JsonElement e, string name)
+        => e.TryGetProperty(name, out var v) && (v.ValueKind == JsonValueKind.True || v.ValueKind == JsonValueKind.False)
+            ? v.GetBoolean() : null;
 
     /// <summary>Every object in <paramref name="e"/> that names one key twice, walked whole.
     ///
