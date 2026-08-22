@@ -1614,23 +1614,25 @@ static class JsonWire
     internal static string RenderCheck(CheckSweep s, int maxChars, int histogramLimit, out BoundedBody? measured)
     {
         measured = null;
+        // WHAT THIS RESPONSE ACTUALLY DID, composed ONCE and handed to everything below — see the text lane.
+        var o = CheckOutcome.For(s);
         int cap = Cap(maxChars);
-        var sections = s.Sections;
-        var accts = s.Accountings(cap);
+        var sections = o.Sections;
+        var accts = o.Accountings(cap);
         // One accounting + boundary reserve per family, and ONE entry slack for the response: the body stops the
         // moment a unit crosses the budget, so at most one unit can land over however many families rendered.
         int reserve = CheckAccounting.JsonEntrySlack;
         foreach (var a in accts) reserve += a.JsonAccountingReserve;
         int budget = Math.Max(0, cap - reserve);
 
-        if (s.Error is not null)
+        if (o.Error is not null)
         {
             using var ems = new MemoryStream();
             using (var ew = new Utf8JsonWriter(ems, Opts))
             {
                 ew.WriteStartObject();
-                ew.WriteString("error", s.Error);
-                WriteNullable(ew, "epoch", s.Epoch);
+                ew.WriteString("error", o.Error);
+                WriteNullable(ew, "epoch", o.Epoch);
                 ew.WriteEndObject();
                 ew.Flush();
             }
@@ -1644,20 +1646,20 @@ static class JsonWire
         var depths = new JsonUnitDepths(FamilySectionDepth);
         // WHAT EACH SUBJECT WANTS, measured before anything is written, so the allocation can water-fill
         // over it rather than discover shortfalls at render time (SweepDemand, BodyAllocation).
-        var demand = SweepDemand.ForJson(s, budget, histogramLimit, depths);
+        var demand = SweepDemand.ForJson(o, budget, histogramLimit, depths);
         // AND WHAT THE DOCUMENT OWES WHATEVER THE BUDGET SAYS: composed with no units in it and measured, never
         // assembled from a roster of write sites. See the text lane for why the row budget has to exclude the
         // whole of it.
         int fixedPart;
         {
             using var sms = new MemoryStream();
-            var skeletonAccts = s.Accountings(cap);
+            var skeletonAccts = o.Accountings(cap);
             BoundedBody skeletonBody;
             using (var sw = new Utf8JsonWriter(sms, Opts))
             {
                 skeletonBody = BoundedBody.Skeleton(skeletonAccts, () => Size(sw, sms));
                 sw.WriteStartObject();
-                Compose(sw, s, sections, skeletonAccts, skeletonBody, histogramLimit);
+                Compose(sw, o, sections, skeletonAccts, skeletonBody, histogramLimit);
                 sw.WriteEndObject();
             }
             fixedPart = (int)sms.Length - skeletonBody.ReservedWritten - skeletonBody.BodyTotal;
@@ -1667,10 +1669,10 @@ static class JsonWire
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
-            var body = BoundedBody.ForFamilies(accts, budget, () => Size(w, ms), s.Plan(),
-                                               demand.Demand, demand.Reserved + fixedPart, s.ResponseSubjects);
+            var body = BoundedBody.ForFamilies(accts, budget, () => Size(w, ms), o.Plan(),
+                                               demand.Demand, demand.Reserved + fixedPart, o.ResponseSubjects);
             measured = body;
-            Compose(w, s, sections, accts, body, histogramLimit);
+            Compose(w, o, sections, accts, body, histogramLimit);
 
             int closed = Size(w, ms) + Framing.RootClose;
             int needed = body.FixedPart(closed);
@@ -1696,20 +1698,36 @@ static class JsonWire
     /// <summary>The depth a family writes its own members at: the root object, <c>families</c>, the family. Named
     /// once because the demand pass has no writer to read it off — the section writers take theirs from the live
     /// <c>CurrentDepth</c>, and a disagreement between the two shows up as allocation not equalling spend.</summary>
-    const int FamilySectionDepth = 3;
+    internal const int FamilySectionDepth = 3;
 
     /// <summary>THE WHOLE MERGED DOCUMENT BAR THE ROOT BRACES AND THE OVERRUN NOTICE, composed through one
     /// <paramref name="body"/>. Run twice per render: once with a <see cref="BoundedBody.Skeleton"/>, whose refusal
     /// of every unit leaves exactly the fixed part behind to be measured, and once for real.</summary>
-    static void Compose(Utf8JsonWriter w, CheckSweep s, IReadOnlyList<SweepFamily> sections,
+    static void Compose(Utf8JsonWriter w, CheckOutcome o, IReadOnlyList<SweepFamily> sections,
                         IReadOnlyList<CheckAccounting> accts, BoundedBody body, int histogramLimit)
     {
+        var s = o.Sweep;
         // The scope facts, as DATA and as the SENTENCE. The sentence is the same string the text lane prints —
         // one source, stated whole by both transports, so a pin on it vouches for what each of them says.
-        WriteStringArray(w, "families_ran", s.Selection.Ran.Select(SweepFamilySelection.Token).ToArray());
-        w.WriteBoolean("findings_defaulted", s.Selection.Defaulted);
-        w.WriteStartArray("families_not_run");
-        foreach (var f in s.Selection.NotRun)
+        //
+        // THREE LISTS, because a family can be in three states and two lists could only say two of them.
+        // `families_ran` is what ANSWERED, off the outcome: filled from the SELECTION it named a family whose whole
+        // section was a refusal, and a consumer reading it as "these have findings" got a false negative it could
+        // not detect (round-2 finding B2). `families_refused` is the middle state, with the ground beside each; the
+        // absent list is what was never asked, renamed to say so.
+        WriteStringArray(w, "families_ran", o.Ran.Select(SweepFamilySelection.Token).ToArray());
+        w.WriteBoolean("findings_defaulted", o.Defaulted);
+        w.WriteStartArray("families_refused");
+        foreach (var f in o.Refused)
+        {
+            w.WriteStartObject();
+            w.WriteString("family", SweepFamilySelection.Token(f));
+            w.WriteString("refused", o.Refusal(f)!);
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+        w.WriteStartArray("families_not_selected");
+        foreach (var f in o.NotSelected)
         {
             w.WriteStartObject();
             w.WriteString("family", SweepFamilySelection.Token(f));
@@ -1718,20 +1736,23 @@ static class JsonWire
             w.WriteEndObject();
         }
         w.WriteEndArray();
-        w.WriteString("findings_scope", s.ScopeSentence());
+        w.WriteString("findings_scope", o.ScopeSentence());
 
         // Above `families` for the reason the text lane states: an accounting reports what has been emitted,
         // and every family's accounting is written inside the loop below.
-        WriteExcluded(w, s.ExcludedPlugins, body);
+        WriteExcluded(w, o.ExcludedPlugins, body);
 
         w.WriteStartObject("families");
         for (int i = 0; i < sections.Count; i++)
         {
             var f = sections[i];
             w.WriteStartObject(SweepFamilySelection.Token(f));
+            // The off-order asymmetry, ABOVE whatever this family goes on to say, refusal included — see the text
+            // lane for the call it used to vanish from (round-2 finding B4).
+            if (o.OffOrder(f) is { } skipped) w.WriteString("off_order_not_swept", skipped);
             // A family that refused says so HERE — see the text lane for why a scripts-family scope refusal is no
             // longer the whole call's error.
-            if (s.Refusal(f) is { } refusal)
+            if (o.Refusal(f) is { } refusal)
             {
                 w.WriteString("refused", refusal);
             }
@@ -1742,15 +1763,13 @@ static class JsonWire
             }
             else if (f == SweepFamily.Scripts)
             {
-                // In this family's own object, beside its own counts — see the text lane for why.
-                if (s.OffOrderSentence() is { } skipped) w.WriteString("off_order_not_swept", skipped);
                 WriteScriptsHead(w, s.Scripts!);
                 WriteScriptsSection(w, s.Scripts!, body, histogramLimit);
             }
             else
             {
-                DialogueSweepRender.WriteHead(w, s);
-                DialogueSweepRender.WriteSection(w, s, body);
+                DialogueSweepRender.WriteHead(w, o);
+                DialogueSweepRender.WriteSection(w, o, body);
             }
             // This family's accounting and boundary, out of the room held for them rather than out of the rows
             // the next family still has to render.

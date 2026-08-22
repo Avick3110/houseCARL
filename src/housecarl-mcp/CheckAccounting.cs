@@ -59,19 +59,19 @@ internal sealed class CheckAccounting
     readonly int _budgetListed;                     // the subset the listing budget admitted into the reports
     readonly int _cap;
     readonly int _limit;
+    readonly int _jsonDepth = 1;   // where this accounting's json lands; see MeasureJson
     // The scripts family's own listing budget, decomposed exactly as the dangling subject's is: the population the
     // sweep found, and the subset the budget admitted into the reports. Both zero on the errors lane, whose
     // findings are the dangling entries above.
     readonly int _scriptFindingsFound;
     readonly int _scriptFindingsListed;
     readonly string _scriptTotals = "";   // the class-aware true totals, restated where the cut is reported
-    // The dialogue family's own three quantities: what the validation FOUND (never capped), how many seeds the
-    // caller named, and how many the seed budget let this call actually try. The last two differ exactly where the
-    // budget stopped the loop, and that difference is an absence no other subject accounts for.
-    readonly int _dialogueProblems;
-    readonly bool _dialogueLane;
-    readonly int _dialogueSeedsNamed;
-    readonly int _dialogueSeedsTried;
+    // THE DIALOGUE FAMILY'S QUANTITIES, as ONE value off the response's outcome rather than as loose ints copied in
+    // here. Null exactly where that family did not answer. It is one field on purpose: as four separate ints, the
+    // measuring constructor below copied none of them, so the json reserve never measured the four seed fields this
+    // lane writes and was covered only by slack meant for something else (round-2 finding B6). One field is one
+    // line to copy, and forgetting it is a compile error rather than a silent under-measure.
+    readonly DialogueOutcome? _dialogue;
     // What THIS lane closes with. The two families state different boundaries, and TextReserve holds room for the
     // one that will actually be written — a reserve sized off the other family's sentence is room for a sentence
     // this lane cannot write, which is the defect CanStateAccounting exists to name.
@@ -97,9 +97,15 @@ internal sealed class CheckAccounting
     /// so exactly one accounting may declare its rows. Two that declared it would each subtract the same rows from
     /// the same total and the response would state the cut twice, which is the double count that keeping one
     /// subject per lane fact exists to make unrepresentable.</param>
-    internal CheckAccounting(ErrorCheckResult r, int cap, bool declareExcluded = true)
+    /// <param name="jsonDepth">the depth this accounting's json is WRITTEN at — 1 in an ancestor tool's root
+    /// document, 3 inside a merged one's <c>families.&lt;token&gt;</c>. <see cref="MeasureJson"/> serializes the
+    /// worst case to size the reserve, and the document is indented, so a measurement taken at depth 1 for an
+    /// object written at depth 3 is short by two levels of indentation on every line of it — roughly 500 bytes
+    /// across three families with a ten-row roster (round-2 finding A3).</param>
+    internal CheckAccounting(ErrorCheckResult r, int cap, int jsonDepth = 1, bool declareExcluded = true)
     {
         _cap = cap;
+        _jsonDepth = jsonDepth;
         _limit = r.Limit;
         _boundary = ReadSentences.SweepBoundary;
         _bySource = r.DanglingBySource ?? Array.Empty<SweepCount>();
@@ -134,9 +140,10 @@ internal sealed class CheckAccounting
     /// lanes and cannot double-count a row.</item>
     /// <item><b>Excluded rows</b> — wherever the index excluded something AND this accounting owns the roster.</item>
     /// </list></summary>
-    internal CheckAccounting(ScriptCheckResult r, int cap, bool declareExcluded = true)
+    internal CheckAccounting(ScriptCheckResult r, int cap, int jsonDepth = 1, bool declareExcluded = true)
     {
         _cap = cap;
+        _jsonDepth = jsonDepth;
         _limit = r.Limit;
         _boundary = ReadSentences.SweepScriptBoundary;
         _bySource = Array.Empty<SweepCount>();
@@ -165,22 +172,23 @@ internal sealed class CheckAccounting
     /// boundary is what makes it unrefusable: it is reserved out of <c>max_chars</c> before the body renders, so the
     /// sentence saying a clean structural pass is not "this will play" cannot be dropped by the pressure that cut
     /// the findings it qualifies.</para></summary>
-    internal CheckAccounting(DialogueCheckResult r, int cap)
+    /// <param name="outcome">this family's quantities off the response's <see cref="CheckOutcome"/> — null exactly
+    /// where the family did not answer. The accounting derives NONE of them itself: it states what the response
+    /// RENDERED of each and which knob moves the rest, and every total it names in prose comes from here.</param>
+    internal CheckAccounting(DialogueCheckResult r, DialogueOutcome? outcome, int cap, int jsonDepth = 1)
     {
         _cap = cap;
+        _jsonDepth = jsonDepth;
         _limit = r.Limit;
         _bySource = Array.Empty<SweepCount>();
         _boundary = string.Format(ReadSentences.DialogueBoundary,
             r.ConditionedInfos > 0 ? string.Format(ReadSentences.DialogueConditioned, r.ConditionedInfos) : "",
             r.ReadIncomplete ? ReadSentences.DialogueReadIncomplete : "");
-        _dialogueProblems = r.ProblemsFound;
-        _dialogueSeedsNamed = r.SeedsNamed;
-        _dialogueSeedsTried = r.Seeds.Count;
         // This lane HAS seeds whether or not it lists topics: how many were named and how many the budget let it
         // reach are facts of the call, not of the listing. Gated on the topic subject instead, the json lane said
         // nothing at all about a seed budget that had cut the call under counts_only, while the text lane stated
         // it — one sweep, two transports, two different answers (round-1 review).
-        _dialogueLane = r.Success;
+        _dialogue = outcome;
 
         // A REFUSED family declares NOTHING. Declaring its subjects anyway made the accounting state "every one of
         // the 0 topic(s) these seeds own is listed" under a section whose whole content is a cost-refusal — a
@@ -240,8 +248,9 @@ internal sealed class CheckAccounting
     int ScriptOmittedByBudget => Has(SweepSubject.ScriptRecords) ? _scriptFindingsFound - _scriptFindingsListed : 0;
 
     /// <summary>Seeds the caller named that the seed budget never let this call try. A pure SWEEP fact like the two
-    /// above — counted before anything renders, and the same number in the worst case as in the real one.</summary>
-    int DialogueSeedsUnreached => Math.Max(0, _dialogueSeedsNamed - _dialogueSeedsTried);
+    /// above — counted before anything renders, and the same number in the worst case as in the real one. The
+    /// subtraction lives on <see cref="DialogueOutcome"/>, taken once for the whole response.</summary>
+    int DialogueSeedsUnreached => _dialogue?.SeedsNotReached ?? 0;
 
     /// <summary>WHICH source plugins are missing entries from THIS response, largest first. Computed against what was
     /// emitted, so it covers both causes at once: under the two-layer split, a plugin whose entries the budget listed
@@ -457,13 +466,16 @@ internal sealed class CheckAccounting
                                 Found(SweepSubject.DialogueTopics))
                 : string.Format(ReadSentences.SweepDialogueAllVisible, Found(SweepSubject.DialogueTopics)));
         }
-        if (DialogueSeedsUnreached > 0 || (v.Worst && Has(SweepSubject.DialogueSeedRefusals)))
-            sb.Append(string.Format(ReadSentences.SweepDialogueSeedsCut, _dialogueSeedsTried, _dialogueSeedsNamed,
-                                    DialogueSeedsUnreached, _limit));
+        // REACHED against NAMED, in the outcome's words — the same two quantities the scope sentence states, so the
+        // two cannot call different numbers by one name again.
+        if (_dialogue is { } dlg && (DialogueSeedsUnreached > 0 || (v.Worst && Has(SweepSubject.DialogueSeedRefusals))))
+            sb.Append(string.Format(ReadSentences.SweepDialogueSeedsCut, dlg.SeedsReached, dlg.SeedsNamed,
+                                    dlg.SeedsNotReached, _limit));
         // The totals, restated wherever this family's listing is short — they are never capped, and a short listing
         // with no total beside it reads as the whole answer.
-        if (Has(SweepSubject.DialogueTopics) && (Short(v, SweepSubject.DialogueTopics) || DialogueSeedsUnreached > 0 || v.Worst))
-            sb.Append(string.Format(ReadSentences.SweepDialogueProblems, _dialogueProblems,
+        if (_dialogue is { } dlgT && Has(SweepSubject.DialogueTopics)
+            && (Short(v, SweepSubject.DialogueTopics) || DialogueSeedsUnreached > 0 || v.Worst))
+            sb.Append(string.Format(ReadSentences.SweepDialogueProblems, dlgT.FindingsFound,
                                     Found(SweepSubject.DialogueTopics)));
         if (Short(v, SweepSubject.DialogueSeeds))
             sb.Append(string.Format(ReadSentences.SweepDialogueSeedSections, Shown(v, SweepSubject.DialogueSeeds),
@@ -593,7 +605,9 @@ internal sealed class CheckAccounting
         }
         if (dialogueTopics)
         {
-            w.WriteNumber("topics_validated", Found(SweepSubject.DialogueTopics));
+            // No topic TOTAL here: the family head writes it as `topics_found`. Written in both places it was the
+            // same key twice in the same object (round-2 finding B5), and the sibling families' totals are not in
+            // their heads, which is why theirs stay.
             w.WriteNumber("rendered", Shown(v, SweepSubject.DialogueTopics));
             w.WriteBoolean("truncated", Short(v, SweepSubject.DialogueTopics) || Short(v, SweepSubject.DialogueSeeds)
                                         || Short(v, SweepSubject.DialogueSeedRefusals));
@@ -630,34 +644,21 @@ internal sealed class CheckAccounting
             w.WriteNumber("script_scan_errors_total", Found(SweepSubject.ScriptScanRows));
             w.WriteNumber("script_scan_errors_named", Shown(v, SweepSubject.ScriptScanRows));
         }
-        if (_dialogueLane)
+        // WHAT THIS RESPONSE DID WITH THE SEEDS — and NOT how many there were. The family head states every
+        // quantity the outcome holds (named, reached, validated, unreachable, topics, findings); this states what
+        // was rendered of them and which knob moves the rest. Written here as well, `seeds_named`, the topic total
+        // and the finding total were each a twin of a head field under a second name, and `topics_validated` was a
+        // literal duplicate KEY in the same family object (round-2 finding B5).
+        if (_dialogue is not null)
         {
-            // THE SEED FACTS, in both lanes. How many seeds were named and how many the budget let this call reach
-            // are facts of the CALL — counts_only silences the topic blocks, not the boundary of the answer, and
-            // the text lane has always said so here.
-            w.WriteNumber("seeds_named", _dialogueSeedsNamed);
-            // NOT `seeds_validated`: the family head writes that name for the seeds that produced a REPORT, and
-            // this is the seeds the budget let the call reach — reports plus the ones that resolved to nothing.
-            // Two values under one name in one family object is a consumer reading whichever it happened to find
-            // (round-1 review). The unreachable ones are named in their own roster below.
-            w.WriteNumber("seeds_reached", _dialogueSeedsTried);
             w.WriteNumber("seeds_not_reached_by_budget", DialogueSeedsUnreached);
             w.WriteNumber("limit", _limit);
         }
-        if (dialogueTopics)
-        {
-            // The topic facts, which the LISTING lane has and counts_only does not.
-            w.WriteNumber("dialogue_topics_found", Found(SweepSubject.DialogueTopics));
-            w.WriteNumber("dialogue_topics_rendered", Shown(v, SweepSubject.DialogueTopics));
-            w.WriteNumber("dialogue_findings_found", _dialogueProblems);
-        }
+        if (dialogueTopics) w.WriteNumber("dialogue_topics_rendered", Shown(v, SweepSubject.DialogueTopics));
         // In BOTH lanes, for the reason the subject is declared in both: a seed nobody could reach bounds the answer
-        // rather than sitting inside it, so counts_only states it too.
+        // rather than sitting inside it, so counts_only states how many of them this response NAMED too.
         if (Has(SweepSubject.DialogueSeedRefusals))
-        {
-            w.WriteNumber("seeds_unreachable_total", Found(SweepSubject.DialogueSeedRefusals));
             w.WriteNumber("seeds_unreachable_named", Shown(v, SweepSubject.DialogueSeedRefusals));
-        }
         // Facts about the CALL rather than about any subject, so they are true of every lane and written by every
         // lane: what this section listed at all, and the cap it was given.
         w.WriteNumber("max_chars", _cap);
@@ -711,19 +712,30 @@ internal sealed class CheckAccounting
     /// a bare writer and a 5000-char cap returned 5673.</para></summary>
     int MeasureJson(Values v)
     {
-        // A standalone writer needs an enclosing object for a named property, and the wrapper's own two braces are
-        // covered by Glue.
+        // AT THE DEPTH IT WILL BE WRITTEN AT, and as a DELTA. A standalone writer needs an enclosing object for a
+        // named property; in a merged document that object is `families.<token>`, two levels further in, and the
+        // writer is indented — so two spaces per level per line of every accounting. Measured in a bare root object
+        // for an object written at depth 3, the reserve was short by that indentation on every line, roughly 500
+        // bytes across three families with a ten-row roster (round-2 finding A3). It could not be made to overrun on
+        // its own because JsonGlue absorbed it, which is precisely the posture that produced four unbounded write
+        // sites in a row, so it is measured rather than left to slack.
         using var ms = new MemoryStream();
+        int before = 0;
         using (var w = new Utf8JsonWriter(ms, JsonWire.WriterOptions))
         {
             w.WriteStartObject();
+            for (int i = 1; i < _jsonDepth; i++) w.WriteStartObject("n");
+            // The accounting is never the first member of a family object, so it pays the separator a later
+            // property owes — the same term MeasureUnit charges a subsequent array element.
+            w.WriteString("before", "");
+            before = (int)(ms.Length + w.BytesPending);
             new CheckAccounting(v, this).WriteJson(w, v);
             // The boundary rides the measurement rather than being added as a raw char count: json escapes the
             // apostrophes in it, so its encoded length is not its string length.
             w.WriteString("boundary", _boundary);
-            w.WriteEndObject();
+            w.Flush();
+            return (int)ms.Length - before;
         }
-        return (int)ms.Length;
     }
 
     /// <summary>The measuring constructor: every subject declared at full width, so
@@ -742,10 +754,17 @@ internal sealed class CheckAccounting
         _bySource = v.Roster;
         _cap = int.MaxValue;
         _limit = int.MaxValue;
+        _jsonDepth = real._jsonDepth;
         _budgetListed = v.ByBudget;
         _scriptFindingsFound = real._scriptFindingsFound;
         _scriptFindingsListed = real._scriptFindingsListed;
         _scriptTotals = real._scriptTotals;
+        // The dialogue family's quantities, carried across for the same reason the scripts family's two counts are:
+        // they are SWEEP facts, so the widest value they can print is the value they will print. As four loose ints
+        // this line did not exist, so the worst case wrote none of the fields they gate and the reserve did not
+        // cover a lane it was measuring FOR (round-2 finding B6) — the constructor's own doc claimed the opposite.
+        // As one field it is one assignment, and it cannot be half-copied.
+        _dialogue = real._dialogue;
         // Each subject at the WIDEST number this lane can print for it: the dangling-derived worst case, or the
         // subject's own found count where that is larger. A subject whose population is neither the dangling total
         // nor the roster — the scripts family's record sections — printed 0 in the worst case and its real count in
