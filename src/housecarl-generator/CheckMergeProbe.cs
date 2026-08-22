@@ -624,6 +624,52 @@ public static class CheckMergeProbe
             seedCutBad.Count == 0,
             seedCutBad.Count == 0 ? "every cap that cut stated seeds" : string.Join("; ", seedCutBad.Take(3)));
 
+        // ---- DIALOGUE-SEED-FACTS-IN-BOTH-LANES / -ONE-NAME-ONE-VALUE -------------------------------
+        // counts_only silences the topic BLOCKS, not the boundary of the answer. The json accounting's whole
+        // dialogue block was gated on the topic subject, which counts_only does not declare, so a counts_only call
+        // whose seed budget had cut it said nothing at all about that — while the text lane said it (round-1
+        // review). And `seeds_validated` was written twice in one family object with two different meanings: the
+        // seeds that produced a REPORT at family level, the seeds the budget REACHED in the accounting.
+        var budgetCounts = budgeted with { CountsOnly = true };
+        var budgetCountsSweep = new CheckSweep(Sel("dialogue"), null, null, null, budgetCounts);
+        var budgetCountsText = Wire.RenderCheck(budgetCountsSweep, 0);
+        var budgetCountsJson = JsonWire.RenderCheck(budgetCountsSweep, 0);
+        var seedFacts = new List<string>();
+        // The text lane is the control: it has always stated the seed cut under counts_only.
+        if (!budgetCountsText.Contains("2 of the 5 seed(s) named were validated; 3 were NOT validated", StringComparison.Ordinal))
+            seedFacts.Add("the TEXT lane does not state the seed cut under counts_only — the arm has no control");
+        using (var doc = JsonDocument.Parse(budgetCountsJson))
+        {
+            var fam = doc.RootElement.GetProperty("families").GetProperty("dialogue");
+            var acct = fam.GetProperty("accounting");
+            if (!acct.TryGetProperty("seeds_named", out var named) || named.GetInt32() != 5)
+                seedFacts.Add("json counts_only states no seeds_named");
+            if (!acct.TryGetProperty("seeds_reached", out var reached) || reached.GetInt32() != 2)
+                seedFacts.Add("json counts_only states no seeds_reached");
+            if (!acct.TryGetProperty("seeds_not_reached_by_budget", out var missed) || missed.GetInt32() != 3)
+                seedFacts.Add("json counts_only states no seeds_not_reached_by_budget");
+            // …and the topic fields, which this lane genuinely does not have, stay absent.
+            if (acct.TryGetProperty("dialogue_topics_found", out _))
+                seedFacts.Add("json counts_only states a topic count for a lane that lists no topics");
+            // ONE NAME, ONE VALUE. The accounting must not re-use the head's name for a different quantity.
+            if (acct.TryGetProperty("seeds_validated", out _))
+                seedFacts.Add("the accounting writes seeds_validated, which the family head already uses for a different quantity");
+        }
+        // The listing lane's own half: the head's seeds_validated is the seeds that produced a report, and nothing
+        // else in the family object carries that name with another value.
+        using (var doc = JsonDocument.Parse(budgetJson))
+        {
+            var fam = doc.RootElement.GetProperty("families").GetProperty("dialogue");
+            if (fam.GetProperty("seeds_validated").GetInt32() != budgeted.Resolved.Count())
+                seedFacts.Add($"the head's seeds_validated is not the seeds that produced a report ({fam.GetProperty("seeds_validated").GetInt32()} vs {budgeted.Resolved.Count()})");
+            if (fam.GetProperty("accounting").TryGetProperty("seeds_validated", out _))
+                seedFacts.Add("the listing lane's accounting also writes seeds_validated");
+        }
+        Check("DIALOGUE-SEED-FACTS-IN-BOTH-LANES: how many seeds were named, reached and never reached is a fact of the CALL, so counts_only states it too — and no name in one family object carries two different values",
+            seedFacts.Count == 0,
+            seedFacts.Count == 0 ? "seeds_named/seeds_reached/seeds_not_reached_by_budget in both lanes, one name one value"
+                                 : string.Join("; ", seedFacts.Take(4)));
+
         // ---- DIALOGUE-FINISHED-SEED-HANDS-BACK-ITS-SHARE -------------------------------------------
         // A subject's ceiling is fixed on its FIRST unit against the siblings still pending, so the topic blocks of
         // a ONE-SEED call are capped at half the family's share unless the seed subject says it is finished. The arm

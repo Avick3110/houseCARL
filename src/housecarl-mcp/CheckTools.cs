@@ -123,7 +123,8 @@ public static class CheckTools
         [Description("Optional. The SCRIPTS family only: report only findings whose PROPERTY NAME contains this substring (case-insensitive) — chasing one property across a plugin. A record left with no matching finding drops out of the listing entirely.")]
             string? property_contains = null,
         [Description("Optional. Plugins to leave OUT of the sweep entirely — they cost no record walk, no .pex read " +
-             "and no limit= budget, in EVERY family. Each value is either a plugin filename WITH its extension " +
+             "and no limit= budget, in every SWEPT family. (The dialogue family is seeded, not swept: it takes seeds=, " +
+             "and no plugin-scope parameter narrows it — its own section says so.) Each value is either a plugin filename WITH its extension " +
              "('CoolMod.esp') or one of two group names: base_masters (the five the game ships with) or implicit " +
              "(every plugin the order force-loads because plugins.txt does not list it — this is where Creation Club " +
              "plugins and _ResourcePack.esl are, and it INCLUDES the base masters). A value that is neither is " +
