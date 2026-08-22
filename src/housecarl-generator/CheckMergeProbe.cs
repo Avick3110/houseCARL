@@ -658,6 +658,7 @@ public static class CheckMergeProbe
         const int OrchNpcs = 6;       // NPCs whose Race links into the absent master  ⇒ 6 dangling refs
         const int OrchWeapons = 4;    // weapons whose VMAD binds nothing              ⇒ 4 record sections
         const int OffOrderNpcs = 3;   // the same, in the plugin that is on disk but not in the order
+        const int SecondWeapons = 2;  // a SECOND active plugin's, so exclude= has something left to sweep
 
         string instance = Path.Combine(root, "orch");
         string profiles = Path.Combine(instance, "profiles", "Default");
@@ -670,9 +671,11 @@ public static class CheckMergeProbe
             + game.Replace(@"\", @"\\") + ")\r\n");
 
         string modDir = Path.Combine(mods, "OrchMod");
+        string twoDir = Path.Combine(mods, "OrchTwo");
         string offDir = Path.Combine(mods, "OrchOff");
         string scripts = Path.Combine(modDir, "Scripts");
-        Directory.CreateDirectory(modDir); Directory.CreateDirectory(offDir); Directory.CreateDirectory(scripts);
+        Directory.CreateDirectory(modDir); Directory.CreateDirectory(twoDir);
+        Directory.CreateDirectory(offDir); Directory.CreateDirectory(scripts);
         ScriptPropertyCheckProbe.WritePex(Path.Combine(scripts, "HcOrchScript.pex"), "HcOrchScript", parent: null,
             ScriptPropertyCheckProbe.AutoObj("HcOrchSpell", "Spell"),
             ScriptPropertyCheckProbe.AutoScalar("HcOrchChance", "Int", initInt: null));
@@ -697,22 +700,27 @@ public static class CheckMergeProbe
             m.BeginWrite.ToPath(path).WithLoadOrder(new ISkyrimModGetter[] { g }).Write();
         }
         WriteMod(Path.Combine(modDir, "HcOrch.esp"), "HcOrch", OrchNpcs, OrchWeapons);
+        // The second active plugin carries SCRIPT findings only. exclude= aimed at the first must leave these
+        // behind: a cell that excluded the ONLY plugin in the order is answered by a refusal rather than by two
+        // empty families, which is how the first spelling of the exclude cell passed while seeing nothing.
+        WriteMod(Path.Combine(twoDir, "HcOrchTwo.esp"), "HcOrchTwo", 0, SecondWeapons);
         WriteMod(Path.Combine(offDir, "HcOrchOff.esp"), "HcOrchOff", OffOrderNpcs, 0);
 
         // HcOrchOff.esp is in NO load-order file: on disk, in an enabled mod folder, out of the active order. That
         // is precisely the shape the two families answer differently.
-        File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\nHcOrch.esp\r\n");
-        File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*HcOrch.esp\r\n");
-        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+OrchOff\r\n+OrchMod\r\n");
+        File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\nHcOrch.esp\r\nHcOrchTwo.esp\r\n");
+        File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*HcOrch.esp\r\n*HcOrchTwo.esp\r\n");
+        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+OrchOff\r\n+OrchTwo\r\n+OrchMod\r\n");
 
         var store = new UserConfigStore(Path.Combine(root, "houseCARL.orch.json"));
         using var svc = LoadOrderService.WithInstance(instance, 0, store);
 
         // THE CONTROL. Without it every cell below could pass on a tool that swept nothing at all.
         var control = CheckTools.CheckTool(svc, findings: new[] { "errors", "scripts" });
-        Arm($"ORCH-CONTROL: the merged TOOL sweeps the synthetic instance and both families find what the fixture planted — {OrchNpcs} dangling refs and {OrchWeapons} record sections",
+        Arm($"ORCH-CONTROL: the merged TOOL sweeps the synthetic instance and both families find what the fixture planted — {OrchNpcs} dangling refs over 2 active plugins, and {OrchWeapons + SecondWeapons} record sections",
             control.Contains($"{OrchNpcs} dangling ref(s)", StringComparison.Ordinal)
-            && control.Contains($"all {OrchWeapons} record section(s) found by this sweep appear above.", StringComparison.Ordinal),
+            && control.Contains($"all {OrchWeapons + SecondWeapons} record section(s) found by this sweep appear above.", StringComparison.Ordinal)
+            && control.Contains("scanned 2 plugins", StringComparison.Ordinal),
             Trim(control));
 
         // ---- WHICH FAMILIES RUN. The default, one named family, and both.
@@ -760,7 +768,7 @@ public static class CheckMergeProbe
         //      instead would widen it to the whole order — a sweep the caller did not ask for.
         var noneInScope = CheckTools.CheckTool(svc, plugins: new[] { "HcOrchOff.esp" },
                                                findings: new[] { "errors", "scripts" });
-        Arm($"ORCH-NONE-IN-SCOPE-DOES-NOT-WIDEN: with every named plugin off-order the scripts family sweeps NOTHING rather than the whole order — 0 record sections, not the {OrchWeapons} the order holds — and says which file it did not sweep",
+        Arm($"ORCH-NONE-IN-SCOPE-DOES-NOT-WIDEN: with every named plugin off-order the scripts family sweeps NOTHING rather than the whole order — 0 record sections, not the {OrchWeapons + SecondWeapons} the order holds — and says which file it did not sweep",
             noneInScope.Contains("scanned 0 plugin", StringComparison.Ordinal)
             && !noneInScope.Contains("[UNBOUND] ", StringComparison.Ordinal)
             && noneInScope.Contains("did NOT sweep", StringComparison.Ordinal)
@@ -771,10 +779,11 @@ public static class CheckMergeProbe
         //      end-to-end for the errors family in check-errors-guard; this is the scripts family's half.
         var excluded = CheckTools.CheckTool(svc, findings: new[] { "errors", "scripts" },
                                             exclude: new[] { "HcOrch.esp" });
-        Arm("ORCH-EXCLUDE-REACHES-THE-SCRIPTS-FAMILY: exclude= given to the merged tool removes the plugin from the SCRIPTS sweep as well as the errors sweep — both families come back empty on an order whose only plugin was excluded",
-            !excluded.Contains($"{OrchNpcs} dangling ref(s)", StringComparison.Ordinal)
-            && !excluded.Contains("[UNBOUND] ", StringComparison.Ordinal)
-            && !excluded.Contains("[CHECK] ", StringComparison.Ordinal),
+        Arm($"ORCH-EXCLUDE-REACHES-THE-SCRIPTS-FAMILY: exclude= given to the merged tool removes the plugin from the SCRIPTS sweep as well as the errors sweep — one plugin scanned rather than two, {SecondWeapons} record sections rather than {OrchWeapons + SecondWeapons}, and the excluded plugin named nowhere",
+            excluded.Contains("scanned 1 plugin ", StringComparison.Ordinal)
+            && excluded.Contains($"all {SecondWeapons} record section(s) found by this sweep appear above.", StringComparison.Ordinal)
+            && !excluded.Contains("HcOrch.esp", StringComparison.Ordinal)
+            && !excluded.Contains($"{OrchNpcs} dangling ref(s)", StringComparison.Ordinal),
             Trim(excluded));
 
         // ---- the dialogue family's cost-refusal, FAMILY-LOCAL, through the tool that composes it beside a family
