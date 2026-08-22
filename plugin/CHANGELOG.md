@@ -49,6 +49,36 @@ saying it sets an expectation their install may contradict. Say what is known, a
   The effective merged INFO order — which line the game reaches first — is **not** here; the family's boundary
   says where it lives. `housecarl_validate_dialogue` stays registered and unchanged.
 
+- **Fixed: `housecarl_check` no longer reports a cut it did not make when a plugin cannot be parsed.** The
+  excluded-plugin roster was written after each family's accounting, so every family reported none of the roster
+  rows rendered, said the roster had been cut, and set `truncated` — on responses carrying the whole roster, in
+  both formats. The roster now reads above the family sections, where the scope sentence it belongs to is, and
+  the room it needs is held back rather than taken from the findings.
+
+- **Fixed: a family that cannot run no longer refuses the whole call.** `exclude=` is applied against each
+  family's own scope, and the script sweep is handed only the plugins that are in the active load order. So
+  naming a plugin that is on disk but out of the order and excluding the active one emptied the script sweep's
+  scope, and the whole call came back "exclude= removed every plugin this sweep would have covered — narrow
+  exclude=, or widen plugins=" — throwing away a completed errors sweep and printing a remedy that was wrong for
+  the family that had answered. A refusal is now the whole call's answer only when EVERY family you selected
+  refused, which is what a malformed `type=` or FormID does; anything narrower is reported in that family's own
+  section, beside the families that answered.
+
+- **Fixed: the dialogue family says what it reached, in its own units.** Its scope note claimed "it validated
+  exactly the N seed(s) given in `seeds=`" using the number you NAMED, so a call whose `limit=` stopped it short
+  claimed a completeness the accounting three lines below denied; it now states what it validated, what was
+  named, and which knob moves the rest. Its own truncation was reported as "plugin section(s) were rendered" —
+  the errors family's wording, for a family that never opens a plugin — and now counts seed sections.
+
+- **Changed: `format='json'` states the dialogue seed facts under `counts_only=true`, and renames one accounting
+  field.** `seeds_named`, `seeds_reached` and `seeds_not_reached_by_budget` are facts about the CALL, so they are
+  written whether or not the response lists topics; before, the whole block was gated on the topic listing and a
+  `counts_only` call whose seed budget had cut it said nothing about that in json while the text render said it.
+  **The accounting's `seeds_validated` is now `seeds_reached`** — the family head already used that name for a
+  different quantity (the seeds that produced a report, against the seeds the budget reached), so one family
+  object carried one name with two values. If you read `accounting.seeds_validated`, read `accounting.
+  seeds_reached` instead; the family-level `seeds_validated` is unchanged.
+
 - **Fixed: `housecarl_validate_scripts` stays inside its own `max_chars`.** On a 3800-plugin order at the
   defaults it returned 80,673 characters against its 80,000 cap and said nothing about it: the record loop
   stopped at the cap, and then the truncation marker and the boundary footer were appended anyway. Both are
