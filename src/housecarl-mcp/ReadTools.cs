@@ -1598,7 +1598,17 @@ static class Wire
             sb.Append('\n').Append(string.Format(ReadSentences.SweepFamilySectionHead,
                                                  SweepFamilySelection.Token(f), SweepFamilySelection.Title(f)))
               .Append('\n');
-            if (f == SweepFamily.Errors)
+            // A FAMILY THAT REFUSED fills its own section with the refusal — the rule the dialogue family has
+            // always followed, now followed by all three. A scripts-family scope refusal used to be raised to
+            // response level and discard a completed errors sweep beside it: exclude= is validated against each
+            // family's OWN scope, and the scripts family is handed the ACTIVE subset of plugins=, so a call
+            // naming an off-order file and excluding the active one refused outright and told the caller to narrow
+            // exclude= — while the errors family had swept the off-order file perfectly well (round-1 review).
+            if (s.Refusal(f) is { } refusal)
+            {
+                sb.Append(refusal).Append('\n');
+            }
+            else if (f == SweepFamily.Errors)
             {
                 AppendErrorsHead(sb, s.Errors!, accts[i]);
                 AppendErrorsSection(sb, s.Errors!, body, histogramLimit);

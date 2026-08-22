@@ -59,8 +59,6 @@ internal static class DialogueSweepRender
     /// family refused outright — the refusal, which IS the section.</summary>
     internal static void AppendHead(StringBuilder sb, CheckSweep s)
     {
-        if (s.Refusal(SweepFamily.Dialogue) is { } refusal) { sb.Append(refusal).Append('\n'); return; }
-
         var r = s.Dialogue!;
         // The scope asymmetry, above this family's own counts and inside its own section: a caller who passed
         // plugins= alongside would otherwise read a seeded answer as a scoped one, and nothing would say which.
@@ -155,8 +153,6 @@ internal static class DialogueSweepRender
     /// parse back out of prose.</summary>
     internal static void WriteHead(Utf8JsonWriter w, CheckSweep s)
     {
-        if (s.Refusal(SweepFamily.Dialogue) is { } refusal) { w.WriteString("refused", refusal); return; }
-
         var r = s.Dialogue!;
         w.WriteString("scope", ScopeNote(r));
         w.WriteBoolean("seeded_not_swept", true);

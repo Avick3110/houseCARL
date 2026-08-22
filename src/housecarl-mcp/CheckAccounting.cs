@@ -104,6 +104,11 @@ internal sealed class CheckAccounting
         _boundary = ReadSentences.SweepBoundary;
         _bySource = r.DanglingBySource ?? Array.Empty<SweepCount>();
         _budgetListed = r.Reports.Sum(p => p.Dangling.Count);
+        // A REFUSED family declares NOTHING — the rule the dialogue lane already follows. A family-local refusal
+        // now renders as its own section rather than as the whole call's error, so this writer is reachable with
+        // a failed result for the first time: declaring its subjects anyway would state "all 0 plugin section(s)
+        // appear above" over a sweep that never ran.
+        if (!r.Success) return;
 
         if (!r.CountsOnly && r.Classes.HasFlag(ErrorFindingClass.Dangling)) Declare(SweepSubject.DanglingEntries, r.TotalDangling);
         if (!r.CountsOnly) Declare(SweepSubject.PluginSections, r.Reports.Count);
@@ -141,6 +146,7 @@ internal sealed class CheckAccounting
         _scriptFindingsFound = r.CountsOnly ? 0 : r.TotalUnbound + r.TotalNullObject;
         _scriptFindingsListed = r.CountsOnly ? 0 : r.Reports.Sum(x => x.Unbound.Count + x.NullObjects.Count);
         _scriptTotals = ReadSentences.ScriptTotals(r);
+        if (!r.Success) return;   // see the errors ctor: a refused family declares nothing
 
         if (!r.CountsOnly) Declare(SweepSubject.ScriptRecords, r.Reports.Count);
         if (r.CountsOnly) Declare(SweepSubject.ScriptScanRows, r.Reports.Count(x => x.ScanError is not null));
