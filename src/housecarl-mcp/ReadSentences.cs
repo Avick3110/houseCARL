@@ -442,37 +442,64 @@ internal static class ReadSentences
         "finding is a flag to VERIFY. A script whose .pex is not on disk is reported unverifiable, never passed " +
         "clean.";
 
-    /// <summary>WHICH FAMILIES THIS CALL RAN, AND WHICH REGISTERED ONES IT DID NOT — the sentence that makes the
-    /// narrowed default honest (ruling item 2, 2026-08-21).
+    /// <summary>WHICH FAMILIES THIS RESPONSE ANSWERS FOR, WHICH SELECTED ONES REFUSED, AND WHICH REGISTERED ONES IT
+    /// NEVER ASKED — the sentence that makes the narrowed default honest (ruling item 2, 2026-08-21), composed from
+    /// the OUTCOME rather than the selection (round-2 finding B2).
     ///
     /// <para><b>Why the default narrows at all.</b> <c>findings=</c> omitted runs the errors family alone. It
     /// cannot be every family: an unscoped scripts sweep is 468 seconds on a 3800-plugin order, measured, and an
     /// unscoped dialogue sweep is a declared cost-refusal (SPEC §6.1 F1.2). A default that narrowed silently would
     /// be the sweep answering a question the caller did not ask and not saying which one — so the response states
-    /// what ran, what did not, and the exact <c>findings=</c> spelling that adds it.</para>
+    /// what answered, what refused, what was never asked, and the exact <c>findings=</c> spelling that adds it.
+    /// </para>
     ///
     /// <para><b>It is ONE COMPLETE SENTENCE, stated whole by BOTH transports.</b> Not a lead each transport
     /// finishes its own way: that shape has failed twice (#337, f907350), because a pin on a shared lead vouches
-    /// for nothing about what either transport actually says. The pin is on this string, and this string is what
-    /// the text render prints and what the json document carries — so a transport that stops saying it fails by
-    /// name.</para></summary>
-    [MustState("findings=", "did NOT run", "ask for it with")]
+    /// for nothing about what either transport actually says. The pin is on these strings, and these strings are
+    /// what the text render prints and what the json document carries — so a transport that stops saying it fails
+    /// by name. The clauses are separate consts because they are separate facts, each present exactly where its
+    /// list is non-empty: baked into the lead, the "did NOT run" tail was written on every response that had one
+    /// absent family and nothing at all said which families had REFUSED.</para></summary>
+    [MustState("findings=", "the default family only")]
     internal const string SweepFamiliesDefaulted =
-        "findings= was not given, so this sweep ran the default family only: {0}. It did NOT run: {1} — ask for it " +
-        "with the findings= spelling named beside each.";
+        "findings= was not given, so this sweep ran the default family only: {0}.";
 
     /// <summary>The same fact when the caller DID choose. "You did not ask for these" and "you asked for these and
     /// not those" are different sentences, and one wording for both tells the second caller something false about
-    /// their own call.</summary>
-    [MustState("findings=", "did NOT run", "ask for it with")]
+    /// their own call. It says what the response ANSWERS FOR, which is not the same list as what was selected.
+    /// </summary>
+    [MustState("findings=", "answers for")]
     internal const string SweepFamiliesChosen =
-        "findings= selected: {0}. It did NOT run: {1} — ask for it with the findings= spelling named beside each.";
+        "findings= selected, and this response answers for: {0}.";
 
-    /// <summary>Every registered family ran, so there is nothing to name as absent — and the sentence says THAT,
-    /// rather than going quiet. Silence would read the same as a response whose sentence had been dropped.</summary>
+    /// <summary>Every registered family ran AND answered, so there is nothing to name as absent or refused — and the
+    /// sentence says THAT, rather than going quiet. Silence would read the same as a response whose sentence had
+    /// been dropped. It is chosen off what came back: picked off the SELECTION, a three-family call whose dialogue
+    /// section was nothing but a cost refusal still led with this one.</summary>
     [MustState("findings=", "every findings family")]
     internal const string SweepFamiliesAll =
         "findings= ran every findings family this surface registers: {0}.";
+
+    /// <summary>NO family answered — every family this call selected refused, and for DIFFERENT reasons, so the
+    /// response is a document of refusal sections rather than one error string (the grounds-are-one rule,
+    /// <see cref="CheckOutcome"/>). Said, rather than left as a lead with an empty list after it.</summary>
+    [MustState("findings=", "NO family", "refused")]
+    internal const string SweepFamiliesNoneAnswered =
+        "findings= answered for NO family: every family this call selected refused, and each states its own ground " +
+        "in its own section below.";
+
+    /// <summary>The families that were SELECTED and refused. Their findings are absent, not clean — which is the
+    /// same Q3 reading the off-order sentence exists to stop, one level up: a caller who reads only the lead would
+    /// take a family named there as one that looked.</summary>
+    [MustState("did NOT answer for", "absent rather than clean")]
+    internal const string SweepFamiliesRefused =
+        " It did NOT answer for: {0} — that family's own section states why, and its findings are absent rather " +
+        "than clean.";
+
+    /// <summary>The registered families this call never asked for, with the spelling that adds each.</summary>
+    [MustState("did NOT run", "ask for it with")]
+    internal const string SweepFamiliesAbsent =
+        " It did NOT run: {0} — ask for it with the findings= spelling named beside each.";
 
     /// <summary>One entry in the did-NOT-run list: what asking for it would buy, and the exact spelling that asks.
     /// A remedy that names a knob without spelling it is one the caller has to guess at.</summary>
@@ -560,15 +587,20 @@ internal static class ReadSentences
         "exclude= scope the sweep families and do NOT scope it. {0} It has no off-order lane: a seed is a record, " +
         "and it must resolve in the ACTIVE load order.";
 
-    /// <summary>The seed count, when the seed budget reached every one of them.</summary>
-    [MustState("seed(s) given in seeds=")]
-    internal const string DialogueScopeAllSeeds = "It validated exactly the {0} seed(s) given in seeds=.";
+    /// <summary>The seed count, when the seed budget REACHED every one of them.
+    ///
+    /// <para><b>Reached, never validated</b> (<see cref="DialogueOutcome"/>'s vocabulary, round-2 finding B1). This
+    /// sentence's number counts every seed the call tried, including the ones that produced a named refusal — so
+    /// under the word "validated" it claimed a completeness the <c>[X] … NOT validated</c> rows three lines below it
+    /// deny. Round 1 found that, the fold for it reproduced it, and round 2 found it again.</para></summary>
+    [MustState("seed(s) given in seeds=", "reached")]
+    internal const string DialogueScopeAllSeeds = "It reached all {0} seed(s) given in seeds=.";
 
     /// <summary>…and when it did not. The knob is named, because a caller reading a short answer needs to know
     /// which parameter moves it — the accounting states the same cut, and the two come off one computation.</summary>
-    [MustState("seed(s) given in seeds=", "limit=")]
+    [MustState("seed(s) given in seeds=", "limit=", "reached")]
     internal const string DialogueScopeSomeSeeds =
-        "It validated {0} of the {1} seed(s) given in seeds= — limit= stopped it there.";
+        "It reached {0} of the {1} seed(s) given in seeds= — limit= stopped it there.";
 
     /// <summary>The dialogue family's honest boundary — <c>validate_dialogue</c>'s always-printed standing-limits
     /// footer, carried whole into the merged surface as this family's closing claim. It is the family's BOUNDARY
@@ -615,9 +647,9 @@ internal static class ReadSentences
 
     /// <summary>The seed budget's own share of what is absent — seeds the call never validated at all, which is a
     /// different absence from topics that did not fit and must not read alike.</summary>
-    [MustState("limit=", "were NOT validated")]
+    [MustState("limit=", "were NOT reached")]
     internal const string SweepDialogueSeedsCut =
-        " {0} of the {1} seed(s) named were validated; {2} were NOT validated because the seed budget (limit={3}) " +
+        " {0} of the {1} seed(s) named were reached; {2} were NOT reached because the seed budget (limit={3}) " +
         "ran out.";
 
     /// <summary>What the validation FOUND, restated where the listing is short — the totals are never capped, and a
@@ -646,10 +678,15 @@ internal static class ReadSentences
         "check those topics set DialogTopic.Quest to this quest and that their plugin is enabled.\n";
 
     /// <summary>The dialogue family's counts line: what the validation found, above everything a budget can refuse.
-    /// A caller whose topic blocks were all cut still learns the totals.</summary>
-    [MustState("finding(s) across")]
+    /// A caller whose topic blocks were all cut still learns the totals.
+    ///
+    /// <para>It states VALIDATED against REACHED, and the two words mean what <see cref="DialogueOutcome"/> says
+    /// they mean. "{0} seed(s) validated" alone was a number with no denominator beside it, so a caller could not
+    /// tell it from the seeds they NAMED — while the scope sentence one line up printed a third quantity under the
+    /// same word.</para></summary>
+    [MustState("finding(s) across", "reached were validated")]
     internal const string DialogueCounts =
-        "{0} seed(s) validated, {1} topic(s), {2} finding(s) across them.\n";
+        "{0} of the {1} seed(s) reached were validated, {2} topic(s), {3} finding(s) across them.\n";
 
     /// <summary>What <c>counts_only=true</c> leaves out for this family, stated where the listing would have been —
     /// a mode that renders no blocks must say that is what it did, never look like a validation that found nothing

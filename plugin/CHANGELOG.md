@@ -19,9 +19,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `unbound_object`, `unbound_scalar`, `unbound`, `bound_null`). Naming several runs each, and the response is
   sectioned per family with that family's own totals, its own accounting and its own boundary. All three older
   tools stay registered and unchanged, so nothing you call today moves.
-  `findings=` omitted runs the **errors family alone**, and the response states which families ran, which
-  registered families did not, and the exact `findings=` spelling that adds them. It cannot default to every
-  family: an unscoped scripts sweep took ~8.5 minutes on a 3800-plugin order.
+  `findings=` omitted runs the **errors family alone**, and the response states which families it ANSWERS for,
+  which selected families refused, which registered families it never ran, and the exact `findings=` spelling
+  that adds each of those. It cannot default to every family: an unscoped scripts sweep took ~8.5 minutes on a
+  3800-plugin order.
   `max_chars` is DIVIDED among the families that ran and their parts rather than spent in series. Spent in
   series on that same order at the defaults, a second family inherited 400 characters of an 80,000 budget —
   the errors listing alone came to 79,600. The division is max-min fair over what each part actually needs,
@@ -64,20 +65,64 @@ saying it sets an expectation their install may contradict. Say what is known, a
   refused, which is what a malformed `type=` or FormID does; anything narrower is reported in that family's own
   section, beside the families that answered.
 
-- **Fixed: the dialogue family says what it reached, in its own units.** Its scope note claimed "it validated
-  exactly the N seed(s) given in `seeds=`" using the number you NAMED, so a call whose `limit=` stopped it short
-  claimed a completeness the accounting three lines below denied; it now states what it validated, what was
-  named, and which knob moves the rest. Its own truncation was reported as "plugin section(s) were rendered" —
-  the errors family's wording, for a family that never opens a plugin — and now counts seed sections.
+- **Fixed: the dialogue family says what it reached, in its own units, and one word means one thing.** Its scope
+  note claimed "it validated exactly the N seed(s) given in `seeds=`" using the number you NAMED, so a call whose
+  `limit=` stopped it short claimed a completeness the accounting three lines below denied. It now uses four words
+  for four populations, everywhere it states them: seeds **named** (what you wrote in `seeds=`), **reached** (what
+  the `limit=` budget let it try), **validated** (reached seeds that produced a report) and **unreachable**
+  (reached seeds that produced a named reason instead). The scope note says how many it REACHED — that number
+  counts the seeds which came back with a reason, so under "validated" it contradicted the `[X] … NOT validated`
+  rows in the same section — and the counts line states validated against reached rather than as a bare number.
+  Its own truncation was reported as "plugin section(s) were rendered" — the errors family's wording, for a family
+  that never opens a plugin — and now counts seed sections.
 
-- **Changed: `format='json'` states the dialogue seed facts under `counts_only=true`, and renames one accounting
-  field.** `seeds_named`, `seeds_reached` and `seeds_not_reached_by_budget` are facts about the CALL, so they are
-  written whether or not the response lists topics; before, the whole block was gated on the topic listing and a
-  `counts_only` call whose seed budget had cut it said nothing about that in json while the text render said it.
-  **The accounting's `seeds_validated` is now `seeds_reached`** — the family head already used that name for a
-  different quantity (the seeds that produced a report, against the seeds the budget reached), so one family
-  object carried one name with two values. If you read `accounting.seeds_validated`, read
-  `accounting.seeds_reached` instead; the family-level `seeds_validated` is unchanged.
+- **Changed: `format='json'` states each family's totals in the family object and what the response carried of
+  them in that family's `accounting` — no number in both.** The dialogue family object now carries
+  `seeds_named`, `seeds_reached`, `seeds_validated`, `seeds_unreachable_total`, `topics_found` and
+  `findings_found`, in every mode including `counts_only=true`; its `accounting` carries only
+  `seeds_not_reached_by_budget`, `limit`, `dialogue_topics_rendered`, `seeds_unreachable_named`, `rendered` and
+  `truncated`. What this replaces: `topics_validated` was written TWICE into the same family object — once by the
+  family and once by its accounting — so which value you got depended on your json parser; `seeds_named` and the
+  topic and finding totals each had a second spelling one level down; and the whole seed block was gated on the
+  topic listing, so a `counts_only` call whose seed budget had cut it said nothing about that in json while the
+  text render said it. If you read `topics_validated`, read `topics_found`; if you read
+  `accounting.seeds_named` / `accounting.seeds_reached` / `accounting.seeds_unreachable_total` /
+  `accounting.dialogue_topics_found` / `accounting.dialogue_findings_found`, read the family-level
+  `seeds_named` / `seeds_reached` / `seeds_unreachable_total` / `topics_found` / `findings_found`.
+
+- **Changed: `format='json'` names the three states a family can be in, not two.** `families_ran` now lists the
+  families this response ANSWERS for; it was filled from what you SELECTED, so a family whose whole section was a
+  refusal appeared there and a consumer reading it as "these have findings" got a false negative it could not
+  detect. `families_refused` is new and carries each refused family with its ground. `families_not_run` is now
+  `families_not_selected`, which is what it always held.
+
+- **Fixed: a `counts_only=true` dialogue response no longer carries an empty `seeds` array.** The array was
+  opened outside the mode's own gate, so the one mode whose whole claim is that it renders no rows carried
+  `"seeds": []` beside a non-zero `seeds_validated`. Both sibling families already gated their row arrays this
+  way. The `seeds_unreachable` roster is still written in both modes, by design — a seed nobody could reach
+  bounds the answer rather than sitting inside it.
+
+- **Fixed: `housecarl_check` says which files a family did not sweep even when that family refused.** The
+  off-order sentence — "the scripts family did NOT sweep X: that plugin is on disk but not in the active load
+  order" — was written only where the scripts family had run and answered. So on a call naming two plugins where
+  the scripts family refused over the second, nothing said why the first was never in its scope either, while the
+  tool's own parameter text promises the response says so per family. It is now stated above whatever that
+  family goes on to say, refusal included, in both formats.
+
+- **Fixed: `housecarl_check` no longer discards a refusal it holds.** A call refused as a whole only when EVERY
+  selected family refused, and it then returned the FIRST family's reason. With `findings=['errors','dialogue']`,
+  an `exclude=` that emptied the errors scope and no `seeds=`, both families refused for different reasons and
+  you were told only about `exclude=` — so you fixed that, called again, and met the dialogue reason. Both
+  answers were true; the response was one reason short of what it had. A call now collapses to a single error
+  exactly when every refusing family gives the SAME reason; different reasons are rendered as sections, each
+  carrying its own. A call selecting one family is unchanged: one family has one reason, so it still collapses.
+
+- **Fixed: `format='json'` sizes each family's accounting at the depth it writes it at.** The accounting's room
+  was reserved by serialising it into a bare document, then written inside `families.<family>` two levels
+  further in — and an indented document pays two spaces a line per level, so the reserve was short by that
+  indentation on every line of every accounting: roughly 500 bytes across three families with a ten-row roster.
+  The reserve also did not measure the four dialogue seed fields at all. Both were absorbed by slack rather than
+  overrunning, which is exactly why they are measured now.
 
 - **Fixed: `housecarl_validate_scripts` stays inside its own `max_chars`.** On a 3800-plugin order at the
   defaults it returned 80,673 characters against its 80,000 cap and said nothing about it: the record loop

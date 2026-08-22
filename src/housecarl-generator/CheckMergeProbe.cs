@@ -363,9 +363,9 @@ public static class CheckMergeProbe
         using (var doc = JsonDocument.Parse(defJson))
         {
             var root = doc.RootElement;
-            var notRun = root.GetProperty("families_not_run");
+            var notRun = root.GetProperty("families_not_selected");
             Check("SCOPE-SENTENCE-DEFAULT (json): the SAME complete sentence, plus the same fact as data — a pin on a lead each transport finishes its own way vouches for neither",
-                root.GetProperty("findings_scope").GetString() == defaulted.ScopeSentence()
+                root.GetProperty("findings_scope").GetString() == CheckOutcome.For(defaulted).ScopeSentence()
                 && root.GetProperty("findings_scope").GetString()!.Contains("did NOT run", StringComparison.Ordinal)
                 && root.GetProperty("findings_defaulted").GetBoolean()
                 // TWO registered families the default does not run — the fixture-known count, not Registered.Count-1:
@@ -383,7 +383,7 @@ public static class CheckMergeProbe
         var chosen = new CheckSweep(Sel("errors"), errors);
         var chosenText = Wire.RenderCheck(chosen, 0);
         Check("SCOPE-SENTENCE-CHOSEN: a caller who NAMED the family is not told they omitted findings= — the two are different sentences",
-            chosenText.Contains("findings= selected:", StringComparison.Ordinal)
+            chosenText.Contains("findings= selected, and this response answers for:", StringComparison.Ordinal)
             && !chosenText.Contains("findings= was not given", StringComparison.Ordinal)
             && chosenText.Contains(spelling, StringComparison.Ordinal),
             FirstLineWith(chosenText, "findings="));
@@ -413,7 +413,7 @@ public static class CheckMergeProbe
 
         // ---- PLAN-LEAVES-EMPTY-SUBJECTS-OUT --------------------------------------------------------
         var noFindings = scripts with { Reports = Array.Empty<RecordScriptFindings>() };
-        var emptyPlan = new CheckSweep(Sel("errors", "scripts"), errors, noFindings).Plan();
+        var emptyPlan = CheckOutcome.For(new CheckSweep(Sel("errors", "scripts"), errors, noFindings)).Plan();
         Check("PLAN-LEAVES-EMPTY-SUBJECTS-OUT: a family whose subjects have no rows is not in the plan at all — a share held for rows that do not exist is the waste the ruled rule was chosen over",
             emptyPlan.Count == 1 && emptyPlan[0].Family == SweepFamily.Errors
             && emptyPlan[0].Subjects.Contains(SweepSubject.PluginSections)
@@ -492,6 +492,52 @@ public static class CheckMergeProbe
                 Trim(mixedText));
         }
 
+        // ---- GROUNDS-ARE-ONE ------------------------------------------------------------------------
+        // The advisor's standing probe, reproduced and then ruled (Aaron-go 2026-08-22). A whole call collapses to
+        // ONE error exactly when the grounds are ONE. Two families refusing for DIFFERENT reasons are two answers,
+        // and returning the first threw the other away: the caller fixed what they were told about, retried, and met
+        // the second ground — each answer true, the response one ground short of what it held. The rule is uniform,
+        // with no special case for a single selected family: one family has one ground, so it collapses.
+        var errRefused = ErrorCheckResult.Fail("errors-ground: exclude= removed every plugin this sweep would have covered.");
+        var distinct = new CheckSweep(Sel("errors", "dialogue"), errRefused, null, null, unseeded);
+        var distinctText = Wire.RenderCheck(distinct, 0);
+        var distinctJson = JsonWire.RenderCheck(distinct, 0);
+        // The CONTROL, in the same shape: both families refusing on the SAME ground is one answer, and one error is
+        // what it must return. Without this half the arm would pass on a render that had simply stopped collapsing.
+        var sameGround = new CheckSweep(Sel("errors", "dialogue"), ErrorCheckResult.Fail(unseeded.Error!), null, null, unseeded);
+        var sameText = Wire.RenderCheck(sameGround, 0);
+        var groundsBad = new List<string>();
+        if (!distinctText.Contains("errors-ground:", StringComparison.Ordinal))
+            groundsBad.Add("the errors family's ground is not in the response at all");
+        if (!distinctText.Contains("will NOT sweep the whole load order", StringComparison.Ordinal))
+            groundsBad.Add("the dialogue family's ground is not in the response at all");
+        if (distinctText.StartsWith("error:", StringComparison.Ordinal))
+            groundsBad.Add("two distinct grounds still collapsed to one error string");
+        if (!distinctText.Contains("answered for NO family", StringComparison.Ordinal))
+            groundsBad.Add("the scope sentence does not say that no family answered");
+        using (var doc = JsonDocument.Parse(distinctJson))
+        {
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("families", out var fams)) groundsBad.Add("json collapsed to an error document");
+            else
+            {
+                if (!fams.TryGetProperty("errors", out var ef) || !ef.TryGetProperty("refused", out var eg)
+                    || !eg.GetString()!.Contains("errors-ground:", StringComparison.Ordinal))
+                    groundsBad.Add("json carries no errors refusal section");
+                if (!fams.TryGetProperty("dialogue", out var df) || !df.TryGetProperty("refused", out _))
+                    groundsBad.Add("json carries no dialogue refusal section");
+            }
+            if (root.GetProperty("families_ran").GetArrayLength() != 0)
+                groundsBad.Add("families_ran names a family that did not answer");
+            if (root.GetProperty("families_refused").GetArrayLength() != 2)
+                groundsBad.Add($"families_refused names {root.GetProperty("families_refused").GetArrayLength()} families, want 2");
+        }
+        if (!sameText.StartsWith("error:", StringComparison.Ordinal))
+            groundsBad.Add("ONE shared ground did not collapse to one error — the control failed");
+        Check("GROUNDS-ARE-ONE: a call collapses to one error exactly when every refusing family gives the SAME ground; distinct grounds render as sections, each carrying its own, and the response says no family answered",
+            groundsBad.Count == 0,
+            groundsBad.Count == 0 ? "distinct grounds sectioned, one shared ground collapsed" : string.Join("; ", groundsBad.Take(4)));
+
         // ---- REFUSED-FAMILY-DECLARES-NO-SUBJECT-COUNTS ---------------------------------------------
         // BOTH DIRECTIONS of the three conditionals the json accounting gained, asked of ONE response so the two
         // halves cannot be satisfied by different fixtures: the refused family has none of those subjects and must
@@ -553,12 +599,18 @@ public static class CheckMergeProbe
                 && fam.GetProperty("seeded_not_swept").GetBoolean(),
                 FirstLineWith(dlgText, "scope:"));
 
-            Check($"DIALOGUE-COUNTS: the section states what the validation FOUND ({Topics} topics, {DialogueFindings} findings) above anything a budget can refuse, in both transports",
-                dlgText.Contains($"1 seed(s) validated, {Topics} topic(s), {DialogueFindings} finding(s)", StringComparison.Ordinal)
-                && fam.GetProperty("topics_validated").GetInt32() == Topics
+            // The counts line states VALIDATED against REACHED, in the outcome's vocabulary — and the head carries
+            // all four seed quantities, so a caller reading any one of them knows which population it counts. The
+            // expected values are the FIXTURE's arithmetic: one seed produced a report, every named seed was tried.
+            Check($"DIALOGUE-COUNTS: the section states what the validation FOUND ({Topics} topics, {DialogueFindings} findings) above anything a budget can refuse, in both transports, with validated stated against reached rather than as a bare number",
+                dlgText.Contains($"1 of the {1 + UnreachableSeeds} seed(s) reached were validated, {Topics} topic(s), {DialogueFindings} finding(s)", StringComparison.Ordinal)
+                && fam.GetProperty("topics_found").GetInt32() == Topics
                 && fam.GetProperty("findings_found").GetInt32() == DialogueFindings
-                && fam.GetProperty("seeds_named").GetInt32() == 1 + UnreachableSeeds,
-                FirstLineWith(dlgText, "seed(s) validated"));
+                && fam.GetProperty("seeds_named").GetInt32() == 1 + UnreachableSeeds
+                && fam.GetProperty("seeds_reached").GetInt32() == 1 + UnreachableSeeds
+                && fam.GetProperty("seeds_validated").GetInt32() == 1
+                && fam.GetProperty("seeds_unreachable_total").GetInt32() == UnreachableSeeds,
+                FirstLineWith(dlgText, "reached were validated"));
         }
 
         // ---- DIALOGUE-CLASS-8-ABSENT ---------------------------------------------------------------
@@ -591,9 +643,9 @@ public static class CheckMergeProbe
         var budgetText = Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, budgeted), 0);
         Check("DIALOGUE-SEED-BUDGET: limit= caps how many SEEDS a call expands, and the accounting names how many it never reached and which knob moves them",
             budgeted.SeedsNamed == 5 && budgeted.Seeds.Count == 2
-            && budgetText.Contains("2 of the 5 seed(s) named were validated; 3 were NOT validated", StringComparison.Ordinal)
+            && budgetText.Contains("2 of the 5 seed(s) named were reached; 3 were NOT reached", StringComparison.Ordinal)
             && budgetText.Contains("limit=", StringComparison.Ordinal),
-            FirstLineWith(budgetText, "seed(s) named were validated"));
+            FirstLineWith(budgetText, "seed(s) named were reached"));
 
         // ---- DIALOGUE-SCOPE-COUNTS-WHAT-IT-REACHED / -CUT-IS-IN-SEEDS ------------------------------
         // Two round-1 findings on the same response, so they are asked of the same one. The scope sentence said
@@ -604,10 +656,15 @@ public static class CheckMergeProbe
         var budgetJson = JsonWire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, budgeted), 0);
         string budgetScope = FirstLineWith(budgetText, "scope:");
         var scopeLies = new List<string>();
-        if (!budgetScope.Contains("It validated 2 of the 5 seed(s)", StringComparison.Ordinal))
+        if (!budgetScope.Contains("It reached 2 of the 5 seed(s)", StringComparison.Ordinal))
             scopeLies.Add($"the scope sentence does not state what it reached: [{budgetScope}]");
-        if (budgetScope.Contains("exactly the 5 seed(s)", StringComparison.Ordinal))
-            scopeLies.Add("the scope sentence still claims it validated every seed named");
+        if (budgetScope.Contains("all 5 seed(s)", StringComparison.Ordinal))
+            scopeLies.Add("the scope sentence still claims it reached every seed named");
+        // THE WORD, not just the number. Every seed the call TRIED is counted here, refusals included, so under
+        // "validated" this sentence claims a completeness the [X] rows in the same section deny — round 1 found
+        // that, its fold reproduced it, and round 2 found it again (finding B1).
+        if (budgetScope.Contains("It validated", StringComparison.Ordinal))
+            scopeLies.Add("the scope sentence calls the seeds it REACHED validated");
         if (!budgetScope.Contains("limit=", StringComparison.Ordinal))
             scopeLies.Add("the scope sentence names no knob for the seeds it did not reach");
         using (var doc = JsonDocument.Parse(budgetJson))
@@ -646,39 +703,51 @@ public static class CheckMergeProbe
         var budgetCountsJson = JsonWire.RenderCheck(budgetCountsSweep, 0);
         var seedFacts = new List<string>();
         // The text lane is the control: it has always stated the seed cut under counts_only.
-        if (!budgetCountsText.Contains("2 of the 5 seed(s) named were validated; 3 were NOT validated", StringComparison.Ordinal))
+        if (!budgetCountsText.Contains("2 of the 5 seed(s) named were reached; 3 were NOT reached", StringComparison.Ordinal))
             seedFacts.Add("the TEXT lane does not state the seed cut under counts_only — the arm has no control");
-        using (var doc = JsonDocument.Parse(budgetCountsJson))
-        {
-            var fam = doc.RootElement.GetProperty("families").GetProperty("dialogue");
-            var acct = fam.GetProperty("accounting");
-            if (!acct.TryGetProperty("seeds_named", out var named) || named.GetInt32() != 5)
-                seedFacts.Add("json counts_only states no seeds_named");
-            if (!acct.TryGetProperty("seeds_reached", out var reached) || reached.GetInt32() != 2)
-                seedFacts.Add("json counts_only states no seeds_reached");
-            if (!acct.TryGetProperty("seeds_not_reached_by_budget", out var missed) || missed.GetInt32() != 3)
-                seedFacts.Add("json counts_only states no seeds_not_reached_by_budget");
-            // …and the topic fields, which this lane genuinely does not have, stay absent.
-            if (acct.TryGetProperty("dialogue_topics_found", out _))
-                seedFacts.Add("json counts_only states a topic count for a lane that lists no topics");
-            // ONE NAME, ONE VALUE. The accounting must not re-use the head's name for a different quantity.
-            if (acct.TryGetProperty("seeds_validated", out _))
-                seedFacts.Add("the accounting writes seeds_validated, which the family head already uses for a different quantity");
-        }
-        // The listing lane's own half: the head's seeds_validated is the seeds that produced a report, and nothing
-        // else in the family object carries that name with another value.
-        using (var doc = JsonDocument.Parse(budgetJson))
-        {
-            var fam = doc.RootElement.GetProperty("families").GetProperty("dialogue");
-            if (fam.GetProperty("seeds_validated").GetInt32() != budgeted.Resolved.Count())
-                seedFacts.Add($"the head's seeds_validated is not the seeds that produced a report ({fam.GetProperty("seeds_validated").GetInt32()} vs {budgeted.Resolved.Count()})");
-            if (fam.GetProperty("accounting").TryGetProperty("seeds_validated", out _))
-                seedFacts.Add("the listing lane's accounting also writes seeds_validated");
-        }
-        Check("DIALOGUE-SEED-FACTS-IN-BOTH-LANES: how many seeds were named, reached and never reached is a fact of the CALL, so counts_only states it too — and no name in one family object carries two different values",
+        // BOTH LANES state the same four seed quantities in the family HEAD — that is where the outcome's numbers
+        // live — and the accounting states the budget's own cut beside them. The counts_only lane is the one that
+        // used to go silent about a seed budget the text lane had already reported.
+        foreach (var (lane, body) in new[] { ("counts_only", budgetCountsJson), ("listing", budgetJson) })
+            using (var doc = JsonDocument.Parse(body))
+            {
+                var fam = doc.RootElement.GetProperty("families").GetProperty("dialogue");
+                void Want(JsonElement obj, string where, string name, int expect)
+                {
+                    if (!obj.TryGetProperty(name, out var v)) seedFacts.Add($"json {lane}: no {where}.{name}");
+                    else if (v.GetInt32() != expect) seedFacts.Add($"json {lane}: {where}.{name}={v.GetInt32()}, want {expect}");
+                }
+                Want(fam, "head", "seeds_named", 5);
+                Want(fam, "head", "seeds_reached", 2);
+                Want(fam, "head", "seeds_validated", budgeted.Resolved.Count());
+                Want(fam, "head", "seeds_unreachable_total", budgeted.Unresolved.Count);
+                Want(fam.GetProperty("accounting"), "accounting", "seeds_not_reached_by_budget", 3);
+                // …and the topic fields, which the counts_only lane genuinely does not have, stay absent there.
+                if (lane == "counts_only" && fam.GetProperty("accounting").TryGetProperty("dialogue_topics_rendered", out _))
+                    seedFacts.Add("json counts_only states a rendered topic count for a lane that lists no topics");
+            }
+        Check("DIALOGUE-SEED-FACTS-IN-BOTH-LANES: how many seeds were named, reached, validated and never reached is a fact of the CALL, so counts_only states it too — every one of them in the family head, with the accounting stating only the budget's cut",
             seedFacts.Count == 0,
-            seedFacts.Count == 0 ? "seeds_named/seeds_reached/seeds_not_reached_by_budget in both lanes, one name one value"
+            seedFacts.Count == 0 ? "named/reached/validated/unreachable in the head of both lanes, the cut in the accounting"
                                  : string.Join("; ", seedFacts.Take(4)));
+
+        // ---- NO-FAMILY-OBJECT-CARRIES-A-DUPLICATE-KEY ---------------------------------------------
+        // B5's own property, asked STRUCTURALLY rather than by naming the field that was duplicated: `topics_validated`
+        // was written by the family head AND by the accounting, both direct members of families.dialogue. Values
+        // agreed, so nothing was WRONG yet — but which one a consumer sees is its parser's choice, and a document
+        // whose meaning depends on that is not a document. Asked of every object in every family, in every response
+        // this guard has built, so the next duplicate fails here whichever field and whichever family it lands in.
+        var dupes = new List<string>();
+        foreach (var (label, body) in new[]
+                 {
+                     ("errors+scripts", json), ("all three", allJson), ("dialogue only", dlgJson),
+                     ("dialogue counts_only", budgetCountsJson), ("dialogue listing", budgetJson),
+                     ("mixed refusal", mixedJson), ("off-order", offJson),
+                 })
+            using (var doc = JsonDocument.Parse(body))
+                CollectDuplicateKeys(doc.RootElement, label, dupes);
+        Check("NO-FAMILY-OBJECT-CARRIES-A-DUPLICATE-KEY: no object in any merged response names one key twice — a document whose meaning depends on the consumer's parser is not a document",
+            dupes.Count == 0, dupes.Count == 0 ? "every object's keys are distinct" : string.Join("; ", dupes.Take(4)));
 
         // ---- DIALOGUE-FINISHED-SEED-HANDS-BACK-ITS-SHARE -------------------------------------------
         // A subject's ceiling is fixed on its FIRST unit against the siblings still pending, so the topic blocks of
@@ -763,15 +832,15 @@ public static class CheckMergeProbe
                                            scripts with { ExcludedPlugins = roster }, null, dialogue);
         var allRosterText = Wire.RenderCheck(allWithRoster, 0);
         Check("ROSTER-STILL-ONE-WITH-THREE-FAMILIES: with all three families running over a build that DID exclude a plugin, the roster is emitted once and owned by the first family that has one — the dialogue family reports none of its own, because a seeded validation produces no such list",
-            allWithRoster.RosterOwner == SweepFamily.Errors
+            CheckOutcome.For(allWithRoster).RosterOwner == SweepFamily.Errors
             && Count(allRosterText, "excluded plugins (could not be parsed") == 1
             && Count(allRosterText, ": header could not be parsed\n") == roster.Count
             && Count(allRosterText, " plugin(s) that could not be parsed are named above.") <= 1
-            && dlgOnly.RosterOwner is null
-            && dlgOnly.ExcludedPlugins.Count == 0,
-            $"owner={allWithRoster.RosterOwner} rosterHeads={Count(allRosterText, "excluded plugins (could not be parsed")} "
+            && CheckOutcome.For(dlgOnly).RosterOwner is null
+            && CheckOutcome.For(dlgOnly).ExcludedPlugins.Count == 0,
+            $"owner={CheckOutcome.For(allWithRoster).RosterOwner} rosterHeads={Count(allRosterText, "excluded plugins (could not be parsed")} "
           + $"rows={Count(allRosterText, ": header could not be parsed\n")}/{roster.Count} "
-          + $"dialogueOnlyOwner={dlgOnly.RosterOwner?.ToString() ?? "none"} dialogueOnlyRows={dlgOnly.ExcludedPlugins.Count}");
+          + $"dialogueOnlyOwner={CheckOutcome.For(dlgOnly).RosterOwner?.ToString() ?? "none"} dialogueOnlyRows={CheckOutcome.For(dlgOnly).ExcludedPlugins.Count}");
 
         // ---- CAP-LADDER ----------------------------------------------------------------------------
         Check("CAP-LADDER: at every integer cap from 1 to 12000 (and one far above) neither transport returns more than it was given, bar the floor, and the json parses",
@@ -1172,7 +1241,7 @@ public static class CheckMergeProbe
     static bool Monotone(CheckSweep s, out string detail)
     {
         var bad = new List<string>();
-        var subjects = s.Plan().SelectMany(p => p.Subjects).Distinct().ToArray();
+        var subjects = CheckOutcome.For(s).Plan().SelectMany(p => p.Subjects).Distinct().ToArray();
         foreach (var lane in new[] { "text", "json" })
         {
             var previous = new Dictionary<SweepSubject, (int Cap, int Spent)>();
@@ -1231,7 +1300,7 @@ public static class CheckMergeProbe
             if (capped.Contains(claim, StringComparison.Ordinal))
                 bad.Add($"text claims a cut it did not make: '{claim}'");
         if (body is not null)
-            foreach (var subject in s.Plan().SelectMany(p => p.Subjects).Distinct())
+            foreach (var subject in CheckOutcome.For(s).Plan().SelectMany(p => p.Subjects).Distinct())
                 if (body.SpentOn(subject) != body.AllocationOf(subject))
                     bad.Add($"text {subject}: allocated {body.AllocationOf(subject)}, spent {body.SpentOn(subject)} — room left standing");
 
@@ -1311,7 +1380,7 @@ public static class CheckMergeProbe
             if (lane == "text") Wire.RenderCheck(s, 4000000, 1000, out body);
             else JsonWire.RenderCheck(s, 4000000, 1000, out body);
             if (body is null) { bad.Add($"{lane}: the render built no allocation"); continue; }
-            foreach (var subject in s.Plan().SelectMany(p => p.Subjects).Distinct())
+            foreach (var subject in CheckOutcome.For(s).Plan().SelectMany(p => p.Subjects).Distinct())
             {
                 int allocated = body.AllocationOf(subject), spent = body.SpentOn(subject);
                 if (spent == 0) bad.Add($"{lane} {subject}: spent nothing at a cap nothing could cut — the arm would pass on a subject that never rendered");
@@ -1356,6 +1425,26 @@ public static class CheckMergeProbe
 
     static string FirstLineWith(string text, string needle)
         => text.Split('\n').FirstOrDefault(l => l.Contains(needle, StringComparison.Ordinal)) ?? "<absent>";
+
+    /// <summary>Every object in <paramref name="e"/> that names one key twice, walked whole.
+    ///
+    /// <para><c>JsonDocument</c> KEEPS both properties — <c>EnumerateObject</c> yields each, and
+    /// <c>GetProperty</c> hands back the first — which is exactly why a duplicate is invisible to an arm that reads
+    /// fields by name and has to be looked for structurally.</para></summary>
+    static void CollectDuplicateKeys(JsonElement e, string where, List<string> into)
+    {
+        if (e.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var g in e.EnumerateObject().GroupBy(p => p.Name, StringComparer.Ordinal))
+                if (g.Count() > 1) into.Add($"{where}: '{g.Key}' written {g.Count()} times in one object");
+            foreach (var p in e.EnumerateObject()) CollectDuplicateKeys(p.Value, where + "." + p.Name, into);
+        }
+        else if (e.ValueKind == JsonValueKind.Array)
+        {
+            int i = 0;
+            foreach (var item in e.EnumerateArray()) CollectDuplicateKeys(item, $"{where}[{i++}]", into);
+        }
+    }
 
     static string Trim(string s) => s.Length <= 400 ? s.Replace('\n', '|') : s[..400].Replace('\n', '|') + "…";
 }

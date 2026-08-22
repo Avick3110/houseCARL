@@ -61,11 +61,12 @@ internal static class SweepDemand
 
     // ---- text ---------------------------------------------------------------------------------------
 
-    internal static Result ForText(CheckSweep s, int room, int histogramLimit)
+    internal static Result ForText(CheckOutcome o, int room, int histogramLimit)
     {
+        var s = o.Sweep;
         var t = new Tally(room);
         int reserved = 0;
-        Roster(t, s, n => Wire.ComposeExcludedRow(s.ExcludedPlugins, n).Length);
+        Roster(t, o, n => Wire.ComposeExcludedRow(o.ExcludedPlugins, n).Length);
 
         if (s.Errors is { Error: null } e)
         {
@@ -173,18 +174,18 @@ internal static class SweepDemand
 
     /// <summary>THE EXCLUDED-PLUGIN ROSTER'S DEMAND, measured row by row through the same composer the render
     /// writes. It is a demand and not a reserve: the roster is a RESPONSE-level participant in the allocation
-    /// (<c>CheckSweep.ResponseSubjects</c>), so what it wants is measured here exactly as a family's subjects are,
+    /// (<c>CheckOutcome.ResponseSubjects</c>), so what it wants is measured here exactly as a family's subjects are,
     /// and the fill gives it <c>min(demand, lambda)</c>.
     ///
     /// <para>Reserved instead, its room was subtracted from the row budget and then spent against the GLOBAL test,
     /// which no plan governs — so the roster took the whole body budget before the first family head was written
     /// and the fixed part landed past the cap (measured: 4,494 chars against a 4,000 cap, with a printed remedy
     /// that never converged).</para></summary>
-    static void Roster(Tally t, CheckSweep s, Func<int, int> costOf)
+    static void Roster(Tally t, CheckOutcome o, Func<int, int> costOf)
     {
-        if (s.ExcludedPlugins.Count == 0) return;
+        if (o.ExcludedPlugins.Count == 0) return;
         t.Declare(SweepSubject.ExcludedRows);
-        for (int i = 0; i < s.ExcludedPlugins.Count; i++)
+        for (int i = 0; i < o.ExcludedPlugins.Count; i++)
         {
             if (t.Done(SweepSubject.ExcludedRows)) break;
             t.Add(SweepSubject.ExcludedRows, costOf(i));
@@ -199,11 +200,12 @@ internal static class SweepDemand
     /// <param name="depths">where each unit sits in the document (<see cref="JsonWire.JsonUnitDepths"/>). The render
     /// reads its anchor off the live writer; this pass is handed the same anchor, and
     /// <c>ALLOCATION-EQUALS-SPEND</c> is what catches the two disagreeing.</param>
-    internal static Result ForJson(CheckSweep s, int room, int histogramLimit, JsonWire.JsonUnitDepths depths)
+    internal static Result ForJson(CheckOutcome o, int room, int histogramLimit, JsonWire.JsonUnitDepths depths)
     {
+        var s = o.Sweep;
         var t = new Tally(room);
         int reserved = 0;
-        Roster(t, s, n => JsonWire.ExcludedRowCostFor(s.ExcludedPlugins, n));
+        Roster(t, o, n => JsonWire.ExcludedRowCostFor(o.ExcludedPlugins, n));
 
         if (s.Errors is { Error: null } e)
         {

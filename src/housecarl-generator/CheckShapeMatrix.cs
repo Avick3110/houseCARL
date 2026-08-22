@@ -512,7 +512,10 @@ internal static class CheckShapeMatrix
     /// measuring its demand altogether came back green through the whole sweep: it is allocated, charged and cut
     /// like any other subject, so every property here has to be asked of it.</summary>
     static SweepSubject[] Subjects(Shape shape)
-        => shape.Sweep.Plan().SelectMany(p => p.Subjects).Concat(shape.Sweep.ResponseSubjects).Distinct().ToArray();
+        => Subjects(CheckOutcome.For(shape.Sweep));
+
+    static SweepSubject[] Subjects(CheckOutcome o)
+        => o.Plan().SelectMany(p => p.Subjects).Concat(o.ResponseSubjects).Distinct().ToArray();
 
     /// <summary>A response's rendered-unit fingerprint — what "renders everything" means, COUNTED rather than read
     /// off a sentence the response prints about itself. Per transport, because the two carry their units

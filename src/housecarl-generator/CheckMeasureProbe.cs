@@ -242,9 +242,9 @@ public static class CheckMeasureProbe
             return best * 1_000_000 / Stopwatch.Frequency;   // microseconds: the pass is sub-millisecond and "0 ms" is not a measurement
         }
 
-        long textDemand = Best(() => SweepDemand.ForText(sweep, cap, 1000).Demand.Count);
+        long textDemand = Best(() => SweepDemand.ForText(CheckOutcome.For(sweep), cap, 1000).Demand.Count);
         long textRender = Best(() => Wire.RenderCheck(sweep, cap).Length);
-        long jsonDemand = Best(() => SweepDemand.ForJson(sweep, cap, 1000, new JsonWire.JsonUnitDepths(3)).Demand.Count);
+        long jsonDemand = Best(() => SweepDemand.ForJson(CheckOutcome.For(sweep), cap, 1000, new JsonWire.JsonUnitDepths(3)).Demand.Count);
         long jsonRender = Best(() => JsonWire.RenderCheck(sweep, cap).Length);
 
         Console.WriteLine($"   text : demand pass {textDemand} us of a {textRender} us whole render");
@@ -315,7 +315,7 @@ public static class CheckMeasureProbe
             Console.WriteLine($"   {cap,8} {TotalAxisRows(a) + " rows / " + a.Length + " chars",22}"
                             + $" {TotalAxisRows(m) + " rows / " + m.Length + " chars",22}   {cap - m.Length}");
         }
-        Console.WriteLine($"\n   the merged scope sentence, which the ancestor does not carry: {merged.ScopeSentence().Length} chars");
+        Console.WriteLine($"\n   the merged scope sentence, which the ancestor does not carry: {CheckOutcome.For(merged).ScopeSentence().Length} chars");
         Console.WriteLine($"   the merged response with no body in it at all                : {Wire.RenderCheck(merged, 1).Length} chars");
         return 0;
     }

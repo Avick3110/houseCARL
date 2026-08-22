@@ -57,21 +57,25 @@ internal static class DialogueSweepRender
 
     /// <summary>The family's head: what a budget may never refuse. The scope note, the counts, and — where the
     /// family refused outright — the refusal, which IS the section.</summary>
-    internal static void AppendHead(StringBuilder sb, CheckSweep s)
+    internal static void AppendHead(StringBuilder sb, CheckOutcome o)
     {
-        var r = s.Dialogue!;
+        var d = o.Dialogue!.Value;
         // The scope asymmetry, above this family's own counts and inside its own section: a caller who passed
         // plugins= alongside would otherwise read a seeded answer as a scoped one, and nothing would say which.
-        sb.Append(ScopeNote(r)).Append('\n');
-        sb.Append(string.Format(ReadSentences.DialogueCounts, r.Resolved.Count(), r.TopicsFound, r.ProblemsFound));
-        if (r.CountsOnly) sb.Append(ReadSentences.DialogueCountsOnly);
+        sb.Append(ScopeNote(d)).Append('\n');
+        // Every number here comes off the OUTCOME, in its vocabulary: validated against reached, then the totals.
+        // Composed here from the result instead, the counts line printed a bare "N seed(s) validated" while the
+        // scope sentence one line up printed a DIFFERENT quantity under the same word (round-2 finding B1).
+        sb.Append(string.Format(ReadSentences.DialogueCounts, d.SeedsValidated, d.SeedsReached, d.TopicsFound,
+                                d.FindingsFound));
+        if (d.CountsOnly) sb.Append(ReadSentences.DialogueCountsOnly);
     }
 
     /// <summary>The family's rows. Everything here goes through <paramref name="body"/>, so everything here is
     /// refusable and everything refused is accounted for.</summary>
-    internal static void AppendSection(StringBuilder sb, CheckSweep s, BoundedBody body)
+    internal static void AppendSection(StringBuilder sb, CheckOutcome o, BoundedBody body)
     {
-        if (s.Dialogue is not { Error: null } r) return;
+        if (o.Sweep.Dialogue is not { Error: null } r) return;
 
         if (!r.CountsOnly)
         {
@@ -129,12 +133,15 @@ internal static class DialogueSweepRender
     /// what it actually reached, never from what the caller named: with <c>limit=</c> below the seed count the two
     /// differ, and the sentence used to print the NAMED figure while the accounting three lines down stated the
     /// cut. One computation, so the two cannot disagree again.</summary>
-    static string ScopeNote(DialogueCheckResult r)
+    static string ScopeNote(DialogueOutcome d)
     {
-        int validated = r.Resolved.Count() + r.Unresolved.Count;
-        var howMany = validated < r.SeedsNamed
-            ? string.Format(ReadSentences.DialogueScopeSomeSeeds, validated, r.SeedsNamed)
-            : string.Format(ReadSentences.DialogueScopeAllSeeds, r.SeedsNamed);
+        // REACHED, off the outcome — not a sum of two collections taken here. It was
+        // `Resolved.Count() + Unresolved.Count` under the word "validated", which counts the seeds that produced a
+        // named REFUSAL as validated ones and claims a completeness the [X] rows in this same section deny. Round 1
+        // found that sentence, its fold reproduced it, and round 2 found it again (finding B1).
+        var howMany = d.SeedsReached < d.SeedsNamed
+            ? string.Format(ReadSentences.DialogueScopeSomeSeeds, d.SeedsReached, d.SeedsNamed)
+            : string.Format(ReadSentences.DialogueScopeAllSeeds, d.SeedsNamed);
         return string.Format(ReadSentences.DialogueScopeNote, howMany);
     }
 
@@ -154,29 +161,45 @@ internal static class DialogueSweepRender
     /// <summary>The family's json section — the same facts as data. The head's sentences are carried verbatim so the
     /// two transports state one thing, and the rows carry the structure a machine consumer would otherwise have to
     /// parse back out of prose.</summary>
-    internal static void WriteHead(Utf8JsonWriter w, CheckSweep s)
+    ///
+    /// <para><b>THE HEAD IS THE OUTCOME; THE ACCOUNTING IS WHAT THE RESPONSE CARRIED OF IT.</b> Every quantity this
+    /// family found is stated here, once, in <see cref="DialogueOutcome"/>'s vocabulary, and
+    /// <see cref="CheckAccounting"/> states only what was RENDERED of them and which knob moves the rest. Before
+    /// that split, <c>topics_validated</c> was written by both — twice into the same family object, so which value a
+    /// consumer saw depended on its parser (round-2 finding B5) — and <c>seeds_named</c>, the topic total and the
+    /// finding total each had a twin one level down under a different name.</para>
+    internal static void WriteHead(Utf8JsonWriter w, CheckOutcome o)
     {
-        var r = s.Dialogue!;
-        w.WriteString("scope", ScopeNote(r));
+        var d = o.Dialogue!.Value;
+        w.WriteString("scope", ScopeNote(d));
         w.WriteBoolean("seeded_not_swept", true);
-        w.WriteBoolean("counts_only", r.CountsOnly);
-        w.WriteNumber("seeds_named", r.SeedsNamed);
-        w.WriteNumber("seeds_validated", r.Resolved.Count());
-        w.WriteNumber("topics_validated", r.TopicsFound);
-        w.WriteNumber("findings_found", r.ProblemsFound);
+        w.WriteBoolean("counts_only", d.CountsOnly);
+        w.WriteNumber("seeds_named", d.SeedsNamed);
+        w.WriteNumber("seeds_reached", d.SeedsReached);
+        w.WriteNumber("seeds_validated", d.SeedsValidated);
+        // `..._total` because `seeds_unreachable` is the ROSTER ARRAY this family writes below, and two members
+        // of one object cannot share a name — which is the very defect this migration is closing (finding B5).
+        // It reads like the sibling families' `excluded_plugins_total` / `unread_plugins_total` for that reason.
+        w.WriteNumber("seeds_unreachable_total", d.SeedsUnreachable);
+        w.WriteNumber("topics_found", d.TopicsFound);
+        w.WriteNumber("findings_found", d.FindingsFound);
     }
 
     /// <summary>One json row per seed, its topics nested. Each row's width is measured before it is written
     /// (<see cref="TopicRowCost"/>), which is what the allocation's per-subject ceiling needs and what
     /// <c>dialogue-width-measure</c> established before this family was built.</summary>
-    internal static void WriteSection(Utf8JsonWriter w, CheckSweep s, BoundedBody body)
+    internal static void WriteSection(Utf8JsonWriter w, CheckOutcome o, BoundedBody body)
     {
-        if (s.Dialogue is not { Error: null } r) return;
+        if (o.Sweep.Dialogue is not { Error: null } r) return;
         var depths = new JsonWire.JsonUnitDepths(w.CurrentDepth);
 
-        w.WriteStartArray("seeds");
+        // The seeds array is GATED ON THE LANE, as both sibling families gate their row arrays: a field named for a
+        // subject is present exactly where that subject is. Opened outside the gate, a counts_only response carried
+        // `"seeds": []` beside a non-zero seeds_validated — an empty list in the one mode whose whole claim is that
+        // it renders no rows (round-2 finding B3).
         if (!r.CountsOnly)
         {
+            w.WriteStartArray("seeds");
             var resolved = r.Resolved.ToArray();
             for (int i = 0; i < resolved.Length; i++)
             {
@@ -200,8 +223,8 @@ internal static class DialogueSweepRender
                 // BoundedBody.Complete).
                 body.Complete(SweepSubject.DialogueSeeds, () => { w.WriteEndArray(); w.WriteEndObject(); });
             }
+            w.WriteEndArray();
         }
-        w.WriteEndArray();
 
         w.WriteStartArray("seeds_unreachable");
         int refusals = 0;

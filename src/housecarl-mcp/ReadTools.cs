@@ -1520,10 +1520,13 @@ static class Wire
     internal static string RenderCheck(CheckSweep s, int maxChars, int histogramLimit, out BoundedBody? measured)
     {
         measured = null;
-        if (s.Error is not null) return "error: " + s.Error + (s.Epoch is not null ? $"\nepoch={s.Epoch}" : "");
+        // WHAT THIS RESPONSE ACTUALLY DID, composed ONCE and handed to everything below — the skeleton pass
+        // included, so the fixed part is measured over the same claims the response writes.
+        var o = CheckOutcome.For(s);
+        if (o.Error is not null) return "error: " + o.Error + (o.Epoch is not null ? $"\nepoch={o.Epoch}" : "");
         int cap = Cap(maxChars);
-        var sections = s.Sections;
-        var accts = s.Accountings(cap);
+        var sections = o.Sections;
+        var accts = o.Accountings(cap);
         // The reserve: one accounting line PER FAMILY, and ONE boundary line per family, held before anything
         // renders. Summing whole TextReserves would hold the boundary once per family — room for a sentence
         // written once, taken out of the rows that could have used it.
@@ -1537,7 +1540,7 @@ static class Wire
 
         // WHAT EACH SUBJECT WANTS, measured before anything is written, so the allocation can water-fill
         // over it rather than discover shortfalls at render time (SweepDemand, BodyAllocation).
-        var demand = SweepDemand.ForText(s, budget, histogramLimit);
+        var demand = SweepDemand.ForText(o, budget, histogramLimit);
         // AND WHAT THE RESPONSE OWES WHATEVER THE BUDGET SAYS, measured the same way: composed, not assembled.
         // The row budget has to exclude the WHOLE fixed part — the title, the scope sentence, every family's
         // section head and its own head, the "no findings" line — and not only the pieces that happen to call
@@ -1545,16 +1548,16 @@ static class Wire
         // subject reaches its share, and render order decides who loses: the order-dependence water-filling is
         // here to remove, re-entering one level up.
         var skeleton = new StringBuilder();
-        var skeletonAccts = s.Accountings(cap);
+        var skeletonAccts = o.Accountings(cap);
         var skeletonBody = BoundedBody.Skeleton(skeletonAccts, () => skeleton.Length);
-        Compose(skeleton, s, sections, skeletonAccts, skeletonBody, histogramLimit);
+        Compose(skeleton, o, sections, skeletonAccts, skeletonBody, histogramLimit);
         int fixedPart = skeleton.Length - skeletonBody.ReservedWritten - skeletonBody.BodyTotal;
 
         var sb = new StringBuilder();
-        var body = BoundedBody.ForFamilies(accts, budget, () => sb.Length, s.Plan(),
-                                           demand.Demand, demand.Reserved + fixedPart, s.ResponseSubjects);
+        var body = BoundedBody.ForFamilies(accts, budget, () => sb.Length, o.Plan(),
+                                           demand.Demand, demand.Reserved + fixedPart, o.ResponseSubjects);
         measured = body;
-        Compose(sb, s, sections, accts, body, histogramLimit);
+        Compose(sb, o, sections, accts, body, histogramLimit);
 
         // The overrun question, asked of the FINISHED response exactly as the single-family close asks it. The
         // notice is part of the response whose length it states, so the composition runs to a fixed point.
@@ -1580,13 +1583,15 @@ static class Wire
     /// exactly the fixed part behind to be measured, and once for real. One routine rather than two, because a
     /// second spelling of the fixed part is a number free to drift from the response it is meant to describe.
     /// </summary>
-    static void Compose(StringBuilder sb, CheckSweep s, IReadOnlyList<SweepFamily> sections,
+    static void Compose(StringBuilder sb, CheckOutcome o, IReadOnlyList<SweepFamily> sections,
                         IReadOnlyList<CheckAccounting> accts, BoundedBody body, int histogramLimit)
     {
+        var s = o.Sweep;
         sb.Append(ReadSentences.SweepMergedTitle).Append('\n');
-        // The scope sentence, above everything a budget can refuse: which families ran and which registered ones did
-        // not, with the spelling that gets them. The default narrows only because the response says so (Q3).
-        sb.Append(s.ScopeSentence()).Append('\n');
+        // The scope sentence, above everything a budget can refuse: which families ANSWERED, which selected ones
+        // refused, and which registered ones were never asked, with the spelling that gets them. The default
+        // narrows only because the response says so (Q3).
+        sb.Append(o.ScopeSentence()).Append('\n');
 
         // THE EXCLUDED-PLUGIN ROSTER, ABOVE THE FAMILY SECTIONS. It is part of what the scope sentence claims —
         // which plugins this response did NOT check — so it reads where the scope is stated. Its POSITION is also
@@ -1600,7 +1605,7 @@ static class Wire
         // does. Held as a reserve instead — its room subtracted from the rows, its rows spent against the
         // response-wide test, which no plan governed — it took the whole body budget before the first family head
         // was written and the fixed part landed past the cap: 4,494 chars against a 4,000 cap.
-        AppendExcludedPlugins(sb, body, s.ExcludedPlugins);
+        AppendExcludedPlugins(sb, body, o.ExcludedPlugins);
 
         for (int i = 0; i < sections.Count; i++)
         {
@@ -1608,13 +1613,20 @@ static class Wire
             sb.Append('\n').Append(string.Format(ReadSentences.SweepFamilySectionHead,
                                                  SweepFamilySelection.Token(f), SweepFamilySelection.Title(f)))
               .Append('\n');
+            // THE OFF-ORDER ASYMMETRY, above whatever this family goes on to say — including a refusal. It is a fact
+            // about the caller's SCOPE for this family, not about the sweep it did or did not run: gated on the
+            // family having run, and written only in the non-refusal branch, it vanished from the one call that
+            // needs it most (round-2 finding B4). A "0 unbound" over a scope this family could not sweep reads as
+            // "looked, found none" — the exact Q3 misreading the NOT CHECKED wording exists to prevent — and so does
+            // a refusal about a DIFFERENT plugin with nothing said about this one.
+            if (o.OffOrder(f) is { } skipped) sb.Append(skipped).Append('\n');
             // A FAMILY THAT REFUSED fills its own section with the refusal — the rule the dialogue family has
             // always followed, now followed by all three. A scripts-family scope refusal used to be raised to
             // response level and discard a completed errors sweep beside it: exclude= is validated against each
             // family's OWN scope, and the scripts family is handed the ACTIVE subset of plugins=, so a call
             // naming an off-order file and excluding the active one refused outright and told the caller to narrow
             // exclude= — while the errors family had swept the off-order file perfectly well (round-1 review).
-            if (s.Refusal(f) is { } refusal)
+            if (o.Refusal(f) is { } refusal)
             {
                 sb.Append(refusal).Append('\n');
             }
@@ -1625,10 +1637,6 @@ static class Wire
             }
             else if (f == SweepFamily.Scripts)
             {
-                // The off-order asymmetry sits IN this family's section, above its own counts: a "0 unbound" over a
-                // scope this family could not sweep reads as "looked, found none" — the exact Q3 misreading the
-                // NOT CHECKED wording exists to prevent — unless the reason is right beside it.
-                if (s.OffOrderSentence() is { } skipped) sb.Append(skipped).Append('\n');
                 AppendScriptsHead(sb, s.Scripts!);
                 AppendScriptsSection(sb, s.Scripts!, body, histogramLimit);
             }
@@ -1637,8 +1645,8 @@ static class Wire
                 // The dialogue family's own asymmetry sits in the same place and for the same reason: it is SEEDED,
                 // so the scope parameters beside it did not narrow it, and a caller who passed plugins= would
                 // otherwise read a seeded answer as a scoped one.
-                DialogueSweepRender.AppendHead(sb, s);
-                DialogueSweepRender.AppendSection(sb, s, body);
+                DialogueSweepRender.AppendHead(sb, o);
+                DialogueSweepRender.AppendSection(sb, o, body);
             }
             // This family's accounting, under this family's section, out of the room held for it.
             if (accts[i].TextLine() is { } line)
