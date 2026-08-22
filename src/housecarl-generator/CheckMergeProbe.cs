@@ -459,11 +459,16 @@ public static class CheckMergeProbe
         // seeded, not swept) and an empty dangling_missing_by_source, which is the ERRORS family's roster.
         using (var doc = JsonDocument.Parse(mixedJson))
         {
-            var fams = doc.RootElement.GetProperty("families");
-            var dlgAcct = fams.GetProperty("dialogue").GetProperty("accounting");
-            var errAcct = fams.GetProperty("errors").GetProperty("accounting");
+            // Presence before value at the TOP of the chain too, for the reason the comment below already gives
+            // about the leaves: a response that is an error document has no `families`, and indexing it throws
+            // rather than failing this arm.
+            JsonElement dlgAcct = default, errAcct = default;
+            bool merged = doc.RootElement.TryGetProperty("families", out var fams)
+                       && fams.TryGetProperty("dialogue", out var dlgFam) && dlgFam.TryGetProperty("accounting", out dlgAcct)
+                       && fams.TryGetProperty("errors", out var errFam) && errFam.TryGetProperty("accounting", out errAcct);
             Check("REFUSED-FAMILY-DECLARES-NO-SUBJECT-COUNTS: a family that never ran states its refusal and the cap it was given — never zeros about subjects it does not have — while the family beside it that HAS one still states it, and the text lane writes ONE accounting line for the two",
-                !dlgAcct.TryGetProperty("excluded_plugins_total", out _)
+                merged
+                && !dlgAcct.TryGetProperty("excluded_plugins_total", out _)
                 && !dlgAcct.TryGetProperty("excluded_plugins_named", out _)
                 && !dlgAcct.TryGetProperty("unread_plugins_total", out _)
                 && !dlgAcct.TryGetProperty("unread_plugins_named", out _)
@@ -486,7 +491,8 @@ public static class CheckMergeProbe
                 && errAcct.GetProperty("dangling_found").GetInt32() == Npcs
                 // The transports agree: one accounting line for the family that can state one, none for the other.
                 && Count(mixedText, ReadSentences.SweepAccountingLead) == 1,
-                $"dialogueAcct={Trim(dlgAcct.GetRawText())} textAccountingLines={Count(mixedText, ReadSentences.SweepAccountingLead)}");
+                merged ? $"dialogueAcct={Trim(dlgAcct.GetRawText())} textAccountingLines={Count(mixedText, ReadSentences.SweepAccountingLead)}"
+                       : $"the response is not a merged document: {Trim(mixedJson)}");
         }
 
         // ---- DIALOGUE-NOT-PLUGIN-SCOPED ------------------------------------------------------------
