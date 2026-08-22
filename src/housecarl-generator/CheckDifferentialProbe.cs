@@ -63,6 +63,7 @@ public static class CheckDifferentialProbe
         if (Only("errors")) ErrorsDifferential(svc, errPlugin);
         if (Only("scripts")) ScriptsDifferential(svc, scrPlugin);
         if (Only("394")) AcceptanceBand394(svc);
+        if (Only("dialogue")) DialogueDifferential(svc, ArgVal(args, "--seed") ?? "03372B:Skyrim.esm");
         if (Only("epoch")) DialogueEpochSubstrates(svc, ArgVal(args, "--seed") ?? "03372B:Skyrim.esm");
 
         Console.WriteLine($"\n================ {_cells} cell(s), {_diverged} with divergences ================");
@@ -416,6 +417,139 @@ public static class CheckDifferentialProbe
         var (tr, td) = AxisRows(s, "TARGET plugin");
         var (sr, sd) = AxisRows(s, "SOURCE plugin");
         Console.WriteLine($"   {cap,6} {surface,10} {s.Length,7} {tr + "/" + td,12} {sr + "/" + sd,12}");
+    }
+
+
+    // ---- L6: the DIALOGUE family against its ancestor ----------------------------------------------
+
+    /// <summary>The third family's zero-loss cell, and the one this branch owes most: the dialogue family is the
+    /// one whose caller-facing VOCABULARY the merge rewrote (four words for four populations — seeds named,
+    /// reached, validated, unreachable — where the ancestor said "validated" for two different things).
+    ///
+    /// <para><b>Text only, and that is a fact about the ancestor rather than a gap here.</b>
+    /// <c>housecarl_validate_dialogue</c> has no <c>format=</c> parameter — it renders text and nothing else — so
+    /// there is no json document to compare key for key. The merged surface ADDS a json transport for this family;
+    /// an addition is not a loss, and the json half is pinned by <c>check-guard</c> instead.</para>
+    ///
+    /// <para>The comparison is the same asymmetric one the other families get: every line the ancestor wrote must
+    /// appear in the merged response, and a line that does not is a divergence unless
+    /// <see cref="ExpectedDialogueChange"/> names it. Naming it there is what makes an intentional re-spelling
+    /// REPORTED rather than asserted in a PR body — the difference between a dispositioned divergence and an
+    /// unchecked claim.</para></summary>
+    static void DialogueDifferential(LoadOrderService svc, string seed)
+    {
+        Console.WriteLine($"\n## L6  DIALOGUE family — housecarl_validate_dialogue vs housecarl_check findings=['dialogue'] seeds=['{seed}']\n");
+        _cells++;
+        Console.WriteLine($"### seeds=[{seed}]");
+
+        string at = DialogueTools.ValidateDialogue(svc, seed, max_chars: Unbounded);
+        string mt = CheckTools.CheckTool(svc, findings: new[] { "dialogue" }, seeds: new[] { seed },
+                                         max_chars: Unbounded);
+
+        var divergences = new List<string>();
+        var expected = new List<string>();
+        var merged = new HashSet<string>(mt.Replace("\r", "").Split('\n'), StringComparer.Ordinal);
+        foreach (var l in at.Replace("\r", "").Split('\n').Where(l => l.Length > 0 && !merged.Contains(l)))
+        {
+            if (ExpectedDialogueChange(l, mt) is { } why) expected.Add("text: " + why);
+            else divergences.Add("text: ancestor-only line — " + First(l, 150));
+        }
+
+        if (divergences.Count == 0)
+            Console.WriteLine($"   ZERO LOSS — every one of the ancestor's {at.Replace("\r", "").Split('\n').Length} text lines is in the merged response"
+                            + (expected.Count > 0 ? $" ({expected.Count} recorded re-spelling(s))" : ""));
+        else
+        {
+            _diverged++;
+            Console.WriteLine($"   {divergences.Count} DIVERGENCE(S):");
+            foreach (var d in divergences) Console.WriteLine("     · " + d);
+        }
+        foreach (var e in expected.Distinct()) Console.WriteLine("     (recorded) " + e);
+        Console.WriteLine("   NOTE the ancestor has no json transport (no format= parameter), so there is no json");
+        Console.WriteLine("   document to compare; the merged surface ADDS one, which check-guard pins.");
+        Console.WriteLine($"   sizes: ancestor text {at.Length}   merged text {mt.Length}");
+        Console.WriteLine();
+    }
+
+    /// <summary>The dialogue lines the merged surface re-spells BY DECISION, each named so the differential reports
+    /// it as dispositioned and so anything NOT here is a real loss.</summary>
+    static string? ExpectedDialogueChange(string line, string mergedResponse)
+    {
+        // THE ANCESTOR'S HEAD LINE, e.g. `validate_dialogue: quest MQ101 (03372B:Skyrim.esm) — 235 topics owned`.
+        // The merged surface writes a seed head in its own shape instead. Dispositioned only if every FACT the
+        // ancestor's line carries is in the merged response — the record it validated, what that record is, and
+        // how many topics it owns. A head that re-spelled the facts away would fail here.
+        if (line.StartsWith("validate_dialogue:", StringComparison.Ordinal))
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(
+                line, @"^validate_dialogue: (\w+) (\S+) \(([0-9A-Fa-f]{6}:[^)]+)\).*?(\d+) topics? owned");
+            if (!m.Success) return null;   // a head shape this cell does not know is not one it may wave through
+            string kind = m.Groups[1].Value, name = m.Groups[2].Value,
+                   fk = m.Groups[3].Value, topics = m.Groups[4].Value;
+            return mergedResponse.Contains(fk, StringComparison.Ordinal)
+                && mergedResponse.Contains(name, StringComparison.Ordinal)
+                && mergedResponse.Contains(kind, StringComparison.Ordinal)
+                && mergedResponse.Contains(topics + " topic", StringComparison.Ordinal)
+                 ? $"the ancestor's HEAD line — the merged response writes a seed head instead, carrying the same "
+                 + $"facts ({kind} {name}, {fk}, {topics} topics) plus the winning plugin the ancestor does not state"
+                 : null;
+        }
+        if (line.StartsWith("boundary: ", StringComparison.Ordinal))
+        {
+            string sentence = line["boundary: ".Length..];
+            return mergedResponse.Contains(sentence, StringComparison.Ordinal)
+                 ? "the boundary LABEL — the same sentence, written as `boundary (dialogue):`"
+                 : null;
+        }
+        // CLASS 8 — the effective merged INFO order. The ancestor renders the whole ordered sequence inside every
+        // topic block; the merged surface does not, by SPEC §6.1, because an ordered sequence is not a findings
+        // list. It is a REDIRECT rather than a drop, and it is dispositioned here ONLY IF the merged response
+        // actually performs the redirect: the boundary must say the order is not here AND name where it is. A
+        // future change that quietly stopped saying so would fail this cell instead of passing it.
+        if (line.TrimStart().StartsWith("INFO order", StringComparison.Ordinal)
+            || line.TrimStart().StartsWith("effective INFO order", StringComparison.Ordinal)
+            || line.TrimStart().StartsWith("[!] INFO order", StringComparison.Ordinal)
+            || System.Text.RegularExpressions.Regex.IsMatch(line, @"^\s+#\d+\s+[0-9A-F]{6}:")
+            // …and the block's OTHER shape: a topic nothing reordered states that in one line instead of listing
+            // the sequence. Same class, same redirect, different spelling.
+            || line.Contains("none of which changed position", StringComparison.Ordinal)
+            || line.Contains("the merged order matches the defining plugin", StringComparison.Ordinal)
+            || line.Contains("INFO order: INCOMPLETE", StringComparison.Ordinal))
+            return mergedResponse.Contains("is not a finding and is not here", StringComparison.Ordinal)
+                && mergedResponse.Contains("records project=info_order", StringComparison.Ordinal)
+                 ? "CLASS 8, the effective merged INFO order — an ordered sequence, not a findings list. Sent to "
+                 + "`records project=info_order` by SPEC §6.1, and the merged boundary says so and names it."
+                 : null;
+
+        // THE STANDING LIMITS. The ancestor prints them as a trailing section; the merged surface carries the
+        // same facts inside the family's BOUNDARY sentence, which is where a merged response states what one
+        // family did not verify. Dispositioned per fact, and only where the fact is actually in the response —
+        // a limit that quietly stopped being stated is a real loss, not a re-spelling.
+        foreach (var (needle, fact) in new[]
+                 {
+                     ("cannot EVALUATE whether a WELL-FORMED condition passes", "conditions are not evaluated"),
+                     ("lip-sync", "lip-sync and audio content are not verified"),
+                     ("WINNING topic's INFO list only", "the per-line checks audit the winner's list only"),
+                 })
+            if (line.Contains(needle, StringComparison.Ordinal))
+                return mergedResponse.Contains(needle, StringComparison.Ordinal)
+                     ? $"a STANDING LIMIT — {fact} — stated in the family's boundary sentence instead of a trailing section"
+                     : null;
+        if (line.StartsWith("standing limits", StringComparison.Ordinal))
+            return "the standing-limits SECTION HEAD — its facts move into the family's boundary sentence, each checked above";
+
+        // THE VOCABULARY REWORDING, and the reason it is a decision rather than a slip. The ancestor spells one
+        // word — "validated" — over two different populations: the seeds it REACHED and the seeds it actually
+        // validated. Where those two numbers differ the ancestor's sentence claims a completeness its own rows
+        // deny, which is round-2 finding B1. The merged surface says which it means at every site. The line is
+        // only dispositioned here if the merged response really does carry the same fact in the new words.
+        if (line.Contains("seed(s)", StringComparison.Ordinal) || line.Contains("validated", StringComparison.Ordinal))
+            return mergedResponse.Contains("reached", StringComparison.Ordinal)
+                   || mergedResponse.Contains("validated", StringComparison.Ordinal)
+                 ? "the seed-population VOCABULARY — the ancestor's one word `validated` is split into named / "
+                 + "reached / validated / unreachable, and each site says which it means (round-2 finding B1)"
+                 : null;
+        return null;
     }
 
     // ---- the differential itself --------------------------------------------------------------------
