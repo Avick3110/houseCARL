@@ -69,6 +69,7 @@ internal sealed class CheckAccounting
     // caller named, and how many the seed budget let this call actually try. The last two differ exactly where the
     // budget stopped the loop, and that difference is an absence no other subject accounts for.
     readonly int _dialogueProblems;
+    readonly bool _dialogueLane;
     readonly int _dialogueSeedsNamed;
     readonly int _dialogueSeedsTried;
     // What THIS lane closes with. The two families state different boundaries, and TextReserve holds room for the
@@ -169,6 +170,11 @@ internal sealed class CheckAccounting
         _dialogueProblems = r.ProblemsFound;
         _dialogueSeedsNamed = r.SeedsNamed;
         _dialogueSeedsTried = r.Seeds.Count;
+        // This lane HAS seeds whether or not it lists topics: how many were named and how many the budget let it
+        // reach are facts of the call, not of the listing. Gated on the topic subject instead, the json lane said
+        // nothing at all about a seed budget that had cut the call under counts_only, while the text lane stated
+        // it — one sweep, two transports, two different answers (round-1 review).
+        _dialogueLane = r.Success;
 
         // A REFUSED family declares NOTHING. Declaring its subjects anyway made the accounting state "every one of
         // the 0 topic(s) these seeds own is listed" under a section whose whole content is a cost-refusal — a
@@ -618,18 +624,26 @@ internal sealed class CheckAccounting
             w.WriteNumber("script_scan_errors_total", Found(SweepSubject.ScriptScanRows));
             w.WriteNumber("script_scan_errors_named", Shown(v, SweepSubject.ScriptScanRows));
         }
+        if (_dialogueLane)
+        {
+            // THE SEED FACTS, in both lanes. How many seeds were named and how many the budget let this call reach
+            // are facts of the CALL — counts_only silences the topic blocks, not the boundary of the answer, and
+            // the text lane has always said so here.
+            w.WriteNumber("seeds_named", _dialogueSeedsNamed);
+            // NOT `seeds_validated`: the family head writes that name for the seeds that produced a REPORT, and
+            // this is the seeds the budget let the call reach — reports plus the ones that resolved to nothing.
+            // Two values under one name in one family object is a consumer reading whichever it happened to find
+            // (round-1 review). The unreachable ones are named in their own roster below.
+            w.WriteNumber("seeds_reached", _dialogueSeedsTried);
+            w.WriteNumber("seeds_not_reached_by_budget", DialogueSeedsUnreached);
+            w.WriteNumber("limit", _limit);
+        }
         if (dialogueTopics)
         {
-            // The dialogue family's decomposition, in a SEEDED family's units: the seeds named, the seeds the budget
-            // let this call try, the topics those seeds own, what the response carried, and the findings the
-            // validation counted — which no budget caps.
-            w.WriteNumber("seeds_named", _dialogueSeedsNamed);
-            w.WriteNumber("seeds_validated", _dialogueSeedsTried);
-            w.WriteNumber("seeds_not_reached_by_budget", DialogueSeedsUnreached);
+            // The topic facts, which the LISTING lane has and counts_only does not.
             w.WriteNumber("dialogue_topics_found", Found(SweepSubject.DialogueTopics));
             w.WriteNumber("dialogue_topics_rendered", Shown(v, SweepSubject.DialogueTopics));
             w.WriteNumber("dialogue_findings_found", _dialogueProblems);
-            w.WriteNumber("limit", _limit);
         }
         // In BOTH lanes, for the reason the subject is declared in both: a seed nobody could reach bounds the answer
         // rather than sitting inside it, so counts_only states it too.
