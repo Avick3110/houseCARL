@@ -807,7 +807,14 @@ internal sealed class CheckAccounting
     /// widens every one of those numbers, so a response raised across a digit boundary comes back LONGER by one
     /// character per site, and the remedy has to name a cap that already includes that. Merged responses print it
     /// once per family: measured, a three-family json document told a caller to raise to 5,369 and came back 5,373
-    /// chars plus its notice, so the remedy never converged.</param>
+    /// chars plus its notice, so the remedy never converged.
+    ///
+    /// <para>Only the JSON lane's count is load-bearing, and it is worth saying which half an arm can see. That
+    /// lane prints <c>max_chars</c> once per accounting, unconditionally, so a raise across a digit boundary makes
+    /// the document longer and the count decides by how much. The TEXT lane prints it only inside the clauses that
+    /// name what did not fit — and a raise big enough to fit removes those clauses, so its response gets SHORTER
+    /// and the count is an upper bound there rather than a requirement. Sabotaging the text lanes' counts to a
+    /// flat one leaves every arm green for that reason; the json lane's reddens.</para></param>
     /// <returns>the notice, or null when the response is inside its cap.</returns>
     internal string? CapTooSmall(int contentLength, int needed, int noticeLength, int capPrintSites)
     {
@@ -817,18 +824,16 @@ internal sealed class CheckAccounting
         // sentence told that caller their header and accounting did not fit in a cap holding them with room to
         // spare. needed IS the fixed part's size, so no state is added to tell them apart.
         var sentence = needed > _cap ? ReadSentences.SweepCapTooSmall : ReadSentences.SweepCapOvershot;
-        // The cap this response would have to be given to stop seeing this — the length it carries without the
-        // notice, plus what the raise itself ADDS BACK. Settled in a loop of two, because the growth can push the
-        // number across the next digit boundary and widen it again; two passes reach the fixed point, since the
-        // second pass's growth is at most one more digit's worth.
+        // The cap this response would have to be given to stop seeing this: the length it carries WITHOUT the
+        // notice, plus what the raise itself adds back. The raise widens every number this response prints the cap
+        // in, by however many digits the cap gains — and the answer can itself gain a digit from that widening, so
+        // the growth is taken at ONE MORE digit than the floor needs rather than iterated to a fixed point. That
+        // bound is always sufficient (the answer is at most a few characters above the floor, so it can cross at
+        // most one power of ten) and it overshoots by at most one character per printing site, which is a handful.
+        // Iterating instead put the second pass out of reach of every shape the guard carries — a branch no
+        // fixture can redden, which is a branch that goes.
         int floor = Math.Max(needed, contentLength - noticeLength);
-        int raiseTo = floor;
-        for (int i = 0; i < 2; i++)
-        {
-            int grown = floor + capPrintSites * Math.Max(0, Digits(raiseTo) - Digits(_cap));
-            if (grown == raiseTo) break;
-            raiseTo = grown;
-        }
+        int raiseTo = floor + capPrintSites * Math.Max(0, Digits(floor) + 1 - Digits(_cap));
         return string.Format(sentence, _cap, raiseTo, contentLength);
     }
 

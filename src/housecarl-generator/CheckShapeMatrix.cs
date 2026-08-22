@@ -44,11 +44,16 @@ internal static class CheckShapeMatrix
     /// The trims are structural (fewer rows of the same units), never different units: what each shape renders is
     /// what the guard's fixture renders, in smaller quantity.</summary>
     internal static IReadOnlyList<Shape> Build(ErrorCheckResult errors, ScriptCheckResult scripts,
-                                               DialogueCheckResult dialogue, DialogueCheckResult refusedDialogue)
+                                               DialogueCheckResult dialogue, DialogueCheckResult refusedDialogue,
+                                               DialogueCheckResult multiSeedDialogue)
     {
         var e = TrimErrors(errors, sections: 1, dangling: 4);
         var sc = TrimScripts(scripts, records: 3);
         var d = TrimDialogue(dialogue, topics: 3);
+        // A SECOND resolved seed, so the response opens a per-seed `topics` array more than once. Nested arrays
+        // that scale with a subject's units are the shape a fixed part measured from one unit of each subject can
+        // still be short on, and one-seed fixtures cannot see it.
+        var multi = TrimDialogue(multiSeedDialogue, topics: 3);
 
         var eCounts = CountsOnlyErrors(e);
         var scCounts = CountsOnlyScripts(sc);
@@ -105,6 +110,14 @@ internal static class CheckShapeMatrix
             new CheckSweep(Sel("errors", "scripts", "dialogue"),
                            e with { ExcludedPlugins = roster }, refusedScripts, null, refusedDialogue));
 
+        // ---- MORE THAN ONE SEED: nested per-seed arrays, which a one-seed shape cannot show --------
+        Add("dialogue, listing, two seeds", new CheckSweep(Sel("dialogue"), null, null, null, multi));
+        Add("all three, listing, two seeds",
+            new CheckSweep(Sel("errors", "scripts", "dialogue"), e, sc, null, multi));
+        Add("all three, listing, two seeds, roster",
+            new CheckSweep(Sel("errors", "scripts", "dialogue"),
+                           e with { ExcludedPlugins = roster }, sc with { ExcludedPlugins = roster }, null, multi));
+
         // ---- OFF-ORDER: a named plugin the scripts family has no lane for ---------------------------
         Add("errors+scripts, listing, off-order",
             new CheckSweep(Sel("errors", "scripts"), e, sc, new[] { "HcMxFresh.esp" }));
@@ -134,15 +147,16 @@ internal static class CheckShapeMatrix
     static ScriptCheckResult TrimScripts(ScriptCheckResult r, int records)
         => r with { Reports = r.Reports.Take(records).ToArray() };
 
+    /// <summary>The same fixture with EVERY resolved seed trimmed to <paramref name="topics"/> topics, so a
+    /// multi-seed shape stays as small as a one-seed one and the cap band over it stays affordable.</summary>
     static DialogueCheckResult TrimDialogue(DialogueCheckResult r, int topics)
     {
-        var seed = r.Resolved.First();
-        var trimmed = seed with { Report = seed.Report! with { Topics = seed.Report!.Topics.Take(topics).ToArray() } };
-        return r with
-        {
-            Seeds = r.Seeds.Select(s => ReferenceEquals(s, seed) ? trimmed : s).ToArray(),
-            TopicsFound = topics,
-        };
+        var trimmed = r.Seeds
+            .Select(s => s.Report is { Topics.Count: > 0 }
+                       ? s with { Report = s.Report with { Topics = s.Report.Topics.Take(topics).ToArray() } }
+                       : s)
+            .ToArray();
+        return r with { Seeds = trimmed, TopicsFound = topics * r.Resolved.Count() };
     }
 
     /// <summary>The errors family's <c>counts_only</c> shape: both histogram axes with rows, and the unread rows

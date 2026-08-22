@@ -305,13 +305,19 @@ internal sealed class BoundedBody
     /// number that was assembled from a roster of sites came out wrong in a way nothing could see
     /// (<see cref="FixedPart"/> carries that history).</para>
     ///
-    /// <para><b>Why ONE unit rather than none.</b> Some of what a response owes regardless is only written in the
+    /// <para><b>Why ONE unit, and why not more.</b> Some of what a response owes regardless is only written in the
     /// shape it takes when a subject has rendered something: a json array closes on the same line when it is
     /// <c>[]</c> and on its own indented line when it is not, so a fixed part measured with every array empty is
     /// short by that on every array the response opens. Measured at eight characters on a three-family listing
     /// document — enough for the response-wide test to bite before the allocation did, which cost the
     /// last-rendering subject a unit AT A WIDER CAP than it had rendered at. Admitting one unit each puts every
     /// frame in its rendered shape; subtracting what those units wrote takes the units themselves back out.</para>
+    ///
+    /// <para>Admitting MORE than one changes the number not at all — every unit it wrote would be subtracted
+    /// again — so no arm can tell the two apart, and none is claimed to. What the limit buys is the cost bound:
+    /// this pass runs on every render, and the scripts family's live sweep carries 180,028 findings across 10,944
+    /// records. One unit per subject keeps it O(subjects); the whole thing would make it O(all rows), which is the
+    /// bound <see cref="SweepDemand"/> exists to hold one level over.</para>
     ///
     /// <para>What the skeleton CANNOT compose is the part that varies with the cut — a closing disclosure says a
     /// different thing at a different length depending on what fit. Those go through <see cref="Reserve"/> as an
