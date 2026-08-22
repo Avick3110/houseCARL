@@ -421,9 +421,15 @@ public static class CheckMergeProbe
             Console.WriteLine("=== MIXED ===\n" + mixedText + "\n=== END ===");
         using (var doc = JsonDocument.Parse(mixedJson))
         {
-            var fams = doc.RootElement.GetProperty("families");
+            // Read through TryGetProperty rather than GetProperty, because the thing this arm is ABOUT is the
+            // response not being an error document — and an error document has no `families` to index. Indexed
+            // blindly this threw instead of failing, and a guard that throws stops every arm after it: one
+            // sabotage of the family-local rule hid twenty later cells behind a stack trace (found by the
+            // orchestration sabotage sweep, 2026-08-22).
+            bool merged = doc.RootElement.TryGetProperty("families", out var fams);
             Check("DIALOGUE-REFUSED-WITHOUT-SEEDS: an unseeded dialogue family refuses on cost IN ITS OWN SECTION, spells the seeds= that works, and does not refuse the errors family's answer",
-                unseeded.Error is not null
+                merged
+                && unseeded.Error is not null
                 && mixedText.Contains("[dialogue] ", StringComparison.Ordinal)
                 && mixedText.Contains("will NOT sweep the whole load order", StringComparison.Ordinal)
                 && mixedText.Contains("82,343", StringComparison.Ordinal)
