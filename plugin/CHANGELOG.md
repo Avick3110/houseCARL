@@ -76,8 +76,8 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `counts_only` call whose seed budget had cut it said nothing about that in json while the text render said it.
   **The accounting's `seeds_validated` is now `seeds_reached`** — the family head already used that name for a
   different quantity (the seeds that produced a report, against the seeds the budget reached), so one family
-  object carried one name with two values. If you read `accounting.seeds_validated`, read `accounting.
-  seeds_reached` instead; the family-level `seeds_validated` is unchanged.
+  object carried one name with two values. If you read `accounting.seeds_validated`, read
+  `accounting.seeds_reached` instead; the family-level `seeds_validated` is unchanged.
 
 - **Fixed: `housecarl_validate_scripts` stays inside its own `max_chars`.** On a 3800-plugin order at the
   defaults it returned 80,673 characters against its 80,000 cap and said nothing about it: the record loop
