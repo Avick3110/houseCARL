@@ -157,8 +157,22 @@ internal static class CheckShapeMatrix
                        .ToArray(),
         };
 
+    /// <summary>The scripts family trimmed to <paramref name="records"/> sections, the LAST of which carries no
+    /// unbound property.
+    ///
+    /// <para><b>Why one section is reshaped rather than merely taken.</b> A record whose findings are all
+    /// bound-but-null or unverifiable opens with <c>[CHECK]</c> instead of <c>[UNBOUND]</c>, and every record in
+    /// the guard's own fixture has an unbound property — so that head was a fingerprint term nothing in the
+    /// inventory could reach, and the whole-render predicates were blind to it exactly as they were to the
+    /// dangling entry (MATRIX-EVERY-FINGERPRINT-TERM-IS-REACHED). It is the same unit at a different width, which
+    /// is what the trims here are allowed to be.</para></summary>
     static ScriptCheckResult TrimScripts(ScriptCheckResult r, int records)
-        => r with { Reports = r.Reports.Take(records).ToArray() };
+    {
+        var kept = r.Reports.Take(records).ToArray();
+        if (kept.Length > 0)
+            kept[^1] = kept[^1] with { Unbound = Array.Empty<UnboundProperty>() };
+        return r with { Reports = kept };
+    }
 
     /// <summary>The same fixture with EVERY resolved seed trimmed to <paramref name="topics"/> topics, so a
     /// multi-seed shape stays as small as a one-seed one and the cap band over it stays affordable.</summary>
@@ -227,6 +241,12 @@ internal static class CheckShapeMatrix
         var everRendered = new HashSet<SweepSubject>();
         var oneBudget = new List<string>();
         var honestyBad = new List<string>();
+        // WHICH FINGERPRINT TERMS ANY SHAPE EVER REACHES. A term that is 0 on every shape of every cap is a marker
+        // nothing emits, and the whole-render predicates built on it are blind to that unit — which is what
+        // "  dangling ref " was, on the ONE subject the errors family accounts for a unit at a time. Counted here
+        // rather than asserted per marker, so a marker mistyped later is caught by the same rule.
+        var termsReached = new HashSet<(string Lane, int Term)>();
+        var termCount = new Dictionary<string, int>();
         int noticesFollowed = 0, capsSwept = 0, honestyCells = 0;
 
         foreach (var shape in shapes)
@@ -325,6 +345,11 @@ internal static class CheckShapeMatrix
                     if (!rendered.Contains(subject) && neverRendered.Count < 6)
                         neverRendered.Add($"{shape.Name} [{lane.Name}] {subject}: planned, and never given room at any cap in its band");
                 everRendered.UnionWith(rendered);
+
+                var terms = Fingerprint(lane, lane.Render(shape.Sweep, 0, out _)).Split('/');
+                termCount[lane.Name] = terms.Length;
+                for (int i = 0; i < terms.Length; i++)
+                    if (int.TryParse(terms[i], out var n) && n > 0) termsReached.Add((lane.Name, i));
             }
         }
 
@@ -373,6 +398,21 @@ internal static class CheckShapeMatrix
             ungoverned.Count == 0,
             ungoverned.Count == 0 ? $"{everRendered.Count} distinct subjects charged across the matrix, all five counts_only ones among them"
                                   : string.Join("; ", ungoverned.Take(6)));
+
+        // EVERY TERM OF THE WHOLE-RENDER FINGERPRINT IS REACHED BY SOME SHAPE. The predicates above — nothing
+        // stranded, the smallest cap that renders whole — compare fingerprints, so a term that is always 0 makes
+        // them blind to that unit rather than making them fail: "  dangling ref " matched nothing any composer
+        // emits, so the tight-fit search accepted caps that were still cutting dangling entries (measured at up to
+        // 219 characters below the true one). The marker is corrected; this is the rule that keeps it correct.
+        var deadTerms = new List<string>();
+        foreach (var (lane, count) in termCount)
+            for (int i = 0; i < count; i++)
+                if (!termsReached.Contains((lane, i)))
+                    deadTerms.Add($"{lane} fingerprint term {i} is 0 on every shape — its marker is a string no composer writes, so every whole-render predicate is blind to that unit");
+        Arm($"MATRIX-EVERY-FINGERPRINT-TERM-IS-REACHED: every term of the whole-render fingerprint is non-zero on at least one of the {shapes.Count} shapes, in both transports — a term that is always 0 does not fail a comparison, it removes that unit from every comparison, which is how a dangling-entry cut went unseen",
+            deadTerms.Count == 0,
+            deadTerms.Count == 0 ? string.Join(", ", termCount.Select(kv => $"{kv.Key}: {kv.Value} terms, all reached"))
+                                 : string.Join("; ", deadTerms.Take(4)));
 
         NoStranding(shapes, Arm);
         AllocationEqualsSpend(shapes, Arm);
@@ -595,12 +635,18 @@ internal static class CheckShapeMatrix
 
     /// <summary>The text lane's units, each located by the marker its own composer writes: plugin sections, script
     /// record sections, scan-error rows, unread rows, dangling entries, seed heads, topic blocks, unreachable-seed
-    /// rows, roster rows, and every counts_only histogram row.</summary>
+    /// rows, roster rows, and every counts_only histogram row.
+    ///
+    /// <para><b>Each marker is a string a composer really emits, and one of them was not.</b> The dangling entry
+    /// was counted by <c>"  dangling ref "</c>, which <see cref="ReadTools.ComposeDanglingLine"/> does not write —
+    /// its line ends in the bracketed reason below. So that term was 0 in every response and this fingerprint was
+    /// blind to the one subject the errors family accounts for a unit at a time (Aaron's review of PR #399,
+    /// finding 2 / round-3 B1). A marker is now taken from the composer's own text.</para></summary>
     static string TextFingerprint(string t)
         => string.Join("/", new[]
            {
                Count(t, "\n[ERROR] "), Count(t, "\n[UNBOUND] "), Count(t, "\n[CHECK] "),
-               Count(t, "\n[SCAN ERROR] "), Count(t, "\n[UNREAD] "), Count(t, "  dangling ref "),
+               Count(t, "\n[SCAN ERROR] "), Count(t, "\n[UNREAD] "), Count(t, "   [target not defined by any active plugin]"),
                Count(t, "\nseed "), Count(t, "  topic "), Count(t, "NOT validated:"),
                Count(t, "  HcMxBroken"), HistogramRows(t),
            });
@@ -625,8 +671,11 @@ internal static class CheckShapeMatrix
         {
             using var doc = System.Text.Json.JsonDocument.Parse(response);
             var root = doc.RootElement;
-            return string.Join("/", new[] { ("errors", "plugins"), ("scripts", "records"), ("dialogue", "seeds"),
-                                            ("errors", "excluded_plugins") }
+            // The excluded roster is a RESPONSE-level array, not a member of any family object, so it is counted
+            // once below by RootArrayLength. A fourth pair reading families.errors.excluded_plugins returned -1 on
+            // every shape — a constant, which contributes nothing to a comparison and reads as a covered subject
+            // (found by MATRIX-EVERY-FINGERPRINT-TERM-IS-REACHED, the same class as the dangling marker).
+            return string.Join("/", new[] { ("errors", "plugins"), ("scripts", "records"), ("dialogue", "seeds") }
                                     .Select(fa => ArrayLength(root, fa.Item1, fa.Item2))
                                     .Append(RootArrayLength(root, "excluded_plugins"))
                                     .Append(Count(response, "\"count\":"))
