@@ -98,14 +98,13 @@ internal static class DialogueWire
             string kind = r.InputKind == "view" ? "dialogue view (DLVW)" : "dialogue branch (DLBR)";
             sb.Append("validate_dialogue: ").Append(kind).Append(' ').Append(Edid(r.InputEditorId))
               .Append(" (").Append(r.Input).Append(") — winner ").Append(r.InputWinnerPlugin).Append('\n');
-            if (r.InputIssues.Count == 0)
-                sb.Append("  CK-parity: OK — ").Append(r.InputKind == "view"
-                    ? "the DNAM and ENAM byte subrecords the Creation Kit always writes are both present.\n"
-                    : "the TNAM (Category) and DNAM (Flags) subrecords the Creation Kit always writes are both present.\n");
-            else
-                AppendIssues(sb, r.InputIssues, "  ", cap);
-            sb.Append("scope: this is a record-level CK-parity check only — it does not validate any dialogue graph, "
-                    + "voice, script, or condition surface. Validate the owning topics (DIAL) or quest (QUST) for those.");
+            // The two sentences are SHARED with the merged surface, for the reason the quest parity line already
+            // is: this is the same verdict about the same record, and two spellings of it drift. Which kinds
+            // have a record-level parity, and what each one's verdict says, is DialogueKindChecks' answer in
+            // both places.
+            if (r.InputIssues.Count == 0 && DialogueKindChecks.ParityOkLine(r.InputKind) is { } ok) sb.Append(ok);
+            else AppendIssues(sb, r.InputIssues, "  ", cap);
+            sb.Append(ReadSentences.DialogueRecordLevelScope);
             return sb.ToString();
         }
 
