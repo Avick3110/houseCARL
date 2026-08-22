@@ -381,6 +381,27 @@ public static class CheckMeasureProbe
             Console.WriteLine($"   {cap,6} {body.Length,7} {headroom,9} = {heldUnwritten,14} + {unspent,8}    ({heldTotal,9} {written,8})"
                             + (heldUnwritten + unspent == headroom ? "" : $"   MISMATCH by {headroom - heldUnwritten - unspent}"));
             Console.WriteLine($"          granularity, held by: {names}");
+            // WHICH HOLDER the held-and-never-written room belongs to. A single total says how much; a fix
+            // needs to know what to aim at. Three holders, because there are three ways room leaves the row
+            // budget before a unit is written:
+            //   accountings — one accounting line and one boundary per family, held at the widest the line can
+            //                 print, written at whatever it actually said
+            //   axis frames — each histogram axis's unconditional lines, held at TextFixed
+            //   disclosures — each subject's closing "N did not fit" line, held at its worst case
+            // The fixed part is measured by the skeleton pass rather than bounded, so it is not a holder here;
+            // whatever it contributes lands in the residual, which is printed rather than absorbed.
+            int heldAcct = cap - b.Budget, heldFrames = b.ReserveDemanded;
+            int wroteAcct = b.ReservedWrittenByAccountings,
+                wroteFrames = b.ReservedWrittenByAxisFrames,
+                wroteDisc = b.ReservedWrittenByDisclosures;
+            // The closing disclosures are written OUT OF the axis hold -- `Close` spends what `Reserve` held for
+            // that subject -- so they are charged against the axis frames' number rather than counted as a
+            // holder of their own. Attributed the other way the two over-by figures sum to more than the
+            // headroom, which is the arithmetic saying the attribution is wrong.
+            int wroteFramesTotal = wroteFrames + wroteDisc;
+            Console.WriteLine($"          holders: accountings+boundaries held {heldAcct}, wrote {wroteAcct}, OVER BY {heldAcct - wroteAcct}; "
+                            + $"axis frames+disclosures held {heldFrames}, wrote {wroteFramesTotal} ({wroteFrames} frames + {wroteDisc} disclosures), "
+                            + $"OVER BY {heldFrames - wroteFramesTotal}");
         }
 
         // …and the WIDTH of the unit that did not fit, for the subject holding the most room at the cap #394's

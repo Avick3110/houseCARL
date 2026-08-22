@@ -444,6 +444,7 @@ internal sealed class BoundedBody
         int wrote = _length() - before;
         _reservedSpent += wrote;
         ReservedWritten += wrote;
+        ReservedWrittenByAccountings += wrote;
     }
 
     /// <summary>What this response has written OUT OF THE RESERVE — through <see cref="Reserved"/>,
@@ -452,6 +453,18 @@ internal sealed class BoundedBody
     /// room for those was already held back out of <c>max_chars</c>, so counting them again would take the same
     /// characters out of the rows twice.</summary>
     internal int ReservedWritten { get; private set; }
+
+    /// <summary>The same total, SPLIT BY THE PATH THAT WROTE IT — the accountings and boundaries that go through
+    /// <see cref="Reserved"/>, the axes' unconditional frames through <see cref="Fixed"/>, and the closing
+    /// disclosures through <see cref="Close"/>.
+    ///
+    /// <para>They exist because a reserve is an upper bound and the DIFFERENCE between what was held and what was
+    /// written is room no row can use — measured at a constant 395 characters at every biting cap on the live
+    /// order (#398). A single total says how much; these say WHICH HOLDER, which is what a fix would need to aim
+    /// at. Read only by <c>check-measure --band</c>; nothing in the response branches on them.</para></summary>
+    internal int ReservedWrittenByAccountings { get; private set; }
+    internal int ReservedWrittenByAxisFrames { get; private set; }
+    internal int ReservedWrittenByDisclosures { get; private set; }
 
     /// <summary>Emit one unit of <paramref name="subject"/>, or refuse. Returns false when the unit did not fit —
     /// the caller's loop breaks and the accounting already knows, because the count it will report is the count of
@@ -597,6 +610,7 @@ internal sealed class BoundedBody
         commit();
         int wrote = _length() - before;
         ReservedWritten += wrote;
+        ReservedWrittenByAxisFrames += wrote;
         if (_held.TryGetValue(subject, out var held)) _held[subject] = Math.Max(0, held - wrote);
     }
 
@@ -615,7 +629,9 @@ internal sealed class BoundedBody
         _alloc?.Done(subject);   // and its share is finished with too, whatever it did not spend
         int before = _length();
         commit();
-        ReservedWritten += _length() - before;
+        int wroteClose = _length() - before;
+        ReservedWritten += wroteClose;
+        ReservedWrittenByDisclosures += wroteClose;
         _stopped.Add(subject);   // nothing follows a subject's closing disclosure
     }
 
