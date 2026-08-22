@@ -762,6 +762,13 @@ public static class CheckMergeProbe
         // synthetic MO2 instance, which is the only place the layer BETWEEN the caller and the render is asked
         // anything at all.
         OrchestrationChecks(tmpDir, Check);
+
+        // ---- THE SHAPE MATRIX ----------------------------------------------------------------------
+        // Everything above asks its question of the shape its own finding was about. The matrix asks the
+        // allocation, cap and remedy properties of the INVENTORY of shapes this surface produces — which is what
+        // round 2's class (iii) turned out to be: arms written one per finding, so whole shapes had no fixture.
+        CheckShapeMatrix.Run(CheckShapeMatrix.Build(errors, scripts, dialogue, unseeded), Check);
+
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "check-guard: ALL PASS" : $"check-guard: {failures} FAILURE(S)");
         return failures == 0 ? 0 : 1;
