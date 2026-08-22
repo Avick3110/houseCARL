@@ -30,6 +30,7 @@ public static class CheckMeasureProbe
         if (Array.IndexOf(args, "--dialogue") >= 0) return RunDialogue(svc, ArgVal(args, "--seed"));
         if (Array.IndexOf(args, "--listing") >= 0) return RunListing(svc);
         if (Array.IndexOf(args, "--demand") >= 0) return RunDemand(svc);
+        if (Array.IndexOf(args, "--band") >= 0) return RunBand(svc);
         if (Array.IndexOf(args, "--budget") >= 0) return RunBudget(svc);
 
         if (only is null)
@@ -260,6 +261,68 @@ public static class CheckMeasureProbe
         if (!SweepFamilySelection.TryParse(tokens, out var sel, out var err))
             throw new InvalidOperationException(err);
         return sel;
+    }
+
+    /// <summary>#394's ACCEPTANCE BAND, on the live order: at each cap in the issue's own range, how many rows each
+    /// counts_only histogram axis renders on the ANCESTOR surface (housecarl_check_errors) and on the MERGED one
+    /// (housecarl_check). The issue is about the by-SOURCE axis — #344's axis, the one that renders LAST — coming
+    /// back empty while the axis above it rendered in full.
+    ///
+    /// <para>Reported beside the OTHER half, because a band without it is the fair half of a trade: the merged
+    /// framing costs body room the ancestor's does not (its scope sentence alone is hundreds of characters above
+    /// anything a budget can refuse), so the total rows each surface carries is stated at the same caps.</para>
+    ///
+    /// <para>Re-taken after the allocation rebuild, and it has to be: the numbers this cell replaced were measured
+    /// under the sequential recount, and the no-stranding property moves them.</para></summary>
+    static int RunBand(LoadOrderService svc)
+    {
+        Console.WriteLine("## 394 acceptance band — the by-SOURCE axis, ancestor vs merged\n");
+        Console.WriteLine($"   {"transport",-9} {"cap",6} {"surface",14} {"TARGET",12} {"SOURCE",12}");
+        foreach (var (transport, json) in new[] { ("text", false), ("json", true) })
+            foreach (int cap in new[] { 2000, 4000 })
+            {
+                string anc = ReadTools.CheckErrorsTool(svc, counts_only: true, max_chars: cap,
+                                                       format: json ? "json" : null);
+                string mrg = CheckTools.CheckTool(svc, findings: new[] { "errors" }, counts_only: true,
+                                                  max_chars: cap, format: json ? "json" : null);
+                foreach (var (surface, s) in new[] { ("check_errors", anc), ("check", mrg) })
+                {
+                    string t, so;
+                    if (json)
+                    {
+                        t = JsonAxisRows(s, "dangling_by_target_plugin");
+                        so = JsonAxisRows(s, "dangling_by_source_plugin");
+                    }
+                    else
+                    {
+                        var (tr, td) = AxisRows(s, "TARGET plugin");
+                        var (sr, sd) = AxisRows(s, "SOURCE plugin");
+                        t = tr + "/" + td; so = sr + "/" + sd;
+                    }
+                    Console.WriteLine($"   {transport,-9} {cap,6} {surface,14} {t,12} {so,12}");
+                }
+            }
+
+        Console.WriteLine("\n## the other half — TOTAL rows each surface carries, same sweep, same caps\n");
+        Console.WriteLine($"   {"cap",8} {"check_errors",14} {"check",10}");
+        foreach (int cap in new[] { 2000, 4000, 10000, 20000 })
+        {
+            int anc = TotalAxisRows(ReadTools.CheckErrorsTool(svc, counts_only: true, max_chars: cap));
+            int mrg = TotalAxisRows(CheckTools.CheckTool(svc, findings: new[] { "errors" }, counts_only: true,
+                                                         max_chars: cap));
+            Console.WriteLine($"   {cap,8} {anc,14} {mrg,10}");
+        }
+        Console.WriteLine($"\n   the merged scope sentence, which the ancestor does not carry: "
+                        + $"{new CheckSweep(Families("errors"), ErrorCheckResult.Fail("x")).ScopeSentence().Length} chars");
+        return 0;
+    }
+
+    /// <summary>Rows across BOTH text histogram axes — the "other half" figure, counted off the render.</summary>
+    static int TotalAxisRows(string text)
+    {
+        var (tr, _) = AxisRows(text, "TARGET plugin");
+        var (sr, _) = AxisRows(text, "SOURCE plugin");
+        return Math.Max(0, tr) + Math.Max(0, sr);
     }
 
     static int RunListing(LoadOrderService svc)
