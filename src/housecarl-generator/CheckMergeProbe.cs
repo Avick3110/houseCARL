@@ -62,15 +62,17 @@ namespace HousecarlGenerator;
 ///                               absences and must not read alike.
 ///   DIALOGUE-BOUNDARY-UNREFUSABLE — the standing-limits claim is this family's boundary, so it is reserved and
 ///                               written at every cap, including ones that admit no findings at all.
-///   DIALOGUE-FINISHED-SEED-HANDS-BACK-ITS-SHARE / -UNFINISHED-SEED-KEEPS-ITS-SHARE — both arms of one conditional.
-///                               A subject's ceiling is fixed on its first unit against the siblings still pending,
-///                               so a one-seed call must be told the seed subject is finished or half the family's
-///                               room is held for heads that will never be written. Asked at a cap sized from the
-///                               fixture's own floor and block width, because at a cap nothing bites under the arm
-///                               passes either way — which is what the first spelling of it did.
-///   ROSTER-STILL-ONE-WITH-THREE-FAMILIES — the dialogue family reports no excluded-plugin roster of its own, so the
-///                               roster stays owned by exactly one accounting however many families run. Asked of a
-///                               DIALOGUE-ONLY response as well, because that is the half a sabotage can reach.
+///   DIALOGUE-FINISHED-SEED-HANDS-BACK-ITS-SHARE / -BOTH-SEED-HEADS-KEEP-THEIR-SHARE — the two halves of the
+///                               seed subject's share. A one-seed call must be told the seed subject is finished or
+///                               half the family's room is held for heads that will never be written; a two-seed
+///                               call at a biting cap must still write BOTH heads, because one seed's blocks cannot
+///                               spend the room the other seed's head needs. Both asked at a cap sized from the
+///                               fixture's own floor and block width, because at a cap nothing bites under either
+///                               passes whatever the rule does — which is what the first spellings of them did.
+///   ROSTER-STILL-ONE-WITH-THREE-FAMILIES — with all three families running over a build that DID exclude a plugin,
+///                               the roster is emitted once, its rows appear once, and one accounting states its
+///                               cut. Asked of a DIALOGUE-ONLY response as well, because that is where a dialogue
+///                               family claiming a roster of its own would show.
 ///   CAP-LADDER                — every integer cap 1..12000 plus one far above: neither transport returns more than
 ///                               it was given, bar the floor (the response with no body in it at all), and the json
 ///                               parses at every one. Run twice: over two families, and over all three.
@@ -714,14 +716,21 @@ public static class CheckMergeProbe
             jsonRendered > jsonHalfHolds && jsonRendered <= Topics,
             $"cap={jsonCap} floor={jsonFloor} row={jsonRow} rendered={jsonRendered} halfShareHolds={jsonHalfHolds}");
 
-        // …and the other arm of the same conditional: with a second seed head still to write, the subject is NOT
-        // finished when the first topic renders, and holding its share is the right answer rather than the missed
-        // one. Both seeds' heads and every topic land at a cap wide enough for them.
-        int twoSeedTopics = Count(Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, twoSeeds), 0), "  topic ");
-        Check($"DIALOGUE-UNFINISHED-SEED-KEEPS-ITS-SHARE: a two-seed call still writes both heads and all {Topics * 2} topics — handing the share back early would be as wrong as never handing it back",
-            twoSeedTopics == Topics * 2
-            && Count(Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, twoSeeds), 0), "\nseed ") == 2,
-            $"topics={twoSeedTopics}/{Topics * 2}");
+        // …and the SECOND SEED's head, at a cap that bites. This replaces an arm asked at the default over a fixture
+        // that fits with thousands of characters to spare, where no allocation policy could change the answer — and
+        // which was documented as the other arm of a conditional this branch deleted (round-2 review). What is still
+        // worth asking, and can now fail, is that the seed subject's share is ITS OWN: the first seed's topic blocks
+        // cannot spend the room the second seed's head needs, however tight the cap. The cap is sized from the
+        // fixture's own floor and block width, so the cut is real and this file knows it.
+        var twoSeedSweep = new CheckSweep(Sel("dialogue"), null, null, null, twoSeeds);
+        int twoFloor = Wire.RenderCheck(twoSeedSweep, 1).Length;
+        int twoCap = twoFloor + TopicBlockWidth(twoSeeds) * (Topics * 2 / 3);
+        var twoText = Wire.RenderCheck(twoSeedSweep, twoCap);
+        int twoSeedTopics = Count(twoText, "  topic ");
+        Check($"DIALOGUE-BOTH-SEED-HEADS-KEEP-THEIR-SHARE: at a cap that cuts the topic blocks, a two-seed call still writes BOTH seed heads — the seed subject's share is its own, so one seed's blocks cannot spend the room the other seed's head needs",
+            Count(twoText, "\nseed ") == 2
+            && twoSeedTopics > 0 && twoSeedTopics < Topics * 2,
+            $"cap={twoCap} floor={twoFloor} heads={Count(twoText, "\nseed ")} topics={twoSeedTopics}/{Topics * 2}");
 
         // ---- DIALOGUE-BOUNDARY-UNREFUSABLE ---------------------------------------------------------
         // The whole point of making the standing-limits footer this family's BOUNDARY: it is reserved, so the
@@ -737,17 +746,23 @@ public static class CheckMergeProbe
             boundaryMissing.Count == 0, $"absent at caps: {string.Join(", ", boundaryMissing)}");
 
         // ---- ROSTER-STILL-ONE-WITH-THREE -----------------------------------------------------------
-        // The claim has two halves and only one of them is observable through a three-family response: with the
-        // errors family first and holding a roster, it owns the roster whatever the dialogue family answers. What
-        // IS observable is the dialogue-ONLY response — this family reports no unparseable-plugin roster at all,
-        // because a seeded validation does not produce one — so the arm asks THAT question, where a wrong answer
-        // shows up, as well as the ownership one.
-        Check("ROSTER-STILL-ONE-WITH-THREE-FAMILIES: the dialogue family reports no excluded-plugin roster of its own, so the roster stays owned by exactly one accounting however many families run",
-            all.RosterOwner != SweepFamily.Dialogue
-            && Count(allText, ReadSentences.SweepRosterLead) <= 1
+        // Asked of a three-family response that HAS a roster, and of the roster it is named for. Asked of `all` —
+        // whose results carry no ExcludedPlugins at all — every conjunct held whatever the ownership rule returned,
+        // and the middle one counted the dangling-by-SOURCE lead rather than the excluded-plugin one, so the cell
+        // was about a different roster from the one in its name (round-2 review).
+        var allWithRoster = new CheckSweep(Sel("errors", "scripts", "dialogue"),
+                                           errors with { ExcludedPlugins = roster },
+                                           scripts with { ExcludedPlugins = roster }, null, dialogue);
+        var allRosterText = Wire.RenderCheck(allWithRoster, 0);
+        Check("ROSTER-STILL-ONE-WITH-THREE-FAMILIES: with all three families running over a build that DID exclude a plugin, the roster is emitted once and owned by the first family that has one — the dialogue family reports none of its own, because a seeded validation produces no such list",
+            allWithRoster.RosterOwner == SweepFamily.Errors
+            && Count(allRosterText, "excluded plugins (could not be parsed") == 1
+            && Count(allRosterText, "  HcCmBroken.esp: header could not be parsed\n") == 1
+            && Count(allRosterText, " plugin(s) that could not be parsed are named above.") <= 1
             && dlgOnly.RosterOwner is null
             && dlgOnly.ExcludedPlugins.Count == 0,
-            $"owner={all.RosterOwner} rosterLeads={Count(allText, ReadSentences.SweepRosterLead)} "
+            $"owner={allWithRoster.RosterOwner} rosterHeads={Count(allRosterText, "excluded plugins (could not be parsed")} "
+          + $"rows={Count(allRosterText, "  HcCmBroken.esp: ")} "
           + $"dialogueOnlyOwner={dlgOnly.RosterOwner?.ToString() ?? "none"} dialogueOnlyRows={dlgOnly.ExcludedPlugins.Count}");
 
         // ---- CAP-LADDER ----------------------------------------------------------------------------
@@ -967,8 +982,13 @@ public static class CheckMergeProbe
         // …and the OTHER direction of the same rule: an input error off the SHARED trio refuses every family, so it
         // is still the whole call's answer rather than the same sentence printed twice.
         var sharedRefusal = CheckTools.CheckTool(svc, findings: new[] { "errors", "scripts" }, type: "NOSUCHTYPE");
-        Arm("ORCH-A-SHARED-INPUT-REFUSAL-STILL-REFUSES-THE-CALL: an unknown type= is malformed input for every family that could have run, so the response is ONE error — the arm that keeps the cell above from passing by making every refusal family-local",
+        Arm("ORCH-A-SHARED-INPUT-REFUSAL-STILL-REFUSES-THE-CALL: an unknown type= is malformed input for every family that could have run, so the response is ONE error NAMING THE TYPE IT REFUSED — the arm that keeps the cell above from passing by making every refusal family-local",
             sharedRefusal.StartsWith("error", StringComparison.OrdinalIgnoreCase)
+            // The GROUND, not just that something began with "error". Asked without it, this cell passed on a tree
+            // with no generated/corpus.json at all: the guard's own internal-failure string starts with "error" and
+            // carries no section head either, so both conjuncts held over a call that never reached the refusal
+            // (round-2 review, observed rather than reasoned).
+            && sharedRefusal.Contains("NOSUCHTYPE", StringComparison.Ordinal)
             && Count(sharedRefusal, "\n[errors] ") == 0,
             Trim(sharedRefusal));
 
