@@ -1443,11 +1443,14 @@ public static class CheckMergeProbe
                                                       plugins: new[] { "HcOrchOff.esp" }, exclude: new[] { "NotAToken" });
         var emptyScopeRealName = CheckTools.CheckTool(svc, findings: new[] { "scripts" },
                                                       plugins: new[] { "HcOrchOff.esp" }, exclude: new[] { "HcOrchTwo.esp" });
-        Arm("ORCH-EXCLUDE-SYNTAX-REFUSES-WITH-THE-SCOPE-EMPTY-BY-CONSTRUCTION, AND SCOPE-MATCHING STILL DOES NOT: with every named plugin off-order the scripts family's own exclude= pass is skipped, and an exclude= value that is neither a filename nor a group used to be skipped with it. It refuses by name now. A real filename that this empty scope does not contain is still the family's question, not the call's — the half that would have refused a call another family can answer",
+        Arm("ORCH-AN-EMPTY-BY-CONSTRUCTION-SCOPE-REPORTS-ITSELF-RATHER-THAN-BLAMING-EXCLUDE: with every named plugin off-order the scripts family has nothing to sweep, and it says THAT — naming the file it did not sweep — rather than refusing over an exclude= that is not why. A syntactically bad exclude= value on the same call still refuses by name. This is the split's scope-matching half staying family-local: raised up front it would refuse a call another family can answer, and here it would bury the real reason under the exclusion",
             emptyScopeBadToken.StartsWith("error", StringComparison.OrdinalIgnoreCase)
             && emptyScopeBadToken.Contains("NotAToken", StringComparison.Ordinal)
             && !emptyScopeRealName.StartsWith("error", StringComparison.OrdinalIgnoreCase)
-            && Count(emptyScopeRealName, "\n[scripts] ") == 1,
+            && Count(emptyScopeRealName, "\n[scripts] ") == 1
+            && emptyScopeRealName.Contains("HcOrchOff.esp", StringComparison.Ordinal)
+            && !emptyScopeRealName.Contains("exclude= names", StringComparison.Ordinal)
+            && !emptyScopeRealName.Contains("exclude= removed every plugin", StringComparison.Ordinal),
             $"token=[{Trim(emptyScopeBadToken)}] name=[{Trim(emptyScopeRealName)}]");
 
         // ---- the dialogue family's cost-refusal, FAMILY-LOCAL, through the tool that composes it beside a family

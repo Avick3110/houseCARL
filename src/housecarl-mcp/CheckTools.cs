@@ -128,8 +128,11 @@ public static class CheckTools
              "('CoolMod.esp') or one of two group names: base_masters (the five the game ships with) or implicit " +
              "(every plugin the order force-loads because plugins.txt does not list it — this is where Creation Club " +
              "plugins and _ResourcePack.esl are, and it INCLUDES the base masters). A value that is neither is " +
-             "refused before the sweep runs, and so is a FILENAME YOU NAMED that nothing in scope matches — a group " +
-             "member that is not in this order is the ordinary case and is simply dropped. This does not change what " +
+             "refused before the sweep runs, whichever families you selected. A FILENAME YOU NAMED that nothing " +
+             "in scope matches is refused by each family that HAS a scope to match it against — where a family's " +
+             "scope is empty because every plugin you named is outside it, that family reports the empty scope " +
+             "instead, since the exclusion is not why it swept nothing. A group member that is not in this order " +
+             "is the ordinary case and is simply dropped. This does not change what " +
              "counts as the vanilla BASELINE the errors family splits out — that is always Mutagen's own base-master set.")]
             string[]? exclude = null,
         [Description("Optional. Which finding FAMILIES and CLASSES to look for, in one vocabulary. Families: 'errors', 'scripts', 'dialogue'. Classes inside them: 'dangling', 'missing_masters' (errors); 'unbound_object' (HIGH — the silent-None footgun), 'unbound_scalar' (MEDIUM), 'unbound' (both), 'bound_null' (advisory) (scripts). The DIALOGUE family has no class token — it narrows by seeds=, which it requires. A family token means every class in it; a class token runs its family narrowed to that class; naming several runs each. DEFAULT (omitted) = the errors family alone, and the response states what it did not run and how to ask for it. Excluding 'dangling' SKIPS the per-record link walk entirely — that is how you ask 'is any master missing anywhere in my order' without paying for a full sweep. An excluded class renders as 'not checked', never as 0. Unscannable records, scan errors and unverifiable script attachments are ALWAYS reported and cannot be filtered out (a suppressed 'could not read' would read as a clean result).")]
