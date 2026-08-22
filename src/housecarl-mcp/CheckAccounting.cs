@@ -799,7 +799,13 @@ internal sealed class CheckAccounting
     /// disappears the moment the response fits, so a remedy that counts it tells the caller to buy room for a
     /// sentence they are paying to remove — measured at 234 chars over the true smallest fitting cap in the text
     /// lane and 1,278 (85%) in json, the other half of that being the json slack the fixed part never needed.</param>
-    internal string? CapTooSmall(int contentLength, int needed, int noticeLength = 0)
+    /// <param name="capPrintSites">how many times THIS response prints back the cap it was given — counted in the
+    /// finished response by <see cref="CapPrintsIn"/>, never assumed from the number of accountings. Raising the cap
+    /// widens every one of those numbers, so a response raised across a digit boundary comes back LONGER by one
+    /// character per site, and the remedy has to name a cap that already includes that. Merged responses print it
+    /// once per family: measured, a three-family json document told a caller to raise to 5,369 and came back 5,373
+    /// chars plus its notice, so the remedy never converged.</param>
+    internal string? CapTooSmall(int contentLength, int needed, int noticeLength = 0, int capPrintSites = 1)
     {
         if (contentLength <= _cap) return null;
         // WHICH overrun this is, from what the arm was already handed. A cap that cannot hold the fixed part is one
@@ -807,14 +813,49 @@ internal sealed class CheckAccounting
         // sentence told that caller their header and accounting did not fit in a cap holding them with room to
         // spare. needed IS the fixed part's size, so no state is added to tell them apart.
         var sentence = needed > _cap ? ReadSentences.SweepCapTooSmall : ReadSentences.SweepCapOvershot;
-        int raiseTo = Math.Max(needed, contentLength - noticeLength) + RaiseSlack;
+        // The cap this response would have to be given to stop seeing this — the length it carries without the
+        // notice, plus what the raise itself ADDS BACK. Settled in a loop of two, because the growth can push the
+        // number across the next digit boundary and widen it again; two passes reach the fixed point, since the
+        // second pass's growth is at most one more digit's worth.
+        int floor = Math.Max(needed, contentLength - noticeLength) + RaiseSlack;
+        int raiseTo = floor;
+        for (int i = 0; i < 2; i++)
+        {
+            int grown = floor + capPrintSites * Math.Max(0, Digits(raiseTo) - Digits(_cap));
+            if (grown == raiseTo) break;
+            raiseTo = grown;
+        }
         return string.Format(sentence, _cap, raiseTo, contentLength);
     }
 
-    /// <summary>Slack on the number the overrun notice tells a caller to raise to. Setting max_chars to exactly the
-    /// length measured under the OLD cap gets the notice back with the number one higher, because max_chars is
-    /// printed inside the accounting and gained a digit — measured, at every 3→4 and 4→5 digit crossing. Two digits
-    /// of headroom per place it is printed clears it, and the follow-the-remedy arm is what holds that.</summary>
+    /// <summary>HOW MANY TIMES this response prints back the cap it was given — the number the remedy's arithmetic
+    /// needs, MEASURED in the finished response rather than derived from how many accountings it has. The two
+    /// transports print it differently and the text lane prints it a varying number of times (once per subject its
+    /// accounting reports as cut), so a count is the only honest source. Both spellings are searched here so
+    /// "a place this response prints the cap" has one definition.</summary>
+    /// <param name="content">the finished response, WITHOUT the overrun notice — the notice disappears the moment
+    /// the response fits, so a site inside it is not a site the raise has to pay for.</param>
+    internal int CapPrintsIn(string content)
+    {
+        int n = 0;
+        foreach (var marker in new[] { "max_chars=" + _cap, "\"max_chars\": " + _cap })
+            for (int i = content.IndexOf(marker, StringComparison.Ordinal); i >= 0;
+                 i = content.IndexOf(marker, i + marker.Length, StringComparison.Ordinal))
+            {
+                // A longer number starting with the same digits is a DIFFERENT cap, not this one printed again.
+                int after = i + marker.Length;
+                if (after >= content.Length || !char.IsDigit(content[after])) n++;
+            }
+        return n;
+    }
+
+    static int Digits(int n) => n <= 0 ? 1 : n.ToString().Length;
+
+    /// <summary>Slack on the number the overrun notice tells a caller to raise to, ON TOP of the digit growth
+    /// <see cref="CapTooSmall"/> works out from the sites it was handed. It is the cushion for everything else a
+    /// widened cap can move by a character or two; the digit growth itself is no longer inside it, because it
+    /// scales with how many families the response carries and a constant sized for one was short by nine on
+    /// three.</summary>
     const int RaiseSlack = 8;
 
     /// <summary>The chars the body may occupy. Never negative — a cap too small for the accounting yields a body
