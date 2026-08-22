@@ -1463,17 +1463,21 @@ static class Wire
     /// and got it wrong first, claiming every plugin was unnamed on a response that had just named one.</para></summary>
     static void AppendExcludedPlugins(StringBuilder sb, BoundedBody body, IReadOnlyDictionary<string, string> excluded)
     {
-        if (excluded.Count == 0) return;
-        // The head rides the first ROW, so the list is whole or absent: a head with nothing under it says a roster
-        // exists and then names none of it.
-        const string head = "\nexcluded plugins (could not be parsed — NOT checked):\n";
-        int emitted = 0;
-        foreach (var kv in excluded)
+        for (int i = 0; i < excluded.Count; i++)
         {
-            var unit = (emitted == 0 ? head : "") + "  " + kv.Key + ": " + kv.Value + "\n";
+            var unit = ComposeExcludedRow(excluded, i);
             if (!body.Emit(SweepSubject.ExcludedRows, unit.Length, () => sb.Append(unit))) return;
-            emitted++;
         }
+    }
+
+    /// <summary>ONE roster row, composed by the same helper the DEMAND pass measures. The head rides the FIRST row,
+    /// so the list is whole or absent: a head with nothing under it says a roster exists and then names none of it.
+    /// </summary>
+    internal static string ComposeExcludedRow(IReadOnlyDictionary<string, string> excluded, int index)
+    {
+        const string head = "\nexcluded plugins (could not be parsed — NOT checked):\n";
+        var kv = excluded.ElementAt(index);
+        return (index == 0 ? head : "") + "  " + kv.Key + ": " + kv.Value + "\n";
     }
 
     /// <summary>Under <c>counts_only=</c> the reports list carries the honesty layer only (records/plugins houseCARL
@@ -1577,6 +1581,17 @@ static class Wire
         // not, with the spelling that gets them. The default narrows only because the response says so (Q3).
         sb.Append(s.ScopeSentence()).Append('\n');
 
+        // THE EXCLUDED-PLUGIN ROSTER, ABOVE THE FAMILY SECTIONS. It is part of what the scope sentence claims —
+        // which plugins this response did NOT check — so it reads where the scope is stated. Its POSITION is also
+        // load-bearing: every family's accounting is composed inside the loop below, and an accounting can only
+        // report what has already been emitted. Written after the sections, the roster's rows were registered
+        // AFTER every accounting had spoken, so each one reported none of N roster rows rendered, claimed a cut
+        // that had not happened, and set truncated on a response carrying the whole roster — in both transports,
+        // on every merged call with an unparseable plugin (round-1 review, found by two reviewers). Its room is
+        // measured into the reserve (SweepDemand), so moving it ahead of the rows takes nothing from them: the
+        // allocation divides what is left after it, exactly as it does for a closing disclosure.
+        AppendExcludedPlugins(sb, body, s.ExcludedPlugins);
+
         for (int i = 0; i < sections.Count; i++)
         {
             var f = sections[i];
@@ -1609,8 +1624,6 @@ static class Wire
             if (accts[i].TextLine() is { } line)
                 body.Reserved(() => sb.Append('\n').Append(line).Append('\n'));
         }
-
-        AppendExcludedPlugins(sb, body, s.ExcludedPlugins);
 
         // ONE boundary block, one line per family that ran — the two families claim different things, so a single
         // sentence for both would be a claim neither of them makes. Written through the reserve, because that is

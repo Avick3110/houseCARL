@@ -236,6 +236,39 @@ public static class CheckMergeProbe
             doubleCounted.Count == 0,
             doubleCounted.Count == 0 ? "one accounting, at every cap that cut" : string.Join("; ", doubleCounted.Take(3)));
 
+        // ---- EXCLUDED-ROSTER-CUT-IS-REPORTED-ONLY-WHEN-IT-HAPPENED ---------------------------------
+        // An accounting can only report what has ALREADY been emitted, and every family's accounting is composed
+        // inside the section loop. With the roster emitted after that loop, its rows registered after every
+        // accounting had spoken: each one read nought of one roster row rendered, said "1 plugin(s) that could not
+        // be parsed are named above" was a CUT, and set truncated on a response carrying the whole roster — in both
+        // transports, on every merged call with an unparseable plugin (round-1 review, found by two reviewers).
+        // Asked at a cap nothing can bite at, so a claim here is false by construction rather than arguable.
+        var rosterWhole = Wire.RenderCheck(withRoster, 0);
+        var rosterWholeJson = JsonWire.RenderCheck(withRoster, 0);
+        var rosterLies = new List<string>();
+        if (Count(rosterWhole, "  HcCmBroken.esp: header could not be parsed\n") != 1)
+            rosterLies.Add("the roster row is not in the uncapped response at all — the arm would prove nothing");
+        if (rosterWhole.Contains(" plugin(s) that could not be parsed are named above.", StringComparison.Ordinal))
+            rosterLies.Add("text claims a roster cut on a response that carried the whole roster");
+        using (var doc = JsonDocument.Parse(rosterWholeJson))
+        {
+            var fams = doc.RootElement.GetProperty("families");
+            foreach (var family in new[] { "errors", "scripts" })
+            {
+                var acct = fams.GetProperty(family).GetProperty("accounting");
+                if (acct.TryGetProperty("excluded_plugins_total", out var tot)
+                    && acct.TryGetProperty("excluded_plugins_named", out var named)
+                    && named.GetInt32() != tot.GetInt32())
+                    rosterLies.Add($"json {family} says {named.GetInt32()} of {tot.GetInt32()} roster rows named");
+                if (acct.TryGetProperty("truncated", out var tr) && tr.GetBoolean())
+                    rosterLies.Add($"json {family} reports truncated on an uncapped response");
+            }
+        }
+        Check("EXCLUDED-ROSTER-CUT-IS-REPORTED-ONLY-WHEN-IT-HAPPENED: with room for everything, no accounting says the roster was cut and neither family reports truncated — an accounting composed before the rows it counts reports a cut that did not happen",
+            rosterLies.Count == 0,
+            rosterLies.Count == 0 ? "roster whole, no cut claimed by either family in either transport"
+                                  : string.Join("; ", rosterLies));
+
         // ---- ALLOCATION-SECOND-FAMILY-STILL-RENDERS -----------------------------------------------
         // #394 at the family level. Every cap in the band where the response is CUT (neither family whole) must
         // still carry rows from BOTH — the counts read off each accounting, held against the fixture's own totals.
