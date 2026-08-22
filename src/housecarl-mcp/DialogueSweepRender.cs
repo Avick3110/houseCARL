@@ -64,7 +64,7 @@ internal static class DialogueSweepRender
         var r = s.Dialogue!;
         // The scope asymmetry, above this family's own counts and inside its own section: a caller who passed
         // plugins= alongside would otherwise read a seeded answer as a scoped one, and nothing would say which.
-        sb.Append(string.Format(ReadSentences.DialogueScopeNote, r.SeedsNamed)).Append('\n');
+        sb.Append(ScopeNote(r)).Append('\n');
         sb.Append(string.Format(ReadSentences.DialogueCounts, r.Resolved.Count(), r.TopicsFound, r.ProblemsFound));
         if (r.CountsOnly) sb.Append(ReadSentences.DialogueCountsOnly);
     }
@@ -124,6 +124,19 @@ internal static class DialogueSweepRender
         return sb.ToString();
     }
 
+    /// <summary>THE SCOPE SENTENCE, composed once for both transports. How many seeds it validated is read from
+    /// what it actually reached, never from what the caller named: with <c>limit=</c> below the seed count the two
+    /// differ, and the sentence used to print the NAMED figure while the accounting three lines down stated the
+    /// cut. One computation, so the two cannot disagree again.</summary>
+    static string ScopeNote(DialogueCheckResult r)
+    {
+        int validated = r.Resolved.Count() + r.Unresolved.Count;
+        var howMany = validated < r.SeedsNamed
+            ? string.Format(ReadSentences.DialogueScopeSomeSeeds, validated, r.SeedsNamed)
+            : string.Format(ReadSentences.DialogueScopeAllSeeds, r.SeedsNamed);
+        return string.Format(ReadSentences.DialogueScopeNote, howMany);
+    }
+
     static string KindLabel(string kind) => kind switch
     {
         "quest" => "quest (QUST)",
@@ -145,7 +158,7 @@ internal static class DialogueSweepRender
         if (s.Refusal(SweepFamily.Dialogue) is { } refusal) { w.WriteString("refused", refusal); return; }
 
         var r = s.Dialogue!;
-        w.WriteString("scope", string.Format(ReadSentences.DialogueScopeNote, r.SeedsNamed));
+        w.WriteString("scope", ScopeNote(r));
         w.WriteBoolean("seeded_not_swept", true);
         w.WriteBoolean("counts_only", r.CountsOnly);
         w.WriteNumber("seeds_named", r.SeedsNamed);

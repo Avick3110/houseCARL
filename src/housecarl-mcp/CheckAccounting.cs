@@ -454,7 +454,7 @@ internal sealed class CheckAccounting
             sb.Append(string.Format(ReadSentences.SweepDialogueProblems, _dialogueProblems,
                                     Found(SweepSubject.DialogueTopics)));
         if (Short(v, SweepSubject.DialogueSeeds))
-            sb.Append(string.Format(ReadSentences.SweepSections, Shown(v, SweepSubject.DialogueSeeds),
+            sb.Append(string.Format(ReadSentences.SweepDialogueSeedSections, Shown(v, SweepSubject.DialogueSeeds),
                                     Found(SweepSubject.DialogueSeeds)));
         if (Short(v, SweepSubject.DialogueSeedRefusals))
             sb.Append(string.Format(ReadSentences.SweepDialogueRefusalsCut, Shown(v, SweepSubject.DialogueSeedRefusals),
