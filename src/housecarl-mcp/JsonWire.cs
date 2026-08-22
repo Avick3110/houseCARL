@@ -1703,6 +1703,10 @@ static class JsonWire
         w.WriteEndArray();
         w.WriteString("findings_scope", s.ScopeSentence());
 
+        // Above `families` for the reason the text lane states: an accounting reports what has been emitted,
+        // and every family's accounting is written inside the loop below.
+        WriteExcluded(w, s.ExcludedPlugins, body);
+
         w.WriteStartObject("families");
         for (int i = 0; i < sections.Count; i++)
         {
@@ -1732,8 +1736,6 @@ static class JsonWire
             w.WriteEndObject();
         }
         w.WriteEndObject();
-
-        WriteExcluded(w, s.ExcludedPlugins, body);
     }
 
     // ---- housecarl_validate_scripts (#282) ---------------------------------------------------------
@@ -2108,6 +2110,15 @@ static class JsonWire
         }
         w.WriteEndArray();
     }
+
+    /// <summary>What one roster row costs, for the DEMAND pass. The roster is a member of the ROOT object in every
+    /// render that has one, merged or ancestor, so its depth is the same constant everywhere — unlike a family's
+    /// units, which sit two levels deeper in a merged document than in their ancestor's.</summary>
+    internal static int ExcludedRowCostFor(IReadOnlyDictionary<string, string> excluded, int index)
+        => ExcludedRowCost(excluded.ElementAt(index), RosterDepth, index > 0);
+
+    /// <summary>The root object, then the roster array: where every excluded-plugin row is written.</summary>
+    const int RosterDepth = 2;
 
     /// <summary>What one excluded-roster row costs, at its own depth and sibling position.</summary>
     static int ExcludedRowCost(KeyValuePair<string, string> row, int depth, bool subsequent)

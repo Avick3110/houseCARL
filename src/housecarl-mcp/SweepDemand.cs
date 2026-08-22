@@ -64,7 +64,7 @@ internal static class SweepDemand
     internal static Result ForText(CheckSweep s, int room, int histogramLimit)
     {
         var t = new Tally(room);
-        int reserved = 0;
+        int reserved = RosterReserve(s, room, n => Wire.ComposeExcludedRow(s.ExcludedPlugins, n).Length);
 
         if (s.Errors is { Error: null } e)
         {
@@ -170,6 +170,23 @@ internal static class SweepDemand
         }
     }
 
+    /// <summary>THE EXCLUDED-PLUGIN ROSTER'S ROOM, held back rather than shared out. The roster is emitted before
+    /// the family sections (see the renders for why: an accounting can only report what has been emitted), and a
+    /// subject that writes AHEAD of the rows must not be taking the rows' room as it goes — that is the serial rule
+    /// for one subject, and it is what the allocation exists to remove. Measured here and added to the reserve, the
+    /// allocation divides what is left after it, and the roster's own size is a constant of the sweep rather than a
+    /// function of the budget — so nothing about it can make a wider cap render less.</summary>
+    static int RosterReserve(CheckSweep s, int room, Func<int, int> costOf)
+    {
+        long total = 0;
+        for (int i = 0; i < s.ExcludedPlugins.Count; i++)
+        {
+            total += costOf(i);
+            if (total > room) return Math.Max(0, room);
+        }
+        return (int)total;
+    }
+
     // ---- json ---------------------------------------------------------------------------------------
 
     /// <summary>The same question in the other transport. Its units are measured by the SAME cost helpers the
@@ -181,7 +198,7 @@ internal static class SweepDemand
     internal static Result ForJson(CheckSweep s, int room, int histogramLimit, JsonWire.JsonUnitDepths depths)
     {
         var t = new Tally(room);
-        int reserved = 0;
+        int reserved = RosterReserve(s, room, n => JsonWire.ExcludedRowCostFor(s.ExcludedPlugins, n));
 
         if (s.Errors is { Error: null } e)
         {
