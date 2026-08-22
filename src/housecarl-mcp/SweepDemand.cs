@@ -64,7 +64,8 @@ internal static class SweepDemand
     internal static Result ForText(CheckSweep s, int room, int histogramLimit)
     {
         var t = new Tally(room);
-        int reserved = RosterReserve(s, room, n => Wire.ComposeExcludedRow(s.ExcludedPlugins, n).Length);
+        int reserved = 0;
+        Roster(t, s, n => Wire.ComposeExcludedRow(s.ExcludedPlugins, n).Length);
 
         if (s.Errors is { Error: null } e)
         {
@@ -170,21 +171,24 @@ internal static class SweepDemand
         }
     }
 
-    /// <summary>THE EXCLUDED-PLUGIN ROSTER'S ROOM, held back rather than shared out. The roster is emitted before
-    /// the family sections (see the renders for why: an accounting can only report what has been emitted), and a
-    /// subject that writes AHEAD of the rows must not be taking the rows' room as it goes — that is the serial rule
-    /// for one subject, and it is what the allocation exists to remove. Measured here and added to the reserve, the
-    /// allocation divides what is left after it, and the roster's own size is a constant of the sweep rather than a
-    /// function of the budget — so nothing about it can make a wider cap render less.</summary>
-    static int RosterReserve(CheckSweep s, int room, Func<int, int> costOf)
+    /// <summary>THE EXCLUDED-PLUGIN ROSTER'S DEMAND, measured row by row through the same composer the render
+    /// writes. It is a demand and not a reserve: the roster is a RESPONSE-level participant in the allocation
+    /// (<c>CheckSweep.ResponseSubjects</c>), so what it wants is measured here exactly as a family's subjects are,
+    /// and the fill gives it <c>min(demand, lambda)</c>.
+    ///
+    /// <para>Reserved instead, its room was subtracted from the row budget and then spent against the GLOBAL test,
+    /// which no plan governs — so the roster took the whole body budget before the first family head was written
+    /// and the fixed part landed past the cap (measured: 4,494 chars against a 4,000 cap, with a printed remedy
+    /// that never converged).</para></summary>
+    static void Roster(Tally t, CheckSweep s, Func<int, int> costOf)
     {
-        long total = 0;
+        if (s.ExcludedPlugins.Count == 0) return;
+        t.Declare(SweepSubject.ExcludedRows);
         for (int i = 0; i < s.ExcludedPlugins.Count; i++)
         {
-            total += costOf(i);
-            if (total > room) return Math.Max(0, room);
+            if (t.Done(SweepSubject.ExcludedRows)) break;
+            t.Add(SweepSubject.ExcludedRows, costOf(i));
         }
-        return (int)total;
     }
 
     // ---- json ---------------------------------------------------------------------------------------
@@ -198,7 +202,8 @@ internal static class SweepDemand
     internal static Result ForJson(CheckSweep s, int room, int histogramLimit, JsonWire.JsonUnitDepths depths)
     {
         var t = new Tally(room);
-        int reserved = RosterReserve(s, room, n => JsonWire.ExcludedRowCostFor(s.ExcludedPlugins, n));
+        int reserved = 0;
+        Roster(t, s, n => JsonWire.ExcludedRowCostFor(s.ExcludedPlugins, n));
 
         if (s.Errors is { Error: null } e)
         {

@@ -50,8 +50,10 @@ namespace HousecarlMcp;
 /// <para><b>NO STRANDING.</b> If every child's demand fits inside the budget, every child is allocated its whole
 /// demand and the response claims no cut. A merged call that could have shown everything does.</para>
 ///
-/// <para><b>HIERARCHICAL, not flat, and that is still load-bearing.</b> Families water-fill the row budget among
-/// themselves on their own demands; a family's subjects then water-fill THAT family's allocation. A flat fill over
+/// <para><b>HIERARCHICAL, not flat, and that is still load-bearing.</b> The top-level participants water-fill the
+/// row budget among themselves on their own demands — one per family, plus ONE for the response's own subjects
+/// (the excluded-plugin roster, which belongs to no family because it is a fact about the SCOPE); each
+/// participant's subjects then water-fill THAT participant's allocation. A flat fill over
 /// the leaf subjects would hand a subject-rich family more of the budget purely because it has more parts — the
 /// same complaint the 148:1 findings-count ratio between the scripts and errors families makes one level up,
 /// arriving through the back door. <c>ALLOCATION-FAMILY-SHARES-IGNORE-SUBJECT-COUNT</c> is the arm.</para>
@@ -67,8 +69,11 @@ namespace HousecarlMcp;
 /// title, the scope sentence, every family's section head and its own head, each subject's unconditional lines and
 /// its closing disclosure, the accounting, the boundary — is outside allocation entirely. Those are the things a
 /// response may never drop, and a share of the body is not what pays for them. It is MEASURED, never assembled:
-/// the render composes the WHOLE response once through a <see cref="BoundedBody.Skeleton"/>, which refuses every
-/// unit, and what comes back is the fixed part. The pieces that vary with the CUT — a closing disclosure says a
+/// the render composes the WHOLE response once through a <see cref="BoundedBody.Skeleton"/>, which admits one unit
+/// of each subject and refuses the rest, and what comes back less what those units wrote is the fixed part. (One
+/// unit rather than none because a json array closes on its own indented line when it holds something and on the
+/// same line when it does not — a fixed part measured with every array empty is short by that on every array the
+/// response opens.) The pieces that vary with the CUT — a closing disclosure says a
 /// different thing at a different length depending on what fit — cannot be skeleton-composed and go through
 /// <see cref="BoundedBody.Reserve"/> as an upper bound instead, which is the one place a bound is still taken.
 /// <b>Counting only the pieces that happened to call Reserve was the defect this replaces:</b> the row budget then
@@ -98,19 +103,37 @@ internal sealed class BodyAllocation
     /// <param name="demand">each planned subject's measured demand, or <see cref="Unconstrained"/>. A subject the
     /// caller did not measure is treated as unconstrained rather than as zero: a missing measurement must never
     /// silently allocate nothing.</param>
+    /// <param name="responseSubjects">subjects that belong to the RESPONSE rather than to any family — today the
+    /// excluded-plugin roster, which is a fact about the SCOPE and is emitted once however many families ran. They
+    /// are a top-level participant beside the families, so a roster takes <c>min(its demand, λ)</c> of the row
+    /// budget exactly as a family does.
+    ///
+    /// <para><b>Why they are in the fill rather than reserved off the top.</b> Held as a reserve the roster was
+    /// governed by nothing: its rows were admitted against the whole body budget before the first family head was
+    /// written, and the fixed part then went past the cap — measured at 4,494 chars against a 4,000 cap. Given its
+    /// own reserve instead, the rows could not spend it, because a reserve is room the emission test holds
+    /// STANDING. A response-level participant is the shape that is both bounded and spendable, and it inherits the
+    /// three properties the families already have: monotone in the budget, no stranding, allocation equals
+    /// spend.</para></param>
     internal BodyAllocation(int rowBudget,
                             IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)> plan,
-                            IReadOnlyDictionary<SweepSubject, int>? demand = null)
+                            IReadOnlyDictionary<SweepSubject, int>? demand = null,
+                            IReadOnlyList<SweepSubject>? responseSubjects = null)
     {
         rowBudget = Math.Max(0, rowBudget);
         int Demand(SweepSubject s) => demand is not null && demand.TryGetValue(s, out var d) ? d : Unconstrained;
 
-        // A family's demand is what its subjects want together, saturating rather than overflowing: a family with
-        // one unconstrained subject wants more than the budget, and that is all the fill needs to know.
-        var families = new List<(SweepFamily Key, int Demand)>();
-        foreach (var (family, subjects) in plan)
+        // The top-level participants: the response's own subjects as one group, then one group per family. A
+        // group's demand is what its members want together, saturating rather than overflowing — a group with one
+        // unconstrained member wants more than the budget, and that is all the fill needs to know.
+        var groups = new List<(int Key, IReadOnlyList<SweepSubject> Subjects)>();
+        if (responseSubjects is { Count: > 0 }) groups.Add((groups.Count, responseSubjects));
+        foreach (var (_, subjects) in plan)
+            if (subjects.Count > 0) groups.Add((groups.Count, subjects));
+
+        var wants = new List<(int Key, int Demand)>();
+        foreach (var (key, subjects) in groups)
         {
-            if (subjects.Count == 0) continue;
             long total = 0;
             foreach (var s in subjects)
             {
@@ -118,16 +141,15 @@ internal sealed class BodyAllocation
                 if (d == Unconstrained) { total = Unconstrained; break; }
                 total += d;
             }
-            families.Add((family, total >= Unconstrained ? Unconstrained : (int)total));
+            wants.Add((key, total >= Unconstrained ? Unconstrained : (int)total));
         }
 
-        var familyShare = WaterFill(rowBudget, families);
-        foreach (var (family, subjects) in plan)
+        var groupShare = WaterFill(rowBudget, wants);
+        foreach (var (key, subjects) in groups)
         {
-            if (subjects.Count == 0) continue;
             var own = new List<(SweepSubject Key, int Demand)>();
             foreach (var s in subjects) own.Add((s, Demand(s)));
-            foreach (var kv in WaterFill(familyShare[family], own)) _allocation[kv.Key] = kv.Value;
+            foreach (var kv in WaterFill(groupShare[key], own)) _allocation[kv.Key] = kv.Value;
         }
     }
 

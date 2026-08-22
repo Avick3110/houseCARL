@@ -1545,11 +1545,11 @@ static class Wire
         var skeletonAccts = s.Accountings(cap);
         var skeletonBody = BoundedBody.Skeleton(skeletonAccts, () => skeleton.Length);
         Compose(skeleton, s, sections, skeletonAccts, skeletonBody, histogramLimit);
-        int fixedPart = skeleton.Length - skeletonBody.ReservedWritten;
+        int fixedPart = skeleton.Length - skeletonBody.ReservedWritten - skeletonBody.BodyTotal;
 
         var sb = new StringBuilder();
         var body = BoundedBody.ForFamilies(accts, budget, () => sb.Length, s.Plan(),
-                                           demand.Demand, demand.Reserved + fixedPart);
+                                           demand.Demand, demand.Reserved + fixedPart, s.ResponseSubjects);
         measured = body;
         Compose(sb, s, sections, accts, body, histogramLimit);
 
@@ -1561,10 +1561,14 @@ static class Wire
         // any family, and every accounting was built with the same cap. Stating it once is the point — a notice per
         // family would tell the caller three times that one response was too long.
         var overrun = accts.Count > 0 ? accts[0] : null;
-        if (overrun?.CapTooSmall(response.Length, needed) is not { } notice) return response;
-        var settled = overrun.CapTooSmall(response.Length + notice.Length, needed, notice.Length)!;
+        if (overrun is null) return response;
+        // How many times this response prints the cap back, COUNTED in the response itself: the remedy has to name
+        // a cap that already covers the characters those numbers gain when they widen.
+        int sites = overrun.CapPrintsIn(response);
+        if (overrun.CapTooSmall(response.Length, needed, 0, sites) is not { } notice) return response;
+        var settled = overrun.CapTooSmall(response.Length + notice.Length, needed, notice.Length, sites)!;
         if (settled.Length != notice.Length)
-            settled = overrun.CapTooSmall(response.Length + settled.Length, needed, settled.Length)!;
+            settled = overrun.CapTooSmall(response.Length + settled.Length, needed, settled.Length, sites)!;
         return response + settled;
     }
 
@@ -1587,9 +1591,12 @@ static class Wire
         // report what has already been emitted. Written after the sections, the roster's rows were registered
         // AFTER every accounting had spoken, so each one reported none of N roster rows rendered, claimed a cut
         // that had not happened, and set truncated on a response carrying the whole roster — in both transports,
-        // on every merged call with an unparseable plugin (round-1 review, found by two reviewers). Its room is
-        // measured into the reserve (SweepDemand), so moving it ahead of the rows takes nothing from them: the
-        // allocation divides what is left after it, exactly as it does for a closing disclosure.
+        // on every merged call with an unparseable plugin (round-1 review, found by two reviewers). Reading FIRST
+        // is not the same as spending first: the roster is a response-level participant in the allocation
+        // (CheckSweep.ResponseSubjects), so it takes min(its demand, lambda) of the row budget exactly as a family
+        // does. Held as a reserve instead — its room subtracted from the rows, its rows spent against the
+        // response-wide test, which no plan governed — it took the whole body budget before the first family head
+        // was written and the fixed part landed past the cap: 4,494 chars against a 4,000 cap.
         AppendExcludedPlugins(sb, body, s.ExcludedPlugins);
 
         for (int i = 0; i < sections.Count; i++)

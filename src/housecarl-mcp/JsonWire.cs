@@ -1495,6 +1495,15 @@ static class JsonWire
     /// makes a per-entry budget test affordable.</summary>
     static int Size(Utf8JsonWriter w, MemoryStream ms) => (int)(ms.Length + w.BytesPending);
 
+    /// <summary>The document written SO FAR, as text, without closing it — for the one caller that has to READ what
+    /// it has produced rather than measure it: the overrun remedy counts how many times this response prints back
+    /// the cap it was given. Flushes first, so nothing pending is missed.</summary>
+    static string SoFar(Utf8JsonWriter w, MemoryStream ms)
+    {
+        w.Flush();
+        return System.Text.Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length);
+    }
+
     /// <summary>WHERE EACH JSON UNIT SITS, from one anchor: the depth of the object a family writes its own members
     /// into (1 in an ancestor's root document, 3 in a merged one — root, <c>families</c>, the family).
     ///
@@ -1648,7 +1657,7 @@ static class JsonWire
                 Compose(sw, s, sections, skeletonAccts, skeletonBody, histogramLimit);
                 sw.WriteEndObject();
             }
-            fixedPart = (int)sms.Length - skeletonBody.ReservedWritten;
+            fixedPart = (int)sms.Length - skeletonBody.ReservedWritten - skeletonBody.BodyTotal;
         }
 
         using var ms = new MemoryStream();
@@ -1656,19 +1665,24 @@ static class JsonWire
         {
             w.WriteStartObject();
             var body = BoundedBody.ForFamilies(accts, budget, () => Size(w, ms), s.Plan(),
-                                               demand.Demand, demand.Reserved + fixedPart);
+                                               demand.Demand, demand.Reserved + fixedPart, s.ResponseSubjects);
             measured = body;
             Compose(w, s, sections, accts, body, histogramLimit);
 
             int closed = Size(w, ms) + Framing.RootClose;
             int needed = body.FixedPart(closed);
             var overrun = accts.Count > 0 ? accts[0] : null;
-            if (overrun?.CapTooSmall(closed, needed) is { } notice)
+            // How many times this document prints the cap back, COUNTED in the document itself rather than taken
+            // from how many families it has: the remedy has to name a cap that already covers what those numbers
+            // gain when they widen. Read here, before the notice is written, because a site inside the notice is
+            // one the raise is paying to remove.
+            int sites = overrun is null ? 0 : overrun.CapPrintsIn(SoFar(w, ms));
+            if (overrun?.CapTooSmall(closed, needed, 0, sites) is { } notice)
             {
                 int cost = OverrunNoticeCost(notice);
-                var settled = overrun.CapTooSmall(closed + cost, needed, cost)!;
+                var settled = overrun.CapTooSmall(closed + cost, needed, cost, sites)!;
                 if (OverrunNoticeCost(settled) != cost)
-                    settled = overrun.CapTooSmall(closed + OverrunNoticeCost(settled), needed, OverrunNoticeCost(settled))!;
+                    settled = overrun.CapTooSmall(closed + OverrunNoticeCost(settled), needed, OverrunNoticeCost(settled), sites)!;
                 w.WriteString("max_chars_overrun", settled);
             }
             w.WriteEndObject();

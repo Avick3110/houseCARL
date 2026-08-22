@@ -138,9 +138,9 @@ internal sealed record CheckSweep(
     /// equal-split waste the ruled rule was chosen over, and <see cref="BodyAllocation"/> cannot tell a listed-but-
     /// empty subject from a full one — it skips an empty subject LIST, never an empty subject inside one.</para>
     ///
-    /// <para>The excluded roster is deliberately NOT in the plan. It is a RESPONSE-level subject, not a child of any
-    /// family, and it is emitted last — after every family has taken its share — so what it answers to is the
-    /// global budget alone, which is what <see cref="BodyAllocation.Governs"/> returning false already means.</para></summary>
+    /// <para>The excluded roster is not in this plan, because it is not a child of any family — it is a fact about
+    /// the SCOPE, emitted once however many families ran. It is not ungoverned either: it is
+    /// <see cref="ResponseSubjects"/>, a top-level participant in the same fill.</para></summary>
     internal IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)> Plan()
     {
         var plan = new List<(SweepFamily, IReadOnlyList<SweepSubject>)>();
@@ -191,6 +191,22 @@ internal sealed record CheckSweep(
         }
         return plan;
     }
+
+    /// <summary>THE RESPONSE'S OWN SUBJECTS — the ones that belong to no family. Today that is the excluded-plugin
+    /// roster, and it is exactly the subject a merged response emits once whichever families ran.
+    ///
+    /// <para><b>Why it is a participant in the allocation rather than a reserve.</b> The roster reads above the
+    /// family sections, because it is part of what the scope sentence claims and because every family's accounting
+    /// is composed inside the section loop and can only report rows already emitted. Held as a RESERVE up there it
+    /// was governed by nothing: <see cref="BodyAllocation.Governs"/> returned false, so its rows were admitted
+    /// against the whole body budget before the first family head was written, and the fixed part then went past
+    /// the cap — measured at 4,494 chars against a 4,000 cap, with a printed remedy that never converged. Given a
+    /// reserve of its own instead, the rows could not have spent it: a reserve is room every emission test holds
+    /// STANDING, including the reserving subject's own. A top-level participant is the shape that is both bounded
+    /// and spendable, and the roster then inherits the three properties the families have — monotone in
+    /// <c>max_chars</c>, no stranding, allocation equals spend.</para></summary>
+    internal IReadOnlyList<SweepSubject> ResponseSubjects
+        => ExcludedPlugins.Count > 0 ? new[] { SweepSubject.ExcludedRows } : Array.Empty<SweepSubject>();
 
     /// <summary>One accounting PER FAMILY, in section order, with the roster declared by exactly one of them.</summary>
     internal IReadOnlyList<CheckAccounting> Accountings(int cap)
