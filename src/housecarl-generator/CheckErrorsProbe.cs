@@ -1436,8 +1436,8 @@ public static class CheckErrorsProbe
         // kept anyway — it is where a future unit declaring 0 lands, and the other sentence would lie to that
         // caller — so it is pinned where its logic lives instead of behind a cell that cannot fail.
         var discriminator = new CheckAccounting(overshot, OvershotCap);
-        var overshotNotice = discriminator.CapTooSmall(OvershotCap + 500, needed: OvershotCap - 500);
-        var tooSmallNotice = discriminator.CapTooSmall(OvershotCap + 500, needed: OvershotCap + 100);
+        var overshotNotice = discriminator.CapTooSmall(OvershotCap + 500, needed: OvershotCap - 500, noticeLength: 0, capPrintSites: 1);
+        var tooSmallNotice = discriminator.CapTooSmall(OvershotCap + 500, needed: OvershotCap + 100, noticeLength: 0, capPrintSites: 1);
         Check("OVERRUN-NOTICE-NAMES-THE-OVERRUN-IT-HAD: a response over its cap whose FIXED PART fits is told a body unit ran past what was left — never that its header and accounting did not fit, which is the explanation every overrun used to get",
             overshotNotice is not null
             && overshotNotice.Contains("does fit, but one body unit was written before its size could be measured", StringComparison.Ordinal)
@@ -1447,7 +1447,7 @@ public static class CheckErrorsProbe
             && tooSmallNotice.Contains("does not fit in that many chars", StringComparison.Ordinal)
             && !tooSmallNotice.Contains("does fit, but one body unit", StringComparison.Ordinal)
             // and neither fires on a response that is inside its cap
-            && discriminator.CapTooSmall(OvershotCap, needed: OvershotCap - 500) is null,
+            && discriminator.CapTooSmall(OvershotCap, needed: OvershotCap - 500, noticeLength: 0, capPrintSites: 1) is null,
             $"overshot=[{overshotNotice}] tooSmall=[{tooSmallNotice}]");
 
         Check("OVERSHOOT-IS-CLOSED-BY-MEASUREMENT: the fixture built to make a body unit overshoot never lands over its cap at any cap in a 12,000-wide band in EITHER transport, and every overrun it does report is a genuine cap-too-small — because no unit is offered to the budget at a cost smaller than it writes",

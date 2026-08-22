@@ -788,10 +788,13 @@ internal sealed class CheckAccounting
     ///
     /// <para><paramref name="needed"/> is what it takes to carry this response's fixed part plus the accounting —
     /// the number a caller can set max_chars to and stop seeing this. It is not the current length: raising the cap
-    /// widens the printed max_chars by a digit or two, which the slack below absorbs, and a probe follows the
-    /// remedy at a sweep of caps rather than trusting that reasoning. It is also never BELOW the cap the caller
-    /// already passed: a remedy telling them to lower max_chars is one they cannot act on, and the fixed part that
-    /// does not fit is by definition bigger than the budget it did not fit in.</para></summary>
+    /// widens every max_chars this response prints back, so the remedy adds that growth in, from two measured
+    /// terms — how many places print it (<paramref name="capPrintSites"/>) and how many digits the number gains.
+    /// That replaced a flat eight-character cushion, which was sized when one accounting printed the cap and came
+    /// up short the moment three did. Arms follow the remedy at every cap in a band rather than trusting the
+    /// arithmetic. It is also never BELOW the cap the caller already passed: a remedy telling them to lower
+    /// max_chars is one they cannot act on, and the fixed part that does not fit is by definition bigger than the
+    /// budget it did not fit in.</para></summary>
     /// <param name="contentLength">the WHOLE response, this notice included — it is part of what the caller
     /// receives, so the cap test is asked of it.</param>
     /// <param name="needed">this response's fixed part, every term measured (see the summary).</param>
@@ -805,7 +808,8 @@ internal sealed class CheckAccounting
     /// character per site, and the remedy has to name a cap that already includes that. Merged responses print it
     /// once per family: measured, a three-family json document told a caller to raise to 5,369 and came back 5,373
     /// chars plus its notice, so the remedy never converged.</param>
-    internal string? CapTooSmall(int contentLength, int needed, int noticeLength = 0, int capPrintSites = 1)
+    /// <returns>the notice, or null when the response is inside its cap.</returns>
+    internal string? CapTooSmall(int contentLength, int needed, int noticeLength, int capPrintSites)
     {
         if (contentLength <= _cap) return null;
         // WHICH overrun this is, from what the arm was already handed. A cap that cannot hold the fixed part is one
@@ -817,7 +821,7 @@ internal sealed class CheckAccounting
         // notice, plus what the raise itself ADDS BACK. Settled in a loop of two, because the growth can push the
         // number across the next digit boundary and widen it again; two passes reach the fixed point, since the
         // second pass's growth is at most one more digit's worth.
-        int floor = Math.Max(needed, contentLength - noticeLength) + RaiseSlack;
+        int floor = Math.Max(needed, contentLength - noticeLength);
         int raiseTo = floor;
         for (int i = 0; i < 2; i++)
         {
@@ -850,13 +854,6 @@ internal sealed class CheckAccounting
     }
 
     static int Digits(int n) => n <= 0 ? 1 : n.ToString().Length;
-
-    /// <summary>Slack on the number the overrun notice tells a caller to raise to, ON TOP of the digit growth
-    /// <see cref="CapTooSmall"/> works out from the sites it was handed. It is the cushion for everything else a
-    /// widened cap can move by a character or two; the digit growth itself is no longer inside it, because it
-    /// scales with how many families the response carries and a constant sized for one was short by nine on
-    /// three.</summary>
-    const int RaiseSlack = 8;
 
     /// <summary>The chars the body may occupy. Never negative — a cap too small for the accounting yields a body
     /// budget of zero and the notice above, not a negative bound that every emission test passes.</summary>

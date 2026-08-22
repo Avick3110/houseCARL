@@ -209,7 +209,7 @@ internal static class CheckShapeMatrix
                 int whole = lane.Render(shape.Sweep, 0, out _).Length;
                 var previous = new Dictionary<SweepSubject, (int Cap, int Spent, int Allocated)>();
                 var rendered = new HashSet<SweepSubject>();
-                var subjects = shape.Sweep.Plan().SelectMany(p => p.Subjects).Distinct().ToArray();
+                var subjects = Subjects(shape);
 
                 for (int cap = 1; cap <= whole + BandMargin; cap++)
                 {
@@ -418,7 +418,7 @@ internal static class CheckShapeMatrix
         var bad = new List<string>();
         foreach (var shape in shapes)
         {
-            var subjects = shape.Sweep.Plan().SelectMany(p => p.Subjects).Distinct().ToArray();
+            var subjects = Subjects(shape);
             foreach (var lane in Lanes)
             {
                 string whole = lane.Render(shape.Sweep, 0, out _);
@@ -472,7 +472,7 @@ internal static class CheckShapeMatrix
         int checkedSubjects = 0;
         foreach (var shape in shapes)
         {
-            var subjects = shape.Sweep.Plan().SelectMany(p => p.Subjects).Distinct().ToArray();
+            var subjects = Subjects(shape);
             foreach (var lane in Lanes)
             {
                 lane.Render(shape.Sweep, 4000000, out var body);
@@ -492,6 +492,13 @@ internal static class CheckShapeMatrix
             bad.Count == 0 && checkedSubjects > 0,
             bad.Count > 0 ? string.Join("; ", bad) : $"{checkedSubjects} subject/shape/transport cells, every one exact");
     }
+
+    /// <summary>EVERY subject a shape can render — its families' planned subjects AND the response's own, which
+    /// belong to no family. The roster is the second kind, and leaving it out is how a sabotage that stopped
+    /// measuring its demand altogether came back green through the whole sweep: it is allocated, charged and cut
+    /// like any other subject, so every property here has to be asked of it.</summary>
+    static SweepSubject[] Subjects(Shape shape)
+        => shape.Sweep.Plan().SelectMany(p => p.Subjects).Concat(shape.Sweep.ResponseSubjects).Distinct().ToArray();
 
     /// <summary>A response's rendered-unit fingerprint — what "renders everything" means, COUNTED rather than read
     /// off a sentence the response prints about itself. Per transport, because the two carry their units
