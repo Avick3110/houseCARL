@@ -274,8 +274,11 @@ internal static class SweepDemand
                 {
                     if (rec.ScanError is null) continue;
                     if (t.Done(SweepSubject.ScriptScanRows)) break;
+                    // HistogramRows, not ScriptRecords: the counts_only honesty layer is WRAPPED
+                    // ({total, rows, rendered, truncated}), so its rows land two levels under the family object
+                    // exactly as `unread.rows` does — the demand and the write read the one depth table.
                     t.Add(SweepSubject.ScriptScanRows,
-                          JsonWire.ScanErrorRowCostFor(rec, depths.ScriptRecords, rows > 0));
+                          JsonWire.ScanErrorRowCostFor(rec, depths.HistogramRows, rows > 0));
                     rows++;
                 }
             }

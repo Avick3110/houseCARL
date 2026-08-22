@@ -1525,9 +1525,10 @@ static class JsonWire
         internal int PluginSections => Section + 1;
         /// <summary>Elements of a plugin object's <c>dangling</c>.</summary>
         internal int DanglingEntries => Section + 3;
-        /// <summary>Elements of <c>records</c>, and of <c>scan_errors</c> under counts_only.</summary>
+        /// <summary>Elements of <c>records</c>.</summary>
         internal int ScriptRecords => Section + 1;
-        /// <summary>Elements of a histogram axis's <c>rows</c>, and of <c>unread.rows</c>.</summary>
+        /// <summary>Elements of a histogram axis's <c>rows</c>, and of the two wrapped honesty layers'
+        /// rows — <c>unread.rows</c> and <c>scan_errors.rows</c>.</summary>
         internal int HistogramRows => Section + 2;
         /// <summary>A histogram axis OBJECT, written as a member of the family object itself.</summary>
         internal int AxisFrame => Section;
@@ -1873,18 +1874,31 @@ static class JsonWire
                 ("unbound_by_property", SweepSubject.HistogramByProperty, r.Histogram));
             // The honesty layer, on its own subject and its own bound — a silently short list of what could NOT be
             // read is the boundary of the answer going missing, not a finding inside it (#288 review finding 4).
-            w.WriteStartArray("scan_errors");
+            //
+            // WRAPPED IN {total, rows, rendered, truncated}, WHICH IS BOTH THE ANCESTOR'S SHAPE AND THE SIBLING'S.
+            // This writer is what housecarl_validate_scripts renders too, and 1.x wrote the wrapper there, so a
+            // bare array here silently retyped a shipped field for every consumer reading `scan_errors.rows` /
+            // `.total` / `.truncated` (Aaron's review of PR #399, finding 1) — while the merged surface's OTHER
+            // honesty layer, `unread`, kept the wrapper one family over. One shape for both, and it is the
+            // wrapper rather than the array for the reason the wrapper exists: a bare array that was cut cannot
+            // say so, and a consumer iterating it believes it holds the complete set of what went unchecked.
+            var scanErrors = r.Reports.Where(x => x.ScanError is not null).ToList();
+            w.WriteStartObject("scan_errors");
+            w.WriteNumber("total", scanErrors.Count);
+            w.WriteStartArray("rows");
             int rows = 0;
-            foreach (var rec in r.Reports)
+            foreach (var rec in scanErrors)
             {
-                if (rec.ScanError is null) continue;
                 var row = rec;
                 if (!body.Emit(SweepSubject.ScriptScanRows,
-                               ScanErrorRowCost(row, depths.ScriptRecords, rows > 0),
+                               ScanErrorRowCost(row, depths.HistogramRows, rows > 0),
                                () => WriteScanErrorRow(w, row))) break;
                 rows++;
             }
             w.WriteEndArray();
+            w.WriteNumber("rendered", rows);
+            w.WriteBoolean("truncated", rows < scanErrors.Count);
+            w.WriteEndObject();
             return;
         }
 

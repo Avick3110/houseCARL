@@ -55,6 +55,10 @@ namespace HousecarlGenerator;
 ///   CLASS-NOT-CHECKED-PARTIAL / -TOTAL — an EXCLUDED class renders "NOT CHECKED" and nulls in json, never 0 (PR #288
 ///                          review, finding 1: this guard previously asserted the 0 and so locked the bug in).
 ///   COUNTS-ONLY-EXCLUDED-NAMED — counts_only text NAMES the unparseable plugins, not just the header count (finding 5).
+///   COUNTS-ONLY-JSON-SCAN-ERRORS-WRAPPED — the counts_only json honesty layer is the 1.x WIRE SHAPE:
+///                          scan_errors = {total, rows, rendered, truncated}, and the flags equal the rows the
+///                          response carries at every cap in a band. The differential compares TEXT lanes, so a json
+///                          field that changed TYPE was invisible to it (Aaron's review of PR #399, finding 1).
 ///   COUNTS-ONLY-NO-TALLY — counts_only + findings=[bound_null] leaves Histogram NULL and says nothing was tallied; the
 ///                          roster contract still holds without a histogram (PR #288 RE-review, finding 1: the round-1
 ///                          gate landed on check_errors and not on this twin).
@@ -457,6 +461,59 @@ public static class ScriptPropertyCheckProbe
             && xt.Contains("HcSpBroken.esp", StringComparison.Ordinal)
             && xt.Contains("header could not be parsed", StringComparison.Ordinal),
             $"tail=[{Wire.RenderScriptCheck(withExcluded, 0).Split('\n').FirstOrDefault(l => l.Contains("HcSpBroken", StringComparison.Ordinal)) ?? "<absent>"}]");
+
+        // THE ANCESTOR'S counts_only JSON WIRE SHAPE, pinned as a shape rather than as a value. `scan_errors` is the
+        // honesty layer — what could NOT be read — and 1.x wrapped it in {total, rows, rendered, truncated} for the
+        // reason `unread` is wrapped one family over: a bare array a budget cut cannot say it was cut, so a consumer
+        // iterating it believes it holds the complete set. The merge rebuilt this writer and emitted a bare array,
+        // retyping `result.scan_errors` for every consumer reading `.rows` / `.total` / `.truncated`. The
+        // differential that certified "nothing you call today moves" compares TEXT lanes, so nothing saw it.
+        var scanned = counts with
+        {
+            Reports = new[]
+            {
+                RecordScriptFindings.PluginScanError("HcSpUnreadableA.esp", "header could not be parsed"),
+                RecordScriptFindings.PluginScanError("HcSpUnreadableB.esp", "the record stream ended mid-record"),
+                RecordScriptFindings.PluginScanError("HcSpUnreadableC.esp", "a subrecord length ran past the group"),
+            },
+        };
+        var wrapBad = new List<string>();
+        var whole = JsonDocument.Parse(JsonWire.RenderScriptCheck(scanned, 0)).RootElement;
+        var se = whole.TryGetProperty("scan_errors", out var seV) ? seV : default;
+        if (se.ValueKind != JsonValueKind.Object)
+            wrapBad.Add($"scan_errors is {se.ValueKind}, not an object — the 1.x wrapper is gone");
+        else
+        {
+            if (!(se.TryGetProperty("total", out var tot) && tot.ValueKind == JsonValueKind.Number && tot.GetInt32() == 3))
+                wrapBad.Add("scan_errors.total is absent or not the fixture's 3");
+            if (!(se.TryGetProperty("rows", out var rws) && rws.ValueKind == JsonValueKind.Array && rws.GetArrayLength() == 3))
+                wrapBad.Add("scan_errors.rows is absent or does not carry all 3 rows uncapped");
+            if (!(se.TryGetProperty("rendered", out var rnd) && rnd.ValueKind == JsonValueKind.Number && rnd.GetInt32() == 3))
+                wrapBad.Add("scan_errors.rendered is absent or not 3");
+            if (!(se.TryGetProperty("truncated", out var trc) && trc.ValueKind == JsonValueKind.False))
+                wrapBad.Add("scan_errors.truncated is absent or not false on an uncapped response");
+        }
+        // …and the flags MEAN something: at EVERY cap in a band the wrapper's own numbers equal its own rows, and
+        // `truncated` is exactly "rows is short of total". Asked at every cap rather than one, because a count right
+        // at one cap and wrong at the next is the defect a wrapper exists to prevent.
+        bool sawScanCut = false;
+        for (int cap = 400; cap <= 2000; cap += 10)
+        {
+            var doc = JsonDocument.Parse(JsonWire.RenderScriptCheck(scanned, cap)).RootElement;
+            if (!doc.TryGetProperty("scan_errors", out var o) || o.ValueKind != JsonValueKind.Object)
+            { wrapBad.Add($"@{cap}: scan_errors is not an object"); break; }
+            int? total = o.TryGetProperty("total", out var a) && a.ValueKind == JsonValueKind.Number ? a.GetInt32() : null;
+            int? rendered = o.TryGetProperty("rendered", out var b) && b.ValueKind == JsonValueKind.Number ? b.GetInt32() : null;
+            bool? truncated = o.TryGetProperty("truncated", out var c) && c.ValueKind is JsonValueKind.True or JsonValueKind.False ? c.GetBoolean() : null;
+            int? carried = o.TryGetProperty("rows", out var d) && d.ValueKind == JsonValueKind.Array ? d.GetArrayLength() : null;
+            if (total != 3) { wrapBad.Add($"@{cap}: total={total}, the sweep found 3"); break; }
+            if (rendered != carried) { wrapBad.Add($"@{cap}: rendered={rendered}, rows carries {carried}"); break; }
+            if (truncated != (carried < total)) { wrapBad.Add($"@{cap}: truncated={truncated} with {carried} of {total} rows"); break; }
+            if (carried < total) sawScanCut = true;
+        }
+        if (!sawScanCut) wrapBad.Add("no cap in 400..2000 cut a scan-error row — the band proves nothing about the flags");
+        Check("COUNTS-ONLY-JSON-SCAN-ERRORS-WRAPPED: the counts_only json honesty layer keeps its 1.x wrapper — {total, rows, rendered, truncated} — and the flags equal the rows the response carries at every cap in a band",
+            wrapBad.Count == 0, wrapBad.Count == 0 ? "shape and flags hold at every cap 400..2000" : string.Join("; ", wrapBad.Take(4)));
 
         // What the bespoke truncation marker was replaced BY, pinned against the response's own rows rather than
         // against its wording. The marker said "truncated at max_chars" and named some knobs; it could not say how
