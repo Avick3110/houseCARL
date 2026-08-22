@@ -677,6 +677,18 @@ internal static class ReadSentences
         "  this quest owns NO dialogue topics in the active load order — nothing to validate. If you expected some, " +
         "check those topics set DialogTopic.Quest to this quest and that their plugin is enabled.\n";
 
+    /// <summary>A QUEST seed whose own CK-parity subrecords are present and correct. Stated rather than left
+    /// silent, for the reason the per-topic "graph: OK" line exists: a sub-check that RAN and PASSED is a
+    /// different answer from one nobody ran, and a caller cannot tell those apart from an absence (Q3).
+    ///
+    /// <para>Shared because the ancestor states it too. It was inline there and absent here, so the merged
+    /// surface went quiet on a passing sub-check the ancestor names — found by the dialogue differential's
+    /// line-set comparison, which is what that cell is for.</para></summary>
+    [MustState("quest CK-parity: OK", "NextAliasID (ANAM)", "Flags (FNAM)")]
+    internal const string DialogueQuestParityOk =
+        "  quest CK-parity: OK — the NextAliasID (ANAM) subrecord is present and every objective carries its " +
+        "Flags (FNAM).\n";
+
     /// <summary>The dialogue family's counts line: what the validation found, above everything a budget can refuse.
     /// A caller whose topic blocks were all cut still learns the totals.
     ///
