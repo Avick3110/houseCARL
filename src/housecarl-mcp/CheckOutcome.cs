@@ -29,9 +29,19 @@ namespace HousecarlMcp;
 /// <c>Selection.NotRun</c>.</para>
 ///
 /// <para><b>THE REMAINING-LITERAL INVENTORY — this list IS the completeness claim.</b> Every caller-facing claim in
-/// a merged response reads this value, EXCEPT the ones below. Each of these reads ONE field of the artifact that
-/// produced it, verbatim, with no arithmetic and no cross-family or cross-moment composition — which is the only
-/// exemption the ruling allows, and the reason each is listed by name rather than left to be found:
+/// a merged response reads this value, EXCEPT the ones below. The list exists so a reviewer can tell an INVENTORIED
+/// literal from a FORGOTTEN one: an unlisted claim that does not read this value is a migration gap, and the way to
+/// find one is to apply the membership test rather than to trust the list's length.</para>
+///
+/// <para><b>The membership test, stated so it can be applied rather than believed.</b> A claim may stay a literal
+/// only where all three hold. It reads ONE field of the artifact that did the work — the family result
+/// (<see cref="ErrorCheckResult"/>, <see cref="ScriptCheckResult"/>, <see cref="DialogueSeedResult"/>) or the
+/// per-family accounting those results feed, both of which are 4a's, produced by the pass that measured them. It
+/// does NO arithmetic at the site that prints it. And it composes across NO family and NO second moment. Fail any
+/// one and the claim belongs on this value instead: <c>Resolved.Count() + Unresolved.Count</c> failed the second,
+/// the response-level "ran every family" failed the third, and both are why this type exists.</para>
+///
+/// <para>What that leaves, each listed by name with the artifact it reads:
 /// <list type="bullet">
 /// <item><b>The errors family's head and rows</b> (<c>ReadTools.AppendErrorsHead</c> / <c>AppendErrorsSection</c>,
 /// <c>JsonWire.WriteErrorsHead</c> / <c>WriteErrorsSection</c>) — every count reads its own field of

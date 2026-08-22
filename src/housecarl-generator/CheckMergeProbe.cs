@@ -1216,6 +1216,40 @@ public static class CheckMergeProbe
             && !excluded.Contains($"{OrchNpcs} dangling ref(s)", StringComparison.Ordinal),
             Trim(excluded));
 
+        // ---- THE SCRIPTS FAMILY'S OWN exclude= PATHS (round-2 finding C5). This branch gave that family an
+        //      exclude= it never had, and only the ERRORS family's copies of these three paths were armed. Each is
+        //      asked of the scripts family alone, so nothing here can be satisfied by its sibling answering.
+
+        // 1. A GROUP member that is not in scope is the ordinary case, never a typo. base_masters expands to the
+        //    five vanilla plugins, none of which this synthetic order carries; the typed name beside it IS here.
+        //    Validated as one list, this call refused naming a plugin the caller never wrote.
+        var groupExclude = CheckTools.CheckTool(svc, findings: new[] { "scripts" },
+                                                exclude: new[] { "base_masters", "HcOrch.esp" });
+        Arm($"ORCH-EXCLUDE-GROUP-MEMBER-NOT-IN-SCOPE-IS-NOT-A-TYPO: a group token whose members are absent from this order does not refuse the scripts sweep — it drops the ones that ARE here, leaving {SecondWeapons} record sections, while the TYPED name beside it is honoured",
+            !groupExclude.StartsWith("error", StringComparison.OrdinalIgnoreCase)
+            && groupExclude.Contains("scanned 1 plugin ", StringComparison.Ordinal)
+            && groupExclude.Contains($"all {SecondWeapons} record section(s) found by this sweep appear above.", StringComparison.Ordinal)
+            && !groupExclude.Contains("HcOrch.esp", StringComparison.Ordinal),
+            Trim(groupExclude));
+
+        // 2. A TYPED name that matches nothing IS a typo, and refuses rather than sweeping the findings the caller
+        //    asked to leave out. Asked of the scripts family alone: one family, one ground, so the refusal is the
+        //    whole answer and there is no sibling response to mistake it for.
+        var typoExclude = CheckTools.CheckTool(svc, findings: new[] { "scripts" },
+                                               exclude: new[] { "HcOrchNoSuch.esp" });
+        Arm("ORCH-EXCLUDE-TYPED-NAME-NOT-IN-SCOPE-REFUSES: a plugin NAME in exclude= that this sweep's scope does not contain refuses and names it — an exclusion matching nothing would return exactly the findings the caller asked to leave out",
+            typoExclude.StartsWith("error", StringComparison.OrdinalIgnoreCase)
+            && typoExclude.Contains("HcOrchNoSuch.esp", StringComparison.Ordinal)
+            && typoExclude.Contains("not in the scope this sweep would cover", StringComparison.Ordinal),
+            Trim(typoExclude));
+
+        // 3. An exclude= that left plugins out SAYS SO in this family's own head. An exclusion that leaves no trace
+        //    in the response reads as one that was ignored.
+        var noteExclude = CheckTools.CheckTool(svc, findings: new[] { "scripts" }, exclude: new[] { "HcOrch.esp" });
+        Arm("ORCH-EXCLUDE-FILTER-NOTE-IS-STATED: the scripts family's head names how many plugins exclude= left out — an exclusion with no trace in the response reads as one the sweep ignored",
+            noteExclude.Contains("exclude= left out 1 plugin(s)", StringComparison.Ordinal),
+            Trim(noteExclude));
+
         // ---- a FAMILY-LOCAL scope refusal must not discard the family beside it that answered. The shape the
         //      round-1 reviewers reached by code-read and could not fixture: exclude= is validated against each
         //      family's OWN scope, and the scripts family is handed the ACTIVE subset of plugins=. Naming an
