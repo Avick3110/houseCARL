@@ -50,6 +50,17 @@ namespace HousecarlMcp;
 /// <para><b>NO STRANDING.</b> If every child's demand fits inside the budget, every child is allocated its whole
 /// demand and the response claims no cut. A merged call that could have shown everything does.</para>
 ///
+/// <para><b>WHERE THAT CLAIM STOPS, because it was read as wider than it is.</b> The paragraph above is about the
+/// ALLOCATION, and it holds. It is NOT a claim that every allocated character gets spent. A demand is measured
+/// over every unit a subject HAS, and some subjects' units are reachable only through another subject's — a
+/// plugin's dangling entries through its section, a seed's topic blocks through its head. When the parent subject
+/// stops, the children behind it become unreachable, and their share was measured against them anyway. So a
+/// response can render less than its own allocation permits and report a cut over room it left standing: measured
+/// on a 40-plugin fixture at a 20,000-character row budget, about a third of it (Aaron's review of PR #399).
+/// Monotonicity is unaffected — λ is non-decreasing whatever the demands are — and nothing overruns, so this is
+/// under-FILL rather than a false claim. It is <b>#400</b>, filed rather than fixed: clamping a child's demand by
+/// what its parent can admit is a two-level fill, which is allocation-core design and not a loop change.</para>
+///
 /// <para><b>HIERARCHICAL, not flat, and that is still load-bearing.</b> The top-level participants water-fill the
 /// row budget among themselves on their own demands — one per family, plus ONE for the response's own subjects
 /// (the excluded-plugin roster, which belongs to no family because it is a fact about the SCOPE); each
