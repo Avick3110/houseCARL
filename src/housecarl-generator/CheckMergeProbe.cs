@@ -492,6 +492,58 @@ public static class CheckMergeProbe
                 Trim(mixedText));
         }
 
+        // ---- SCOPE-SENTENCE-NAMES-A-REFUSED-FAMILY -------------------------------------------------
+        // The response-level sentence is composed from what ANSWERED, not from what was selected. Off the
+        // selection, this exact call — the errors family answering beside a dialogue family whose whole section is
+        // a cost refusal — led with a sentence naming both as run, and `families_ran` listed a family with no
+        // findings in it (round-2 finding B2). The arm asks the sentence AND the data, in both transports.
+        var scopeBad = new List<string>();
+        string dlgDescribes = SweepFamilySelection.Describe(SweepFamily.Dialogue);
+        string mixedScope = FirstLineWith(mixedText, "findings=");
+        if (!mixedScope.Contains("did NOT answer for", StringComparison.Ordinal)
+            || !mixedScope.Contains(dlgDescribes, StringComparison.Ordinal))
+            scopeBad.Add($"the scope sentence does not name the refused family: [{mixedScope}]");
+        if (mixedScope.Contains("answers for: " + SweepFamilySelection.Describe(SweepFamily.Errors) + ", " + dlgDescribes,
+                                StringComparison.Ordinal))
+            scopeBad.Add("the scope sentence still lists the refused family as one it answers for");
+        using (var doc = JsonDocument.Parse(mixedJson))
+        {
+            var root = doc.RootElement;
+            var ranNames = root.GetProperty("families_ran").EnumerateArray().Select(x => x.GetString()).ToArray();
+            if (ranNames.Contains("dialogue")) scopeBad.Add("families_ran names the refused family");
+            if (!ranNames.Contains("errors")) scopeBad.Add("families_ran does not name the family that answered");
+            var refusedNames = root.GetProperty("families_refused").EnumerateArray()
+                                   .Select(x => x.GetProperty("family").GetString()).ToArray();
+            if (!refusedNames.SequenceEqual(new[] { "dialogue" }))
+                scopeBad.Add($"families_refused is [{string.Join(",", refusedNames)}], want [dialogue]");
+            if (root.GetProperty("findings_scope").GetString() != mixedScope)
+                scopeBad.Add("json states a different scope sentence from the text lane");
+        }
+        Check("SCOPE-SENTENCE-NAMES-A-REFUSED-FAMILY: the response-level sentence and families_ran say what ANSWERED — a family that refused is named as refused, not listed among the ones this response answers for",
+            scopeBad.Count == 0, scopeBad.Count == 0 ? mixedScope : string.Join("; ", scopeBad.Take(3)));
+
+        // ---- OFF-ORDER-STATED-EVEN-WHEN-THE-FAMILY-REFUSED ----------------------------------------
+        // The other direction of the conditional the off-order sentence used to sit inside. Gated on the scripts
+        // family having ANSWERED, the sentence vanished from the call that needs it most: the caller named two
+        // plugins, the scripts family refused over one of them, and nothing said why the other was never in its
+        // scope either (round-2 finding B4).
+        var scriptsRefused = ScriptCheckResult.Fail("exclude= removed every plugin this sweep would have covered.");
+        var offRefused = new CheckSweep(Sel("errors", "scripts"), errors, scriptsRefused, new[] { "FreshPatch.esp" });
+        var offRefusedText = Wire.RenderCheck(offRefused, 0);
+        var offRefusedJson = JsonWire.RenderCheck(offRefused, 0);
+        bool offInJson;
+        using (var doc = JsonDocument.Parse(offRefusedJson))
+            offInJson = doc.RootElement.TryGetProperty("families", out var ofams)
+                     && ofams.TryGetProperty("scripts", out var sf)
+                     && sf.TryGetProperty("off_order_not_swept", out var ov)
+                     && ov.GetString()!.Contains("FreshPatch.esp", StringComparison.Ordinal)
+                     && sf.TryGetProperty("refused", out _);
+            Check("OFF-ORDER-STATED-EVEN-WHEN-THE-FAMILY-REFUSED: a family with no off-order lane names the file it did not sweep whether it answered or refused — the refusal is about a different plugin, and silence about this one reads as clean",
+            offRefusedText.Contains("did NOT sweep FreshPatch.esp", StringComparison.Ordinal)
+            && offRefusedText.Contains("[scripts] ", StringComparison.Ordinal)
+            && offInJson,
+            $"text=[{FirstLineWith(offRefusedText, "did NOT sweep")}] json={offInJson}");
+
         // ---- GROUNDS-ARE-ONE ------------------------------------------------------------------------
         // The advisor's standing probe, reproduced and then ruled (Aaron-go 2026-08-22). A whole call collapses to
         // ONE error exactly when the grounds are ONE. Two families refusing for DIFFERENT reasons are two answers,
@@ -731,6 +783,29 @@ public static class CheckMergeProbe
             seedFacts.Count == 0 ? "named/reached/validated/unreachable in the head of both lanes, the cut in the accounting"
                                  : string.Join("; ", seedFacts.Take(4)));
 
+        // ---- COUNTS-ONLY-CARRIES-NO-SEEDS-ARRAY ---------------------------------------------------
+        // A field named for a subject is present exactly where that subject is. The seeds array was opened outside
+        // the lane gate, so the one mode whose whole claim is that it renders no rows carried `"seeds": []` beside
+        // a non-zero seeds_validated (round-2 finding B3). Both directions, so a gate that always refuses fails too.
+        var seedsArray = new List<string>();
+        using (var doc = JsonDocument.Parse(budgetCountsJson))
+            if (doc.RootElement.GetProperty("families").GetProperty("dialogue").TryGetProperty("seeds", out _))
+                seedsArray.Add("a counts_only response carries a seeds array");
+        using (var doc = JsonDocument.Parse(budgetJson))
+        {
+            var fam = doc.RootElement.GetProperty("families").GetProperty("dialogue");
+            if (!fam.TryGetProperty("seeds", out var listed)) seedsArray.Add("a LISTING response carries no seeds array");
+            else if (listed.GetArrayLength() == 0) seedsArray.Add("the listing response's seeds array is empty");
+            // …and the unreachable roster is in BOTH, by design: a seed nobody could reach bounds the answer.
+            if (!fam.TryGetProperty("seeds_unreachable", out _)) seedsArray.Add("the listing response names no unreachable seeds");
+        }
+        using (var doc = JsonDocument.Parse(budgetCountsJson))
+            if (!doc.RootElement.GetProperty("families").GetProperty("dialogue").TryGetProperty("seeds_unreachable", out _))
+                seedsArray.Add("the counts_only response names no unreachable seeds");
+        Check("COUNTS-ONLY-CARRIES-NO-SEEDS-ARRAY: the seed rows are present exactly where the mode renders them, and the unreachable-seed roster is present in both — it bounds the answer rather than sitting inside it",
+            seedsArray.Count == 0,
+            seedsArray.Count == 0 ? "seeds in the listing lane only, seeds_unreachable in both" : string.Join("; ", seedsArray));
+
         // ---- NO-FAMILY-OBJECT-CARRIES-A-DUPLICATE-KEY ---------------------------------------------
         // B5's own property, asked STRUCTURALLY rather than by naming the field that was duplicated: `topics_validated`
         // was written by the family head AND by the accounting, both direct members of families.dialogue. Values
@@ -841,6 +916,41 @@ public static class CheckMergeProbe
             $"owner={CheckOutcome.For(allWithRoster).RosterOwner} rosterHeads={Count(allRosterText, "excluded plugins (could not be parsed")} "
           + $"rows={Count(allRosterText, ": header could not be parsed\n")}/{roster.Count} "
           + $"dialogueOnlyOwner={CheckOutcome.For(dlgOnly).RosterOwner?.ToString() ?? "none"} dialogueOnlyRows={CheckOutcome.For(dlgOnly).ExcludedPlugins.Count}");
+
+        // ---- RESERVE-COVERS-WHAT-IT-RESERVES-FOR --------------------------------------------------
+        // The reserve is a promise about a specific sentence, measured before the body renders; what actually gets
+        // written through it is BoundedBody.ReservedWritten. Asked of the real document rather than of the
+        // measurement, so it catches BOTH of round 2's reserve findings at once and neither can hide behind slack:
+        // the json accounting was measured in a bare root object and written inside families.<token> two levels
+        // deeper, and an indented document pays two spaces a line per level (A3); and the measuring constructor
+        // copied none of the dialogue quantities, so the worst case wrote none of the fields they gate (B6).
+        // Both were absorbed by JsonGlue, which is the posture that produced four unbounded write sites in a row.
+        var reserveBad = new List<string>();
+        foreach (var (label, sweep) in new[]
+                 {
+                     ("three families", all), ("three families + roster", allWithRoster),
+                     ("dialogue, seed budget cut", new CheckSweep(Sel("dialogue"), null, null, null, budgeted)),
+                     ("dialogue, counts_only", budgetCountsSweep),
+                     ("errors + refused dialogue", mixed),
+                 })
+        {
+            var oc = CheckOutcome.For(sweep);
+            var probeAccts = oc.Accountings(Wire.DefaultMaxChars);
+            int jsonReserve = probeAccts.Sum(a => a.JsonAccountingReserve);
+            JsonWire.RenderCheck(sweep, 0, 1000, out var jsonBody);
+            if (jsonBody is not null && jsonBody.ReservedWritten > jsonReserve)
+                reserveBad.Add($"json/{label}: wrote {jsonBody.ReservedWritten} through a reserve of {jsonReserve}");
+            int textReserve = probeAccts.Sum(a => a.TextAccountingReserve + a.Boundary.Length + Wire.BoundaryWrap)
+                            + oc.Sections.Sum(f => string.Format(ReadSentences.SweepBoundaryLabelFor,
+                                                                 SweepFamilySelection.Token(f)).Length);
+            Wire.RenderCheck(sweep, 0, 1000, out var textBody);
+            if (textBody is not null && textBody.ReservedWritten > textReserve)
+                reserveBad.Add($"text/{label}: wrote {textBody.ReservedWritten} through a reserve of {textReserve}");
+        }
+        Check("RESERVE-COVERS-WHAT-IT-RESERVES-FOR: across five shapes in both transports, what each response actually writes through its reserve fits inside the room that reserve held — measured in the document, so a reserve taken at the wrong depth or missing a lane's fields cannot hide behind slack",
+            reserveBad.Count == 0,
+            reserveBad.Count == 0 ? "every reserve covered its own writes" : string.Join("; ", reserveBad.Take(4)));
+
 
         // ---- CAP-LADDER ----------------------------------------------------------------------------
         Check("CAP-LADDER: at every integer cap from 1 to 12000 (and one far above) neither transport returns more than it was given, bar the floor, and the json parses",

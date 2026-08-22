@@ -1668,7 +1668,7 @@ static class Wire
 
     /// <summary>The newlines a boundary line is wrapped in, held back with it. Two in the render; this is the same
     /// headroom the accounting's own wrap uses, per block rather than once for the lot.</summary>
-    const int BoundaryWrap = 32;
+    internal const int BoundaryWrap = 32;
 
     // ---- housecarl_validate_scripts -----------------------------------------------------------------
     /// <summary>Render the script-property sweep. <paramref name="histogramLimit"/> (#282) caps the
