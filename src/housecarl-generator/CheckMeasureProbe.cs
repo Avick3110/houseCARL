@@ -276,44 +276,47 @@ public static class CheckMeasureProbe
     /// under the sequential recount, and the no-stranding property moves them.</para></summary>
     static int RunBand(LoadOrderService svc)
     {
-        Console.WriteLine("## 394 acceptance band — the by-SOURCE axis, ancestor vs merged\n");
-        Console.WriteLine($"   {"transport",-9} {"cap",6} {"surface",14} {"TARGET",12} {"SOURCE",12}");
-        foreach (var (transport, json) in new[] { ("text", false), ("json", true) })
-            foreach (int cap in new[] { 2000, 4000 })
-            {
-                string anc = ReadTools.CheckErrorsTool(svc, counts_only: true, max_chars: cap,
-                                                       format: json ? "json" : null);
-                string mrg = CheckTools.CheckTool(svc, findings: new[] { "errors" }, counts_only: true,
-                                                  max_chars: cap, format: json ? "json" : null);
-                foreach (var (surface, s) in new[] { ("check_errors", anc), ("check", mrg) })
-                {
-                    string t, so;
-                    if (json)
-                    {
-                        t = JsonAxisRows(s, "dangling_by_target_plugin");
-                        so = JsonAxisRows(s, "dangling_by_source_plugin");
-                    }
-                    else
-                    {
-                        var (tr, td) = AxisRows(s, "TARGET plugin");
-                        var (sr, sd) = AxisRows(s, "SOURCE plugin");
-                        t = tr + "/" + td; so = sr + "/" + sd;
-                    }
-                    Console.WriteLine($"   {transport,-9} {cap,6} {surface,14} {t,12} {so,12}");
-                }
-            }
+        // ONE sweep, many renders. The ancestor and the merged surface are rendered from the SAME result, so a
+        // difference between them is a difference in framing and never in what was found — and the cell is cheap
+        // enough to re-run, which the hand-measured table it replaces was not (a counts_only sweep of this order
+        // costs about forty seconds, and the first spelling of this cell paid it sixteen times).
+        var r = svc.CheckErrors(null, 1000, null, null, null, null, true, null);
+        if (!r.Success) { Console.WriteLine("sweep failed: " + r.Error); return 1; }
+        var merged = new CheckSweep(Families("errors"), r);
 
-        Console.WriteLine("\n## the other half — TOTAL rows each surface carries, same sweep, same caps\n");
-        Console.WriteLine($"   {"cap",8} {"check_errors",14} {"check",10}");
-        foreach (int cap in new[] { 2000, 4000, 10000, 20000 })
+        Console.WriteLine("## 394 acceptance band — the by-SOURCE axis, ancestor vs merged (one sweep, both renders)\n");
+        Console.WriteLine($"   {"transport",-9} {"cap",6} {"surface",14} {"chars",7} {"TARGET",12} {"SOURCE",12}");
+        foreach (int cap in new[] { 2000, 4000 })
         {
-            int anc = TotalAxisRows(ReadTools.CheckErrorsTool(svc, counts_only: true, max_chars: cap));
-            int mrg = TotalAxisRows(CheckTools.CheckTool(svc, findings: new[] { "errors" }, counts_only: true,
-                                                         max_chars: cap));
-            Console.WriteLine($"   {cap,8} {anc,14} {mrg,10}");
+            foreach (var (surface, s) in new[]
+                     {
+                         ("check_errors", Wire.RenderCheckErrors(r, cap)),
+                         ("check", Wire.RenderCheck(merged, cap)),
+                     })
+            {
+                var (tr, td) = AxisRows(s, "TARGET plugin");
+                var (sr, sd) = AxisRows(s, "SOURCE plugin");
+                Console.WriteLine($"   {"text",-9} {cap,6} {surface,14} {s.Length,7} {tr + "/" + td,12} {sr + "/" + sd,12}");
+            }
+            foreach (var (surface, s) in new[]
+                     {
+                         ("check_errors", JsonWire.RenderCheckErrors(r, cap)),
+                         ("check", JsonWire.RenderCheck(merged, cap)),
+                     })
+                Console.WriteLine($"   {"json",-9} {cap,6} {surface,14} {s.Length,7} "
+                                + $"{JsonAxisRows(s, "dangling_by_target_plugin"),12} {JsonAxisRows(s, "dangling_by_source_plugin"),12}");
         }
-        Console.WriteLine($"\n   the merged scope sentence, which the ancestor does not carry: "
-                        + $"{new CheckSweep(Families("errors"), ErrorCheckResult.Fail("x")).ScopeSentence().Length} chars");
+
+        Console.WriteLine("\n## the other half — TOTAL rows and length each surface carries, same sweep, same caps\n");
+        Console.WriteLine($"   {"cap",8} {"check_errors",22} {"check",22}   headroom left by check");
+        foreach (int cap in new[] { 2000, 3000, 4000, 6000, 10000, 20000 })
+        {
+            string a = Wire.RenderCheckErrors(r, cap), m = Wire.RenderCheck(merged, cap);
+            Console.WriteLine($"   {cap,8} {TotalAxisRows(a) + " rows / " + a.Length + " chars",22}"
+                            + $" {TotalAxisRows(m) + " rows / " + m.Length + " chars",22}   {cap - m.Length}");
+        }
+        Console.WriteLine($"\n   the merged scope sentence, which the ancestor does not carry: {merged.ScopeSentence().Length} chars");
+        Console.WriteLine($"   the merged response with no body in it at all                : {Wire.RenderCheck(merged, 1).Length} chars");
         return 0;
     }
 
