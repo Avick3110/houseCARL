@@ -626,9 +626,177 @@ public static class CheckMergeProbe
         Check("CAP-LADDER (dialogue-inclusive): the same sweep over a response carrying ALL THREE families — a third section, a third accounting and a third boundary to hold inside one cap",
             CapSweep(all, out var allCapDetail), allCapDetail);
 
+
+        // ---- THE MERGED TOOL'S OWN ORCHESTRATION ---------------------------------------------------
+        // Everything above renders a CheckSweep this file built by hand. These drive CheckTools.CheckTool over a
+        // synthetic MO2 instance, which is the only place the layer BETWEEN the caller and the render is asked
+        // anything at all.
+        OrchestrationChecks(tmpDir, Check);
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "check-guard: ALL PASS" : $"check-guard: {failures} FAILURE(S)");
         return failures == 0 ? 0 : 1;
+    }
+
+    /// <summary>THE MERGED TOOL'S OWN ORCHESTRATION, driven through <see cref="CheckTools.CheckTool"/> over a
+    /// SYNTHETIC MO2 INSTANCE — the surface a caller actually reaches, which until now had ZERO coverage.
+    ///
+    /// <para><b>Why this exists, measured rather than asserted.</b> Every other cell in this guard builds a
+    /// <see cref="CheckSweep"/> by hand and renders it, so everything BETWEEN the caller and the render was covered
+    /// by nothing: which families run, how classes are routed to each, whether <c>counts_only</c> and
+    /// <c>exclude=</c> reach the families at all, which plugins each family is handed. Two independent sabotages of
+    /// that layer came back <c>ci-all</c> ALL PASS — making the dialogue family ignore <c>counts_only</c>, and
+    /// deleting the off-order "did NOT sweep" sentence from every response. An orchestration two sabotages cannot
+    /// redden has no meaningful green, so the arms land before any review round resumes (advisor ruling,
+    /// 2026-08-21).</para>
+    ///
+    /// <para>The fixture is the established synth-instance pattern: a real ModOrganizer.ini, a profile, mod
+    /// folders, and a load order that leaves one plugin ON DISK but OUT of it — which is what makes the off-order
+    /// asymmetry reachable at all. Every expected value is fixture-known arithmetic, never a phrase the render
+    /// emitted.</para></summary>
+    static void OrchestrationChecks(string root, Action<string, bool, string?> Arm)
+    {
+        const int OrchNpcs = 6;       // NPCs whose Race links into the absent master  ⇒ 6 dangling refs
+        const int OrchWeapons = 4;    // weapons whose VMAD binds nothing              ⇒ 4 record sections
+        const int OffOrderNpcs = 3;   // the same, in the plugin that is on disk but not in the order
+
+        string instance = Path.Combine(root, "orch");
+        string profiles = Path.Combine(instance, "profiles", "Default");
+        string mods = Path.Combine(instance, "mods");
+        string game = Path.Combine(root, "orchgame");
+        string data = Path.Combine(game, "Data");
+        Directory.CreateDirectory(profiles); Directory.CreateDirectory(mods); Directory.CreateDirectory(data);
+        File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
+            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+            + game.Replace(@"\", @"\\") + ")\r\n");
+
+        string modDir = Path.Combine(mods, "OrchMod");
+        string offDir = Path.Combine(mods, "OrchOff");
+        string scripts = Path.Combine(modDir, "Scripts");
+        Directory.CreateDirectory(modDir); Directory.CreateDirectory(offDir); Directory.CreateDirectory(scripts);
+        ScriptPropertyCheckProbe.WritePex(Path.Combine(scripts, "HcOrchScript.pex"), "HcOrchScript", parent: null,
+            ScriptPropertyCheckProbe.AutoObj("HcOrchSpell", "Spell"),
+            ScriptPropertyCheckProbe.AutoScalar("HcOrchChance", "Int", initInt: null));
+
+        // The absent master, written so its FormKeys are real and then left out of the order entirely: every NPC
+        // pointing at it is a dangling ref, and every plugin mastering it also reports a MISSING MASTER. Two error
+        // CLASSES from one fixture, which is what the class-routing cells need.
+        string ghostPath = Path.Combine(root, "HcOrchGhost.esm");
+        var ghost = new SkyrimMod(new ModKey("HcOrchGhost", ModType.Master), SkyrimRelease.SkyrimSE);
+        var ghostRace = ghost.Races.AddNew(); ghostRace.EditorID = "HcOrchGhostRace";
+        var ghostFk = ghostRace.FormKey;
+        ghost.BeginWrite.ToPath(ghostPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+        void WriteMod(string path, string name, int npcs, int weapons)
+        {
+            var m = new SkyrimMod(new ModKey(name, ModType.Plugin), SkyrimRelease.SkyrimSE);
+            for (int i = 0; i < npcs; i++)
+            { var n = m.Npcs.AddNew(); n.EditorID = $"{name}Npc{i:D2}"; n.Race.SetTo(ghostFk); }
+            for (int i = 0; i < weapons; i++)
+            { var w = m.Weapons.AddNew(); w.EditorID = $"{name}Weap{i:D2}"; w.VirtualMachineAdapter = ScriptPropertyCheckProbe.Vmad("HcOrchScript"); }
+            using var g = SkyrimMod.CreateFromBinaryOverlay(ghostPath, SkyrimRelease.SkyrimSE);
+            m.BeginWrite.ToPath(path).WithLoadOrder(new ISkyrimModGetter[] { g }).Write();
+        }
+        WriteMod(Path.Combine(modDir, "HcOrch.esp"), "HcOrch", OrchNpcs, OrchWeapons);
+        WriteMod(Path.Combine(offDir, "HcOrchOff.esp"), "HcOrchOff", OffOrderNpcs, 0);
+
+        // HcOrchOff.esp is in NO load-order file: on disk, in an enabled mod folder, out of the active order. That
+        // is precisely the shape the two families answer differently.
+        File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\nHcOrch.esp\r\n");
+        File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*HcOrch.esp\r\n");
+        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+OrchOff\r\n+OrchMod\r\n");
+
+        var store = new UserConfigStore(Path.Combine(root, "houseCARL.orch.json"));
+        using var svc = LoadOrderService.WithInstance(instance, 0, store);
+
+        // THE CONTROL. Without it every cell below could pass on a tool that swept nothing at all.
+        var control = CheckTools.CheckTool(svc, findings: new[] { "errors", "scripts" });
+        Arm($"ORCH-CONTROL: the merged TOOL sweeps the synthetic instance and both families find what the fixture planted — {OrchNpcs} dangling refs and {OrchWeapons} record sections",
+            control.Contains($"{OrchNpcs} dangling ref(s)", StringComparison.Ordinal)
+            && control.Contains($"all {OrchWeapons} record section(s) found by this sweep appear above.", StringComparison.Ordinal),
+            Trim(control));
+
+        // ---- WHICH FAMILIES RUN. The default, one named family, and both.
+        var defaulted = CheckTools.CheckTool(svc);
+        var scriptsOnly = CheckTools.CheckTool(svc, findings: new[] { "scripts" });
+        Arm("ORCH-FAMILY-SELECTION-ROUTES: findings= omitted runs the ERRORS family alone; findings=['scripts'] runs the scripts family alone; naming both runs both — asserted on which SECTIONS the tool's own response carries",
+            Count(defaulted, "\n[errors] ") == 1 && Count(defaulted, "\n[scripts] ") == 0
+            && Count(scriptsOnly, "\n[scripts] ") == 1 && Count(scriptsOnly, "\n[errors] ") == 0
+            && Count(control, "\n[errors] ") == 1 && Count(control, "\n[scripts] ") == 1,
+            $"default errors={Count(defaulted, "\n[errors] ")} scripts={Count(defaulted, "\n[scripts] ")}; "
+          + $"scriptsOnly errors={Count(scriptsOnly, "\n[errors] ")} scripts={Count(scriptsOnly, "\n[scripts] ")}");
+
+        // ---- CLASS ROUTING. A class token runs its family NARROWED, and the class nobody asked for reads NOT
+        //      CHECKED rather than 0 — the whole point of the vocabulary reaching the family it names.
+        var mastersOnly = CheckTools.CheckTool(svc, findings: new[] { "missing_masters" });
+        var scalarOnly = CheckTools.CheckTool(svc, findings: new[] { "unbound_scalar" });
+        Arm("ORCH-CLASS-ROUTING-REACHES-THE-FAMILY: findings=['missing_masters'] runs the errors family with the dangling walk OFF (no dangling total, the master finding still listed), and findings=['unbound_scalar'] narrows the scripts family the same way — a class token that stopped at the tool would leave both totals intact",
+            !mastersOnly.Contains($"{OrchNpcs} dangling ref(s)", StringComparison.Ordinal)
+            && mastersOnly.Contains("missing master", StringComparison.OrdinalIgnoreCase)
+            && Count(scalarOnly, "\n[scripts] ") == 1
+            && scalarOnly.Contains("NOT CHECKED", StringComparison.Ordinal),
+            $"masters=[{Trim(mastersOnly)}] scalar=[{Trim(scalarOnly)}]");
+
+        // ---- counts_only, which must reach EVERY family it is handed to. Sabotaging one family to ignore it was
+        //      one of the two changes that left ci-all green.
+        var counts = CheckTools.CheckTool(svc, findings: new[] { "errors", "scripts" }, counts_only: true);
+        Arm("ORCH-COUNTS-ONLY-REACHES-EVERY-FAMILY: counts_only=true silences BOTH families' listings and leaves both histograms — a family that never received the flag would still be listing its sections",
+            !counts.Contains("[ERROR] ", StringComparison.Ordinal)
+            && !counts.Contains("[UNBOUND] ", StringComparison.Ordinal)
+            && !counts.Contains("[CHECK] ", StringComparison.Ordinal)
+            && counts.Contains("dangling ref(s) by ", StringComparison.Ordinal),
+            Trim(counts));
+
+        // ---- THE OFF-ORDER ASYMMETRY, end to end. The errors family resolves the name on disk and sweeps it; the
+        //      scripts family has no such lane and the response says so, in that family's own section.
+        var off = CheckTools.CheckTool(svc, plugins: new[] { "HcOrch.esp", "HcOrchOff.esp" },
+                                       findings: new[] { "errors", "scripts" });
+        Arm($"ORCH-OFF-ORDER-ASYMMETRY-THROUGH-THE-TOOL: a plugin on disk but OUT of the active order is swept by the errors family ({OrchNpcs + OffOrderNpcs} dangling refs, not {OrchNpcs}) and named as not swept by the scripts family — the sentence a sabotage deleted from every response with nothing noticing",
+            off.Contains($"{OrchNpcs + OffOrderNpcs} dangling ref(s)", StringComparison.Ordinal)
+            && off.Contains("HcOrchOff.esp", StringComparison.Ordinal)
+            && off.Contains("did NOT sweep", StringComparison.Ordinal),
+            Trim(off));
+
+        // ---- noneInScope. Every named plugin off-order leaves the scripts family an EMPTY scope, and passing null
+        //      instead would widen it to the whole order — a sweep the caller did not ask for.
+        var noneInScope = CheckTools.CheckTool(svc, plugins: new[] { "HcOrchOff.esp" },
+                                               findings: new[] { "errors", "scripts" });
+        Arm($"ORCH-NONE-IN-SCOPE-DOES-NOT-WIDEN: with every named plugin off-order the scripts family sweeps NOTHING rather than the whole order — 0 record sections, not the {OrchWeapons} the order holds — and says which file it did not sweep",
+            noneInScope.Contains("scanned 0 plugin", StringComparison.Ordinal)
+            && !noneInScope.Contains("[UNBOUND] ", StringComparison.Ordinal)
+            && noneInScope.Contains("did NOT sweep", StringComparison.Ordinal)
+            && noneInScope.Contains($"{OffOrderNpcs} dangling ref(s)", StringComparison.Ordinal),
+            Trim(noneInScope));
+
+        // ---- exclude=, which the tool's own description says applies in every SWEPT family. #344's pole is armed
+        //      end-to-end for the errors family in check-errors-guard; this is the scripts family's half.
+        var excluded = CheckTools.CheckTool(svc, findings: new[] { "errors", "scripts" },
+                                            exclude: new[] { "HcOrch.esp" });
+        Arm("ORCH-EXCLUDE-REACHES-THE-SCRIPTS-FAMILY: exclude= given to the merged tool removes the plugin from the SCRIPTS sweep as well as the errors sweep — both families come back empty on an order whose only plugin was excluded",
+            !excluded.Contains($"{OrchNpcs} dangling ref(s)", StringComparison.Ordinal)
+            && !excluded.Contains("[UNBOUND] ", StringComparison.Ordinal)
+            && !excluded.Contains("[CHECK] ", StringComparison.Ordinal),
+            Trim(excluded));
+
+        // ---- the dialogue family's cost-refusal, FAMILY-LOCAL, through the tool that composes it beside a family
+        //      that answered perfectly well.
+        var dlgRefused = CheckTools.CheckTool(svc, findings: new[] { "errors", "dialogue" });
+        Arm("ORCH-DIALOGUE-REFUSAL-IS-FAMILY-LOCAL-THROUGH-THE-TOOL: findings=['errors','dialogue'] with no seeds= refuses the dialogue family IN ITS OWN SECTION and still answers the errors family — raised to response level it would refuse a call the errors family answered",
+            Count(dlgRefused, "\n[dialogue] ") == 1
+            && dlgRefused.Contains("seeds=", StringComparison.Ordinal)
+            && dlgRefused.Contains($"{OrchNpcs} dangling ref(s)", StringComparison.Ordinal)
+            && !dlgRefused.StartsWith("error:", StringComparison.Ordinal),
+            Trim(dlgRefused));
+
+        // ---- format=, which routes the whole response and must refuse a typo rather than fall through to text.
+        var asJson = CheckTools.CheckTool(svc, findings: new[] { "errors" }, format: "json");
+        var badFormat = CheckTools.CheckTool(svc, findings: new[] { "errors" }, format: "jsonn");
+        bool parses;
+        try { using var d = JsonDocument.Parse(asJson); parses = d.RootElement.TryGetProperty("families", out _); }
+        catch { parses = false; }
+        Arm("ORCH-FORMAT-ROUTES-AND-A-TYPO-IS-REFUSED: format='json' returns the merged document and an unknown format is refused by name — never a silent fall-through to text (Q3)",
+            parses && badFormat.StartsWith("error", StringComparison.OrdinalIgnoreCase)
+            && badFormat.Contains("jsonn", StringComparison.Ordinal),
+            $"parses={parses} bad=[{Trim(badFormat)}]");
     }
 
     /// <summary>The caps this invariant is swept over: EVERY INTEGER from 1 to 12000, plus one far above anything
