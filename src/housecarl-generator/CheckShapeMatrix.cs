@@ -121,6 +121,19 @@ internal static class CheckShapeMatrix
         // ---- OFF-ORDER: a named plugin the scripts family has no lane for ---------------------------
         Add("errors+scripts, listing, off-order",
             new CheckSweep(Sel("errors", "scripts"), e, sc, new[] { "HcMxFresh.esp" }));
+        // …and the same file named on a call where that family REFUSED. The off-order sentence is now written above
+        // whatever the family goes on to say, refusal included, so a refusal section carries a sentence no other
+        // shape puts in the fixed part — and the fixed-part pass has to measure it (round-2 finding B4).
+        Add("errors+scripts, listing, off-order, scripts refused",
+            new CheckSweep(Sel("errors", "scripts"), e, refusedScripts, new[] { "HcMxFresh.esp" }));
+        // ---- NO FAMILY ANSWERED, on DISTINCT grounds ------------------------------------------------
+        // The grounds-are-one rule's other side: two families refusing for different reasons render as two refusal
+        // sections rather than collapsing to one error, and the scope sentence takes its no-family-answered arm —
+        // fixed-part text no other shape in this inventory reaches.
+        Add("errors+scripts, both refused on distinct grounds",
+            new CheckSweep(Sel("errors", "scripts"),
+                           ErrorCheckResult.Fail("the errors family's own ground, which is not the scripts family's"),
+                           refusedScripts));
         Add("all three, counts_only, off-order",
             new CheckSweep(Sel("errors", "scripts", "dialogue"), eCounts, scCounts, new[] { "HcMxFresh.esp" }, dCounts));
         Add("all three, listing, off-order, roster",
