@@ -21,7 +21,7 @@ saying it sets an expectation their install may contradict. Say what is known, a
   tools stay registered and unchanged, so nothing you call today moves.
   `findings=` omitted runs the **errors family alone**, and the response states which families it ANSWERS for,
   which selected families refused, which registered families it never ran, and the exact `findings=` spelling
-  that adds each of those. It cannot default to every family: an unscoped scripts sweep took ~8.5 minutes on a
+  that adds each of those. It cannot default to every family: an unscoped scripts sweep took ~8 minutes on a
   3800-plugin order.
   `max_chars` is DIVIDED among the families that ran and their parts rather than spent in series. Spent in
   series on that same order at the defaults, a second family inherited 400 characters of an 80,000 budget —
