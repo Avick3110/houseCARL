@@ -114,6 +114,19 @@ saying it sets an expectation their install may contradict. Say what is known, a
   tool's own parameter text promises the response says so per family. It is now stated above whatever that
   family goes on to say, refusal included, in both formats.
 
+- **Fixed: `housecarl_check` checks the narrowing parameters every family shares before it runs any of them.**
+  `type=`, `formids=` and `exclude=` were parsed inside the two SWEEP families, and those only run when you select
+  them — so `findings=['dialogue']`, the one family none of those parameters scope, accepted `type="NOTATYPE"`, a
+  malformed FormID token and an `exclude=` value that is neither a filename nor a group, and answered as though
+  nothing were wrong. Each now refuses the call by name, in both formats. A blank or whitespace-only entry in
+  `plugins=` is refused too: it was dropped before the tool decided whether your scope had resolved to anything, so
+  `plugins=['  ']` swept the WHOLE order — the ~8-minute unscoped scripts sweep above — with `plugins=` silently
+  discarded. `housecarl_check_errors`, `housecarl_validate_scripts` and `housecarl_validate_dialogue` already
+  refused these; this is `housecarl_check` refusing them at the same point.
+  What did NOT move: `exclude=` naming a real filename that a family's own scope does not contain is still that
+  family's refusal, in that family's section, because each family's scope differs and raising it would refuse a
+  call another family can answer.
+
 - **Fixed: `housecarl_check` no longer discards a refusal it holds.** A call refused as a whole only when EVERY
   selected family refused, and it then returned the FIRST family's reason. With `findings=['errors','dialogue']`,
   an `exclude=` that emptied the errors scope and no `seeds=`, both families refused for different reasons and

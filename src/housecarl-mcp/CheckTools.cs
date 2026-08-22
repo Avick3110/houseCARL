@@ -151,12 +151,27 @@ public static class CheckTools
         if (!SweepFamilySelection.TryParse(findings, out var selection, out var famErr)) return "error: " + famErr;
         int lim = limit <= 0 ? 1000 : limit;
 
+        // WHAT EVERY FAMILY AGREES IS MALFORMED, CHECKED BEFORE ANY OF THEM IS DISPATCHED. These parameters were
+        // parsed inside the two SWEEP families' service entries, and those are called only where their family was
+        // selected — so a dialogue-only call never looked at them, and a blank plugins= entry was filtered out
+        // below before `noneInScope` could see it and the whole order was swept. Rendered through the normal
+        // refusal path rather than returned as a bare string, so format='json' still gets a document.
+        // See SweepSharedInput for the split: syntax refuses here, scope MATCHING stays family-local.
+        if (SweepSharedInput.Error(svc, plugins, type, formids, editorid_contains, exclude) is { } inputErr)
+        {
+            var refusal = new CheckSweep(selection, SharedInputError: inputErr);
+            return json ? JsonWire.RenderCheck(refusal, max_chars, lim) : Wire.RenderCheck(refusal, max_chars, lim);
+        }
+
         // WHICH FAMILY CAN SWEEP WHICH PLUGIN. The errors family resolves a name that is not in the active order on
         // disk and sweeps it off-order; the scripts family has no such lane and refuses such a name outright. On one
         // plugins= list feeding both, that asymmetry is STATED per family rather than resolved by widening one
         // family silently (capability growth, which belongs in an issue) or by refusing a call the errors family can
         // answer. So the scripts family is handed the ACTIVE subset, and the response names what it left out.
         var active = new HashSet<string>(svc.ActivePluginNames, StringComparer.OrdinalIgnoreCase);
+        // The Where() is now a formality rather than a filter: a blank entry refused above, so nothing reaches
+        // here for it to drop. It stayed because the trim is what makes the active-set comparison honest, and a
+        // filter that can no longer discard anything is cheaper to keep than a second rule about whitespace.
         var named = (plugins ?? Array.Empty<string>()).Select(p => (p ?? "").Trim())
                                                       .Where(p => p.Length > 0).ToArray();
         var offOrder = named.Where(p => !active.Contains(p)).ToArray();
