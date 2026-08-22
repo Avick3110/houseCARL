@@ -365,7 +365,11 @@ public static class CheckMergeProbe
             var root = doc.RootElement;
             var notRun = root.GetProperty("families_not_selected");
             Check("SCOPE-SENTENCE-DEFAULT (json): the SAME complete sentence, plus the same fact as data — a pin on a lead each transport finishes its own way vouches for neither",
-                root.GetProperty("findings_scope").GetString() == CheckOutcome.For(defaulted).ScopeSentence()
+                // Compared against the TEXT LANE'S OWN LINE, not against the composer. Asked against
+                // CheckOutcome.ScopeSentence() this was a tautology: the json render calls that method, so the
+                // comparison held whatever either transport actually printed, and the cross-transport claim in the
+                // arm's own name was vouched for by nothing (round-2 finding C7).
+                root.GetProperty("findings_scope").GetString() == FirstLineWith(defText, "findings=")
                 && root.GetProperty("findings_scope").GetString()!.Contains("did NOT run", StringComparison.Ordinal)
                 && root.GetProperty("findings_defaulted").GetBoolean()
                 // TWO registered families the default does not run — the fixture-known count, not Registered.Count-1:
@@ -569,6 +573,11 @@ public static class CheckMergeProbe
             groundsBad.Add("the scope sentence does not say that no family answered");
         using (var doc = JsonDocument.Parse(distinctJson))
         {
+            // PRESENCE BEFORE VALUE, every step of the way. What this arm is ABOUT is the response not being an
+            // error document, and an error document has none of these keys — read with GetProperty the arm THREW
+            // instead of failing, and a guard that throws prints no FAIL line, so a sabotage sweep reading FAIL
+            // lines records the cell as green. That is exactly what happened to this arm's own cell: the sweep
+            // called it green until the verdict stopped treating a crash as a pass.
             var root = doc.RootElement;
             if (!root.TryGetProperty("families", out var fams)) groundsBad.Add("json collapsed to an error document");
             else
@@ -579,10 +588,12 @@ public static class CheckMergeProbe
                 if (!fams.TryGetProperty("dialogue", out var df) || !df.TryGetProperty("refused", out _))
                     groundsBad.Add("json carries no dialogue refusal section");
             }
-            if (root.GetProperty("families_ran").GetArrayLength() != 0)
-                groundsBad.Add("families_ran names a family that did not answer");
-            if (root.GetProperty("families_refused").GetArrayLength() != 2)
-                groundsBad.Add($"families_refused names {root.GetProperty("families_refused").GetArrayLength()} families, want 2");
+            if (!root.TryGetProperty("families_ran", out var ran)) groundsBad.Add("json states no families_ran");
+            else if (ran.GetArrayLength() != 0) groundsBad.Add("families_ran names a family that did not answer");
+            if (!root.TryGetProperty("families_refused", out var refusedArr))
+                groundsBad.Add("json states no families_refused");
+            else if (refusedArr.GetArrayLength() != 2)
+                groundsBad.Add($"families_refused names {refusedArr.GetArrayLength()} families, want 2");
         }
         if (!sameText.StartsWith("error:", StringComparison.Ordinal))
             groundsBad.Add("ONE shared ground did not collapse to one error — the control failed");
@@ -783,6 +794,43 @@ public static class CheckMergeProbe
             seedFacts.Count == 0 ? "named/reached/validated/unreachable in the head of both lanes, the cut in the accounting"
                                  : string.Join("; ", seedFacts.Take(4)));
 
+        // ---- DIALOGUE-FOUR-POPULATIONS-ARE-FOUR-NUMBERS -------------------------------------------
+        // B1's property, asked on the ONLY fixture shape that can see it. Every other dialogue fixture in this
+        // guard makes two of the four populations equal — `budgeted` reaches five seeds that all resolve, so
+        // validated == reached; `dialogue` reaches every seed it names, so named == reached — and on those a
+        // sentence printing the wrong one of the pair is indistinguishable from one printing the right one.
+        // Measured: swapping reached for validated in the scope note, and reached for named in the counts line,
+        // left every dialogue arm green. So this fixture separates all four: five seeds NAMED, the budget REACHES
+        // two, one of those VALIDATES and the other is UNREACHABLE.
+        var fourPop = DialogueSweep_Run(new[] { "000A01:A.esp", "000B02:B.esp", "000C03:A.esp",
+                                                "000D04:A.esp", "000E05:A.esp" }, 2);
+        var fourPopSweep = new CheckSweep(Sel("dialogue"), null, null, null, fourPop);
+        var fourText = Wire.RenderCheck(fourPopSweep, 0);
+        var fourJson = JsonWire.RenderCheck(fourPopSweep, 0);
+        var pops = new List<string>();
+        if (fourPop.SeedsNamed != 5 || fourPop.Seeds.Count != 2
+            || fourPop.Resolved.Count() != 1 || fourPop.Unresolved.Count != 1)
+            pops.Add($"FIXTURE: named={fourPop.SeedsNamed} reached={fourPop.Seeds.Count} "
+                   + $"validated={fourPop.Resolved.Count()} unreachable={fourPop.Unresolved.Count} — want 5/2/1/1");
+        // The scope sentence states REACHED against NAMED. Printed from validated it would say 1 of 5; from named,
+        // it would not fire the short arm at all.
+        if (!fourText.Contains("It reached 2 of the 5 seed(s)", StringComparison.Ordinal))
+            pops.Add($"scope: [{FirstLineWith(fourText, "scope:")}]");
+        // The counts line states VALIDATED against REACHED. Printed against named it would say 1 of the 5.
+        if (!fourText.Contains("1 of the 2 seed(s) reached were validated", StringComparison.Ordinal))
+            pops.Add($"counts: [{FirstLineWith(fourText, "reached were validated")}]");
+        using (var doc = JsonDocument.Parse(fourJson))
+        {
+            var fam = doc.RootElement.GetProperty("families").GetProperty("dialogue");
+            foreach (var (name, want) in new[] { ("seeds_named", 5), ("seeds_reached", 2),
+                                                 ("seeds_validated", 1), ("seeds_unreachable_total", 1) })
+                if (!fam.TryGetProperty(name, out var v)) pops.Add($"json states no {name}");
+                else if (v.GetInt32() != want) pops.Add($"json {name}={v.GetInt32()}, want {want}");
+        }
+        Check("DIALOGUE-FOUR-POPULATIONS-ARE-FOUR-NUMBERS: on a call whose seeds are named 5, reached 2, validated 1 and unreachable 1, no two of those numbers are interchangeable — the scope sentence states reached against named, the counts line states validated against reached, and the head carries all four",
+            pops.Count == 0, pops.Count == 0 ? "5 named / 2 reached / 1 validated / 1 unreachable, each stated as itself"
+                                             : string.Join("; ", pops.Take(4)));
+
         // ---- COUNTS-ONLY-CARRIES-NO-SEEDS-ARRAY ---------------------------------------------------
         // A field named for a subject is present exactly where that subject is. The seeds array was opened outside
         // the lane gate, so the one mode whose whole claim is that it renders no rows carried `"seeds": []` beside
@@ -844,14 +892,23 @@ public static class CheckMergeProbe
         var oneSeed = DialogueSweep_Run(new[] { "000A01:HcCm.esp" }, 1000);
         var twoSeeds = DialogueSweep_Run(new[] { "000A01:A.esp", "000B02:A.esp" }, 1000);
         var oneSeedSweep = new CheckSweep(Sel("dialogue"), null, null, null, oneSeed);
-        int floor = Wire.RenderCheck(oneSeedSweep, 1).Length;
+        // THE FLOOR IS MEASURED WHERE THE RESPONSE CARRIES NO NOTICE. At cap 1 the response overruns and the
+        // overrun sentence is part of what it returns, so a floor taken there overstates this response's fixed
+        // part by the length of a sentence the cap under test does not print — which made shareCap wider than it
+        // was meant to be and the arm easier than it looked (round-2 finding C8).
+        int floor = QuietFloor(oneSeedSweep, (x, c, h) => Wire.RenderCheck(x, c, h), "  topic ");
         int blockWidth = TopicBlockWidth(oneSeed);
         int shareCap = floor + blockWidth * (Topics * 2 / 3);
         int atShareCap = Count(Wire.RenderCheck(oneSeedSweep, shareCap), "  topic ");
-        int halfShareHolds = (shareCap - floor) / (2 * blockWidth);
-        Check($"DIALOGUE-FINISHED-SEED-HANDS-BACK-ITS-SHARE: at a cap sized for two thirds of the topics, MORE than a half share can hold actually land — the seed subject's unspent room went to the blocks",
-            atShareCap > halfShareHolds && atShareCap <= Topics,
-            $"cap={shareCap} floor={floor} block={blockWidth} rendered={atShareCap} halfShareHolds={halfShareHolds}");
+        // AND THE CLAIM IS STATED AS ITSELF: the topic blocks spent MORE THAN HALF the row budget this cap left.
+        // It used to be written as `atShareCap > (shareCap - floor) / (2 * blockWidth)`, which reduces
+        // algebraically to Topics/3 — a constant wearing a measurement's clothes, and one whose terms cancelled
+        // whatever the fixture's widths actually were.
+        int rowBudget = shareCap - floor;
+        Check($"DIALOGUE-FINISHED-SEED-HANDS-BACK-ITS-SHARE: at a cap sized for two thirds of the topics, the topic blocks spend MORE than half the row budget it leaves — the seed subject's unspent room went to the blocks rather than being held for heads that will never be written",
+            floor > 0 && atShareCap * blockWidth > rowBudget / 2 && atShareCap <= Topics,
+            $"cap={shareCap} floor={floor} rowBudget={rowBudget} block={blockWidth} rendered={atShareCap} "
+          + $"spent={atShareCap * blockWidth} half={rowBudget / 2}");
 
         // The SAME question of the json lane, whose row width and floor are its own. Threaded because the hand-back
         // is written in both transports and a pin on one of them vouches for nothing about the other — the sabotage
@@ -1259,6 +1316,18 @@ public static class CheckMergeProbe
             if (json.Length > jsonAllowed) bad.Add($"json@{cap}={json.Length} over the allowed {jsonAllowed} (floor {jsonFloor})");
             try { JsonDocument.Parse(json); }
             catch (Exception ex) { bad.Add($"json@{cap} is not valid json: {ex.GetType().Name}"); }
+            // …AND IT IS STILL A MERGED DOCUMENT. Without this, every cap above is satisfied by a response that is
+            // a bare error string: short, valid json, under any cap. A sweep whose whole claim is "the render
+            // honours max_chars" passes most loudly on a render that stopped rendering (round-2 finding C9).
+            if (!text.Contains(ReadSentences.SweepMergedTitle, StringComparison.Ordinal))
+                bad.Add($"text@{cap} is not a merged response: {Trim(text)}");
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.TryGetProperty("families", out _))
+                    bad.Add($"json@{cap} is not a merged document: {Trim(json)}");
+            }
+            catch { /* the parse failure above already recorded it */ }
             if (bad.Count > 8) break;
         }
         detail = bad.Count == 0 ? $"every cap honoured, or bounded by the floor (text {textFloor} / json {jsonFloor})"
@@ -1333,6 +1402,30 @@ public static class CheckMergeProbe
         var trimmed = seed with { Report = seed.Report! with { Topics = seed.Report!.Topics.Take(n).ToArray() } };
         var seeds = r.Seeds.Select(s => ReferenceEquals(s, seed) ? trimmed : s).ToArray();
         return r with { Seeds = seeds, TopicsFound = n };
+    }
+
+    /// <summary>THE RESPONSE'S FIXED PART, measured where the response is not also carrying an overrun notice — the
+    /// smallest cap at which this sweep renders none of <paramref name="unit"/> AND prints no remedy.
+    ///
+    /// <para>Taken at <c>max_chars=1</c> instead, the number includes the overrun sentence, which is characters the
+    /// response does not carry at any cap it fits in. Anything sized off that floor — a cap chosen as "the floor
+    /// plus room for N units" — is wider than it was meant to be, and the arm using it is easier than it reads
+    /// (round-2 finding C8).</para>
+    ///
+    /// <para>Returns <b>0</b> where no such cap exists, and the caller fails its arm on that rather than carrying
+    /// on with a floor quietly substituted behind it — silently falling back to the noisy number is the same shape
+    /// as the defect this exists to remove.</para></summary>
+    static int QuietFloor(CheckSweep s, Func<CheckSweep, int, int, string> render, string unit, int ceiling = 40_000)
+    {
+        int noisy = render(s, 1, 1000).Length;
+        for (int cap = noisy; cap < ceiling; cap += 16)
+        {
+            var body = render(s, cap, 1000);
+            if (body.Contains("raise it to at least ", StringComparison.Ordinal)) continue;
+            if (Count(body, unit) > 0) break;   // past the window: units are landing now
+            return body.Length;
+        }
+        return 0;
     }
 
     /// <summary>One topic block's width in the text lane, MEASURED off the fixture's own data through the same
