@@ -181,7 +181,16 @@ internal sealed class CheckAccounting
         _jsonDepth = jsonDepth;
         _limit = r.Limit;
         _bySource = Array.Empty<SweepCount>();
-        _boundary = string.Format(ReadSentences.DialogueBoundary,
+        // THE BOUNDARY IS COMPOSED FROM WHAT THE SEEDS ACTUALLY RAN, not from what this family can do. Where every
+        // seed this call reached was a DLVW or a DLBR — records that own no INFO list — the wide sentence asserted
+        // LinkTo and previous-link targets, each voiced line's .fuz, each result script and a condition subset,
+        // none of which had anything to run against (round-3 finding A1). The narrow arm is taken only where a
+        // record-level check RAN and no seed ran the graph checks: with nothing reached at all (a refused family,
+        // or every seed unreachable) the wide sentence is the family's standing claim and stays.
+        var ran = outcome?.ChecksRun ?? DialogueChecks.None;
+        bool recordLevelOnly = ran.HasFlag(DialogueChecks.RecordParity) && !ran.HasFlag(DialogueChecks.TopicGraph);
+        _boundary = string.Format(
+            recordLevelOnly ? ReadSentences.DialogueBoundaryRecordLevel : ReadSentences.DialogueBoundary,
             r.ConditionedInfos > 0 ? string.Format(ReadSentences.DialogueConditioned, r.ConditionedInfos) : "",
             r.ReadIncomplete ? ReadSentences.DialogueReadIncomplete : "");
         // This lane HAS seeds whether or not it lists topics: how many were named and how many the budget let it

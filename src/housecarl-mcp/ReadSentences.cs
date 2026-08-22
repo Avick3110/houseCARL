@@ -621,6 +621,48 @@ internal static class ReadSentences
         "The per-line checks audit the WINNING topic's INFO list only. The effective merged INFO order — which line " +
         "the game reaches FIRST — is not a finding and is not here: ask records project=info_order for it.{1}";
 
+    /// <summary>THE BOUNDARY WHERE NO SEED THIS CALL REACHED OWNS AN INFO LIST — every one of them was a DLVW or a
+    /// DLBR, so the only check that ran is the record's own CK parity.
+    ///
+    /// <para><b>Why the boundary forks at all.</b> The sentence above asserts LinkTo and previous-link targets,
+    /// each voiced line's .fuz, each result script, and a subset of malformed conditions. None of those has
+    /// anything to run against on a view or a branch — those records own no INFO list — so on a call whose every
+    /// seed was one, that boundary named checks that never ran (round-3 finding A1). The ancestor never had this
+    /// problem: it renders a whole response per seed and takes a record-level arm for those two kinds. Here the
+    /// boundary is the FAMILY's, so it is composed from what the family's seeds actually ran.</para></summary>
+    [MustState("record-level CK-parity check only", "no dialogue graph", "Validate the owning topics")]
+    internal const string DialogueBoundaryRecordLevel =
+        "validates the CK-parity subrecords the Creation Kit always writes on the record you named, and nothing " +
+        "else: every seed this call reached was a dialogue view (DLVW) or branch (DLBR), which own no INFO list, " +
+        "so this is a record-level CK-parity check only — no dialogue graph, voice file, result script or " +
+        "condition was checked here. Validate the owning topics (DIAL) or quest (QUST) for those.{0}{1}";
+
+    /// <summary>The SCOPE note under one view/branch seed, in a response that also carries seeds which DO own an
+    /// INFO list. The family boundary can only take one arm, and on a mixed call it takes the wide one — true of
+    /// the response and not of this seed. Carried from the ancestor, which states it for the same reason.
+    ///
+    /// <para>Written without indent or newline so the ancestor appends it exactly as it always has; the merged
+    /// render pads it into the seed's own body.</para></summary>
+    [MustState("record-level CK-parity check only", "Validate the owning topics")]
+    internal const string DialogueRecordLevelScope =
+        "scope: this is a record-level CK-parity check only — it does not validate any dialogue graph, voice, " +
+        "script, or condition surface. Validate the owning topics (DIAL) or quest (QUST) for those.";
+
+    /// <summary>A DIALOGUE VIEW (DLVW) whose own CK-parity subrecords are present. Stated rather than left silent,
+    /// for the reason the quest line above is: a sub-check that RAN and PASSED is a different answer from one
+    /// nobody ran, and a caller cannot tell those apart from an absence (Q3). A bare DLVW crashes the CK's Dialogue
+    /// Views editor, so this is the whole verdict for that kind of seed.</summary>
+    [MustState("CK-parity: OK", "DNAM and ENAM")]
+    internal const string DialogueViewParityOk =
+        "  CK-parity: OK — the DNAM and ENAM byte subrecords the Creation Kit always writes are both present.\n";
+
+    /// <summary>The same for a DIALOGUE BRANCH (DLBR) — different subrecords, so a different sentence rather than
+    /// one sentence with the names substituted in: what the check looked at is the answer.</summary>
+    [MustState("CK-parity: OK", "TNAM (Category) and DNAM (Flags)")]
+    internal const string DialogueBranchParityOk =
+        "  CK-parity: OK — the TNAM (Category) and DNAM (Flags) subrecords the Creation Kit always writes are " +
+        "both present.\n";
+
     /// <summary>The conditioned-line clause of the boundary above, present only where there are conditioned lines to
     /// count. Summed over EVERY topic the validation found, not the rendered ones: it is a global honesty note about
     /// what could not be evaluated, never a description of the listing.</summary>

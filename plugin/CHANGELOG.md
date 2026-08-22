@@ -70,6 +70,19 @@ saying it sets an expectation their install may contradict. Say what is known, a
   quest whose parity was fine said nothing at all and you could not tell a check that ran and passed from one
   that never ran. `housecarl_validate_dialogue` has always stated it; both now say it from one sentence.
 
+- **Fixed: a `DLVW` or `DLBR` seed states its verdict, and the dialogue boundary claims only the checks that
+  ran.** Those two record types own no INFO list, so a record-level CK-parity check is the whole of what
+  `findings=['dialogue']` can do with them. The seed rendered its head and nothing else when that check PASSED —
+  you could not tell it from a check that never ran — while the family's closing boundary went on to assert
+  branch and quest wiring, LinkTo and previous-link targets, `.fuz` files, result scripts and conditions, none of
+  which had anything to run against. A passing view or branch now carries its own OK line naming the subrecords
+  its kind is checked for, `housecarl_validate_dialogue` and `housecarl_check` state it from one sentence, and
+  where every seed a call reached was one of those two kinds the boundary says so and names none of the rest. A
+  call that also reached a quest or a topic keeps the wide boundary — it is true of that response — and the
+  record-level seed carries its own scope note under it. In `format='json'` each seed gains `checks_run`
+  (`record_parity`, `topic_graph`), because an empty `input_issues` alone cannot tell a check that ran and passed
+  from one that never ran.
+
 - **Fixed: the dialogue family says what it reached, in its own units, and one word means one thing.** Its scope
   note claimed "it validated exactly the N seed(s) given in `seeds=`" using the number you NAMED, so a call whose
   `limit=` stopped it short claimed a completeness the accounting three lines below denied. It now uses four words

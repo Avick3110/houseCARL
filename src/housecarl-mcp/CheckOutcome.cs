@@ -120,7 +120,14 @@ internal sealed class CheckOutcome
             ? new DialogueOutcome(SeedsNamed: d.SeedsNamed, SeedsReached: d.Seeds.Count,
                                   SeedsValidated: d.Resolved.Count(), SeedsUnreachable: d.Unresolved.Count,
                                   TopicsFound: d.TopicsFound, FindingsFound: d.ProblemsFound,
-                                  CountsOnly: d.CountsOnly, Limit: d.Limit)
+                                  CountsOnly: d.CountsOnly, Limit: d.Limit,
+                                  // WHICH CHECKS THIS CALL ACTUALLY RAN, unioned over the seeds that produced a
+                                  // report. A seed that produced a refusal ran nothing, so it contributes nothing.
+                                  // Read by the family's boundary, which asserted LinkTo, .fuz, result-script and
+                                  // condition checks on calls whose every seed was a DLVW or DLBR — records that
+                                  // own no INFO list for any of them to run against (round-3 finding A1).
+                                  ChecksRun: d.Resolved.Aggregate(DialogueChecks.None,
+                                      (acc, seed) => acc | DialogueKindChecks.For(seed.Report!.InputKind)))
             : null;
     }
 
@@ -346,9 +353,13 @@ internal sealed class CheckOutcome
 /// </summary>
 /// <param name="Limit">the seed budget this call was given — the knob the response names, echoed as the caller
 /// passed it.</param>
+/// <param name="ChecksRun">which checks the seeds this call REACHED actually ran, unioned over their kinds
+/// (<see cref="DialogueKindChecks"/>). The family's boundary is composed from it, so it cannot assert a check no
+/// seed here could have run.</param>
 internal readonly record struct DialogueOutcome(int SeedsNamed, int SeedsReached, int SeedsValidated,
                                                 int SeedsUnreachable, int TopicsFound, int FindingsFound,
-                                                bool CountsOnly, int Limit)
+                                                bool CountsOnly, int Limit,
+                                                DialogueChecks ChecksRun = DialogueChecks.None)
 {
     /// <summary>Seeds the caller named that the budget never let this call try. The one subtraction, taken here
     /// rather than at the three sites that state it.</summary>

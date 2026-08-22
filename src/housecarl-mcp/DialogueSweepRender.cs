@@ -123,14 +123,23 @@ internal static class DialogueSweepRender
     static string ComposeSeedBody(DialogueValidationReport r)
     {
         var sb = new StringBuilder();
+        var checks = DialogueKindChecks.For(r.InputKind);
         if (r.InputKind == "quest" && r.Topics.Count == 0) sb.Append(ReadSentences.DialogueSeedNoTopics);
         DialogueWire.AppendSeq(sb, r.SeqLint);
-        // The quest's own CK parity, BOTH ways round. Only the issue half was here, so a quest that passed said
-        // nothing at all and a caller could not tell a passing check from one that never ran — while this
-        // method's own summary claimed it rendered the quest-level CK parity. The ancestor states the OK line;
-        // now both do, from one sentence.
-        if (r.InputKind == "quest" && r.InputIssues.Count == 0) sb.Append(ReadSentences.DialogueQuestParityOk);
+        // THE SEED RECORD'S OWN CK PARITY, BOTH WAYS ROUND AND FOR EVERY KIND THAT HAS ONE. Only the issue half was
+        // here, and only for a quest — so a quest that passed said nothing, and a DLVW or DLBR seed rendered its
+        // head and NOTHING ELSE, its one check unstated whether it ran or not (round-3 finding A1). Which kinds
+        // have a record-level parity, and what each one's verdict says, is DialogueKindChecks' answer rather than
+        // a literal here, because the family's boundary asks the same question one level up and the two gating on
+        // separate copies of it is how this defect survived its first fold.
+        if (checks.HasFlag(DialogueChecks.RecordParity) && r.InputIssues.Count == 0
+            && DialogueKindChecks.ParityOkLine(r.InputKind) is { } ok) sb.Append(ok);
         DialogueWire.AppendIssues(sb, r.InputIssues, "  ", int.MaxValue);
+        // …and on a seed that owns no INFO list, what this verdict does NOT cover. The family's boundary can take
+        // only one arm, and on a call that ALSO carries a quest or a topic it takes the wide one — true of the
+        // response and not of this seed. The ancestor states this for the same reason.
+        if (!checks.HasFlag(DialogueChecks.TopicGraph) && checks != DialogueChecks.None)
+            sb.Append("  ").Append(ReadSentences.DialogueRecordLevelScope).Append('\n');
         return sb.ToString();
     }
 
@@ -257,6 +266,12 @@ internal static class DialogueSweepRender
         w.WriteString("winner_plugin", r.InputWinnerPlugin ?? "");
         w.WriteNumber("topic_count", r.Topics.Count);
         w.WriteBoolean("read_incomplete", r.ReadIncomplete);
+        // WHICH CHECKS THIS SEED'S KIND RAN, as data. The text lane says it by printing the verdict; here an empty
+        // `input_issues` alone cannot tell a check that ran and passed from one that never ran — the same Q3 gap
+        // one transport over (round-3 finding A1). Both come off DialogueKindChecks.
+        w.WriteStartArray("checks_run");
+        foreach (var name in DialogueKindChecks.Names(DialogueKindChecks.For(r.InputKind))) w.WriteStringValue(name);
+        w.WriteEndArray();
         WriteIssues(w, "input_issues", r.InputIssues);
         if (r.SeqLint is { QuestIsSge: true } seq)
         {

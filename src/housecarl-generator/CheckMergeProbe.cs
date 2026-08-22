@@ -1453,6 +1453,66 @@ public static class CheckMergeProbe
             && !emptyScopeRealName.Contains("exclude= removed every plugin", StringComparison.Ordinal),
             $"token=[{Trim(emptyScopeBadToken)}] name=[{Trim(emptyScopeRealName)}]");
 
+        // ---- A RECORD-LEVEL SEED STATES ITS VERDICT, AND THE BOUNDARY CLAIMS ONLY WHAT RAN (round-3 A1) ------
+        //      A DLVW/DLBR seed rendered its head and nothing else: its ONE check went unstated when it passed, so
+        //      a caller could not tell it from a check that never ran — and the family boundary then asserted
+        //      LinkTo, previous-link, .fuz, result-script and condition checks against a record that owns no INFO
+        //      list for any of them to run against. Both sites gated on the same InputKind literal, which is why
+        //      the fold goes through DialogueKindChecks and both read it.
+        var rlSweep = new CheckSweep(Sel("dialogue"), null, null, null, RecordLevelFixture());
+        var rlFail = new CheckSweep(Sel("dialogue"), null, null, null, RecordLevelFailingFixture());
+        var mixed = new CheckSweep(Sel("dialogue"), null, null, null, MixedKindFixture());
+        var rlText = Wire.RenderCheck(rlSweep, 0);
+        var rlFailText = Wire.RenderCheck(rlFail, 0);
+        var mixedText = Wire.RenderCheck(mixed, 0);
+        var questText = Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, DialogueFixture()), 0);
+
+        Arm("DIALOGUE-A-RECORD-LEVEL-SEED-STATES-ITS-VERDICT: a PASSING DLVW and a PASSING DLBR each carry their own CK-parity OK line, naming the subrecords their kind is checked for — and a FAILING one carries the issue instead, so the arm cannot pass on a sentence printed either way. The two kinds get different sentences because what the check looked at IS the answer",
+            rlText.Contains("CK-parity: OK — the DNAM and ENAM byte subrecords", StringComparison.Ordinal)
+            && rlText.Contains("CK-parity: OK — the TNAM (Category) and DNAM (Flags) subrecords", StringComparison.Ordinal)
+            && !rlFailText.Contains("CK-parity: OK", StringComparison.Ordinal)
+            && rlFailText.Contains("the DNAM byte subrecord the Creation Kit always writes is absent", StringComparison.Ordinal)
+            // …and a quest's own parity line is still its own, not one of these two.
+            && questText.Contains("quest CK-parity: OK", StringComparison.Ordinal),
+            $"pass=[{Trim(rlText)}] fail=[{Trim(rlFailText)}]");
+
+        Arm("DIALOGUE-THE-BOUNDARY-CLAIMS-ONLY-THE-CHECKS-THAT-RAN: where every seed reached owns no INFO list, the family's boundary says so and names NONE of the graph, voice, result-script or condition checks — none of which had anything to run against. A call that reached a quest still gets the wide boundary, and a MIXED call gets the wide one plus the view seed's own record-level scope note, because the boundary is the RESPONSE's claim and the note is that seed's",
+            rlText.Contains("record-level CK-parity check only", StringComparison.Ordinal)
+            && !rlText.Contains("LinkTo and previous-link targets", StringComparison.Ordinal)
+            && !rlText.Contains("each result script bound and compiled", StringComparison.Ordinal)
+            && !rlText.Contains("records project=info_order", StringComparison.Ordinal)
+            && questText.Contains("LinkTo and previous-link targets", StringComparison.Ordinal)
+            && !questText.Contains("record-level CK-parity check only", StringComparison.Ordinal)
+            && mixedText.Contains("LinkTo and previous-link targets", StringComparison.Ordinal)
+            && Count(mixedText, "record-level CK-parity check only") == 1,
+            $"recordLevel=[{Trim(rlText)}] mixed=[{Trim(mixedText)}]");
+
+        // …and the json transport states the same, off the same value — one computation, two transports.
+        bool rlJson;
+        try
+        {
+            using var d = JsonDocument.Parse(JsonWire.RenderCheck(rlSweep, 0));
+            var fam = Obj(Obj(d.RootElement, "families"), "dialogue");
+            var seed0 = At(Arr(fam, "seeds"), 0);
+            var quest = JsonDocument.Parse(JsonWire.RenderCheck(
+                new CheckSweep(Sel("dialogue"), null, null, null, DialogueFixture()), 0)).RootElement;
+            var questFam = Obj(Obj(quest, "families"), "dialogue");
+            rlJson = Str(fam, "boundary") is { } b
+                     && b.Contains("record-level CK-parity check only", StringComparison.Ordinal)
+                     && !b.Contains("LinkTo and previous-link targets", StringComparison.Ordinal)
+                     // The seed says WHICH checks its kind ran, so an empty input_issues cannot be read as a graph
+                     // that came back clean — the json twin of the text lane's verdict line.
+                     && Strings(Arr(seed0, "checks_run")).SequenceEqual(new[] { "record_parity" })
+                     && Arr(seed0, "input_issues") is { } iss && iss.GetArrayLength() == 0
+                     && Strings(Arr(At(Arr(questFam, "seeds"), 0), "checks_run"))
+                            .SequenceEqual(new[] { "record_parity", "topic_graph" })
+                     && Str(questFam, "boundary") is { } qb
+                     && qb.Contains("LinkTo and previous-link targets", StringComparison.Ordinal);
+        }
+        catch { rlJson = false; }
+        Arm("DIALOGUE-THE-KIND-AWARE-VERDICT-AND-BOUNDARY-ARE-THE-SAME-IN-JSON: the record-level boundary and the seed's own CK-parity verdict read the same value in both transports — the sentence is composed once and stated whole by each, which is the rule the first fold of this defect broke by patching one site",
+            rlJson, Trim(JsonWire.RenderCheck(rlSweep, 0)));
+
         // ---- the dialogue family's cost-refusal, FAMILY-LOCAL, through the tool that composes it beside a family
         //      that answered perfectly well.
         var dlgRefused = CheckTools.CheckTool(svc, findings: new[] { "errors", "dialogue" });
@@ -1574,6 +1634,34 @@ public static class CheckMergeProbe
         => DialogueSweep.Run(fk => fk.ID == 0x000A01 || fk.ModKey.Name == "A" ? QuestReport(fk)
                                  : DialogueValidationReport.ForError(fk, "no DIAL, QUST, DLVW or DLBR with this FormID is in the active order"),
                              seeds, limit);
+
+    /// <summary>A sweep whose every reached seed is a RECORD-LEVEL kind — a DLVW and a DLBR, both passing. Neither
+    /// owns an INFO list, so neither runs any of the graph, voice, script or condition checks; what the response
+    /// says about them, and what its boundary claims on their behalf, is round-3 finding A1's subject.</summary>
+    static DialogueCheckResult RecordLevelFixture()
+        => DialogueSweep.Run(fk => RecordLevelReport(fk, fk.ID == 0x000E01 ? "view" : "branch", Array.Empty<DialogueIssue>()),
+                             new[] { "000E01:HcCm.esp", "000E02:HcCm.esp" }, 1000);
+
+    /// <summary>The same two kinds, both FAILING their parity — the other side of the OK line, so an arm asking for
+    /// the verdict cannot pass by finding a sentence that is printed either way.</summary>
+    static DialogueCheckResult RecordLevelFailingFixture()
+        => DialogueSweep.Run(fk => RecordLevelReport(fk, fk.ID == 0x000E01 ? "view" : "branch",
+                                       new[] { new DialogueIssue(DialogueIssueSeverity.Problem,
+                                                   "the DNAM byte subrecord the Creation Kit always writes is absent") }),
+                             new[] { "000E01:HcCm.esp", "000E02:HcCm.esp" }, 1000);
+
+    /// <summary>A MIXED sweep: one quest that owns topics, one passing DLVW. The family's boundary can take only
+    /// one arm and takes the wide one here — true of the response, and not of the view seed, which is why that seed
+    /// carries a record-level scope note of its own.</summary>
+    static DialogueCheckResult MixedKindFixture()
+        => DialogueSweep.Run(fk => fk.ID == 0x000A01 ? QuestReport(fk)
+                                 : RecordLevelReport(fk, "view", Array.Empty<DialogueIssue>()),
+                             new[] { "000A01:HcCm.esp", "000E01:HcCm.esp" }, 1000);
+
+    /// <summary>One DLVW or DLBR report: no topics at all, and its whole finding set in <c>InputIssues</c>.</summary>
+    static DialogueValidationReport RecordLevelReport(FormKey seed, string kind, IReadOnlyList<DialogueIssue> issues)
+        => new(seed, kind, kind == "view" ? "HcCmView" : "HcCmBranch", "HcCm.esp",
+               Array.Empty<TopicValidation>()) { InputIssues = issues };
 
     /// <summary>One quest report whose numbers this file KNOWS: <see cref="Topics"/> topics, each carrying
     /// <see cref="IssuesPerTopic"/> graph issues and <see cref="SilentPerTopic"/> silent voiced line. Each topic also
