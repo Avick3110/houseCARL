@@ -288,8 +288,9 @@ internal sealed class BoundedBody
                                             IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)>? plan = null,
                                             IReadOnlyDictionary<SweepSubject, int>? demand = null,
                                             int reservedForRows = 0,
-                                            IReadOnlyList<SweepSubject>? responseSubjects = null)
-        => new(accts, budget, length, plan, demand, reservedForRows, responseSubjects);
+                                            IReadOnlyList<SweepSubject>? responseSubjects = null,
+                                            int reserveDemanded = 0)
+        => new(accts, budget, length, plan, demand, reservedForRows, responseSubjects, reserveDemanded);
 
     /// <summary>A body that admits exactly ONE UNIT OF EACH SUBJECT and refuses the rest — for the pass that
     /// measures a response's FIXED PART.
@@ -329,13 +330,14 @@ internal sealed class BoundedBody
     BoundedBody(IReadOnlyList<CheckAccounting> accts, int budget, Func<int> length,
                 IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)>? plan,
                 IReadOnlyDictionary<SweepSubject, int>? demand, int reservedForRows,
-                IReadOnlyList<SweepSubject>? responseSubjects = null)
+                IReadOnlyList<SweepSubject>? responseSubjects = null, int reserveDemanded = 0)
     {
         _accts = accts;
         _budget = budget;
         _length = length;
         _plan = plan;
         _reservedForRows = reservedForRows;
+        ReserveDemanded = reserveDemanded;
         // BUILT HERE, before anything is written. The old rule built it lazily at the first unit any subject
         // emitted, which made it a function of render order; water-filling over measured demand is a function of
         // the budget and the demands alone, so the only correct moment to build it is before the render.
@@ -366,6 +368,12 @@ internal sealed class BoundedBody
     /// not exceeded. Not derivable from <see cref="RowBudget"/>, which clamps at zero when the fixed part alone
     /// is wider than the budget.</summary>
     internal int ReservedForRows => _reservedForRows;
+
+    /// <summary>What the DEMAND PASS said this render would reserve — the reserve half of
+    /// <see cref="_reservedForRows"/>, kept separately because that field adds the fixed part to it and the fixed
+    /// part is measured by a different mechanism. Read only by the arm that asks it against
+    /// <see cref="ReserveDeclared"/>.</summary>
+    internal int ReserveDemanded { get; }
 
     /// <summary>THE ROW BUDGET — the room the allocation divided, and the room the units may spend together. Read
     /// by the arms: <see cref="BodyTotal"/> never exceeding it is what makes the global emission test and the
@@ -534,7 +542,24 @@ internal sealed class BoundedBody
     /// <para>Reserving is what makes those writes unrefusable, and it has to happen before the FIRST unit of ANY
     /// subject: an axis that reserved its own room after a sibling had already spent the budget would be the exact
     /// silence this exists to remove.</para></summary>
-    internal void Reserve(SweepSubject subject, int cost) => _held[subject] = cost;
+    internal void Reserve(SweepSubject subject, int cost)
+    {
+        _held.TryGetValue(subject, out int prior);
+        ReserveDeclared += cost - prior;   // the DELTA, so this stays the sum of what is held whatever a caller re-reserves
+        _held[subject] = cost;
+    }
+
+    /// <summary>The room this render actually held back through <see cref="Reserve"/>, accumulated as it was
+    /// declared and unaffected by <see cref="Release"/> or <see cref="Close"/> giving it back afterwards.
+    ///
+    /// <para>It exists to be compared with <see cref="ReserveDemanded"/>. The demand pass subtracts a reserve from
+    /// the row budget BEFORE the render, and the render then holds one; the two are the same promise measured
+    /// twice, so they have to be one number. They were not: the json demand pass added a histogram frame's cost
+    /// for every axis, while the render reserves one only for an axis that has rows — so room was subtracted from
+    /// the row budget for objects the response never opened. There is no slack for that to hide in once the two
+    /// numbers are asked of each other, which is why the property is stated on the real render rather than argued
+    /// from the two call sites.</para></summary>
+    internal int ReserveDeclared { get; private set; }
 
     /// <summary>This response's FIXED PART: every char it carries whatever the budget says — the header, each
     /// axis's unconditional lines, each closing disclosure, the accounting and the boundary.
