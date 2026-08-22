@@ -1555,7 +1555,8 @@ static class Wire
 
         var sb = new StringBuilder();
         var body = BoundedBody.ForFamilies(accts, budget, () => sb.Length, o.Plan(),
-                                           demand.Demand, demand.Reserved + fixedPart, o.ResponseSubjects);
+                                           demand.Demand, demand.Reserved + fixedPart, o.ResponseSubjects,
+                                           demand.Reserved);
         measured = body;
         Compose(sb, o, sections, accts, body, histogramLimit);
 

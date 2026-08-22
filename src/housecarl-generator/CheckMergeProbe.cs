@@ -1019,6 +1019,64 @@ public static class CheckMergeProbe
             reserveBad.Count == 0 ? "every reserve covered its own writes" : string.Join("; ", reserveBad.Take(4)));
 
 
+        // ---- RESERVE-DECLARED-IS-RESERVE-DEMANDED --------------------------------------------------
+        // The demand pass subtracts a reserve from the row budget BEFORE anything renders, and the render then
+        // holds one through BoundedBody.Reserve. They are the same promise measured twice, so they are ONE number.
+        // What makes that a checkable property of the real document rather than an argument about two call sites
+        // is that `Reserve(` has exactly two callers, one per lane (JsonWire.WriteHistograms, ReadTools
+        // .AppendHistograms) — so the render's whole reserve is what those two declared, and the demand pass's
+        // whole reserve is what its two matching sites added.
+        //
+        // A4 is the asymmetry this catches: the json demand pass added a histogram FRAME's cost for EVERY axis,
+        // while WriteHistograms reserves one only where `a.Rows is not null` and WriteHistogram returns without
+        // writing at all for a null-rows axis. So a counts_only response whose axes are absent had room
+        // subtracted from its row budget for objects it never opened. The text lane was already symmetric —
+        // `a.TextFixed` is 0 for a null-rows axis, so its unconditional add and its unconditional Reserve agree —
+        // and it is swept here anyway, because the property is about both lanes and a lane that is correct today
+        // is the one no arm would notice going wrong.
+        //
+        // The shapes carry a genuinely ABSENT axis, which is what the defect needs: `counts_only=true` with
+        // findings= excluding the dangling classes leaves BOTH errors axes null, and the by-SOURCE axis alone is
+        // null wherever the link walk built no source tally. Controls with every axis populated are swept beside
+        // them so a fixture that quietly lost its null axis shows up as the arm going quiet rather than green.
+        var noAxes = errors with { CountsOnly = true, Histogram = null, DanglingBySource = null };
+        var targetOnly = errors with
+        {
+            CountsOnly = true,
+            Histogram = new[] { new SweepCount("HcCmGhost.esm", 40) },
+            DanglingBySource = null,
+        };
+        var bothAxes = targetOnly with { DanglingBySource = new[] { new SweepCount("HcCm.esp", 33) } };
+        var scNoAxis = scripts with { CountsOnly = true, Histogram = null };
+        var scAxis = scripts with { CountsOnly = true, Histogram = new[] { new SweepCount("HcCmSpell", 40) } };
+
+        var reserveMismatch = new List<string>();
+        foreach (var (label, sweep) in new[]
+                 {
+                     ("errors counts_only, both axes absent", new CheckSweep(Sel("errors"), noAxes, null)),
+                     ("errors counts_only, by-source absent", new CheckSweep(Sel("errors"), targetOnly, null)),
+                     ("errors counts_only, both axes present", new CheckSweep(Sel("errors"), bothAxes, null)),
+                     ("scripts counts_only, axis absent", new CheckSweep(Sel("scripts"), null, scNoAxis)),
+                     ("scripts counts_only, axis present", new CheckSweep(Sel("scripts"), null, scAxis)),
+                     ("both families counts_only, three axes absent", new CheckSweep(Sel("errors", "scripts"), noAxes, scNoAxis)),
+                     ("both families counts_only, every axis present", new CheckSweep(Sel("errors", "scripts"), bothAxes, scAxis)),
+                     ("three families, listing lane", all),
+                 })
+        {
+            JsonWire.RenderCheck(sweep, 0, 1000, out var jb);
+            if (jb is not null && jb.ReserveDeclared != jb.ReserveDemanded)
+                reserveMismatch.Add($"json/{label}: the demand pass held back {jb.ReserveDemanded}, the render reserved {jb.ReserveDeclared}");
+            Wire.RenderCheck(sweep, 0, 1000, out var tb);
+            if (tb is not null && tb.ReserveDeclared != tb.ReserveDemanded)
+                reserveMismatch.Add($"text/{label}: the demand pass held back {tb.ReserveDemanded}, the render reserved {tb.ReserveDeclared}");
+        }
+        Check("RESERVE-DECLARED-IS-RESERVE-DEMANDED: across eight shapes in both transports — including the counts_only ones whose histogram axes are genuinely absent — the room the demand pass subtracted from the row budget is exactly the room the render holds back, so neither lane reserves for an object it never writes",
+            reserveMismatch.Count == 0,
+            reserveMismatch.Count == 0
+                ? "every shape's demanded reserve equalled its declared reserve"
+                : string.Join("; ", reserveMismatch.Take(4)));
+
+
         // ---- CAP-LADDER ----------------------------------------------------------------------------
         Check("CAP-LADDER: at every integer cap from 1 to 12000 (and one far above) neither transport returns more than it was given, bar the floor, and the json parses",
             CapSweep(both, out var capDetail), capDetail);

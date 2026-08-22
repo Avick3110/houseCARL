@@ -211,9 +211,16 @@ internal static class SweepDemand
         {
             if (e.CountsOnly)
             {
+                // GATED THE WAY THE RENDER GATES IT. `JsonWire.WriteHistograms` reserves a frame only where
+                // `a.Rows is not null`, and `WriteHistogram` returns without writing for a null-rows axis, so a
+                // frame cost added here unconditionally holds back room for an object the response never opens
+                // (measured: ~180 chars on `counts_only=true findings=['missing_masters']`, where both errors axes
+                // are null). The text lane never had this — `a.TextFixed` is 0 for a null-rows axis, so its
+                // unconditional add and its unconditional Reserve agree by construction. The property that says
+                // the two lanes now agree is RESERVE-DECLARED-IS-RESERVE-DEMANDED.
                 foreach (var a in Wire.ErrorsAxes(e))
                 {
-                    reserved += JsonWire.HistogramFrameCostFor(a, depths.AxisFrame);
+                    if (a.Rows is not null) reserved += JsonWire.HistogramFrameCostFor(a, depths.AxisFrame);
                     JsonRows(t, a, histogramLimit, depths);
                 }
                 t.Declare(SweepSubject.UnreadRows);
@@ -258,7 +265,7 @@ internal static class SweepDemand
             {
                 foreach (var a in Wire.ScriptsAxes(sc))
                 {
-                    reserved += JsonWire.HistogramFrameCostFor(a, depths.AxisFrame);
+                    if (a.Rows is not null) reserved += JsonWire.HistogramFrameCostFor(a, depths.AxisFrame);
                     JsonRows(t, a, histogramLimit, depths);
                 }
                 t.Declare(SweepSubject.ScriptScanRows);

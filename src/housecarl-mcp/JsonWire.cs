@@ -1670,7 +1670,8 @@ static class JsonWire
         {
             w.WriteStartObject();
             var body = BoundedBody.ForFamilies(accts, budget, () => Size(w, ms), o.Plan(),
-                                               demand.Demand, demand.Reserved + fixedPart, o.ResponseSubjects);
+                                               demand.Demand, demand.Reserved + fixedPart, o.ResponseSubjects,
+                                               demand.Reserved);
             measured = body;
             Compose(w, o, sections, accts, body, histogramLimit);
 
