@@ -92,13 +92,16 @@ internal static class DialogueSweepRender
                 // What it bought is now bought by construction: measured on the live order (ARR 2.0, one
                 // 235-topic quest, plain defaults) that fix took 53 topics in 40,296 chars of an 80,000 cap to 82
                 // in 79,186, and DIALOGUE-FINISHED-SEED-HANDS-BACK-ITS-SHARE holds the same property here.
-                bool stopped = false;
+                // A topic block the budget refuses ends THIS seed's blocks and nothing else. It used to break the
+                // SEED loop too, so every later seed's head went unwritten though the seed subject had been
+                // allocated room for it and had not spent it — room the response left standing while claiming a
+                // cut. The errors family's sections and entries have always nested this way: an entry that does
+                // not fit ends that plugin's entries, not the plugin loop (round-2 review, finding A5).
                 foreach (var t in report.Topics)
                 {
                     string block = ComposeTopicBlock(t);
-                    if (!body.Emit(SweepSubject.DialogueTopics, block.Length, () => sb.Append(block))) { stopped = true; break; }
+                    if (!body.Emit(SweepSubject.DialogueTopics, block.Length, () => sb.Append(block))) break;
                 }
-                if (stopped) break;
             }
         }
 
@@ -181,21 +184,21 @@ internal static class DialogueSweepRender
                 if (!body.Emit(SweepSubject.DialogueSeeds,
                                SeedHeadCost(seed, depths.DialogueSeeds, i > 0),
                                () => WriteSeedHead(w, seed))) break;
-                bool stopped = false;
+                // A topic row the budget refuses ends THIS seed's rows and nothing else — see the text lane for
+                // the stranding this shape replaces.
                 int topics = 0;
                 foreach (var t in seed.Report!.Topics)
                 {
                     var topic = t;
                     if (!body.Emit(SweepSubject.DialogueTopics,
                                    TopicRowCost(topic, depths.DialogueTopics, topics > 0),
-                                   () => WriteTopicRow(w, topic))) { stopped = true; break; }
+                                   () => WriteTopicRow(w, topic))) break;
                     topics++;
                 }
                 // The seed's own closing brackets finish a unit already admitted, so they are charged to the
                 // subject that opened it — SeedHeadCost measured them as part of the same unit (see
                 // BoundedBody.Complete).
                 body.Complete(SweepSubject.DialogueSeeds, () => { w.WriteEndArray(); w.WriteEndObject(); });
-                if (stopped) break;
             }
         }
         w.WriteEndArray();
