@@ -26,7 +26,28 @@ internal sealed record CheckSweep(
     /// <summary>The refusal, if any family refused. A sweep that could not run at all answers with one error rather
     /// than a partly-rendered response — the pre-sweep refusals (a malformed FormID, an unknown type, a plugin
     /// nothing provides) are decided before anything is swept, so they are the whole answer when they fire.</summary>
-    internal string? Error => Errors?.Error ?? Scripts?.Error;
+    internal string? Error
+    {
+        get
+        {
+            string? first = null;
+            foreach (var f in Selection.Ran)
+            {
+                if (Own(f) is not { } refusal) return null;   // a family answered ⇒ this call was answerable
+                first ??= refusal;
+            }
+            return first;
+        }
+    }
+
+    /// <summary>The error THIS family's own result carries, whatever family it is.</summary>
+    string? Own(SweepFamily f) => f switch
+    {
+        SweepFamily.Errors => Errors?.Error,
+        SweepFamily.Scripts => Scripts?.Error,
+        SweepFamily.Dialogue => Dialogue?.Error,
+        _ => null,
+    };
 
     /// <summary>A FAMILY-LOCAL refusal: this family could not run, and the others are unaffected. Only the dialogue
     /// family has one, because only it has a scope of its own — its seeds (SPEC §6.1 F1.1). The sweep families'
@@ -38,7 +59,7 @@ internal sealed record CheckSweep(
     /// response level it would refuse a call the errors family answered perfectly well; dropped, the response would
     /// name the dialogue family in its scope sentence and then render nothing under it, which is silence where a
     /// refusal belongs (Q3).</para></summary>
-    internal string? Refusal(SweepFamily f) => f == SweepFamily.Dialogue ? Dialogue?.Error : null;
+    internal string? Refusal(SweepFamily f) => Error is null ? Own(f) : null;
 
     /// <summary>The epoch any family stamped, for a refusal render. Both families capture the same build.</summary>
     internal string? Epoch => Errors?.Epoch ?? Scripts?.Epoch;

@@ -916,6 +916,43 @@ public static class CheckMergeProbe
             && !excluded.Contains($"{OrchNpcs} dangling ref(s)", StringComparison.Ordinal),
             Trim(excluded));
 
+        // ---- a FAMILY-LOCAL scope refusal must not discard the family beside it that answered. The shape the
+        //      round-1 reviewers reached by code-read and could not fixture: exclude= is validated against each
+        //      family's OWN scope, and the scripts family is handed the ACTIVE subset of plugins=. Naming an
+        //      off-order file and excluding the active one empties the SCRIPTS family's scope while leaving the
+        //      errors family a file to sweep — and the whole call came back "exclude= removed every plugin this
+        //      sweep would have covered", discarding a completed errors sweep and printing a remedy that was
+        //      false for the family that had answered.
+        var localRefusal = CheckTools.CheckTool(svc, plugins: new[] { "HcOrch.esp", "HcOrchOff.esp" },
+                                                findings: new[] { "errors", "scripts" }, exclude: new[] { "HcOrch.esp" });
+        var localRefusalJson = CheckTools.CheckTool(svc, plugins: new[] { "HcOrch.esp", "HcOrchOff.esp" },
+                                                    findings: new[] { "errors", "scripts" }, exclude: new[] { "HcOrch.esp" },
+                                                    format: "json");
+        bool jsonLocal;
+        try
+        {
+            using var d = JsonDocument.Parse(localRefusalJson);
+            jsonLocal = d.RootElement.TryGetProperty("families", out var fams)
+                     && fams.TryGetProperty("scripts", out var sc) && sc.TryGetProperty("refused", out _)
+                     && fams.TryGetProperty("errors", out var er) && !er.TryGetProperty("refused", out _);
+        }
+        catch { jsonLocal = false; }
+        Arm($"ORCH-A-FAMILY-LOCAL-REFUSAL-DOES-NOT-REFUSE-THE-CALL: exclude= emptying the SCRIPTS family's own scope refuses that family in its own section and leaves the errors family's {OffOrderNpcs} off-order dangling refs standing — raised to response level it threw away a sweep that had answered and told the caller to narrow exclude=",
+            !localRefusal.StartsWith("error", StringComparison.OrdinalIgnoreCase)
+            && localRefusal.Contains($"{OffOrderNpcs} dangling ref(s)", StringComparison.Ordinal)
+            && localRefusal.Contains("exclude= removed every plugin", StringComparison.Ordinal)
+            && Count(localRefusal, "\n[errors] ") == 1 && Count(localRefusal, "\n[scripts] ") == 1
+            && jsonLocal,
+            Trim(localRefusal));
+
+        // …and the OTHER direction of the same rule: an input error off the SHARED trio refuses every family, so it
+        // is still the whole call's answer rather than the same sentence printed twice.
+        var sharedRefusal = CheckTools.CheckTool(svc, findings: new[] { "errors", "scripts" }, type: "NOSUCHTYPE");
+        Arm("ORCH-A-SHARED-INPUT-REFUSAL-STILL-REFUSES-THE-CALL: an unknown type= is malformed input for every family that could have run, so the response is ONE error — the arm that keeps the cell above from passing by making every refusal family-local",
+            sharedRefusal.StartsWith("error", StringComparison.OrdinalIgnoreCase)
+            && Count(sharedRefusal, "\n[errors] ") == 0,
+            Trim(sharedRefusal));
+
         // ---- the dialogue family's cost-refusal, FAMILY-LOCAL, through the tool that composes it beside a family
         //      that answered perfectly well.
         var dlgRefused = CheckTools.CheckTool(svc, findings: new[] { "errors", "dialogue" });

@@ -1712,7 +1712,13 @@ static class JsonWire
         {
             var f = sections[i];
             w.WriteStartObject(SweepFamilySelection.Token(f));
-            if (f == SweepFamily.Errors)
+            // A family that refused says so HERE — see the text lane for why a scripts-family scope refusal is no
+            // longer the whole call's error.
+            if (s.Refusal(f) is { } refusal)
+            {
+                w.WriteString("refused", refusal);
+            }
+            else if (f == SweepFamily.Errors)
             {
                 WriteErrorsHead(w, s.Errors!);
                 WriteErrorsSection(w, s.Errors!, body, histogramLimit);
