@@ -201,11 +201,12 @@ public static class CheckMergeProbe
 
         using (var doc = JsonDocument.Parse(json))
         {
-            var fams = doc.RootElement.GetProperty("families");
+            var fams = Obj(doc.RootElement, "families");
             Check("ACCOUNTING-PER-FAMILY (json): each family object carries its OWN accounting and its OWN boundary",
-                fams.GetProperty("errors").GetProperty("accounting").GetProperty("dangling_found").GetInt32() == Npcs
-                && fams.GetProperty("scripts").GetProperty("accounting").GetProperty("record_sections_with_findings").GetInt32() == Weapons
-                && fams.GetProperty("errors").GetProperty("boundary").GetString() != fams.GetProperty("scripts").GetProperty("boundary").GetString(),
+                Num(Obj(Obj(fams, "errors"), "accounting"), "dangling_found") == Npcs
+                && Num(Obj(Obj(fams, "scripts"), "accounting"), "record_sections_with_findings") == Weapons
+                && Str(Obj(fams, "errors"), "boundary") is { } eb
+                && Str(Obj(fams, "scripts"), "boundary") is { } sb2 && eb != sb2,
                 Trim(json));
         }
 
@@ -262,15 +263,15 @@ public static class CheckMergeProbe
             rosterLies.Add("text claims a roster cut on a response that carried the whole roster");
         using (var doc = JsonDocument.Parse(rosterWholeJson))
         {
-            var fams = doc.RootElement.GetProperty("families");
+            var fams = Obj(doc.RootElement, "families");
             foreach (var family in new[] { "errors", "scripts" })
             {
-                var acct = fams.GetProperty(family).GetProperty("accounting");
-                if (acct.TryGetProperty("excluded_plugins_total", out var tot)
-                    && acct.TryGetProperty("excluded_plugins_named", out var named)
-                    && named.GetInt32() != tot.GetInt32())
-                    rosterLies.Add($"json {family} says {named.GetInt32()} of {tot.GetInt32()} roster rows named");
-                if (acct.TryGetProperty("truncated", out var tr) && tr.GetBoolean())
+                var acct = Obj(Obj(fams, family), "accounting");
+                if (acct is null) { rosterLies.Add($"json {family} carries no accounting at all"); continue; }
+                int? tot = Num(acct, "excluded_plugins_total"), named = Num(acct, "excluded_plugins_named");
+                if (tot is not null && named is not null && named != tot)
+                    rosterLies.Add($"json {family} says {named} of {tot} roster rows named");
+                if (Bool(acct, "truncated") == true)
                     rosterLies.Add($"json {family} reports truncated on an uncapped response");
             }
         }
@@ -363,24 +364,25 @@ public static class CheckMergeProbe
         using (var doc = JsonDocument.Parse(defJson))
         {
             var root = doc.RootElement;
-            var notRun = root.GetProperty("families_not_selected");
+            var notRun = Arr(root, "families_not_selected");
             Check("SCOPE-SENTENCE-DEFAULT (json): the SAME complete sentence, plus the same fact as data — a pin on a lead each transport finishes its own way vouches for neither",
                 // Compared against the TEXT LANE'S OWN LINE, not against the composer. Asked against
                 // CheckOutcome.ScopeSentence() this was a tautology: the json render calls that method, so the
                 // comparison held whatever either transport actually printed, and the cross-transport claim in the
                 // arm's own name was vouched for by nothing (round-2 finding C7).
-                root.GetProperty("findings_scope").GetString() == FirstLineWith(defText, "findings=")
-                && root.GetProperty("findings_scope").GetString()!.Contains("did NOT run", StringComparison.Ordinal)
-                && root.GetProperty("findings_defaulted").GetBoolean()
+                Str(root, "findings_scope") == FirstLineWith(defText, "findings=")
+                && Str(root, "findings_scope")?.Contains("did NOT run", StringComparison.Ordinal) == true
+                && Bool(root, "findings_defaulted") == true
                 // TWO registered families the default does not run — the fixture-known count, not Registered.Count-1:
                 // a fourth family landing must turn this red so somebody decides what the default means, rather than
                 // sliding through on arithmetic that agrees with whatever the list happens to hold.
-                && notRun.GetArrayLength() == 2
-                && notRun[0].GetProperty("family").GetString() == "scripts"
-                && notRun[1].GetProperty("family").GetString() == "dialogue"
-                && notRun[0].GetProperty("findings").GetString() == spelling
-                && !root.GetProperty("families").TryGetProperty("scripts", out _)
-                && !root.GetProperty("families").TryGetProperty("dialogue", out _),
+                && notRun?.GetArrayLength() == 2
+                && Str(At(notRun, 0), "family") == "scripts"
+                && Str(At(notRun, 1), "family") == "dialogue"
+                && Str(At(notRun, 0), "findings") == spelling
+                && Obj(root, "families") is { } defFams
+                && !defFams.TryGetProperty("scripts", out _)
+                && !defFams.TryGetProperty("dialogue", out _),
                 Trim(defJson));
         }
 
@@ -495,13 +497,14 @@ public static class CheckMergeProbe
                 // listed" over a validation that never ran is the "looked, found none" reading this whole surface
                 // exists to prevent.
                 && !mixedText.Contains("topic(s) these seeds own", StringComparison.Ordinal)
-                && !fams.GetProperty("dialogue").GetProperty("accounting").TryGetProperty("dialogue_topics_found", out _)
-                && !fams.GetProperty("dialogue").GetProperty("accounting").TryGetProperty("seeds_validated", out _)
-                && !fams.GetProperty("dialogue").GetProperty("accounting").GetProperty("listing").GetBoolean()
+                && Obj(Obj(fams, "dialogue"), "accounting") is { } refusedAcct
+                && !refusedAcct.TryGetProperty("dialogue_topics_found", out _)
+                && !refusedAcct.TryGetProperty("seeds_validated", out _)
+                && Bool(refusedAcct, "listing") == false
                 // the errors family still answered, in full
                 && StatedPair(mixedText, " dangling ref(s) found by this sweep appear above") == Npcs
                 && !mixedText.StartsWith("error:", StringComparison.Ordinal)
-                && fams.GetProperty("dialogue").GetProperty("refused").GetString()!.Contains("seeds=", StringComparison.Ordinal)
+                && Str(Obj(fams, "dialogue"), "refused")?.Contains("seeds=", StringComparison.Ordinal) == true
                 && fams.TryGetProperty("errors", out _),
                 Trim(mixedText));
         }
@@ -523,14 +526,15 @@ public static class CheckMergeProbe
         using (var doc = JsonDocument.Parse(mixedJson))
         {
             var root = doc.RootElement;
-            var ranNames = root.GetProperty("families_ran").EnumerateArray().Select(x => x.GetString()).ToArray();
+            var ranNames = Strings(Arr(root, "families_ran"));
             if (ranNames.Contains("dialogue")) scopeBad.Add("families_ran names the refused family");
             if (!ranNames.Contains("errors")) scopeBad.Add("families_ran does not name the family that answered");
-            var refusedNames = root.GetProperty("families_refused").EnumerateArray()
-                                   .Select(x => x.GetProperty("family").GetString()).ToArray();
+            var refusedNames = Arr(root, "families_refused") is { } rf
+                ? rf.EnumerateArray().Select(x => Str(x, "family") ?? "<no-family-key>").ToArray()
+                : Array.Empty<string>();
             if (!refusedNames.SequenceEqual(new[] { "dialogue" }))
                 scopeBad.Add($"families_refused is [{string.Join(",", refusedNames)}], want [dialogue]");
-            if (root.GetProperty("findings_scope").GetString() != mixedScope)
+            if (Str(root, "findings_scope") != mixedScope)
                 scopeBad.Add("json states a different scope sentence from the text lane");
         }
         Check("SCOPE-SENTENCE-NAMES-A-REFUSED-FAMILY: the response-level sentence and families_ran say what ANSWERED — a family that refused is named as refused, not listed among the ones this response answers for",
@@ -650,7 +654,7 @@ public static class CheckMergeProbe
                 // what this arm asks is that a lane WITH the subject still declares it.)
                 && errAcct.TryGetProperty("dangling_missing_by_source", out _)
                 && errAcct.TryGetProperty("dangling_missing_by_source_total", out _)
-                && errAcct.GetProperty("dangling_found").GetInt32() == Npcs
+                && Num(errAcct, "dangling_found") == Npcs
                 // The transports agree: one accounting line for the family that can state one, none for the other.
                 && Count(mixedText, ReadSentences.SweepAccountingLead) == 1,
                 merged ? $"dialogueAcct={Trim(dlgAcct.GetRawText())} textAccountingLines={Count(mixedText, ReadSentences.SweepAccountingLead)}"
@@ -663,7 +667,7 @@ public static class CheckMergeProbe
         var dlgJson = JsonWire.RenderCheck(dlgOnly, 0);
         using (var doc = JsonDocument.Parse(dlgJson))
         {
-            var fam = doc.RootElement.GetProperty("families").GetProperty("dialogue");
+            var fam = Obj(Obj(doc.RootElement, "families"), "dialogue");
             Check("DIALOGUE-NOT-PLUGIN-SCOPED: the section states that plugins=/exclude= do not narrow this family and that it has no off-order lane — in both transports, beside its own counts",
                 dlgText.Contains("seeded, not swept", StringComparison.Ordinal)
                 && dlgText.Contains("do NOT scope it", StringComparison.Ordinal)
@@ -741,7 +745,7 @@ public static class CheckMergeProbe
         if (!budgetScope.Contains("limit=", StringComparison.Ordinal))
             scopeLies.Add("the scope sentence names no knob for the seeds it did not reach");
         using (var doc = JsonDocument.Parse(budgetJson))
-            if (doc.RootElement.GetProperty("families").GetProperty("dialogue").GetProperty("scope").GetString() is var js
+            if (Str(Obj(Obj(doc.RootElement, "families"), "dialogue"), "scope") is var js
                 && js != budgetScope)
                 scopeLies.Add($"json states a different scope sentence: [{js}]");
         Check("DIALOGUE-SCOPE-COUNTS-WHAT-IT-REACHED: with limit= below the seed count the scope sentence states what it VALIDATED and what was named, and names the knob — printed from the named figure it claimed a completeness the accounting three lines down denied, in both transports",
@@ -784,19 +788,22 @@ public static class CheckMergeProbe
         foreach (var (lane, body) in new[] { ("counts_only", budgetCountsJson), ("listing", budgetJson) })
             using (var doc = JsonDocument.Parse(body))
             {
-                var fam = doc.RootElement.GetProperty("families").GetProperty("dialogue");
-                void Want(JsonElement obj, string where, string name, int expect)
+                var fam = Obj(Obj(doc.RootElement, "families"), "dialogue");
+                void Want(JsonElement? obj, string where, string name, int expect)
                 {
-                    if (!obj.TryGetProperty(name, out var v)) seedFacts.Add($"json {lane}: no {where}.{name}");
-                    else if (v.GetInt32() != expect) seedFacts.Add($"json {lane}: {where}.{name}={v.GetInt32()}, want {expect}");
+                    if (obj is null) { seedFacts.Add($"json {lane}: no {where} object at all"); return; }
+                    if (Num(obj, name) is not { } v) seedFacts.Add($"json {lane}: no {where}.{name}");
+                    else if (v != expect) seedFacts.Add($"json {lane}: {where}.{name}={v}, want {expect}");
                 }
                 Want(fam, "head", "seeds_named", 5);
                 Want(fam, "head", "seeds_reached", 2);
                 Want(fam, "head", "seeds_validated", budgeted.Resolved.Count());
                 Want(fam, "head", "seeds_unreachable_total", budgeted.Unresolved.Count);
-                Want(fam.GetProperty("accounting"), "accounting", "seeds_not_reached_by_budget", 3);
+                Want(Obj(fam, "accounting"), "accounting", "seeds_not_reached_by_budget", 3);
                 // …and the topic fields, which the counts_only lane genuinely does not have, stay absent there.
-                if (lane == "counts_only" && fam.GetProperty("accounting").TryGetProperty("dialogue_topics_rendered", out _))
+                if (lane == "counts_only"
+                    && Obj(fam, "accounting") is { } countsAcct
+                    && countsAcct.TryGetProperty("dialogue_topics_rendered", out _))
                     seedFacts.Add("json counts_only states a rendered topic count for a lane that lists no topics");
             }
         Check("DIALOGUE-SEED-FACTS-IN-BOTH-LANES: how many seeds were named, reached, validated and never reached is a fact of the CALL, so counts_only states it too — every one of them in the family head, with the accounting stating only the budget's cut",
@@ -831,11 +838,11 @@ public static class CheckMergeProbe
             pops.Add($"counts: [{FirstLineWith(fourText, "reached were validated")}]");
         using (var doc = JsonDocument.Parse(fourJson))
         {
-            var fam = doc.RootElement.GetProperty("families").GetProperty("dialogue");
+            var fam = Obj(Obj(doc.RootElement, "families"), "dialogue");
             foreach (var (name, want) in new[] { ("seeds_named", 5), ("seeds_reached", 2),
                                                  ("seeds_validated", 1), ("seeds_unreachable_total", 1) })
-                if (!fam.TryGetProperty(name, out var v)) pops.Add($"json states no {name}");
-                else if (v.GetInt32() != want) pops.Add($"json {name}={v.GetInt32()}, want {want}");
+                if (Num(fam, name) is not { } v) pops.Add($"json states no {name}");
+                else if (v != want) pops.Add($"json {name}={v}, want {want}");
         }
         Check("DIALOGUE-FOUR-POPULATIONS-ARE-FOUR-NUMBERS: on a call whose seeds are named 5, reached 2, validated 1 and unreachable 1, no two of those numbers are interchangeable — the scope sentence states reached against named, the counts line states validated against reached, and the head carries all four",
             pops.Count == 0, pops.Count == 0 ? "5 named / 2 reached / 1 validated / 1 unreachable, each stated as itself"
@@ -847,18 +854,18 @@ public static class CheckMergeProbe
         // a non-zero seeds_validated (round-2 finding B3). Both directions, so a gate that always refuses fails too.
         var seedsArray = new List<string>();
         using (var doc = JsonDocument.Parse(budgetCountsJson))
-            if (doc.RootElement.GetProperty("families").GetProperty("dialogue").TryGetProperty("seeds", out _))
+            if (Arr(Obj(Obj(doc.RootElement, "families"), "dialogue"), "seeds") is not null)
                 seedsArray.Add("a counts_only response carries a seeds array");
         using (var doc = JsonDocument.Parse(budgetJson))
         {
-            var fam = doc.RootElement.GetProperty("families").GetProperty("dialogue");
-            if (!fam.TryGetProperty("seeds", out var listed)) seedsArray.Add("a LISTING response carries no seeds array");
+            var fam = Obj(Obj(doc.RootElement, "families"), "dialogue");
+            if (Arr(fam, "seeds") is not { } listed) seedsArray.Add("a LISTING response carries no seeds array");
             else if (listed.GetArrayLength() == 0) seedsArray.Add("the listing response's seeds array is empty");
             // …and the unreachable roster is in BOTH, by design: a seed nobody could reach bounds the answer.
-            if (!fam.TryGetProperty("seeds_unreachable", out _)) seedsArray.Add("the listing response names no unreachable seeds");
+            if (Arr(fam, "seeds_unreachable") is null) seedsArray.Add("the listing response names no unreachable seeds");
         }
         using (var doc = JsonDocument.Parse(budgetCountsJson))
-            if (!doc.RootElement.GetProperty("families").GetProperty("dialogue").TryGetProperty("seeds_unreachable", out _))
+            if (Arr(Obj(Obj(doc.RootElement, "families"), "dialogue"), "seeds_unreachable") is null)
                 seedsArray.Add("the counts_only response names no unreachable seeds");
         Check("COUNTS-ONLY-CARRIES-NO-SEEDS-ARRAY: the seed rows are present exactly where the mode renders them, and the unreachable-seed roster is present in both — it bounds the answer rather than sitting inside it",
             seedsArray.Count == 0,
@@ -1346,8 +1353,9 @@ public static class CheckMergeProbe
         try
         {
             using var d = JsonDocument.Parse(localRefusalJson);
-            refusedDeclaresNothing &= d.RootElement.GetProperty("families").GetProperty("scripts")
-                                       .GetProperty("accounting").TryGetProperty("record_sections_with_findings", out _) == false;
+            refusedDeclaresNothing &= Obj(Obj(Obj(d.RootElement, "families"), "scripts"), "accounting")
+                                      is { } refusedScriptsAcct
+                                      && !refusedScriptsAcct.TryGetProperty("record_sections_with_findings", out _);
         }
         catch { refusedDeclaresNothing = false; }
         Arm($"ORCH-A-FAMILY-LOCAL-REFUSAL-DOES-NOT-REFUSE-THE-CALL: exclude= emptying the SCRIPTS family's own scope refuses that family in its own section, asserts no completeness there, and leaves the errors family's {OffOrderNpcs} off-order dangling refs standing — raised to response level it threw away a sweep that had answered and told the caller to narrow exclude=",
@@ -1617,9 +1625,7 @@ public static class CheckMergeProbe
             if (got != whole) bad.Add($"json {family}.{array}: {got} rendered inside the default, {whole} with no cap at all");
         }
         foreach (var family in new[] { "errors", "scripts", "dialogue" })
-            if (jsonCapped.GetProperty("families").TryGetProperty(family, out var f)
-                && f.TryGetProperty("accounting", out var a)
-                && a.TryGetProperty("truncated", out var t) && t.GetBoolean())
+            if (Bool(Obj(Obj(Obj(jsonCapped, "families"), family), "accounting"), "truncated") == true)
                 bad.Add($"json {family} reports truncated:true inside a cap its whole answer fits");
 
         // THE TIGHT FIT. Monotone in max_chars (pin 3(i)), so the threshold can be found by bisection.
@@ -1670,8 +1676,7 @@ public static class CheckMergeProbe
 
     /// <summary>How many elements one family's row array carries, or -1 where the family or the array is absent.</summary>
     static int ArrayLength(JsonElement root, string family, string array)
-        => root.GetProperty("families").TryGetProperty(family, out var f) && f.TryGetProperty(array, out var rows)
-            ? rows.GetArrayLength() : -1;
+        => Arr(Obj(Obj(root, "families"), family), array) is { } rows ? rows.GetArrayLength() : -1;
 
     /// <summary>Pin 3(iv): with nothing cut, allocation IS demand, so allocation must equal spend exactly. Asked at
     /// a cap far above the fixture's whole response, in both transports.</summary>
@@ -1748,6 +1753,38 @@ public static class CheckMergeProbe
     static bool? Bool(JsonElement e, string name)
         => e.TryGetProperty(name, out var v) && (v.ValueKind == JsonValueKind.True || v.ValueKind == JsonValueKind.False)
             ? v.GetBoolean() : null;
+
+    /// <summary>NAVIGATE to a nested object or array that might not be there. The leaf readers above only help an
+    /// arm that already holds the object the leaf sits in — and the arms here reach their leaves through
+    /// <c>families.&lt;token&gt;.accounting</c>, so a sabotage deleting a family or an accounting throws one level
+    /// ABOVE the reader that was made safe. These close that: an absent, wrong-kinded or null link is
+    /// <c>null</c>, and the <c>JsonElement?</c> overloads let a whole chain be written without a step that can
+    /// throw. The chain fails the comparison it is written into, which is what an arm about a missing field is
+    /// supposed to do.</summary>
+    static JsonElement? Obj(JsonElement e, string name)
+        => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v)
+           && v.ValueKind == JsonValueKind.Object ? v : null;
+
+    static JsonElement? Arr(JsonElement e, string name)
+        => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v)
+           && v.ValueKind == JsonValueKind.Array ? v : null;
+
+    static JsonElement? Obj(JsonElement? e, string name) => e is { } v ? Obj(v, name) : null;
+    static JsonElement? Arr(JsonElement? e, string name) => e is { } v ? Arr(v, name) : null;
+    static int? Num(JsonElement? e, string name) => e is { } v ? Num(v, name) : null;
+    static string? Str(JsonElement? e, string name) => e is { } v ? Str(v, name) : null;
+    static bool? Bool(JsonElement? e, string name) => e is { } v ? Bool(v, name) : null;
+
+    /// <summary>One element of an array that might not be there, or might be shorter than the arm expects.</summary>
+    static JsonElement? At(JsonElement? e, int i)
+        => e is { ValueKind: JsonValueKind.Array } a && i >= 0 && i < a.GetArrayLength() ? a[i] : null;
+
+    /// <summary>The strings of an array that might not be there — empty where it is absent, so an arm comparing
+    /// the SET of names fails rather than throws.</summary>
+    static string[] Strings(JsonElement? e)
+        => e is { ValueKind: JsonValueKind.Array } a
+            ? a.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String ? x.GetString()! : "<not-a-string>").ToArray()
+            : Array.Empty<string>();
 
     /// <summary>Every object in <paramref name="e"/> that names one key twice, walked whole.
     ///
