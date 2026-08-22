@@ -281,23 +281,37 @@ internal sealed class BoundedBody
     /// The allocation divides the body budget less this, and it is passed rather than read off <see cref="Held"/>
     /// because the reserves are taken DURING the render, one family at a time — an allocation built at the first
     /// write divided room that families rendering later had not yet claimed.</param>
+    /// <param name="responseSubjects">the subjects that belong to the RESPONSE rather than to any family — the
+    /// excluded-plugin roster. They are a top-level participant in the fill beside the families, so the roster has
+    /// a share it can actually spend rather than a reserve the emission test holds standing against it.</param>
     internal static BoundedBody ForFamilies(IReadOnlyList<CheckAccounting> accts, int budget, Func<int> length,
                                             IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)>? plan = null,
                                             IReadOnlyDictionary<SweepSubject, int>? demand = null,
-                                            int reservedForRows = 0)
-        => new(accts, budget, length, plan, demand, reservedForRows);
+                                            int reservedForRows = 0,
+                                            IReadOnlyList<SweepSubject>? responseSubjects = null)
+        => new(accts, budget, length, plan, demand, reservedForRows, responseSubjects);
 
-    /// <summary>A body that REFUSES EVERY UNIT — for the pass that measures a response's FIXED PART.
+    /// <summary>A body that admits exactly ONE UNIT OF EACH SUBJECT and refuses the rest — for the pass that
+    /// measures a response's FIXED PART.
     ///
     /// <para>The fixed part is everything a response writes whatever the budget says, and the allocation has to
     /// exclude all of it or it divides room that does not exist (measured: the merged sweep's title, scope sentence
     /// and per-family heads came to hundreds of characters the row budget still counted as row room, so the global
     /// test bit before any subject reached its share and render order decided who lost). The number is MEASURED,
     /// not assembled: the caller composes the WHOLE response through this body — the same title, the same heads,
-    /// the same one-source composers — and what comes back with no units in it is the fixed part. Nothing
-    /// enumerates the unconditional write sites, which is the point: every version of that number that was
-    /// assembled from a roster of sites came out wrong in a way nothing could see
+    /// the same one-source composers — and what comes back, less what those units wrote
+    /// (<see cref="BodyTotal"/>) and less what came out of the reserve (<see cref="ReservedWritten"/>), is the
+    /// fixed part. Nothing enumerates the unconditional write sites, which is the point: every version of that
+    /// number that was assembled from a roster of sites came out wrong in a way nothing could see
     /// (<see cref="FixedPart"/> carries that history).</para>
+    ///
+    /// <para><b>Why ONE unit rather than none.</b> Some of what a response owes regardless is only written in the
+    /// shape it takes when a subject has rendered something: a json array closes on the same line when it is
+    /// <c>[]</c> and on its own indented line when it is not, so a fixed part measured with every array empty is
+    /// short by that on every array the response opens. Measured at eight characters on a three-family listing
+    /// document — enough for the response-wide test to bite before the allocation did, which cost the
+    /// last-rendering subject a unit AT A WIDER CAP than it had rendered at. Admitting one unit each puts every
+    /// frame in its rendered shape; subtracting what those units wrote takes the units themselves back out.</para>
     ///
     /// <para>What the skeleton CANNOT compose is the part that varies with the cut — a closing disclosure says a
     /// different thing at a different length depending on what fit. Those go through <see cref="Reserve"/> as an
@@ -308,18 +322,26 @@ internal sealed class BoundedBody
 
     BoundedBody(IReadOnlyList<CheckAccounting> accts, int budget, Func<int> length,
                 IReadOnlyList<(SweepFamily Family, IReadOnlyList<SweepSubject> Subjects)>? plan,
-                IReadOnlyDictionary<SweepSubject, int>? demand, int reservedForRows)
+                IReadOnlyDictionary<SweepSubject, int>? demand, int reservedForRows,
+                IReadOnlyList<SweepSubject>? responseSubjects = null)
     {
         _accts = accts;
         _budget = budget;
         _length = length;
         _plan = plan;
+        _reservedForRows = reservedForRows;
         // BUILT HERE, before anything is written. The old rule built it lazily at the first unit any subject
         // emitted, which made it a function of render order; water-filling over measured demand is a function of
         // the budget and the demands alone, so the only correct moment to build it is before the render.
         _alloc = new BodyAllocation(budget - reservedForRows,
-                                    plan ?? Array.Empty<(SweepFamily, IReadOnlyList<SweepSubject>)>(), demand);
+                                    plan ?? Array.Empty<(SweepFamily, IReadOnlyList<SweepSubject>)>(), demand,
+                                    responseSubjects);
     }
+
+    /// <summary>What the caller measured, before the render, that this response owes outside its units: the fixed
+    /// part and the reserves. The allocation divides the budget less this; <see cref="Outstanding"/> holds the same
+    /// number against the global emission test, so the two are one budget.</summary>
+    readonly int _reservedForRows;
 
     /// <summary>The allocation, built in the constructor from measured demand — see <see cref="BodyAllocation"/>
     /// for why it cannot be built at the first write.</summary>
@@ -328,6 +350,32 @@ internal sealed class BoundedBody
     /// <summary>What one subject was allocated — read by the arms, which assert against the allocation rather than
     /// against a phrase the render printed.</summary>
     internal int AllocationOf(SweepSubject s) => Allocation.AllocationOf(s);
+
+    /// <summary>The chars the whole BODY may occupy — the cap less what the response reserved for its accountings
+    /// and boundaries. Read by the arms beside <see cref="RowBudget"/>.</summary>
+    internal int Budget => _budget;
+
+    /// <summary>What the caller MEASURED, before the render, that this response owes outside its units. Read by the
+    /// arms beside <see cref="OutstandingHigh"/>: the two being equal is what says the up-front measurement was
+    /// not exceeded. Not derivable from <see cref="RowBudget"/>, which clamps at zero when the fixed part alone
+    /// is wider than the budget.</summary>
+    internal int ReservedForRows => _reservedForRows;
+
+    /// <summary>THE ROW BUDGET — the room the allocation divided, and the room the units may spend together. Read
+    /// by the arms: <see cref="BodyTotal"/> never exceeding it is what makes the global emission test and the
+    /// allocation one budget rather than two.</summary>
+    internal int RowBudget => Math.Max(0, _budget - _reservedForRows);
+
+    /// <summary>THE MOST this response ever owed outside its units, across every emission test — a running
+    /// high-water mark taken inside <see cref="Emit"/>, because <see cref="Outstanding"/> reads the live response
+    /// and the json lane's stream is closed by the time an arm asks.
+    ///
+    /// <para>Read by <c>MATRIX-ONE-BUDGET</c>, which is the arm that holds the
+    /// whole "one budget" property: this equalling <c>reservedForRows</c> is what says the up-front measurement was
+    /// not exceeded, and therefore that the response-wide test never bit before the allocation did. When it did
+    /// exceed it — by eight characters, on a three-family json document whose arrays the fixed-part pass had
+    /// measured empty — the last-rendering subject lost a unit at a WIDER cap than it had rendered at.</para></summary>
+    internal int OutstandingHigh { get; private set; }
 
     /// <summary>What one subject actually SPENT, charged unit by unit as each landed. Read beside
     /// <see cref="AllocationOf"/> by <c>ALLOCATION-EQUALS-SPEND</c>: on a response with nothing cut the two are the
@@ -340,6 +388,32 @@ internal sealed class BoundedBody
     /// charged twice, and the second family would pay for a sentence the first one's reserve had bought.</summary>
     int Spent => _length() - _reservedSpent;
     int _reservedSpent;
+
+    /// <summary>WHAT THIS RESPONSE STILL OWES that is not a unit — the one term that makes the global emission test
+    /// and the allocation the SAME budget rather than two.
+    ///
+    /// <para>The greater of two MEASURED quantities: what the caller measured before the render
+    /// (<c>reservedForRows</c> — the fixed part composed through a <see cref="Skeleton"/>, plus what the demand pass
+    /// measured for the reserves), and what the render has actually written outside the units so far plus what is
+    /// still <see cref="Held"/>. Taking the greater means the up-front measurement governs while it holds, and the
+    /// test tightens rather than overruns if the render turns out to owe more than was measured.</para>
+    ///
+    /// <para><b>Why this is not the old test with a term added.</b> The old test was
+    /// <c>Spent + cost + Held &gt; budget</c>, where <c>Spent</c> counts the fixed part AS IT LANDS. The allocation
+    /// divides <c>budget − reservedForRows</c>, so the fixed part was subtracted from the rows once and charged to
+    /// them again as it was written — two budgets, and whichever subject rendered LAST paid the difference. That is
+    /// the order-dependence water-filling exists to remove, and it was still deciding outcomes: measured on a
+    /// three-family json response, one more unread row landing at <c>max_chars=5573</c> cost the scan-error rows one
+    /// of theirs, so a subject spent 125 chars at a WIDER cap than the 251 it spent at 5,572. It also let the
+    /// excluded-plugin roster — the one emitted subject no family's plan governs — spend the whole body budget
+    /// before the first family head was written, and the fixed part then went past the cap (4,494 chars against
+    /// 4,000). With this term the units answer to <c>budget − reservedForRows</c>, which is exactly what the
+    /// allocation divides.</para>
+    ///
+    /// <para>For a lane that reserved nothing up front — every single-family ancestor render, which measures no
+    /// fixed part — <c>reservedForRows</c> is 0 and the greater is <c>Spent − BodyTotal + Held</c>, so the whole
+    /// test reduces to <c>Spent + cost + Held</c> exactly as before. One formula, not a branch.</para></summary>
+    int Outstanding => Math.Max(_reservedForRows, Spent - BodyTotal + Held);
 
     /// <summary>Write text whose room was already held back OUT of the body budget — a family's accounting line, in
     /// a merged response where a later family still has to render. It is not a unit, so it is not registered and it
@@ -370,25 +444,47 @@ internal sealed class BoundedBody
     /// by-source roster is tallied off the same registration as the count, so the two cannot disagree.</param>
     internal bool Emit(SweepSubject subject, int cost, Action commit, string? source = null)
     {
-        if (_skeleton) { Stop(subject); return false; }   // the fixed-part pass: no units, by construction
+        // THE FIXED-PART PASS admits exactly ONE unit of each subject and refuses the rest, and the caller subtracts
+        // what those units wrote (BodyTotal). One unit rather than none, because a json array's own frame is WIDER
+        // when it holds something — an empty `"plugins": []` closes on the same line, a populated one closes on its
+        // own indented line — and a fixed part measured with every array empty is short by that on every array the
+        // response opens. Measured: eight characters short on a three-family listing document, which is enough to
+        // make the response-wide test bite before the allocation does and cost the last-rendering subject a unit.
+        if (_skeleton)
+        {
+            if (!_skeletonFirst.Add(subject)) { Stop(subject); return false; }
+            Write(subject, commit, source);
+            return true;
+        }
         if (_stopped.Contains(subject)) return false;
-        if (Spent + cost + Held > _budget) { Stop(subject); return false; }
+        int outstanding = Outstanding;
+        OutstandingHigh = Math.Max(OutstandingHigh, outstanding);
+        if (BodyTotal + cost + outstanding > _budget) { Stop(subject); return false; }
         // The subject's OWN share, on top of the response-wide test rather than instead of it (#394). A subject
         // may spend its ceiling and no more even while the response has room to spare — that room belongs to the
         // siblings that have not rendered yet, and giving it away first-come is exactly the serial rule this
         // replaces.
         if (!Allocation.Fits(subject, cost)) { Stop(subject); return false; }
+        Write(subject, commit, source);
+        return true;
+    }
+
+    /// <summary>Commit one admitted unit: write it, MEASURE what it wrote, and charge that. Charged with what it
+    /// ACTUALLY wrote, never with the declared cost — the cost is a test before a write, and a ceiling kept in the
+    /// units of a test rather than of the writing would drift the moment a site declared 0 (which most of them
+    /// do).</summary>
+    void Write(SweepSubject subject, Action commit, string? source)
+    {
         int before = _length();
         commit();
         int wrote = _length() - before;
         BodyTotal += wrote;
-        // Charged with what it ACTUALLY wrote, never with the declared cost — the cost is a test before a write,
-        // and a ceiling kept in the units of a test rather than of the writing would drift the moment a site
-        // declared 0 (which most of them do).
         Allocation.Charge(subject, wrote);
         foreach (var a in _accts) a.Emitted(subject, source);
-        return true;
     }
+
+    /// <summary>Which subjects the fixed-part pass has already let one unit through for.</summary>
+    readonly HashSet<SweepSubject> _skeletonFirst = new();
 
     /// <summary>This subject emits nothing further. Told to the allocation as well as recorded here, so the room
     /// it did not spend is back in the arithmetic for the siblings after it.</summary>
