@@ -213,14 +213,22 @@ public static class CheckMergeProbe
         // Both results carry the SAME roster, because both read it off the same captured build. The response must
         // emit it once and exactly one accounting must state its cut: two would subtract the same rows from the same
         // total twice.
-        var roster = new Dictionary<string, string> { ["HcCmBroken.esp"] = "header could not be parsed" };
+        // TWO rows, not one. With a single row every "the head is written once" claim below is also satisfied by a
+        // render repeating the head on EVERY row — sabotaging ComposeExcludedRow to do exactly that left the roster
+        // arms green, because one row has one head either way.
+        var roster = new Dictionary<string, string>
+        {
+            ["HcCmBroken.esp"] = "header could not be parsed",
+            ["HcCmAlsoBroken.esp"] = "header could not be parsed",
+        };
         var withRoster = new CheckSweep(Sel("errors", "scripts"),
                                         errors with { ExcludedPlugins = roster }, scripts with { ExcludedPlugins = roster });
         var rosterText = Wire.RenderCheck(withRoster, 0);
-        Check("EXCLUDED-ROSTER-ONCE: the roster is a SCOPE fact — its rows appear once, however many families ran",
+        Check($"EXCLUDED-ROSTER-ONCE: the roster is a SCOPE fact — each of its {roster.Count} rows appears once, under ONE head, however many families ran",
             Count(rosterText, "  HcCmBroken.esp: header could not be parsed\n") == 1
+            && Count(rosterText, "  HcCmAlsoBroken.esp: header could not be parsed\n") == 1
             && Count(rosterText, "excluded plugins (could not be parsed") == 1,
-            $"rows={Count(rosterText, "  HcCmBroken.esp: ")}");
+            $"rows={Count(rosterText, ": header could not be parsed\n")} heads={Count(rosterText, "excluded plugins (could not be parsed")}");
 
         // The declaring half, asserted at the ACCOUNTING rather than at the roster: at a cap that cuts the roster,
         // exactly one accounting states the cut. Walked over the band, because which cap cuts it is a fixture fact.
@@ -757,12 +765,12 @@ public static class CheckMergeProbe
         Check("ROSTER-STILL-ONE-WITH-THREE-FAMILIES: with all three families running over a build that DID exclude a plugin, the roster is emitted once and owned by the first family that has one — the dialogue family reports none of its own, because a seeded validation produces no such list",
             allWithRoster.RosterOwner == SweepFamily.Errors
             && Count(allRosterText, "excluded plugins (could not be parsed") == 1
-            && Count(allRosterText, "  HcCmBroken.esp: header could not be parsed\n") == 1
+            && Count(allRosterText, ": header could not be parsed\n") == roster.Count
             && Count(allRosterText, " plugin(s) that could not be parsed are named above.") <= 1
             && dlgOnly.RosterOwner is null
             && dlgOnly.ExcludedPlugins.Count == 0,
             $"owner={allWithRoster.RosterOwner} rosterHeads={Count(allRosterText, "excluded plugins (could not be parsed")} "
-          + $"rows={Count(allRosterText, "  HcCmBroken.esp: ")} "
+          + $"rows={Count(allRosterText, ": header could not be parsed\n")}/{roster.Count} "
           + $"dialogueOnlyOwner={dlgOnly.RosterOwner?.ToString() ?? "none"} dialogueOnlyRows={dlgOnly.ExcludedPlugins.Count}");
 
         // ---- CAP-LADDER ----------------------------------------------------------------------------
@@ -777,6 +785,40 @@ public static class CheckMergeProbe
         // synthetic MO2 instance, which is the only place the layer BETWEEN the caller and the render is asked
         // anything at all.
         OrchestrationChecks(tmpDir, Check);
+
+        // ---- THE REMEDY ACROSS A POWER OF TEN ------------------------------------------------------
+        // Asked of the arithmetic rather than through a render, for the reason the overrun DISCRIMINATOR is asked
+        // that way one guard over: the case is a floor sitting a handful of characters below a power of ten, and no
+        // shape the matrix carries lands there — sabotaging the bound away leaves every rendered arm green. Pinned
+        // where its logic lives instead of behind a cell that cannot fail.
+        //
+        // The claim is SELF-CONSISTENCY: the cap the notice names must already cover what the raise to THAT cap
+        // adds back, which is one character per place the response prints the cap, per digit the cap gains. A
+        // remedy short of its own requirement is one the caller follows and gets the notice again.
+        var remedyInconsistent = new List<string>();
+        foreach (var (cap, floorLen, sites) in new[]
+                 {
+                     (5, 9995, 3),      // the crossing: 9,995 + 3x4 is 10,007, and 3x3 would name 10,004
+                     (5, 9995, 1),      // the same crossing with one printing site
+                     (2000, 5361, 3),   // the measured three-family json case, which does not cross
+                     (7, 5361, 3),      // …and its own floor from a one-digit cap
+                 })
+        {
+            var acct = new CheckAccounting(errors, cap);
+            var notice = acct.CapTooSmall(floorLen, floorLen, 0, sites);
+            if (notice is null) { remedyInconsistent.Add($"cap={cap} floor={floorLen}: no notice on a response {floorLen - cap} chars over its cap"); continue; }
+            int at = notice.IndexOf("raise it to at least ", StringComparison.Ordinal);
+            int end = at < 0 ? -1 : notice.IndexOf('.', at);
+            if (at < 0 || end < 0 || !int.TryParse(notice[(at + 21)..end], out var raiseTo))
+            { remedyInconsistent.Add($"cap={cap} floor={floorLen}: the notice names no cap [{notice}]"); continue; }
+            int owed = floorLen + sites * (raiseTo.ToString().Length - cap.ToString().Length);
+            if (raiseTo < owed)
+                remedyInconsistent.Add($"cap={cap} floor={floorLen} sites={sites}: names {raiseTo}, which a response printing the cap {sites} time(s) needs {owed} for");
+        }
+        Check("REMEDY-SURVIVES-A-POWER-OF-TEN: the cap the overrun notice names already covers what raising to THAT cap adds back — one character per place the response prints the cap, per digit the cap gains — including where the growth itself carries the answer past the next power of ten",
+            remedyInconsistent.Count == 0,
+            remedyInconsistent.Count == 0 ? "four floors, crossing and not, each remedy self-consistent"
+                                          : string.Join("; ", remedyInconsistent));
 
         // ---- THE SHAPE MATRIX ----------------------------------------------------------------------
         // Everything above asks its question of the shape its own finding was about. The matrix asks the
