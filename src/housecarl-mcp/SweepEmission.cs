@@ -389,14 +389,16 @@ internal sealed class BoundedBody
     int Spent => _length() - _reservedSpent;
     int _reservedSpent;
 
-    /// <summary>WHAT THIS RESPONSE STILL OWES that is not a unit — the one term that makes the global emission test
-    /// and the allocation the SAME budget rather than two.
+    /// <summary>WHAT THIS RESPONSE HAS ALREADY SPENT that is not a unit, plus what it is still holding — the term
+    /// the response-wide emission test stands the units against.
     ///
-    /// <para>The greater of two MEASURED quantities: what the caller measured before the render
-    /// (<c>reservedForRows</c> — the fixed part composed through a <see cref="Skeleton"/>, plus what the demand pass
-    /// measured for the reserves), and what the render has actually written outside the units so far plus what is
-    /// still <see cref="Held"/>. Taking the greater means the up-front measurement governs while it holds, and the
-    /// test tightens rather than overruns if the render turns out to owe more than was measured.</para>
+    /// <para>ONE MEASURED quantity: what this render has actually written outside its units so far, plus what is
+    /// still <see cref="Held"/>. It is compared against the up-front measurement by <c>MATRIX-ONE-BUDGET</c> rather
+    /// than maxed with it here — taking the greater was tried, and sabotaging that arm away left every guard green,
+    /// because the fixed-part pass measures the number exactly and the two are equal wherever both exist. A branch
+    /// no fixture can tell from its sibling is one that goes (PR #339's rule). If the fixed part is ever
+    /// under-measured again, this is a response over its cap, which the overrun notice NAMES — where the maxed
+    /// version would have paid for it silently, in one subject's last unit.</para>
     ///
     /// <para><b>Why this is not the old test with a term added.</b> The old test was
     /// <c>Spent + cost + Held &gt; budget</c>, where <c>Spent</c> counts the fixed part AS IT LANDS. The allocation
@@ -410,10 +412,12 @@ internal sealed class BoundedBody
     /// 4,000). With this term the units answer to <c>budget − reservedForRows</c>, which is exactly what the
     /// allocation divides.</para>
     ///
-    /// <para>For a lane that reserved nothing up front — every single-family ancestor render, which measures no
-    /// fixed part — <c>reservedForRows</c> is 0 and the greater is <c>Spent − BodyTotal + Held</c>, so the whole
-    /// test reduces to <c>Spent + cost + Held</c> exactly as before. One formula, not a branch.</para></summary>
-    int Outstanding => Math.Max(_reservedForRows, Spent - BodyTotal + Held);
+    /// <para>Read with <see cref="BodyTotal"/> in front of it the test is <c>Spent + cost + Held</c> —
+    /// textually what it always was. What changed is not this term but what it is now true OF: every emitted
+    /// subject of a merged response is governed by an allocation dividing <c>budget − reservedForRows</c>, so
+    /// the response-wide test is a backstop rather than the thing deciding who loses. The single-family
+    /// ancestor renders, which measure no fixed part and govern nothing, still lean on it entirely.</para></summary>
+    int Outstanding => Spent - BodyTotal + Held;
 
     /// <summary>Write text whose room was already held back OUT of the body budget — a family's accounting line, in
     /// a merged response where a later family still has to render. It is not a unit, so it is not registered and it

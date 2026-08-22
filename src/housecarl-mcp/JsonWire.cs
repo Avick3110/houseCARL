@@ -1274,12 +1274,15 @@ static class JsonWire
             // lane's whole JsonGlue — a kilobyte sized to absorb one entry, inside a number describing a fixed part
             // that never spends it — and the raise-to it feeds came out 85% above the smallest cap that fits.
             int needed = body.FixedPart(closed);
-            if (acct.CapTooSmall(closed, needed) is { } notice)
+            // How many times this document prints the cap back, COUNTED in the document itself — read before the
+            // notice is written, because a site inside it is one the raise is paying to remove.
+            int sites = acct.CapPrintsIn(SoFar(w, ms));
+            if (acct.CapTooSmall(closed, needed, 0, sites) is { } notice)
             {
                 int cost = OverrunNoticeCost(notice);
-                var settled = acct.CapTooSmall(closed + cost, needed, cost)!;
+                var settled = acct.CapTooSmall(closed + cost, needed, cost, sites)!;
                 if (OverrunNoticeCost(settled) != cost)
-                    settled = acct.CapTooSmall(closed + OverrunNoticeCost(settled), needed, OverrunNoticeCost(settled))!;
+                    settled = acct.CapTooSmall(closed + OverrunNoticeCost(settled), needed, OverrunNoticeCost(settled), sites)!;
                 w.WriteString("max_chars_overrun", settled);
             }
             w.WriteEndObject();
@@ -1793,12 +1796,15 @@ static class JsonWire
             w.WriteString("boundary", ReadSentences.SweepScriptBoundary);
             int closed = Size(w, ms) + Framing.RootClose;
             int needed = body.FixedPart(closed);
-            if (acct.CapTooSmall(closed, needed) is { } notice)
+            // How many times this document prints the cap back, COUNTED in the document itself — read before the
+            // notice is written, because a site inside it is one the raise is paying to remove.
+            int sites = acct.CapPrintsIn(SoFar(w, ms));
+            if (acct.CapTooSmall(closed, needed, 0, sites) is { } notice)
             {
                 int cost = OverrunNoticeCost(notice);
-                var settled = acct.CapTooSmall(closed + cost, needed, cost)!;
+                var settled = acct.CapTooSmall(closed + cost, needed, cost, sites)!;
                 if (OverrunNoticeCost(settled) != cost)
-                    settled = acct.CapTooSmall(closed + OverrunNoticeCost(settled), needed, OverrunNoticeCost(settled))!;
+                    settled = acct.CapTooSmall(closed + OverrunNoticeCost(settled), needed, OverrunNoticeCost(settled), sites)!;
                 w.WriteString("max_chars_overrun", settled);
             }
             w.WriteEndObject();

@@ -1338,10 +1338,13 @@ static class Wire
         // number, so a second pass settles it and a third is only ever needed when that width moved.
         var response = sb.ToString().TrimEnd('\n');
         int needed = body.FixedPart(response.Length);
-        if (acct.CapTooSmall(response.Length, needed) is not { } notice) return response;
-        var settled = acct.CapTooSmall(response.Length + notice.Length, needed, notice.Length)!;
+        // How many times this response prints the cap back, COUNTED in the response itself: raising the cap widens
+        // every one of those numbers, and the remedy has to name a cap that already covers that.
+        int sites = acct.CapPrintsIn(response);
+        if (acct.CapTooSmall(response.Length, needed, 0, sites) is not { } notice) return response;
+        var settled = acct.CapTooSmall(response.Length + notice.Length, needed, notice.Length, sites)!;
         if (settled.Length != notice.Length)
-            settled = acct.CapTooSmall(response.Length + settled.Length, needed, settled.Length)!;
+            settled = acct.CapTooSmall(response.Length + settled.Length, needed, settled.Length, sites)!;
         return response + settled;
     }
 
