@@ -21,12 +21,17 @@ namespace HousecarlMcp;
 /// Empty on every call that named no such file. The response states the asymmetry per family rather than widening
 /// one family silently or refusing the whole call: extending the off-order lane is capability growth, not merge
 /// work.</param>
+/// <param name="SharedInputError">the ground for refusing BEFORE any family was dispatched — a value that is
+/// malformed as input to every family that could have used it (<see cref="SweepSharedInput"/>). It is a whole-call
+/// answer by construction rather than by the grounds-are-one collapse: no family ran, so there is no section for it
+/// to sit in and no sibling answer it could be throwing away. Null on every call whose shared inputs parsed.</param>
 internal sealed record CheckSweep(
     SweepFamilySelection Selection,
     ErrorCheckResult? Errors = null,
     ScriptCheckResult? Scripts = null,
     IReadOnlyList<string>? ScriptsSkippedOffOrder = null,
-    DialogueCheckResult? Dialogue = null)
+    DialogueCheckResult? Dialogue = null,
+    string? SharedInputError = null)
 {
     /// <summary>THIS family's own ground for producing no result, whatever family it is — the refusal its result
     /// carries. Whether that ground is the whole call's answer or one section's is

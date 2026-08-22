@@ -97,8 +97,13 @@ internal sealed class CheckOutcome
         // retried, and met the dialogue ground — each answer true, the response one ground short of what it held.
         // The rule is uniform and takes no special case for a single selected family: one family has one ground,
         // so it collapses, which is what its ancestor tool did and what the differential records as unchanged.
+        // A SHARED-INPUT ground short-circuits the collapse rather than taking part in it: it was decided before
+        // any family was dispatched, so nothing ran, nothing refused, and there is no second ground it could be
+        // discarding. `findings=["dialogue"] type="NOTATYPE"` reaches this, and before the shared check existed it
+        // reached an ordinary dialogue answer with the typo silently accepted.
         var grounds = refused.Select(f => s.Ground(f)!).Distinct(StringComparer.Ordinal).ToArray();
-        Error = ran.Count == 0 && refused.Count > 0 && grounds.Length == 1 ? grounds[0] : null;
+        Error = s.SharedInputError
+             ?? (ran.Count == 0 && refused.Count > 0 && grounds.Length == 1 ? grounds[0] : null);
         Refused = Error is null ? refused : Array.Empty<SweepFamily>();
 
         Sections = SweepFamilySelection.Registered.Where(f => Ran.Contains(f) || Refused.Contains(f)).ToArray();

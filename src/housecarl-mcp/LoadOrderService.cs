@@ -4615,7 +4615,7 @@ public sealed class LoadOrderService : IDisposable
             foreach (var name in plugins)
             {
                 var n = name?.Trim() ?? "";
-                if (n.Length == 0) return ErrorCheckResult.Fail("a blank plugin name in the scope — pass plugin filenames (e.g. 'CoolMod.esp').");
+                if (n.Length == 0) return ErrorCheckResult.Fail(SweepSharedInput.BlankPluginName);
                 if (view.ContainsPlugin(n)) { active.Add(n); continue; }
                 comp ??= Mo2LoadOrder.ReadComposition(profileDir);
                 var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, n, null);
@@ -4659,6 +4659,13 @@ public sealed class LoadOrderService : IDisposable
                 "plugins that file does NOT list, so it cannot be widened without it. Nothing was swept.");
         }
     }
+
+    /// <summary>The record-scope parse's REFUSAL alone, for the merged surface's shared-input check
+    /// (<see cref="SweepSharedInput"/>). The scope itself belongs to whichever family is about to sweep with it;
+    /// what is shared is the judgement that a value is malformed, and that judgement has to be reachable without
+    /// selecting a family that uses it.</summary>
+    internal string? SweepScopeError(IReadOnlyList<string>? formids, string? editoridContains, string? type)
+        => BuildSweepScope(formids, editoridContains, type).Error;
 
     /// <summary>Parse the two sweep tools' shared record-scope params (#282) into a <see cref="SweepScope"/>: FormID
     /// tokens, an EditorID substring, and a record type resolved through the SAME TypeLookup cross_plugin_query uses.

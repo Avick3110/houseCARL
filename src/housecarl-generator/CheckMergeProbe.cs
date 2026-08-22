@@ -1380,6 +1380,76 @@ public static class CheckMergeProbe
             && Count(sharedRefusal, "\n[errors] ") == 0,
             Trim(sharedRefusal));
 
+        // ---- THE SHARED INPUTS, ON A CALL WHOSE FAMILY NONE OF THEM SCOPE. type= / formids= / exclude= were parsed
+        //      inside the two SWEEP families' service entries, which the merged tool calls only where its family
+        //      was selected — so findings=['dialogue'] ran with nothing ever looking at them and a typo'd
+        //      narrowing came back as an ordinary dialogue answer (Aaron's review of PR #399, finding 3).
+        var dlgSeeds = new[] { "0F1AC1:HcOrch.esp" };
+        var dlgControl = CheckTools.CheckTool(svc, findings: new[] { "dialogue" }, seeds: dlgSeeds);
+        var dlgBadType = CheckTools.CheckTool(svc, findings: new[] { "dialogue" }, seeds: dlgSeeds, type: "NOSUCHTYPE");
+        var dlgBadFormid = CheckTools.CheckTool(svc, findings: new[] { "dialogue" }, seeds: dlgSeeds,
+                                                formids: new[] { "not-a-formid" });
+        var dlgBadExclude = CheckTools.CheckTool(svc, findings: new[] { "dialogue" }, seeds: dlgSeeds,
+                                                 exclude: new[] { "base_master" });
+        // …and the refusal is a DOCUMENT in json, not a bare string — the whole reason it renders through the
+        // normal refusal path instead of returning early from the tool.
+        var dlgBadTypeJson = CheckTools.CheckTool(svc, findings: new[] { "dialogue" }, seeds: dlgSeeds,
+                                                  type: "NOSUCHTYPE", format: "json");
+        bool refusalIsADocument;
+        try
+        {
+            using var d = JsonDocument.Parse(dlgBadTypeJson);
+            refusalIsADocument = Str(d.RootElement, "error") is { } e && e.Contains("NOSUCHTYPE", StringComparison.Ordinal);
+        }
+        catch { refusalIsADocument = false; }
+        Arm("ORCH-SHARED-INPUT-IS-CHECKED-BEFORE-FAMILY-DISPATCH: on findings=['dialogue'] — the one family none of them scope — a bad type=, a malformed formids= token and an exclude= value that is neither a filename nor a group each refuse the WHOLE call by name, in both transports, while the same call without them answers. Parsed inside the sweep families' own entries, none of the three was ever looked at",
+            dlgBadType.StartsWith("error", StringComparison.OrdinalIgnoreCase)
+            && dlgBadType.Contains("NOSUCHTYPE", StringComparison.Ordinal)
+            && dlgBadFormid.StartsWith("error", StringComparison.OrdinalIgnoreCase)
+            && dlgBadFormid.Contains("not-a-formid", StringComparison.Ordinal)
+            && dlgBadExclude.StartsWith("error", StringComparison.OrdinalIgnoreCase)
+            && dlgBadExclude.Contains("base_master", StringComparison.Ordinal)
+            && refusalIsADocument
+            // THE CONTROL, and it is the one this cell turns on: the same call WITHOUT a malformed value
+            // answers on the dialogue family's own terms — this fixture plants no DIAL, so that answer is
+            // its unresolved-seed ground — and names none of the three values. So each refusal above is
+            // the value being refused, not the call shape.
+            && dlgControl.Contains("0F1AC1:HcOrch.esp", StringComparison.Ordinal)
+            && !dlgControl.Contains("NOSUCHTYPE", StringComparison.Ordinal)
+            && !dlgControl.Contains("not-a-formid", StringComparison.Ordinal)
+            && !dlgControl.Contains("base_master", StringComparison.Ordinal),
+            $"type=[{Trim(dlgBadType)}] formid=[{Trim(dlgBadFormid)}] exclude=[{Trim(dlgBadExclude)}] control=[{Trim(dlgControl)}]");
+
+        // ---- A BLANK plugins= ENTRY. It was filtered out before `noneInScope` was computed, so the caller's scope
+        //      silently became "the whole order" — measured at ~468 s on a 3800-plugin order, with plugins=
+        //      discarded and nothing saying so (round-3 finding C1). Both ancestors refuse the same input.
+        var blankScope = CheckTools.CheckTool(svc, findings: new[] { "scripts" }, plugins: new[] { "  " });
+        var namedScope = CheckTools.CheckTool(svc, findings: new[] { "scripts" }, plugins: new[] { "HcOrch.esp" });
+        Arm($"ORCH-A-BLANK-PLUGIN-NAME-REFUSES-RATHER-THAN-SWEEPING-THE-ORDER: plugins=['  '] refuses the call by name and sweeps NOTHING — no scripts section, none of the {OrchWeapons + SecondWeapons} record sections the order holds — while the same call naming a real plugin sweeps its {OrchWeapons}",
+            blankScope.StartsWith("error", StringComparison.OrdinalIgnoreCase)
+            && blankScope.Contains("blank plugin name", StringComparison.Ordinal)
+            && Count(blankScope, "\n[scripts] ") == 0
+            && !blankScope.Contains("record section(s)", StringComparison.Ordinal)
+            && namedScope.Contains($"all {OrchWeapons} record section(s) found by this sweep appear above.", StringComparison.Ordinal),
+            $"blank=[{Trim(blankScope)}] named=[{Trim(namedScope)}]");
+
+        // ---- THE SPLIT, both halves, on the one call that separates them: every named plugin resolves OFF-ORDER,
+        //      so the scripts family's scope is empty BY CONSTRUCTION and its own exclude= pass is skipped
+        //      (ScriptPropertyCheck: "exclude= removed every plugin" would be a refusal about a narrowing that did
+        //      nothing). Round-3 finding C3 is that the SYNTAX refusal went with it. It no longer does — and the
+        //      SCOPE-MATCHING half still stays family-local, which is the settled grounds-are-one design and the
+        //      thing a fold that moved both halves up front would have broken.
+        var emptyScopeBadToken = CheckTools.CheckTool(svc, findings: new[] { "scripts" },
+                                                      plugins: new[] { "HcOrchOff.esp" }, exclude: new[] { "NotAToken" });
+        var emptyScopeRealName = CheckTools.CheckTool(svc, findings: new[] { "scripts" },
+                                                      plugins: new[] { "HcOrchOff.esp" }, exclude: new[] { "HcOrchTwo.esp" });
+        Arm("ORCH-EXCLUDE-SYNTAX-REFUSES-WITH-THE-SCOPE-EMPTY-BY-CONSTRUCTION, AND SCOPE-MATCHING STILL DOES NOT: with every named plugin off-order the scripts family's own exclude= pass is skipped, and an exclude= value that is neither a filename nor a group used to be skipped with it. It refuses by name now. A real filename that this empty scope does not contain is still the family's question, not the call's — the half that would have refused a call another family can answer",
+            emptyScopeBadToken.StartsWith("error", StringComparison.OrdinalIgnoreCase)
+            && emptyScopeBadToken.Contains("NotAToken", StringComparison.Ordinal)
+            && !emptyScopeRealName.StartsWith("error", StringComparison.OrdinalIgnoreCase)
+            && Count(emptyScopeRealName, "\n[scripts] ") == 1,
+            $"token=[{Trim(emptyScopeBadToken)}] name=[{Trim(emptyScopeRealName)}]");
+
         // ---- the dialogue family's cost-refusal, FAMILY-LOCAL, through the tool that composes it beside a family
         //      that answered perfectly well.
         var dlgRefused = CheckTools.CheckTool(svc, findings: new[] { "errors", "dialogue" });
