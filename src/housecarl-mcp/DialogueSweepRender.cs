@@ -125,6 +125,11 @@ internal static class DialogueSweepRender
         var sb = new StringBuilder();
         if (r.InputKind == "quest" && r.Topics.Count == 0) sb.Append(ReadSentences.DialogueSeedNoTopics);
         DialogueWire.AppendSeq(sb, r.SeqLint);
+        // The quest's own CK parity, BOTH ways round. Only the issue half was here, so a quest that passed said
+        // nothing at all and a caller could not tell a passing check from one that never ran — while this
+        // method's own summary claimed it rendered the quest-level CK parity. The ancestor states the OK line;
+        // now both do, from one sentence.
+        if (r.InputKind == "quest" && r.InputIssues.Count == 0) sb.Append(ReadSentences.DialogueQuestParityOk);
         DialogueWire.AppendIssues(sb, r.InputIssues, "  ", int.MaxValue);
         return sb.ToString();
     }

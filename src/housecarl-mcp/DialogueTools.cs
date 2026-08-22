@@ -122,7 +122,7 @@ internal static class DialogueWire
             // topic. An explicit OK line, matching the per-topic "graph: OK" style (a sub-check that ran and passed
             // is stated, not silent).
             if (r.InputIssues.Count == 0)
-                sb.Append("  quest CK-parity: OK — the NextAliasID (ANAM) subrecord is present and every objective carries its Flags (FNAM).\n");
+                sb.Append(ReadSentences.DialogueQuestParityOk);
             else
                 AppendIssues(sb, r.InputIssues, "  ", cap);
         }

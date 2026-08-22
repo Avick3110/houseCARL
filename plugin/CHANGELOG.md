@@ -65,6 +65,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   refused, which is what a malformed `type=` or FormID does; anything narrower is reported in that family's own
   section, beside the families that answered.
 
+- **Fixed: `findings=['dialogue']` states that a quest's own CK-parity check passed.** It reported the quest's
+  `NextAliasID` (ANAM) and objective `Flags` (FNAM) subrecords only when something was WRONG with them, so a
+  quest whose parity was fine said nothing at all and you could not tell a check that ran and passed from one
+  that never ran. `housecarl_validate_dialogue` has always stated it; both now say it from one sentence.
+
 - **Fixed: the dialogue family says what it reached, in its own units, and one word means one thing.** Its scope
   note claimed "it validated exactly the N seed(s) given in `seeds=`" using the number you NAMED, so a call whose
   `limit=` stopped it short claimed a completeness the accounting three lines below denied. It now uses four words
