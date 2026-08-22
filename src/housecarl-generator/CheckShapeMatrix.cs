@@ -226,7 +226,8 @@ internal static class CheckShapeMatrix
         var neverRendered = new List<string>();
         var everRendered = new HashSet<SweepSubject>();
         var oneBudget = new List<string>();
-        int noticesFollowed = 0, capsSwept = 0;
+        var honestyBad = new List<string>();
+        int noticesFollowed = 0, capsSwept = 0, honestyCells = 0;
 
         foreach (var shape in shapes)
         {
@@ -249,10 +250,23 @@ internal static class CheckShapeMatrix
                     if (response.Length > allowed && overCap.Count < 6)
                         overCap.Add($"{shape.Name} [{lane.Name}] @{cap}: {response.Length} chars, allowed {allowed} (floor {floor})");
 
-                    if (lane.Name == "json" && unparseable.Count < 4)
+                    if (lane.Name == "json")
                     {
-                        try { System.Text.Json.JsonDocument.Parse(response).Dispose(); }
-                        catch (Exception ex) { unparseable.Add($"{shape.Name} @{cap}: {ex.GetType().Name}"); }
+                        try
+                        {
+                            using var doc = System.Text.Json.JsonDocument.Parse(response);
+                            // (6) THE TWO HONESTY LAYERS ARE ONE SHAPE. `unread` (errors) and `scan_errors`
+                            // (scripts) answer the same kind of question — what this sweep could NOT read — and a
+                            // merged response carries both in one document, so a consumer has to parse them the
+                            // same way. They disagreed: one kept its 1.x wrapper and the other was rebuilt as a
+                            // bare array (Aaron's review of PR #399, finding 1). Asked at EVERY cap, because what
+                            // the wrapper is FOR is saying it was cut, and the cut is what the band produces.
+                            honestyCells += HonestyLayers(doc.RootElement, shape.Name, cap, honestyBad);
+                        }
+                        catch (Exception ex)
+                        {
+                            if (unparseable.Count < 4) unparseable.Add($"{shape.Name} @{cap}: {ex.GetType().Name}");
+                        }
                     }
 
                     // (5) ONE BUDGET. The allocation divides what is left after the fixed part and the reserves;
@@ -329,6 +343,12 @@ internal static class CheckShapeMatrix
         Arm("MATRIX-JSON-PARSES-AT-EVERY-CAP: every json render in the matrix is a well-formed document, including the ones the cap cut mid-family",
             unparseable.Count == 0, unparseable.Count == 0 ? "every json cell parsed" : string.Join("; ", unparseable));
 
+        Arm($"MATRIX-HONESTY-LAYERS-AGREE: the two honesty layers a merged counts_only response carries — the errors family's `unread` and the scripts family's `scan_errors` — are ONE json shape ({{total, rows, rendered, truncated}}), and each one's flags equal its OWN rows at every cap in every shape's band. One kept the 1.x wrapper while the other was rebuilt as a bare array, so a consumer reading the same kind of fact one family over had to parse it two ways",
+            honestyBad.Count == 0 && honestyCells > 0,
+            honestyBad.Count > 0 ? string.Join("; ", honestyBad.Take(6))
+                                 : honestyCells > 0 ? $"{honestyCells:N0} honesty-layer cells, both layers one shape throughout"
+                                                    : "no shape in the matrix carried an honesty layer — the arm never saw the case it is for");
+
         Arm($"MATRIX-REMEDY-CLEARS-IN-ONE-STEP: wherever the merged response's overrun notice fires, the length it states is the response's OWN and the cap it names clears the notice in ONE step — the regression's remedy went 6000 -> 6123 -> 6201 -> 6279, short by a constant every time",
             remedyBad.Count == 0 && noticesFollowed > 0,
             remedyBad.Count > 0 ? string.Join("; ", remedyBad)
@@ -356,6 +376,43 @@ internal static class CheckShapeMatrix
 
         NoStranding(shapes, Arm);
         AllocationEqualsSpend(shapes, Arm);
+    }
+
+    /// <summary>Check both wrapped honesty layers of one merged json response, and return how many were there to
+    /// check. A layer is <c>{total, rows, rendered, truncated}</c>: <c>rendered</c> is the rows the response
+    /// carries, and <c>truncated</c> is exactly "rows is short of total". Read structurally rather than by the one
+    /// family that happens to be in the shape, so a layer that changed TYPE fails here rather than reading as an
+    /// absent family.</summary>
+    static int HonestyLayers(System.Text.Json.JsonElement root, string shape, int cap, List<string> bad)
+    {
+        int seen = 0;
+        foreach (var (family, member) in new[] { ("errors", "unread"), ("scripts", "scan_errors") })
+        {
+            if (!root.TryGetProperty("families", out var fams) || fams.ValueKind != System.Text.Json.JsonValueKind.Object) return seen;
+            if (!fams.TryGetProperty(family, out var f) || f.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+            if (!f.TryGetProperty(member, out var layer)) continue;
+            seen++;
+            if (layer.ValueKind != System.Text.Json.JsonValueKind.Object)
+            {
+                if (bad.Count < 6) bad.Add($"{shape} @{cap}: families.{family}.{member} is {layer.ValueKind}, not the wrapper object its sibling is");
+                continue;
+            }
+            int? total = layer.TryGetProperty("total", out var a) && a.ValueKind == System.Text.Json.JsonValueKind.Number ? a.GetInt32() : null;
+            int? stated = layer.TryGetProperty("rendered", out var b) && b.ValueKind == System.Text.Json.JsonValueKind.Number ? b.GetInt32() : null;
+            bool? cut = layer.TryGetProperty("truncated", out var c)
+                        && c.ValueKind is System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False ? c.GetBoolean() : null;
+            int? carried = layer.TryGetProperty("rows", out var d) && d.ValueKind == System.Text.Json.JsonValueKind.Array ? d.GetArrayLength() : null;
+            if (total is null || stated is null || cut is null || carried is null)
+            {
+                if (bad.Count < 6) bad.Add($"{shape} @{cap}: families.{family}.{member} is missing one of total/rows/rendered/truncated");
+                continue;
+            }
+            if (stated != carried && bad.Count < 6)
+                bad.Add($"{shape} @{cap}: families.{family}.{member} states {stated} rendered, carries {carried} rows");
+            if (cut != (carried < total) && bad.Count < 6)
+                bad.Add($"{shape} @{cap}: families.{family}.{member} says truncated={cut} with {carried} of {total} rows");
+        }
+        return seen;
     }
 
     /// <summary>Every integer cap from 1 to the whole response plus this — so the band starts below the floor and
