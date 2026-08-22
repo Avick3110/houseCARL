@@ -1463,6 +1463,41 @@ public static class CheckMergeProbe
             && !dlgRefused.StartsWith("error:", StringComparison.Ordinal),
             Trim(dlgRefused));
 
+        // ---- THE RETIRED-NAME TABLE, held against the family registry rather than against a hand list. At the
+        //      2.0.0 clean cut this table is what an old tool name BECOMES, so a family whose ancestor has no row
+        //      leaves that ancestor's callers with nothing while their siblings get a pointer — and a row's
+        //      absence reads as "this one is being kept" rather than as "nobody decided". The merge absorbs three
+        //      ancestors; two rows were written, and the comment above them said "Both" (Aaron's review of PR
+        //      #399, finding 4). The dialogue row additionally owes the SECOND destination: class 8, the effective
+        //      merged INFO order, went to records project=info_order at the F1 split and is not on this surface,
+        //      so a row naming only the sweep sends "why does the wrong line play" somewhere that will not answer.
+        var retiredBad = new List<string>();
+        foreach (var f in SweepFamilySelection.Registered)
+        {
+            var spelling = SweepFamilySelection.Spelling(f);
+            var rows = AliasTable.AllRetiredTools
+                                 .Where(r => r.Successor.Contains(spelling, StringComparison.Ordinal)
+                                          || r.Successor.Contains("findings=[" + QuoteChar + SweepFamilySelection.Token(f) + QuoteChar + "]", StringComparison.Ordinal))
+                                 .ToArray();
+            if (rows.Length != 1)
+            {
+                retiredBad.Add($"the {SweepFamilySelection.Token(f)} family has {rows.Length} retired-name rows pointing at it, not 1");
+                continue;
+            }
+            // …and the row is REACHABLE by the ancestor's own name through the product path, not merely present.
+            if (AliasTable.RetiredToolHint(rows[0].Old) is not { } hint || !hint.Contains(rows[0].Old, StringComparison.Ordinal))
+                retiredBad.Add($"{rows[0].Old} has a row the retired-name lookup does not return");
+        }
+        var dialogueHint = AliasTable.RetiredToolHint("housecarl_validate_dialogue");
+        if (dialogueHint is null)
+            retiredBad.Add("housecarl_validate_dialogue has no retired-name row at all");
+        else if (!dialogueHint.Contains("info_order", StringComparison.Ordinal))
+            retiredBad.Add("the housecarl_validate_dialogue row names no destination for class 8 (the effective merged INFO order), which this surface deliberately does not carry");
+        Arm($"ORCH-EVERY-ABSORBED-ANCESTOR-HAS-A-RETIRED-NAME-ROW: each of the {SweepFamilySelection.Registered.Count} families this surface registers has exactly ONE retired-name row pointing at it, reachable by the ancestor's own name, and the dialogue row names BOTH destinations — the sweep for classes 1-7 and records project=info_order for class 8. Asked off the family registry, so a family added with no row for its ancestor reddens this",
+            retiredBad.Count == 0,
+            retiredBad.Count == 0 ? $"{SweepFamilySelection.Registered.Count} families, {AliasTable.AllRetiredTools.Count} rows in the table"
+                                  : string.Join("; ", retiredBad));
+
         // ---- format=, which routes the whole response and must refuse a typo rather than fall through to text.
         var asJson = CheckTools.CheckTool(svc, findings: new[] { "errors" }, format: "json");
         var badFormat = CheckTools.CheckTool(svc, findings: new[] { "errors" }, format: "jsonn");
@@ -1774,6 +1809,10 @@ public static class CheckMergeProbe
         detail = bad.Count == 0 ? string.Join(" ", seen) : string.Join("; ", bad.Take(6));
         return bad.Count == 0;
     }
+
+    /// <summary>The double-quote character, for arms that have to spell a caller-facing <c>findings=["x"]</c>
+    /// token back and would otherwise read as a wall of escapes.</summary>
+    const char QuoteChar = '"';
 
     static SweepFamilySelection Sel(params string[] tokens)
     {
