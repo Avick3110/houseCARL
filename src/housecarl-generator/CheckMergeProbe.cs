@@ -539,7 +539,7 @@ public static class CheckMergeProbe
                 dlgText.Contains("seeded, not swept", StringComparison.Ordinal)
                 && dlgText.Contains("do NOT scope it", StringComparison.Ordinal)
                 && dlgText.Contains("no off-order lane", StringComparison.Ordinal)
-                && fam.GetProperty("scope").GetString() == string.Format(ReadSentences.DialogueScopeNote, dialogue.SeedsNamed)
+                && fam.GetProperty("scope").GetString() == FirstLineWith(dlgText, "scope:")
                 && fam.GetProperty("seeded_not_swept").GetBoolean(),
                 FirstLineWith(dlgText, "scope:"));
 
@@ -584,6 +584,45 @@ public static class CheckMergeProbe
             && budgetText.Contains("2 of the 5 seed(s) named were validated; 3 were NOT validated", StringComparison.Ordinal)
             && budgetText.Contains("limit=", StringComparison.Ordinal),
             FirstLineWith(budgetText, "seed(s) named were validated"));
+
+        // ---- DIALOGUE-SCOPE-COUNTS-WHAT-IT-REACHED / -CUT-IS-IN-SEEDS ------------------------------
+        // Two round-1 findings on the same response, so they are asked of the same one. The scope sentence said
+        // "it validated exactly the 5 seed(s) given in seeds=" from the number NAMED, three lines above an
+        // accounting stating that three of them were never reached — a completeness claim its own section
+        // contradicted. And the seed subject's own cut borrowed the ERRORS family's sentence, telling the caller
+        // how many "plugin section(s)" a family that never opens a plugin had rendered.
+        var budgetJson = JsonWire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, budgeted), 0);
+        string budgetScope = FirstLineWith(budgetText, "scope:");
+        var scopeLies = new List<string>();
+        if (!budgetScope.Contains("It validated 2 of the 5 seed(s)", StringComparison.Ordinal))
+            scopeLies.Add($"the scope sentence does not state what it reached: [{budgetScope}]");
+        if (budgetScope.Contains("exactly the 5 seed(s)", StringComparison.Ordinal))
+            scopeLies.Add("the scope sentence still claims it validated every seed named");
+        if (!budgetScope.Contains("limit=", StringComparison.Ordinal))
+            scopeLies.Add("the scope sentence names no knob for the seeds it did not reach");
+        using (var doc = JsonDocument.Parse(budgetJson))
+            if (doc.RootElement.GetProperty("families").GetProperty("dialogue").GetProperty("scope").GetString() is var js
+                && js != budgetScope)
+                scopeLies.Add($"json states a different scope sentence: [{js}]");
+        Check("DIALOGUE-SCOPE-COUNTS-WHAT-IT-REACHED: with limit= below the seed count the scope sentence states what it VALIDATED and what was named, and names the knob — printed from the named figure it claimed a completeness the accounting three lines down denied, in both transports",
+            scopeLies.Count == 0,
+            scopeLies.Count == 0 ? budgetScope : string.Join("; ", scopeLies));
+
+        // A cap that cuts the seed SECTIONS, so the subject's own cut sentence is written at all. The fixture's
+        // arithmetic decides the expected units, never the sentence: this family's rows are seeds, not plugins.
+        var seedCutBad = new List<string>();
+        bool sawSeedCut = false;
+        for (int cap = 400; cap <= 6000; cap += 20)
+        {
+            var t = Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, budgeted), cap);
+            if (t.Contains("seed section(s) were rendered", StringComparison.Ordinal)) sawSeedCut = true;
+            if (t.Contains("plugin section(s) were rendered", StringComparison.Ordinal))
+                seedCutBad.Add($"@{cap}: the dialogue family reports its cut in plugin sections");
+        }
+        if (!sawSeedCut) seedCutBad.Add("no cap in 400..6000 cut the seed sections — the arm never saw the case it is for");
+        Check("DIALOGUE-CUT-IS-STATED-IN-SEEDS: where a cap cuts this family's rows the accounting counts SEED sections — it borrowed the errors family's sentence and told the caller about plugin sections a seeded family never looks at",
+            seedCutBad.Count == 0,
+            seedCutBad.Count == 0 ? "every cap that cut stated seeds" : string.Join("; ", seedCutBad.Take(3)));
 
         // ---- DIALOGUE-FINISHED-SEED-HANDS-BACK-ITS-SHARE -------------------------------------------
         // A subject's ceiling is fixed on its FIRST unit against the siblings still pending, so the topic blocks of

@@ -220,6 +220,12 @@ internal static class ReadSentences
     [MustState("plugin section(s)")]
     internal const string SweepSections = " {0} of {1} plugin section(s) were rendered.";
 
+    /// <summary>The DIALOGUE family's own version, in ITS units. It used to borrow the sentence above, so a merged
+    /// response told the caller how many "plugin section(s)" a family that never looks at a plugin had rendered
+    /// (round-1 review).</summary>
+    [MustState("seed section(s)")]
+    internal const string SweepDialogueSeedSections = " {0} of {1} seed section(s) were rendered.";
+
     /// <summary>The excluded-plugin roster's own cut. Its rows are the plugins houseCARL could not parse at all,
     /// so losing them silently hides the honesty layer rather than a finding.</summary>
     [MustState("could not be parsed")]
@@ -544,11 +550,25 @@ internal static class ReadSentences
     /// <para>Unstated, a caller who wrote <c>plugins=["MyMod.esp"] findings=["errors","dialogue"]</c> would read the
     /// dialogue section as scoped to their plugin when it is scoped to their seeds — the two answers differ and
     /// nothing in the response would say which one they were reading.</para></summary>
+    /// <para>What it says about HOW MANY is two sentences, not one, and that is the point: "it validated exactly
+    /// the N seed(s) given in seeds=" was printed from the number NAMED, so a call whose <c>limit=</c> stopped it
+    /// short claimed a completeness the accounting in the same section immediately contradicted (round-1
+    /// review).</para></summary>
     [MustState("seeded, not swept", "do NOT scope it", "no off-order lane")]
     internal const string DialogueScopeNote =
         "scope: the dialogue family is seeded, not swept — plugins=, type=, formids=, editorid_contains= and " +
-        "exclude= scope the sweep families and do NOT scope it. It validated exactly the {0} seed(s) given in " +
-        "seeds=. It has no off-order lane: a seed is a record, and it must resolve in the ACTIVE load order.";
+        "exclude= scope the sweep families and do NOT scope it. {0} It has no off-order lane: a seed is a record, " +
+        "and it must resolve in the ACTIVE load order.";
+
+    /// <summary>The seed count, when the seed budget reached every one of them.</summary>
+    [MustState("seed(s) given in seeds=")]
+    internal const string DialogueScopeAllSeeds = "It validated exactly the {0} seed(s) given in seeds=.";
+
+    /// <summary>…and when it did not. The knob is named, because a caller reading a short answer needs to know
+    /// which parameter moves it — the accounting states the same cut, and the two come off one computation.</summary>
+    [MustState("seed(s) given in seeds=", "limit=")]
+    internal const string DialogueScopeSomeSeeds =
+        "It validated {0} of the {1} seed(s) given in seeds= — limit= stopped it there.";
 
     /// <summary>The dialogue family's honest boundary — <c>validate_dialogue</c>'s always-printed standing-limits
     /// footer, carried whole into the merged surface as this family's closing claim. It is the family's BOUNDARY
