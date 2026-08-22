@@ -1799,7 +1799,10 @@ public static class CheckMergeProbe
         string capped = Wire.RenderCheck(s, Default, 1000, out var body);
         // The fixture has to FIT, or the arm is asking nothing.
         if (uncapped.Length >= Default) bad.Add($"the uncapped response is {uncapped.Length} chars — the fixture no longer fits the default and this arm proves nothing");
-        foreach (var unit in new[] { "[ERROR] ", "[UNBOUND] ", "  dangling ref " })
+        // The dangling entry's marker is the composer's OWN text. "  dangling ref " is a string
+        // ReadTools.ComposeDanglingLine never writes, so this loop asked about a unit whose count was 0 either
+        // way — on the one subject the errors family accounts for a unit at a time (Aaron's review of PR #399).
+        foreach (var unit in new[] { "[ERROR] ", "[UNBOUND] ", "   [target not defined by any active plugin]" })
         {
             int whole = Count(uncapped, unit), got = Count(capped, unit);
             if (got != whole) bad.Add($"text '{unit.Trim()}': {got} rendered inside the default, {whole} with no cap at all");
@@ -1861,7 +1864,7 @@ public static class CheckMergeProbe
     /// <summary>A response's rendered-unit fingerprint in the text lane — what "renders everything" means, counted
     /// rather than read off a sentence the response prints about itself.</summary>
     static string TextUnits(string t)
-        => $"{Count(t, "[ERROR] ")}/{Count(t, "[UNBOUND] ")}/{Count(t, "  dangling ref ")}/{Count(t, "\nseed ")}/{Count(t, "  topic ")}";
+        => $"{Count(t, "[ERROR] ")}/{Count(t, "[UNBOUND] ")}/{Count(t, "   [target not defined by any active plugin]")}/{Count(t, "\nseed ")}/{Count(t, "  topic ")}";
 
     /// <summary>The same fingerprint in json, off the arrays themselves.</summary>
     static string JsonUnits(string j)
