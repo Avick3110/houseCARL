@@ -303,18 +303,34 @@ internal static class AliasTable
          "absorbed into housecarl_create: records= is unchanged in shape except operations= is ops= (verb= is op=), and it also accepts \"@<absolute path>\". The nested one-shot is unchanged: declare a parent BEFORE the children whose parent= names its editorid, and '@editorid' still references a same-call sibling. patch_name= is patch=, full_readback= is readback=, target=+in_place=true is in_place=\"X.esp\"."),
         ("housecarl_remove_record",
          "absorbed into housecarl_remove: formids= is SET-VALUED — drop many records in one re-serialize (one is a set of one). The houseCARL-patch lane is into=\"MyPatch.esp\" (removal edits an artifact that EXISTS; patch= names a NEW one everywhere else on the surface), and the target=+in_place=true pair is in_place=\"X.esp\"."),
-        // 4b — the derived-findings sweep. Both ancestors stay REGISTERED through the build waves (the W2/W3
+        // 4b — the derived-findings sweep. ALL THREE ancestors stay REGISTERED through the build waves (the W2/W3
         // precedent), so these rows are dormant by construction: a registered name resolves and never reaches the
         // retired-name check. They activate at the 2.0.0 clean cut, and nothing in a response mentions them until
-        // then — no deprecation prose, in either tool.
+        // then — no deprecation prose, in any of the three.
+        //
+        // THE DISPOSITION OF housecarl_validate_dialogue IS RECORDED HERE, because this table is what an old name
+        // becomes at the cut and a row's absence reads as "kept" rather than as "not decided". It RETIRES with its
+        // siblings: the merged surface carries its finding classes 1–7 under findings=["dialogue"], and class 8 —
+        // the effective merged INFO order, which is an ordered sequence rather than a finding — went to
+        // housecarl_records project={"form": "info_order"} at the SPEC §6.1 F1 split and ships there today. So the
+        // successor teaching is TWO destinations, and a row naming only the sweep would send the caller who wants
+        // "why does the wrong line play" to a surface that deliberately does not answer it.
         ("housecarl_check_errors",
          "absorbed into housecarl_check: the same sweep is findings=[\"errors\"], which is also the DEFAULT when findings= is omitted. type=/formids=/editorid_contains=/exclude=/counts_only=/limit=/max_chars=/format= are unchanged; the response is sectioned per family and states which families it did not run."),
         ("housecarl_validate_scripts",
          "absorbed into housecarl_check: findings=[\"scripts\"] (or a class inside it — 'unbound_object', 'unbound_scalar', 'unbound', 'bound_null'). property_contains= and the record scope are unchanged, exclude= now scopes this family too, and the record listing is under the max_chars bound it was not under before."),
 
+        ("housecarl_validate_dialogue",
+         "split in two. The findings are housecarl_check findings=[\"dialogue\"] with seeds= taking the same DIAL / QUST / DLVW / DLBR FormIDs — graph and branch wiring, LinkTo and previous-link targets, .fuz files, result scripts, CK-parity subrecords, malformed conditions and the .seq check — and limit= caps how many SEEDS one call expands. The effective merged INFO order is housecarl_records project={\"form\": \"info_order\"} with the DIAL in formids=: it is an ordered sequence rather than a finding, and the sweep's dialogue boundary says so."),
+
         ("housecarl_forward_record",
          "absorbed into housecarl_forward: from_plugin= is source= (an ACTIVE plugin — whose version to copy). patch_name= is patch=, full_readback= is readback=, and the target=+in_place=true pair is in_place=\"X.esp\". formids=, dry_run= and the into= replace-on-collision semantics are unchanged."),
     };
+
+    /// <summary>The retired-name rows, for the guard that holds them against the surface they redirect INTO — the
+    /// sibling of <see cref="AllRenames"/> / <see cref="AllDissolutions"/>. A merged surface gaining a family whose
+    /// ancestor has no row here is the shape this exists to make visible.</summary>
+    internal static IReadOnlyList<(string Old, string Successor)> AllRetiredTools => RetiredTools;
 
     /// <summary>The successor teaching for a retired tool name, or null. Case-insensitive on the full name.</summary>
     internal static string? RetiredToolHint(string? toolName)
