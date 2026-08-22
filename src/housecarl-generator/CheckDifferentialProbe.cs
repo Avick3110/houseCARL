@@ -486,10 +486,16 @@ public static class CheckDifferentialProbe
             if (!m.Success) return null;   // a head shape this cell does not know is not one it may wave through
             string kind = m.Groups[1].Value, name = m.Groups[2].Value,
                    fk = m.Groups[3].Value, topics = m.Groups[4].Value;
-            return mergedResponse.Contains(fk, StringComparison.Ordinal)
-                && mergedResponse.Contains(name, StringComparison.Ordinal)
-                && mergedResponse.Contains(kind, StringComparison.Ordinal)
-                && mergedResponse.Contains(topics + " topic", StringComparison.Ordinal)
+            // Asked of the merged SEED HEAD LINE, not of the response as a whole. A whole-response substring test
+            // was the first spelling and it could not fail: a sabotage removing the quest's name from the head
+            // still passed, because this order's topic EditorIDs are PREFIXED with the quest name (MQ101HelgenIntro
+            // and its siblings), so `Contains("MQ101")` was satisfied by a coincidence rather than by the fact
+            // being carried. The head line is where the ancestor's head line's facts have to land.
+            string head = mergedResponse.Replace("\r", "").Split('\n')
+                                        .FirstOrDefault(x => x.StartsWith("seed " + fk, StringComparison.Ordinal)) ?? "";
+            return head.Contains(name, StringComparison.Ordinal)
+                && head.Contains(kind, StringComparison.Ordinal)
+                && head.Contains(topics + " topic", StringComparison.Ordinal)
                  ? $"the ancestor's HEAD line — the merged response writes a seed head instead, carrying the same "
                  + $"facts ({kind} {name}, {fk}, {topics} topics) plus the winning plugin the ancestor does not state"
                  : null;
