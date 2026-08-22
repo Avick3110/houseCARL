@@ -317,7 +317,105 @@ public static class CheckMeasureProbe
         }
         Console.WriteLine($"\n   the merged scope sentence, which the ancestor does not carry: {CheckOutcome.For(merged).ScopeSentence().Length} chars");
         Console.WriteLine($"   the merged response with no body in it at all                : {Wire.RenderCheck(merged, 1).Length} chars");
+        BandHeadroom(merged);
         return 0;
+    }
+
+    /// <summary>WHERE THE HEADROOM GOES — the diagnostic the band's own table raises and cannot answer.
+    ///
+    /// <para>At every biting cap the merged response comes back a few hundred characters SHORT of the cap it was
+    /// given, and the table alone cannot say whether that is budget the allocation failed to hand out or room no
+    /// subject could spend. The two have opposite dispositions: the first is a defect in the water-fill, the
+    /// second is whole-unit granularity — an axis renders in whole rows, so a subject holding less room than its
+    /// next row costs renders nothing however much it is left holding.</para>
+    ///
+    /// <para>It is answered by SUBTRACTION rather than by argument. Every governed subject states what it was
+    /// allocated and what it spent; the difference is room that was handed out and could not be used. If those
+    /// differences sum to the headroom, the headroom IS granularity and nothing went unallocated. If they do not,
+    /// the remainder is room the fill never handed to anyone, and that is a different finding.</para>
+    ///
+    /// <para>The width of the unit that did not fit is MEASURED, not inferred: for the subject holding the most
+    /// unusable room, the cap is walked upward until that subject's spend moves, and the step it takes when it
+    /// moves is that unit's own width. A leftover narrower than the unit is a subject that could not have
+    /// rendered anything more, which is the claim being tested.</para></summary>
+    static void BandHeadroom(CheckSweep merged)
+    {
+        Console.WriteLine("");
+        Console.WriteLine("## where the headroom goes — allocation against spend, per subject");
+        Console.WriteLine("");
+        Console.WriteLine($"   {"cap",6} {"chars",7} {"headroom",9} = {"held,unwritten",14} + {"unspent",8}    ({"heldTotal",9} {"written",8})");
+
+        foreach (int cap in new[] { 2000, 3000, 4000, 6000, 10000 })
+        {
+            string body = Wire.RenderCheck(merged, cap, 1000, out var b);
+            if (b is null) { Console.WriteLine($"   {cap,6} (no measured body)"); continue; }
+            int headroom = cap - body.Length, unspent = 0;
+            var held = new List<(SweepSubject S, int Left)>();
+            foreach (SweepSubject subject in Enum.GetValues<SweepSubject>())
+            {
+                int a = b.AllocationOf(subject);
+                if (a <= 0) continue;
+                int left = a - b.SpentOn(subject);
+                if (left <= 0) continue;
+                unspent += left;
+                held.Add((subject, left));
+            }
+            string names = held.Count == 0
+                ? "(none — every allocation was spent whole)"
+                : string.Join(", ", held.OrderByDescending(h => h.Left).Take(4).Select(h => $"{h.S} {h.Left}"));
+            // THE TERMS, PRINTED RAW rather than combined into a difference. The response's length is the part it
+            // owes whatever the budget says plus what its units wrote; the cap less that is the headroom. Two
+            // things put room there: allocation a subject held and could not spend (unspent, above), and room
+            // held OUT of the row budget up front for a fixed part and reserves that then wrote less than the
+            // number they were measured at (fixedOver). Printing both against the raw budget numbers is what
+            // makes the sum checkable instead of argued.
+            // THE DECOMPOSITION. The response holds room out of the cap in two places before a single unit is
+            // written: the cap less the body budget (the response-level reserve for its accountings and
+            // boundaries), and the row budget's own subtraction for the fixed part and the demand reserve. What
+            // it then actually writes outside its units is the response less what the units wrote. The
+            // difference between the two is room held and never written — an UPPER-BOUND over-measure, which is
+            // the safe direction (an under-measure is a response over its cap) but is still room no row could use.
+            int heldTotal = (cap - b.Budget) + b.ReservedForRows;
+            int written = body.Length - b.BodyTotal;
+            int heldUnwritten = heldTotal - written;
+            Console.WriteLine($"   {cap,6} {body.Length,7} {headroom,9} = {heldUnwritten,14} + {unspent,8}    ({heldTotal,9} {written,8})"
+                            + (heldUnwritten + unspent == headroom ? "" : $"   MISMATCH by {headroom - heldUnwritten - unspent}"));
+            Console.WriteLine($"          granularity, held by: {names}");
+        }
+
+        // …and the WIDTH of the unit that did not fit, for the subject holding the most room at the cap #394's
+        // own band is stated at. Walked rather than computed: the cap goes up until that subject's spend moves,
+        // and the step it takes is the unit.
+        const int probeCap = 4000;
+        Wire.RenderCheck(merged, probeCap, 1000, out var pb);
+        if (pb is null) return;
+        var worst = Enum.GetValues<SweepSubject>()
+                        .Where(x => pb.AllocationOf(x) > 0)
+                        .Select(x => (S: x, Left: pb.AllocationOf(x) - pb.SpentOn(x), Spent: pb.SpentOn(x)))
+                        .OrderByDescending(x => x.Left).FirstOrDefault();
+        if (worst.Left <= 0)
+        {
+            Console.WriteLine("");
+            Console.WriteLine($"   at {probeCap} every allocation was spent whole.");
+            return;
+        }
+        for (int c = probeCap + 1; c <= probeCap + 4000; c++)
+        {
+            Wire.RenderCheck(merged, c, 1000, out var wb);
+            if (wb is null) continue;
+            int now = wb.SpentOn(worst.S);
+            if (now <= worst.Spent) continue;
+            int unit = now - worst.Spent;
+            Console.WriteLine("");
+            Console.WriteLine($"   at {probeCap}, {worst.S} held {worst.Left} unspent chars.");
+            Console.WriteLine($"   its next unit costs {unit} chars — it first renders at cap {c}, {c - probeCap} wider.");
+            Console.WriteLine(worst.Left < unit
+                ? "   The room it held was NARROWER than that unit, so it could render nothing more: this is granularity."
+                : "   The room it held would have covered that unit — this is NOT granularity.");
+            return;
+        }
+        Console.WriteLine("");
+        Console.WriteLine($"   {worst.S} held {worst.Left} unspent at {probeCap} and did not move within 4000 chars of extra cap.");
     }
 
     /// <summary>Rows across BOTH text histogram axes — the "other half" figure, counted off the render.</summary>
