@@ -187,11 +187,37 @@ public static class PkcuProbe
     }
 
     /// <summary>CI REGRESSION GUARD (self-contained — no external file/MO2 deps, unlike the manual proofs above, so it
-    /// runs on the CI runner). SYNTHESIZES the malformed-PKCU case in code: writes a clean plugin (a keyword) + a plugin
-    /// with an empty PACK, both masterless (CI has no game files), then flips the PACK's PKCU data-input count from 0 to
-    /// a non-zero value so count≠inputs — the exact mismatch Mutagen throws on mid-enumeration. Asserts the resolver
-    /// EXCLUDES the bad plugin (not fatal) while the clean plugin still resolves. Locks in the "Taste of Death" fix.
-    /// Returns 0 = pass / 1 = fail (the CI gate). Run: dotnet run --project src/housecarl-generator -- pkcu-regression</summary>
+    /// runs on the CI runner). SYNTHESIZES a malformed PKCU in code: writes a clean plugin (a keyword) + a plugin
+    /// with an empty PACK, both masterless (CI has no game files), then corrupts the PACK's PKCU subrecord so Mutagen
+    /// throws constructing the overlay mid-enumeration. Asserts the resolver EXCLUDES the bad plugin (not fatal) while
+    /// the clean plugin still resolves. Locks in the "Taste of Death" fix.
+    /// Returns 0 = pass / 1 = fail (the CI gate). Run: dotnet run --project src/housecarl-generator -- pkcu-regression
+    ///
+    /// WHICH CORRUPTION, AND WHY IT CHANGED (Mutagen 0.53.1 -> 0.54.4, 2026-08-23). The synthesis used to flip the
+    /// PKCU data-input COUNT from 0 to a non-zero value, so count≠inputs. 0.54.4 no longer throws on that — it parses
+    /// the mismatch silently and enumerates the record — almost certainly 0.54.2's "Reverted undesirable optimization
+    /// causing parsing errors in specific scenarios". The staleness self-check below caught it rather than letting the
+    /// guard turn into a false PASS, which is what that check is for.
+    ///
+    /// Measured across both versions before re-fixturing, so the replacement was chosen on evidence and not on a
+    /// guess about which shapes are stable:
+    ///
+    ///   corruption                     0.53.1                        0.54.4
+    ///   PKCU data count 0 -> 6         SubrecordException            NO THROW   &lt;- the old fixture
+    ///   PKCU subrecord length 12 -> 99 SubrecordException            SubrecordException   &lt;- the new fixture
+    ///   PKDT subrecord length -> 200   no throw                      no throw
+    ///   EDID subrecord length -> 250   ArgumentOutOfRangeException   ArgumentOutOfRangeException
+    ///   PACK record length +5000 / ->3 no throw                      no throw
+    ///   GRUP size -> 9999              ModGroupsMalformedException   ModGroupsMalformedException
+    ///   truncated tail                 ModGroupsMalformedException   ModGroupsMalformedException
+    ///
+    /// Exactly one shape changed. The replacement stays in the SAME subrecord and throws the SAME exception type on
+    /// BOTH versions, so the guard still synthesizes "a malformed PKCU on a package record throws mid-enumeration" —
+    /// the Taste of Death shape — and is not pinned to either Mutagen version.
+    ///
+    /// The behavior change is upstream's, not ours: a plugin whose PKCU count disagrees with its inputs is no longer
+    /// excluded by the resolver, because nothing throws on it any more. That is a narrower isolation surface, not a
+    /// broken one — the fix this guard locks still isolates every shape that does throw.</summary>
     public static int RunRegression(string[] args)
     {
         Console.WriteLine("== PKCU REGRESSION GUARD (self-contained) ==");
@@ -209,16 +235,17 @@ public static class PkcuProbe
             var cleanKwFk = kw.FormKey;
             cleanMod.BeginWrite.ToPath(cleanPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
-            // 2. BAD plugin — an empty PACK. Mutagen writes a PKCU counter (count=0) for it; flip count→6 so it claims
-            //    6 data inputs but carries 0 → "Unexpected data count mismatch" thrown when Mutagen constructs the
-            //    overlay during enumeration (the exact bug).
+            // 2. BAD plugin — an empty PACK. Mutagen writes a PKCU subrecord for it; overstate that subrecord's
+            //    declared LENGTH so it claims more bytes than the record carries → SubrecordException thrown when
+            //    Mutagen constructs the overlay during enumeration (the Taste of Death shape). See the summary
+            //    above for why this is the length and no longer the data-input count.
             var badMod = new SkyrimMod(ModKey.FromNameAndExtension("hcRegBad.esp"), SkyrimRelease.SkyrimSE);
             var pkg = badMod.Packages.AddNew();
             pkg.EditorID = "hcRegBadPackage";
             var pkgFk = pkg.FormKey;
             badMod.BeginWrite.ToPath(badPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
-            if (!FlipPkcuCount(badPath, 0x06, out var synthNote)) { Console.WriteLine($"   FAIL (synth): {synthNote}"); return 1; }
+            if (!OverstatePkcuLength(badPath, 99, out var synthNote)) { Console.WriteLine($"   FAIL (synth): {synthNote}"); return 1; }
             Console.WriteLine($"   synth: {synthNote}");
 
             // Sanity: the synthesized bad plugin really does throw on raw enumeration (else the test proves nothing).
@@ -249,19 +276,26 @@ public static class PkcuProbe
         finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
 
-    /// <summary>Flip the PKCU data-input count (first DWORD's low byte) in a written plugin to <paramref name="newCount"/>,
-    /// creating a count≠actual-inputs mismatch. Returns false if no PKCU subrecord is present (synthesis assumption broken).</summary>
-    static bool FlipPkcuCount(string path, byte newCount, out string note)
+    /// <summary>Overstate the PKCU subrecord's declared length (the 2-byte field after the 4-byte tag) so it claims
+    /// more bytes than the record carries. Returns false if no PKCU subrecord is present (synthesis assumption broken).
+    /// </summary>
+    static bool OverstatePkcuLength(string path, ushort newLength, out string note)
     {
         var b = File.ReadAllBytes(path);
         for (int i = 0; i < b.Length - 6; i++)
             if (b[i] == 0x50 && b[i + 1] == 0x4B && b[i + 2] == 0x43 && b[i + 3] == 0x55)   // "PKCU"
             {
-                int dataStart = i + 6;                                                        // 4 tag + 2 length
-                byte old = b[dataStart];
-                b[dataStart] = newCount;
+                var old = BitConverter.ToUInt16(b, i + 4);                                    // 4 tag, then 2 length
+                if (newLength <= old)
+                {
+                    // Not a corruption at all — it would have to claim MORE than it carries to be one. Refuse
+                    // rather than write a well-formed plugin and let the run read as a pass.
+                    note = $"PKCU @ {i}: declared length is already {old}, so {newLength} would not overstate it";
+                    return false;
+                }
+                BitConverter.GetBytes(newLength).CopyTo(b, i + 4);
                 File.WriteAllBytes(path, b);
-                note = $"PKCU @ {i}: data-input count {old} -> {newCount} (now claims {newCount} inputs, carries 0)";
+                note = $"PKCU @ {i}: subrecord length {old} -> {newLength} (now claims {newLength} bytes, carries {old})";
                 return true;
             }
         note = "no PKCU subrecord found in the synthesized PACK (Mutagen did not emit one for an empty package)";
