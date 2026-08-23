@@ -269,9 +269,18 @@ public static class PkcuProbe
             // (a data-input count disagreeing with the inputs) and could only be detected while parsing the
             // record body, so it was structurally guaranteed to land mid-enumeration. An overstated subrecord
             // LENGTH is exactly the class an upstream parser is most likely to start rejecting during a
-            // structure scan instead. Pin the reason so that drift is a RED, not a silent downgrade.
-            const string MidEnumerationMarker = "contains a record Mutagen cannot parse";
-            bool viaEnumeration = exclusionReason?.Contains(MidEnumerationMarker, StringComparison.Ordinal) == true;
+            // structure scan instead. Pin the path so that drift is a RED, not a silent downgrade.
+            //
+            // The path is read as a FACT, not out of the reason sentence. The first cut of this assertion
+            // pinned a substring of the user-facing prose LoadOrderResolver builds, which coupled a guard to
+            // wording that is free to change and made a reword print a cause the guard had not measured.
+            // Unopenable is the resolver's own machine-readable split of the two paths, added by #314 and kept
+            // as its own set for this exact reason ("a message is display prose that can be reworded,
+            // membership is a fact"). unopenable.Add fires at the open-time Exclude and nowhere else, and
+            // those are the only two Exclude call sites, so excluded-and-not-unopenable IS the mid-enumeration
+            // path. Step 2 above independently establishes that this fixture opens fine and throws while
+            // enumerating, so the two agree on which path the corruption takes.
+            bool viaEnumeration = excluded && !resolver.IsUnopenable("hcRegBad.esp");
             var cleanWin = resolver.ResolveWinner(cleanKwFk);
             var badWin = resolver.ResolveWinner(pkgFk);
             Console.WriteLine($"   build OK — {resolver.RecordCount} record(s), {resolver.ExcludedPlugins.Count} excluded");
@@ -281,8 +290,9 @@ public static class PkcuProbe
             resolver.Dispose();
 
             if (excluded && !viaEnumeration)
-                Console.WriteLine($"   NOTE: excluded, but NOT via the mid-enumeration path this guard locks — " +
-                                  $"the synthesized corruption now fails earlier. Reason: {Trunc(exclusionReason ?? string.Empty)}");
+                Console.WriteLine($"   NOTE: excluded via the could-not-be-OPENED path, NOT the mid-enumeration " +
+                                  $"path this guard locks — the synthesized corruption now fails earlier. " +
+                                  $"Reason: {Trunc(exclusionReason ?? string.Empty)}");
             bool pass = excluded && viaEnumeration && cleanWin is not null && badWin is null && resolver.RecordCount > 0;
             Console.WriteLine(pass ? "   ==> PASS: malformed plugin isolated, clean plugin resolves." : "   ==> FAIL");
             return pass ? 0 : 1;

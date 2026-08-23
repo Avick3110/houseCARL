@@ -28,16 +28,18 @@ namespace HousecarlGenerator;
 ///       refactor could delete or invert it with every guard still green.
 ///   C — THE LINE CLAIMS ITS MEASUREMENT AND NOTHING MORE. #397 asked the output to stop conflating a real
 ///       coverage gap with a correct exclusion; it did not license a third diagnosis. So C asserts the honest
-///       content (the marker, the FULL type name, a non-zero settable count, the check that settles it) AND the
+///       content (the marker, the FULL type name, a non-zero authorable count carrying the predicate that
+///       produced it, and the one shared check that settles it, present in BOTH arms) AND the
 ///       ABSENCE of the two sentences that were removed for asserting what the predicate cannot establish —
 ///       "a real coverage gap, not a read-only projection", and "the fix belongs upstream in Mutagen". The
 ///       second was provably false for this guard's own exhibit. Assert the absence or nothing stops it coming
 ///       back, and a guard checking only which enum value returned would never notice.
 ///   D — THE LINE IS ACTUALLY EMITTED. A/B/C pin the wording of a sentence; none of them requires anyone to
 ///       PRINT it. Measured: no-opping both call sites left every other arm green, left emit-match-guard and
-///       corpus-hygiene-guard green, and made the whole ANOMALIES section vanish. So D drives a real emit and
-///       reads what the generator reported. It pins the RECORD path only — the arm path has no live exhibit and
-///       is stated as unpinned at the check itself, rather than left for a reader to assume.
+///       corpus-hygiene-guard green, and made the whole coverage-anomaly section vanish. So D drives a real emit
+///       and reads what the generator reported — from the COVERAGE ANOMALIES channel, which is printed in full,
+///       never sharing the unbounded warning stream's print cap. It pins the RECORD path only — the arm path has
+///       no live exhibit and is stated as unpinned at the check itself, rather than left for a reader to assume.
 ///
 /// The types in B/C are named deliberately, and a rename or a Mutagen bump that changes their shape SHOULD break
 /// this guard — that is the tripwire working. #397's whole point is that a bump is what arms this class; a guard
@@ -47,13 +49,17 @@ public static class ArmClassificationProbe
 {
     // Real types from the live assembly, each chosen as the exhibit of one class. Verified by direct reflection
     // before being written down here; the counts are asserted below rather than trusted.
-    const string AuthorableExhibit = "Armor";                              // getter interface + mutable twin
-    const string ProjectionExhibit = "SkyrimMultiModOverlay";              // none resolved by name, 0 settable
-    const string ProjectionExhibit2 = "MergedCellBlock";                   // none resolved by name, 0 settable
+    // FULL names, and Find() matches on FullName: ~350 distinct nested types in this assembly share one simple
+    // name, so a simple-name FirstOrDefault picks an arbitrary one of a colliding set and silently exhibits the
+    // wrong type. Each of these four is unique by simple name TODAY, which is exactly why the resolution has to
+    // be pinned now rather than after a bump introduces the collision.
+    const string AuthorableExhibit = "Mutagen.Bethesda.Skyrim.Armor";                   // getter interface + mutable twin
+    const string ProjectionExhibit = "Mutagen.Bethesda.Skyrim.SkyrimMultiModOverlay";   // none resolved by name, 0 authorable
+    const string ProjectionExhibit2 = "Mutagen.Bethesda.Skyrim.MergedCellBlock";        // none resolved by name, 0 authorable
     // Resolves no I{Name}Getter BY NAME while implementing IGenderedItemGetter&lt;bool&gt;, and its data IS
     // catalogued, as GenderedItem&lt;Boolean&gt;. That is precisely why this line reports rather than diagnoses,
     // and why the name-resolution defect it exposes is filed as #424 instead of worked around here.
-    const string UnextractableExhibit = "ArmorAddonWeightSliderContainer"; // none resolved by name, 2/2 settable
+    const string UnextractableExhibit = "Mutagen.Bethesda.Skyrim.ArmorAddonWeightSliderContainer"; // none by name, 2/2 authorable
 
     public static int RunGuard(string[] args)
     {
@@ -74,7 +80,7 @@ public static class ArmClassificationProbe
         // before AssembliesWalked describes anything (check A's universe is derived from it), and section D
         // reads what the generator actually reported. Doing it here rather than at D means A cannot pass
         // vacuously over an empty universe — which it did, once, until A0 caught it.
-        var reported = EmitAndCaptureAnomalies(out var anomalyCount);
+        var reported = EmitAndCaptureCoverageAnomalies(out var anomalyCount);
 
         // ---------------------------------------------------------------- A: behavior neutrality
         // The predicate as it stood before #397, reproduced literally.
@@ -111,10 +117,10 @@ public static class ArmClassificationProbe
                   string.Join(", ", disagreements.Take(10)));
 
         // ---------------------------------------------------------------- B: all three classes reachable
-        Type Find(string name) =>
-            asm.GetTypes().FirstOrDefault(t => t.Name == name)
+        Type Find(string fullName) =>
+            asm.GetTypes().FirstOrDefault(t => t.FullName == fullName)
             ?? throw new InvalidOperationException(
-                $"{name} not found in {asm.GetName().Name} — this guard's exhibit no longer exists. That is a real " +
+                $"{fullName} not found in {asm.GetName().Name} — this guard's exhibit no longer exists. That is a real " +
                 $"signal about the classifier's inputs, not a guard to relax: pick a new exhibit of the same shape.");
 
         var authorable = Find(AuthorableExhibit);
@@ -154,11 +160,15 @@ public static class ArmClassificationProbe
             gapLine.Contains("UNEXTRACTABLE BY NAME", StringComparison.Ordinal), gapLine);
 
         Check("C2. it names the type by its FULL name",
-            gapLine.Contains("Mutagen.Bethesda.Skyrim." + UnextractableExhibit, StringComparison.Ordinal), gapLine);
+            gapLine.Contains(UnextractableExhibit, StringComparison.Ordinal), gapLine);
 
-        // "2 of 2" — asserted, not assumed. If a bump changes this type's settable surface the guard says so.
-        Check("C3. it carries a non-zero settable count",
-            System.Text.RegularExpressions.Regex.IsMatch(gapLine, @"and [1-9][0-9]* of [0-9]+ public settable"), gapLine);
+        // "2 of 2" — asserted, not assumed. If a bump changes this type's authorable surface the guard says so.
+        // The label is pinned WITH its predicate: the count is neither CanWrite nor plain public-settable, and a
+        // line that prints the number without naming which measure produced it is the over-claim this arm blocks.
+        Check("C3. it carries a non-zero authorable count, labelled with the predicate that produced it",
+            System.Text.RegularExpressions.Regex.IsMatch(
+                gapLine, @"and [1-9][0-9]* of [0-9]+ properties are authorable \(public settable, or a mutable collection\)"),
+            gapLine);
 
         // THE CONTENT PINS. #397 asked the output to stop conflating two cases; it did not license the output to
         // diagnose a third thing the predicate cannot measure. Both sentences below were in this line and were
@@ -174,23 +184,30 @@ public static class ArmClassificationProbe
             !gapLine.Contains("belongs upstream", StringComparison.Ordinal), gapLine);
 
         Check("C6. it names the check that settles it",
-            gapLine.Contains("reachable elsewhere in the catalogue", StringComparison.Ordinal), gapLine);
+            gapLine.Contains(CorpusGenerator.ReachabilityCheck, StringComparison.Ordinal), gapLine);
 
-        Check("C7. the nothing-lost line is NOT marked unextractable-by-name",
+        Check("C7. the zero-authorable line is NOT marked unextractable-by-name",
             !okLine.Contains("UNEXTRACTABLE BY NAME", StringComparison.Ordinal), okLine);
 
-        Check("C8. the nothing-lost line says nothing is lost",
-            okLine.Contains("nothing is lost by excluding it", StringComparison.Ordinal), okLine);
+        // The arms cannot diverge again. The zero-count arm used to close by inferring that nothing is lost by
+        // excluding the type — reachability, which its measurement does not establish any more than the non-zero
+        // arm's does. Both arms now close on ONE shared const, and this pins that shared text present in BOTH:
+        // a content-level assertion, so re-splitting them into different closing advice is a RED, not a silent
+        // regression that only a reader of the output would ever notice.
+        Check("C8. both arms close on the SAME shared reachability check, neither inferring more than it measured",
+            okLine.Contains(CorpusGenerator.ReachabilityCheck, StringComparison.Ordinal)
+            && gapLine.Contains(CorpusGenerator.ReachabilityCheck, StringComparison.Ordinal),
+            $"zero-authorable arm: {okLine}  ||  unextractable arm: {gapLine}");
 
         // ---------------------------------------------------------------- D: the line is actually EMITTED
         // Everything above pins the WORDING of a sentence. None of it requires anyone to print that sentence.
         // Measured: replacing both UnextractableWarning call sites with no-ops left every arm above green, left
-        // emit-match-guard and corpus-hygiene-guard green, and made the generator's whole ANOMALIES section
-        // disappear along with the two live MergedWorldspace lines. A wording pin on an unprinted line is
-        // theatre, so drive a real emit and read what it actually reported.
+        // emit-match-guard and corpus-hygiene-guard green, and made the generator's whole coverage-anomaly
+        // section disappear along with the two live MergedWorldspace lines. A wording pin on an unprinted line
+        // is theatre, so drive a real emit and read what it actually reported.
         //
-        // This asserts the CONTRACT (every non-authorable no-getter-interface type the walk reached is named in
-        // the report), not a fixed list of type names — so it survives a Mutagen bump that changes which types
+        // This asserts the CONTRACT (every record class the seed loop emits an anomaly for is named in the
+        // report), not a fixed list of type names — so it survives a Mutagen bump that changes which types
         // exhibit the shape, while still failing if the emission is removed. The emit itself ran at the top.
         //
         // WHAT D DOES NOT COVER, stated because measuring it is the only way anyone learns it: D pins the
@@ -201,17 +218,25 @@ public static class ArmClassificationProbe
         // candidate is assignable to a closed getter interface declared alongside it. So the arm-path emission
         // is UNPINNED today, and will stay unpinned until a real type exhibits the shape — which is the same
         // bump that arms #397 in the first place. Do not read D as covering both paths.
-        var expected = candidates
-            .Where(t => CorpusGenerator.ClassifyArm(t) != CorpusGenerator.ArmClass.Authorable
-                        && CorpusGenerator.GetterInterfaceFor(t) == null
-                        && typeof(Mutagen.Bethesda.Plugins.Records.IMajorRecordGetter).IsAssignableFrom(t))
+        // The expected set is derived from the SAME enumeration the record-path emission walks — BuildCorpus's
+        // seed loop over the Skyrim assembly, with that loop's own filters and no others. It used to be derived
+        // from `candidates`, which spans all three assemblies the walk visits and carries an extra ClassifyArm
+        // filter the seed loop does not apply. Both directions of that mismatch are real: a Core or CSharpExt
+        // type would be EXPECTED in a report the record path never writes it to, and a Skyrim record class that
+        // resolves no getter interface yet still classifies Authorable IS emitted while being filtered out of
+        // the expectation. Deriving from one enumeration is what makes D1 a claim about the emission rather
+        // than about a second, similar-looking walk.
+        var expected = asm.GetTypes()
+            .Where(t => t.IsClass && !t.IsAbstract && !CorpusGenerator.IsOverlayTwin(t))
+            .Where(t => typeof(Mutagen.Bethesda.Plugins.Records.IMajorRecordGetter).IsAssignableFrom(t))
+            .Where(t => CorpusGenerator.GetterInterfaceFor(t) == null)
             .Select(t => t.FullName ?? t.Name)
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToList();
 
-        Check($"D0. the emit produced an anomaly report ({anomalyCount} line(s))",
+        Check($"D0. the emit produced a coverage-anomaly report ({anomalyCount} line(s))",
             reported != null,
-            "no ANOMALIES section was printed at all — the report is not reaching the caller");
+            "no COVERAGE ANOMALIES section was printed at all — the report is not reaching the caller");
 
         // The vacuity floor, the same one A0 gives A. D1 iterates a DERIVED list, so if that list is ever empty
         // it passes while asserting nothing — and D0 alone does not save it, because D0 only requires that SOME
@@ -223,8 +248,14 @@ public static class ArmClassificationProbe
             "no no-getter-interface record class was found, so D1 asserts nothing — either the classifier " +
             "changed or the walk did; both are worth looking at before trusting this arm again");
 
+        // Read against the UNTRUNCATED channel. This assertion previously read a section that shared one print
+        // cap with the unbounded warning stream, so a name could go missing for two structurally different
+        // reasons while the failure text named only one of them. The channel it reads is now printed in full,
+        // which is what lets the text below state its cause: the other cause was removed from the code, rather
+        // than judged the less likely of the two.
         var missing = expected.Where(n => reported?.Contains(n, StringComparison.Ordinal) != true).ToList();
-        Check($"D1. every no-getter-interface RECORD class the walk reached is NAMED in the report " +
+        Check($"D1. every no-getter-interface RECORD class the seed loop enumerates is NAMED in the " +
+              $"untruncated coverage-anomaly report " +
               $"({expected.Count} expected; the arm-path emission is not pinned \u2014 see the note above)",
             missing.Count == 0,
             missing.Count == 0 ? null
@@ -239,11 +270,16 @@ public static class ArmClassificationProbe
     }
 
     /// <summary>
-    /// Run a real emit into a throwaway directory and return the text of the generator's ANOMALIES section,
-    /// or null if it printed none. The corpus itself is process-memoized, so this costs an emit rather than a
-    /// second reflection walk; the output goes to a temp dir so the working tree is untouched.
+    /// Run a real emit into a throwaway directory and return the text of the generator's COVERAGE ANOMALIES
+    /// section, or null if it printed none. The corpus itself is process-memoized, so this costs an emit rather
+    /// than a second reflection walk; the output goes to a temp dir so the working tree is untouched.
+    ///
+    /// It captures that section and NOT the warning stream that follows it. The two are separate channels
+    /// precisely because the warning stream is unbounded and printed under a cap, so a name read from it could
+    /// be absent for a reason that has nothing to do with what D1 asserts. The section is cut at the warning
+    /// heading rather than run to end-of-output for that same reason.
     /// </summary>
-    static string? EmitAndCaptureAnomalies(out int lineCount)
+    static string? EmitAndCaptureCoverageAnomalies(out int lineCount)
     {
         lineCount = 0;
         var tmp = Path.Combine(Path.GetTempPath(), "housecarl-arm-emit-" + Guid.NewGuid().ToString("N"));
@@ -262,9 +298,11 @@ public static class ArmClassificationProbe
         }
 
         var text = captured.ToString();
-        var start = text.IndexOf("ANOMALIES", StringComparison.Ordinal);
+        var start = text.IndexOf("COVERAGE ANOMALIES", StringComparison.Ordinal);
         if (start < 0) return null;
         var section = text[start..];
+        var end = section.IndexOf("ANOMALIES / things to inspect", StringComparison.Ordinal);
+        if (end >= 0) section = section[..end];
         lineCount = section.Split('\n').Count(l => l.TrimStart().StartsWith("- ", StringComparison.Ordinal));
         return section;
     }

@@ -26,6 +26,21 @@ public static class CorpusGenerator
     static readonly List<string> Warnings = new();
 
     /// <summary>
+    /// The #397 coverage-gap anomaly lines, kept in their OWN channel rather than in <see cref="Warnings"/>.
+    ///
+    /// <see cref="Warnings"/> is an unbounded stream printed under a fixed cap, so a coverage-gap line sharing
+    /// that budget can be truncated away by unrelated warnings that happen to be added first — silently losing
+    /// the one output #397 exists to produce. This channel is printed IN FULL and BEFORE the warnings, so the
+    /// two can never compete for the same budget. It is also the channel the arm-classification-guard's D arm
+    /// reads, so what the guard asserts against is the untruncated set.
+    /// </summary>
+    static readonly List<string> CoverageAnomalies = new();
+
+    /// <summary>How many <see cref="Warnings"/> the report prints before suppressing the rest. Applies to that
+    /// stream only — <see cref="CoverageAnomalies"/> is never capped.</summary>
+    const int WarningPrintCap = 40;
+
+    /// <summary>
     /// Types already reported as <see cref="ArmClass.WritableButUnextractable"/>. A single such class is
     /// typically a candidate arm of several polymorphic bases, and <see cref="FindUnionArms"/> re-walks the
     /// whole assembly per base — without this, one such type would emit the same anomaly many times over
@@ -59,6 +74,7 @@ public static class CorpusGenerator
     static Corpus BuildCorpus()
     {
         Warnings.Clear();
+        CoverageAnomalies.Clear();
         ReportedUnextractable.Clear();
         WalkedAssemblies.Clear();
         var asm = typeof(IArmorGetter).Assembly; // Mutagen.Bethesda.Skyrim
@@ -81,7 +97,7 @@ public static class CorpusGenerator
             if (IsOverlayTwin(c)) continue; // Mutagen's lazy-read overlay of the real class; not a distinct type
             if (!typeof(IMajorRecordGetter).IsAssignableFrom(c)) continue;
             var gi = GetterInterfaceFor(c);
-            if (gi == null) { Warnings.Add(UnextractableWarning("record class", c)); continue; }
+            if (gi == null) { CoverageAnomalies.Add(UnextractableWarning("record class", c)); continue; }
             if (seenRecordGetters.Add(gi))
             {
                 seeds.Add(new RefItem(gi, "record", null));
@@ -534,7 +550,7 @@ public static class CorpusGenerator
                     // and #424. The drop itself is unchanged, and the schema is deliberately NOT extracted
                     // from the concrete class (see ClassifyArm).
                     if (ReportedUnextractable.Add(t))
-                        Warnings.Add(UnextractableWarning("union arm", t));
+                        CoverageAnomalies.Add(UnextractableWarning("union arm", t));
                     break;
                 case ArmClass.ReadOnlyProjection:
                     // Correctly excluded and already documented (SkyrimMultiModOverlay, MergedCellBlock).
@@ -631,9 +647,12 @@ public static class CorpusGenerator
     /// drop #397 exists to remove, in the direction that prints nothing. Keeping the fix classifier-local is why
     /// this walks itself instead of tightening the shared helper.
     ///
-    /// "Public settable" is narrower than <c>PropertyInfo.CanWrite</c>, which is true for a private or init-only
-    /// setter — neither of which can ever author anything, so counting them would inflate a number the reader is
-    /// asked to act on.
+    /// The measure is "authorable", and it sits between the two obvious readings — the label the caller prints
+    /// says so in both directions, because neither alone describes it. It is NARROWER than
+    /// <c>PropertyInfo.CanWrite</c>, which is true for a private or init-only setter — neither of which can ever
+    /// author anything, so counting them would inflate a number the reader is asked to act on. It is WIDER than
+    /// "public settable", because of the collection disjunct below: a get-only property whose type is a mutable
+    /// collection has no setter and is authorable anyway, through the instance the getter returns.
     /// </summary>
     static (int writable, int total) WritableSurfaceCount(Type t)
     {
@@ -662,6 +681,17 @@ public static class CorpusGenerator
               .Any(m => m.FullName == "System.Runtime.CompilerServices.IsExternalInit");
 
     /// <summary>
+    /// The one check that settles an anomaly line, shared verbatim by BOTH arms of
+    /// <see cref="UnextractableWarning"/> so the two cannot drift apart into different closing advice again.
+    /// Neither arm's measurement establishes whether the type's data is reachable elsewhere in the catalogue —
+    /// a zero count does not establish it any more than a non-zero one does — so neither arm may close on
+    /// anything stronger than naming the check that would establish it.
+    /// </summary>
+    internal const string ReachabilityCheck =
+        "Verify whether this type's data is reachable elsewhere in the catalogue before treating this as a " +
+        "coverage gap.";
+
+    /// <summary>
     /// The anomaly line for a type with no getter interface (#397 part 1).
     ///
     /// It states the MEASUREMENT and nothing else. It deliberately does NOT say the type is a real coverage
@@ -681,12 +711,11 @@ public static class CorpusGenerator
         var (w, total) = WritableSurfaceCount(t);
         var name = t.FullName ?? t.Name;   // FullName: ~350 distinct nested types share the simple name "ErrorMask"
         if (w == 0)
-            return $"No I{t.Name}Getter resolved by name for {role} {name} — 0 of {total} public settable " +
-                   $"instance properties, so nothing is lost by excluding it.";
+            return $"No I{t.Name}Getter resolved by name for {role} {name} — {w} of {total} properties are " +
+                   $"authorable (public settable, or a mutable collection). {ReachabilityCheck}";
         return $"UNEXTRACTABLE BY NAME: {role} {name} — no I{t.Name}Getter resolved by name, and {w} of {total} " +
-               $"public settable instance properties. It is excluded from the catalog. Verify whether this " +
-               $"type's data is reachable elsewhere in the catalogue (it may implement a differently-named " +
-               $"getter interface) before treating this as a coverage gap.";
+               $"properties are authorable (public settable, or a mutable collection). It is excluded from the " +
+               $"catalog. {ReachabilityCheck}";
     }
 
     /// <summary>
@@ -1062,13 +1091,24 @@ public static class CorpusGenerator
         foreach (var name in new[] { "SkyrimModHeader", "MagicEffect", "Quest", "Armor" })
             Spotlight(c, name);
 
+        // The coverage-gap channel prints FIRST and IN FULL. It deliberately does not share the warning stream's
+        // truncation budget: the warnings are unbounded, so a cap they share is a channel on which the #397 line
+        // can silently vanish behind unrelated noise.
+        if (CoverageAnomalies.Count > 0)
+        {
+            Console.WriteLine($"COVERAGE ANOMALIES ({CoverageAnomalies.Count}) — printed in full, never truncated:");
+            foreach (var w in CoverageAnomalies) Console.WriteLine($"  - {w}");
+            Console.WriteLine();
+        }
+
         if (Warnings.Count > 0)
         {
             Console.WriteLine($"ANOMALIES / things to inspect ({Warnings.Count}):");
-            foreach (var w in Warnings.Take(40)) Console.WriteLine($"  - {w}");
-            if (Warnings.Count > 40) Console.WriteLine($"  ... and {Warnings.Count - 40} more");
+            foreach (var w in Warnings.Take(WarningPrintCap)) Console.WriteLine($"  - {w}");
+            if (Warnings.Count > WarningPrintCap)
+                Console.WriteLine($"  ... +{Warnings.Count - WarningPrintCap} more suppressed");
         }
-        else
+        else if (CoverageAnomalies.Count == 0)
         {
             Console.WriteLine("No anomalies flagged.");
         }
