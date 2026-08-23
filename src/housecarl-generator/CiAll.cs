@@ -172,6 +172,10 @@ public static class CiAll
         // correct exclusion ("read-only projection"). The split is byte-invisible in the shards by design, so
         // this drives ClassifyArm directly and pins all three verdicts to real types in the live assembly.
         ("arm-classification-guard", ArmClassificationProbe.RunGuard),
+        // #351: the committed mutagen-reference shards are a GENERATED artifact that also ships. Every other
+        // corpus guard asserts against a fresh temp emit, so a classifier or emitter change landing without a
+        // regeneration left the shipped reference stale with CI green. Compare the two and name what differs.
+        ("emit-match-guard", EmitMatchProbe.RunGuard),
         ("plugin-validate-guard", PluginValidateProbe.RunGuard),
         // Codex umbrella coverage: the single hand-maintained Codex router (plugin/codex/housecarl/SKILL.md) must
         // reference every current MCP tool (reflected off [McpServerTool]) and every .claude/skills/* folder, or
