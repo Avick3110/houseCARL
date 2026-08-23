@@ -168,6 +168,10 @@ public static class CiAll
         ("poly-field-descend-guard", PolyFieldDescendProbe.RunGuard),
         ("sameshape-agree-guard", SameShapeAgreeProbe.RunGuard),
         ("corpus-hygiene-guard", CorpusHygieneProbe.RunGuard),
+        // #397: the arm classifier must tell a real coverage gap ("no getter interface, yet writable") from a
+        // correct exclusion ("read-only projection"). The split is byte-invisible in the shards by design, so
+        // this drives ClassifyArm directly and pins all three verdicts to real types in the live assembly.
+        ("arm-classification-guard", ArmClassificationProbe.RunGuard),
         ("plugin-validate-guard", PluginValidateProbe.RunGuard),
         // Codex umbrella coverage: the single hand-maintained Codex router (plugin/codex/housecarl/SKILL.md) must
         // reference every current MCP tool (reflected off [McpServerTool]) and every .claude/skills/* folder, or
