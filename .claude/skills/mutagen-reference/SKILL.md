@@ -74,7 +74,7 @@ When the index has no match for a requested record type or signature:
 
 ```json
 {"name":"Armor","sig":"ARMO","kind":"record","file":"references/records.jsonl","line":9}
-{"name":"ActorValue","kind":"enum","file":"references/enums.jsonl","line":4}
+{"name":"ActorValue","kind":"enum","file":"references/enums.jsonl","line":8}
 ```
 
 - `name` — the library's type name; the primary lookup key.

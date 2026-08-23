@@ -8,7 +8,7 @@ namespace HousecarlGenerator;
 
 /// <summary>
 /// EXPLORATORY probe for HCBR-2026-06-15-01 item 5.1 (ESL / FE-space FormID handling). houseCARL has ZERO
-/// ESL-specific code — it delegates 100% to Mutagen by construction. This probe PINS the Mutagen 0.53.1
+/// ESL-specific code — it delegates 100% to Mutagen by construction. This probe PINS the referenced Mutagen version's
 /// semantics so the regression guard (and any §4 surface-to-Aaron call) is built on measured reality, not the
 /// scoping doc's claims (which it deliberately re-tests — e.g. "object id 0x123 ok / 0x800 throws").
 ///

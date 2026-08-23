@@ -29,7 +29,7 @@ namespace HousecarlGenerator;
 /// resolve a record's CONTEXT (which knows its parent chain), then <c>context.GetOrAddAsOverride(mod)</c>
 /// reconstructs that chain in the patch mod and returns a settable override. The build-relevant path is by
 /// FormKey (the user names a record, exactly the wave-2 Dragonbane flow): <c>cache.ResolveContext&lt;T,TG&gt;
-/// (formKey)</c> → <c>GetOrAddAsOverride</c>. Phase A discovers the ACTUAL surface in pinned Mutagen 0.53.1
+/// (formKey)</c> → <c>GetOrAddAsOverride</c>. Phase A discovers the ACTUAL surface in the pinned Mutagen version
 /// (reflection only — robust to a version bump). Phase B inventories how many of each nested type live in
 /// the source, then drives a REAL by-FormKey override of every nested type that HAS an instance, writes a
 /// patch through the proven <see cref="WriteEngine.WritePatch"/>, reopens it, and confirms the target + its
@@ -39,6 +39,11 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class NestedProbe
 {
+    /// <summary>The Mutagen version actually loaded, read off the assembly rather than written down. A probe
+    /// banner that names a version by hand goes stale on the next bump and nothing catches it; this cannot.</summary>
+    static string MutagenVersion =>
+        typeof(Mutagen.Bethesda.Skyrim.ISkyrimModGetter).Assembly.GetName().Version?.ToString() ?? "unknown";
+
     const string DefaultSource =
         @"C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\Skyrim.esm";
 
@@ -62,7 +67,7 @@ public static class NestedProbe
         // =====================================================================
         //  PHASE A — discover the actual Mutagen nested-override API (reflection)
         // =====================================================================
-        Console.WriteLine("===== PHASE A : Mutagen context API surface (pinned 0.53.1) =====");
+        Console.WriteLine($"===== PHASE A : Mutagen context API surface (pinned {MutagenVersion}) =====");
         Console.WriteLine();
 
         var mutagen = AppDomain.CurrentDomain.GetAssemblies()
