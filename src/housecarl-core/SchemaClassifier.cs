@@ -124,7 +124,8 @@ public static class SchemaClassifier
     /// (<c>IPlacedGetter</c>, <c>IGameSettingGetter</c>, …) would catalog as <c>polymorphic</c> with record arms and
     /// slip past a substruct-only test — every clause keyed on this predicate skipped, and a compose routed to
     /// ArmLegality, accepted, then thrown at BuildStruct: #335's own accept-then-throw, one shape over. No such field
-    /// exists in Mutagen 0.53.1's Skyrim model (the regenerated corpus moves exactly two fields, both substructs), so
+    /// existed in the Skyrim model when this was written, 2026-08 (the regeneration of that day moved two fields, both
+    /// substructs) — a dated observation about the shape, not a standing count of what any later bump moves — so
     /// this arm is latent — which is the reason to close it here rather than at the next bump, where it would arrive
     /// as a live defect. <see cref="PolyBaseElementKind"/> already answers "are this base's arms records?" for
     /// elements; the singular case asks it the same way, so the two cannot drift.</summary>

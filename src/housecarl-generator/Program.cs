@@ -222,7 +222,7 @@ if (args.Length > 0 && args[0] == "conflict-diff-proof") return ConflictDiffProb
 // the Iterate serialize recompute that seeds 0, CreateFromBinary rehydration, AddNew-from-0) the fix is designed from.
 if (args.Length > 0 && args[0] == "formid-floor-probe") return FormIdFloorProbe.RunProbe(args[1..]);
 
-// ESL / FE-space FormID handling (HCBR-2026-06-15-01 item 5.1): EXPLORATORY — pin the Mutagen 0.53.1 small-master
+// ESL / FE-space FormID handling (HCBR-2026-06-15-01 item 5.1): EXPLORATORY — pin the referenced Mutagen version's small-master
 // semantics (legal object-ID range, IsSmallMaster→FE-space encode through our incantation, FE decode round-trip,
 // flag-tracking, index-independence) the guard + any §4 surface-call are built from.
 if (args.Length > 0 && args[0] == "esl-formid-probe") return EslFormIdProbe.RunProbe(args[1..]);

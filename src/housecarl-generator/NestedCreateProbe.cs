@@ -39,6 +39,11 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class NestedCreateProbe
 {
+    /// <summary>The Mutagen version actually loaded, read off the assembly rather than written down. A probe
+    /// banner that names a version by hand goes stale on the next bump and nothing catches it; this cannot.</summary>
+    static string MutagenVersion =>
+        typeof(Mutagen.Bethesda.Skyrim.ISkyrimModGetter).Assembly.GetName().Version?.ToString() ?? "unknown";
+
     const string DefaultSource =
         @"E:\Skyrim Modding\ARR 2.0\Stock Game\Data\Skyrim.esm";
 
@@ -72,7 +77,7 @@ public static class NestedCreateProbe
         if (resolveCtx is null) { Console.Error.WriteLine("!! no ResolveContext<T,TG>(FormKey,...) on the live cache — surface, do not guess."); return 1; }
 
         // ============================================================ PHASE A : API discovery (reflection) ============================================================
-        Console.WriteLine("===== PHASE A : nested-alloc API surface (pinned Mutagen 0.53.1) =====");
+        Console.WriteLine($"===== PHASE A : nested-alloc API surface (pinned Mutagen {MutagenVersion}) =====");
         var ctxIface = asm.GetType("Mutagen.Bethesda.Plugins.Records.IModContext`4")
             ?? AppDomain.CurrentDomain.GetAssemblies().SelectMany(SafeTypes)
                  .FirstOrDefault(t => t.IsInterface && t.Name == "IModContext`4");

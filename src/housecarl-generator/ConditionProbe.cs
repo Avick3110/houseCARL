@@ -31,7 +31,7 @@ namespace HousecarlGenerator;
 ///     SwapSubjectAndTarget). 424 arms; 156 FormLinkOrIndex sites across 33 distinct T; 44 separate
 ///     `System.Object` VATS params (a DIFFERENT deferral → the MCP typed-value wire format, not this).
 ///   - `IFormLinkOrIndex&lt;T&gt;` is OPAQUE in the corpus (a plain formlink leaf, no exposed members).
-///     Its concrete member/ctor surface is the unknown this probe reads off the LIVE Mutagen 0.53.1 type.
+///     Its concrete member/ctor surface is the unknown this probe reads off the LIVE Mutagen type at the referenced version.
 ///
 /// HYPOTHESIS UNDER TEST (named so it can be falsified, NOT assumed): the FormLinkOrIndex object carries
 /// its own form-vs-index state (a Link half + an Index half + a discriminator), settable via a ctor or a
@@ -48,6 +48,11 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class ConditionProbe
 {
+    /// <summary>The Mutagen version actually loaded, read off the assembly rather than written down. A probe
+    /// banner that names a version by hand goes stale on the next bump and nothing catches it; this cannot.</summary>
+    static string MutagenVersion =>
+        typeof(Mutagen.Bethesda.Skyrim.ISkyrimModGetter).Assembly.GetName().Version?.ToString() ?? "unknown";
+
     const string DefaultSource =
         @"C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\Skyrim.esm";
     static readonly ModKey PatchKey = new("hc_cond_probe", ModType.Plugin);
@@ -79,7 +84,7 @@ public static class ConditionProbe
     // =====================================================================
     static void PhaseA(Assembly asm, List<Assembly> mutagen)
     {
-        Console.WriteLine("===== PHASE A : Mutagen FormLinkOrIndex / Condition API surface (pinned 0.53.1) =====");
+        Console.WriteLine($"===== PHASE A : Mutagen FormLinkOrIndex / Condition API surface (pinned {MutagenVersion}) =====");
         Console.WriteLine();
 
         Console.WriteLine("-- loaded Mutagen assemblies --");

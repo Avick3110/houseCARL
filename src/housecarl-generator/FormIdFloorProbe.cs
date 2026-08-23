@@ -12,7 +12,7 @@ namespace HousecarlGenerator;
 /// rehydrates that counter and allocates new records from object ID 0x000000 — the NULL-reference bit pattern —
 /// while reporting success.
 ///
-/// This pins the Mutagen 0.53.1 semantics the fix is designed from, all self-contained (synthesized plugins in TEMP):
+/// This pins the referenced Mutagen version's semantics the fix is designed from, all self-contained (synthesized plugins in TEMP):
 ///
 ///   S1  fresh-mod state        — what does <c>new SkyrimMod</c> initialize <c>NextFormID</c> to, and what does
 ///                                <c>GetDefaultInitialNextFormID</c> report (null vs forceLower:false)?

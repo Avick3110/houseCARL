@@ -52,8 +52,13 @@ public static class EmitMatchProbe
             //
             // It also prints the generator's whole report — the per-type field dump — which is the single
             // noisiest thing this guard could add to a CI log, and it says nothing a reader of THIS guard needs.
-            // Capture it instead of emitting it, and replay it only if the generation actually failed, where it
-            // is the diagnosis rather than the noise.
+            // Capture it instead of emitting it, and replay it only when the generation actually failed, where
+            // it is the diagnosis rather than the noise.
+            //
+            // The failure that actually occurs is a THROW, not a non-zero return: EmitCorpus has exactly one
+            // `return 0;` and no error path, so an `if (rc != 0)` replay is unreachable code promising a
+            // diagnostic that can never print. Catch the throw, replay the capture there, and rethrow so the
+            // guard still fails loudly through CiAll.
             var freshRefDir = Path.Combine(tmp, "refs");
             var captured = new StringWriter();
             var realOut = Console.Out;
@@ -63,11 +68,20 @@ public static class EmitMatchProbe
                 Console.SetOut(captured);
                 rc = CorpusGenerator.GenerateAll(Path.Combine(tmp, "generated"), freshRefDir);
             }
+            catch
+            {
+                Console.SetOut(realOut);
+                Console.Error.WriteLine("  FAIL  the generator threw while regenerating — nothing to compare against.");
+                Console.Error.WriteLine("        Its output up to the failure follows, because it is the diagnosis:");
+                Console.Error.WriteLine(captured.ToString());
+                throw;
+            }
             finally { Console.SetOut(realOut); }
 
             if (rc != 0)
             {
-                Console.Error.WriteLine($"  FAIL  the generator itself failed (exit {rc}) — nothing to compare against");
+                // Defensive: no current path returns non-zero, but a future one should not lose the capture.
+                Console.Error.WriteLine($"  FAIL  the generator reported exit {rc} — nothing to compare against");
                 Console.Error.WriteLine(captured.ToString());
                 return rc;
             }
