@@ -108,10 +108,16 @@ public static class EmitMatchProbe
         }
 
         // A file the emitter no longer produces is as much a staleness signal as a changed one — it is a shard
-        // that would keep shipping after the code stopped being able to generate it.
+        // that would keep shipping after the code stopped being able to generate it. This globs the WORKING TREE,
+        // not the git index, and deliberately does not filter by extension: build-plugin.ps1 copies this whole
+        // directory into the plugin, so anything sitting here ships. That means a local scratch file (a .bak
+        // beside the shards) also trips it — correct as a shipping check, but the remedy line below is written
+        // for the stale-shard case, so the message names both readings rather than assuming the wrong one.
         foreach (var name in committed.Keys.Where(k => !fresh.ContainsKey(k)).OrderBy(k => k, StringComparer.Ordinal))
-            Fail($"{name}: committed but no longer emitted",
-                 "the generator does not produce this file any more; it is a stale committed artifact");
+            Fail($"{name}: present in the reference tree but not emitted",
+                 "the generator does not produce this file. Either it is a stale committed artifact, or it is " +
+                 "an untracked local file sitting in a directory that ships wholesale — check which, then " +
+                 "delete it or regenerate");
 
         foreach (var name in fresh.Keys.Where(k => !committed.ContainsKey(k)).OrderBy(k => k, StringComparer.Ordinal))
             Fail($"{name}: emitted but not committed",

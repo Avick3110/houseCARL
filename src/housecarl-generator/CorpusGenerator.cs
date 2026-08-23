@@ -28,7 +28,7 @@ public static class CorpusGenerator
     /// <summary>
     /// Types already reported as <see cref="ArmClass.WritableButUnextractable"/>. A single such class is
     /// typically a candidate arm of several polymorphic bases, and <see cref="FindUnionArms"/> re-walks the
-    /// whole assembly per base — without this, one upstream gap would emit the same anomaly many times over
+    /// whole assembly per base — without this, one such type would emit the same anomaly many times over
     /// and bury the rest of the list.
     /// </summary>
     static readonly HashSet<Type> ReportedUnextractable = new();
@@ -528,11 +528,11 @@ public static class CorpusGenerator
                     break;
                 case ArmClass.WritableButUnextractable:
                     // #397's Q3 half. This candidate is dropped from the union with the same silence as a
-                    // genuine read-only projection, but it is NOT one: it carries a writable surface and its
-                    // absence is a real coverage hole. Name it. The drop itself is unchanged — the schema is
-                    // deliberately NOT extracted from the concrete class (see ClassifyArm), so the catalog
-                    // gains a named hole rather than one entry whose writability was computed differently
-                    // from every other entry's.
+                    // type that carries nothing, but it is not one: it has settable state, and the drop is
+                    // therefore worth reporting so a human can check it. Whether it is a genuine coverage
+                    // hole is NOT decided here and the line does not claim it — see UnextractableWarning
+                    // and #424. The drop itself is unchanged, and the schema is deliberately NOT extracted
+                    // from the concrete class (see ClassifyArm).
                     if (ReportedUnextractable.Add(t))
                         Warnings.Add(UnextractableWarning("union arm", t));
                     break;
@@ -549,7 +549,7 @@ public static class CorpusGenerator
     /// <summary>
     /// Why a concrete union implementer is not an authorable arm — the distinction #397 was filed for.
     /// Both non-authorable answers are excluded identically (behavior is unchanged by this split); they are
-    /// separated so the emitted anomaly list can tell a correct exclusion from a real coverage hole.
+    /// separated so the emitted anomaly list can tell an exclusion that loses nothing from one that may not.
     /// </summary>
     internal enum ArmClass
     {
@@ -558,9 +558,10 @@ public static class CorpusGenerator
         /// <summary>A read-only PROJECTION of a real writable type (Mutagen's multi-mod overlay, the
         /// merged-cell view). Nothing is lost by excluding it — it can never be composed.</summary>
         ReadOnlyProjection,
-        /// <summary>Has NO <c>I{Name}Getter</c> interface at all, yet carries a writable surface. Excluded
-        /// for a reason that does not apply to it, so its exclusion is a real coverage gap — upstream's to
-        /// close (a missing getter interface), ours to NAME.</summary>
+        /// <summary>No <c>I{Name}Getter</c> resolved BY NAME, yet the class carries settable state. Reported,
+        /// not diagnosed: the name probe misses a type whose getter interface is generic or differently
+        /// named (#424), so this verdict does NOT establish a coverage gap — it establishes that a human
+        /// should check whether the data is reachable elsewhere in the catalogue.</summary>
         WritableButUnextractable,
     }
 
