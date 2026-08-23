@@ -48,19 +48,6 @@ public static class CorpusGenerator
     /// </summary>
     static readonly HashSet<Type> ReportedUnextractable = new();
 
-    /// <summary>
-    /// Every assembly <see cref="FindUnionArms"/> actually enumerated during the walk, recorded as it goes.
-    /// DERIVED, never declared: arm-classification-guard asserts its neutrality invariant over exactly this
-    /// set instead of a hand-written list of assembly names. A hand-written list was wrong twice in a row —
-    /// first naming only Mutagen.Bethesda.Skyrim, then Skyrim and Core while the walk also reaches
-    /// Noggog.CSharpExt through IReadOnlyArray2d&lt;T&gt;. Nobody enumerates these by hand again.
-    /// </summary>
-    static readonly HashSet<Assembly> WalkedAssemblies = new();
-
-    /// <summary>The assemblies the last completed walk visited. Empty until a corpus has been built;
-    /// callers force <see cref="CachedCorpus"/> first.</summary>
-    internal static IReadOnlyCollection<Assembly> AssembliesWalked => WalkedAssemblies;
-
     // The reflection walk over Mutagen's whole type library is the dominant CI cost (~11.5s) and is
     // PROCESS-DETERMINISTIC (same assembly -> same corpus). Memoize it via Lazy (ExecutionAndPublication): the
     // FIRST GenerateAll in a process walks Mutagen exactly once — thread-safe even under concurrent first-callers
@@ -76,7 +63,6 @@ public static class CorpusGenerator
         Warnings.Clear();
         CoverageAnomalies.Clear();
         ReportedUnextractable.Clear();
-        WalkedAssemblies.Clear();
         var asm = typeof(IArmorGetter).Assembly; // Mutagen.Bethesda.Skyrim
         Console.WriteLine($"Walking the full Mutagen type corpus via reflection...");
         Console.WriteLine($"  Assembly: {asm.GetName().Name} {asm.GetName().Version}");
@@ -532,7 +518,6 @@ public static class CorpusGenerator
     static List<Type> FindUnionArms(Type getterIfc)
     {
         if (!getterIfc.IsInterface) return new List<Type>();
-        WalkedAssemblies.Add(getterIfc.Assembly);   // derived, for the guard's neutrality universe
         var arms = new List<Type>();
         foreach (var t in getterIfc.Assembly.GetTypes())
         {

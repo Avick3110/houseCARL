@@ -13,15 +13,24 @@ namespace HousecarlGenerator;
 /// exists because that fix is a CLASSIFIER change whose observable effect on Skyrim is nil: the shards are
 /// byte-identical across it, so a byte-diff can never tell "the split works" from "the split is dead code".
 ///
-///   A — BEHAVIOR NEUTRALITY, over the assemblies the walk ACTUALLY VISITED, derived from the walk rather than
-///       listed here. For every concrete non-overlay class in that set, <c>ClassifyArm(t) == Authorable</c> must
-///       equal the ORIGINAL predicate, type for type — which is what makes the shard-level byte-identity a
-///       consequence rather than a coincidence. A hand-written assembly list was wrong twice running: first
-///       naming Skyrim alone (missing two Core types a first cut of ClassifyArm flipped), then Skyrim and Core
-///       while the walk also reaches Noggog.CSharpExt via IReadOnlyArray2d&lt;T&gt;. Nobody enumerates them by hand
-///       again. A0 fails if the walk recorded nothing, so A cannot pass vacuously over an empty universe.
-///       NOTE what A does NOT cover: it compares the ACCEPT/REJECT split only, so it is deliberately blind to
-///       WHICH reject reason is reported. The #397 split itself is pinned by B4, never by A.
+/// THERE IS NO BEHAVIOUR-NEUTRALITY ARM, AND THE LETTER A IS RETIRED. There was one: a sweep asserting
+/// <c>ClassifyArm(t) == Authorable</c> against the pre-#397 predicate over every class the walk visited. It
+/// could not fail. The predicate it compared against was the same expression <c>ClassifyArm</c> evaluates on
+/// its first line, so both sides moved together on the same two helpers and the disagreement set was empty by
+/// construction — including through a change that really would move the accepted-arm set, such as fixing #424.
+/// It was deleted rather than re-spelled: an independently-written twin of <c>MutableInterfaceFor</c> and
+/// <c>GetterInterfaceFor</c> is a hand-maintained copy of two non-trivial reflection routines, which is a
+/// drift generator rather than a pin. Where its two claims live now:
+///     - the TRANSITION claim (the #397 split changed no classification) was proven once, on this branch, by
+///       round 1's fold and its RED checks. It is historical; nothing standing has to re-prove it.
+///     - the STANDING claim (no classification change ships silently) is held BY CONSTRUCTION by
+///       emit-match-guard and the #351 CI emit-match step, not by anything in this file: a classification
+///       change alters emission, emission is diffed against the COMMITTED shards on every CI run, and a
+///       difference fails the build — including when nobody regenerates. That, not a sweep here, is what
+///       makes the shard-level byte-identity a checked consequence.
+/// The letters below start at B and stay where they are, so this file still reads against PR #425 and the
+/// review that found the tautology.
+///
 ///   B — ALL THREE CLASSES ARE REACHABLE. Each of Authorable / ReadOnlyProjection / WritableButUnextractable is
 ///       exhibited by a REAL type in the live assembly and asserted by name. The third is the arm this guard is
 ///       really for: without it, <c>WritableButUnextractable</c> is a branch no live type enters, and a later
@@ -76,45 +85,9 @@ public static class ArmClassificationProbe
         Console.WriteLine($"  assembly: {asm.GetName().Name} {asm.GetName().Version}");
         Console.WriteLine();
 
-        // Drive a real emit FIRST. Two things depend on it and neither can be faked: the walk has to have run
-        // before AssembliesWalked describes anything (check A's universe is derived from it), and section D
-        // reads what the generator actually reported. Doing it here rather than at D means A cannot pass
-        // vacuously over an empty universe — which it did, once, until A0 caught it.
+        // Drive a real emit FIRST — section D reads what the generator actually reported, and that cannot be
+        // faked by anything the checks below do.
         var reported = EmitAndCaptureCoverageAnomalies(out var anomalyCount);
-
-        // ---------------------------------------------------------------- A: behavior neutrality
-        // The predicate as it stood before #397, reproduced literally.
-        static bool OriginalPredicate(Type t) =>
-            CorpusGenerator.MutableInterfaceFor(CorpusGenerator.GetterInterfaceFor(t) ?? t) != null;
-
-        // The universe is DERIVED from the walk, not declared here. FindUnionArms records every assembly it
-        // enumerates; this asserts over exactly that set. A hand-written list was wrong twice running — first
-        // Skyrim only, then Skyrim + Core, while the walk also reaches Noggog.CSharpExt via IReadOnlyArray2d<T>.
-        // The claim narrows deliberately, from "every type" to "every type the walk actually visited", which is
-        // the claim that is true; the false half was never the neutrality, it was "and the walk is these two
-        // assemblies". Not circular: the walk fixes the universe, the ORIGINAL PREDICATE fixes the expected
-        // answer, and the two are independent — a walk that visited nothing would fail the arm below rather
-        // than vacuously pass it.
-        var walked = CorpusGenerator.AssembliesWalked.ToList();
-        Check("A0. the walk recorded at least one assembly (else A asserts nothing)", walked.Count > 0);
-
-        var candidates = walked
-            .SelectMany(a => a.GetTypes())
-            .Where(t => t.IsClass && !t.IsAbstract && !CorpusGenerator.IsOverlayTwin(t))
-            .ToList();
-
-        var disagreements = candidates
-            .Where(t => OriginalPredicate(t) != (CorpusGenerator.ClassifyArm(t) == CorpusGenerator.ArmClass.Authorable))
-            .Select(t => t.FullName ?? t.Name)
-            .ToList();
-
-        Check($"A. accepted-arm set unchanged across {candidates.Count} concrete non-overlay classes in the " +
-              $"{walked.Count} assembly/assemblies the walk visited " +
-              $"({string.Join(", ", walked.Select(a => a.GetName().Name).OrderBy(n => n, StringComparer.Ordinal))})",
-            disagreements.Count == 0,
-            disagreements.Count == 0 ? null
-                : $"{disagreements.Count} type(s) classify differently than the original predicate: " +
-                  string.Join(", ", disagreements.Take(10)));
 
         // ---------------------------------------------------------------- B: all three classes reachable
         Type Find(string fullName) =>
@@ -219,13 +192,13 @@ public static class ArmClassificationProbe
         // is UNPINNED today, and will stay unpinned until a real type exhibits the shape — which is the same
         // bump that arms #397 in the first place. Do not read D as covering both paths.
         // The expected set is derived from the SAME enumeration the record-path emission walks — BuildCorpus's
-        // seed loop over the Skyrim assembly, with that loop's own filters and no others. It used to be derived
-        // from `candidates`, which spans all three assemblies the walk visits and carries an extra ClassifyArm
-        // filter the seed loop does not apply. Both directions of that mismatch are real: a Core or CSharpExt
-        // type would be EXPECTED in a report the record path never writes it to, and a Skyrim record class that
-        // resolves no getter interface yet still classifies Authorable IS emitted while being filtered out of
-        // the expectation. Deriving from one enumeration is what makes D1 a claim about the emission rather
-        // than about a second, similar-looking walk.
+        // seed loop over the Skyrim assembly, with that loop's own filters and no others. It was previously
+        // derived from a second, similar-looking sweep that spanned all three assemblies the walk visits and
+        // carried an extra ClassifyArm filter the seed loop does not apply. Both directions of that mismatch
+        // were real: a Core or CSharpExt type would be EXPECTED in a report the record path never writes it
+        // to, and a Skyrim record class that resolves no getter interface yet still classifies Authorable IS
+        // emitted while being filtered out of the expectation. Deriving from the one enumeration is what makes
+        // D1 a claim about the emission rather than about a walk that merely resembles it.
         var expected = asm.GetTypes()
             .Where(t => t.IsClass && !t.IsAbstract && !CorpusGenerator.IsOverlayTwin(t))
             .Where(t => typeof(Mutagen.Bethesda.Plugins.Records.IMajorRecordGetter).IsAssignableFrom(t))
@@ -238,7 +211,7 @@ public static class ArmClassificationProbe
             reported != null,
             "no COVERAGE ANOMALIES section was printed at all — the report is not reaching the caller");
 
-        // The vacuity floor, the same one A0 gives A. D1 iterates a DERIVED list, so if that list is ever empty
+        // The vacuity floor. D1 iterates a DERIVED list, so if that list is ever empty
         // it passes while asserting nothing — and D0 alone does not save it, because D0 only requires that SOME
         // anomaly section exists. Today the two lines D1 checks are the only anomalies, which makes D0 look
         // load-bearing; add one unrelated warning and it stops being. An empty expectation is a signal to
@@ -290,6 +263,19 @@ public static class ArmClassificationProbe
         {
             Console.SetOut(captured);
             CorpusGenerator.GenerateAll(Path.Combine(tmp, "generated"), Path.Combine(tmp, "refs"));
+        }
+        // The same policy as EmitMatchProbe.RunGuard, deliberately spelled the same way so the two read as one
+        // policy: when the emit throws, the capture IS the diagnosis, and a bare try/finally discards it with
+        // everything the generator printed up to the failure. This guard sits BEFORE emit-match-guard in
+        // CiAll.Probes, so on a bump that makes BuildCorpus throw it is the first probe to hit it — and CiAll
+        // reports the exception alone, which would leave the banner, per-kind counts, spotlights and any
+        // anomalies already accumulated unrecoverable.
+        catch
+        {
+            Console.SetOut(realOut);
+            Console.Error.WriteLine("  the generator threw during this guard's emit — its output up to the failure follows:");
+            Console.Error.WriteLine(captured.ToString());
+            throw;
         }
         finally
         {
