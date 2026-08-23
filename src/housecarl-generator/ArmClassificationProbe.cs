@@ -213,6 +213,16 @@ public static class ArmClassificationProbe
             reported != null,
             "no ANOMALIES section was printed at all — the report is not reaching the caller");
 
+        // The vacuity floor, the same one A0 gives A. D1 iterates a DERIVED list, so if that list is ever empty
+        // it passes while asserting nothing — and D0 alone does not save it, because D0 only requires that SOME
+        // anomaly section exists. Today the two lines D1 checks are the only anomalies, which makes D0 look
+        // load-bearing; add one unrelated warning and it stops being. An empty expectation is a signal to
+        // re-examine this guard, not a pass.
+        Check($"D0b. the walk produced at least one type for D1 to expect ({expected.Count})",
+            expected.Count > 0,
+            "no no-getter-interface record class was found, so D1 asserts nothing — either the classifier " +
+            "changed or the walk did; both are worth looking at before trusting this arm again");
+
         var missing = expected.Where(n => reported?.Contains(n, StringComparison.Ordinal) != true).ToList();
         Check($"D1. every no-getter-interface RECORD class the walk reached is NAMED in the report " +
               $"({expected.Count} expected; the arm-path emission is not pinned \u2014 see the note above)",

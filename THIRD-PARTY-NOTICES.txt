@@ -68,11 +68,14 @@ Apache License 2.0
   miniball                         1.0.4    github.com/SearchAThing-forks/miniball
 
   ModelContextProtocol*: Copyright (c) the Model Context Protocol authors.
-  miniball (NuGet package "miniball-devel0"): Copyright (c) Lorenzo Delana. It
-  reaches the package as a dependency of NiflySharp and ships as miniball.dll.
-  All of the above are licensed under the Apache License, Version 2.0 (full text
-  at the end of this file). Neither upstream distribution carries a separate
-  NOTICE file.
+  miniball (NuGet package "miniball-devel0"): Copyright (c) Lorenzo Delana, per
+  the package metadata, which also records it as a fork of Kaspar Fischer's
+  github.com/hbf/miniball. The Apache-2.0 grant above is the fork's own declaration;
+  neither repository carries a LICENSE or NOTICE file, so the package metadata is the
+  only licence statement available for it. It reaches the package as a dependency of
+  NiflySharp and ships as miniball.dll.
+  All of the above are licensed under the Apache License, Version 2.0, whose full
+  text is at the end of this file.
 
 
 ===============================================================================
@@ -200,7 +203,7 @@ SOFTWARE.
 
 
 ===============================================================================
-Apache License, Version 2.0   (applies to the ModelContextProtocol components)
+Apache License, Version 2.0   (applies to every Apache-2.0 component listed above)
 ===============================================================================
 
                                  Apache License
