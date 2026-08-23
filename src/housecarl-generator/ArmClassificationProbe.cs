@@ -55,22 +55,33 @@ public static class ArmClassificationProbe
             if (!ok) failures++;
         }
 
-        Console.WriteLine("arm-classification-guard — the #397 writable-but-unextractable split");
+        Console.WriteLine("arm-classification-guard — the #397 unextractable-by-name split");
         Console.WriteLine($"  assembly: {asm.GetName().Name} {asm.GetName().Version}");
         Console.WriteLine();
+
+        // Drive a real emit FIRST. Two things depend on it and neither can be faked: the walk has to have run
+        // before AssembliesWalked describes anything (check A's universe is derived from it), and section D
+        // reads what the generator actually reported. Doing it here rather than at D means A cannot pass
+        // vacuously over an empty universe — which it did, once, until A0 caught it.
+        var reported = EmitAndCaptureAnomalies(out var anomalyCount);
 
         // ---------------------------------------------------------------- A: behavior neutrality
         // The predicate as it stood before #397, reproduced literally.
         static bool OriginalPredicate(Type t) =>
             CorpusGenerator.MutableInterfaceFor(CorpusGenerator.GetterInterfaceFor(t) ?? t) != null;
 
-        // BOTH assemblies the corpus walks, not just Skyrim. BuildCorpus seeds IPexFileGetter from
-        // Mutagen.Bethesda.Core and FindUnionArms walks whichever assembly a getter interface lives in, so a
-        // Skyrim-only sweep asserts this invariant over part of its own domain. It is also not a hypothetical
-        // gap: the two types that made this check necessary (FormLinkNullableGetter`1, FormLinkOrIndexGetter`1)
-        // live in Core and are invisible from Skyrim.
-        var candidates = new[] { asm, typeof(Mutagen.Bethesda.Plugins.Records.IMajorRecordGetter).Assembly }
-            .Distinct()
+        // The universe is DERIVED from the walk, not declared here. FindUnionArms records every assembly it
+        // enumerates; this asserts over exactly that set. A hand-written list was wrong twice running — first
+        // Skyrim only, then Skyrim + Core, while the walk also reaches Noggog.CSharpExt via IReadOnlyArray2d<T>.
+        // The claim narrows deliberately, from "every type" to "every type the walk actually visited", which is
+        // the claim that is true; the false half was never the neutrality, it was "and the walk is these two
+        // assemblies". Not circular: the walk fixes the universe, the ORIGINAL PREDICATE fixes the expected
+        // answer, and the two are independent — a walk that visited nothing would fail the arm below rather
+        // than vacuously pass it.
+        var walked = CorpusGenerator.AssembliesWalked.ToList();
+        Check("A0. the walk recorded at least one assembly (else A asserts nothing)", walked.Count > 0);
+
+        var candidates = walked
             .SelectMany(a => a.GetTypes())
             .Where(t => t.IsClass && !t.IsAbstract && !CorpusGenerator.IsOverlayTwin(t))
             .ToList();
@@ -80,8 +91,9 @@ public static class ArmClassificationProbe
             .Select(t => t.FullName ?? t.Name)
             .ToList();
 
-        Check($"A. accepted-arm set unchanged across {candidates.Count} concrete non-overlay classes " +
-              $"in Mutagen.Bethesda.Skyrim + Mutagen.Bethesda.Core",
+        Check($"A. accepted-arm set unchanged across {candidates.Count} concrete non-overlay classes in the " +
+              $"{walked.Count} assembly/assemblies the walk visited " +
+              $"({string.Join(", ", walked.Select(a => a.GetName().Name).OrderBy(n => n, StringComparer.Ordinal))})",
             disagreements.Count == 0,
             disagreements.Count == 0 ? null
                 : $"{disagreements.Count} type(s) classify differently than the original predicate: " +
@@ -127,26 +139,103 @@ public static class ArmClassificationProbe
         var gapLine = CorpusGenerator.UnextractableWarning("union arm", unextractable);
         var okLine = CorpusGenerator.UnextractableWarning("union arm", projection);
 
-        Check("C1. the coverage-gap line is marked WRITABLE BUT UNEXTRACTABLE",
-            gapLine.Contains("WRITABLE BUT UNEXTRACTABLE", StringComparison.Ordinal), gapLine);
+        Check("C1. the unextractable line is marked UNEXTRACTABLE BY NAME",
+            gapLine.Contains("UNEXTRACTABLE BY NAME", StringComparison.Ordinal), gapLine);
 
-        Check("C2. the coverage-gap line names the type",
-            gapLine.Contains(UnextractableExhibit, StringComparison.Ordinal), gapLine);
+        Check("C2. it names the type by its FULL name",
+            gapLine.Contains("Mutagen.Bethesda.Skyrim." + UnextractableExhibit, StringComparison.Ordinal), gapLine);
 
-        // "2/2" — asserted, not assumed. If a bump changes this type's writable surface the guard says so.
-        Check("C3. the coverage-gap line carries a non-zero writable count",
-            System.Text.RegularExpressions.Regex.IsMatch(gapLine, @"\byet ([1-9]\d*)/\d+\b"), gapLine);
+        // "2 of 2" — asserted, not assumed. If a bump changes this type's settable surface the guard says so.
+        Check("C3. it carries a non-zero settable count",
+            System.Text.RegularExpressions.Regex.IsMatch(gapLine, @"and [1-9][0-9]* of [0-9]+ public settable"), gapLine);
 
-        Check("C4. the correct-exclusion line is NOT marked as a coverage gap",
-            !okLine.Contains("WRITABLE BUT UNEXTRACTABLE", StringComparison.Ordinal), okLine);
+        // THE CONTENT PINS. #397 asked the output to stop conflating two cases; it did not license the output to
+        // diagnose a third thing the predicate cannot measure. Both sentences below were in this line and were
+        // removed for asserting what "no I{Name}Getter resolved by name" does not establish — and the upstream
+        // one is provably false for this very exhibit, whose data ships today as GenderedItem<Boolean>, 2/2
+        // writable. Assert their ABSENCE: nothing else stops a later edit reintroducing the diagnosis, and a
+        // guard that checked only which enum value came back would not notice.
+        Check("C4. it does NOT diagnose a real coverage gap",
+            !gapLine.Contains("coverage gap, not a read-only projection", StringComparison.Ordinal)
+            && !gapLine.Contains("is a real coverage gap", StringComparison.Ordinal), gapLine);
 
-        Check("C5. the correct-exclusion line says read-only projection",
-            okLine.Contains("read-only projection", StringComparison.Ordinal), okLine);
+        Check("C5. it does NOT assign the fix upstream to Mutagen",
+            !gapLine.Contains("belongs upstream", StringComparison.Ordinal), gapLine);
+
+        Check("C6. it names the check that settles it",
+            gapLine.Contains("reachable elsewhere in the catalogue", StringComparison.Ordinal), gapLine);
+
+        Check("C7. the nothing-lost line is NOT marked unextractable-by-name",
+            !okLine.Contains("UNEXTRACTABLE BY NAME", StringComparison.Ordinal), okLine);
+
+        Check("C8. the nothing-lost line says nothing is lost",
+            okLine.Contains("nothing is lost by excluding it", StringComparison.Ordinal), okLine);
+
+        // ---------------------------------------------------------------- D: the line is actually EMITTED
+        // Everything above pins the WORDING of a sentence. None of it requires anyone to print that sentence.
+        // Measured: replacing both UnextractableWarning call sites with no-ops left every arm above green, left
+        // emit-match-guard and corpus-hygiene-guard green, and made the generator's whole ANOMALIES section
+        // disappear along with the two live MergedWorldspace lines. A wording pin on an unprinted line is
+        // theatre, so drive a real emit and read what it actually reported.
+        //
+        // This asserts the CONTRACT (every non-authorable no-getter-interface type the walk reached is named in
+        // the report), not a fixed list of type names — so it survives a Mutagen bump that changes which types
+        // exhibit the shape, while still failing if the emission is removed. The emit itself ran at the top.
+        var expected = candidates
+            .Where(t => CorpusGenerator.ClassifyArm(t) != CorpusGenerator.ArmClass.Authorable
+                        && CorpusGenerator.GetterInterfaceFor(t) == null
+                        && typeof(Mutagen.Bethesda.Plugins.Records.IMajorRecordGetter).IsAssignableFrom(t))
+            .Select(t => t.FullName ?? t.Name)
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .ToList();
+
+        Check($"D0. the emit produced an anomaly report ({anomalyCount} line(s))",
+            reported != null,
+            "no ANOMALIES section was printed at all — the report is not reaching the caller");
+
+        var missing = expected.Where(n => reported?.Contains(n, StringComparison.Ordinal) != true).ToList();
+        Check($"D1. every no-getter-interface record class the walk reached is NAMED in the report " +
+              $"({expected.Count} expected)",
+            missing.Count == 0,
+            missing.Count == 0 ? null
+                : $"emitted report does not name: {string.Join(", ", missing.Take(10))} — the anomaly is " +
+                  $"computed but never printed, which is the failure mode this arm exists for");
 
         Console.WriteLine();
         Console.WriteLine(failures == 0
             ? "arm-classification-guard: PASS (all arms green)"
             : $"arm-classification-guard: FAIL ({failures} arm(s) red)");
         return failures == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Run a real emit into a throwaway directory and return the text of the generator's ANOMALIES section,
+    /// or null if it printed none. The corpus itself is process-memoized, so this costs an emit rather than a
+    /// second reflection walk; the output goes to a temp dir so the working tree is untouched.
+    /// </summary>
+    static string? EmitAndCaptureAnomalies(out int lineCount)
+    {
+        lineCount = 0;
+        var tmp = Path.Combine(Path.GetTempPath(), "housecarl-arm-emit-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tmp);
+        var captured = new StringWriter();
+        var realOut = Console.Out;
+        try
+        {
+            Console.SetOut(captured);
+            CorpusGenerator.GenerateAll(Path.Combine(tmp, "generated"), Path.Combine(tmp, "refs"));
+        }
+        finally
+        {
+            Console.SetOut(realOut);
+            try { Directory.Delete(tmp, recursive: true); } catch { /* best-effort */ }
+        }
+
+        var text = captured.ToString();
+        var start = text.IndexOf("ANOMALIES", StringComparison.Ordinal);
+        if (start < 0) return null;
+        var section = text[start..];
+        lineCount = section.Split('\n').Count(l => l.TrimStart().StartsWith("- ", StringComparison.Ordinal));
+        return section;
     }
 }

@@ -33,6 +33,19 @@ public static class CorpusGenerator
     /// </summary>
     static readonly HashSet<Type> ReportedUnextractable = new();
 
+    /// <summary>
+    /// Every assembly <see cref="FindUnionArms"/> actually enumerated during the walk, recorded as it goes.
+    /// DERIVED, never declared: arm-classification-guard asserts its neutrality invariant over exactly this
+    /// set instead of a hand-written list of assembly names. A hand-written list was wrong twice in a row —
+    /// first naming only Mutagen.Bethesda.Skyrim, then Skyrim and Core while the walk also reaches
+    /// Noggog.CSharpExt through IReadOnlyArray2d&lt;T&gt;. Nobody enumerates these by hand again.
+    /// </summary>
+    static readonly HashSet<Assembly> WalkedAssemblies = new();
+
+    /// <summary>The assemblies the last completed walk visited. Empty until a corpus has been built;
+    /// callers force <see cref="CachedCorpus"/> first.</summary>
+    internal static IReadOnlyCollection<Assembly> AssembliesWalked => WalkedAssemblies;
+
     // The reflection walk over Mutagen's whole type library is the dominant CI cost (~11.5s) and is
     // PROCESS-DETERMINISTIC (same assembly -> same corpus). Memoize it via Lazy (ExecutionAndPublication): the
     // FIRST GenerateAll in a process walks Mutagen exactly once — thread-safe even under concurrent first-callers
@@ -47,6 +60,7 @@ public static class CorpusGenerator
     {
         Warnings.Clear();
         ReportedUnextractable.Clear();
+        WalkedAssemblies.Clear();
         var asm = typeof(IArmorGetter).Assembly; // Mutagen.Bethesda.Skyrim
         Console.WriteLine($"Walking the full Mutagen type corpus via reflection...");
         Console.WriteLine($"  Assembly: {asm.GetName().Name} {asm.GetName().Version}");
@@ -502,6 +516,7 @@ public static class CorpusGenerator
     static List<Type> FindUnionArms(Type getterIfc)
     {
         if (!getterIfc.IsInterface) return new List<Type>();
+        WalkedAssemblies.Add(getterIfc.Assembly);   // derived, for the guard's neutrality universe
         var arms = new List<Type>();
         foreach (var t in getterIfc.Assembly.GetTypes())
         {
@@ -597,37 +612,80 @@ public static class CorpusGenerator
     }
 
     /// <summary>
-    /// Whether a concrete class with no getter interface carries settable state — the only question that
-    /// separates a real coverage hole from a genuine read-only projection.
+    /// Whether a concrete class with no getter interface carries settable state.
     ///
-    /// DIAGNOSTIC ONLY. This counts against the CONCRETE CLASS, whereas every cataloged entry's writability
-    /// is computed against a MUTABLE INTERFACE (see <see cref="ExtractType"/>). That difference is exactly why
-    /// #397 rules out extracting such a type's schema — an entry measured on a different surface would not
-    /// mean what every other entry means. The count never reaches the catalog; it only sizes the anomaly.
+    /// DIAGNOSTIC ONLY, and it decides only which of two ANOMALY LINES is printed — never whether a type is
+    /// excluded. It counts against the CONCRETE CLASS, whereas every cataloged entry's writability is computed
+    /// against a MUTABLE INTERFACE (see <see cref="ExtractType"/>). That difference is exactly why #397 rules
+    /// out extracting such a type's schema. The count never reaches the catalog; it only sizes the anomaly.
     /// </summary>
     static bool HasWritableSurface(Type t) => WritableSurfaceCount(t).writable > 0;
 
+    /// <summary>
+    /// Public settable instance properties, INHERITED INCLUDED, over a concrete class.
+    ///
+    /// Deliberately NOT <see cref="CollectAllProperties"/>, which the emit path uses (<see cref="ExtractType"/>)
+    /// and which this must not perturb: it reads DeclaredOnly and never walks BaseType, so a class inheriting
+    /// its state would count zero here and take the deliberately-silent ReadOnlyProjection branch — the silent
+    /// drop #397 exists to remove, in the direction that prints nothing. Keeping the fix classifier-local is why
+    /// this walks itself instead of tightening the shared helper.
+    ///
+    /// "Public settable" is narrower than <c>PropertyInfo.CanWrite</c>, which is true for a private or init-only
+    /// setter — neither of which can ever author anything, so counting them would inflate a number the reader is
+    /// asked to act on.
+    /// </summary>
     static (int writable, int total) WritableSurfaceCount(Type t)
     {
-        var props = CollectAllProperties(t).ToList();
-        return (props.Count(p => p.CanWrite || IsMutableCollection(p.PropertyType)), props.Count);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        int writable = 0, total = 0;
+        for (var cur = t; cur != null && cur != typeof(object); cur = cur.BaseType)
+        {
+            foreach (var p in cur.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+            {
+                if (p.GetIndexParameters().Length != 0) continue;   // an indexer is not a named field
+                if (IsInfrastructureProperty(p)) continue;
+                if (!seen.Add(p.Name)) continue;                    // a derived override shadows its base
+                total++;
+                var setter = p.SetMethod;
+                bool publicSettable = setter is { IsPublic: true } && !IsInitOnly(setter);
+                if (publicSettable || IsMutableCollection(p.PropertyType)) writable++;
+            }
+        }
+        return (writable, total);
     }
 
+    /// <summary>An <c>init</c> accessor is a setter that can only run during object construction; it is encoded
+    /// as a required custom modifier on the setter's return type.</summary>
+    static bool IsInitOnly(MethodInfo setter) =>
+        setter.ReturnParameter.GetRequiredCustomModifiers()
+              .Any(m => m.FullName == "System.Runtime.CompilerServices.IsExternalInit");
+
     /// <summary>
-    /// The "writable but unextractable" anomaly line (#397 part 1) — a DISTINCT class from a read-only
-    /// projection, worded so the two can never be read as the same finding. Shared by the record path and
-    /// the union-arm path so both name the gap identically.
+    /// The anomaly line for a type with no getter interface (#397 part 1).
+    ///
+    /// It states the MEASUREMENT and nothing else. It deliberately does NOT say the type is a real coverage
+    /// gap, and does NOT say the fix belongs upstream in Mutagen — neither is established by "no
+    /// <c>I{Name}Getter</c> resolved by name", and the second is provably false for at least one type that
+    /// reaches this line: ArmorAddonWeightSliderContainer implements <c>IGenderedItemGetter&lt;bool&gt;</c> and
+    /// its data ships in the reference today as <c>GenderedItem&lt;Boolean&gt;</c>, 2/2 writable. The name probe
+    /// is <c>I{Name}Getter</c> built from <c>Type.Name</c>, which carries the generic arity, so a type whose
+    /// getter interface is named differently — or is generic — resolves null here while being perfectly
+    /// extractable. That is a real defect in <see cref="GetterInterfaceFor"/>, filed separately; until it is
+    /// fixed this line must not diagnose, only report, and hand the reader the one check that settles it.
+    ///
+    /// Shared by the record path and the union-arm path so both name the same thing the same way.
     /// </summary>
     internal static string UnextractableWarning(string role, Type t)
     {
         var (w, total) = WritableSurfaceCount(t);
+        var name = t.FullName ?? t.Name;   // FullName: ~350 distinct nested types share the simple name "ErrorMask"
         if (w == 0)
-            return $"No getter interface resolved for {role} {t.Name} — read-only projection " +
-                   $"(0/{total} properties writable); excluded correctly.";
-        return $"WRITABLE BUT UNEXTRACTABLE: {role} {t.Name} has no I{t.Name}Getter interface, yet {w}/{total} " +
-               $"of its properties are writable. It is EXCLUDED from the catalog — a real coverage gap, not a " +
-               $"read-only projection. Its schema is deliberately not extracted from the concrete class (#397); " +
-               $"the fix belongs upstream in Mutagen (add the getter interface).";
+            return $"No I{t.Name}Getter resolved by name for {role} {name} — 0 of {total} public settable " +
+                   $"instance properties, so nothing is lost by excluding it.";
+        return $"UNEXTRACTABLE BY NAME: {role} {name} — no I{t.Name}Getter resolved by name, and {w} of {total} " +
+               $"public settable instance properties. It is excluded from the catalog. Verify whether this " +
+               $"type's data is reachable elsewhere in the catalogue (it may implement a differently-named " +
+               $"getter interface) before treating this as a coverage gap.";
     }
 
     /// <summary>
