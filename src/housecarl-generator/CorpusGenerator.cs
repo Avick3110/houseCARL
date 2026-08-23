@@ -25,6 +25,14 @@ public static class CorpusGenerator
 
     static readonly List<string> Warnings = new();
 
+    /// <summary>
+    /// Types already reported as <see cref="ArmClass.WritableButUnextractable"/>. A single such class is
+    /// typically a candidate arm of several polymorphic bases, and <see cref="FindUnionArms"/> re-walks the
+    /// whole assembly per base — without this, one upstream gap would emit the same anomaly many times over
+    /// and bury the rest of the list.
+    /// </summary>
+    static readonly HashSet<Type> ReportedUnextractable = new();
+
     // The reflection walk over Mutagen's whole type library is the dominant CI cost (~11.5s) and is
     // PROCESS-DETERMINISTIC (same assembly -> same corpus). Memoize it via Lazy (ExecutionAndPublication): the
     // FIRST GenerateAll in a process walks Mutagen exactly once — thread-safe even under concurrent first-callers
@@ -38,6 +46,7 @@ public static class CorpusGenerator
     static Corpus BuildCorpus()
     {
         Warnings.Clear();
+        ReportedUnextractable.Clear();
         var asm = typeof(IArmorGetter).Assembly; // Mutagen.Bethesda.Skyrim
         Console.WriteLine($"Walking the full Mutagen type corpus via reflection...");
         Console.WriteLine($"  Assembly: {asm.GetName().Name} {asm.GetName().Version}");
@@ -58,7 +67,7 @@ public static class CorpusGenerator
             if (IsOverlayTwin(c)) continue; // Mutagen's lazy-read overlay of the real class; not a distinct type
             if (!typeof(IMajorRecordGetter).IsAssignableFrom(c)) continue;
             var gi = GetterInterfaceFor(c);
-            if (gi == null) { Warnings.Add($"No getter interface resolved for record class {c.Name}."); continue; }
+            if (gi == null) { Warnings.Add(UnextractableWarning("record class", c)); continue; }
             if (seenRecordGetters.Add(gi))
             {
                 seeds.Add(new RefItem(gi, "record", null));
@@ -75,7 +84,7 @@ public static class CorpusGenerator
         // SkyrimListGroup<T> record-group surface (now handled as collections in IsList), the only path to types
         // like CellBlock. ISkyrimModGetter has two implementers — the writable SkyrimMod and the read-only
         // SkyrimMultiModOverlay projection (a multi-mod view); the projection is filtered as non-authorable
-        // (IsAuthorableArm), so the container classifies as a plain struct, not a union. Route it through
+        // (ClassifyArm), so the container classifies as a plain struct, not a union. Route it through
         // EnqueueModeledRef like any other modeled reference.
         var modGetter = asm.GetType("Mutagen.Bethesda.Skyrim.ISkyrimModGetter");
         if (modGetter != null) EnqueueModeledRef(modGetter, seeds);
@@ -493,21 +502,65 @@ public static class CorpusGenerator
     static List<Type> FindUnionArms(Type getterIfc)
     {
         if (!getterIfc.IsInterface) return new List<Type>();
-        return getterIfc.Assembly.GetTypes()
-            .Where(t => t.IsClass && !t.IsAbstract && !IsOverlayTwin(t) && IsAuthorableArm(t) && getterIfc.IsAssignableFrom(t))
-            .ToList();
+        var arms = new List<Type>();
+        foreach (var t in getterIfc.Assembly.GetTypes())
+        {
+            if (!t.IsClass || t.IsAbstract || IsOverlayTwin(t) || !getterIfc.IsAssignableFrom(t)) continue;
+            switch (ClassifyArm(t))
+            {
+                case ArmClass.Authorable:
+                    arms.Add(t);
+                    break;
+                case ArmClass.WritableButUnextractable:
+                    // #397's Q3 half. This candidate is dropped from the union with the same silence as a
+                    // genuine read-only projection, but it is NOT one: it carries a writable surface and its
+                    // absence is a real coverage hole. Name it. The drop itself is unchanged — the schema is
+                    // deliberately NOT extracted from the concrete class (see ClassifyArm), so the catalog
+                    // gains a named hole rather than one entry whose writability was computed differently
+                    // from every other entry's.
+                    if (ReportedUnextractable.Add(t))
+                        Warnings.Add(UnextractableWarning("union arm", t));
+                    break;
+                case ArmClass.ReadOnlyProjection:
+                    // Correctly excluded and already documented (SkyrimMultiModOverlay, MergedCellBlock).
+                    // Deliberately silent: these recur on every single run, and warning on them would bury
+                    // the WritableButUnextractable case above in permanent noise.
+                    break;
+            }
+        }
+        return arms;
     }
 
     /// <summary>
-    /// True when a concrete union implementer is actually AUTHORABLE — it exposes a mutable interface
-    /// (the same computation as the emitted <see cref="TypeSchema.MutableInterface"/>: a getter interface
-    /// whose mutable twin exists). False for a read-only PROJECTION of the real writable type — Mutagen's
-    /// multi-mod overlay (SkyrimMultiModOverlay, an arm of SkyrimMod) and merged-cell view (MergedCellBlock,
-    /// an arm of CellBlock), which implement only the getter side, expose NO dedicated getter interface
-    /// (GetterInterfaceFor → null, so the lookup falls back to the concrete class, which never ends in
-    /// "Getter" → no mutable twin). Such a projection can never be composed, so it must not be presented as
-    /// a legal arm. Filtering it here drops the union below the &gt;1 threshold and the container reclassifies
-    /// to a plain struct (SkyrimMod, CellBlock) — correct, since both are containers, not authorable unions.
+    /// Why a concrete union implementer is not an authorable arm — the distinction #397 was filed for.
+    /// Both non-authorable answers are excluded identically (behavior is unchanged by this split); they are
+    /// separated so the emitted anomaly list can tell a correct exclusion from a real coverage hole.
+    /// </summary>
+    internal enum ArmClass
+    {
+        /// <summary>Exposes a mutable interface — a legal arm.</summary>
+        Authorable,
+        /// <summary>A read-only PROJECTION of a real writable type (Mutagen's multi-mod overlay, the
+        /// merged-cell view). Nothing is lost by excluding it — it can never be composed.</summary>
+        ReadOnlyProjection,
+        /// <summary>Has NO <c>I{Name}Getter</c> interface at all, yet carries a writable surface. Excluded
+        /// for a reason that does not apply to it, so its exclusion is a real coverage gap — upstream's to
+        /// close (a missing getter interface), ours to NAME.</summary>
+        WritableButUnextractable,
+    }
+
+    /// <summary>
+    /// Classify a concrete union implementer. <see cref="ArmClass.Authorable"/> means it exposes a mutable
+    /// interface — the same computation as the emitted <see cref="TypeSchema.MutableInterface"/>: a getter
+    /// interface whose mutable twin exists. Everything else is excluded from the union, exactly as before;
+    /// this only tells the two REASONS for exclusion apart.
+    ///
+    /// A read-only PROJECTION of a real writable type — Mutagen's multi-mod overlay (SkyrimMultiModOverlay,
+    /// an arm of SkyrimMod) and merged-cell view (MergedCellBlock, an arm of CellBlock) — implements only
+    /// the getter side and exposes NO dedicated getter interface. Such a projection can never be composed,
+    /// so it must not be presented as a legal arm. Filtering it drops the union below the &gt;1 threshold and
+    /// the container reclassifies to a plain struct (SkyrimMod, CellBlock) — correct, since both are
+    /// containers, not authorable unions.
     ///
     /// This is the STRUCTURAL twin of <see cref="IsOverlayTwin"/>'s name match: that catches the lazy
     /// "*BinaryOverlay" record twins by name; this catches every read-only projection by shape, regardless
@@ -517,8 +570,56 @@ public static class CorpusGenerator
     /// leaves a CONCRETE self-listing poly-base (APackageData, ScriptFragments, SimpleModel) in the raw arm
     /// set — those are authorable, so the &gt;1 count is preserved and the self-entry is stripped at emit by
     /// <see cref="EmittedArmNames"/>, exactly as before.
+    ///
+    /// THE #397 SPLIT. When a getter interface EXISTS, authorability is whether its mutable twin does; no
+    /// twin means a read-only projection, the correct exclusion. When NO getter interface exists, the former
+    /// <c>MutableInterfaceFor(GetterInterfaceFor(t) ?? t)</c> handed the concrete class to
+    /// <see cref="MutableInterfaceFor"/>, whose <c>EndsWith("Getter")</c> test a concrete class never passes —
+    /// so the answer was always "excluded", and "has no getter interface" became indistinguishable in the
+    /// output from "is a read-only projection", though only the second is a correct reason to exclude. That
+    /// conflation is the bug. Split here on whether the class actually carries writable state.
     /// </summary>
-    static bool IsAuthorableArm(Type t) => MutableInterfaceFor(GetterInterfaceFor(t) ?? t) != null;
+    internal static ArmClass ClassifyArm(Type t)
+    {
+        var gi = GetterInterfaceFor(t);
+        if (gi != null)
+            return MutableInterfaceFor(gi) != null ? ArmClass.Authorable : ArmClass.ReadOnlyProjection;
+        return HasWritableSurface(t) ? ArmClass.WritableButUnextractable : ArmClass.ReadOnlyProjection;
+    }
+
+    /// <summary>
+    /// Whether a concrete class with no getter interface carries settable state — the only question that
+    /// separates a real coverage hole from a genuine read-only projection.
+    ///
+    /// DIAGNOSTIC ONLY. This counts against the CONCRETE CLASS, whereas every cataloged entry's writability
+    /// is computed against a MUTABLE INTERFACE (see <see cref="ExtractType"/>). That difference is exactly why
+    /// #397 rules out extracting such a type's schema — an entry measured on a different surface would not
+    /// mean what every other entry means. The count never reaches the catalog; it only sizes the anomaly.
+    /// </summary>
+    static bool HasWritableSurface(Type t) => WritableSurfaceCount(t).writable > 0;
+
+    static (int writable, int total) WritableSurfaceCount(Type t)
+    {
+        var props = CollectAllProperties(t).ToList();
+        return (props.Count(p => p.CanWrite || IsMutableCollection(p.PropertyType)), props.Count);
+    }
+
+    /// <summary>
+    /// The "writable but unextractable" anomaly line (#397 part 1) — a DISTINCT class from a read-only
+    /// projection, worded so the two can never be read as the same finding. Shared by the record path and
+    /// the union-arm path so both name the gap identically.
+    /// </summary>
+    internal static string UnextractableWarning(string role, Type t)
+    {
+        var (w, total) = WritableSurfaceCount(t);
+        if (w == 0)
+            return $"No getter interface resolved for {role} {t.Name} — read-only projection " +
+                   $"(0/{total} properties writable); excluded correctly.";
+        return $"WRITABLE BUT UNEXTRACTABLE: {role} {t.Name} has no I{t.Name}Getter interface, yet {w}/{total} " +
+               $"of its properties are writable. It is EXCLUDED from the catalog — a real coverage gap, not a " +
+               $"read-only projection. Its schema is deliberately not extracted from the concrete class (#397); " +
+               $"the fix belongs upstream in Mutagen (add the getter interface).";
+    }
 
     /// <summary>
     /// True for Mutagen's lazy-read overlay class (e.g. ArmorBinaryOverlay), which
@@ -526,7 +627,7 @@ public static class CorpusGenerator
     /// type — excluded from record enumeration and from polymorphic-arm detection so
     /// it doesn't masquerade as a second "arm" of an otherwise non-polymorphic struct.
     /// </summary>
-    static bool IsOverlayTwin(Type t) => t.Name.EndsWith("BinaryOverlay", StringComparison.Ordinal);
+    internal static bool IsOverlayTwin(Type t) => t.Name.EndsWith("BinaryOverlay", StringComparison.Ordinal);
 
     /// <summary>
     /// A record's own xEdit 4-char signature (Armor -> "ARMO"), read from its registration's
@@ -549,7 +650,7 @@ public static class CorpusGenerator
     }
 
     /// <summary>The "I{Name}Getter" interface for a concrete Mutagen class.</summary>
-    static Type? GetterInterfaceFor(Type concrete)
+    internal static Type? GetterInterfaceFor(Type concrete)
     {
         if (concrete.IsInterface) return concrete;
         var direct = concrete.Assembly.GetType($"{concrete.Namespace}.I{concrete.Name}Getter");
@@ -560,7 +661,7 @@ public static class CorpusGenerator
     }
 
     /// <summary>The mutable twin of a getter interface (strip the "Getter" suffix).</summary>
-    static Type? MutableInterfaceFor(Type getterIfc)
+    internal static Type? MutableInterfaceFor(Type getterIfc)
     {
         // Strip the arity suffix before the Getter check: a generic getter interface is
         // named "IFooGetter`1", which does NOT end in "Getter". Missing this silently
@@ -712,7 +813,7 @@ public static class CorpusGenerator
     //   R1 no-mutable-iface  — the type exposes no mutable interface at all (read-only construct:
     //                          ReadOnlyArray2d<T> views, the AssetType descriptor). The read-only
     //                          projections (the multi-mod overlay, the merged-cell view) are filtered out
-    //                          of arm detection upstream (IsAuthorableArm), so they never reach this audit.
+    //                          of arm detection upstream (ClassifyArm), so they never reach this audit.
     //   R2 poly-discriminator— a polymorphic-union arm's identity fixes the field, so it is get-only
     //                          (Condition.Function, archetype Type / AssociationKey, condition
     //                          Parameter{1,2}Type). Allowed on arm / polymorphic-base only, so the same

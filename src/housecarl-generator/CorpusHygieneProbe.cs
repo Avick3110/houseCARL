@@ -38,7 +38,7 @@ namespace HousecarlGenerator;
 ///          NEW namespace ever enters the catalog (a coverage surface to surface, not absorb). (RED: a
 ///          System.Linq.Enumerable getter.)
 ///   INV4 — NO READ-ONLY PROJECTION ARM. No type with no mutable interface is presented as an arm — the true
-///          structural twin of CorpusGenerator's IsAuthorableArm filter (Unit A): flagged when it is kind "arm"
+///          structural twin of CorpusGenerator's ClassifyArm filter (Unit A): flagged when it is kind "arm"
 ///          OR its live getter is a concrete class (Mutagen's multi-mod overlay, the merged-cell view, the lazy
 ///          BinaryOverlay twins). Does NOT trip a 0-field MARKER arm (which keeps its mutable interface) nor a
 ///          read-only value struct (AssetType / ReadOnlyArray2d — interface getter, kind "struct"). (RED: a real
@@ -361,7 +361,7 @@ public static class CorpusHygieneProbe
     }
 
     /// <summary>INV4: an unauthorable read-only PROJECTION must not appear in the catalog as an arm. The true
-    /// structural twin of CorpusGenerator's IsAuthorableArm filter (Unit A, which drops a union implementer with
+    /// structural twin of CorpusGenerator's ClassifyArm filter (Unit A, which drops a union implementer with
     /// no mutable interface): flag any type whose MutableInterface == null that is EITHER kind "arm" (an arm must
     /// be authorable) OR whose live getter is a concrete class (the overlay shape — SkyrimMultiModOverlay,
     /// MergedCellBlock, the lazy BinaryOverlay twins). Keys on the mutable interface, NEVER on writable==0 (a
