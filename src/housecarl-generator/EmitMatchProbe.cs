@@ -151,9 +151,14 @@ public static class EmitMatchProbe
         for (int i = 0; i < Math.Min(left.Length, right.Length); i++)
         {
             if (string.Equals(left[i], right[i], StringComparison.Ordinal)) continue;
-            sb.Append($"first difference at line {i + 1} of {left.Length:N0}");
-            sb.Append($"\n        -> committed: {Excerpt(left[i])}");
-            sb.Append($"\n        -> fresh    : {Excerpt(right[i])}");
+            // A cataloged line is one whole record's schema — often >1,000 characters — and the difference is
+            // usually nowhere near the start. Excerpting from character 0 would print two windows that look
+            // IDENTICAL and name nothing, which is how a "helpful" diagnostic becomes a dead end. Window on the
+            // first differing column instead.
+            int col = FirstDifferingColumn(left[i], right[i]);
+            sb.Append($"first difference at line {i + 1} of {left.Length:N0}, column {col + 1}");
+            sb.Append($"\n        -> committed: {Excerpt(left[i], col)}");
+            sb.Append($"\n        -> fresh    : {Excerpt(right[i], col)}");
             return sb.ToString();
         }
 
@@ -162,12 +167,30 @@ public static class EmitMatchProbe
         var extra = Math.Abs(left.Length - right.Length);
         sb.Append($"lines 1-{Math.Min(left.Length, right.Length):N0} match; {longer} has {extra:N0} extra line(s), ");
         sb.Append($"first at line {Math.Min(left.Length, right.Length) + 1}: ");
-        sb.Append(Excerpt((left.Length > right.Length ? left : right)[Math.Min(left.Length, right.Length)]));
+        sb.Append(Excerpt((left.Length > right.Length ? left : right)[Math.Min(left.Length, right.Length)], 0));
         return sb.ToString();
     }
 
-    /// <summary>A cataloged line is a whole record's schema — thousands of characters. Bound it so one stale
-    /// shard cannot bury the rest of the guard's output (kickoff/boot rule: one readable line per cell).</summary>
-    static string Excerpt(string line) =>
-        line.Length <= 160 ? line : line[..160] + $"… (+{line.Length - 160:N0} more chars)";
+    static int FirstDifferingColumn(string a, string b)
+    {
+        int n = Math.Min(a.Length, b.Length);
+        for (int i = 0; i < n; i++) if (a[i] != b[i]) return i;
+        return n; // one is a prefix of the other; the difference starts where the shorter ends
+    }
+
+    const int Window = 140;
+
+    /// <summary>A cataloged line is a whole record's schema — thousands of characters. Show a bounded window
+    /// AROUND the interesting column so one stale shard names what changed without burying the rest of the
+    /// guard's output, and mark each side that was clipped so a truncated window is never read as the whole line.
+    /// </summary>
+    static string Excerpt(string line, int around)
+    {
+        if (line.Length <= Window) return line;
+        int start = Math.Max(0, Math.Min(around - Window / 2, line.Length - Window));
+        int end = Math.Min(line.Length, start + Window);
+        var head = start > 0 ? $"…(+{start:N0} chars)" : "";
+        var tail = end < line.Length ? $"…(+{line.Length - end:N0} chars)" : "";
+        return head + line[start..end] + tail;
+    }
 }
