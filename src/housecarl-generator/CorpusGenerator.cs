@@ -582,8 +582,17 @@ public static class CorpusGenerator
     internal static ArmClass ClassifyArm(Type t)
     {
         var gi = GetterInterfaceFor(t);
-        if (gi != null)
-            return MutableInterfaceFor(gi) != null ? ArmClass.Authorable : ArmClass.ReadOnlyProjection;
+
+        // The pre-#397 predicate, reproduced LITERALLY — including the `?? t` fallback, which is load-bearing and
+        // not the dead branch it looks like. A concrete class whose OWN name ends in "Getter"
+        // (FormLinkNullableGetter`1, FormLinkOrIndexGetter`1 in Mutagen.Bethesda.Core) passes
+        // MutableInterfaceFor's arity-stripped EndsWith test and resolves a mutable twin through the fallback,
+        // so it was authorable before and must stay authorable. Computing this from `gi` alone silently flipped
+        // both types; they are in the walk, because BuildCorpus seeds IPexFileGetter from that same assembly.
+        if (MutableInterfaceFor(gi ?? t) != null) return ArmClass.Authorable;
+
+        // Not authorable. Everything below only decides WHICH exclusion to report — never whether to exclude.
+        if (gi != null) return ArmClass.ReadOnlyProjection;
         return HasWritableSurface(t) ? ArmClass.WritableButUnextractable : ArmClass.ReadOnlyProjection;
     }
 
@@ -803,8 +812,10 @@ public static class CorpusGenerator
     //
     // Companion to Probe's `vocab` check (which guards the mutable-COLLECTION-shape whitelist).
     // This guards the field-WRITABILITY surface: every field Mutagen models read-only falls into
-    // one of the categories below, verified field-by-field 2026-05-30 (8424/9087 writable; all 663
-    // read-only accounted for, 0 residue). A non-writable field fitting NONE of them is a possible
+    // one of the categories below, verified field-by-field 2026-05-30 against Mutagen 0.53.1 (8424/9087
+    // writable; all 663 read-only accounted for, 0 residue) — a dated measurement, not a current count;
+    // the guard below is dynamic and re-derives the residue on whatever version is referenced.
+    // A non-writable field fitting NONE of them is a possible
     // regression — a content field that lost its setter via a Mutagen bump or a reflection miss (the
     // failure mode the generic-getter `1 bug was, CorpusGenerator §MutableInterfaceFor) — and is
     // surfaced loud in Report's anomaly list, never passed over silently (CLAUDE.md §3 fail-loud).

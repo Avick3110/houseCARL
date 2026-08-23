@@ -259,7 +259,19 @@ public static class PkcuProbe
             try { resolver = LoadOrderResolver.Build(new[] { cleanPath, badPath }); }
             catch (Exception ex) { Console.WriteLine($"   FAIL (regression!): LoadOrderResolver.Build threw: {ex.GetType().Name}: {Trunc(ex.Message)}"); return 1; }
 
-            bool excluded = resolver.ExcludedPlugins.ContainsKey("hcRegBad.esp");
+            bool excluded = resolver.ExcludedPlugins.TryGetValue("hcRegBad.esp", out var exclusionReason);
+            // WHICH exclusion path fired, not merely THAT one did. LoadOrderResolver excludes from two
+            // structurally different places — an open-time catch and the mid-enumeration catch — and both
+            // populate ExcludedPlugins identically. Only the second is the "Taste of Death" fix this guard
+            // exists to lock. Asserting the key alone lets a corruption that fails at OPEN pass as green with
+            // the guarded path never entered (demonstrated: a truncated plugin does exactly that). That
+            // matters more with the current fixture than the retired one: the retired corruption was SEMANTIC
+            // (a data-input count disagreeing with the inputs) and could only be detected while parsing the
+            // record body, so it was structurally guaranteed to land mid-enumeration. An overstated subrecord
+            // LENGTH is exactly the class an upstream parser is most likely to start rejecting during a
+            // structure scan instead. Pin the reason so that drift is a RED, not a silent downgrade.
+            const string MidEnumerationMarker = "contains a record Mutagen cannot parse";
+            bool viaEnumeration = exclusionReason?.Contains(MidEnumerationMarker, StringComparison.Ordinal) == true;
             var cleanWin = resolver.ResolveWinner(cleanKwFk);
             var badWin = resolver.ResolveWinner(pkgFk);
             Console.WriteLine($"   build OK — {resolver.RecordCount} record(s), {resolver.ExcludedPlugins.Count} excluded");
@@ -268,7 +280,10 @@ public static class PkcuProbe
             Console.WriteLine($"   bad package resolves   : {(badWin is null ? "no (correct — excluded)" : "YES (wrong)")}");
             resolver.Dispose();
 
-            bool pass = excluded && cleanWin is not null && badWin is null && resolver.RecordCount > 0;
+            if (excluded && !viaEnumeration)
+                Console.WriteLine($"   NOTE: excluded, but NOT via the mid-enumeration path this guard locks — " +
+                                  $"the synthesized corruption now fails earlier. Reason: {Trunc(exclusionReason ?? string.Empty)}");
+            bool pass = excluded && viaEnumeration && cleanWin is not null && badWin is null && resolver.RecordCount > 0;
             Console.WriteLine(pass ? "   ==> PASS: malformed plugin isolated, clean plugin resolves." : "   ==> FAIL");
             return pass ? 0 : 1;
         }

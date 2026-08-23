@@ -162,13 +162,37 @@ public static class EmitMatchProbe
             return sb.ToString();
         }
 
-        // Every shared line matches, so one file is a prefix of the other.
+        // Every shared line matches. Either one file is a prefix of the other, or the two differ ONLY in bytes
+        // that ReadAllLines does not surface — a BOM, the line terminators themselves, or a trailing newline.
+        // That second case is reachable in ordinary use (PowerShell's Set-Content / Out-File write a BOM by
+        // default) and must not be treated as the prefix case: with equal line counts there is no "extra" line
+        // to name, and indexing one would read off the end of the array.
+        int shared = Math.Min(left.Length, right.Length);
+        if (left.Length == right.Length)
+        {
+            sb.Append($"all {shared:N0} lines match as text, so the difference is in bytes that do not survive ");
+            sb.Append("line splitting — a byte-order mark, the line terminators, or a trailing newline. ");
+            sb.Append($"First differing byte at offset {FirstDifferingByte(a, b):N0}. ");
+            sb.Append("These shards are pinned `eol=lf` in .gitattributes and the generator writes '\\n' directly, ");
+            sb.Append("so a committed shard should carry no BOM and no CRLF");
+            return sb.ToString();
+        }
+
         var longer = left.Length > right.Length ? "committed" : "fresh";
-        var extra = Math.Abs(left.Length - right.Length);
-        sb.Append($"lines 1-{Math.Min(left.Length, right.Length):N0} match; {longer} has {extra:N0} extra line(s), ");
-        sb.Append($"first at line {Math.Min(left.Length, right.Length) + 1}: ");
-        sb.Append(Excerpt((left.Length > right.Length ? left : right)[Math.Min(left.Length, right.Length)], 0));
+        // Lengths differ here — the equal-length case returned above — so this is the genuine prefix case.
+        sb.Append($"lines 1-{shared:N0} match; {longer} has {Math.Abs(left.Length - right.Length):N0} extra line(s), ");
+        sb.Append($"first at line {shared + 1}: ");
+        sb.Append(Excerpt((left.Length > right.Length ? left : right)[shared], 0));
         return sb.ToString();
+    }
+
+    /// <summary>Offset of the first differing byte — the only locator available when the two files agree on
+    /// every line as text and differ only in bytes line splitting discards.</summary>
+    static int FirstDifferingByte(byte[] a, byte[] b)
+    {
+        int n = Math.Min(a.Length, b.Length);
+        for (int i = 0; i < n; i++) if (a[i] != b[i]) return i;
+        return n;
     }
 
     static int FirstDifferingColumn(string a, string b)

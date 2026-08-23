@@ -13,13 +13,19 @@ namespace HousecarlGenerator;
 /// exists because that fix is a CLASSIFIER change whose observable effect on Skyrim is nil: the shards are
 /// byte-identical across it, so a byte-diff can never tell "the split works" from "the split is dead code".
 ///
-///   A — BEHAVIOR NEUTRALITY, whole-assembly. Over every concrete non-overlay class in Mutagen.Bethesda.Skyrim,
+///   A — BEHAVIOR NEUTRALITY, over BOTH assemblies the corpus walks (Mutagen.Bethesda.Skyrim AND
+///       Mutagen.Bethesda.Core — BuildCorpus seeds IPexFileGetter from Core, and FindUnionArms walks whichever
+///       assembly a getter interface lives in). For every concrete non-overlay class in either,
 ///       <c>ClassifyArm(t) == Authorable</c> must equal the ORIGINAL predicate, type for type. This is what makes
 ///       the shard-level byte-identity a consequence rather than a coincidence: the accepted arm set is provably
 ///       unchanged, for every type, not just for the ones the corpus happens to walk.
+///       A Skyrim-only sweep was NOT enough: it asserted this over part of its own domain and missed two Core
+///       types (FormLinkNullableGetter`1, FormLinkOrIndexGetter`1) that a first cut of ClassifyArm flipped.
+///       NOTE what A does NOT cover: it compares the ACCEPT/REJECT split only, so it is deliberately blind to
+///       WHICH of the two reject reasons is reported. The #397 split itself is pinned by B4, never by A.
 ///   B — ALL THREE CLASSES ARE REACHABLE. Each of Authorable / ReadOnlyProjection / WritableButUnextractable is
 ///       exhibited by a REAL type in the live assembly and asserted by name. The third is the arm this guard is
-///       really for: without it, <c>WritableButUnextractable</c> is a branch nothing on Skyrim enters, and a
+///       really for: without it, <c>WritableButUnextractable</c> is a branch no live type enters, and a
 ///       later refactor could delete or invert it with every guard still green.
 ///   C — THE TWO ANOMALY LINES CANNOT BE READ AS EACH OTHER. #397's part 1 is that the output must DISTINGUISH a
 ///       real coverage gap from a correct exclusion. So: the writable case's line says WRITABLE BUT UNEXTRACTABLE
@@ -31,7 +37,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class ArmClassificationProbe
 {
-    // Real 0.53.1 types, each chosen as the live exhibit of one class. Verified by direct reflection before
+    // Real types from the live assembly, each chosen as the exhibit of one class. Verified by direct reflection before
     // being written down here; the counts are asserted below rather than trusted.
     const string AuthorableExhibit = "Armor";                            // getter interface + mutable twin
     const string ProjectionExhibit = "SkyrimMultiModOverlay";            // no getter interface, 0 writable
@@ -58,7 +64,14 @@ public static class ArmClassificationProbe
         static bool OriginalPredicate(Type t) =>
             CorpusGenerator.MutableInterfaceFor(CorpusGenerator.GetterInterfaceFor(t) ?? t) != null;
 
-        var candidates = asm.GetTypes()
+        // BOTH assemblies the corpus walks, not just Skyrim. BuildCorpus seeds IPexFileGetter from
+        // Mutagen.Bethesda.Core and FindUnionArms walks whichever assembly a getter interface lives in, so a
+        // Skyrim-only sweep asserts this invariant over part of its own domain. It is also not a hypothetical
+        // gap: the two types that made this check necessary (FormLinkNullableGetter`1, FormLinkOrIndexGetter`1)
+        // live in Core and are invisible from Skyrim.
+        var candidates = new[] { asm, typeof(Mutagen.Bethesda.Plugins.Records.IMajorRecordGetter).Assembly }
+            .Distinct()
+            .SelectMany(a => a.GetTypes())
             .Where(t => t.IsClass && !t.IsAbstract && !CorpusGenerator.IsOverlayTwin(t))
             .ToList();
 
@@ -67,7 +80,8 @@ public static class ArmClassificationProbe
             .Select(t => t.FullName ?? t.Name)
             .ToList();
 
-        Check($"A. accepted-arm set unchanged across {candidates.Count} concrete non-overlay classes",
+        Check($"A. accepted-arm set unchanged across {candidates.Count} concrete non-overlay classes " +
+              $"in Mutagen.Bethesda.Skyrim + Mutagen.Bethesda.Core",
             disagreements.Count == 0,
             disagreements.Count == 0 ? null
                 : $"{disagreements.Count} type(s) classify differently than the original predicate: " +
@@ -97,7 +111,7 @@ public static class ArmClassificationProbe
             CorpusGenerator.ClassifyArm(projection2) == CorpusGenerator.ArmClass.ReadOnlyProjection,
             $"got {CorpusGenerator.ClassifyArm(projection2)}");
 
-        // The one that matters. Nothing on Skyrim 0.53.1 reaches this branch through a real union walk (the issue's
+        // The one that matters. Nothing in the live Skyrim assembly reaches this branch through a real union walk (the issue's
         // "latent, not live"), so without driving the classifier directly the branch is untested code.
         Check($"B4. {UnextractableExhibit} classifies WritableButUnextractable",
             CorpusGenerator.ClassifyArm(unextractable) == CorpusGenerator.ArmClass.WritableButUnextractable,
