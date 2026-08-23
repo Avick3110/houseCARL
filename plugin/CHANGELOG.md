@@ -19,16 +19,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `Race.BehaviorGraph` and `BodyData.Model` name their own model types (`ModelBehavior`, `ModelBodyTexture`)
   instead of the shared `Model`, with the same fields and the same writability; and
   `FindMatchingRefFromEvent.EventData` reads as the typed `GetEventDataConditionData.EventMember` enum instead
-  of raw bytes, so a condition on it can be written by name. Three enums gain values —
-  `Scene.Flag.ShowAllText`, and `Fallout3` / `FalloutNV` / `EnderalSEGog` on the game-release enums. Nothing
-  the reference described before was removed: no type, field, enum value or union arm, and no field that was
-  writable became read-only. `/housecarl:mutagen-reference` is the surface that changed; the reference states
-  what it covers.
+  of raw bytes, so a condition on it can be written by name. Three enums gain values: `Scene.Flag` gains
+  `ShowAllText`, `GameRelease` gains `Fallout3`, `FalloutNV` and `EnderalSEGog`, and `SkyrimRelease` gains
+  `EnderalSEGog`. Nothing the reference described before was removed: no type, field, enum value or union
+  arm, and no field that was writable became read-only. `/housecarl:mutagen-reference` is the surface that
+  changed; the reference states what it covers.
 
 - **A plugin whose `PKCU` data-input count disagrees with the inputs it carries is no longer excluded from a
   session.** Mutagen 0.54.4 reads that mismatch instead of failing on it, so the plugin loads and its records
-  resolve. Plugins carrying a record Mutagen still cannot parse are excluded exactly as before, and the
-  exclusion is still reported per plugin rather than failing the whole load order.
+  resolve. Plugins carrying a record Mutagen still cannot parse are excluded exactly as before;
+  `housecarl_load_order_status` lists which plugins were excluded this session and why, so you can check
+  whether a plugin you expected to be missing still is.
 
 - **New: `housecarl_check` — one sweep, several finding families.** It merges `housecarl_check_errors`,
   `housecarl_validate_scripts` and `housecarl_validate_dialogue`'s findings behind one `findings=` vocabulary:

@@ -25,7 +25,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- The reflection target the extracted cores bind against. Pinned 0.53.1 (spike-proven), matching both consumers. -->
+    <!-- The reflection target the extracted cores bind against. Pinned, matching both consumers; the pin moves for all three together on a bump. -->
     <PackageReference Include="Mutagen.Bethesda.Skyrim" Version="0.54.4" />
     <!-- The NIF layer's asset-internal reader/writer. Pure C#, GPL-3.0 (compatible with our GPL-3.0-only), source-
          generated from nifxml = coverage by construction. Pinned 1.1.0 (2026-07-26, issue #287): carries the shader

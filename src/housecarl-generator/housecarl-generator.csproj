@@ -11,7 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Reflection target. Pinned to match housecarl-mcp (spike-proven 0.53.1). -->
+    <!-- Reflection target. Pinned to match housecarl-mcp and housecarl-core; the three move together on a bump. -->
     <PackageReference Include="Mutagen.Bethesda.Skyrim" Version="0.54.4" />
     <PackageReference Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>

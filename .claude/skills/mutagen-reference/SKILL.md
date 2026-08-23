@@ -138,5 +138,5 @@ Two honesty boundaries the write tool enforces, worth stating when you compose a
 
 ## Notes
 
-- **Provenance.** The `references/` tree is generated **by construction** by reflecting over `Mutagen.Bethesda.Skyrim` (0.53.1) — the same walk that produces houseCARL's write-surface rulebook, so the skill's read view and houseCARL's write tools can't disagree about field names or types. It refreshes by regenerating from the library on a version bump.
+- **Provenance.** The `references/` tree is generated **by construction** by reflecting over `Mutagen.Bethesda.Skyrim` (0.54.4) — the same walk that produces houseCARL's write-surface rulebook, so the skill's read view and houseCARL's write tools can't disagree about field names or types. It refreshes by regenerating from the library on a version bump.
 - **Coverage is the library's coverage.** Every record type, sub-struct, polymorphic arm, and enum the library models is here, at full depth. The only thing *not* here is what the library itself doesn't model (the documented xEdit-delta), which the bundled-or-warn path surfaces explicitly rather than papering over.
