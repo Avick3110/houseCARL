@@ -13,23 +13,31 @@ namespace HousecarlGenerator;
 /// exists because that fix is a CLASSIFIER change whose observable effect on Skyrim is nil: the shards are
 /// byte-identical across it, so a byte-diff can never tell "the split works" from "the split is dead code".
 ///
-///   A — BEHAVIOR NEUTRALITY, over BOTH assemblies the corpus walks (Mutagen.Bethesda.Skyrim AND
-///       Mutagen.Bethesda.Core — BuildCorpus seeds IPexFileGetter from Core, and FindUnionArms walks whichever
-///       assembly a getter interface lives in). For every concrete non-overlay class in either,
-///       <c>ClassifyArm(t) == Authorable</c> must equal the ORIGINAL predicate, type for type. This is what makes
-///       the shard-level byte-identity a consequence rather than a coincidence: the accepted arm set is provably
-///       unchanged, for every type, not just for the ones the corpus happens to walk.
-///       A Skyrim-only sweep was NOT enough: it asserted this over part of its own domain and missed two Core
-///       types (FormLinkNullableGetter`1, FormLinkOrIndexGetter`1) that a first cut of ClassifyArm flipped.
+///   A — BEHAVIOR NEUTRALITY, over the assemblies the walk ACTUALLY VISITED, derived from the walk rather than
+///       listed here. For every concrete non-overlay class in that set, <c>ClassifyArm(t) == Authorable</c> must
+///       equal the ORIGINAL predicate, type for type — which is what makes the shard-level byte-identity a
+///       consequence rather than a coincidence. A hand-written assembly list was wrong twice running: first
+///       naming Skyrim alone (missing two Core types a first cut of ClassifyArm flipped), then Skyrim and Core
+///       while the walk also reaches Noggog.CSharpExt via IReadOnlyArray2d&lt;T&gt;. Nobody enumerates them by hand
+///       again. A0 fails if the walk recorded nothing, so A cannot pass vacuously over an empty universe.
 ///       NOTE what A does NOT cover: it compares the ACCEPT/REJECT split only, so it is deliberately blind to
-///       WHICH of the two reject reasons is reported. The #397 split itself is pinned by B4, never by A.
+///       WHICH reject reason is reported. The #397 split itself is pinned by B4, never by A.
 ///   B — ALL THREE CLASSES ARE REACHABLE. Each of Authorable / ReadOnlyProjection / WritableButUnextractable is
 ///       exhibited by a REAL type in the live assembly and asserted by name. The third is the arm this guard is
-///       really for: without it, <c>WritableButUnextractable</c> is a branch no live type enters, and a
-///       later refactor could delete or invert it with every guard still green.
-///   C — THE TWO ANOMALY LINES CANNOT BE READ AS EACH OTHER. #397's part 1 is that the output must DISTINGUISH a
-///       real coverage gap from a correct exclusion. So: the writable case's line says WRITABLE BUT UNEXTRACTABLE
-///       and names the type and its writable count; the read-only case's line says neither of those things.
+///       really for: without it, <c>WritableButUnextractable</c> is a branch no live type enters, and a later
+///       refactor could delete or invert it with every guard still green.
+///   C — THE LINE CLAIMS ITS MEASUREMENT AND NOTHING MORE. #397 asked the output to stop conflating a real
+///       coverage gap with a correct exclusion; it did not license a third diagnosis. So C asserts the honest
+///       content (the marker, the FULL type name, a non-zero settable count, the check that settles it) AND the
+///       ABSENCE of the two sentences that were removed for asserting what the predicate cannot establish —
+///       "a real coverage gap, not a read-only projection", and "the fix belongs upstream in Mutagen". The
+///       second was provably false for this guard's own exhibit. Assert the absence or nothing stops it coming
+///       back, and a guard checking only which enum value returned would never notice.
+///   D — THE LINE IS ACTUALLY EMITTED. A/B/C pin the wording of a sentence; none of them requires anyone to
+///       PRINT it. Measured: no-opping both call sites left every other arm green, left emit-match-guard and
+///       corpus-hygiene-guard green, and made the whole ANOMALIES section vanish. So D drives a real emit and
+///       reads what the generator reported. It pins the RECORD path only — the arm path has no live exhibit and
+///       is stated as unpinned at the check itself, rather than left for a reader to assume.
 ///
 /// The types in B/C are named deliberately, and a rename or a Mutagen bump that changes their shape SHOULD break
 /// this guard — that is the tripwire working. #397's whole point is that a bump is what arms this class; a guard
@@ -37,12 +45,15 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class ArmClassificationProbe
 {
-    // Real types from the live assembly, each chosen as the exhibit of one class. Verified by direct reflection before
-    // being written down here; the counts are asserted below rather than trusted.
-    const string AuthorableExhibit = "Armor";                            // getter interface + mutable twin
-    const string ProjectionExhibit = "SkyrimMultiModOverlay";            // no getter interface, 0 writable
-    const string ProjectionExhibit2 = "MergedCellBlock";                 // no getter interface, 0 writable
-    const string UnextractableExhibit = "ArmorAddonWeightSliderContainer"; // no getter interface, 2/2 writable
+    // Real types from the live assembly, each chosen as the exhibit of one class. Verified by direct reflection
+    // before being written down here; the counts are asserted below rather than trusted.
+    const string AuthorableExhibit = "Armor";                              // getter interface + mutable twin
+    const string ProjectionExhibit = "SkyrimMultiModOverlay";              // none resolved by name, 0 settable
+    const string ProjectionExhibit2 = "MergedCellBlock";                   // none resolved by name, 0 settable
+    // Resolves no I{Name}Getter BY NAME while implementing IGenderedItemGetter&lt;bool&gt;, and its data IS
+    // catalogued, as GenderedItem&lt;Boolean&gt;. That is precisely why this line reports rather than diagnoses,
+    // and why the name-resolution defect it exposes is filed as #424 instead of worked around here.
+    const string UnextractableExhibit = "ArmorAddonWeightSliderContainer"; // none resolved by name, 2/2 settable
 
     public static int RunGuard(string[] args)
     {
@@ -181,6 +192,15 @@ public static class ArmClassificationProbe
         // This asserts the CONTRACT (every non-authorable no-getter-interface type the walk reached is named in
         // the report), not a fixed list of type names — so it survives a Mutagen bump that changes which types
         // exhibit the shape, while still failing if the emission is removed. The emit itself ran at the top.
+        //
+        // WHAT D DOES NOT COVER, stated because measuring it is the only way anyone learns it: D pins the
+        // RECORD-path emission (CorpusGenerator's seed loop) and NOT the union-arm-path emission
+        // (FindUnionArms). Sabotage confirms the asymmetry — no-opping the record call site turns D0 red, while
+        // no-opping the arm call site leaves this guard fully green. The arm branch cannot be driven by any live
+        // type: FindUnionArms only enumerates the getter interface's OWN assembly, and no unextractable
+        // candidate is assignable to a closed getter interface declared alongside it. So the arm-path emission
+        // is UNPINNED today, and will stay unpinned until a real type exhibits the shape — which is the same
+        // bump that arms #397 in the first place. Do not read D as covering both paths.
         var expected = candidates
             .Where(t => CorpusGenerator.ClassifyArm(t) != CorpusGenerator.ArmClass.Authorable
                         && CorpusGenerator.GetterInterfaceFor(t) == null
@@ -194,8 +214,8 @@ public static class ArmClassificationProbe
             "no ANOMALIES section was printed at all — the report is not reaching the caller");
 
         var missing = expected.Where(n => reported?.Contains(n, StringComparison.Ordinal) != true).ToList();
-        Check($"D1. every no-getter-interface record class the walk reached is NAMED in the report " +
-              $"({expected.Count} expected)",
+        Check($"D1. every no-getter-interface RECORD class the walk reached is NAMED in the report " +
+              $"({expected.Count} expected; the arm-path emission is not pinned \u2014 see the note above)",
             missing.Count == 0,
             missing.Count == 0 ? null
                 : $"emitted report does not name: {string.Join(", ", missing.Take(10))} — the anomaly is " +
