@@ -104,7 +104,7 @@
 {"name":"Furniture.MajorFlag","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.Furniture+MajorFlag","values":["IsPerch","HasDistantLOD","RandomAnimStart","IsMarker","MustExitToTalk","ChildCanUse"]}
 {"name":"FurnitureAnimType","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.FurnitureAnimType","values":["Sit","Lay","Lean"]}
 {"name":"FurnitureEntryType","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.FurnitureEntryType","values":["Front","Behind","Right","Left","Up"]}
-{"name":"GameRelease","kind":"enum","getter":"Mutagen.Bethesda.GameRelease","values":["Oblivion","SkyrimLE","SkyrimSE","SkyrimVR","Fallout4","EnderalLE","EnderalSE","SkyrimSEGog","Starfield","Fallout4VR","OblivionRE"]}
+{"name":"GameRelease","kind":"enum","getter":"Mutagen.Bethesda.GameRelease","values":["Oblivion","SkyrimLE","SkyrimSE","SkyrimVR","Fallout4","EnderalLE","EnderalSE","SkyrimSEGog","Starfield","Fallout4VR","OblivionRE","EnderalSEGog","Fallout3","FalloutNV"]}
 {"name":"GetEventDataConditionData.EventFunction","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.GetEventDataConditionData+EventFunction","values":["GetIsID","IsInList","GetValue","HasKeyword","GetItemValue"]}
 {"name":"GetEventDataConditionData.EventMember","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.GetEventDataConditionData+EventMember","values":["None","Form","Keyword","OldLocation","CreatedObject","Value1","NewLocation","Value2"]}
 {"name":"GetVATSValueActionConditionData.Action","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.GetVATSValueActionConditionData+Action","values":["UnarmedAttack","OneHandMeleeAttack","TwoHandMeleeAttack","MagicAttack","RangedAttack","Reload","Crouch","Stand","SwitchWeapon","ToggleWeaponDrawn","Heal","PlayerDeath"]}
@@ -219,7 +219,7 @@
 {"name":"Relationship.MajorFlag","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.Relationship+MajorFlag","values":["Secret"]}
 {"name":"Relationship.RankType","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.Relationship+RankType","values":["Lover","Ally","Confidant","Friend","Acquaintance","Rival","Foe","Enemy","Archnemesis"]}
 {"name":"Responsibility","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.Responsibility","values":["AnyCrime","ViolenceAgainstEnemies","PropertyCrimeOnly","NoCrime"]}
-{"name":"Scene.Flag","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.Scene+Flag","values":["BeginOnQuestStart","StopQuestOnEnd","RepeatConditionsWhileTrue","Interruptable"]}
+{"name":"Scene.Flag","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.Scene+Flag","values":["BeginOnQuestStart","StopQuestOnEnd","ShowAllText","RepeatConditionsWhileTrue","Interruptable"]}
 {"name":"SceneAction.Flag","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.SceneAction+Flag","values":["FaceTarget","Looping","HeadtrackPlayer"]}
 {"name":"SceneAction.TypeEnum","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.SceneAction+TypeEnum","values":["Dialog","Package","Timer"]}
 {"name":"SceneActor.BehaviorFlag","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.SceneActor+BehaviorFlag","values":["DeathPause","DeathEnd","CombatPause","CombatEnd","DialoguePause","DialogueEnd","ObsComPause","ObsComEnd"]}
@@ -234,7 +234,7 @@
 {"name":"Skill","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.Skill","values":["OneHanded","TwoHanded","Archery","Block","Smithing","HeavyArmor","LightArmor","Pickpocket","Lockpicking","Sneak","Alchemy","Speech","Alteration","Conjuration","Destruction","Illusion","Restoration","Enchanting"]}
 {"name":"SkyrimMajorRecord.SkyrimMajorRecordFlag","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.SkyrimMajorRecord+SkyrimMajorRecordFlag","values":["ESM","NotPlayable","Deleted","InitiallyDisabled","Ignored","VisibleWhenDistant","Dangerous_OffLimits_InteriorCell","Compressed","CantWait"]}
 {"name":"SkyrimModHeader.HeaderFlag","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.SkyrimModHeader+HeaderFlag","values":["Master","Localized","Small"]}
-{"name":"SkyrimRelease","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.SkyrimRelease","values":["SkyrimLE","SkyrimSE","SkyrimVR","EnderalLE","EnderalSE","SkyrimSEGog"]}
+{"name":"SkyrimRelease","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.SkyrimRelease","values":["SkyrimLE","SkyrimSE","SkyrimVR","EnderalLE","EnderalSE","SkyrimSEGog","EnderalSEGog"]}
 {"name":"SoulGem.Level","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.SoulGem+Level","values":["None","Petty","Lesser","Common","Greater","Grand"]}
 {"name":"SoulGem.MajorFlag","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.SoulGem+MajorFlag","values":["CanHoldNpcSoul"]}
 {"name":"SoundCategory.Flag","kind":"enum","getter":"Mutagen.Bethesda.Skyrim.SoundCategory+Flag","values":["MuteWhenSubmerged","ShouldAppearOnMenu"]}
