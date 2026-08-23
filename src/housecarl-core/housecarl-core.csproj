@@ -26,7 +26,7 @@
 
   <ItemGroup>
     <!-- The reflection target the extracted cores bind against. Pinned 0.53.1 (spike-proven), matching both consumers. -->
-    <PackageReference Include="Mutagen.Bethesda.Skyrim" Version="0.53.1" />
+    <PackageReference Include="Mutagen.Bethesda.Skyrim" Version="0.54.4" />
     <!-- The NIF layer's asset-internal reader/writer. Pure C#, GPL-3.0 (compatible with our GPL-3.0-only), source-
          generated from nifxml = coverage by construction. Pinned 1.1.0 (2026-07-26, issue #287): carries the shader
          accessors 1.0.0 only stubbed, a settable TextureSetRef, and the upstream code-audit crash/corruption fixes.
