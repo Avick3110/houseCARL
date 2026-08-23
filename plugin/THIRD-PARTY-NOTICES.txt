@@ -58,16 +58,21 @@ GPL-3.0-only   (copyleft — the same license as houseCARL; see the LICENSE file
 
 
 ===============================================================================
-Apache License 2.0   (the Model Context Protocol C# SDK)
+Apache License 2.0
 ===============================================================================
 
   ModelContextProtocol             2.2.0    github.com/modelcontextprotocol/csharp-sdk
   ModelContextProtocol.Core        2.2.0    github.com/modelcontextprotocol/csharp-sdk
   ModelContextProtocol.AspNetCore  2.2.0    github.com/modelcontextprotocol/csharp-sdk
 
-  Copyright (c) the Model Context Protocol authors. Licensed under the Apache
-  License, Version 2.0 (full text at the end of this file). The upstream
-  distribution carries no separate NOTICE file.
+  miniball                         1.0.4    github.com/SearchAThing-forks/miniball
+
+  ModelContextProtocol*: Copyright (c) the Model Context Protocol authors.
+  miniball (NuGet package "miniball-devel0"): Copyright (c) Lorenzo Delana. It
+  reaches the package as a dependency of NiflySharp and ships as miniball.dll.
+  All of the above are licensed under the Apache License, Version 2.0 (full text
+  at the end of this file). Neither upstream distribution carries a separate
+  NOTICE file.
 
 
 ===============================================================================
@@ -79,6 +84,15 @@ MIT License
   reproduced once below this list. The Microsoft.* and System.* components are
   © Microsoft Corporation and/or the .NET Foundation; the rest are © their
   respective authors.
+
+  TransparentValueObjects.Abstractions 1.1.0 declares no license in its NuGet
+  metadata (no <license>, no licenseUrl, no projectUrl). It is MIT: the package
+  owner on nuget.org is erri120, the upstream repository
+  github.com/erri120/TransparentValueObjects is MIT-licensed, and the repository
+  commit recorded in the package's own nuspec —
+  ff32127019b0f53480f5e9c1867924b14138999c — resolves in that repository. Recorded
+  here so the determination does not have to be re-derived. It reaches the package
+  as a dependency of GameFinder and NexusMods.Paths.
 
   DynamicData                                  9.4.31
   FluentResults                                3.15.2
@@ -94,8 +108,12 @@ MIT License
   TestableIO.System.IO.Abstractions.Wrappers   22.1.1
   Testably.Abstractions.FileSystem.Interface   10.1.0
   ValveKeyValue                                0.13.1.398
+  System.Interactive.Async                     7.0.1
   System.Linq.Async                            7.0.1
+  System.Linq.AsyncEnumerable                  10.0.6
   System.Reactive                              6.1.0
+  System.Text.Encoding.CodePages               10.0.9
+  TransparentValueObjects.Abstractions         1.1.0
   Microsoft.Extensions.AI.Abstractions         10.8.3
   Microsoft.Extensions.Caching.Abstractions    10.0.10
   Microsoft.Extensions.Configuration.Abstractions        10.0.10
