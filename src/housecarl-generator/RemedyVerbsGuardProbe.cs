@@ -374,9 +374,13 @@ public static class RemedyVerbsGuardProbe
                     && !ListOnly.Any(v => m.Contains(v, StringComparison.Ordinal)),
                 m ?? "(accepted)");
         }
+        // Reached by ANY verb now that the shape questions run first, so its slot guidance has to serve the verb
+        // that actually arrived — a SetAtIndex caller must not be told value= belongs to Add.
         var coercibleComposes = Rules.Validate(new WriteRequest { RecordType = "Armor", Path = new[] { "Keywords" },
             Verb = "SetAtIndex", Key = "0", Structs = new[] { new StructSpec { Type = "Keyword" } } });
-        Check("SITE-COMPOSES-COERCIBLE — a coercible-element list is told its elements are not modeled structs, not told to try Add/ReplaceAll",
+        CheckShaped("SITE-COMPOSES-COERCIBLE — a coercible-element list is told its elements are not modeled structs, and gets the slot every verb of its shape wants",
+            coercibleComposes, ListCoerced, Placing(ListCoerced));
+        Check("SITE-COMPOSES-COERCIBLE-NOT-VERB-FIRST — and is never handed the Add/ReplaceAll head sentence, which is about a shape composes= does serve",
             coercibleComposes is not null
                 && coercibleComposes.Contains("not modeled structs", StringComparison.Ordinal)
                 && !coercibleComposes.Contains("use it with Add", StringComparison.Ordinal),

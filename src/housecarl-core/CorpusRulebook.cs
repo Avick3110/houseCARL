@@ -435,10 +435,15 @@ public sealed class CorpusRulebook
                    $"{leaf.Cardinality}. (A dict takes keyed entries, not a positional list; a substruct/scalar takes " +
                    "compose= / value=.)";
         if (!IsComposableElement(leaf))
+            // The slot guidance is DERIVED now, because moving the verb check below this one widened who reaches
+            // this sentence: it used to be seen only by an Add/ReplaceAll caller, for whom "values= (ReplaceAll) /
+            // value= (Add)" named their own verb, and a SetAtIndex caller now lands here and would be told value=
+            // belongs to Add. Every verb this shape takes, with the slot each one wants, is the answer that does
+            // not go narrow on whoever arrives.
             return $"'{leaf.Name}' on '{owner.Name}' holds " +
                    (leaf.FormLinkTarget is not null ? "formlink" : "coercible") +
-                   $" values ({leaf.ElementTypeRef ?? leaf.ElementType}), not modeled structs — use values= " +
-                   "(ReplaceAll) / value= (Add), not composes=.";
+                   $" values ({leaf.ElementTypeRef ?? leaf.ElementType}), not modeled structs, so composes= has " +
+                   $"nothing to build — {PlacingRemedy(leaf)}.";
         if (req.Verb is not ("Add" or "ReplaceAll"))
             // Reached only on a LIST of modeled elements now, so both halves are about a shape composes= serves.
             // The singular alternatives are DERIVED, and derived as the SINGULAR ones: HowToPlace would also offer
