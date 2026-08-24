@@ -238,8 +238,10 @@ public static class InsertAtIndexGuardProbe
             RecordType = "Faction", Path = new[] { "Conditions" }, Verb = "InsertAtIndex", Key = "0",
             Structs = new[] { new StructSpec { Type = "ConditionFloat" } },
         });
+        // The singular-path parenthetical is now DERIVED from the leaf's shape (WriteVerbs), so the arm pins the
+        // derived form — verb plus the slot it takes — rather than a hand-written phrase.
         Check("GATE-REJ-COMPOSES — composes= stays Add/ReplaceAll only, and the refusal names InsertAtIndex's singular path",
-            composes is not null && composes.Contains("InsertAtIndex with compose=", StringComparison.Ordinal),
+            composes is not null && composes.Contains("InsertAtIndex (compose= + key=)", StringComparison.Ordinal),
             composes ?? "(accepted)");
 
         var unknown = Rules.Validate(new WriteRequest

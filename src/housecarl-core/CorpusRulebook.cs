@@ -225,13 +225,23 @@ public sealed class CorpusRulebook
             // side "GenderedItem<" recogniser as the mid-path hop above; its engine twin is WriteEngine.GenderedInterface
             // in ApplyVerb's leaf throw — two recognisers that must agree. (HCBR-2026-06-15-01 PR-H follow-up: the leaf
             // seam of the mid-path scalar hint.)
-            if (FindField(current, leafName, out _, out _) is { Cardinality: "substruct", TypeRef: { } ltr }
+            var bracketed = FindField(current, leafName, out _, out _);
+            if (bracketed is { Cardinality: "substruct", TypeRef: { } ltr }
                 && ltr.StartsWith("GenderedItem<", StringComparison.Ordinal))
                 return $"Gendered field '{leafName}' on '{current.Name}' renders as [0]/[1] but is not a list — set its " +
                        $"halves by name: '{leafName}.Male' (=[0]) / '{leafName}.Female' (=[1]).";
-            return $"Path '{req.Path[^1]}' brackets a collection element at the LEAF; brackets navigate mid-path only. " +
-                   "To operate on a list/dict element, target the collection field and use the verb + Key " +
-                   "(SetAtIndex/InsertAtIndex/Remove by index, Set/Remove by dict key).";
+            // The remedy is SHAPE-scoped, not a recital of both cardinalities' verbs for the caller to sort out.
+            // This message used to offer "SetAtIndex/InsertAtIndex/Remove by index, Set/Remove by dict key" to
+            // everyone who reached it, so a dict caller was handed index verbs that refuse and a list caller was
+            // handed key verbs that refuse. WriteVerbs derives the keyed set from the leaf's own shape, so neither
+            // can happen. When the field does not resolve (an unknown name, bracketed) or its element kind is one
+            // the table declines, the sentence still states the rule and simply names no verbs — dormant today
+            // (remedy-verbs-guard reports zero declined fields in the corpus), and honest if it ever fires.
+            var head = $"Path '{req.Path[^1]}' brackets a collection element at the LEAF; brackets navigate mid-path only. ";
+            if (bracketed is not null && WriteVerbs.OfField(bracketed, _corpus) is { } bshape)
+                return head + $"Target the collection field '{leafName}' itself and address the element with the verb "
+                       + $"+ Key — {WriteVerbs.HowToAddress(bshape)}.";
+            return head + "Target the collection field itself and address the element with the verb + Key.";
         }
         var leaf = FindField(current, leafName, out var leafOwner, out var leafPolyErr);
         if (leafPolyErr is not null) return leafPolyErr;
@@ -315,7 +325,9 @@ public sealed class CorpusRulebook
     }
 
     // ---- verb × cardinality (plan §3 P-VERBS) ----
-    static string? VerbLegality(FieldSchema leaf, WriteRequest req)
+    // Instance, not static, since the Set-on-list remedy derives its alternatives from the leaf's SHAPE — which
+    // needs the corpus to classify the element. The switch itself is unchanged: it decides, WriteVerbs describes.
+    string? VerbLegality(FieldSchema leaf, WriteRequest req)
     {
         var c = leaf.Cardinality;
         var hasKey = req.Key is not null;
@@ -323,7 +335,9 @@ public sealed class CorpusRulebook
         {
             case "Set":
                 if (c == "dict") return hasKey ? null : $"Set on dict field '{leaf.Name}' requires a key.";
-                if (c == "list") return $"Set is not valid on list '{leaf.Name}' — use SetAtIndex (with an index) or ReplaceAll.";
+                // The alternatives are DERIVED, not recited: this remedy named two of the list verbs and had
+                // already fallen behind the surface twice (Add, then InsertAtIndex) before WriteVerbs existed.
+                if (c == "list") return $"Set is not valid on list '{leaf.Name}' — {PlacingRemedy(leaf)}.";
                 return hasKey ? $"Set on {c} field '{leaf.Name}' does not take a key." : null;
             case "Add":
                 // A dict Add coerces req.Key into the new entry's key (ApplyDictVerb -> Coerce(req.Key!, kType)); a
@@ -369,9 +383,22 @@ public sealed class CorpusRulebook
             case "Merge":
                 return c == "dict" ? null : $"Merge is only valid on dict; '{leaf.Name}' is {c}.";
             default:
-                return $"Unknown verb '{req.Verb}'. Legal: Set, Add, Remove, ReplaceAll, SetAtIndex, InsertAtIndex, Merge, CopyFrom.";
+                // The VOCABULARY, from its one home — a caller who typed a verb that does not exist has a
+                // vocabulary problem, and the per-cardinality answer is what the arms above give once the name is
+                // real. Never a hand-typed copy of the set again.
+                return $"Unknown verb '{req.Verb}'. Legal: {string.Join(", ", WriteVerbs.All)}.";
         }
     }
+
+    /// <summary>"How do I put an element into this collection", derived from the leaf's own shape — the one answer
+    /// every collection remedy in this file asks for. Names NO verb when <see cref="WriteVerbs"/> has no shape for
+    /// the leaf: either it is not a collection at all (reachable — a substruct leaf given composes=), or its
+    /// element kind is one the table declines to describe (dormant today; remedy-verbs-guard measures zero such
+    /// fields in the corpus). Saying less is the honest answer in both.</summary>
+    string PlacingRemedy(FieldSchema leaf) =>
+        WriteVerbs.OfField(leaf, _corpus) is { } shape
+            ? WriteVerbs.HowToPlace(shape)
+            : "the verbs this field takes are in the tool description";
 
     /// <summary>P8a — validate a composes= batch (a LIST of build-from-parts element specs) whole: Add appends each,
     /// ReplaceAll clears then appends each. LIST-of-modeled-elements ONLY (a dict needs keyed entries; a substruct/
@@ -384,10 +411,12 @@ public sealed class CorpusRulebook
         IReadOnlyCollection<string>? siblingEditorIds)
     {
         if (req.Verb is not ("Add" or "ReplaceAll"))
+            // The singular-path parenthetical is DERIVED. It used to recite the LIST singular verbs unconditionally,
+            // and this refusal fires before the cardinality check below — so a dict caller (Package.Data with
+            // composes=) was told to reach for SetAtIndex/InsertAtIndex, neither of which is valid on a dict.
             return $"composes= appends/replaces a LIST of modeled elements — use it with Add (append each) or " +
-                   $"ReplaceAll (clear, then append each), not {req.Verb}. (For one element use compose=; to overwrite " +
-                   "one index use SetAtIndex with compose=, and to insert one AT an index use InsertAtIndex with " +
-                   "compose=.)";
+                   $"ReplaceAll (clear, then append each), not {req.Verb}. " +
+                   $"(One element at a time: {PlacingRemedy(leaf)}.)";
         // The owned-child answer comes FIRST, because the generic cardinality sentence below ends by pointing at
         // compose= / value= — and on this shape both of those refuse too (#335). That is the loop the singular
         // Set arm was written to close, reached through a third door.
@@ -837,9 +866,18 @@ public sealed class CorpusRulebook
             // Merge is dict-only and was previously OMITTED, so a Package.Data Merge fell through to ACCEPT then threw
             // 'No coercion rule' at apply (matrix-critic finding) — folding it in closes that. Verb named in the message.
             if (req.Verb is "ReplaceAll" or "Merge")
-                return $"'{leaf.Name}' holds modeled elements ({leaf.ElementTypeRef}); compose them one at a time " +
-                       $"(Add to append, InsertAtIndex to insert AT an index, SetAtIndex to overwrite one; Set for a " +
-                       $"dict key) — {req.Verb} of modeled elements is a later surface.";
+                // THE class-A medium. This message is emitted for a list OR a dict, and it recited the LIST verbs
+                // to both: a Package.Data Merge was answered with "InsertAtIndex to insert AT an index", and
+                // following it returns "InsertAtIndex is only valid on list; 'Data' is dict." The alternatives now
+                // come from the leaf's own shape, so the dict caller gets Set/Add with a key and the list caller
+                // gets the index verbs — structurally, not by a condition somebody has to remember to write.
+                // The tail sentence is derived too, because the old one ("{Verb} of modeled elements is a later
+                // surface") was false on a list: a modeled list DOES have a batch replace — ReplaceAll with
+                // composes= — and this block is only reached when the caller sent values=/entries= instead. The
+                // shape's own placing set says which batch form exists (composes= on a list; none on a dict, which
+                // is why its remedy names only the singular keyed verbs) without a sentence claiming either.
+                return $"'{leaf.Name}' holds modeled elements ({leaf.ElementTypeRef}); a {req.Verb} carrying plain " +
+                       $"values has no build-from-parts form here — {PlacingRemedy(leaf)}.";
         }
         // (step 4-rmv) Remove-BY-VALUE on a NON-PLAIN-VALUE element — a list Remove with NO key is by-value
         // (ApplyListVerb -> Coerce(req.Value!, elem)); an element that is neither coercible (step-4b) nor formlink

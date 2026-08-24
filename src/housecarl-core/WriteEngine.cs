@@ -1941,14 +1941,24 @@ public static class WriteEngine
             // named halves, not the list-verb message. Runtime twin of CorpusRulebook's "GenderedItem<" leaf recogniser
             // (two recognisers that must agree). Pre-flight normally gates this first; the engine keeps the message honest
             // for any direct / CLI --op call that bypasses pre-flight. (HCBR-2026-06-15-01 PR-H follow-up.)
-            if (ResolveProperty(current.GetType(), leafName) is { } gp && GenderedInterface(gp.PropertyType) is not null)
+            var bracketProp = ResolveProperty(current.GetType(), leafName);
+            if (bracketProp is { } gp && GenderedInterface(gp.PropertyType) is not null)
                 throw new InvalidOperationException(
                     $"Gendered field '{leafName}' on {current.GetType().Name} renders as [0]/[1] but is not a list — set " +
                     $"its halves by name: '{leafName}.Male' (=[0]) / '{leafName}.Female' (=[1]).");
-            throw new InvalidOperationException(
-                $"Path segment '{req.Path[^1]}' brackets a collection element at the LEAF. Brackets navigate mid-path " +
-                "only; to operate on a list/dict element at the leaf, use the verb + Key (SetAtIndex/InsertAtIndex/Remove by index, " +
-                "or Set/Remove by dict key).");
+            // The gate's twin, and now the same DERIVATION rather than the same hand-typed recital. The corpus is
+            // not in scope here — the engine is schema-blind by design — so the shape comes off the live property
+            // type; WriteVerbs.OfRuntimeType and its schema-side sibling are held to the same answer on every
+            // collection field in the corpus by remedy-verbs-guard. A property that resolves to no collection at
+            // all still gets the rule, with no verb named for it.
+            var head = $"Path segment '{req.Path[^1]}' brackets a collection element at the LEAF. Brackets navigate "
+                       + "mid-path only; ";
+            if (bracketProp is not null && WriteVerbs.OfRuntimeType(bracketProp.PropertyType) is { } bshape)
+                throw new InvalidOperationException(head
+                    + $"to operate on an element of '{leafName}', target the field itself and use the verb + Key — "
+                    + $"{WriteVerbs.HowToAddress(bshape)}.");
+            throw new InvalidOperationException(head
+                + "to operate on a collection element at the leaf, target the collection field and use the verb + Key.");
         }
         var leaf = ResolveProperty(current.GetType(), leafName)
             ?? throw new InvalidOperationException($"No property '{leafName}' on {current.GetType().Name}");
@@ -2629,10 +2639,15 @@ public static class WriteEngine
         // gap (an asset-link element coerces fine; see IsAssetLinkFamily). The gate could pre-check IsArray later
         // (array-ness is schema-visible) to move this to pre-flight — tracked.
         if (prop.PropertyType.IsArray)
+            // The refused SET is derived, not listed. A hand-typed enumeration of the collection verbs here is the
+            // same rot in its other direction: it went stale on Add, then again on InsertAtIndex, and a verb missing
+            // from it would read as supported. The cardinality is settled by the control flow that reached this
+            // method (ApplyVerb matched IList<T>), so the shape needs no fallback arm.
             throw new ExpectedApplyRejectionException(
-                $"'{prop.Name}' is an array-backed collection ({Pretty(prop.PropertyType)}); Add / ReplaceAll / Remove / " +
-                "SetAtIndex / InsertAtIndex are not yet supported on arrays (some, like Weather clouds, are fixed-size game structures). " +
-                "Tracked gap — array-collection mutation is a distinct write mechanism not yet built.");
+                $"'{prop.Name}' is an array-backed collection ({Pretty(prop.PropertyType)}); "
+                + WriteVerbs.CollectionVerbNames(WriteVerbs.OfElement(CollectionKind.List, listIface.GetGenericArguments()[0]))
+                + " are not yet supported on arrays (some, like Weather clouds, are fixed-size game structures). "
+                + "Tracked gap — array-collection mutation is a distinct write mechanism not yet built.");
 
         // Writable-by-construction: an ABSENT optional list (null) is materialized so a first element can be
         // added — "add a keyword to a record that has none" must work, not throw. Remove on an absent list SURFACES

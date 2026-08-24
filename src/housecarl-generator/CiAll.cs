@@ -134,6 +134,11 @@ public static class CiAll
         // arms on nested-create-guard because what it pins is one claim (the element lands AT the index and the
         // rows after it shift rather than move), asserted by reference identity in memory and again off disk.
         ("insert-at-index-guard", InsertAtIndexGuardProbe.RunGuard),
+        // The remedy sentences the verb set is recited into. Six emitted messages used to hand-copy verb names;
+        // they now derive them from WriteVerbs, and this guard measures that derivation against the real gate —
+        // every named verb ACCEPTED and every omitted verb REFUSED, over every collection field in the corpus,
+        // bucketed by shape with the population of each reported so an empty bucket cannot pass quietly.
+        ("remedy-verbs-guard", RemedyVerbsGuardProbe.RunGuard),
         ("substruct-nullable-clear-guard", SubstructNullableClearProbe.RunGuard),
         ("coord-cell-guard", CoordCellGuardProbe.RunGuard),
         ("dialogue-validate-guard", DialogueValidateGuardProbe.RunGuard),
