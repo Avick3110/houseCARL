@@ -421,14 +421,20 @@ public static class InsertAtIndexGuardProbe
 
         Sub("APPLY-SIBLING-REMOVE-MSG", () =>
         {
-            var fac = new Faction(NextFk(), SkyrimRelease.SkyrimSE);
+            // The list must be PRESENT and empty, not absent. An absent one short-circuits to ApplyListVerb's own
+            // "the collection is absent" throw and never reaches IndexRangeMessage at all — which is how the first
+            // draft of this arm stayed green under the mis-mapping it exists to catch. Add a row and drop it.
+            var fac = Conditions(1f);
+            WriteEngine.ApplyVerb(fac, new WriteRequest
+            { RecordType = "Faction", Path = new[] { "Conditions" }, Verb = "Remove", Key = "0" });
             var msg = Throws(() => WriteEngine.ApplyVerb(fac, new WriteRequest
             { RecordType = "Faction", Path = new[] { "Conditions" }, Verb = "Remove", Key = "0" }));
-            Check("APPLY-SIBLING-REMOVE-MSG — an out-of-range Remove-by-index still says 'nothing to remove' and never offers Add",
-                msg is not null
+            Check("APPLY-SIBLING-REMOVE-MSG — an out-of-range Remove-by-index on a present, empty list says 'nothing to remove' and never offers Add",
+                (fac.Conditions?.Count ?? -1) == 0
+                    && msg is not null
                     && msg.Contains("nothing to remove", StringComparison.Ordinal)
                     && !msg.Contains("Add an element first", StringComparison.Ordinal),
-                msg ?? "(no throw)");
+                $"{msg ?? "(no throw)"} | count={fac.Conditions?.Count ?? -1}");
         });
 
         // The same claim on a plain-value list, so it is the VERB's behaviour and not something the compose path does.
