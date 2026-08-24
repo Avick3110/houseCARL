@@ -26,9 +26,9 @@ namespace HousecarlGenerator;
 /// <list type="bullet">
 ///   <item>GATE-REJ-NOIDX / -BADIDX / -NEGIDX — a missing, non-integer, or negative index refuses BEFORE apply.</item>
 ///   <item>GATE-OK-IDX — a valid index is accepted (no over-reject).</item>
-///   <item>GATE-OK-FARIDX — an index far past any live list is STILL accepted: the gate has no live list, so the
-///         in-RANGE bound is apply's. This pins the established gate/apply split for the new verb, and it is the one
-///         place insert's bound differs from SetAtIndex's (it admits index == count), which apply owns either way.</item>
+///   <item>GATE-OK-FARIDX (control) — an index far past any live list is STILL accepted: the gate has no live list,
+///         so the in-RANGE bound is apply's. Nothing this branch wrote can turn it red; it guards a FUTURE in-range
+///         check at the gate, which would refuse the append slot a caller computes from the real length.</item>
 ///   <item>GATE-REJ-NONLIST — InsertAtIndex on a dict refuses by cardinality.</item>
 ///   <item>GATE-REJ-NOVALUE — a coercible-element list insert with no value refuses ("requires an element value"),
 ///         the step-4-pre gate; without it a null element reaches serialize and throws about a missing arm.</item>
@@ -57,12 +57,25 @@ namespace HousecarlGenerator;
 ///   <item>APPLY-REJ-NEGIDX — a negative index refuses at apply too, for a direct/CLI call that never met the gate.</item>
 ///   <item>APPLY-COERCIBLE-SHIFT — the same shift on a plain-value (String) list, so the claim is the verb's and not
 ///         the modeled-element path's.</item>
-///   <item>APPLY-ABSENT-AT-0 / APPLY-ABSENT-REJ-1 — an ABSENT (null) optional list materializes for an insert at 0
-///         (the first element must be insertable, mirroring Add), and index 1 into that empty list refuses.</item>
+///   <item>APPLY-SIBLING-SETATINDEX-MSG / APPLY-SIBLING-REMOVE-MSG — the two PRE-EXISTING messages this branch
+///         re-mapped when <c>bool append</c> became <c>IndexOpKind</c>. Nothing was watching them: setting the
+///         mapping wrong left this guard and ci-all fully green while SetAtIndex lost "or Add to append" and an
+///         empty-list SetAtIndex started saying "nothing to remove". These arms are that reproduction, kept.</item>
+///   <item>APPLY-ABSENT-AT-0 (materialize control) / APPLY-ABSENT-REJ-1 — an ABSENT (null) optional list
+///         materializes for an insert at 0, and index 1 into that empty list refuses. The materialize is
+///         verb-agnostic, so the first arm's own contribution is a control; its bound half is APPLY-AT-COUNT-IS-ADD's.</item>
 ///   <item>APPLY-SERIALIZE-ROUNDTRIP — the claim through a real write + binary-overlay re-read: a row inserted into
 ///         the middle of an OR-chain comes back off DISK in the position it was inserted at, with the rows after it
 ///         in their original order and their Or flags still on the rows that carried them.</item>
 /// </list></para>
+///
+/// <para>CLI — CLI-OP-NEEDSVALUE / CLI-VERB-NEEDSVALUE: the verb consumes the singular value slot, so both of
+/// <c>RunPatch</c>'s value-requiring verb lists must carry it or a valueless call reaches apply and throws at
+/// serialize about a missing arm. Driven through <c>RunPatch</c> itself, not by re-reading the condition.</para>
+///
+/// <para>Every apply sub-arm runs under its OWN try. The arm-level try catches a throw but abandons the sub-arms
+/// after it, so a bound regression reported 20 assertions where 25 exist — never falsely green, but the wrong SIZE,
+/// which is what a sweep is read for.</para>
 ///
 /// The batch-verification classification (InsertAtIndex is NOT count-neutral, so it must not join SetAtIndex's keyed
 /// exemption) is pinned in <c>apply-guard</c>, beside the exemption itself; the owned-child disposition rows are
@@ -122,7 +135,8 @@ public static class InsertAtIndexGuardProbe
         try
         {
             foreach (var (name, arm) in new (string Name, Action Run)[]
-                     { ("gate", GateArm), ("apply", ApplyArm), ("serialize", () => SerializeArm(root)) })
+                     { ("gate", GateArm), ("apply", ApplyArm), ("serialize", () => SerializeArm(root)),
+                       ("cli", () => CliArm(root)) })
             {
                 try { arm(); }
                 catch (Exception ex)
@@ -169,7 +183,11 @@ public static class InsertAtIndexGuardProbe
 
         // The gate/apply split, restated for this verb. Insert's legal range is the one thing that differs from
         // SetAtIndex's — it admits index == count — and the gate is exactly the layer that cannot know either bound.
-        Check("GATE-OK-FARIDX — an index far past any live list is STILL accepted: in-RANGE is apply's, not the gate's",
+        // CONTROL, and labelled as one: no mutation of a line this branch wrote turns it red (GATE-OK-IDX already
+        // proves a valid index is accepted, and this differs from it only by the index being far). What it guards
+        // is a FUTURE change — a well-meaning in-range check added at the gate, which has no live list to check
+        // against and would refuse the append slot a caller computes from the real length.
+        Check("GATE-OK-FARIDX (control) — an index far past any live list is STILL accepted: in-RANGE is apply's, not the gate's",
             Rules.Validate(Names("9999", "MT_Walk")) is null,
             Rules.Validate(Names("9999", "MT_Walk")));
 
@@ -288,6 +306,17 @@ public static class InsertAtIndexGuardProbe
     static float[] Values(IReadOnlyList<Condition> conds) =>
         conds.Select(c => c is IConditionFloatGetter f ? f.ComparisonValue : float.NaN).ToArray();
 
+    /// <summary>Run one apply sub-arm under its OWN try. The arm-level try above catches a throw but abandons every
+    /// sub-arm after it: a bound regression used to report 20 assertions where 25 exist, so a sweep reading the
+    /// count learned the wrong SIZE of the damage — still RED, never falsely green, but a sweep is read for how
+    /// much broke, not only whether something did.</summary>
+    static void Sub(string name, Action body)
+    {
+        try { body(); }
+        catch (Exception ex)
+        { Check($"{name} — the sub-arm threw", false, $"{ex.GetType().Name}: {(ex.InnerException ?? ex).Message}"); }
+    }
+
     static void ApplyArm()
     {
         Console.WriteLine();
@@ -296,6 +325,7 @@ public static class InsertAtIndexGuardProbe
         // The tail is checked by REFERENCE, not by value. Equal-looking values would also pass if the engine
         // rebuilt the tail out of copies; only object identity says the rows after the insertion point were
         // shifted rather than reconstructed, which is what "the rest of the OR-group is untouched" has to mean.
+        Sub("APPLY-AT-0", () =>
         {
             var fac = Conditions(1f, 2f, 3f);
             var before = fac.Conditions.ToArray();
@@ -306,8 +336,9 @@ public static class InsertAtIndexGuardProbe
                 && ReferenceEquals(after[1], before[0]) && ReferenceEquals(after[2], before[1]) && ReferenceEquals(after[3], before[2]);
             Check("APPLY-AT-0 — inserting at 0 puts the new row first and shifts all three originals right by one, same objects, same order",
                 ok, $"count={after.Count} values=[{string.Join(",", Values(after))}]");
-        }
+        });
 
+        Sub("APPLY-MID", () =>
         {
             var fac = Conditions(1f, 2f, 3f);
             var before = fac.Conditions.ToArray();
@@ -319,9 +350,10 @@ public static class InsertAtIndexGuardProbe
                 && ReferenceEquals(after[2], before[1]) && ReferenceEquals(after[3], before[2]);
             Check("APPLY-MID — inserting mid-list leaves the rows BEFORE it untouched and shifts only the rows after it",
                 ok, $"count={after.Count} values=[{string.Join(",", Values(after))}]");
-        }
+        });
 
         // The append-inclusive bound, proven as an equality rather than asserted as an off-by-one preference.
+        Sub("APPLY-AT-COUNT-IS-ADD", () =>
         {
             var viaAdd = Conditions(1f, 2f, 3f);
             WriteEngine.ApplyVerb(viaAdd, new WriteRequest
@@ -339,8 +371,9 @@ public static class InsertAtIndexGuardProbe
             bool ok = Values(viaAdd.Conditions).SequenceEqual(Values(viaInsert.Conditions));
             Check("APPLY-AT-COUNT-IS-ADD — inserting AT the list's length yields the identical list an Add yields (why the bound includes count)",
                 ok, $"add=[{string.Join(",", Values(viaAdd.Conditions))}] insert=[{string.Join(",", Values(viaInsert.Conditions))}]");
-        }
+        });
 
+        Sub("APPLY-REJ-OOB", () =>
         {
             var fac = Conditions(1f, 2f, 3f);
             var msg = Throws(() => Insert(fac, 4, 9f));
@@ -350,8 +383,9 @@ public static class InsertAtIndexGuardProbe
                 && fac.Conditions.Count == 3;                              // and it refused before touching the list
             Check("APPLY-REJ-OOB — one past the append slot refuses, stating the APPEND-INCLUSIVE bound (0..count), and changes nothing",
                 ok, $"{msg ?? "(no throw)"} | count={fac.Conditions.Count}");
-        }
+        });
 
+        Sub("APPLY-REJ-NEGIDX", () =>
         {
             var fac = Conditions(1f, 2f);
             var (expected, msg) = Refuses(() => Insert(fac, -1, 9f));
@@ -362,9 +396,43 @@ public static class InsertAtIndexGuardProbe
                 expected && msg is not null && msg.Contains("Index -1 out of range", StringComparison.Ordinal)
                     && fac.Conditions.Count == 2,
                 $"expected={expected} {msg ?? "(no throw)"} | count={fac.Conditions.Count}");
-        }
+        });
+
+        // The SIBLING messages, which this branch re-mapped and nothing was watching. IndexRangeMessage was a
+        // `bool append` meaning "may the message offer Add?"; insert needed a third mode whose BOUND differs, so it
+        // became an IndexOpKind and the two pre-existing callsites were re-mapped by hand. Setting that mapping
+        // wrong — `bool append = false` in the shared branch — left insert-at-index-guard 25/25 and ci-all 128/128
+        // green while SetAtIndex silently lost "or Add to append" and an empty-list SetAtIndex started telling the
+        // caller there was "nothing to remove", advice for a verb they did not use. These two arms are the
+        // reproduction, kept: they fail on exactly that mis-mapping and on nothing else this branch does.
+        Sub("APPLY-SIBLING-SETATINDEX-MSG", () =>
+        {
+            var fac = Conditions(1f, 2f, 3f);
+            var msg = Throws(() => WriteEngine.ApplyVerb(fac, new WriteRequest
+            { RecordType = "Faction", Path = new[] { "Conditions" }, Verb = "SetAtIndex", Key = "9",
+              Struct = new StructSpec { Type = "ConditionFloat" } }));
+            Check("APPLY-SIBLING-SETATINDEX-MSG — an out-of-range SetAtIndex still offers Add and still states its own bound (0..count-1), not insert's",
+                msg is not null
+                    && msg.Contains("or Add to append", StringComparison.Ordinal)
+                    && msg.Contains("0..2", StringComparison.Ordinal)
+                    && !msg.Contains("0..3", StringComparison.Ordinal),
+                msg ?? "(no throw)");
+        });
+
+        Sub("APPLY-SIBLING-REMOVE-MSG", () =>
+        {
+            var fac = new Faction(NextFk(), SkyrimRelease.SkyrimSE);
+            var msg = Throws(() => WriteEngine.ApplyVerb(fac, new WriteRequest
+            { RecordType = "Faction", Path = new[] { "Conditions" }, Verb = "Remove", Key = "0" }));
+            Check("APPLY-SIBLING-REMOVE-MSG — an out-of-range Remove-by-index still says 'nothing to remove' and never offers Add",
+                msg is not null
+                    && msg.Contains("nothing to remove", StringComparison.Ordinal)
+                    && !msg.Contains("Add an element first", StringComparison.Ordinal),
+                msg ?? "(no throw)");
+        });
 
         // The same claim on a plain-value list, so it is the VERB's behaviour and not something the compose path does.
+        Sub("APPLY-COERCIBLE-SHIFT", () =>
         {
             var race = new Race(NextFk(), SkyrimRelease.SkyrimSE);
             void AddName(string v) => WriteEngine.ApplyVerb(race, new WriteRequest
@@ -375,19 +443,26 @@ public static class InsertAtIndexGuardProbe
             Check("APPLY-COERCIBLE-SHIFT — a plain-value list shifts the same way (A,B + X@1 -> A,X,B)",
                 race.MovementTypeNames is { Count: 3 } n && n[0] == "A" && n[1] == "X" && n[2] == "B",
                 $"[{string.Join(",", race.MovementTypeNames ?? new Noggog.ExtendedList<string>())}]");
-        }
+        });
 
         // An ABSENT optional list must be insertable-into at 0 — "insert the first element into a record that has
         // none" is the same requirement Add's materialize arm exists for, and index 0 is the only legal index there.
+        // PART CONTROL, and worth saying which part: the MATERIALIZE half is verb-agnostic (ApplyListVerb
+        // materializes an absent list for every verb but Remove), so insert meets it by REACHABILITY — no line this
+        // branch wrote can turn that half red, and it earns its place by catching a future verb-scoping of the
+        // materialize that forgot insert. The BOUND half (0 is legal when count is 0) is branch-owned but already
+        // proven by APPLY-AT-COUNT-IS-ADD, so this arm's own contribution is the control.
+        Sub("APPLY-ABSENT-AT-0", () =>
         {
             var fac = new Faction(NextFk(), SkyrimRelease.SkyrimSE);
             bool wasAbsent = (fac.Conditions?.Count ?? 0) == 0;
             var msg = Throws(() => Insert(fac, 0, 7f));
-            Check("APPLY-ABSENT-AT-0 — an empty/absent list takes an insert at 0 (index 0 == count == the append slot)",
+            Check("APPLY-ABSENT-AT-0 (materialize control) — an empty/absent list takes an insert at 0; the materialize it relies on is verb-agnostic, so insert meets it by reachability",
                 msg is null && (fac.Conditions?.Count ?? 0) == 1,
                 $"wasEmpty={wasAbsent} {msg ?? ""} count={fac.Conditions?.Count ?? -1}");
-        }
+        });
 
+        Sub("APPLY-ABSENT-REJ-1", () =>
         {
             var fac = new Faction(NextFk(), SkyrimRelease.SkyrimSE);
             var msg = Throws(() => Insert(fac, 1, 7f));
@@ -398,7 +473,7 @@ public static class InsertAtIndexGuardProbe
                 msg is not null && msg.Contains("insert at index 0", StringComparison.Ordinal)
                     && (fac.Conditions?.Count ?? 0) == 0,
                 $"{msg ?? "(no throw)"} | count={fac.Conditions?.Count ?? -1}");
-        }
+        });
     }
 
     // ------------------------------------------------------------------ serialize round-trip
@@ -459,5 +534,50 @@ public static class InsertAtIndexGuardProbe
 
         Check("SERIALIZE-ORRUN — the Or flags came back on the rows that carried them, so the inserted arm is INSIDE the OR-run",
             ors.SequenceEqual(new[] { true, true, false, false }), $"[{string.Join(",", ors)}]");
+    }
+
+    // ------------------------------------------------------------------ the CLI's value-requiring verb set
+
+    /// <summary>The branch added <c>InsertAtIndex</c> to two CLI checks — the repeatable <c>--op</c> form and the
+    /// single <c>--path/--verb</c> form — and nothing asserted either. They are not decoration: the verb consumes
+    /// the singular value slot, so a <c>--op</c> without one reaches apply, coerces null into the element, and
+    /// throws at SERIALIZE about a missing arm, which is the misleading failure the gate's own value check exists
+    /// to prevent. Driven through <see cref="WriteEngine.RunPatch"/> itself rather than re-reading the condition,
+    /// so dropping the verb from either list goes red here.</summary>
+    static void CliArm(string root)
+    {
+        Console.WriteLine();
+        Console.WriteLine("── CLI: an InsertAtIndex with no value is refused before anything is written ──");
+
+        // RunPatch requires a real --source file before it parses the edits; a header-only mod is enough, and
+        // nothing about it is read on the refusal path.
+        var mod = new SkyrimMod(MKey, SkyrimRelease.SkyrimSE);
+        // Its own directory: the filename has to match the ModKey, which the serialize arm already wrote under
+        // root, and neither arm should be able to read the other's file.
+        var dir = Directory.CreateDirectory(Path.Combine(root, "cli")).FullName;
+        string src = Path.Combine(dir, MKey.FileName.String);
+        mod.BeginWrite.ToPath(src).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+        static (int Code, string Err) Run(string[] args)
+        {
+            var prior = Console.Error;
+            var sw = new StringWriter();
+            try { Console.SetError(sw); return (WriteEngine.RunPatch(args), sw.ToString()); }
+            finally { Console.SetError(prior); }
+        }
+
+        var op = Run(new[] { "--source", src, "--type", "Armor", "--editorid", "Whatever",
+                             "--op", "InsertAtIndex|Keywords|0" });
+        Check("CLI-OP-NEEDSVALUE — a repeatable --op InsertAtIndex with no value is refused by name, before any patch is built",
+            op.Code == 1 && op.Err.Contains("InsertAtIndex", StringComparison.Ordinal)
+                && op.Err.Contains("needs a value", StringComparison.Ordinal),
+            $"exit={op.Code} {op.Err.Trim()}");
+
+        var single = Run(new[] { "--source", src, "--type", "Armor", "--editorid", "Whatever",
+                                 "--path", "Keywords", "--verb", "InsertAtIndex", "--key", "0" });
+        Check("CLI-VERB-NEEDSVALUE — the single-edit --verb form refuses it too, so the two lists cannot drift apart",
+            single.Code == 1 && single.Err.Contains("InsertAtIndex", StringComparison.Ordinal)
+                && single.Err.Contains("--value is required", StringComparison.Ordinal),
+            $"exit={single.Code} {single.Err.Trim()}");
     }
 }
