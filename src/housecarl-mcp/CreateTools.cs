@@ -245,7 +245,7 @@ public sealed record CreateFieldOp
     [JsonPropertyName("field_path"), Description("Dotted field path on the new record, e.g. 'Name' or 'BasicStats.Damage'. Step into a list/dict element mid-path with brackets ('Effects[0].Data.Magnitude'); at the LEAF use op + key, not brackets.")]
     public string? FieldPath { get; init; }
 
-    [JsonPropertyName("op"), Description("Set (default) | Add | Remove | SetAtIndex | ReplaceAll | Merge. On a [Flags] enum, Add sets one bit and Remove clears one, leaving the others untouched.")]
+    [JsonPropertyName("op"), Description("Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge. SetAtIndex OVERWRITES the element at key=; InsertAtIndex inserts a new one AT key= and shifts the rest right (key = the list's length appends). On a [Flags] enum, Add sets one bit and Remove clears one, leaving the others untouched.")]
     public string? Op { get; init; }
 
     [JsonPropertyName("value"), Description("The value, coerced to the field's type — a number, an enum name, a FormID 'XXXXXX:Plugin.esp', or '@<editorid>' for a same-call sibling on a FormLink field.")]

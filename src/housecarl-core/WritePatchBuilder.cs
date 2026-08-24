@@ -3511,8 +3511,8 @@ public static class WritePatchBuilder
             // keyed verbs — a list Remove by index, a dict Add/Remove/Set. Two `Remove Ranks[i]` in one call then
             // compared op 1's mid-sequence count against the file's final one and printed "treat this op as NOT
             // landed" for a write where BOTH removes landed; the remedy that invites deletes a third element.
-            // SetAtIndex is the one keyed verb that replaces in place, so it is the whole exemption — anything else
-            // falls back to superseded, which is silent rather than wrong.
+            // SetAtIndex is the one keyed verb that replaces in place, so it is the whole exemption — anything else,
+            // InsertAtIndex included, falls back to superseded, which is silent rather than wrong.
             if (perOp[i].Req.Key is { } a && perOp[j].Req.Key is { } b
                 && !string.Equals(a, b, StringComparison.OrdinalIgnoreCase)
                 && CountNeutralKeyedVerb(perOp[i].Req.Verb) && CountNeutralKeyedVerb(perOp[j].Req.Verb)) continue;
@@ -3522,7 +3522,9 @@ public static class WritePatchBuilder
     }
 
     /// <summary>Does this KEY-addressed verb leave the container's element count alone? Only <c>SetAtIndex</c>, which
-    /// overwrites the element at a position. <c>Remove</c> by index and every dict <c>Add</c>/<c>Set</c>/<c>Remove</c>
+    /// overwrites the element at a position. <c>Remove</c> by index, <c>InsertAtIndex</c> (#302 — it adds an element
+    /// AND shifts every index at or after it, so it is doubly not independent of another keyed op on the same list),
+    /// and every dict <c>Add</c>/<c>Set</c>/<c>Remove</c>
     /// move the count, so two of them on one container are NOT independent for verification purposes — the earlier
     /// one's in-memory count is a step behind the file's, and comparing it produces a false "NOT landed" on a write
     /// that landed (review [high]). Named as a predicate rather than inlined so the exemption's bound is greppable

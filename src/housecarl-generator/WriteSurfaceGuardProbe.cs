@@ -1463,6 +1463,13 @@ public static class WriteSurfaceGuardProbe
                 "ReplaceAll is only valid"),
             ("SetAtIndex", new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "SetAtIndex", Key = "0", Value = "x" },
                 "SetAtIndex is only valid"),
+            // #302's verb, dispositioned by the table rather than by assumption. It answers this shape exactly as its
+            // two siblings do — refused by CARDINALITY at the leaf, redirected to the record axis on the LIST form,
+            // accepted mid-path — and every row below carries its sibling beside it so a FORK would show as a
+            // disagreement between two rows rather than as an absence.
+            ("InsertAtIndex (the leaf: a singular child is not a list, so the collection verb refuses by cardinality)",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "InsertAtIndex", Key = "0", Value = "x" },
+                "InsertAtIndex is only valid"),
             ("Merge", new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Merge",
                     Entries = new Dictionary<string, string> { ["k"] = "v" } },
                 "Merge is only valid"),
@@ -1479,6 +1486,18 @@ public static class WriteSurfaceGuardProbe
                 new WriteRequest { RecordType = "Cell", Path = new[] { "Persistent" }, Verb = "Remove", Key = "0" }, null),
             ("CONTROL the LIST form still refuses CopyFrom in its own words",
                 new WriteRequest { RecordType = "Cell", Path = new[] { "Persistent" }, Verb = "CopyFrom" },
+                "holds owned child records"),
+            // The LIST form of the family, for the new verb and for the sibling it must not diverge from: a child
+            // record is allocated on the record axis, and inserting one AT a position is no more possible than
+            // appending one. A verb missing from that redirect is accepted here and thrown at apply (Q3), which is
+            // why this row is a pair rather than a single.
+            ("CONTROL the LIST form redirects an InsertAtIndex of a child record to the record axis",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Persistent" }, Verb = "InsertAtIndex", Key = "0",
+                    Struct = new StructSpec { Type = "PlacedObject" } },
+                "holds owned child records"),
+            ("CONTROL …and its sibling SetAtIndex gives the SAME answer there, so insert has not forked",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Persistent" }, Verb = "SetAtIndex", Key = "0",
+                    Struct = new StructSpec { Type = "PlacedObject" } },
                 "holds owned child records"),
             // The composes= control has to be an ordinary SUBSTRUCT, not an ordinary list: the record clause sits
             // immediately before the "composes= builds a LIST … but this is a {cardinality}" sentence, so only a
@@ -1512,6 +1531,16 @@ public static class WriteSurfaceGuardProbe
                 new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape", "VertexHeightMap" }, Verb = "Remove" }, null),
             ("CONTROL CopyFrom through an ORDINARY substruct path is still accepted",
                 new WriteRequest { RecordType = "Book", Path = new[] { "Model", "File" }, Verb = "CopyFrom" }, null),
+            // The in-place descent, for a verb that lands a NEW element rather than editing one that is there.
+            // It takes the descend row's answer: Landscape.Textures is a list the carried child already owns, and
+            // inserting into it edits that child in place — the same act the mid-path Set row covers, and NOT the
+            // transplant the CopyFrom rows above refuse. Its sibling sits beside it for the same no-fork reason.
+            ("mid-path InsertAtIndex at a LIST leaf under the child stays accepted (in-place descent, not transplant)",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape", "Textures" }, Verb = "InsertAtIndex",
+                    Key = "0", Value = "000800:Skyrim.esm" }, null),
+            ("CONTROL the same mid-path leaf takes SetAtIndex too — insert's disposition does not fork from its sibling's",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape", "Textures" }, Verb = "SetAtIndex",
+                    Key = "0", Value = "000800:Skyrim.esm" }, null),
         };
         foreach (var (what, req, mustSay) in ownedChild)
         {

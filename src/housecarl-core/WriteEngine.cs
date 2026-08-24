@@ -199,7 +199,7 @@ public static class WriteEngine
                 var p = parts[1].Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                 var k = parts.Length > 2 && parts[2].Length > 0 ? parts[2] : null;
                 var val = parts.Length > 3 && parts[3].Length > 0 ? parts[3] : null;
-                if ((v is "Set" or "Add" or "SetAtIndex") && val is null) { Console.Error.WriteLine($"error: --op '{s}': verb '{v}' needs a value (Verb|path|key|value)."); return 1; }
+                if ((v is "Set" or "Add" or "SetAtIndex" or "InsertAtIndex") && val is null) { Console.Error.WriteLine($"error: --op '{s}': verb '{v}' needs a value (Verb|path|key|value)."); return 1; }
                 reqs.Add(new WriteRequest { RecordType = type, Path = p, Verb = v, Key = k, Value = val });
             }
         }
@@ -209,7 +209,7 @@ public static class WriteEngine
             if (pathRaw is null) { Console.Error.WriteLine("error: give --path (single edit) or one-or-more --op (multi edit)"); return 1; }
             var verb = f.GetValueOrDefault("verb") ?? "Set";
             var value = f.GetValueOrDefault("value");
-            if ((verb is "Set" or "Add" or "SetAtIndex") && value is null) { Console.Error.WriteLine($"error: --value is required for verb '{verb}'."); return 1; }
+            if ((verb is "Set" or "Add" or "SetAtIndex" or "InsertAtIndex") && value is null) { Console.Error.WriteLine($"error: --value is required for verb '{verb}'."); return 1; }
             reqs.Add(new WriteRequest
             {
                 RecordType = type,
@@ -1947,7 +1947,7 @@ public static class WriteEngine
                     $"its halves by name: '{leafName}.Male' (=[0]) / '{leafName}.Female' (=[1]).");
             throw new InvalidOperationException(
                 $"Path segment '{req.Path[^1]}' brackets a collection element at the LEAF. Brackets navigate mid-path " +
-                "only; to operate on a list/dict element at the leaf, use the verb + Key (SetAtIndex/Remove by index, " +
+                "only; to operate on a list/dict element at the leaf, use the verb + Key (SetAtIndex/InsertAtIndex/Remove by index, " +
                 "or Set/Remove by dict key).");
         }
         var leaf = ResolveProperty(current.GetType(), leafName)
@@ -2623,13 +2623,15 @@ public static class WriteEngine
         // array-collection mutation is a distinct write mechanism not yet built (some, like Weather clouds, are a
         // fixed 29-layer format, so an arbitrary-length write may not even serialize validly — it needs its own
         // investigation). SetAtIndex is refused too: the array may be absent (can't index a null) and a set-only
-        // surface would surprise. Element COERCION is unaffected — this is the collection-shape gap, not the value
+        // surface would surprise. InsertAtIndex is refused for the plainer reason that a fixed-size array cannot grow
+        // at all — T[]'s IList<T>.Insert throws NotSupportedException — so it is refused HERE, by name, rather than
+        // reaching the arm. Element COERCION is unaffected — this is the collection-shape gap, not the value
         // gap (an asset-link element coerces fine; see IsAssetLinkFamily). The gate could pre-check IsArray later
         // (array-ness is schema-visible) to move this to pre-flight — tracked.
         if (prop.PropertyType.IsArray)
             throw new ExpectedApplyRejectionException(
                 $"'{prop.Name}' is an array-backed collection ({Pretty(prop.PropertyType)}); Add / ReplaceAll / Remove / " +
-                "SetAtIndex are not yet supported on arrays (some, like Weather clouds, are fixed-size game structures). " +
+                "SetAtIndex / InsertAtIndex are not yet supported on arrays (some, like Weather clouds, are fixed-size game structures). " +
                 "Tracked gap — array-collection mutation is a distinct write mechanism not yet built.");
 
         // Writable-by-construction: an ABSENT optional list (null) is materialized so a first element can be
@@ -2670,7 +2672,7 @@ public static class WriteEngine
                 int idx = int.Parse(req.Key!, CultureInfo.InvariantCulture);
                 int count = CollectionCount(list);
                 if (idx < 0 || idx >= count)
-                    throw new ExpectedApplyRejectionException(IndexRangeMessage(prop.Name, idx, count, append: true));
+                    throw new ExpectedApplyRejectionException(IndexRangeMessage(prop.Name, idx, count, IndexOpKind.Overwrite));
                 // Build the replacement the SAME way Add does — a composable (struct/arm) element FROM PARTS
                 // (req.Struct → BuildStruct), a coercible element by coercing req.Value — then OVERWRITE in place,
                 // preserving the element's list position. Closes HCBR-2026-07-10: replacing one condition row no longer
@@ -2682,6 +2684,31 @@ public static class WriteEngine
                     new[] { (object)idx, req.Struct is not null ? BuildStruct(req.Struct) : Coerce(req.Value!, elem) });
                 break;
             }
+            case "InsertAtIndex":
+            {
+                // The sibling neither Add nor SetAtIndex is (#302). Add appends — it moves nothing, but only ever
+                // lands at the END; SetAtIndex holds a position — but only over an element that is already there.
+                // Insert puts a NEW element AT a position and shifts the rest right, which is the only way to grow a
+                // POSITION-CONTIGUOUS run in place: a CTDA OR-group chains each row to the row after it, so a new arm
+                // must sit ADJACENT to the group, and an appended one AND-groups instead (it can only restrict the
+                // gate, never relax it). Before this the only in-vocabulary answers were ReplaceAll (re-transcribe
+                // every row) or SetAtIndex (drop an arm to make room) — the workaround #302 was filed on.
+                int idx = int.Parse(req.Key!, CultureInfo.InvariantCulture);
+                int count = CollectionCount(list);
+                // APPEND-INCLUSIVE bound — `> count`, not `>= count`. Inserting AT count means "after the last
+                // element", which is legal and is exactly what Add does; refusing it would make the one index a
+                // caller computes from the live length (insert after the group's last row) the one index that fails.
+                if (idx < 0 || idx > count)
+                    throw new ExpectedApplyRejectionException(IndexRangeMessage(prop.Name, idx, count, IndexOpKind.Insert));
+                // Built EXACTLY as Add and SetAtIndex build it — a composable (struct/arm) element FROM PARTS
+                // (req.Struct → BuildStruct), a coercible element by coercing req.Value. Same construction, same
+                // pre-flight (CorpusRulebook admits an InsertAtIndex compose through the SAME StructElementLegality),
+                // so a composed condition row INSERTS as the identical element it would APPEND as — the only
+                // difference between the two verbs is where it lands and what moves.
+                InsertMethod(listIface, elem).Invoke(list,
+                    new[] { (object)idx, req.Struct is not null ? BuildStruct(req.Struct) : Coerce(req.Value!, elem) });
+                break;
+            }
             case "Remove":
                 if (req.Key is not null)
                 {
@@ -2689,7 +2716,7 @@ public static class WriteEngine
                     int idx = int.Parse(req.Key, CultureInfo.InvariantCulture);
                     int count = CollectionCount(list);
                     if (idx < 0 || idx >= count)
-                        throw new ExpectedApplyRejectionException(IndexRangeMessage(prop.Name, idx, count, append: false));
+                        throw new ExpectedApplyRejectionException(IndexRangeMessage(prop.Name, idx, count, IndexOpKind.RemoveAt));
                     lt.GetMethod("RemoveAt", new[] { typeof(int) })!.Invoke(list, new object[] { idx });
                 }
                 else
@@ -2728,14 +2755,34 @@ public static class WriteEngine
         return n;
     }
 
-    /// <summary>The clean out-of-range message for a list index op. <paramref name="append"/> adds the "or Add to
-    /// append" hint for SetAtIndex (Remove can't append); the empty-list case names the right next step for each.</summary>
-    static string IndexRangeMessage(string field, int idx, int count, bool append) =>
-        count == 0
+    /// <summary>Which list index op is being refused. The three do NOT share a bound: <c>SetAtIndex</c> and
+    /// <c>Remove</c>-by-index address an element that must already exist (<c>0..count-1</c>), while
+    /// <c>InsertAtIndex</c> addresses a GAP between elements, of which there is one more than there are elements
+    /// (<c>0..count</c> — inserting at <c>count</c> is a legal append). This was a <c>bool append</c> that meant "may
+    /// the message offer Add?"; a third mode whose BOUND differs cannot be spelled as a second reading of that
+    /// bool.</summary>
+    enum IndexOpKind { Overwrite, RemoveAt, Insert }
+
+    /// <summary>The clean out-of-range message for a list index op — the bound it states is the bound
+    /// <see cref="ApplyListVerb"/> actually enforces for that verb, and the empty-list case names the right next step
+    /// for each.</summary>
+    static string IndexRangeMessage(string field, int idx, int count, IndexOpKind kind)
+    {
+        // Insert's own sentence, because its legal range INCLUDES count and the shared one below cannot say that
+        // without lying to the other two. Naming what index `count` means matters more here than elsewhere: a caller
+        // extending a mid-list run computes its index from the live length, so the append slot is the likely target.
+        if (kind == IndexOpKind.Insert)
+            return count == 0
+                ? $"Index {idx} out of range for '{field}' — the list is empty; insert at index 0 (or Add, which is the same thing here)."
+                : $"Index {idx} out of range for '{field}' (it has {count} element(s)) — InsertAtIndex takes an index "
+                  + $"in 0..{count}, where {count} inserts AFTER the last element (the same result as Add).";
+        bool append = kind == IndexOpKind.Overwrite;
+        return count == 0
             ? $"Index {idx} out of range for '{field}' — the list is empty"
               + (append ? "; Add an element first." : "; nothing to remove.")
             : $"Index {idx} out of range for '{field}' (it has {count} element(s)) — use an index in 0..{count - 1}"
               + (append ? ", or Add to append a new element." : ".");
+    }
 
     /// <summary>Materialize an absent (null) optional collection so a first element/entry can be added. Instantiates
     /// the property's declared concrete collection type (Mutagen's settable ExtendedList&lt;T&gt; / dictionary) and
@@ -2911,6 +2958,17 @@ public static class WriteEngine
             .FirstOrDefault(p => p.GetIndexParameters().Length == 1 && p.CanWrite)
         ?? throw new InvalidOperationException($"No writable single-arg indexer on {t.Name}");
 
+    /// <summary>The <c>IList&lt;T&gt;.Insert(int, T)</c> the <c>InsertAtIndex</c> arm drives. Taken off the CLOSED
+    /// INTERFACE rather than the concrete list type (unlike <see cref="AddMethod"/>, which needs the concrete type's
+    /// own overload set): a list reaches <see cref="ApplyListVerb"/> BECAUSE it implements <c>IList&lt;T&gt;</c>
+    /// (ApplyVerb's dispatch resolves that interface to get here), so the method is present by construction even where
+    /// a concrete type implements it explicitly, and a reflection invoke dispatches to the implementation. The
+    /// one IList&lt;T&gt; whose Insert throws — a <c>T[]</c> — never reaches here: the array-backed guard at the top of
+    /// ApplyListVerb refuses every list verb on it by name first.</summary>
+    static MethodInfo InsertMethod(Type listIface, Type elem) =>
+        listIface.GetMethod("Insert", new[] { typeof(int), elem })
+        ?? throw new InvalidOperationException($"No Insert(int, {elem.Name}) on {Pretty(listIface)}");
+
     static MethodInfo AddMethod(Type listType, Type elem) =>
         listType.GetMethod("Add", new[] { elem })
         ?? listType.GetMethods(BindingFlags.Public | BindingFlags.Instance).FirstOrDefault(m =>
@@ -3027,7 +3085,7 @@ public static class WriteEngine
     internal static bool IsValidFormLinkValue(string? text) => IsFormKeyNullSynonym(text) || (text is not null && FormKey.TryFactory(text, out _));
 
     // ---- List INDEX value-shape (write pre-flight: key/index value-shape gate) ---------------------------------
-    //  A list SetAtIndex / Remove(with a key) parses req.Key as the index at apply (ApplyListVerb:
+    //  A list SetAtIndex / InsertAtIndex / Remove(with a key) parses req.Key as the index at apply (ApplyListVerb:
     //  int.Parse(req.Key!, CultureInfo.InvariantCulture)). A non-integer threw FormatException; a NEGATIVE value
     //  parsed but then threw ArgumentOutOfRangeException at the indexer — both UNNAMED accept-then-throws. This
     //  recognizer mirrors that parse EXACTLY (int32, NumberStyles.Integer, InvariantCulture — int.Parse(s, provider)'s
@@ -3917,8 +3975,9 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
 /// distinct from a gate/apply <i>inconsistency</i>. This is the whole class of "expected, user-fixable apply rejections":
 /// <list type="bullet">
 ///   <item>a dict <c>Add</c> of an ALREADY-PRESENT key (occupancy — Gap 3 / Package.Data);</item>
-///   <item>a list <c>SetAtIndex</c> / <c>Remove</c>-by-index at an OUT-OF-RANGE index (length — pre-flight gates the
-///         index shape but leaves the in-range bound to apply, having no live collection);</item>
+///   <item>a list <c>SetAtIndex</c> / <c>InsertAtIndex</c> / <c>Remove</c>-by-index at an OUT-OF-RANGE index (length —
+///         pre-flight gates the index shape but leaves the in-range bound to apply, having no live collection; the
+///         bound itself is the verb's, and Insert's includes the append slot);</item>
 ///   <item>a <c>Remove</c> that removes NOTHING — a dict <c>Remove</c> of a key not present, a list
 ///         <c>Remove</c>-by-value of a value not present, or a <c>Remove</c> on an absent (null) collection
 ///         (occupancy — Gap 3 / PR #83 follow-up; the symmetric twin of the duplicate-key <c>Add</c> refusal, so a

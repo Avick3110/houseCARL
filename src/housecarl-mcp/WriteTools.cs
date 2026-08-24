@@ -22,7 +22,7 @@ public static class WriteTools
          "Edit ONE field of one record and write the change to a NEW patch plugin (originals untouched). Resolves the " +
          "record's load-order WINNER and overrides it. field_path is dotted (e.g. 'BasicStats.Damage', 'Name'); value is " +
          "coerced to the field's real type — a number, an enum name, or a FormID 'XXXXXX:Plugin.esp' for a reference. verb " +
-         "defaults to Set; for collections use Add / Remove / SetAtIndex / ReplaceAll (key = a dict key or list index; " +
+         "defaults to Set; for collections use Add / Remove / SetAtIndex / InsertAtIndex / ReplaceAll (key = a dict key or list index; " +
          "values = the whole new list for ReplaceAll). By default writes a fresh patch named patch_name; pass " +
          "into='<an existing patch's filename>' to ADD this edit to that patch instead (accumulate across calls and " +
          "sessions). To edit an EXISTING plugin IN PLACE instead — rewriting your ORIGINAL file (incl. a mod houseCARL " +
@@ -39,9 +39,9 @@ public static class WriteTools
             string field_path,
         [Description("The value, coerced to the field's type: a number, an enum name (e.g. 'OneHanded'), or a FormID 'XXXXXX:Plugin.esp' for a reference. On a [Flags] enum, the flag(s) to Add/Remove (a name or comma-combo, e.g. 'ManualCostCalc'). Omit only for a Remove that whole-clears a NULLABLE field (scalar/link/flags → cleared/absent); a flags Remove WITH a value clears just that bit, and to turn all bits off Set the field to '0'.")]
             string? value = null,
-        [Description("Set (default) | Add | Remove | SetAtIndex | ReplaceAll. Set edits a scalar (or a dict element with key=); Add/Remove/SetAtIndex/ReplaceAll edit a collection. On a [Flags] enum (SPEL Flags, NPC Configuration.Flags, WEAP Data.Flags, …), Add SETS a bit and Remove CLEARS one, leaving the OTHER bits untouched — the way to flip one flag WITHOUT a Set re-listing (and silently dropping) every bit you didn't mention.")]
+        [Description("Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll. Set edits a scalar (or a dict element with key=); Add/Remove/SetAtIndex/InsertAtIndex/ReplaceAll edit a collection. SetAtIndex OVERWRITES the element at key=; InsertAtIndex inserts a NEW element AT key= and shifts the rest right (key = the list’s length appends), so the elements after it keep their order — what an Add, which always lands at the end, cannot do. (This tool has no compose=, so on a list of MODELED elements — conditions, leveled-list entries — use housecarl_bulk_apply, as the note below says for the other composing verbs.) On a [Flags] enum (SPEL Flags, NPC Configuration.Flags, WEAP Data.Flags, …), Add SETS a bit and Remove CLEARS one, leaving the OTHER bits untouched — the way to flip one flag WITHOUT a Set re-listing (and silently dropping) every bit you didn't mention.")]
             string verb = "Set",
-        [Description("Optional. The dict key or list index at the leaf (for a dict Set, a SetAtIndex/Remove on a list, etc.).")]
+        [Description("Optional. The dict key or list index at the leaf (for a dict Set, a SetAtIndex/InsertAtIndex/Remove on a list, etc.). For InsertAtIndex it is the position to insert AT, so the list’s length is legal and appends; for the others it addresses an element that already exists.")]
             string? key = null,
         [Description("Optional. The whole new list contents for ReplaceAll on a list (each coerced).")]
             string[]? values = null,
@@ -1576,7 +1576,7 @@ public sealed record BulkOp
     [JsonPropertyName("field_path"), Description("Dotted field path, e.g. 'BasicStats.Damage' or 'Entries'. Step into a list/dict element mid-path with brackets, e.g. 'Effects[0].Data.Magnitude'; at the LEAF use verb + key, not brackets.")]
     public string? FieldPath { get; init; }
 
-    [JsonPropertyName("verb"), Description("Set (default) | Add | Remove | SetAtIndex | ReplaceAll | Merge | CopyFrom (deep-copy the field at field_path from from_plugin's version — see from_plugin).")]
+    [JsonPropertyName("verb"), Description("Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge | CopyFrom (deep-copy the field at field_path from from_plugin's version — see from_plugin). SetAtIndex OVERWRITES the element at key=; InsertAtIndex inserts a new one AT key= and shifts the rest right (key = the list's length appends).")]
     public string Verb { get; init; } = "Set";
 
     [JsonPropertyName("value"), Description("The value (coerced to the field's type). Omit for Remove / ReplaceAll / Merge / compose.")]
@@ -1648,7 +1648,7 @@ public sealed record NestedSet
     [JsonPropertyName("path"), Description("Dotted path within the struct, e.g. 'Data.Level'.")]
     public string? Path { get; init; }
 
-    [JsonPropertyName("verb"), Description("Set (default) | Add | Remove | SetAtIndex.")]
+    [JsonPropertyName("verb"), Description("Set (default) | Add | Remove | SetAtIndex | InsertAtIndex.")]
     public string Verb { get; init; } = "Set";
 
     [JsonPropertyName("value"), Description("The value (coerced).")]

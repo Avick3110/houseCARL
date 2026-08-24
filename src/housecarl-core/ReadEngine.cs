@@ -559,7 +559,8 @@ public static class ReadEngine
     /// "what landed" line (HCBR-2026-06-28-01, the compact in-place readback). For a single list <c>Add</c>, the new
     /// last element + the new count (<c>now 29 (+1), new [28] = …</c>); for a batch <c>composes=</c> Add of N, the
     /// whole appended run (<c>now 34 (+6), new [28..33]</c> — <paramref name="added"/> carries how many the op
-    /// appended, #259); for a keyed <c>SetAtIndex</c>/<c>Remove</c>, the touched key + new count; else the new count.
+    /// appended, #259); for a keyed <c>SetAtIndex</c>/<c>InsertAtIndex</c>/<c>Remove</c>, the touched key + new count;
+    /// else the new count.
     /// Names the element as specifically as the model allows — a
     /// formlink element renders its FormKey, an identity-bearing struct its Name/EditorID, an anonymous struct (a
     /// condition) its <c>[Type]</c>. Read-only; NEVER throws (null on any difficulty) — a display nicety on an
@@ -578,6 +579,11 @@ public static class ReadEngine
                 "Add"        => AddLanded(record, count, last, added),
                 "ReplaceAll" => $"now {count} item(s) (replaced)",
                 "SetAtIndex" => key is not null ? $"now {count} item(s), set [{key}]" : $"now {count} item(s)",
+                // Insert says INSERTED, not set: the count moved and every element at or after [key] shifted right,
+                // which is the whole difference between this verb and its sibling and the thing a caller is checking.
+                // Without an arm of its own it fell through to the bare "now N item(s)" — true, and silent about the
+                // one fact the op is for.
+                "InsertAtIndex" => key is not null ? $"now {count} item(s), inserted [{key}]" : $"now {count} item(s)",
                 "Remove"     => key is not null ? $"now {count} item(s), removed [{key}]" : $"now {count} item(s) (-1)",
                 _            => $"now {count} item(s)",
             };
