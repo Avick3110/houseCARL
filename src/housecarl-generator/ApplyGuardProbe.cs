@@ -274,11 +274,15 @@ public static class ApplyGuardProbe
         // (a2) THE EXEMPTION'S BOUND, from the other side (#302). InsertAtIndex is key-addressed like SetAtIndex, so
         //      a classifier that asked about the KEYS alone would exempt it — and it must not: an insert ADDS an
         //      element and shifts every index at or after it, so the earlier op's in-memory count is a step behind
-        //      the file's final one and every index it quoted has moved. Comparing those readings is the false
-        //      "treat this op as NOT landed" the count-CHANGING keyed verbs were carved out of the exemption for,
-        //      and the remedy that invites — re-issue the insert — duplicates a row that landed.
-        //      So: both inserts LAND, nothing is reported as not landed, and the EARLIER op falls back to
-        //      "superseded" (silent about itself) rather than being handed a file reading that is not its own.
+        //      the file's final one and every index it quoted has moved.
+        //      What admitting it would actually cost, stated as the CURRENT code behaves rather than as the history:
+        //      the earlier op would be handed the file's FINAL reading as though it were its own answer. (An earlier
+        //      draft of this comment described the harm as a false "treat this op as NOT landed" — that was the
+        //      pre-existing count-comparison's harm, and that comparison was removed; see WritePatchBuilder's own
+        //      note above VerifyLandedAgainstFile's single leaf comparison. Folding the old wording forward would
+        //      have pointed a reader at a failure mode the code can no longer produce.)
+        //      So: both inserts LAND, and the EARLIER op falls back to "superseded" — silent about itself, which is
+        //      correct — rather than being handed a reading that is not its own.
         int ranksBeforeInsert = RanksIn(fx.ReplacerPath, fx.FactionFid);
         string InsertRank(string idx, string val) =>
             "{\"formid\":\"" + fx.FactionFid + "\",\"field_path\":\"Ranks\",\"op\":\"InsertAtIndex\",\"key\":\"" + idx
@@ -298,9 +302,6 @@ public static class ApplyGuardProbe
         Check("two key-addressed InsertAtIndex ops in one call: BOTH land (the count rises by two)",
             ranksBeforeInsert > 0 && ranksAfterInsert == ranksBeforeInsert + 2,
             $"{ranksBeforeInsert} -> {ranksAfterInsert}");
-        Check("…and NEITHER is reported as not landed — the earlier op's count is behind the file's, not wrong",
-            !twoInserts.Contains("NOT landed", StringComparison.Ordinal)
-            && !twoInserts.Contains("NOT carried by the written file", StringComparison.Ordinal), twoInserts);
         Check("…and InsertAtIndex is NOT admitted to the count-neutral keyed exemption: the earlier op reads 'superseded'",
             insertStates.Count == 2 && insertStates[0] == "superseded" && insertStates[1] == "written_file",
             string.Join(",", insertStates));

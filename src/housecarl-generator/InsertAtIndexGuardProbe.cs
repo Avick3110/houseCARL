@@ -91,6 +91,19 @@ public static class InsertAtIndexGuardProbe
         catch (Exception ex) { return ex.Message; }
     }
 
+    /// <summary>The refusal <paramref name="act"/> produced, as (was it the EXPECTED kind, what did it say). The kind
+    /// half is the point: an out-of-range index that surfaces as a reflection-wrapped
+    /// <c>TargetInvocationException</c> also "throws", and also leaves the list untouched — so an arm asserting only
+    /// that something threw passes while the caller gets no field name, no index, no bound, and a kind the response
+    /// layer does not route as an expected refusal. That is the Q3 unnamed accept-then-throw these pre-checks exist
+    /// to prevent, and it is invisible to <see cref="Throws"/> alone.</summary>
+    static (bool Expected, string? Message) Refuses(Action act)
+    {
+        try { act(); return (false, null); }
+        catch (ExpectedApplyRejectionException ex) { return (true, ex.Message); }
+        catch (Exception ex) { return (false, ex.Message); }
+    }
+
     static readonly ModKey MKey = new("HcInsertGuard", ModType.Master);
     static uint _next = 0x800;
     static FormKey NextFk() => new(MKey, _next++);
@@ -103,16 +116,21 @@ public static class InsertAtIndexGuardProbe
 
         var root = Path.Combine(Path.GetTempPath(), "hc_insert_guard_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
+        // ONE try per arm, not one around all three. A regression that throws inside ApplyArm used to abort
+        // SerializeArm as well, so a single sabotage reported far less broken surface than it had actually broken —
+        // still RED, never falsely green, but a sweep reading the count learns the wrong size of the damage.
         try
         {
-            GateArm();
-            ApplyArm();
-            SerializeArm(root);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"   [FAIL] guard threw: {ex.GetType().Name}: {(ex.InnerException ?? ex).Message}");
-            _fail++;
+            foreach (var (name, arm) in new (string Name, Action Run)[]
+                     { ("gate", GateArm), ("apply", ApplyArm), ("serialize", () => SerializeArm(root)) })
+            {
+                try { arm(); }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"   [FAIL] the {name} arm threw: {ex.GetType().Name}: {(ex.InnerException ?? ex).Message}");
+                    _fail++;
+                }
+            }
         }
         finally { try { Directory.Delete(root, recursive: true); } catch { } }
 
@@ -166,11 +184,16 @@ public static class InsertAtIndexGuardProbe
             Rules.Validate(Names("0")) is { } m5 && m5.Contains("requires an element value", StringComparison.Ordinal),
             Rules.Validate(Names("0")) ?? "(accepted)");
 
-        Check("GATE-REJ-BADFORMLINK — a malformed formlink element value refuses (the same recognizer Add's value meets)",
-            Rules.Validate(new WriteRequest { RecordType = "Armor", Path = new[] { "Keywords" }, Verb = "InsertAtIndex",
-                Key = "0", Value = "notaformkey" }) is not null,
-            Rules.Validate(new WriteRequest { RecordType = "Armor", Path = new[] { "Keywords" }, Verb = "InsertAtIndex",
-                Key = "0", Value = "notaformkey" }) ?? "(accepted)");
+        // CONTROL, and labelled as one. The formlink-element check (step-4a) carries NO verb condition at all, so
+        // insert meets it by REACHABILITY rather than by being listed — no mutation to a line this branch wrote can
+        // turn this red. It earns its place as the arm that would catch a future verb-scoping of step-4a that forgot
+        // insert, which is why it asserts the recognizer's own words instead of "something was refused".
+        var badLink = Rules.Validate(new WriteRequest { RecordType = "Armor", Path = new[] { "Keywords" },
+            Verb = "InsertAtIndex", Key = "0", Value = "notaformkey" });
+        Check("GATE-REJ-BADFORMLINK (control) — a malformed formlink element value refuses; step-4a is verb-agnostic, so insert meets it by reachability",
+            badLink is not null && badLink.Contains("notaformkey", StringComparison.Ordinal)
+                && badLink.Contains("Keywords", StringComparison.Ordinal),
+            badLink ?? "(accepted)");
 
         static WriteRequest Cond(string? value, StructSpec? spec) => new()
         {
@@ -189,6 +212,17 @@ public static class InsertAtIndexGuardProbe
         // The redirect that must be verb-scoped correctly or the verb is a Q3 accept-then-throw: a child record is
         // allocated on the record axis, never built into a parent's collection by a write verb — and inserting one
         // AT a position is no more possible than appending one.
+        // GATE-OK-COMPOSE proves a good compose is ACCEPTED — but "accepted after validation" and "accepted without
+        // validation" look identical from the outside, so dropping insert from the StructElementLegality admit leaves
+        // it green. These two make the validation itself falsifiable: the spec's contents are genuinely checked.
+        var badType = Rules.Validate(Cond(null, new StructSpec { Type = "NotAConditionArm" }));
+        Check("GATE-REJ-BADARMTYPE — a compose naming a type that is not an arm of the element refuses, so the spec IS validated",
+            badType is not null && badType.Contains("NotAConditionArm", StringComparison.Ordinal), badType ?? "(accepted)");
+        var badField = Rules.Validate(Cond(null, new StructSpec
+        { Type = "ConditionFloat", Fields = new Dictionary<string, string> { ["ComparisonValue"] = "notafloat" } }));
+        Check("GATE-REJ-BADARMFIELD — a malformed field inside the compose refuses too (contents validated recursively)",
+            badField is not null && badField.Contains("notafloat", StringComparison.Ordinal), badField ?? "(accepted)");
+
         var recElem = Rules.Validate(new WriteRequest
         {
             RecordType = "Cell", Path = new[] { "Persistent" }, Verb = "InsertAtIndex", Key = "0",
@@ -318,9 +352,14 @@ public static class InsertAtIndexGuardProbe
 
         {
             var fac = Conditions(1f, 2f);
-            var msg = Throws(() => Insert(fac, -1, 9f));
-            Check("APPLY-REJ-NEGIDX — a negative index refuses at APPLY too, for a direct/CLI call that never met the gate",
-                msg is not null && fac.Conditions.Count == 2, $"{msg ?? "(no throw)"} | count={fac.Conditions.Count}");
+            var (expected, msg) = Refuses(() => Insert(fac, -1, 9f));
+            // The KIND and the WORDS, not merely that it threw. Deleting `idx < 0 ||` from the bound leaves the
+            // reflection Invoke throwing and the list untouched, so an arm asserting only "something threw, count
+            // unchanged" stays green on exactly the regression it names.
+            Check("APPLY-REJ-NEGIDX — a negative index refuses at APPLY as the EXPECTED kind, naming the index, for a direct/CLI call that never met the gate",
+                expected && msg is not null && msg.Contains("Index -1 out of range", StringComparison.Ordinal)
+                    && fac.Conditions.Count == 2,
+                $"expected={expected} {msg ?? "(no throw)"} | count={fac.Conditions.Count}");
         }
 
         // The same claim on a plain-value list, so it is the VERB's behaviour and not something the compose path does.
@@ -351,7 +390,10 @@ public static class InsertAtIndexGuardProbe
             var fac = new Faction(NextFk(), SkyrimRelease.SkyrimSE);
             var msg = Throws(() => Insert(fac, 1, 7f));
             Check("APPLY-ABSENT-REJ-1 — index 1 into an empty list refuses, and says the list is empty rather than quoting a bound",
-                msg is not null && msg.Contains("the list is empty", StringComparison.Ordinal)
+                // "the list is empty" alone is NOT enough: the shared (SetAtIndex/Remove) message contains it too,
+                // so disabling Insert's own sentence left this arm green on a refusal reading "nothing to remove"
+                // — advice for a verb the caller did not use. Pin the remedy half, which only Insert's sentence has.
+                msg is not null && msg.Contains("insert at index 0", StringComparison.Ordinal)
                     && (fac.Conditions?.Count ?? 0) == 0,
                 $"{msg ?? "(no throw)"} | count={fac.Conditions?.Count ?? -1}");
         }

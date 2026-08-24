@@ -54,7 +54,7 @@ public static class ApplyTools
          "mention; to turn all bits off, Set the field to '0'. Omit value only for a Remove that whole-clears a " +
          "NULLABLE field. values= is the whole new list for a list ReplaceAll; entries= (key->value) drives a dict " +
          "Merge or dict ReplaceAll; key= is the dict key or list index at the leaf.\n" +
-         "compose= builds a MODELED struct for an Add or a polymorphic Set — a leveled-list entry, an effect, a " +
+         "compose= builds a MODELED struct for an Add / InsertAtIndex / SetAtIndex, or a polymorphic Set — a leveled-list entry, an effect, a " +
          "condition row, or a polymorphic list element by its CONCRETE arm type (e.g. a VMAD script property: " +
          "op=Add, field_path='VirtualMachineAdapter.Scripts[0].Properties', compose={type:'ScriptObjectProperty', " +
          "fields:{Name:'MyProp', Flags:'Edited', Object:'XXXXXX:Plugin.esp', Alias:'-1'}}). Merging a weapon into a " +
@@ -365,7 +365,7 @@ public sealed record ApplyOp
     [JsonPropertyName("entries"), Description("Key->value pairs for a dict Merge or dict ReplaceAll.")]
     public Dictionary<string, string>? Entries { get; init; }
 
-    [JsonPropertyName("compose"), Description("Build a modeled struct: the arm for a polymorphic Set, or the element for a struct-element Add (e.g. 'LeveledItemEntry'; for a polymorphic list, the element's CONCRETE arm type such as 'ScriptObjectProperty').")]
+    [JsonPropertyName("compose"), Description("Build a modeled struct: the arm for a polymorphic Set, or the element for a struct-element Add / InsertAtIndex / SetAtIndex (e.g. 'LeveledItemEntry'; for a polymorphic list, the element's CONCRETE arm type such as 'ScriptObjectProperty').")]
     public StructInput? Compose { get; init; }
 
     [JsonPropertyName("composes"), Description("Build MANY modeled list elements in ONE op — the batch sibling of compose. With Add, appends each in order; with ReplaceAll, clears the list then appends each (composes=[] with ReplaceAll clears it to empty). Mutually exclusive with compose/value/values.")]

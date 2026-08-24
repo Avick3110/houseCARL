@@ -230,7 +230,8 @@ public sealed class CorpusRulebook
                 return $"Gendered field '{leafName}' on '{current.Name}' renders as [0]/[1] but is not a list — set its " +
                        $"halves by name: '{leafName}.Male' (=[0]) / '{leafName}.Female' (=[1]).";
             return $"Path '{req.Path[^1]}' brackets a collection element at the LEAF; brackets navigate mid-path only. " +
-                   "To edit a list/dict element, target the collection field and use the verb + Key (SetAtIndex/Set/Remove).";
+                   "To operate on a list/dict element, target the collection field and use the verb + Key " +
+                   "(SetAtIndex/InsertAtIndex/Remove by index, Set/Remove by dict key).";
         }
         var leaf = FindField(current, leafName, out var leafOwner, out var leafPolyErr);
         if (leafPolyErr is not null) return leafPolyErr;
