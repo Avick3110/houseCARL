@@ -232,8 +232,8 @@ namespace HousecarlGenerator;
 /// plain-value form) likewise fell through then threw. The fix folds Merge into the composable deferred-reject and adds
 /// ONE unified Remove-by-value branch (predicate: list Remove, Key null, NOT formlink, NOT coercible) covering
 /// composable + record + the dormant uncoercible case by construction:
-///   G7-REJ-DICTMERGE                 — a Package.Data Merge refuses ('Merge of modeled elements is a later surface')
-///                                      (RED before: accepted then 'No coercion rule' at apply).
+///   G7-REJ-DICTMERGE                 — a Package.Data Merge refuses from the modeled-elements branch, and the remedy
+///                                      it carries names NO list verb (RED before: accepted then 'No coercion rule' at apply).
 ///   G7-REJ-COMPOSABLE-REMOVE-BYVALUE — a struct-element (Faction.Ranks) Remove-by-value refuses, redirected to remove-by-index.
 ///   G7-REJ-RECORD-REMOVE-BYVALUE     — a record-element (DialogTopic.Responses) Remove-by-value refuses too — the unified
 ///                                      non-plain-value branch covers records (the twin found while implementing G6).
@@ -1595,7 +1595,14 @@ public static class NestedCreateGuardProbe
             var req = new WriteRequest { RecordType = "Package", Path = new[] { "Data" }, Verb = "Merge",
                 Entries = new Dictionary<string, string> { ["0"] = "x" } };
             var reject = rulebook.Validate(req);
-            g7RejDictMergeOk = reject is not null && reject.Contains("Merge of modeled elements", StringComparison.OrdinalIgnoreCase);
+            // The refusal is unchanged; its REMEDY half is now derived from the leaf's shape (WriteVerbs), so the
+            // arm pins the branch it came from rather than a sentence that is free to be reworded. It also pins
+            // that this DICT caller is offered no list verb — the drift this message used to carry.
+            g7RejDictMergeOk = reject is not null
+                && reject.Contains("holds modeled elements", StringComparison.OrdinalIgnoreCase)
+                && reject.Contains("Merge", StringComparison.Ordinal)
+                && !reject.Contains("InsertAtIndex", StringComparison.Ordinal)
+                && !reject.Contains("SetAtIndex", StringComparison.Ordinal);
             Console.WriteLine($"   G7-REJ-DICTMERGE composable merge   : {(g7RejDictMergeOk ? "PASS — a Package.Data Merge is refused (Merge folded into the composable deferred-reject; RED before: accepted then 'No coercion rule' at apply)" : $"FAIL — reject=[{reject}]")}");
         }
 
