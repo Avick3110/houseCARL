@@ -304,6 +304,12 @@ public static class ApplyGuardProbe
         Check("…and InsertAtIndex is NOT admitted to the count-neutral keyed exemption: the earlier op reads 'superseded'",
             insertStates.Count == 2 && insertStates[0] == "superseded" && insertStates[1] == "written_file",
             string.Join(",", insertStates));
+        // The RENDER, driven through the real response rather than asserted about the switch: the change summary has
+        // an arm per list verb, and without one of its own an insert fell through to the bare "now N item(s)" — true,
+        // and silent about the index, which is the one thing the caller issued the op to control.
+        Check("…and the change summary says INSERTED at the index, not just a new count",
+            twoInserts.Contains("inserted [0]", StringComparison.Ordinal)
+            && twoInserts.Contains("inserted [1]", StringComparison.Ordinal), twoInserts);
     }
 
     /// <summary>How many Ranks the written faction carries on disk — the ground truth behind the multi-op check.</summary>
