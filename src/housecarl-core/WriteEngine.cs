@@ -2966,8 +2966,7 @@ public static class WriteEngine
     /// one IList&lt;T&gt; whose Insert throws — a <c>T[]</c> — never reaches here: the array-backed guard at the top of
     /// ApplyListVerb refuses every list verb on it by name first.</summary>
     static MethodInfo InsertMethod(Type listIface, Type elem) =>
-        listIface.GetMethod("Insert", new[] { typeof(int), elem })
-        ?? throw new InvalidOperationException($"No Insert(int, {elem.Name}) on {Pretty(listIface)}");
+        listIface.GetMethod("Insert", new[] { typeof(int), elem })!;
 
     static MethodInfo AddMethod(Type listType, Type elem) =>
         listType.GetMethod("Add", new[] { elem })

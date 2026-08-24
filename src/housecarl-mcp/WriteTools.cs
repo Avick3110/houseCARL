@@ -35,13 +35,13 @@ public static class WriteTools
         LoadOrderService svc,
         [Description("The record's FormID as 'XXXXXX:Plugin.esp' (6 hex digits, the defining master's filename).")]
             string formid,
-        [Description("Dotted field path to edit, e.g. 'BasicStats.Damage', 'Name', 'Keywords'. Step into a list/dict element MID-PATH with brackets, e.g. 'Effects[0].Data.Magnitude' or 'VirtualMachineAdapter.Aliases[0].Scripts[0].Properties'. At the LEAF, edit a collection element with verb + key (SetAtIndex/Remove by index, Set/Remove by dict key) — not brackets.")]
+        [Description("Dotted field path to edit, e.g. 'BasicStats.Damage', 'Name', 'Keywords'. Step into a list/dict element MID-PATH with brackets, e.g. 'Effects[0].Data.Magnitude' or 'VirtualMachineAdapter.Aliases[0].Scripts[0].Properties'. At the LEAF, target the collection itself with verb + key (SetAtIndex/InsertAtIndex/Remove by index, Set/Remove by dict key) — not brackets.")]
             string field_path,
         [Description("The value, coerced to the field's type: a number, an enum name (e.g. 'OneHanded'), or a FormID 'XXXXXX:Plugin.esp' for a reference. On a [Flags] enum, the flag(s) to Add/Remove (a name or comma-combo, e.g. 'ManualCostCalc'). Omit only for a Remove that whole-clears a NULLABLE field (scalar/link/flags → cleared/absent); a flags Remove WITH a value clears just that bit, and to turn all bits off Set the field to '0'.")]
             string? value = null,
-        [Description("Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll. Set edits a scalar (or a dict element with key=); Add/Remove/SetAtIndex/InsertAtIndex/ReplaceAll edit a collection. SetAtIndex OVERWRITES the element at key=; InsertAtIndex inserts a NEW element AT key= and shifts the rest right (key = the list’s length appends), so the elements after it keep their order — what an Add, which always lands at the end, cannot do. (This tool has no compose=, so on a list of MODELED elements — conditions, leveled-list entries — use housecarl_bulk_apply, as the note below says for the other composing verbs.) On a [Flags] enum (SPEL Flags, NPC Configuration.Flags, WEAP Data.Flags, …), Add SETS a bit and Remove CLEARS one, leaving the OTHER bits untouched — the way to flip one flag WITHOUT a Set re-listing (and silently dropping) every bit you didn't mention.")]
+        [Description("Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll. Set edits a scalar (or a dict element with key=); Add/Remove/SetAtIndex/InsertAtIndex/ReplaceAll edit a collection. SetAtIndex OVERWRITES the element at key=; InsertAtIndex inserts a NEW element AT key= and shifts the rest right (key = the list's length appends), so the elements after it keep their order — what an Add, which always lands at the end, cannot do. (This tool has no compose=, so on a list of MODELED elements — conditions, leveled-list entries — use housecarl_bulk_apply, as this tool's own description says for the other composing verbs.) On a [Flags] enum (SPEL Flags, NPC Configuration.Flags, WEAP Data.Flags, …), Add SETS a bit and Remove CLEARS one, leaving the OTHER bits untouched — the way to flip one flag WITHOUT a Set re-listing (and silently dropping) every bit you didn't mention.")]
             string verb = "Set",
-        [Description("Optional. The dict key or list index at the leaf (for a dict Set, a SetAtIndex/InsertAtIndex/Remove on a list, etc.). For InsertAtIndex it is the position to insert AT, so the list’s length is legal and appends; for the others it addresses an element that already exists.")]
+        [Description("Optional. The dict key or list index at the leaf (for a dict Set, a SetAtIndex/InsertAtIndex/Remove on a list, etc.). For InsertAtIndex it is the position to insert AT, so the list's length is legal and appends; a list SetAtIndex or Remove, by contrast, addresses an element that must already be there. (On a dict the key is the entry's own key, which Set creates if it is absent and Add refuses if it is present.)")]
             string? key = null,
         [Description("Optional. The whole new list contents for ReplaceAll on a list (each coerced).")]
             string[]? values = null,
@@ -75,7 +75,7 @@ public static class WriteTools
          "Apply MANY edits in ONE patch plugin (originals untouched) — the batch form of housecarl_set_field, and the way " +
          "to COMPOSE modeled structs. Each operation is {formid, field_path, verb, value?, key?, values?, entries?, " +
          "compose?, composes?, from_plugin?}: scalar/collection verbs work as in set_field; entries (a key→value map) drives a dict Merge or " +
-         "ReplaceAll; compose builds a modeled struct for an Add (a leveled-list entry, an effect — and a POLYMORPHIC " +
+         "ReplaceAll; compose builds a modeled struct for an Add, an InsertAtIndex or a SetAtIndex (a leveled-list entry, an effect — and a POLYMORPHIC " +
          "list element composes by its concrete arm type, e.g. a VMAD script property: verb=Add, " +
          "field_path='VirtualMachineAdapter.Scripts[0].Properties', compose={type:'ScriptObjectProperty', " +
          "fields:{Name:'MyProp', Flags:'Edited', Object:'XXXXXX:Plugin.esp', Alias:'-1'}}) or a polymorphic Set " +
@@ -1591,7 +1591,7 @@ public sealed record BulkOp
     [JsonPropertyName("entries"), Description("Key→value pairs for a dict Merge or dict ReplaceAll.")]
     public Dictionary<string, string>? Entries { get; init; }
 
-    [JsonPropertyName("compose"), Description("Build a modeled struct: an arm for a polymorphic Set, or the element for a struct-element Add (e.g. a leveled-list entry; for a polymorphic list like VMAD Scripts[i].Properties, the element's CONCRETE arm type, e.g. 'ScriptObjectProperty').")]
+    [JsonPropertyName("compose"), Description("Build a modeled struct: an arm for a polymorphic Set, or the element for a struct-element Add / InsertAtIndex / SetAtIndex (e.g. a leveled-list entry; for a polymorphic list like VMAD Scripts[i].Properties, the element's CONCRETE arm type, e.g. 'ScriptObjectProperty').")]
     public StructInput? Compose { get; init; }
 
     [JsonPropertyName("composes"), Description("Build MANY modeled list elements in ONE op — the batch sibling of compose (each entry the same {type, fields?, ctor_args?, sets?} shape). With verb=Add, APPENDS each element in order (e.g. 10 leveled-list entries, a whole block of condition rows in one op instead of ten Adds). With verb=ReplaceAll, CLEARS the list then appends each — the way to replace a whole modeled list (conditions, effects, entries); pass composes=[] with ReplaceAll to CLEAR the list to empty (the modeled twin of values=[]). LIST elements only; mutually exclusive with compose/value/values. All-or-nothing: a bad element refuses the whole call with per-element (composes[i]) reasons.")]
@@ -1657,6 +1657,6 @@ public sealed record NestedSet
     [JsonPropertyName("key"), Description("Dict key or list index, if the nested target is a collection.")]
     public string? Key { get; init; }
 
-    [JsonPropertyName("compose"), Description("Build a modeled sub-struct for THIS nested target (recursive): the concrete ARM of a polymorphic sub-field (e.g. a Condition's Data → 'GetActorValueConditionData'), or the element for a struct-element Add nested inside the struct. Omit for a coercible scalar (use value=).")]
+    [JsonPropertyName("compose"), Description("Build a modeled sub-struct for THIS nested target (recursive): the concrete ARM of a polymorphic sub-field (e.g. a Condition's Data → 'GetActorValueConditionData'), or the element for a struct-element Add / InsertAtIndex / SetAtIndex nested inside the struct. Omit for a coercible scalar (use value=).")]
     public StructInput? Compose { get; init; }
 }
