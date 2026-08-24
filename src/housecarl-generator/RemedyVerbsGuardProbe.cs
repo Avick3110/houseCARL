@@ -5,7 +5,7 @@ namespace HousecarlGenerator;
 
 /// <summary>
 /// CI REGRESSION GUARD for <see cref="WriteVerbs"/> — the one derivation of "which verbs work on this collection
-/// shape", and the six emitted messages that consume it.
+/// shape", and the seven emitted messages that consume it.
 ///
 /// <para><b>The claim under test.</b> <see cref="WriteVerbs.On"/> is a SHAPE-indexed table; the gate
 /// (<see cref="CorpusRulebook.Validate"/>) is a VERB-indexed switch. They must agree, and a guard that re-derived
@@ -103,7 +103,8 @@ public static class RemedyVerbsGuardProbe
             }
         }
         foreach (var (k, n) in buckets) Console.WriteLine($"        {k}: {n} field(s)");
-        Console.WriteLine($"        declined (no verb names printed): {declined} field(s) — {string.Join(", ", declinedKinds.Select(kv => $"{kv.Key}x{kv.Value}"))}");
+        Console.WriteLine($"        declined (no verb names printed): {declined} field(s)"
+            + (declined == 0 ? "" : " — " + string.Join(", ", declinedKinds.Select(kv => $"{kv.Key}x{kv.Value}"))));
 
         // The vacuity floor. A shape with no corpus field is a shape the agreement sweep below measures NOTHING
         // for, so which shapes those are is pinned by name rather than left to be discovered as a silent hole.
@@ -248,8 +249,12 @@ public static class RemedyVerbsGuardProbe
     static void CheckShaped(string label, string? msg, CollectionShape shape, IEnumerable<VerbUse> expected)
     {
         var want = expected.Select(u => u.Verb).Distinct().ToArray();
-        var forbidden = (shape.Kind == CollectionKind.List ? DictOnly : ListOnly)
-            .Where(v => !want.Contains(v)).ToArray();
+        // The forbidden set is ABSOLUTE, not "the other cardinality's verbs minus whatever the table happens to
+        // name". Subtracting `want` let the check disable itself exactly when it was needed: sabotaging the table
+        // to put Merge in the list arm left all fourteen SITE-* arms green while every list remedy emitted Merge,
+        // because Merge had joined `want`. SetAtIndex/InsertAtIndex are list-only and Merge is dict-only by the
+        // gate's own cardinality arms, so no correct table can ever name them across the line.
+        var forbidden = shape.Kind == CollectionKind.List ? DictOnly : ListOnly;
         var missing = msg is null ? want : want.Where(v => !msg.Contains(v, StringComparison.Ordinal)).ToArray();
         var leaked = msg is null ? Array.Empty<string>()
             : forbidden.Where(v => msg.Contains(v, StringComparison.Ordinal)).ToArray();
@@ -265,6 +270,8 @@ public static class RemedyVerbsGuardProbe
 
     static IEnumerable<VerbUse> Keyed(CollectionShape s) => WriteVerbs.On(s).Where(u => u.NeedsKey);
     static IEnumerable<VerbUse> Placing(CollectionShape s) => WriteVerbs.On(s).Where(u => u.Places);
+    static IEnumerable<VerbUse> PlacingOne(CollectionShape s) => WriteVerbs.On(s)
+        .Where(u => u.Places && u.Input is not (VerbInput.Values or VerbInput.Entries or VerbInput.Composes));
 
     static void SitesArm()
     {
@@ -278,6 +285,21 @@ public static class RemedyVerbsGuardProbe
         CheckShaped("SITE-BRACKET-GATE-DICT — a bracketed DICT leaf is answered with the keyed verbs and NO SetAtIndex/InsertAtIndex",
             Rules.Validate(new WriteRequest { RecordType = "Class", Path = new[] { "SkillWeights[Alteration]" }, Verb = "Set", Value = "1" }),
             DictCoerced, Keyed(DictCoerced));
+
+        // ORDER, not just membership. A caller who brackets `Keywords[0]` bracketed an index that already holds an
+        // element, so the menu has to lead with the verb that operates on THAT element. Every other wrong first
+        // choice on this branch refuses; this one succeeds — one element longer, tail shifted — which on a CTDA
+        // OR-run silently changes what the record gates on. Asserted as a POSITION comparison so it fails on a
+        // reordering of the table, which membership alone would not see.
+        var bracketList = Rules.Validate(new WriteRequest
+        { RecordType = "Race", Path = new[] { "MovementTypeNames[0]" }, Verb = "Set", Value = "x" });
+        Check("SITE-BRACKET-ORDER — the bracketed-leaf remedy names SetAtIndex (overwrite in place) BEFORE InsertAtIndex (insert and shift)",
+            bracketList is not null
+                && bracketList.IndexOf("SetAtIndex", StringComparison.Ordinal) >= 0
+                && bracketList.IndexOf("InsertAtIndex", StringComparison.Ordinal) >= 0
+                && bracketList.IndexOf("SetAtIndex", StringComparison.Ordinal)
+                     < bracketList.IndexOf("InsertAtIndex", StringComparison.Ordinal),
+            bracketList ?? "(accepted)");
 
         // (2) the engine's twin, reached by a direct/CLI call that never met the gate.
         CheckShaped("SITE-BRACKET-ENGINE-LIST — the engine twin answers a bracketed LIST leaf with the index verbs",
@@ -320,15 +342,45 @@ public static class RemedyVerbsGuardProbe
                     .SequenceEqual(PublishedVocabulary.OrderBy(v => v, StringComparer.Ordinal)),
             $"missing=[{string.Join(",", missingVerbs)}] All=[{string.Join(",", WriteVerbs.All)}] :: {unknown ?? "(accepted)"}");
 
-        // (5) the composes= verb refusal, whose parenthetical fires BEFORE the cardinality check below it.
-        CheckShaped("SITE-COMPOSES-LIST — the singular-path parenthetical on a LIST names the index verbs",
+        // (5) the composes= refusals. The SHAPE questions are asked first, so a caller whose field composes= does
+        // not serve is told that, rather than handed a verb that refuses on their next call.
+        CheckShaped("SITE-COMPOSES-LIST — the singular-path parenthetical on a modeled LIST names the SINGULAR placing verbs",
             Rules.Validate(new WriteRequest { RecordType = "Faction", Path = new[] { "Conditions" }, Verb = "Set",
                 Structs = new[] { new StructSpec { Type = "ConditionFloat" } } }),
-            ListComposed, Placing(ListComposed));
-        CheckShaped("SITE-COMPOSES-DICT — the SAME refusal on a DICT names keyed verbs, not SetAtIndex/InsertAtIndex",
-            Rules.Validate(new WriteRequest { RecordType = "Package", Path = new[] { "Data" }, Verb = "Set",
-                Structs = new[] { new StructSpec { Type = "PackageDataBool" } } }),
-            DictComposed, Placing(DictComposed));
+            ListComposed, PlacingOne(ListComposed));
+        var composesListMsg = Rules.Validate(new WriteRequest { RecordType = "Faction", Path = new[] { "Conditions" },
+            Verb = "Set", Structs = new[] { new StructSpec { Type = "ConditionFloat" } } });
+        Check("SITE-COMPOSES-ONE-AT-A-TIME — a remedy labelled \"one element at a time\" does not then name the BATCH verb the head sentence just recommended",
+            composesListMsg is not null
+                && composesListMsg.Contains("One element at a time", StringComparison.Ordinal)
+                && !composesListMsg.Contains("composes=)", StringComparison.Ordinal),
+            composesListMsg ?? "(accepted)");
+
+        // A DICT, a SUBSTRUCT and a COERCIBLE-element list all reach the composes= refusal, and composes= serves
+        // none of them. Each must be told THAT — never handed Add/ReplaceAll, which refuse on the next call.
+        foreach (var (label, req, shapeWord) in new (string, WriteRequest, string)[]
+        {
+            ("DICT", new WriteRequest { RecordType = "Package", Path = new[] { "Data" }, Verb = "Set",
+                Structs = new[] { new StructSpec { Type = "PackageDataBool" } } }, "dict"),
+            ("SUBSTRUCT", new WriteRequest { RecordType = "Armor", Path = new[] { "BodyTemplate" }, Verb = "Set",
+                Structs = new[] { new StructSpec { Type = "BodyTemplate" } } }, "substruct"),
+        })
+        {
+            var m = Rules.Validate(req);
+            Check($"SITE-COMPOSES-{label} — composes= on a shape it does not serve says so, and offers no verb that would refuse on the next call",
+                m is not null
+                    && m.Contains($"is a {shapeWord}", StringComparison.Ordinal)
+                    && !m.Contains("use it with Add", StringComparison.Ordinal)
+                    && !ListOnly.Any(v => m.Contains(v, StringComparison.Ordinal)),
+                m ?? "(accepted)");
+        }
+        var coercibleComposes = Rules.Validate(new WriteRequest { RecordType = "Armor", Path = new[] { "Keywords" },
+            Verb = "SetAtIndex", Key = "0", Structs = new[] { new StructSpec { Type = "Keyword" } } });
+        Check("SITE-COMPOSES-COERCIBLE — a coercible-element list is told its elements are not modeled structs, not told to try Add/ReplaceAll",
+            coercibleComposes is not null
+                && coercibleComposes.Contains("not modeled structs", StringComparison.Ordinal)
+                && !coercibleComposes.Contains("use it with Add", StringComparison.Ordinal),
+            coercibleComposes ?? "(accepted)");
 
         // (6) THE class-A medium: the modeled-elements message, emitted for a list OR a dict.
         CheckShaped("SITE-MODELED-LIST — a values= ReplaceAll on a modeled LIST is answered with the list's own placing verbs",
