@@ -234,9 +234,10 @@ public sealed class CorpusRulebook
             // This message used to offer "SetAtIndex/InsertAtIndex/Remove by index, Set/Remove by dict key" to
             // everyone who reached it, so a dict caller was handed index verbs that refuse and a list caller was
             // handed key verbs that refuse. WriteVerbs derives the keyed set from the leaf's own shape, so neither
-            // can happen. When the field does not resolve (an unknown name, bracketed) or its element kind is one
-            // the table declines, the sentence still states the rule and simply names no verbs — dormant today
-            // (remedy-verbs-guard reports zero declined fields in the corpus), and honest if it ever fires.
+            // can happen. Two cases name no verbs, and they are not equally live: an unresolved field name is
+            // REACHABLE (any bracketed typo — 'Nope[0]' — lands here, and the rule is still the right thing to
+            // say), while a declined element kind is dormant today, measured rather than assumed
+            // (remedy-verbs-guard reports zero declined fields in the corpus).
             var head = $"Path '{req.Path[^1]}' brackets a collection element at the LEAF; brackets navigate mid-path only. ";
             if (bracketed is not null && WriteVerbs.OfField(bracketed, _corpus) is { } bshape)
                 return head + $"Target the collection field '{leafName}' itself and address the element with the verb "
@@ -391,10 +392,15 @@ public sealed class CorpusRulebook
     }
 
     /// <summary>"How do I put an element into this collection", derived from the leaf's own shape — the one answer
-    /// every collection remedy in this file asks for. Names NO verb when <see cref="WriteVerbs"/> has no shape for
-    /// the leaf: either it is not a collection at all (reachable — a substruct leaf given composes=), or its
-    /// element kind is one the table declines to describe (dormant today; remedy-verbs-guard measures zero such
-    /// fields in the corpus). Saying less is the honest answer in both.</summary>
+    /// every collection remedy in this file asks for.
+    /// <para/>
+    /// Every call site is cardinality-gated to a list or a dict, so the null arm is reached only when the leaf IS a
+    /// collection whose ELEMENT KIND <see cref="WriteVerbs"/> declines to describe — which no field in the corpus
+    /// is (remedy-verbs-guard's population arm measures that, and goes red if a Mutagen bump changes it). It is
+    /// therefore dormant-by-construction and cannot be fixtured today: stated here rather than covered, and the
+    /// reason it says nothing instead of guessing is that a declined kind has no settled legal-verb answer to give.
+    /// An earlier draft let a NON-collection leaf reach this arm through the composes= refusal, which made the
+    /// fallback a live non-answer for the most likely composes= mistake; that path now answers by shape upstream.</summary>
     string PlacingRemedy(FieldSchema leaf) =>
         WriteVerbs.OfField(leaf, _corpus) is { } shape
             ? WriteVerbs.HowToPlace(shape)
@@ -410,15 +416,17 @@ public sealed class CorpusRulebook
     string? ComposesLegality(FieldSchema leaf, TypeSchema owner, WriteRequest req,
         IReadOnlyCollection<string>? siblingEditorIds)
     {
-        if (req.Verb is not ("Add" or "ReplaceAll"))
-            // The singular-path parenthetical is DERIVED. It used to recite the LIST singular verbs unconditionally,
-            // and this refusal fires before the cardinality check below — so a dict caller (Package.Data with
-            // composes=) was told to reach for SetAtIndex/InsertAtIndex, neither of which is valid on a dict.
-            return $"composes= appends/replaces a LIST of modeled elements — use it with Add (append each) or " +
-                   $"ReplaceAll (clear, then append each), not {req.Verb}. " +
-                   $"(One element at a time: {PlacingRemedy(leaf)}.)";
-        // The owned-child answer comes FIRST, because the generic cardinality sentence below ends by pointing at
-        // compose= / value= — and on this shape both of those refuse too (#335). That is the loop the singular
+        // SHAPE BEFORE VERB. The verb arm used to run first, and its head sentence ("use it with Add or
+        // ReplaceAll") is true of composes= in general but false for the caller when composes= does not apply to
+        // their field AT ALL — so a dict caller (Package.Data), a substruct caller (Armor.BodyTemplate) and a
+        // coercible-element list caller (Armor.Keywords) were each told to reach for a verb that then refused on
+        // the very next call. Deriving the parenthetical fixed the second half of that sentence and left the first
+        // half doing the same thing; all three round-3 reviewers reproduced it. Asking the SHAPE questions first
+        // makes it structural rather than careful: by the time the verb arm is reached the leaf is a list of
+        // modeled elements, which is the only shape whose answer that sentence is about.
+        //
+        // The owned-child answer stays FIRST of all, because the cardinality sentence below ends by pointing at
+        // compose= / value= — and on that shape both of those refuse too (#335). That is the loop the singular
         // Set arm was written to close, reached through a third door.
         if (SchemaClassifier.IsOwnedChildRecord(leaf, _corpus))
             return OwnedChildSetRefusal(leaf);
@@ -431,6 +439,16 @@ public sealed class CorpusRulebook
                    (leaf.FormLinkTarget is not null ? "formlink" : "coercible") +
                    $" values ({leaf.ElementTypeRef ?? leaf.ElementType}), not modeled structs — use values= " +
                    "(ReplaceAll) / value= (Add), not composes=.";
+        if (req.Verb is not ("Add" or "ReplaceAll"))
+            // Reached only on a LIST of modeled elements now, so both halves are about a shape composes= serves.
+            // The singular alternatives are DERIVED, and derived as the SINGULAR ones: HowToPlace would also offer
+            // ReplaceAll (composes=), which is a batch verb and is what the head sentence just recommended — a
+            // remedy labelled "one element at a time" must not end by naming the batch form again.
+            return $"composes= appends/replaces a LIST of modeled elements — use it with Add (append each) or " +
+                   $"ReplaceAll (clear, then append each), not {req.Verb}. " +
+                   // The shape is settled by the two checks above, so it is NAMED rather than looked up — no
+                   // null-forgiving operator standing in for an assumption nothing states.
+                   $"(One element at a time: {WriteVerbs.HowToPlaceOne(new CollectionShape(CollectionKind.List, ElementPlacement.Composed))}.)";
         if (req.Structs!.Count == 0)
             return req.Verb is "ReplaceAll"
                 ? null   // ReplaceAll composes=[] = CLEAR the modeled list (the modeled twin of ReplaceAll values=[]); apply Clears + appends nothing
@@ -873,11 +891,14 @@ public sealed class CorpusRulebook
                 // gets the index verbs — structurally, not by a condition somebody has to remember to write.
                 // The tail sentence is derived too, because the old one ("{Verb} of modeled elements is a later
                 // surface") was false on a list: a modeled list DOES have a batch replace — ReplaceAll with
-                // composes= — and this block is only reached when the caller sent values=/entries= instead. The
-                // shape's own placing set says which batch form exists (composes= on a list; none on a dict, which
-                // is why its remedy names only the singular keyed verbs) without a sentence claiming either.
-                return $"'{leaf.Name}' holds modeled elements ({leaf.ElementTypeRef}); a {req.Verb} carrying plain " +
-                       $"values has no build-from-parts form here — {PlacingRemedy(leaf)}.";
+                // composes=. It says what is MISSING (a build-from-parts input on this call) rather than what the
+                // caller sent: composes= is diverted upstream, but req.Values / req.Entries are not required, so a
+                // bare ReplaceAll with no input at all lands here too and "carrying plain values" would be a
+                // statement about the request that the request does not support. The shape's own placing set names
+                // the batch form that exists (composes= on a list; none on a dict, which is why its remedy names
+                // only the singular keyed verbs) without a sentence claiming either.
+                return $"'{leaf.Name}' holds modeled elements ({leaf.ElementTypeRef}); {req.Verb} has no " +
+                       $"build-from-parts input on this call — {PlacingRemedy(leaf)}.";
         }
         // (step 4-rmv) Remove-BY-VALUE on a NON-PLAIN-VALUE element — a list Remove with NO key is by-value
         // (ApplyListVerb -> Coerce(req.Value!, elem)); an element that is neither coercible (step-4b) nor formlink

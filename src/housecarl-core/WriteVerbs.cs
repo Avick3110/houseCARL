@@ -52,10 +52,10 @@ public enum VerbInput
 public readonly record struct VerbUse(string Verb, VerbInput Input, bool NeedsKey, bool Places, string Does);
 
 /// <summary>
-/// The ONE home for houseCARL's write-verb vocabulary, and the ONE derivation of which of those verbs work on a
-/// given collection shape.
+/// The one home IN CODE for houseCARL's write-verb vocabulary, and the one derivation of which of those verbs work
+/// on a given collection shape.
 ///
-/// <para><b>Why this exists.</b> Six emitted messages recited verb names by hand, each next to the condition that
+/// <para><b>Why this exists.</b> Seven emitted messages recited verb names by hand, each next to the condition that
 /// produced it, and they drifted: a dict caller reached a message offering <c>InsertAtIndex</c> (measured on
 /// <c>Package.Data</c> — following the offer returns "InsertAtIndex is only valid on list"); the Set-on-list remedy
 /// named two of the five list verbs; the leaf-bracket remedy offered both cardinalities' verbs at once and left the
@@ -85,10 +85,13 @@ public readonly record struct VerbUse(string Verb, VerbInput Input, bool NeedsKe
 /// </summary>
 public static class WriteVerbs
 {
-    /// <summary>Every verb the write surface accepts, in the order the tool descriptions list them. The one home
-    /// for the NAMES; <see cref="On"/> is the one home for which of them apply where.</summary>
+    /// <summary>Every verb the write surface accepts, in the order the shipped tool descriptions list them
+    /// (checked: <c>ApplyTools</c>'s <c>op</c> reads "Set | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll
+    /// | Merge | CopyFrom"). The one home in CODE for the NAMES; <see cref="On"/> is the one home for which of them
+    /// apply where. The prose home is the tool-surface SPEC, which CLAUDE.md points readers at — these are two
+    /// homes for two audiences, not two authorities on one fact.</summary>
     public static readonly IReadOnlyList<string> All =
-        new[] { "Set", "Add", "Remove", "ReplaceAll", "SetAtIndex", "InsertAtIndex", "Merge", "CopyFrom" };
+        new[] { "Set", "Add", "Remove", "SetAtIndex", "InsertAtIndex", "ReplaceAll", "Merge", "CopyFrom" };
 
     /// <summary>The verbs that work on <paramref name="shape"/>, each with the slot it consumes and the phrase a
     /// remedy prints for it. Indexed by shape — the two facts in <see cref="CollectionShape"/> are the whole input,
@@ -110,9 +113,14 @@ public static class WriteVerbs
                 // Set is absent by construction, not by omission: a list element is addressed by POSITION, so a
                 // whole-field Set has no element to mean.
                 new("Add", one, false, true, "appends a new element at the END"),
+                // SetAtIndex before InsertAtIndex, deliberately. The keyed subset of this list is what a caller who
+                // bracketed a leaf (`Keywords[0]`) is shown, and they bracketed an index that ALREADY holds an
+                // element — so the verb that operates on the element already there is the one to lead with. Leading
+                // with insert is the one wrong first choice on this branch that does not refuse: it succeeds, one
+                // element longer, with the tail shifted, which on a CTDA OR-run changes what the record gates on.
+                new("SetAtIndex", one, true, true, "overwrites the element already at that index, in place"),
                 new("InsertAtIndex", one, true, true,
                     "inserts a new element AT that index and shifts the rest right (the list's length appends)"),
-                new("SetAtIndex", one, true, true, "overwrites the element already at that index, in place"),
                 // The batch slot differs with the element: a modeled list replaces through composes=, a coercible
                 // one through values=. Same verb, different surface — the kind of detail a hand-recited name drops.
                 new("ReplaceAll", composed ? VerbInput.Composes : VerbInput.Values, false, true,
@@ -180,9 +188,25 @@ public static class WriteVerbs
               + "/ housecarl_bulk_create with parent= the parent's FormID, not a write verb"
             : Sentence(On(shape).Where(u => u.Places));
 
-    /// <summary>"How do I address ONE element that is already there." The keyed verbs — the answer a caller who
-    /// bracketed a leaf is actually looking for.</summary>
+    /// <summary>"How do I put in ONE element." <see cref="HowToPlace"/> minus the verbs that take a WHOLE
+    /// collection — a site that says "one element at a time" and then names <c>ReplaceAll</c> is contradicting
+    /// itself in the same sentence. Batch-ness is read off the input slot, which the table already carries, so it
+    /// is not a second opinion about which verbs are batch.</summary>
+    public static string HowToPlaceOne(CollectionShape shape) =>
+        shape.Element == ElementPlacement.OwnedRecord
+            ? HowToPlace(shape)
+            : Sentence(On(shape).Where(u => u.Places && !IsBatch(u.Input)));
+
+    /// <summary>The keyed verbs, in table order — how to reach ONE element of this collection by index or key.
+    /// Named for what the filter is (a key is required), not for "an element that is already there": a list's
+    /// <c>InsertAtIndex</c> takes a key and addresses the GAP at that index, and it belongs in the menu because a
+    /// caller who bracketed a leaf may well have meant it. The table orders the existing-element verb first, which
+    /// is what makes the menu safe to read top-down.</summary>
     public static string HowToAddress(CollectionShape shape) => Sentence(On(shape).Where(u => u.NeedsKey));
+
+    /// <summary>Does this slot carry a WHOLE collection rather than one element?</summary>
+    static bool IsBatch(VerbInput input) =>
+        input is VerbInput.Values or VerbInput.Entries or VerbInput.Composes;
 
     /// <summary>The collection verbs by name — the ones that put an element in or address one — for a site that is
     /// naming a set rather than giving guidance. CopyFrom is excluded by the filter, not by hand: it is neither.</summary>
