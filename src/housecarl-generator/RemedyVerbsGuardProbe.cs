@@ -231,6 +231,12 @@ public static class RemedyVerbsGuardProbe
 
     // ---------------------------------------------------------------- the consuming sites
 
+    /// <summary>The write surface's published verb vocabulary, spelled out HERE rather than read from
+    /// <see cref="WriteVerbs.All"/>. Checking a message against the same collection that produced it proves only
+    /// that the substitution ran; this literal is the second, independent route.</summary>
+    static readonly string[] PublishedVocabulary =
+        { "Set", "Add", "Remove", "ReplaceAll", "SetAtIndex", "InsertAtIndex", "Merge", "CopyFrom" };
+
     /// <summary>The list-exclusive verbs — the ones a dict caller must never be offered.</summary>
     static readonly string[] ListOnly = { "SetAtIndex", "InsertAtIndex" };
     /// <summary>The dict-exclusive verb — the one a list caller must never be offered.</summary>
@@ -300,12 +306,19 @@ public static class RemedyVerbsGuardProbe
                 && !ListOnly.Any(v => setOnRecordList.Contains(v, StringComparison.Ordinal)),
             setOnRecordList ?? "(accepted)");
 
-        // (4) the unknown-verb vocabulary — every verb the surface has, from its one home.
+        // (4) the unknown-verb vocabulary — every verb the surface has, from its one home. Checked against the
+        // literal set BELOW, not against WriteVerbs.All: comparing the message to the same collection that built
+        // it is the check-A tautology, and it stayed green when a verb was deleted from that collection. The
+        // literal is the independent route — a deliberate change to the published vocabulary turns this red once,
+        // on purpose, and a silent one turns it red too.
         var unknown = Rules.Validate(new WriteRequest
         { RecordType = "Race", Path = new[] { "MovementTypeNames" }, Verb = "Nope", Key = "0", Value = "x" });
-        Check("SITE-UNKNOWN-VERB — the legal list is the whole published vocabulary, drawn from WriteVerbs.All rather than retyped",
-            unknown is not null && WriteVerbs.All.All(v => unknown.Contains(v, StringComparison.Ordinal)),
-            unknown ?? "(accepted)");
+        var missingVerbs = PublishedVocabulary.Where(v => unknown?.Contains(v, StringComparison.Ordinal) != true).ToArray();
+        Check("SITE-UNKNOWN-VERB — the legal list is the whole published vocabulary, and WriteVerbs.All still IS that vocabulary",
+            unknown is not null && missingVerbs.Length == 0
+                && WriteVerbs.All.OrderBy(v => v, StringComparer.Ordinal)
+                    .SequenceEqual(PublishedVocabulary.OrderBy(v => v, StringComparer.Ordinal)),
+            $"missing=[{string.Join(",", missingVerbs)}] All=[{string.Join(",", WriteVerbs.All)}] :: {unknown ?? "(accepted)"}");
 
         // (5) the composes= verb refusal, whose parenthetical fires BEFORE the cardinality check below it.
         CheckShaped("SITE-COMPOSES-LIST — the singular-path parenthetical on a LIST names the index verbs",
