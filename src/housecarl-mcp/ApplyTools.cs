@@ -9,7 +9,7 @@ namespace HousecarlMcp;
 /// <summary>
 /// housecarl_apply — the 2.0 S1 field-write surface (tool-surface-2.0 W3; SPEC §2.2 ACT, §4.5, §5.1/§5.2, §6.1).
 ///
-/// ONE field-edit tool: the ACT verbs (Set / Add / Remove / SetAtIndex / ReplaceAll / Merge / CopyFrom) × the LANE
+/// ONE field-edit tool: the ACT verbs (Set / Add / Remove / SetAtIndex / InsertAtIndex / ReplaceAll / Merge / CopyFrom) × the LANE
 /// (new patch | <c>into</c> an existing one | <c>in_place</c> + consent | <c>dry_run</c>) × TRANSPORT, over the SAME
 /// proven write cleave the 1.x tools drive (<see cref="LoadOrderService.ApplyEdits"/> → WritePatchBuilder.Apply) —
 /// consolidation of the surface, not a re-implementation of the engine. Absorbs <c>housecarl_set_field</c> (the
@@ -47,7 +47,8 @@ public static class ApplyTools
          "dotted ('BasicStats.Damage', 'Name', 'Keywords'); step INTO a list/dict element MID-path with brackets " +
          "('Effects[0].Data.Magnitude'), but at the LEAF use op + key instead of brackets. value is coerced to the " +
          "field's real type — a number, an enum name ('OneHanded'), or a FormID for a reference.\n" +
-         "op is Set (default) | Add | Remove | SetAtIndex | ReplaceAll | Merge | CopyFrom. On a [Flags] enum (SPEL " +
+         "op is Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge | CopyFrom. " +
+         "InsertAtIndex inserts a NEW element AT key= and shifts the rest right (key = the list's length appends); use it to grow a POSITION-CONTIGUOUS run in place, e.g. adding an arm to an existing CTDA OR-group, where Add would land the row at the end as a separate AND-group. On a [Flags] enum (SPEL " +
          "Flags, NPC Configuration.Flags, WEAP Data.Flags...) Add SETS a bit and Remove CLEARS one, leaving the " +
          "OTHER bits untouched — the way to flip one flag WITHOUT a Set silently dropping every bit you didn't " +
          "mention; to turn all bits off, Set the field to '0'. Omit value only for a Remove that whole-clears a " +
@@ -349,7 +350,7 @@ public sealed record ApplyOp
     [JsonPropertyName("field_path"), Description("Dotted field path, e.g. 'BasicStats.Damage' or 'Entries'. Step into a list/dict element mid-path with brackets ('Effects[0].Data.Magnitude'); at the LEAF use op + key, not brackets.")]
     public string? FieldPath { get; init; }
 
-    [JsonPropertyName("op"), Description("Set (default) | Add | Remove | SetAtIndex | ReplaceAll | Merge | CopyFrom. On a [Flags] enum, Add sets one bit and Remove clears one, leaving the others untouched.")]
+    [JsonPropertyName("op"), Description("Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge | CopyFrom. SetAtIndex OVERWRITES the element at key=; InsertAtIndex inserts a new one AT key= and shifts the rest right (key = the list's length appends). On a [Flags] enum, Add sets one bit and Remove clears one, leaving the others untouched.")]
     public string? Op { get; init; }
 
     [JsonPropertyName("value"), Description("The value, coerced to the field's type. Omit for Remove / ReplaceAll / Merge / compose / CopyFrom.")]

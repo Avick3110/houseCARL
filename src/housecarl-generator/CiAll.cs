@@ -130,6 +130,10 @@ public static class CiAll
         ("esl-formid-guard", EslFormIdProbe.RunGuard),
         ("upsert-guard", UpsertGuardProbe.RunGuard),
         ("nested-create-guard", NestedCreateGuardProbe.RunGuard),
+        // #302 — InsertAtIndex, the third member of the Add / SetAtIndex family. Its own probe rather than more
+        // arms on nested-create-guard because what it pins is one claim (the element lands AT the index and the
+        // rows after it shift rather than move), asserted by reference identity in memory and again off disk.
+        ("insert-at-index-guard", InsertAtIndexGuardProbe.RunGuard),
         ("substruct-nullable-clear-guard", SubstructNullableClearProbe.RunGuard),
         ("coord-cell-guard", CoordCellGuardProbe.RunGuard),
         ("dialogue-validate-guard", DialogueValidateGuardProbe.RunGuard),

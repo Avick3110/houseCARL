@@ -13,6 +13,19 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **List fields gain an `InsertAtIndex` op: put a new element AT a position instead of only at the end.**
+  `key=` is the position to insert at and every element from there on shifts right by one; the list's own
+  length is a legal index and appends, so `InsertAtIndex` at `count` is `Add`. It builds the element exactly
+  as `Add` and `SetAtIndex` do — `compose=` for a modeled element (a condition row, a leveled-list entry),
+  `value=` for a plain one — and it is available wherever those are, on `housecarl_apply`,
+  `housecarl_bulk_apply`, `housecarl_set_field`, and `housecarl_create_record` / `housecarl_bulk_create`.
+  This is what a position-contiguous run needs: a CTDA `Or` flag chains a row to the row after it, so adding
+  an arm to an existing OR-group means landing the row inside the run — an `Add` puts it at the end, where it
+  becomes a separate AND-group that can only narrow the gate, and the alternatives were re-transcribing every
+  row with `ReplaceAll` or overwriting an existing arm with `SetAtIndex`. An index past the append slot is
+  refused with the bound it may use; the verbs that address an element that already exists keep their own,
+  narrower bound. `composes=` (many elements in one op) stays `Add`/`ReplaceAll` and says so.
+
 - **The bundled `mutagen-reference` now describes Mutagen 0.54.4** (was 0.53.1). Four record shapes are
   described differently than before, so a patch written against the old reference should be re-checked:
   `LandscapeVertexHeightMap.HeightMap` is a signed 8-bit height map (`ReadOnlyArray2d<SByte>`), not unsigned;

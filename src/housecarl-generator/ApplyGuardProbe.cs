@@ -266,6 +266,44 @@ public static class ApplyGuardProbe
                 verified.Count == 1 ? verified[0].Landed ?? "(null)" : "(no result)");
         }
         finally { (back as IDisposable)?.Dispose(); }
+
+        // Arm (a2) runs LAST in this method, after (b) has read the file: it is the only arm here that CHANGES the
+        // rank count, and (b) asserts the file disagrees with a fabricated "5 item(s)" claim. Adding two ranks
+        // before (b) made the fabricated claim true and turned a real arm green-then-red for a reason that had
+        // nothing to do with what it tests.
+        // (a2) THE EXEMPTION'S BOUND, from the other side (#302). InsertAtIndex is key-addressed like SetAtIndex, so
+        //      a classifier that asked about the KEYS alone would exempt it — and it must not: an insert ADDS an
+        //      element and shifts every index at or after it, so the earlier op's in-memory count is a step behind
+        //      the file's final one and every index it quoted has moved. Comparing those readings is the false
+        //      "treat this op as NOT landed" the count-CHANGING keyed verbs were carved out of the exemption for,
+        //      and the remedy that invites — re-issue the insert — duplicates a row that landed.
+        //      So: both inserts LAND, nothing is reported as not landed, and the EARLIER op falls back to
+        //      "superseded" (silent about itself) rather than being handed a file reading that is not its own.
+        int ranksBeforeInsert = RanksIn(fx.ReplacerPath, fx.FactionFid);
+        string InsertRank(string idx, string val) =>
+            "{\"formid\":\"" + fx.FactionFid + "\",\"field_path\":\"Ranks\",\"op\":\"InsertAtIndex\",\"key\":\"" + idx
+            + "\",\"compose\":{\"type\":\"Rank\",\"fields\":{\"Number\":\"" + val + "\"}}}";
+        var twoInserts = ApplyTools.Apply(fx.Svc, in_place: fx.ReplacerName, acknowledge: true, format: "json",
+            ops: Json("[" + InsertRank("0", "51") + "," + InsertRank("1", "52") + "]"));
+        var insertStates = new List<string>();
+        try
+        {
+            var idoc = Json(twoInserts);
+            if (idoc.TryGetProperty("ops", out var iarr))
+                foreach (var op in iarr.EnumerateArray())
+                    insertStates.Add(op.TryGetProperty("landed_source", out var v) ? v.GetString() ?? "?" : "?");
+        }
+        catch { /* stays empty — the checks below fail with the render as evidence */ }
+        int ranksAfterInsert = RanksIn(fx.ReplacerPath, fx.FactionFid);
+        Check("two key-addressed InsertAtIndex ops in one call: BOTH land (the count rises by two)",
+            ranksBeforeInsert > 0 && ranksAfterInsert == ranksBeforeInsert + 2,
+            $"{ranksBeforeInsert} -> {ranksAfterInsert}");
+        Check("…and NEITHER is reported as not landed — the earlier op's count is behind the file's, not wrong",
+            !twoInserts.Contains("NOT landed", StringComparison.Ordinal)
+            && !twoInserts.Contains("NOT carried by the written file", StringComparison.Ordinal), twoInserts);
+        Check("…and InsertAtIndex is NOT admitted to the count-neutral keyed exemption: the earlier op reads 'superseded'",
+            insertStates.Count == 2 && insertStates[0] == "superseded" && insertStates[1] == "written_file",
+            string.Join(",", insertStates));
     }
 
     /// <summary>How many Ranks the written faction carries on disk — the ground truth behind the multi-op check.</summary>

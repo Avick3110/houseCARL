@@ -11,7 +11,7 @@ public sealed class WriteRequest
 {
     public required string RecordType { get; init; }   // catalog name, e.g. "Npc"
     public required string[] Path { get; init; }        // field hops from record root to the leaf
-    public required string Verb { get; init; }          // Set / Add / Remove / ReplaceAll / SetAtIndex / Merge
+    public required string Verb { get; init; }          // Set / Add / Remove / ReplaceAll / SetAtIndex / InsertAtIndex / Merge
     public string? Key { get; init; }                   // dict key or list index at the leaf
     public string? Value { get; init; }                 // the value, where the verb takes one
     public string[]? Values { get; init; }              // list ReplaceAll — the whole new contents
@@ -356,10 +356,19 @@ public sealed class CorpusRulebook
                 // VALUE-shape is gated in ValueLegality's step-4-key block).
                 if (c != "list") return $"SetAtIndex is only valid on list; '{leaf.Name}' is {c}.";
                 return hasKey ? null : $"SetAtIndex on list '{leaf.Name}' requires an index.";
+            case "InsertAtIndex":
+                // SetAtIndex's structural twin (#302): a list InsertAtIndex parses req.Key as the position to insert
+                // AT (ApplyListVerb -> int.Parse(req.Key!)), so a MISSING index throws ArgumentNullException at apply
+                // exactly as a keyless SetAtIndex did. Same PRESENCE gate here; the parseable / non-negative VALUE-shape
+                // is ValueLegality's step-4-key block, and the in-RANGE bound is apply's (no live list at the gate) —
+                // the established split, and the one place insert's bound differs (it admits index == count, the
+                // append slot), which is apply's to enforce either way.
+                if (c != "list") return $"InsertAtIndex is only valid on list; '{leaf.Name}' is {c}.";
+                return hasKey ? null : $"InsertAtIndex on list '{leaf.Name}' requires an index (the position to insert AT; the list's length appends).";
             case "Merge":
                 return c == "dict" ? null : $"Merge is only valid on dict; '{leaf.Name}' is {c}.";
             default:
-                return $"Unknown verb '{req.Verb}'. Legal: Set, Add, Remove, ReplaceAll, SetAtIndex, Merge, CopyFrom.";
+                return $"Unknown verb '{req.Verb}'. Legal: Set, Add, Remove, ReplaceAll, SetAtIndex, InsertAtIndex, Merge, CopyFrom.";
         }
     }
 
@@ -376,7 +385,8 @@ public sealed class CorpusRulebook
         if (req.Verb is not ("Add" or "ReplaceAll"))
             return $"composes= appends/replaces a LIST of modeled elements — use it with Add (append each) or " +
                    $"ReplaceAll (clear, then append each), not {req.Verb}. (For one element use compose=; to overwrite " +
-                   "one index use SetAtIndex with compose=.)";
+                   "one index use SetAtIndex with compose=, and to insert one AT an index use InsertAtIndex with " +
+                   "compose=.)";
         // The owned-child answer comes FIRST, because the generic cardinality sentence below ends by pointing at
         // compose= / value= — and on this shape both of those refuse too (#335). That is the loop the singular
         // Set arm was written to close, reached through a third door.
@@ -428,7 +438,7 @@ public sealed class CorpusRulebook
         // other: two child records, neither named by the caller, reported as an edit to the parent. That is the same
         // act the leaf clause forbids, one hop further down.
         //
-        // The in-place verbs through the same hop (Set / Remove / Add / SetAtIndex at a leaf UNDER the child) stay
+        // The in-place verbs through the same hop (Set / Remove / Add / SetAtIndex / InsertAtIndex at a leaf UNDER the child) stay
         // ACCEPTED, and the split is deliberate rather than unexamined: those edit the child this record already
         // carries, in place — the descent the table's accept row covers, and the one way to edit a carried child at
         // all. What CopyFrom adds is a SECOND record, from another plugin, as the source of the value; that is the
@@ -576,7 +586,7 @@ public sealed class CorpusRulebook
         // (step 4-key) KEY / INDEX VALUE-SHAPE — the shape twin of the key/index PRESENCE gate (VerbLegality's
         // missing-key rejects). A PRESENT-but-malformed dict key / list index passes presence but throws UNNAMED at
         // apply: a dict Set/Add/Remove coerces req.Key into the entry (ApplyDictVerb -> Coerce(req.Key!, KeyType)) and
-        // Merge/ReplaceAll coerce each Entries key the same way; a list SetAtIndex/Remove parses req.Key as the index
+        // Merge/ReplaceAll coerce each Entries key the same way; a list SetAtIndex/InsertAtIndex/Remove parses req.Key as the index
         // (ApplyListVerb -> int.Parse(req.Key!)). Gate both LOUD here, by construction, with the SAME recognizers the
         // apply path uses so gate and apply can't drift: the dict key's real CLR type is resolved from the field's own
         // dictionary AQ (DictKeyType — the identical type apply keys on, dictIface.GetGenericArguments()[0]), so
@@ -595,7 +605,7 @@ public sealed class CorpusRulebook
                 foreach (var k in keyEnts.Keys)
                     if (KeyShape(k) is { } entKeyErr) return entKeyErr;
         }
-        if (leaf.Cardinality == "list" && req.Verb is "SetAtIndex" or "Remove" && req.Key is { } lIdx
+        if (leaf.Cardinality == "list" && req.Verb is "SetAtIndex" or "InsertAtIndex" or "Remove" && req.Key is { } lIdx
             && !WriteEngine.IsValidListIndexValue(lIdx))
             return $"Illegal list index '{lIdx}' for '{leaf.Name}': expected a non-negative integer. " +
                    "(Whether the index is in range is checked at apply, against the live list.)";
@@ -684,7 +694,7 @@ public sealed class CorpusRulebook
                 leaf.MutableTypeAssemblyQualified ?? leaf.GetterTypeAssemblyQualified);
         }
         // (step 4-pre) ELEMENT-VALUE PRESENCE — the collection twin of the singular Set "requires a value" reject
-        // above (line ~328). Add / SetAtIndex on a COERCIBLE-element collection set the new element by coercing the
+        // above (line ~328). Add / SetAtIndex / InsertAtIndex on a COERCIBLE-element collection set the new element by coercing the
         // singular req.Value (ApplyListVerb / ApplyDictVerb -> Coerce(req.Value!, elem)); a MISSING value does NOT
         // fail loud at the gate — at apply Coerce(null) yields a null element that then throws a NullReferenceException
         // at SERIALIZE (surfaced as the misleading "compose the Data arm" NullArmSerializeException, nothing to do with
@@ -702,7 +712,10 @@ public sealed class CorpusRulebook
         // surface), and Remove is by-key-OR-value (a distinct identify-the-element concern, not a "requires a value"
         // mirror). Coercible-element-only: Struct/Arm elements compose via the composable block below (which DOES
         // require the spec), and Record / uncoercible elements have no plain-value Add path — both left as today.
-        if (leaf.Cardinality is "list" or "dict" && req.Verb is "Add" or "SetAtIndex"
+        // InsertAtIndex joins the two: it consumes the SAME singular req.Value slot (ApplyListVerb's insert arm coerces
+        // req.Value when there is no compose), so a null value lands the same null element in the list and throws the
+        // same misleading NullArmSerializeException at serialize.
+        if (leaf.Cardinality is "list" or "dict" && req.Verb is "Add" or "SetAtIndex" or "InsertAtIndex"
             && req.Value is null && IsValueCoercibleElement(leaf))
             return $"{req.Verb} on '{leaf.Name}' requires an element value.";
         // (step 4a) FormLink-ELEMENT collection value-shape — the collection twin of the singular formlink Set check
@@ -713,11 +726,11 @@ public sealed class CorpusRulebook
         // pre-flight here and throw "Malformed FormKey string" at apply — a Q3 accept-then-throw, the GENERAL gap the
         // Layer-B sibling-ref collection gate (above) named as the broader pre-existing hole. Validate every supplied
         // element VALUE with the SAME recognizer the singular path uses (IsValidFormLinkValue — one predicate, no
-        // drift between gate and apply): req.Value (list Add / SetAtIndex / Remove-by-value; dict Add — dict Set
+        // drift between gate and apply): req.Value (list Add / SetAtIndex / InsertAtIndex / Remove-by-value; dict Add — dict Set
         // returned at its own block above), req.Values (list ReplaceAll), and req.Entries' VALUES (dict Merge /
         // ReplaceAll). The dict KEY VALUE-SHAPE is gated up front by the step-4-key block above (coercible-to-KeyType
         // via the key's real CLR type, EVERY key kind) — this block validates element VALUES only. (Key/index PRESENCE
-        // is a DISTINCT concern, gated by construction in VerbLegality's Add/Remove/SetAtIndex arms.) NOTE: every
+        // is a DISTINCT concern, gated by construction in VerbLegality's Add/Remove/SetAtIndex/InsertAtIndex arms.) NOTE: every
         // formlink collection in the current corpus is a LIST (85 fields); a formlink-VALUED dict is
         // not modeled by Mutagen today (0 fields) and the generator's dict branch does not stamp FormLinkTarget for
         // one, so the req.Entries arm is dormant-by-construction — named here (Q3), and lit the moment such a field
@@ -732,25 +745,25 @@ public sealed class CorpusRulebook
         }
         // (step 4b) NON-FORMLINK coercible-element collection value-SHAPE — the value twin of step-4a (which handles
         // FORMLINK elements via IsValidFormLinkValue) and of the dict-Set value block above (which gates dict Set's value
-        // but not the other collection verbs). A list Add/SetAtIndex/ReplaceAll/Remove-by-value and a dict Add/Merge/
+        // but not the other collection verbs). A list Add/SetAtIndex/InsertAtIndex/ReplaceAll/Remove-by-value and a dict Add/Merge/
         // ReplaceAll coerce each supplied element value at apply (ApplyListVerb/ApplyDictVerb -> Coerce(req.Value!/v,
         // elem/vType)); a malformed value (e.g. "notafloat" into a List<Single>, "notabyte" into a Dictionary<Skill,Byte>)
         // used to pass pre-flight then throw UNNAMED (float.Parse/byte.Parse) at apply — the Q3 accept-then-throw this
         // closes. Scoped to IsValueCoercibleElement(leaf) && FormLinkTarget is null so formlink elements keep step-4a's
         // per-element message and the two together cover EVERY coercible element with no double-check and no gap. Uses the
         // SAME CheckValue recognizer (with the element AQ) the dict-Set value block uses — gate and apply can't drift.
-        // Verb/key-FAITHFUL to which slot apply actually coerces: the singular req.Value is checked for list Add/SetAtIndex
+        // Verb/key-FAITHFUL to which slot apply actually coerces: the singular req.Value is checked for list Add/SetAtIndex/InsertAtIndex
         // and dict Add (always coerced), and for a list Remove-by-VALUE (Key null) only — a list Remove BY INDEX / a dict
         // Remove coerce only the key, so their value is apply-irrelevant and must NOT be over-rejected. req.Values is the
         // list ReplaceAll contents; req.Entries' VALUES are dict Merge/ReplaceAll (their keys are the step-4-key block's
-        // job). Null PRESENCE on Add/SetAtIndex stays step-4-pre's; a null inside Values/Entries yields CheckValue's
+        // job). Null PRESENCE on Add/SetAtIndex/InsertAtIndex stays step-4-pre's; a null inside Values/Entries yields CheckValue's
         // "Missing element value …" (correct for those verbs, which have no presence mirror).
         if (leaf.Cardinality is "list" or "dict" && IsValueCoercibleElement(leaf) && leaf.FormLinkTarget is null)
         {
             string? ElemShape(string? v) =>
                 CheckValue(leaf.ElementType, v, $"element value for '{leaf.Name}'", leaf.ElementTypeAssemblyQualified);
             if (req.Value is { } ev
-                && (req.Verb is "Add" or "SetAtIndex" || (req.Verb is "Remove" && req.Key is null))
+                && (req.Verb is "Add" or "SetAtIndex" or "InsertAtIndex" || (req.Verb is "Remove" && req.Key is null))
                 && ElemShape(ev) is { } evErr)
                 return evErr;
             // Slot-faithful to apply: a LIST ReplaceAll coerces req.Values (ApplyListVerb); a DICT Merge/ReplaceAll
@@ -774,10 +787,16 @@ public sealed class CorpusRulebook
         // second NAMED-but-misleading: it points at composition/coercion, not at "use create_record"). A child record is
         // allocated on the record axis, never built into a parent's collection by the verb engine; the supported path is
         // housecarl_create_record / housecarl_bulk_create with parent=. Redirect by construction (one classifier
-        // predicate, no per-record-type list). Verb-scoped to the create-oriented verbs (Add/SetAtIndex/ReplaceAll); a
+        // predicate, no per-record-type list). Verb-scoped to the create-oriented verbs (Add/SetAtIndex/InsertAtIndex/ReplaceAll); a
         // record Remove BY INDEX (RemoveAt) is throw-free and stays accepted, and a record Remove BY VALUE is the
         // non-plain-value Remove surface closed by the unified Remove-by-value reject in the step-4-rmv block below.
-        if (leaf.Cardinality is "list" or "dict" && req.Verb is "Add" or "SetAtIndex" or "ReplaceAll"
+        // InsertAtIndex is create-oriented in exactly the sense this block means — it puts a NEW element into the
+        // collection — so it redirects with the other three. Left out, an InsertAtIndex on a record-element list
+        // (DialogTopic.Responses, Cell.Persistent) would fall through to ACCEPT and then throw at apply on the same
+        // two paths: BuildStruct -> Instantiate -> CompositionRequiredException with a compose, "No coercion rule"
+        // with a plain value. Its position argument changes nothing about that — a child record is allocated on the
+        // record axis whichever slot of a parent's list it would land in.
+        if (leaf.Cardinality is "list" or "dict" && req.Verb is "Add" or "SetAtIndex" or "InsertAtIndex" or "ReplaceAll"
             && SchemaClassifier.ClassifyElement(leaf, _corpus) == ElementKind.Record)
             return $"'{leaf.Name}' holds owned child records ({leaf.ElementTypeRef}); a child record is created on its " +
                    "own (the record axis), not added into a parent's collection by a write verb. Use housecarl_create_record " +
@@ -805,7 +824,12 @@ public sealed class CorpusRulebook
             // needs Remove+Add (which moved the row to the list END — harmless for an AND row, but breaking an OR-group).
             // The composable fence (IsComposableElement = Struct/Arm ONLY) keeps this off owned-record elements, which
             // step-4-rec above already redirects to the record axis.
-            if (req.Verb is "Add" or "SetAtIndex")
+            // InsertAtIndex composes identically (#302): its apply arm builds the element through the SAME
+            // BuildStruct(req.Struct), so admitting it through the SAME StructElementLegality is apply-faithful and
+            // keeps a composed condition row the same element whether it is appended or inserted. Its index PRESENCE
+            // and SHAPE are already gated above; its in-RANGE bound — the one thing that differs from SetAtIndex,
+            // since insert admits the append slot — is apply's, so nothing else is left for the gate to check.
+            if (req.Verb is "Add" or "SetAtIndex" or "InsertAtIndex")
                 return StructElementLegality(leaf, req.Struct, siblingEditorIds);
             // ReplaceAll/Merge of modeled elements stay deferred: ReplaceAll would need a LIST of compose specs and Merge
             // a dict of them (req.Values / req.Entries are plain-string shapes), distinct input surfaces not opened here.
@@ -813,8 +837,8 @@ public sealed class CorpusRulebook
             // 'No coercion rule' at apply (matrix-critic finding) — folding it in closes that. Verb named in the message.
             if (req.Verb is "ReplaceAll" or "Merge")
                 return $"'{leaf.Name}' holds modeled elements ({leaf.ElementTypeRef}); compose them one at a time " +
-                       $"(Add to append, SetAtIndex to overwrite an index; Set for a dict key) — {req.Verb} of modeled " +
-                       $"elements is a later surface.";
+                       $"(Add to append, InsertAtIndex to insert AT an index, SetAtIndex to overwrite one; Set for a " +
+                       $"dict key) — {req.Verb} of modeled elements is a later surface.";
         }
         // (step 4-rmv) Remove-BY-VALUE on a NON-PLAIN-VALUE element — a list Remove with NO key is by-value
         // (ApplyListVerb -> Coerce(req.Value!, elem)); an element that is neither coercible (step-4b) nor formlink
