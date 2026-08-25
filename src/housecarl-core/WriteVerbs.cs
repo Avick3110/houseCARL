@@ -86,11 +86,13 @@ public readonly record struct VerbUse(string Verb, VerbInput Input, bool NeedsKe
 public static class WriteVerbs
 {
     /// <summary>Every verb the write surface accepts, in the order the shipped tool descriptions list them. The home
-    /// for the names as a collection code can ITERATE, and the one of the two in-code statements whose membership is
-    /// actually pinned: <c>remedy-verbs-guard</c>'s SITE-UNKNOWN-VERB holds this against a vocabulary written
-    /// independently inside that probe. <see cref="AllRecital"/> states the same names a second time, as the
-    /// caller-facing literal an attribute can concatenate, and carries no such pin — see its summary for what that
-    /// does and does not establish. <see cref="On"/> is the one home for which of them apply where. The prose home
+    /// for the names as a collection code can ITERATE. Both in-code statements of the membership are pinned, each
+    /// against a vocabulary written independently inside the probe that checks it: <c>remedy-verbs-guard</c>'s
+    /// SITE-UNKNOWN-VERB holds this one, and <c>description-vocab-guard</c>'s INV4-HOMES holds this one and
+    /// <see cref="AllRecital"/> together against a third, independent statement of the set (#386).
+    /// <see cref="AllRecital"/> states the same names a second time, as the caller-facing literal an attribute can
+    /// concatenate — see its summary for what that does and does not establish. <see cref="On"/> is the one home
+    /// for which of them apply where. The prose home
     /// for the set as DOCUMENTATION is the tool-surface SPEC, which CLAUDE.md points readers at — two audiences,
     /// not two authorities on one fact.</summary>
     public static readonly IReadOnlyList<string> All =
@@ -108,23 +110,29 @@ public static class WriteVerbs
     /// when it added <c>InsertAtIndex</c>, and the one PR #339 retired everywhere it could reach. This is that
     /// pattern applied to the description surface (#386).</para>
     ///
-    /// <para><b>What this does NOT establish.</b> Two members are two statements of one fact, and nothing here
-    /// holds them together: no build step asserts that this recital names exactly <see cref="All"/>. Nor does
-    /// anything stop a future description from hand-typing the whole set instead of concatenating this — a site
-    /// that did would be the #302 edit-every-site regression back again, silently. The three sites named above are
-    /// a statement about the code as it stands, not a property anything enforces. Making both of those checkable
-    /// is #386's job; this const is the single home the check would be written against.</para>
+    /// <para><b>What this establishes, and what it still does not.</b> Two members are two statements of one fact,
+    /// and that they say the SAME names is now checked: <c>description-vocab-guard</c>'s INV4-HOMES holds this
+    /// recital and <see cref="All"/> against a vocabulary written independently inside that probe, so either one
+    /// drifting turns it red once, on purpose (#386). What is still NOT enforced is that a future description
+    /// concatenates this rather than hand-typing the whole set — a site that did would be the #302
+    /// edit-every-site regression back again, silently, and a hand-typed complete recital passes every arm. The
+    /// three sites named above are therefore a statement about the code as it stands, not a property anything
+    /// enforces.</para>
     ///
-    /// <para><b>One hazard this const CREATES, until #386's guard exists.</b> <c>BulkOp.verb</c> appends
+    /// <para><b>One hazard this const CREATES, and the arm that pins it.</b> <c>BulkOp.verb</c> appends
     /// <c>" (deep-copy the field at field_path from from_plugin's version — see from_plugin)"</c> straight onto
     /// this recital, so that gloss describes whichever verb is LAST here — <c>CopyFrom</c> today, by position and
     /// nothing else. Appending a ninth verb — the very edit this const exists to make sufficient — silently moves
     /// the gloss onto the new verb and strips it off <c>CopyFrom</c>, shipping a false claim in
     /// <c>housecarl_bulk_apply</c>'s schema; reordering does the same. The other two sites are position-independent
-    /// (one appends after a full stop, one reads <c>"op is " + AllRecital + ". "</c>). Until a guard pins the tail
-    /// token to the verb the trailing gloss describes, the protection is the vocabulary gate before W6: changing
-    /// this set is a reviewed act, not a drive-by. Recorded rather than fixed because the fix moves caller-facing
-    /// text, and this const's whole warrant is that it changed none.</para></summary>
+    /// (one appends after a full stop, one reads <c>"op is " + AllRecital + ". "</c>).
+    /// <c>description-vocab-guard</c>'s INV4-TAILGLOSS now holds this recital's tail token against the verb that
+    /// gloss is written about, stated independently inside that probe, so the edit turns red instead of shipping
+    /// (#386). That is why the gloss can stay where it is: it was recorded rather than moved because moving it
+    /// changes caller-facing text, and the const's whole warrant was that it changed none.</para>
+    ///
+    /// <para>What that arm does NOT check is whether the gloss is a TRUE statement about the verb it lands on.
+    /// That is authored prose, and the guard reads vocabulary rather than truth.</para></summary>
     public const string AllRecital = "Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge | CopyFrom";
 
     /// <summary>The verbs that work on <paramref name="shape"/>, each with the slot it consumes and the phrase a
