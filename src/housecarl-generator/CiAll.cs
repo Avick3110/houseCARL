@@ -196,6 +196,13 @@ public static class CiAll
         // initializer, which never consults the attribute). Reflection-discovered, so a new spec object enrols
         // itself. Self-contained (no corpus, no MO2 instance).
         ("wire-names-guard", WireNamesProbe.RunGuard),
+        // Caller-facing prose vocabulary (#386): the [Description] attributes a model reads and the consent prompts
+        // a modder reads had no guard behind them, so the in-place consent fix left thirteen stale claims that four
+        // hand sweeps found in four homes. The net is every string literal in the three SHIPPED trees, read TWICE —
+        // by Roslyn and by an independently written lexer — with INV6-AGREE holding the two against each other, so
+        // a reader that stops early turns red instead of quietly shrinking the net. Self-contained (no corpus, no
+        // MO2 instance); it reads source files, so it must run from the repo root.
+        ("description-vocab-guard", DescriptionVocabularyGuardProbe.RunGuard),
         ("nullarm-guard", NullArmGuardProbe.RunGuard),
         ("formlink-null-guard", FormLinkNullProbe.RunGuard),
         ("formlink-remove-guard", FormLinkRemoveProbe.RunGuard),
