@@ -585,8 +585,11 @@ internal static class WriteSentences
     /// <summary>What a provider NAME reaches, in ONE place, for every surface that has to describe it — both tools'
     /// parameter descriptions and the auto-resolve refusal's remedy. A const rather than three spellings because the
     /// parameter descriptions are attribute arguments and the refusal is a sentence, and three copies of a capability
-    /// claim is exactly the surface #386 was filed about: no guard reaches a `[Description]`, so a copy that goes
-    /// stale goes stale silently.
+    /// claim is exactly the surface #386 was filed about. That surface now has a guard, but a narrower one than
+    /// this const replaces: <c>description-vocab-guard</c> reads a description's VOCABULARY, so it catches a stale
+    /// consent phrase or an invented verb — not a capability claim built entirely of ordinary words drifting out
+    /// of step with its two siblings. Single-sourcing is still what stops that, and the guard is why the drift it
+    /// does cover no longer needs a reader to notice it.
     /// <para>It states BOTH halves. The second is the load-bearing one: naming is what reaches an unticked mod, and
     /// an omitted provider still sees only ticked ones — a caller told the first half alone would reasonably expect
     /// auto-resolve to find a disabled mod's copy, which it deliberately does not.</para></summary>
