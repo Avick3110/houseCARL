@@ -953,15 +953,21 @@ public static class DescriptionVocabularyGuardProbe
     /// <para>A marker whose token is NOT a write verb is a different kind of default (an output format, a mode).
     /// This arm has no opinion on what such a slot SHOULD default to, so it makes no published-default claim about
     /// it — but it still holds it against the slot, and names it in the census either way.</para>
-    /// <para><b>What is still asserted about by nothing:</b> a marker whose slot declares no default in code (a
-    /// nullable property coalesced downstream). Those are named in the census, not counted and dropped — what
-    /// cannot be compared is reported, never passed over in silence (Q3).</para></summary>
+    /// <para><b>CLASS 2 — best-effort, and it prints its denominator.</b> Which text marks a default is read out
+    /// of prose by pattern, so this arm's reach is not a by-construction fact and does not claim to be. What it
+    /// does instead is report its own coverage on every run: markers compared against a slot, markers SKIPPED, and
+    /// the REASON for each skip. The reason is the load-bearing half — the census used to print "6 whose slot
+    /// declares none", a bare count that read as a boundary when one of the six was <c>bool esl = true</c> and the
+    /// arm simply could not spell it.</para>
+    /// <para><b>What is still asserted about by nothing:</b> a marker whose slot genuinely declares no default (a
+    /// nullable property coalesced downstream), and one whose default has no unambiguous prose spelling. Both are
+    /// named individually with their reason, never counted and dropped (Q3).</para></summary>
     static void DefaultSlotsArm(List<(SurfaceSite Site, string Verb)> marks)
     {
         var vocab = new HashSet<string>(PublishedVocabulary, StringComparer.Ordinal);
         var problems = new List<string>();
         var nonVerb = new List<string>();
-        var noDeclared = new List<string>();
+        var skipped = new List<string>();
         int compared = 0, verbMarks = 0;
 
         foreach (var (site, verb) in marks)
@@ -977,10 +983,16 @@ public static class DescriptionVocabularyGuardProbe
             // Not gated on the vocabulary: see the summary. A stale token on a slot that declares a default is
             // the case this arm was measured green over.
             var declared = DeclaredDefault(site);
-            if (declared is null) { noDeclared.Add($"{verb} @ {site.Label}"); continue; }
+            if (declared.Rendered is null)
+            {
+                // Named WITH ITS REASON, which is the denominator's whole point: "6 whose slot declares none" hid
+                // a bool that declares one, because a bare count cannot be read against anything.
+                skipped.Add($"{verb} @ {site.Label} — {declared.SkippedBecause}");
+                continue;
+            }
             compared++;
-            if (MarkDisagrees(verb, declared))
-                problems.Add($"{site.Label}: the description marks '{verb}' (default) but the slot actually defaults to '{declared}'");
+            if (MarkDisagrees(verb, declared.Rendered))
+                problems.Add($"{site.Label}: the description marks '{verb}' (default) but the slot actually defaults to '{declared.Rendered}'");
         }
 
         if (verbMarks == 0)
@@ -989,9 +1001,10 @@ public static class DescriptionVocabularyGuardProbe
 
         Console.WriteLine($"        marked defaults: {marks.Count} in all — {verbMarks} on a write verb, {nonVerb.Count} on something that is not a verb"
                         + (nonVerb.Count == 0 ? "" : $": {string.Join("; ", nonVerb)}"));
-        Console.WriteLine($"        of those, {compared} held against the slot's own declared default; {noDeclared.Count} whose slot declares none"
-                        + (noDeclared.Count == 0 ? "" : $" — asserted about by nothing: {string.Join("; ", noDeclared)}"));
-        Check($"INV4-DEFAULT  every marked (default) agrees with the slot's own declared default where there is one, and every marked VERB is '{PublishedDefault}'",
+        Console.WriteLine($"        slots compared: {compared} of {marks.Count} held against the slot's own declared default; {skipped.Count} skipped");
+        foreach (var sk in skipped) Console.WriteLine($"          · not compared: {sk}");
+        Check($"INV4-DEFAULT  [class 2, BEST-EFFORT — reads markers out of prose; {compared} of {marks.Count} marker(s) compared, {skipped.Count} skipped and named above] "
+            + $"every marked (default) it could compare agrees with the slot's own declared default, and every marked VERB is '{PublishedDefault}'",
             problems.Count == 0, problems);
     }
 
@@ -1076,22 +1089,64 @@ public static class DescriptionVocabularyGuardProbe
     static bool MarkDisagrees(string marked, string? declared) =>
         declared is not null && !string.Equals(declared, marked, StringComparison.Ordinal);
 
-    /// <summary>The default value the annotated slot actually uses, or null when it declares none. An optional
-    /// parameter carries it directly; a property carries it as an initializer, which means instantiating the
-    /// declaring type to read it.</summary>
-    static string? DeclaredDefault(SurfaceSite site)
+    /// <summary>What a slot declares as its default, RENDERED the way prose spells it — or a stated REASON why it
+    /// could not be read. Never a bare null: "declares nothing" and "declares something this arm cannot spell" are
+    /// different facts, and collapsing them is how the arm went green over a slot that did declare one.
+    /// <para>It read <c>p.DefaultValue as string</c> until 2026-08-25, so every non-string default came back null
+    /// and the census printed "whose slot declares none" about a slot that declares one.
+    /// <c>WriteTools.CompactPlugin(esl=)</c> is <c>bool esl = true</c> behind a description reading "When true
+    /// (default)"; flipping it to <c>false</c> left the guard 54 passed, 0 failed. A default is a compile-time
+    /// constant whatever its type, so all of them are spellable and the cast was the whole defect.</para></summary>
+    readonly record struct SlotDefault(string? Rendered, string? SkippedBecause);
+
+    /// <summary>A constant default as a description would write it: <c>true</c>, <c>10</c>, an enum member's name,
+    /// a string as itself. The C# spelling, not <c>ToString()</c>'s, for the two where they differ — a bool prints
+    /// <c>True</c> and prose says <c>true</c>, and holding a marked "true" against "True" would red on correct
+    /// text. Anything with no unambiguous prose spelling is refused BY NAME rather than rendered into something
+    /// that might accidentally match.</summary>
+    static SlotDefault Render(object? value, Type declared)
     {
-        if (site.Param is { HasDefaultValue: true } p) return p.DefaultValue as string;
-        if (site.Member is PropertyInfo { CanRead: true } prop && prop.PropertyType == typeof(string))
+        var t = Nullable.GetUnderlyingType(declared) ?? declared;
+        if (value is null)
+            return new SlotDefault(null, t == typeof(string) || !t.IsValueType || Nullable.GetUnderlyingType(declared) is not null
+                ? "declares null as its default, which marks no value a description could recite"
+                : "declares no default value at all");
+        if (value is string s) return new SlotDefault(s, null);
+        if (value is bool b) return new SlotDefault(b ? "true" : "false", null);
+        if (t.IsEnum)
         {
-            try
-            {
-                var instance = Activator.CreateInstance(prop.DeclaringType!, nonPublic: true);
-                return instance is null ? null : prop.GetValue(instance) as string;
-            }
-            catch { return null; }
+            var name = Enum.GetName(t, value);
+            return name is null
+                ? new SlotDefault(null, $"declares the enum value {value} of {t.Name}, which names no member — nothing to hold a marker against")
+                : new SlotDefault(name, null);
         }
-        return null;
+        if (value is char c) return new SlotDefault(c.ToString(), null);
+        if (value is IFormattable f && t.IsPrimitive)
+            return new SlotDefault(f.ToString(null, System.Globalization.CultureInfo.InvariantCulture), null);
+        return new SlotDefault(null, $"declares a default of type {t.Name}, which this arm has no prose spelling for");
+    }
+
+    /// <summary>The default the annotated slot actually uses. An optional parameter carries it directly; a
+    /// property carries it as an initializer, which means instantiating the declaring type to read it. Every
+    /// refusal names its reason, so a green run says exactly what it did not compare and why.</summary>
+    static SlotDefault DeclaredDefault(SurfaceSite site)
+    {
+        if (site.Param is { } p)
+            return p.HasDefaultValue
+                ? Render(p.DefaultValue, p.ParameterType)
+                : new SlotDefault(null, "is a required parameter — it declares no default at all");
+        if (site.Member is PropertyInfo { CanRead: true } prop)
+        {
+            object? instance;
+            try { instance = Activator.CreateInstance(prop.DeclaringType!, nonPublic: true); }
+            catch (Exception ex) { return new SlotDefault(null, $"is a property whose declaring type {prop.DeclaringType!.Name} could not be instantiated to read its initializer ({ex.GetType().Name})"); }
+            if (instance is null) return new SlotDefault(null, $"is a property whose declaring type {prop.DeclaringType!.Name} instantiated to null");
+            try { return Render(prop.GetValue(instance), prop.PropertyType); }
+            catch (Exception ex) { return new SlotDefault(null, $"is a property whose getter threw ({ex.GetType().Name}), so its initializer could not be read"); }
+        }
+        return new SlotDefault(null, site.Member is null
+            ? "is not a slot that can carry a default at all"
+            : $"is a {site.Member.MemberType} rather than a parameter or a readable property, so it declares no default");
     }
 
     /// <summary>Whether the two verb homes and the independently-written vocabulary all say the same thing. A
@@ -1222,6 +1277,25 @@ public static class DescriptionVocabularyGuardProbe
                 && !MarkDisagrees("Set", "Set") && !MarkDisagrees("Sett", null) && !MarkDisagrees("summary", null),
             new() { "the slot comparison skips a stale token because it is not a verb, reports one that agrees, or "
                   + "asserts about a slot that declares no default at all" }, redArm: true);
+
+        // The RENDERER, over every constant type a slot can declare. The `as string` cast it replaces yielded null
+        // for all but the first of these, so each non-string default read as "declares none" — a slot the arm then
+        // asserted nothing about while printing a count that looked like a boundary.
+        Check("RED-RENDER       a slot's declared default is rendered for every constant type, and an unspellable one is REFUSED by name",
+            Render("Set", typeof(string)).Rendered == "Set"
+                && Render(true, typeof(bool)).Rendered == "true"
+                && Render(false, typeof(bool)).Rendered == "false"
+                && Render(10, typeof(int)).Rendered == "10"
+                && Render(2.5, typeof(double)).Rendered == "2.5"
+                && Render('x', typeof(char)).Rendered == "x"
+                && Render(StringComparison.Ordinal, typeof(StringComparison)).Rendered == "Ordinal"
+                && Render(null, typeof(string)) is { Rendered: null, SkippedBecause: not null }
+                && Render(null, typeof(int?)) is { Rendered: null, SkippedBecause: not null }
+                && Render(new object(), typeof(object)) is { Rendered: null, SkippedBecause: not null },
+            new() { "the renderer drops a constant default it should spell — a bool, an int, an enum member — or "
+                  + "silently returns nothing for one it cannot spell instead of naming the reason. Either way a "
+                  + "marked default on that slot goes into the skipped count with no way to read the count against "
+                  + "anything, which is how 'When true (default)' over 'bool esl = false' stayed green" }, redArm: true);
 
         Check("RED-DIRECTIVES   a conditional-compilation directive is named with its line, and an ordinary one is not",
             ConditionalDirectives("F.cs", "class C {\n#if DEBUG\n    var a = \"x\";\n#else\n    var a = \"y\";\n#endif\n}").Count == 3
