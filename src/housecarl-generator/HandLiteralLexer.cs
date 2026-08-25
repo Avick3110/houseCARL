@@ -105,7 +105,12 @@ public static class HandLiteralLexer
     static int LexLiteral(string src, int start, int quote, int to, int dollars, bool verbatim, int depth, List<SourceLiteral> outp)
     {
         int quoteRun = RunLength(src, quote, to, '"');
-        var (text, end) = quoteRun >= 3
+        // A run of three or more quotes opens a RAW literal only when the literal is not VERBATIM. C# has no
+        // @"""x""" form: that is a verbatim string whose first character is an escaped quote, and reading it as
+        // raw either hands back the wrong text or runs off looking for a three-quote terminator that never comes.
+        // Shapes like it ship one character away from the scanned trees (SkseConfigReferenceExtractor.cs:45), and
+        // the generator tree - which is deliberately not scanned - is full of them.
+        var (text, end) = quoteRun >= 3 && !verbatim
             ? LexRaw(src, quote, quoteRun, to, dollars, depth, outp)
             : LexRegular(src, quote, to, dollars > 0, verbatim, depth, outp);
         // A u8 suffix changes the literal's TYPE, not its text.
@@ -301,6 +306,10 @@ public static class HandLiteralLexer
         {
             'n' => '\n', 't' => '\t', 'r' => '\r', '0' => '\0',
             'a' => '\a', 'b' => '\b', 'f' => '\f', 'v' => '\v',
+            // \e is C# 13's ESCAPE (U+001B). Reader A parses at LanguageVersion.Preview and decodes it; without
+            // this arm reader B fell through to the identity case below and appended a letter 'e', so an ANSI
+            // colour sequence in console prose would make the two disagree about text neither had lost.
+            'e' => '\u001b',
             _ => next,
         });
         return at + 2;
