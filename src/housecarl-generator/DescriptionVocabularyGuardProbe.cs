@@ -119,7 +119,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class DescriptionVocabularyGuardProbe
 {
-    static int _pass, _fail;
+    static int _pass, _fail, _class1, _class2, _harness;
 
     // ================= the independently-written literals (the PIN — never derived) =================
 
@@ -252,7 +252,7 @@ public static class DescriptionVocabularyGuardProbe
 
     public static int RunGuard(string[] args)
     {
-        _pass = _fail = 0;
+        _pass = _fail = _class1 = _class2 = _harness = 0;
         Console.WriteLine("################  REGRESSION GUARD — caller-facing prose vocabulary (two readers over the shipped source literals + the [Description] surface)  ################");
         Console.WriteLine();
         try
@@ -271,6 +271,12 @@ public static class DescriptionVocabularyGuardProbe
         }
 
         Console.WriteLine();
+        Console.WriteLine($"    [c1] BY CONSTRUCTION: {_class1} arm(s) — the two-reader net and the arms over it, and the pins, which "
+                        + "hold two independently written statements of one fact against each other. Unqualified claims.");
+        Console.WriteLine($"    [c2] BEST-EFFORT: {_class2} arm(s) — every arm that reads MEANING out of prose or reflection BY PATTERN. A "
+                        + "pattern's reach is not a by-construction fact, so each of these prints its own coverage above: how much of "
+                        + "what is present it compared, and what it skipped, named with the reason.");
+        Console.WriteLine($"         {_harness} further arm(s) drive those checkers with synthetic input; they claim nothing about the shipped surface.");
         Console.WriteLine($"=== description-vocab-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
         return _fail == 0 ? 0 : 1;
     }
@@ -559,8 +565,8 @@ public static class DescriptionVocabularyGuardProbe
 
         var scanned = roots.Select(r => Path.GetFileName(r)!).ToList();
         rootProblems.AddRange(TreeSetMismatch(scanned));
-        Check($"GREEN-ROOTS   [class 1, by construction] the trees SCANNED are exactly the set written down independently here — neither short one nor carrying one ({scanned.Count} of {PublishedShippedTrees.Length}: {string.Join(", ", scanned)})",
-            rootProblems.Count == 0, rootProblems);
+        Check($"GREEN-ROOTS   the trees SCANNED are exactly the set written down independently here — neither short one nor carrying one ({scanned.Count} of {PublishedShippedTrees.Length}: {string.Join(", ", scanned)})",
+            rootProblems.Count == 0, rootProblems, tier: Tier.Construction);
 
         // The packaging authority, held against the same pin. Class 2 and labelled so: it reads a PowerShell
         // script and a set of .csproj files by pattern, which is not construction — so it prints its coverage,
@@ -573,14 +579,14 @@ public static class DescriptionVocabularyGuardProbe
         Console.WriteLine($"        packaging authority ({PackagingScript}): {ship.Resolved} of {ship.PublishCalls} 'dotnet publish' call(s) resolved to a tree "
                         + $"under src/; ProjectReference closure -> {ship.Trees.Count} tree(s): {(ship.Trees.Count == 0 ? "(none)" : string.Join(", ", ship.Trees))}");
         foreach (var r in ship.Residue) Console.WriteLine($"          · not derived: {r}");
-        Check($"SHIP-DERIVED  [class 2, BEST-EFFORT — reads {PackagingScript} and the .csproj graph by pattern] the trees that authority publishes are exactly the "
+        Check($"SHIP-DERIVED  the trees {PackagingScript} publishes are exactly the "
             + $"published list ({ship.Resolved}/{ship.PublishCalls} publish call(s) resolved, {ship.Residue.Count} not derived and named above)",
             DerivedSetMismatch(ship.Trees).Count == 0 && ship.Residue.Count == 0,
-            DerivedSetMismatch(ship.Trees).Concat(ship.Residue).ToList());
+            DerivedSetMismatch(ship.Trees).Concat(ship.Residue).ToList(), tier: Tier.BestEffort);
         Check($"INV6-PARSE    every scanned file parses as C# ({files} file(s)) — a file the parser rejects is a file whose literals are not trustworthy",
-            parseProblems.Count == 0, parseProblems);
+            parseProblems.Count == 0, parseProblems, tier: Tier.Construction);
         Check($"INV6-AGREE    the two independently written readers agree about every literal in every file ({literals} literal(s), {inHoles} of them inside interpolation holes)",
-            agreeProblems.Count == 0, agreeProblems);
+            agreeProblems.Count == 0, agreeProblems, tier: Tier.Construction);
         // SCOPED to files the two readers actually disagree about. It reported every conditional region in every
         // scanned file until 2026-08-25, which reds on a #if that carries no literal at all — nothing for either
         // reader to read differently — and on a "#if" sitting inside a multi-line verbatim or raw literal, which
@@ -599,7 +605,7 @@ public static class DescriptionVocabularyGuardProbe
         Check($"INV6-DIRECTIVES no file the two readers DISAGREE about carries conditional compilation — the one construct in "
             + "ordinary C# that would explain a disagreement rather than a reader having stopped "
             + $"({readersDisagreeIn.Count} file(s) in disagreement, {directivesByFile.Count} carrying a directive)",
-            directiveProblems.Count == 0, directiveProblems);
+            directiveProblems.Count == 0, directiveProblems, tier: Tier.Construction);
         Console.WriteLine();
         return sentences;
     }
@@ -756,7 +762,7 @@ public static class DescriptionVocabularyGuardProbe
             var shape = rule.Companions.Length == 0
                 ? "absent from every shipped literal"
                 : $"never stated without one of: {string.Join(" / ", rule.Companions.Select(c => $"\"{c}\""))}";
-            Check($"INV1 \"{rule.Phrase}\" — {shape}  [{carriers} carrier(s), {exempted} exempt]", violations.Count == 0, violations);
+            Check($"INV1 \"{rule.Phrase}\" — {shape}  [{carriers} carrier(s), {exempted} exempt]", violations.Count == 0, violations, tier: Tier.Construction);
         }
 
         // The table is empty today, so an INV2 arm would assert nothing about nothing and pass on every possible
@@ -766,7 +772,7 @@ public static class DescriptionVocabularyGuardProbe
         if (Exemptions.Length > 0)
         {
             var dead = DeadExemptions(Exemptions, used);
-            Check($"INV2 every declared exemption still matches a real site ({Exemptions.Length} declared)", dead.Count == 0, dead);
+            Check($"INV2 every declared exemption still matches a real site ({Exemptions.Length} declared)", dead.Count == 0, dead, tier: Tier.Construction);
         }
         else
         {
@@ -776,7 +782,7 @@ public static class DescriptionVocabularyGuardProbe
         // INV2-DEGEN always runs, empty table or not: it is a claim about the TABLE, not about its rows.
         var degen = Degenerate(Exemptions);
         Check($"INV2-DEGEN the exemption table cannot absorb an arbitrary miss ({Exemptions.Length} of at most {MaxExemptions} declared, each scoped to a named file with a ground)",
-            degen.Count == 0, degen);
+            degen.Count == 0, degen, tier: Tier.Construction);
         Console.WriteLine();
     }
 
@@ -938,7 +944,7 @@ public static class DescriptionVocabularyGuardProbe
                        + $"so INV1 is blind there. First {Math.Min(70, s.Text.Length)} chars: \"{s.Text[..Math.Min(70, s.Text.Length)]}\"")
             .ToList();
         Check($"INV5-DESCRIPTIONS every compiled [Description] is covered by a scanned source literal ({surface.Count} description(s))",
-            uncoveredDesc.Count == 0, uncoveredDesc);
+            uncoveredDesc.Count == 0, uncoveredDesc, tier: Tier.Construction);
 
         var (consts, runtimeBuilt) = CompiledConsts();
         var uncoveredConst = consts.Where(c => !Covered(c.Value, texts))
@@ -948,7 +954,7 @@ public static class DescriptionVocabularyGuardProbe
                         + "source-text comparison would report a false cause. INV6-AGREE covers their literals."
                         + (runtimeBuilt.Count == 0 ? "" : $" They are: {string.Join("; ", runtimeBuilt)}."));
         Check($"INV5-CONSTS       every compile-time string const in the shipped assemblies is covered ({consts.Count} const(s))",
-            uncoveredConst.Count == 0, uncoveredConst);
+            uncoveredConst.Count == 0, uncoveredConst, tier: Tier.Construction);
         Console.WriteLine();
     }
 
@@ -1022,30 +1028,32 @@ public static class DescriptionVocabularyGuardProbe
         }
 
         Check($"INV3-TOKENS   every verb recited on the surface is a real verb ({recitals} recital(s) read, {dropped} run(s) not read as recitals)",
-            unknown.Count == 0, unknown);
+            unknown.Count == 0, unknown, tier: Tier.BestEffort);
 
         var unrecited = PublishedVocabulary.Where(v => !named.Contains(v)).ToList();
-        Check("INV3-UNION    between them the recitals name the whole published vocabulary — a verb no description mentions is a verb no caller can find",
+        Check($"INV3-UNION    the recitals it READ name {named.Count} of {PublishedVocabulary.Length} published verb(s) — a verb no "
+            + $"description mentions is a verb no caller can find. Read from {recitals} recital(s); {dropped} separator-joined run(s) "
+            + "were not read as recitals and are printed above, so a verb named only in one of those is not counted here",
             unrecited.Count == 0,
-            unrecited.Select(v => $"'{v}' is a write verb that no [Description] recital names").ToList());
+            unrecited.Select(v => $"'{v}' is a write verb that no [Description] recital names").ToList(), tier: Tier.BestEffort);
 
         Check("INV4-HOMES    WriteVerbs.All and WriteVerbs.AllRecital agree with each other AND with the vocabulary written independently here",
             HomesAgree(WriteVerbs.All, WriteVerbs.AllRecital, PublishedVocabulary),
             new() { $"All=[{string.Join(",", WriteVerbs.All)}] AllRecital=[{string.Join(",", RecitalNames(WriteVerbs.AllRecital))}] "
-                  + $"independent=[{string.Join(",", PublishedVocabulary)}]" });
+                  + $"independent=[{string.Join(",", PublishedVocabulary)}]" }, tier: Tier.Construction);
 
         Check($"INV4-MARK     WriteVerbs.AllRecital marks exactly one verb (default), and it is '{PublishedDefault}'",
             MarkedDefaults(WriteVerbs.AllRecital) is [var only] && only == PublishedDefault,
             new() { $"AllRecital marks [{string.Join(",", MarkedDefaults(WriteVerbs.AllRecital))}] — the const feeds three shipped "
-                  + "descriptions, so one edit here mis-states the default in all three at once" });
+                  + "descriptions, so one edit here mis-states the default in all three at once" }, tier: Tier.Construction);
 
         // Printed BEFORE the arms that read markers, so the coverage a verdict rests on is on screen above it.
         Console.WriteLine($"        default parentheticals on the surface: {defaultParens} — {marks.Count} read as a \"token (default)\" marker, "
                         + $"{unreadDefaults.Count} declaring their value inside the parenthesis and named below");
         foreach (var u in unreadDefaults) Console.WriteLine($"          · not read as a marker: {u}");
-        Check($"INV4-MARKCOVER [class 1, by construction over the surface] the marker pattern and an independently written character walk agree about which of "
+        Check($"INV4-MARKCOVER the marker pattern and an independently written character walk agree about which of "
             + $"the {defaultParens} default parenthetical(s) are marker-shaped",
-            markerDisagree.Count == 0, markerDisagree);
+            markerDisagree.Count == 0, markerDisagree, tier: Tier.Construction);
 
         DefaultSlotsArm(marks);
         TailGlossArm(surface);
@@ -1209,9 +1217,9 @@ public static class DescriptionVocabularyGuardProbe
                         + (nonVerb.Count == 0 ? "" : $": {string.Join("; ", nonVerb)}"));
         Console.WriteLine($"        slots compared: {compared} of {marks.Count} held against the slot's own declared default; {skipped.Count} skipped");
         foreach (var sk in skipped) Console.WriteLine($"          · not compared: {sk}");
-        Check($"INV4-DEFAULT  [class 2, BEST-EFFORT — reads markers out of prose; {compared} of {marks.Count} marker(s) compared, {skipped.Count} skipped and named above] "
+        Check($"INV4-DEFAULT  {compared} of {marks.Count} marker(s) compared, {skipped.Count} skipped and named above: "
             + $"every marked (default) it could compare agrees with the slot's own declared default, and every marked VERB is '{PublishedDefault}'",
-            problems.Count == 0, problems);
+            problems.Count == 0, problems, tier: Tier.BestEffort);
     }
 
     /// <summary>The recital's TAIL is the verb the gloss glued to that tail describes.
@@ -1238,7 +1246,10 @@ public static class DescriptionVocabularyGuardProbe
     {
         var problems = new List<string>();
         var tail = RecitalNames(WriteVerbs.AllRecital).LastOrDefault();
-        var glued = surface
+        // The DENOMINATOR: every description the recital reaches. The arm speaks only about those carrying a
+        // parenthetical glued onto it, so the rest are counted and named rather than absent from the reckoning.
+        var carrying = surface.Where(s => s.Text.Contains(WriteVerbs.AllRecital, StringComparison.Ordinal)).ToList();
+        var glued = carrying
             .Select(s => (Site: s, Gloss: GluedGloss(s.Text, WriteVerbs.AllRecital)))
             .Where(x => x.Gloss is not null)
             .ToList();
@@ -1263,8 +1274,12 @@ public static class DescriptionVocabularyGuardProbe
                            + $"that claim. Gloss: \"{Clip(gloss!, 90)}\"");
         }
 
-        Check($"INV4-TAILGLOSS the verb AllRecital ends with is the one the glued gloss describes ('{TailGlossVerb}', {glued.Count} glued site(s))",
-            problems.Count == 0, problems);
+        Console.WriteLine($"        descriptions carrying WriteVerbs.AllRecital: {carrying.Count} — {glued.Count} with a parenthetical glued "
+                        + $"directly onto it, {carrying.Count - glued.Count} without one, which this arm asserts nothing about"
+                        + (carrying.Count == glued.Count ? "" : $": {string.Join("; ", carrying.Where(c => GluedGloss(c.Text, WriteVerbs.AllRecital) is null).Select(c => c.Label))}"));
+        Check($"INV4-TAILGLOSS the verb AllRecital ends with is the one the glued gloss describes ('{TailGlossVerb}'), at "
+            + $"{glued.Count} of the {carrying.Count} description(s) that carry the recital",
+            problems.Count == 0, problems, tier: Tier.BestEffort);
     }
 
     /// <summary>The parenthetical that sits IMMEDIATELY after <paramref name="recital"/> inside
@@ -1791,9 +1806,26 @@ public static class DescriptionVocabularyGuardProbe
 
     // ================= reporting =================
 
-    static void Check(string label, bool ok, List<string> detail, bool redArm = false)
+    /// <summary>Which TIER an arm's claim belongs to. Declared per arm rather than inferred from its name,
+    /// because the whole point of the split is that a reader can tell the two apart without knowing the code.
+    /// <list type="bullet">
+    ///   <item><b>Construction</b> — the claim holds by construction: the two-reader net and the arms over it,
+    ///         and the pins, which compare two independently written statements of one fact. Unqualified.</item>
+    ///   <item><b>BestEffort</b> — the arm reads MEANING out of prose or reflection by pattern. A pattern's reach
+    ///         is never a by-construction fact, so the arm is labelled and MUST print its own coverage: how many
+    ///         of the things present it actually compared, and what it skipped, named with the reason.</item>
+    ///   <item><b>Harness</b> — a RED/GREEN arm driving a checker with synthetic input. It makes no claim about
+    ///         the shipped surface at all; it says the checker above can still fail.</item>
+    /// </list></summary>
+    enum Tier { Construction, BestEffort, Harness }
+
+    static void Check(string label, bool ok, List<string> detail, bool redArm = false, Tier tier = Tier.Harness)
     {
-        Console.WriteLine($"   [{(ok ? "PASS" : "FAIL")}] {label}");
+        if (tier == Tier.Construction) _class1++;
+        else if (tier == Tier.BestEffort) _class2++;
+        else _harness++;
+        var tag = tier switch { Tier.Construction => "[c1] ", Tier.BestEffort => "[c2] ", _ => "     " };
+        Console.WriteLine($"   [{(ok ? "PASS" : "FAIL")}] {tag}{label}");
         if (!ok)
         {
             if (detail.Count == 0)
