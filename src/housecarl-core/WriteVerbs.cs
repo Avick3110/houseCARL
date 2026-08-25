@@ -92,9 +92,8 @@ public static class WriteVerbs
     /// <see cref="AllRecital"/> together against a third, independent statement of the set (#386).
     /// <see cref="AllRecital"/> states the same names a second time, as the caller-facing literal an attribute can
     /// concatenate — see its summary for what that does and does not establish. <see cref="On"/> is the one home
-    /// for which of them apply where. The prose home
-    /// for the set as DOCUMENTATION is the tool-surface SPEC, which CLAUDE.md points readers at — two audiences,
-    /// not two authorities on one fact.</summary>
+    /// for which of them apply where. The prose home for the set as DOCUMENTATION is the tool-surface SPEC, which
+    /// CLAUDE.md points readers at — two audiences, not two authorities on one fact.</summary>
     public static readonly IReadOnlyList<string> All =
         new[] { "Set", "Add", "Remove", "SetAtIndex", "InsertAtIndex", "ReplaceAll", "Merge", "CopyFrom" };
 
