@@ -9,11 +9,13 @@ namespace HousecarlGenerator;
 /// <summary>
 /// REGRESSION GUARD (standing CI instrument, self-contained) — CALLER-FACING PROSE VOCABULARY (#386).
 ///
-/// <para><b>The gap this closes.</b> Two caller-facing prose surfaces had nothing behind them: the
+/// <para><b>The gap this closes.</b> Nothing read the WORDS of two caller-facing prose surfaces: the
 /// <c>[Description]</c> attributes a model reads to decide how to call a tool, and the consent prompts a modder
 /// reads to decide whether to say yes. <c>write-surface-guard</c> and the <see cref="MustStateAttribute"/> /
 /// <see cref="NoClaimsAttribute"/> walk both police the <see cref="WriteSentences"/> / <see cref="ReadSentences"/>
-/// consts and reach neither. So the in-place consent fix (#378) — which changed exactly one fact, that a REFUSED
+/// consts and reach neither; <c>wire-names-guard</c> does reach a <c>[Description]</c>, but only to parse the
+/// brace shape declaration out of it and hold that against the reflected wire names — it has no opinion about the
+/// sentence the declaration sits in, and a stale consent claim is invisible to it. So the in-place consent fix (#378) — which changed exactly one fact, that a REFUSED
 /// call records nothing — left stale text behind that four separate hand sweeps found in four separate homes, each
 /// sweep triggered by a reviewer noticing a claim by eye rather than by anything going red.</para>
 ///
@@ -227,6 +229,9 @@ public static class DescriptionVocabularyGuardProbe
         "third-party library messages surfaced to a caller (not ours to author, and not ours to fix)",
         "shipped JSON data files and the generated corpus (machine-shaped identifiers and paths; nothing in them is a sentence)",
         "whether a sentence built entirely of known words is TRUE (vocabulary, not truth — #308's boundary)",
+        "prose inside a conditional-compilation region — reader A parses with no symbols defined and reader B has "
+            + "no notion of directives, so the two would report a disagreement rather than a shared answer. There "
+            + "are none in the shipped trees, and INV6-DIRECTIVES holds that true rather than assuming it",
     };
 
     // ================= entry =================
@@ -341,6 +346,7 @@ public static class DescriptionVocabularyGuardProbe
         var sentences = new List<Sentence>();
         var parseProblems = new List<string>();
         var agreeProblems = new List<string>();
+        var directiveProblems = new List<string>();
         long chars = 0;
         int files = 0, literals = 0, inHoles = 0;
 
@@ -354,6 +360,8 @@ public static class DescriptionVocabularyGuardProbe
                 string text;
                 try { text = File.ReadAllText(file); }
                 catch (Exception ex) { parseProblems.Add($"{label}: could not be read — {ex.GetType().Name}: {ex.Message}"); continue; }
+
+                directiveProblems.AddRange(ConditionalDirectives(label, text));
 
                 // Each reader is attempted separately and a throw NAMES ITS FILE. The second design wrapped the
                 // whole guard in one catch, so a single malformed escape reported "the guard threw" and took all
@@ -400,15 +408,44 @@ public static class DescriptionVocabularyGuardProbe
             parseProblems.Count == 0, parseProblems);
         Check($"INV6-AGREE    the two independently written readers agree about every literal in every file ({literals} literal(s), {inHoles} of them inside interpolation holes)",
             agreeProblems.Count == 0, agreeProblems);
+        Check($"INV6-DIRECTIVES no scanned file carries conditional compilation, which the two readers are entitled to read differently ({files} file(s))",
+            directiveProblems.Count == 0, directiveProblems);
         Console.WriteLine();
         return sentences;
     }
+
+    /// <summary>Every conditional-compilation directive in one file, named with its line.
+    /// <para>This is the one construct in ordinary C# the two readers are ENTITLED to disagree about, and the
+    /// disagreement would arrive as an INV6-AGREE red whose detail could not say why: reader A parses with no
+    /// preprocessor symbols, so a <c>#if</c> arm is disabled-text trivia it never sees, while reader B has no
+    /// notion of directives and reads both arms. So it is named here instead, at the cause, with the repair in the
+    /// arm's own text — because the intuitive repair (teach reader B to skip disabled text) is the one that puts
+    /// shipped prose outside INV1's net in silence when the symbol IS defined.</para>
+    /// <para><c>#region</c>, <c>#nullable</c>, <c>#pragma</c> and the rest are not conditional and do not change
+    /// what either reader sees, so they are not named.</para></summary>
+    static List<string> ConditionalDirectives(string label, string src) =>
+        Regex.Matches(src, @"^[ \t]*#[ \t]*(if|elif|else|endif)\b", RegexOptions.Multiline)
+            .Select(m => $"{label}:{src.Take(m.Index).Count(c => c == '\n') + 1}: a conditional-compilation directive. "
+                       + "Reader A parses with no symbols defined and never sees the disabled arm; reader B reads every "
+                       + "arm. Thread the build's symbols into BOTH readers, or do not ship prose from a #if region — "
+                       + "teaching reader B to skip disabled text would hide the defined-symbol case from INV1 in silence.")
+            .ToList();
 
     /// <summary>Where the two readers disagree about one file, as an author-readable difference.
     /// <para>The comparison is a MULTISET of (depth, text) rather than an ordered walk: the readers arrive at the
     /// same literals by different routes (a syntax tree in document order, a scanner in source order), and
     /// requiring them to agree about ORDER would be asserting a shared implementation detail instead of the fact
-    /// that matters — that neither of them stopped reading.</para></summary>
+    /// that matters — that neither of them stopped reading.</para>
+    /// <para><b>A disagreement is not automatically a reader that stopped.</b> It can also be a reader that
+    /// DECODED differently (both raw-interpolated brace defects were of that kind), or a construct the two are
+    /// entitled to read differently — conditional compilation being the one that exists in ordinary C#: reader A
+    /// parses with no preprocessor symbols defined, so a <c>#if</c> arm is disabled-text trivia it never sees,
+    /// while reader B has no notion of directives and reads every arm. So the detail says what it can observe —
+    /// the counts differ — and not which reader is wrong, and the disclosure below carries the case.</para>
+    /// <para>The repair for that one is NOT to teach reader B to skip disabled text. When the symbol IS defined
+    /// the literal genuinely ships, and a reader B that skipped it would put shipped prose outside INV1's net with
+    /// nothing red — the silent narrowing this whole design exists to make impossible. It is either symbols
+    /// threaded into both readers, or the region does not ship.</para></summary>
     static List<string> Disagreements(string label, List<SourceLiteral> a, List<SourceLiteral> b)
     {
         var left = Bag(a);
@@ -421,7 +458,7 @@ public static class DescriptionVocabularyGuardProbe
             if (la == lb) continue;
             var (depth, text) = key;
             problems.Add($"{label}: reader A found {la} and reader B found {lb} of the literal at hole-depth {depth} "
-                       + $"— one of them stopped reading. Text: \"{Clip(text, 90)}\"");
+                       + $"— the two are not reading the same thing here. Text: \"{Clip(text, 90)}\"");
         }
         if (problems.Count > 8)
             problems = problems.Take(8).Append($"{label}: … and {problems.Count - 8} further disagreements in this file — "
@@ -1034,6 +1071,16 @@ public static class DescriptionVocabularyGuardProbe
                 && !MarkDisagrees("Set", "Set") && !MarkDisagrees("Sett", null) && !MarkDisagrees("summary", null),
             new() { "the slot comparison skips a stale token because it is not a verb, reports one that agrees, or "
                   + "asserts about a slot that declares no default at all" }, redArm: true);
+
+        Check("RED-DIRECTIVES   a conditional-compilation directive is named with its line, and an ordinary one is not",
+            ConditionalDirectives("F.cs", "class C {\n#if DEBUG\n    var a = \"x\";\n#else\n    var a = \"y\";\n#endif\n}").Count == 3
+                && ConditionalDirectives("F.cs", "  #  if DEBUG\n#endif\n").Count == 2
+                && ConditionalDirectives("F.cs", "#region R\n#nullable enable\n#pragma warning disable\n").Count == 0
+                && ConditionalDirectives("F.cs", "var s = \"#if not a directive\";\n").Count == 0
+                && ConditionalDirectives("F.cs", "class C { }\n").Count == 0,
+            new() { "the directive reader misses a conditional directive, names a non-conditional one, or reads a "
+                  + "'#if' inside a string as a directive — the first hides the one construct the two readers may "
+                  + "legitimately disagree about, and the others red on code that is fine" }, redArm: true);
 
         Check("RED-GLOSSWORD    a gloss names a verb as a WORD, so ordinary English about one is not read as another",
             VerbsNamedIn("Adds a deep copy of the field").Count == 0

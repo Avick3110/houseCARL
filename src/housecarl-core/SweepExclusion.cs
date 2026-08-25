@@ -35,7 +35,8 @@ public static class SweepExclusion
     /// parameter's own description is held against this list by a guard arm, so the caller-facing spelling and the
     /// accepted spelling cannot drift (the second-spelling problem #341 is about). That arm is still the one doing
     /// it: <c>description-vocab-guard</c> (#386) polices the description surface's VOCABULARY, not whether one
-    /// parameter's prose names a particular set, and <c>wire-names-guard</c> does not read prose at all.</summary>
+    /// parameter's prose names a particular set, and <c>wire-names-guard</c> reads a description only for the brace
+    /// shape declaration it can parse out of one, which this parameter does not carry.</summary>
     public static readonly string[] Tokens = { BaseMastersToken, ImplicitToken };
 
     static readonly string[] PluginExtensions = { ".esp", ".esm", ".esl" };
