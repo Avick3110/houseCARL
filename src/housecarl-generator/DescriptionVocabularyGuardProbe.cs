@@ -882,7 +882,9 @@ public static class DescriptionVocabularyGuardProbe
         var unknown = new List<string>();
         var named = new HashSet<string>(StringComparer.Ordinal);
         var marks = new List<(SurfaceSite Site, string Verb)>();
-        int recitals = 0, dropped = 0;
+        var unreadDefaults = new List<string>();
+        var markerDisagree = new List<string>();
+        int recitals = 0, dropped = 0, defaultParens = 0;
 
         foreach (var s in surface)
         {
@@ -909,7 +911,25 @@ public static class DescriptionVocabularyGuardProbe
             // run that was dropped — or on a slot that recites nothing — entered neither the published-default
             // check nor the slot comparison, and the arm's "a general rule over whatever marks a default" was
             // false for exactly the sites nothing else was watching.
-            foreach (var verb in MarkedDefaults(s.Text)) marks.Add((s, verb));
+            var at = MarkedDefaultsAt(s.Text);
+            foreach (var m in at) marks.Add((s, m.Token));
+
+            // The COVERAGE census. The denominator is every '(default' parenthetical the description contains —
+            // a fact about the text, counted by a pattern written independently of the one that reads markers —
+            // and the numerator is what was read. Everything in between is named, so a marker the parser cannot
+            // see is a visible line rather than a count that did not move.
+            var parsed = new HashSet<int>(at.Select(m => m.At));
+            defaultParens += DefaultParentheticals(s.Text).Count;
+            unreadDefaults.AddRange(UnreadDefaults(s.Label, s.Text, parsed));
+            foreach (var i in MarkerShaped(s.Text))
+                if (!parsed.Contains(i))
+                    markerDisagree.Add($"{s.Label}: …{Clip(s.Text[Math.Max(0, i - 46)..Math.Min(s.Text.Length, i + 44)], 90)}… — this parenthetical "
+                                     + "has a token in front of it and reads as a marker to the character walk, but the marker pattern did not read "
+                                     + "it. The two spellings of \"marker-shaped\" disagree, so one of them has stopped seeing a house style");
+            foreach (var m in at)
+                if (!MarkerShaped(s.Text).Contains(m.At))
+                    markerDisagree.Add($"{s.Label}: the marker pattern read '{m.Token}' (default) at offset {m.At}, and the character walk does not "
+                                     + "see a marker there — the pattern is reading something the second spelling calls a value-inside form");
         }
 
         Check($"INV3-TOKENS   every verb recited on the surface is a real verb ({recitals} recital(s) read, {dropped} run(s) not read as recitals)",
@@ -930,16 +950,113 @@ public static class DescriptionVocabularyGuardProbe
             new() { $"AllRecital marks [{string.Join(",", MarkedDefaults(WriteVerbs.AllRecital))}] — the const feeds three shipped "
                   + "descriptions, so one edit here mis-states the default in all three at once" });
 
+        // Printed BEFORE the arms that read markers, so the coverage a verdict rests on is on screen above it.
+        Console.WriteLine($"        default parentheticals on the surface: {defaultParens} — {marks.Count} read as a \"token (default)\" marker, "
+                        + $"{unreadDefaults.Count} declaring their value inside the parenthesis and named below");
+        foreach (var u in unreadDefaults) Console.WriteLine($"          · not read as a marker: {u}");
+        Check($"INV4-MARKCOVER [class 1, by construction over the surface] the marker pattern and an independently written character walk agree about which of "
+            + $"the {defaultParens} default parenthetical(s) are marker-shaped",
+            markerDisagree.Count == 0, markerDisagree);
+
         DefaultSlotsArm(marks);
         TailGlossArm(surface);
         Console.WriteLine();
     }
 
+    /// <summary>One marker read off a description: the token said to be the default, and the offset of the
+    /// parenthesis that marks it — which is what lets the coverage census pair a parsed marker with the
+    /// occurrence it came from, rather than comparing two counts and hoping.</summary>
+    readonly record struct DefaultMark(string Token, int At);
+
+    /// <summary>The characters that can END a default-marking parenthetical's first word. In the marker form the
+    /// token sits OUTSIDE the parens (<c>'text' (default)</c>, <c>Set (default) | Add</c>,
+    /// <c>'endorsements' (default, best-regarded first)</c>), so "default" is the whole of it or is followed by a
+    /// separator. In the other form the value sits INSIDE (<c>(default 500)</c>, <c>(default 'Patch')</c>,
+    /// <c>(default: the plugin's own folder)</c>) and there is no token in front to hold anything against.</summary>
+    static readonly char[] MarkerTerminators = { ')', ',', ';', '–', '—' };
+
+    /// <summary>The verbs a text marks <c>(default)</c>, WITH the offset of each marker.
+    /// <para>The token may be QUOTED. It could not be until 2026-08-25 — the pattern wanted letters immediately
+    /// before the whitespace and a parenthesis, so a closing quote broke it, and <c>'endorsements' (default,
+    /// best-regarded first)</c> never matched. That is the ordinary house spelling on this surface: every
+    /// <c>'text' (default)</c> transport marker was outside the census too, and a reviewer changing
+    /// <c>NexusTools.cs:38</c>'s <c>sort = "endorsements"</c> to <c>"downloads"</c> measured 54 passed, 0 failed
+    /// with the marker never even collected — so the census count did not move either, and nothing indicated a
+    /// marker had been skipped.</para>
+    /// <para>The parenthetical may also CONTINUE past the word (<c>(default, best-regarded first)</c>); it is the
+    /// separator after "default" that says the token is outside, not the closing paren.</para></summary>
+    static readonly Regex DefaultMarker = new(
+        @"['""‘’]?([A-Za-z][A-Za-z0-9_]*)['""‘’]?\s*\(\s*default\b\s*(?=[),;–—])",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    static List<DefaultMark> MarkedDefaultsAt(string text) =>
+        DefaultMarker.Matches(text)
+            .Select(m => new DefaultMark(m.Groups[1].Value, m.Index + m.Value.IndexOf('(')))
+            .ToList();
+
     /// <summary>The verbs a text marks <c>(default)</c>, in order. Deliberately a LIST rather than a single value,
     /// so "marks two" and "marks none" are both visible failures rather than one of them silently reading as the
     /// other.</summary>
-    static List<string> MarkedDefaults(string text) =>
-        Regex.Matches(text, @"\b([A-Za-z][A-Za-z]*)\s*\(\s*default\s*\)").Select(m => m.Groups[1].Value).ToList();
+    static List<string> MarkedDefaults(string text) => MarkedDefaultsAt(text).Select(m => m.Token).ToList();
+
+    /// <summary>EVERY default-declaring parenthetical in a text, marker-shaped or not — the DENOMINATOR the
+    /// marked-default census is read against.
+    /// <para>Written deliberately WIDER and simpler than <see cref="DefaultMarker"/>, and independently of it: it
+    /// asks only whether a parenthesis opens on the word "default", which is a fact about the text rather than an
+    /// opinion about the house style. A denominator derived from the matcher it measures would move whenever the
+    /// matcher's reach moved and could never show a shortfall — the pin rule, applied to a count.</para></summary>
+    static readonly Regex DefaultParenthetical = new(@"\(\s*default\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    static List<int> DefaultParentheticals(string text) =>
+        DefaultParenthetical.Matches(text).Select(m => m.Index).ToList();
+
+    /// <summary>Which default-declaring parentheticals are MARKER-SHAPED — a second, independent spelling of the
+    /// same question <see cref="DefaultMarker"/> answers, written by walking characters rather than as a pattern.
+    /// <para>This is the falsifiable half of the coverage census. A census that only printed "read 9, present 30"
+    /// could never fail, which is the unfalsifiable-arm shape; holding two independently written readings of
+    /// "marker-shaped" against each other CAN fail, and does the moment one of them stops seeing a spelling the
+    /// other sees. Same reasoning as <c>INV6-AGREE</c>, one layer up.</para>
+    /// <para>What it deliberately does NOT flag: a parenthetical that carries its value inside itself. Those are
+    /// real declared defaults this arm does not read, and they are named as residue rather than turned into a red
+    /// on correct text.</para></summary>
+    static List<int> MarkerShaped(string text)
+    {
+        var outp = new List<int>();
+        const string word = "default";
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] != '(') continue;
+            int j = i + 1;
+            while (j < text.Length && char.IsWhiteSpace(text[j])) j++;
+            if (j + word.Length > text.Length) continue;
+            if (!text.Substring(j, word.Length).Equals(word, StringComparison.OrdinalIgnoreCase)) continue;
+            int after = j + word.Length;
+            // "defaulting", "defaults" — a longer word, not this one.
+            if (after < text.Length && (char.IsLetterOrDigit(text[after]) || text[after] == '_')) continue;
+            while (after < text.Length && char.IsWhiteSpace(text[after])) after++;
+            if (after >= text.Length || Array.IndexOf(MarkerTerminators, text[after]) < 0) continue;
+
+            int k = i - 1;
+            while (k >= 0 && char.IsWhiteSpace(text[k])) k--;
+            if (k >= 0 && (text[k] == '\'' || text[k] == '"' || text[k] == '‘' || text[k] == '’')) k--;
+            int end = k;
+            while (k >= 0 && (char.IsLetterOrDigit(text[k]) || text[k] == '_')) k--;
+            if (k == end) continue;                                  // nothing in front: the parenthetical stands alone
+            if (!char.IsLetter(text[k + 1])) continue;               // a token that does not start with a letter
+            outp.Add(i);
+        }
+        return outp;
+    }
+
+    /// <summary>The default-declaring parentheticals a run did NOT read as markers, each named with its site and
+    /// the text around it. Residue, printed — never a bare count.</summary>
+    static List<string> UnreadDefaults(string label, string text, IReadOnlyCollection<int> parsed) =>
+        DefaultParentheticals(text)
+            .Where(i => !parsed.Contains(i))
+            .Select(i => $"{label}: …{Clip(text[Math.Max(0, i - 46)..Math.Min(text.Length, i + 44)], 90)}… — this declares a default "
+                       + "with the value INSIDE the parenthesis, so there is no token in front of it to hold against the slot. This arm reads "
+                       + "the \"token (default)\" form only")
+            .ToList();
 
     /// <summary>The default marked on the SURFACE is the published verb wherever the marked token is a write verb,
     /// and wherever the slot it annotates declares a default value in code, the marked token and that value agree.
