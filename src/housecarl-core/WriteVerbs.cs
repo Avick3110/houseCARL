@@ -113,7 +113,7 @@ public static class WriteVerbs
     /// anything stop a future description from hand-typing the whole set instead of concatenating this — a site
     /// that did would be the #302 edit-every-site regression back again, silently. The three sites named above are
     /// a statement about the code as it stands, not a property anything enforces. Making both of those checkable
-    /// is #386's job; this const is the single home the check would be written against.
+    /// is #386's job; this const is the single home the check would be written against.</para>
     ///
     /// <para><b>One hazard this const CREATES, until #386's guard exists.</b> <c>BulkOp.verb</c> appends
     /// <c>" (deep-copy the field at field_path from from_plugin's version — see from_plugin)"</c> straight onto
