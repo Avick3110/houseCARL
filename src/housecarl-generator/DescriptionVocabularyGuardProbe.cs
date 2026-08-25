@@ -1047,8 +1047,10 @@ public static class DescriptionVocabularyGuardProbe
     /// each shape is named: a literal inside an interpolation hole and inside a TERNARY in one; an APOSTROPHE
     /// inside such a nested literal (which flipped the second design's lexer into character-literal mode and lost
     /// the rest of the file); a URL, whose double slash read as a comment; a LONE SURROGATE escape, which made
-    /// the second design throw and take all its arms with it; a raw string literal; escaped braces; a character
-    /// literal holding a quote; and comment text, which must be read by neither.</summary>
+    /// the second design throw and take all its arms with it; a raw string literal; escaped braces; a RAW
+    /// INTERPOLATED string, where a brace run shorter than the dollar count is content rather than an escape and a
+    /// run longer than it is content followed by an opener — the two shapes each reader decoded its own way; a
+    /// character literal holding a quote; and comment text, which must be read by neither.</summary>
     static void ReaderArms()
     {
         // Four quote characters open this fixture because it CONTAINS a three-quote raw string literal, which is
@@ -1073,6 +1075,8 @@ public static class DescriptionVocabularyGuardProbe
                 a raw string
                 over two lines
                 """;
+            var n = $$$"""a {{ doubled brace pair }} kept and a {{{hole}}} opened""";
+            var o = $$"""a {{{value}}} hole with one surplus brace, and a { single one""";
             """";
 
         var a = RoslynLiteralReader.Read(fixture, out var parseErrors);
@@ -1099,6 +1103,12 @@ public static class DescriptionVocabularyGuardProbe
             "https://example.invalid/a//b",
             "a lone surrogate \uD83D stands alone",
             "a raw string\nover two lines",
+            // A raw interpolated string escapes nothing: the doubled braces below are CONTENT, and reader A
+            // collapsing them (as the two regular flavours require) held a value the compiler never builds.
+            "a {{ doubled brace pair }} kept and a {\u2026} opened",
+            // A run longer than the opener count is a surplus brace of content plus the opener; reader B took the
+            // whole run as the opener and dropped that character.
+            "a {{\u2026}} hole with one surplus brace, and a { single one",
         };
         var sentences = MergeSentences(fixture, a).Select(l => l.Text).ToList();
         // Compared with line terminators normalized on BOTH sides. This fixture is a raw string in this file, so
