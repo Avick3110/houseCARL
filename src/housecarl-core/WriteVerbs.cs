@@ -85,10 +85,14 @@ public readonly record struct VerbUse(string Verb, VerbInput Input, bool NeedsKe
 /// </summary>
 public static class WriteVerbs
 {
-    /// <summary>Every verb the write surface accepts, in the order the shipped tool descriptions list them. The one
-    /// home in CODE for the NAMES; <see cref="On"/> is the one home for which of them apply where. The prose home is
-    /// the tool-surface SPEC, which CLAUDE.md points readers at — these are two homes for two audiences, not two
-    /// authorities on one fact.</summary>
+    /// <summary>Every verb the write surface accepts, in the order the shipped tool descriptions list them. The home
+    /// for the names as a collection code can ITERATE, and the one of the two in-code statements whose membership is
+    /// actually pinned: <c>remedy-verbs-guard</c>'s SITE-UNKNOWN-VERB holds this against a vocabulary written
+    /// independently inside that probe. <see cref="AllRecital"/> states the same names a second time, as the
+    /// caller-facing literal an attribute can concatenate, and carries no such pin — see its summary for what that
+    /// does and does not establish. <see cref="On"/> is the one home for which of them apply where. The prose home
+    /// for the set as DOCUMENTATION is the tool-surface SPEC, which CLAUDE.md points readers at — two audiences,
+    /// not two authorities on one fact.</summary>
     public static readonly IReadOnlyList<string> All =
         new[] { "Set", "Add", "Remove", "SetAtIndex", "InsertAtIndex", "ReplaceAll", "Merge", "CopyFrom" };
 
@@ -109,7 +113,18 @@ public static class WriteVerbs
     /// anything stop a future description from hand-typing the whole set instead of concatenating this — a site
     /// that did would be the #302 edit-every-site regression back again, silently. The three sites named above are
     /// a statement about the code as it stands, not a property anything enforces. Making both of those checkable
-    /// is #386's job; this const is the single home the check would be written against.</para></summary>
+    /// is #386's job; this const is the single home the check would be written against.
+    ///
+    /// <para><b>One hazard this const CREATES, until #386's guard exists.</b> <c>BulkOp.verb</c> appends
+    /// <c>" (deep-copy the field at field_path from from_plugin's version — see from_plugin)"</c> straight onto
+    /// this recital, so that gloss describes whichever verb is LAST here — <c>CopyFrom</c> today, by position and
+    /// nothing else. Appending a ninth verb — the very edit this const exists to make sufficient — silently moves
+    /// the gloss onto the new verb and strips it off <c>CopyFrom</c>, shipping a false claim in
+    /// <c>housecarl_bulk_apply</c>'s schema; reordering does the same. The other two sites are position-independent
+    /// (one appends after a full stop, one reads <c>"op is " + AllRecital + ". "</c>). Until a guard pins the tail
+    /// token to the verb the trailing gloss describes, the protection is the vocabulary gate before W6: changing
+    /// this set is a reviewed act, not a drive-by. Recorded rather than fixed because the fix moves caller-facing
+    /// text, and this const's whole warrant is that it changed none.</para></summary>
     public const string AllRecital = "Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge | CopyFrom";
 
     /// <summary>The verbs that work on <paramref name="shape"/>, each with the slot it consumes and the phrase a
