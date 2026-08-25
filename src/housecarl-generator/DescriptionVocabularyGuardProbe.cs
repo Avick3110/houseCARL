@@ -98,8 +98,10 @@ namespace HousecarlGenerator;
 ///   <item><b>A verb recital whose tokens are ALL stale at once.</b> <see cref="Recitals"/> admits a run only if
 ///         at least one token is a real verb — otherwise "Text | Json" would be read as a verb list — so a run in
 ///         which every name went stale simultaneously is dropped and INV3-TOKENS stays green. Rename drift does
-///         not have that shape (it moves one name and leaves the rest), the marked-default arm reaches any such
-///         run that marks a default, and the census prints every dropped run so the blind spot is visible.</item>
+///         not have that shape (it moves one name and leaves the rest); the marked-default arm reaches such a run
+///         only where it marks a default AND the annotated slot declares one in code, which is a narrower reach
+///         than this paragraph used to claim; and the census prints every dropped run, and every marker whose
+///         slot declares nothing, so what is asserted about by nothing is named on every run.</item>
 ///   <item><b>Completeness per site.</b> INV3's union arm cannot see a verb missing from ONE description while
 ///         another names it. Whether a verb is legal at a given carrier is a semantic fact no attribute carries
 ///         (<c>create_record</c>'s <c>op</c> refuses <c>CopyFrom</c>) — the same boundary <c>wire-names-guard</c>
@@ -613,19 +615,20 @@ public static class DescriptionVocabularyGuardProbe
     /// const's value is built from literals, so the comparison is sound. A <c>static readonly</c> string can be
     /// built at runtime — interpolated, formatted, read from somewhere — and its value is then not source text at
     /// all. The second design compared them anyway and false-RED'd on an ordinary interpolated field with a
-    /// message stating a false cause ("the SOURCE scan is not reading the file"). They are counted and named in
-    /// the census instead; the completeness claim they were failing to serve is INV6-AGREE's, which covers every
-    /// literal in every file regardless of what it is assigned to.</summary>
-    static (List<(string Label, string Value)> Consts, int RuntimeBuilt) CompiledConsts()
+    /// message stating a false cause ("the SOURCE scan is not reading the file"). They are named in the census
+    /// instead — by member, not as a bare count, so a green run says WHICH strings this arm did not compare; the
+    /// completeness claim they were failing to serve is INV6-AGREE's, which covers every literal in every file
+    /// regardless of what it is assigned to.</summary>
+    static (List<(string Label, string Value)> Consts, List<string> RuntimeBuilt) CompiledConsts()
     {
         var consts = new List<(string, string)>();
-        int runtimeBuilt = 0;
+        var runtimeBuilt = new List<string>();
         foreach (var asm in ShippedAssemblies)
             foreach (var t in asm.GetTypes().OrderBy(t => t.FullName, StringComparer.Ordinal))
                 foreach (var f in t.GetFields(AllMembers).OrderBy(f => f.Name, StringComparer.Ordinal))
                 {
                     if (f.FieldType != typeof(string) || !f.IsStatic) continue;
-                    if (f.IsInitOnly && !f.IsLiteral) { runtimeBuilt++; continue; }
+                    if (f.IsInitOnly && !f.IsLiteral) { runtimeBuilt.Add($"{t.Name}.{f.Name}"); continue; }
                     if (!f.IsLiteral) continue;
                     string? v;
                     try { v = f.GetValue(null) as string; } catch { continue; }
@@ -664,8 +667,9 @@ public static class DescriptionVocabularyGuardProbe
         var uncoveredConst = consts.Where(c => !Covered(c.Value, texts))
             .Select(c => $"{c.Label}: no scanned source literal accounts for its value — the SOURCE scan is not reading the file that declares it")
             .ToList();
-        Console.WriteLine($"        static readonly strings not compared: {runtimeBuilt} — their values can be built at runtime, so a "
-                        + "source-text comparison would report a false cause. INV6-AGREE covers their literals.");
+        Console.WriteLine($"        static readonly strings not compared: {runtimeBuilt.Count} — their values can be built at runtime, so a "
+                        + "source-text comparison would report a false cause. INV6-AGREE covers their literals."
+                        + (runtimeBuilt.Count == 0 ? "" : $" They are: {string.Join("; ", runtimeBuilt)}."));
         Check($"INV5-CONSTS       every compile-time string const in the shipped assemblies is covered ({consts.Count} const(s))",
             uncoveredConst.Count == 0, uncoveredConst);
         Console.WriteLine();
@@ -750,33 +754,44 @@ public static class DescriptionVocabularyGuardProbe
         Regex.Matches(text, @"\b([A-Za-z][A-Za-z]*)\s*\(\s*default\s*\)").Select(m => m.Groups[1].Value).ToList();
 
     /// <summary>The default marked on the SURFACE is the published verb wherever the marked token is a write verb,
-    /// and where the slot it annotates declares a default value in code, the two agree. A general rule over
-    /// whatever marks a default — no site list — so a new write slot enrols itself.
-    /// <para>A marker whose token is NOT a write verb is a different kind of default (an output format, a mode);
-    /// those are counted and named in the census rather than asserted about, because this arm has no opinion on
-    /// what a non-verb slot should default to. A stale VERB name marked default is still caught: it is either a
-    /// real verb that is not the published default, or a token INV3-TOKENS reports from the recital carrying
-    /// it.</para>
-    /// <para>Sites whose slot declares no default in code (a nullable property coalesced downstream) are counted
-    /// and named rather than dropped: what cannot be compared is reported, never passed over in silence (Q3).</para></summary>
+    /// and wherever the slot it annotates declares a default value in code, the marked token and that value agree.
+    /// A general rule over whatever marks a default — no site list — so a new write slot enrols itself.
+    /// <para><b>The slot comparison runs for every marker, verb or not.</b> Whether a slot declares a default is a
+    /// fact about the SLOT, and it does not stop being checkable because the token in front of the marker is
+    /// unrecognised — an unrecognised token is precisely what a rename leaves behind. Gating this comparison on
+    /// the vocabulary was measured GREEN over a description reading <c>Sett (default)</c> on a parameter declaring
+    /// <c>"Set"</c>: the token was skipped for being stale, and the recital carrying it was dropped by
+    /// <see cref="Recitals"/> for having no live verb left, so the two escape hatches covered each other.</para>
+    /// <para>A marker whose token is NOT a write verb is a different kind of default (an output format, a mode).
+    /// This arm has no opinion on what such a slot SHOULD default to, so it makes no published-default claim about
+    /// it — but it still holds it against the slot, and names it in the census either way.</para>
+    /// <para><b>What is still asserted about by nothing:</b> a marker whose slot declares no default in code (a
+    /// nullable property coalesced downstream). Those are named in the census, not counted and dropped — what
+    /// cannot be compared is reported, never passed over in silence (Q3).</para></summary>
     static void DefaultSlotsArm(List<(SurfaceSite Site, string Verb)> marks)
     {
         var vocab = new HashSet<string>(PublishedVocabulary, StringComparer.Ordinal);
         var problems = new List<string>();
         var nonVerb = new List<string>();
-        int compared = 0, unreadable = 0, verbMarks = 0;
+        var noDeclared = new List<string>();
+        int compared = 0, verbMarks = 0;
 
         foreach (var (site, verb) in marks)
         {
-            if (!vocab.Contains(verb)) { nonVerb.Add($"{verb} @ {site.Label}"); continue; }
-            verbMarks++;
-            if (verb != PublishedDefault)
-                problems.Add($"{site.Label}: marks '{verb}' (default), but the published default is '{PublishedDefault}'");
+            if (vocab.Contains(verb))
+            {
+                verbMarks++;
+                if (verb != PublishedDefault)
+                    problems.Add($"{site.Label}: marks '{verb}' (default), but the published default is '{PublishedDefault}'");
+            }
+            else nonVerb.Add($"{verb} @ {site.Label}");
 
+            // Not gated on the vocabulary: see the summary. A stale token on a slot that declares a default is
+            // the case this arm was measured green over.
             var declared = DeclaredDefault(site);
-            if (declared is null) { unreadable++; continue; }
+            if (declared is null) { noDeclared.Add($"{verb} @ {site.Label}"); continue; }
             compared++;
-            if (!string.Equals(declared, verb, StringComparison.Ordinal))
+            if (MarkDisagrees(verb, declared))
                 problems.Add($"{site.Label}: the description marks '{verb}' (default) but the slot actually defaults to '{declared}'");
         }
 
@@ -784,10 +799,11 @@ public static class DescriptionVocabularyGuardProbe
             problems.Add("no [Description] on the surface marks a write verb (default) at all — the marker that three shipped "
                        + "descriptions carry has gone, and nothing tells a caller which verb they get by omitting op=/verb=");
 
-        Console.WriteLine($"        marked defaults: {verbMarks} on a write verb ({compared} whose slot declares a default in code, "
-                        + $"{unreadable} that declare none), {nonVerb.Count} on something that is not a verb"
+        Console.WriteLine($"        marked defaults: {marks.Count} in all — {verbMarks} on a write verb, {nonVerb.Count} on something that is not a verb"
                         + (nonVerb.Count == 0 ? "" : $": {string.Join("; ", nonVerb)}"));
-        Check($"INV4-DEFAULT  every verb marked (default) on the surface is '{PublishedDefault}', and agrees with the slot's own declared default where there is one",
+        Console.WriteLine($"        of those, {compared} held against the slot's own declared default; {noDeclared.Count} whose slot declares none"
+                        + (noDeclared.Count == 0 ? "" : $" — asserted about by nothing: {string.Join("; ", noDeclared)}"));
+        Check($"INV4-DEFAULT  every marked (default) agrees with the slot's own declared default where there is one, and every marked VERB is '{PublishedDefault}'",
             problems.Count == 0, problems);
     }
 
@@ -822,7 +838,11 @@ public static class DescriptionVocabularyGuardProbe
 
         foreach (var (site, gloss) in glued)
         {
-            var namesInGloss = PublishedVocabulary.Where(v => gloss!.Contains(v, StringComparison.Ordinal)).Distinct().ToList();
+            // Whole words, not substrings: "Adds a deep copy…" is ordinary English about CopyFrom, and a
+            // substring match read the "Add" in it as the gloss naming a different verb — reddening this arm on a
+            // rewording that moved nothing. It also made every compound verb ("SetAtIndex" contains "Set") match
+            // twice, so the step-aside path below could never fire for one.
+            var namesInGloss = VerbsNamedIn(gloss!);
             var subject = namesInGloss.Count == 1 ? namesInGloss[0] : TailGlossVerb;
             string how = namesInGloss.Count == 1 ? "the verb it names" : $"'{TailGlossVerb}', the verb it is written about";
             if (!string.Equals(tail, subject, StringComparison.Ordinal))
@@ -853,6 +873,20 @@ public static class DescriptionVocabularyGuardProbe
         }
         return null;
     }
+
+    /// <summary>The write verbs a glued gloss NAMES, as whole words. A function of its input so a RED arm can
+    /// drive it, and whole-word because a substring match read the "Add" in "Adds a deep copy…" as the gloss
+    /// naming a different verb — reddening the tail pin on a rewording that moved nothing — and made every
+    /// compound verb match twice ("SetAtIndex" contains "Set"), so the step-aside path could never fire for
+    /// one.</summary>
+    static List<string> VerbsNamedIn(string gloss) =>
+        PublishedVocabulary.Where(v => Regex.IsMatch(gloss, $@"\b{Regex.Escape(v)}\b")).Distinct().ToList();
+
+    /// <summary>Whether a marked default and the slot's own declared default disagree. A function of its inputs
+    /// rather than of the live surface, so a RED arm can drive it — including the case the vocabulary gate used to
+    /// skip, a marked token that is not a known verb at all.</summary>
+    static bool MarkDisagrees(string marked, string? declared) =>
+        declared is not null && !string.Equals(declared, marked, StringComparison.Ordinal);
 
     /// <summary>The default value the annotated slot actually uses, or null when it declares none. An optional
     /// parameter carries it directly; a property carries it as an initializer, which means instantiating the
@@ -992,12 +1026,28 @@ public static class DescriptionVocabularyGuardProbe
                 && HomesAgree(PublishedVocabulary, string.Join(" | ", PublishedVocabulary), PublishedVocabulary),
             new() { "the comparison passes a recital that is missing a verb, or fails one that is complete" }, redArm: true);
 
+        // The slot comparison, driven in both directions over the case the vocabulary gate used to skip: a marked
+        // token that is not a known verb at all. A slot that declares no default is asserted about by nothing, and
+        // that half is driven too — otherwise "cannot compare" and "compared and agreed" would look alike.
+        Check("RED-MARKSLOT     a marked default that disagrees with the slot's declared default is reported, verb or not",
+            MarkDisagrees("Sett", "Set") && MarkDisagrees("Add", "Set") && MarkDisagrees("summary", "table")
+                && !MarkDisagrees("Set", "Set") && !MarkDisagrees("Sett", null) && !MarkDisagrees("summary", null),
+            new() { "the slot comparison skips a stale token because it is not a verb, reports one that agrees, or "
+                  + "asserts about a slot that declares no default at all" }, redArm: true);
+
+        Check("RED-GLOSSWORD    a gloss names a verb as a WORD, so ordinary English about one is not read as another",
+            VerbsNamedIn("Adds a deep copy of the field").Count == 0
+                && VerbsNamedIn("deep-copy the field at field_path from from_plugin's version").Count == 0
+                && VerbsNamedIn("Set the field at the index").SequenceEqual(new[] { "Set" })
+                && VerbsNamedIn("SetAtIndex overwrites the element").SequenceEqual(new[] { "SetAtIndex" }),
+            new() { "the gloss reader matches a verb inside a longer word, or misses one the gloss does name — "
+                  + "either way the tail pin is held against the wrong subject" }, redArm: true);
+
         // The tail-gloss pin, driven over the shape of the failing edit it exists to catch: a ninth verb appended
         // to the recital, which leaves every other verb arm green.
         const string ninth = "Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge | CopyFrom | Frobnicate";
         Check("RED-TAILGLOSS    appending a ninth verb moves the glued gloss onto it, and that is reported",
             RecitalNames(ninth).LastOrDefault() == "Frobnicate"
-                && RecitalNames(WriteVerbs.AllRecital).LastOrDefault() == TailGlossVerb
                 && GluedGloss($"{ninth} (deep-copy the field — see from_plugin). More prose.", ninth) is { } g && g.StartsWith("deep-copy", StringComparison.Ordinal)
                 && GluedGloss($"{ninth}. A parenthetical (later in the sentence) is not glued.", ninth) is null,
             new() { "the tail reader or the glued-gloss reader is wrong: a ninth verb does not read as the tail, the glued "
@@ -1144,10 +1194,16 @@ public static class DescriptionVocabularyGuardProbe
                   + "as a comment). Fewer means a shape went invisible again; more means the fixture grew a phrase and this count "
                   + "was not moved with it." }, redArm: true);
 
+        // Both fixtures are DERIVED from the rule that drives them, like every other arm here. Pinning them to
+        // Phrases[0] with hand-typed matching text meant reordering the phrase list broke this arm with a message
+        // about the docstring boundary — which would not have moved.
+        var banned = Phrases.First(r => r.Companions.Length == 0);
+        string inComment = $"// a {banned.Phrase} thing\n";
+        string inLiteral = $"var x = \"a {banned.Phrase} thing\";";
         Check("RED-COMMENTS     a phrase planted in a COMMENT is NOT reported — the declared docstring boundary, tested rather than asserted",
-            Scan(Phrases[0], MergeSentences("// a one-time thing\n", RoslynLiteralReader.Read("// a one-time thing\n", out _))
+            Scan(banned, MergeSentences(inComment, RoslynLiteralReader.Read(inComment, out _))
                     .Select((l, n) => new Sentence($"fixture:{n}", l.Text)).ToList(), Array.Empty<Exemption>(), null).Violations.Count == 0
-                && Scan(Phrases[0], MergeSentences("var x = \"a one-time thing\";", RoslynLiteralReader.Read("var x = \"a one-time thing\";", out _))
+                && Scan(banned, MergeSentences(inLiteral, RoslynLiteralReader.Read(inLiteral, out _))
                     .Select((l, n) => new Sentence($"fixture:{n}", l.Text)).ToList(), Array.Empty<Exemption>(), null).Violations.Count == 1,
             new() { "the scanner does not see a phrase in a literal, or DOES see one in a comment — the declared "
                   + "docstring boundary would be false in one direction or the other" }, redArm: true);
