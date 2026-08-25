@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Reflection;
+using System.Reflection.Metadata;
 using System.Text.RegularExpressions;
 using HousecarlCore;
 using HousecarlMcp;
@@ -43,6 +44,16 @@ namespace HousecarlGenerator;
 /// <c>INV6-AGREE</c> asserts the two produce the same literals, file by file. A reader that stops early,
 /// mis-decodes an escape, or cannot see into a hole makes them disagree and turns that arm red with the file
 /// named. Neither reader is its own oracle, which is the property both prior designs lacked.</para>
+///
+/// <para><b>And the files those readers are handed come from the COMPILER'S RECEIPT, not from a directory
+/// walk.</b> Two readers agreeing about a file set nobody certified is the same shape one floor up, and it was
+/// measured: a <c>&lt;Compile Include&gt;</c>-linked source file shipped a false consent claim at 59/59 green.
+/// So <c>MANIFEST-SET</c> holds the scanned file set against the portable-PDB document table of each shipped
+/// assembly — the compiler's own record of what went into the thing that ships — in both directions. See
+/// <see cref="ReadManifest"/> for the ruling that chose it (§4, Aaron-go 2026-08-26), the alternatives declined,
+/// and the evaluation run before it was built. Above that receipt there is no further enumeration to certify:
+/// what remains — that the guard runs, what is on the watchlist, and whether a sentence of known words is TRUE —
+/// is declared residue, printed on every run in <see cref="NotInReach"/>.</para>
 ///
 /// <para><b>The enumerations, and the question each answers.</b>
 /// <list type="bullet">
@@ -242,6 +253,13 @@ public static class DescriptionVocabularyGuardProbe
             + "authored sentence, and a const reference breaks a run, so single-sourcing a claim without its "
             + "correction reds on caller text that did not change. Moving both together is the fix; an exemption "
             + "row is not, and MaxExemptions is deliberately too small to make it one",
+        "the WATCHLIST itself — which wordings count as consent vocabulary is an authored judgement (the Phrases "
+            + "table, each row with its ground). Nothing below it can derive it: the compiler's receipt says which "
+            + "files ship, the two readers say what is in them, and neither has an opinion about which sentences "
+            + "are over-claims. A claim invented in words nobody listed is outside every arm here",
+        "that this guard RUNS AT ALL — CI invoking it is process, not construction, and no arm inside a guard can "
+            + "assert its own scheduling. Above the compiler's receipt there is no further enumeration to certify; "
+            + "what is left is this line, the line above, and truth",
         "prose inside a conditional-compilation region — reader A parses with no symbols defined and reader B has "
             + "no notion of directives, so a literal in a disabled arm is outside the net and one in an enabled arm "
             + "makes the two disagree. The count of regions in the scanned trees is printed on every run, and "
@@ -487,11 +505,156 @@ public static class DescriptionVocabularyGuardProbe
 
     static string Rel(string p) => Path.GetRelativePath(Directory.GetCurrentDirectory(), p).Replace('\\', '/');
 
+    /// <summary>Whether a REPO-RELATIVE path lies under a build-output directory. ONE home, used by the file walk
+    /// AND by the manifest classifier below, so the net and the compiler's receipt cannot drift about what "build
+    /// output" means — a drift between two spellings of that rule would arrive as a membership mismatch about a
+    /// file nobody edited, which is a false red pointing at the wrong thing.
+    /// <para>Applied to the repo-relative path deliberately: a repository that itself lived under a directory
+    /// called <c>obj</c> would otherwise classify every one of its files as build output.</para></summary>
+    static bool IsBuildOutput(string relPath) =>
+        relPath.Split('/').Any(seg => seg is "obj" or "bin");
+
     static IEnumerable<string> SourceFiles(string root) =>
         Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
-            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
-                     && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            .Where(f => !IsBuildOutput(Rel(f)))
             .OrderBy(f => f, StringComparer.Ordinal);
+
+    // ---- the compilation manifest: what the shipped artifact itself says went into it ----
+
+    /// <summary>One shipped assembly's compilation manifest — the source documents its portable PDB names —
+    /// split into the repo files the net must hold and the build-generated ones it must not, with the count of
+    /// each so a manifest that suddenly named fewer documents could not do it quietly.</summary>
+    readonly record struct CompilationManifest(string Assembly, List<string> Documents, int Generated, List<string> Problems);
+
+    /// <summary>Every source document one shipped assembly's own compilation manifest names, read from the
+    /// portable PDB beside it.
+    ///
+    /// <para><b>Why the receipt and not the directory.</b> Until 2026-08-26 the net's FILE membership was a
+    /// directory walk: match a directory under <c>src/</c> to a shipped assembly's name, then take every
+    /// <c>.cs</c> under it. Nothing asked the compilation which files it actually compiled, so a
+    /// <c>&lt;Compile Include="..\somewhere-else\X.cs" /&gt;</c> put a shipped, compiled source file outside the
+    /// net — measured on this branch at 59/59 green, with a false consent claim shipping and the file and literal
+    /// counts unmoved. <c>GREEN-ROOTS</c> and <c>SHIP-DERIVED</c> could not catch it: both compare lists of
+    /// DIRECTORIES, and <c>INV6-AGREE</c> certifies only that the two readers agree about the files they were
+    /// HANDED. The two readers agreed perfectly about files nobody gave them — the same shape that killed designs
+    /// one and two (a completeness claim certified by an oracle derived from the machinery it certifies),
+    /// relocated one floor up. Ruled 2026-08-26 (§4, Aaron-go): the membership question ends at the system that
+    /// owns the fact, and that system is the compiler. Hand-parsing the <c>.csproj</c> was rejected by name as
+    /// the same disease one floor up; narrowing the claim to "every .cs under the shipped directories" was
+    /// declined.</para>
+    ///
+    /// <para><b>What the receipt is.</b> The PDB's document table is the list of source documents the compiler
+    /// emitted sequence points into — its own record of what went into the assembly. It is not derived from this
+    /// guard, from either reader, or from any pattern over project files, which is what makes it an independent
+    /// spelling of the net's membership: the pin rule is satisfied by construction rather than by a second list
+    /// somebody has to remember to edit.</para>
+    ///
+    /// <para><b>The evaluation, run before this was written</b> (2026-08-26, Release build of the solution,
+    /// measured — the ruling required the ground recorded either way):
+    /// <list type="bullet">
+    ///   <item>All three shipped assemblies emit PORTABLE PDBs (<c>BSJB</c>), and they sit beside the assemblies
+    ///         in the generator's own output directory, because the generator project-references all three. The
+    ///         CI job builds the solution and runs the generator from that directory, so the receipt is there at
+    ///         the moment the guard needs it.</item>
+    ///   <item><b>No new dependency.</b> <c>System.Reflection.Metadata</c> is in the shared framework — unlike
+    ///         Roslyn, which is a pinned PackageReference. The evaluation harness read all four PDBs with an
+    ///         empty <c>ItemGroup</c>.</item>
+    ///   <item><b>Generated documents are exactly three per assembly and all under <c>obj/</c></b>:
+    ///         <c>*.GlobalUsings.g.cs</c>, <c>*.AssemblyInfo.cs</c>, and the framework attributes file. No source
+    ///         generator runs in the shipped trees; zero documents fell outside the repo root and zero named a
+    ///         path that does not exist on disk. So the exclusion rule is one stated line — a document under
+    ///         <c>obj/</c> or <c>bin/</c> is build output — and it is <see cref="IsBuildOutput"/>, the same rule
+    ///         the file walk uses.</item>
+    ///   <item><b>The receipt and the walk agree exactly today</b>: 73 + 49 + 1 = 123 repo documents against 123
+    ///         scanned files. Both directions of the set equality are therefore assertable on measured ground,
+    ///         not assumed.</item>
+    /// </list></para>
+    ///
+    /// <para><b>The two ways this can go wrong, and both are LOUD.</b> A document reaches the table only where
+    /// the compiler emitted sequence points, so a <c>.cs</c> file with no method body at all could in principle
+    /// be compiled and absent from the receipt; that arrives as "scanned but no manifest names it" — a red
+    /// naming the file, which an author resolves, never a silent narrowing. And documents carry the building
+    /// machine's absolute paths: <c>ContinuousIntegrationBuild</c>, <c>DeterministicSourcePaths</c>,
+    /// <c>PathMap</c> and SourceLink are set nowhere in this repo and CI builds and runs in one workspace, but a
+    /// future build that mapped paths would make them stop resolving under the guard's working directory — and a
+    /// document that cannot be mapped is reported as a problem rather than dropped from the comparison.</para></summary>
+    static CompilationManifest ReadManifest(Assembly asm)
+    {
+        var name = asm.GetName().Name!;
+        var documents = new List<string>();
+        var problems = new List<string>();
+        int generated = 0;
+
+        var location = asm.Location;
+        if (string.IsNullOrEmpty(location))
+        {
+            problems.Add($"'{name}' has no file location, so its compilation manifest cannot be found — the net's file membership "
+                       + "is uncertified for this assembly. A single-file or in-memory host would do this; the guard runs from a "
+                       + "normal build output and must keep doing so");
+            return new CompilationManifest(name, documents, generated, problems);
+        }
+
+        var pdb = Path.ChangeExtension(location, ".pdb");
+        if (!File.Exists(pdb))
+        {
+            problems.Add($"'{name}' ships but its compilation manifest is not beside it ({Rel(pdb)} does not exist) — nothing certifies "
+                       + "which files went into this assembly. Build with debug symbols (the SDK default emits a portable PDB for "
+                       + "Release too); do not narrow the claim to the directory walk instead");
+            return new CompilationManifest(name, documents, generated, problems);
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(pdb);
+            using var provider = MetadataReaderProvider.FromPortablePdbStream(stream);
+            var md = provider.GetMetadataReader();
+            foreach (var handle in md.Documents)
+            {
+                var raw = md.GetString(md.GetDocument(handle).Name);
+                if (string.IsNullOrEmpty(raw))
+                {
+                    problems.Add($"{Rel(pdb)}: a document in the manifest has no name — it cannot be held against the net either way");
+                    continue;
+                }
+                var rel = Rel(raw);
+                if (rel.StartsWith("../", StringComparison.Ordinal) || Path.IsPathRooted(rel))
+                {
+                    problems.Add($"{Rel(pdb)}: the manifest names '{raw.Replace('\\', '/')}', which is not under this run's working directory "
+                               + $"('{Directory.GetCurrentDirectory().Replace('\\', '/')}'), so it cannot be matched against a scanned file. Either the guard "
+                               + "is not running from the repo root, or the build maps source paths (ContinuousIntegrationBuild / PathMap / "
+                               + "SourceLink) and the receipt no longer names files this machine has");
+                    continue;
+                }
+                if (IsBuildOutput(rel)) { generated++; continue; }
+                documents.Add(rel);
+            }
+        }
+        catch (Exception ex)
+        {
+            problems.Add($"{Rel(pdb)}: could not be read as a portable PDB — {ex.GetType().Name}: {ex.Message}. A Windows-format (native) PDB "
+                       + "would do this; the manifest is the authority on the net's membership and a manifest that cannot be read "
+                       + "certifies nothing");
+        }
+        return new CompilationManifest(name, documents.Distinct(StringComparer.OrdinalIgnoreCase).ToList(), generated, problems);
+    }
+
+    /// <summary>Where the compiler's receipt and the net disagree about which files exist. SET EQUALITY, both
+    /// directions, and each direction fails for a different reason so each says its own thing.
+    /// <para>A function of its two inputs, so <c>RED-MANIFEST</c> can drive exactly this code with a synthetic
+    /// receipt and a synthetic net — including the matching case, which must report nothing.</para></summary>
+    static List<string> ManifestMismatch(IReadOnlyCollection<string> documents, IReadOnlyCollection<string> scanned) =>
+        documents
+            .Where(d => !scanned.Contains(d, StringComparer.OrdinalIgnoreCase))
+            .Select(d => $"'{d}' was COMPILED INTO a shipped assembly — its own manifest names it — but no scanned root reaches it, so every "
+                       + "literal in it is outside INV1's net. A file linked in by <Compile Include> from outside src/<assembly-name>/ "
+                       + "does this. Move it under the tree it ships from, or stop compiling it into a shipped assembly")
+            .Concat(scanned
+                .Where(s => !documents.Contains(s, StringComparer.OrdinalIgnoreCase))
+                .Select(s => $"'{s}' was scanned, but no shipped assembly's manifest names it — the guard is reading a file that did not go "
+                           + "into anything that ships. Either it is excluded from compilation (dead source under a scanned tree), or it "
+                           + "compiled with no method body for the compiler to record. Neither is a reason to widen the comparison: name "
+                           + "the file's status here deliberately"))
+            .ToList();
 
     /// <summary>Read every shipped source file with BOTH readers, hold them against each other, and hand back the
     /// sentences INV1 scans. Reader A feeds the net; reader B exists to falsify A's completeness.</summary>
@@ -504,6 +667,9 @@ public static class DescriptionVocabularyGuardProbe
         var agreeProblems = new List<string>();
         var directivesByFile = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var readersDisagreeIn = new HashSet<string>(StringComparer.Ordinal);
+        // Every file the net ENUMERATED, recorded before it is read: membership is about which files the net
+        // reaches, and a file that then fails to read is INV6-PARSE's red, not a hole in the file set.
+        var scannedFiles = new List<string>();
         long chars = 0;
         int files = 0, literals = 0, inHoles = 0;
 
@@ -514,6 +680,7 @@ public static class DescriptionVocabularyGuardProbe
             {
                 rootFiles++;
                 var label = Rel(file);
+                scannedFiles.Add(label);
                 string text;
                 try { text = File.ReadAllText(file); }
                 catch (Exception ex) { parseProblems.Add($"{label}: could not be read — {ex.GetType().Name}: {ex.Message}"); continue; }
@@ -583,6 +750,21 @@ public static class DescriptionVocabularyGuardProbe
             + $"published list ({ship.Resolved}/{ship.PublishCalls} publish call(s) resolved, {ship.Residue.Count} not derived and named above)",
             DerivedSetMismatch(ship.Trees).Count == 0 && ship.Residue.Count == 0,
             DerivedSetMismatch(ship.Trees).Concat(ship.Residue).ToList(), tier: Tier.BestEffort);
+        // The MEMBERSHIP arm. GREEN-ROOTS and SHIP-DERIVED settle which TREES are in; this settles which FILES,
+        // against the only thing that knows for certain — the compiled artifact's own receipt. See ReadManifest
+        // for the ruling, the evaluation and its measurements.
+        var manifests = ShippedAssemblies.Select(ReadManifest).ToList();
+        var manifestDocs = manifests.SelectMany(m => m.Documents).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var manifestProblems = manifests.SelectMany(m => m.Problems).ToList();
+        Console.WriteLine("        compilation manifest (each shipped assembly's own portable-PDB document table):");
+        foreach (var m in manifests)
+            Console.WriteLine($"          · {m.Assembly}: {m.Documents.Count + m.Generated} document(s) -> {m.Documents.Count} repo source, "
+                            + $"{m.Generated} build-generated (under obj/ or bin/ — the rule the file walk uses)"
+                            + (m.Problems.Count == 0 ? "" : $", {m.Problems.Count} unreadable"));
+        manifestProblems.AddRange(ManifestMismatch(manifestDocs, scannedFiles));
+        Check($"MANIFEST-SET  the files the net scanned are exactly the repo files the shipped assemblies were COMPILED from, per their own "
+            + $"manifests ({manifestDocs.Count} repo document(s) across {manifests.Count} manifest(s), {manifests.Sum(m => m.Generated)} build-generated excluded; {scannedFiles.Count} file(s) scanned)",
+            manifestProblems.Count == 0, manifestProblems, tier: Tier.Construction);
         Check($"INV6-PARSE    every scanned file parses as C# ({files} file(s)) — a file the parser rejects is a file whose literals are not trustworthy",
             parseProblems.Count == 0, parseProblems, tier: Tier.Construction);
         Check($"INV6-AGREE    the two independently written readers agree about every literal in every file ({literals} literal(s), {inHoles} of them inside interpolation holes)",
@@ -1617,6 +1799,25 @@ public static class DescriptionVocabularyGuardProbe
             new() { "the root pin does not notice a tree dropped from the scanned set, does not notice one ADDED to it, or "
                   + "reports a set that matches — dropping a tree shrinks INV1's net and INV5's oracle together, and adding "
                   + "one puts a tree's prose in the net with nothing having enrolled it" }, redArm: true);
+
+        // BOTH DIRECTIONS again, and here the first one is the load-bearing half: a file the compiler says it
+        // compiled and the walk never reached is the shape that shipped a false consent claim at 59/59 green.
+        // The build-output classifier is driven here too — it is what keeps the generated documents out, and a
+        // classifier that stopped recognising obj/ would put three phantom files on the manifest side of every
+        // comparison.
+        Check("RED-MANIFEST     a compiled file the net never scanned is reported, a scanned file no manifest names is reported, a matching pair is not, and build output is classified as such",
+            ManifestMismatch(new[] { "src/a/A.cs", "src/elsewhere/B.cs" }, new[] { "src/a/A.cs" }).Count == 1
+                && ManifestMismatch(new[] { "src/a/A.cs" }, new[] { "src/a/A.cs", "src/a/Dead.cs" }).Count == 1
+                && ManifestMismatch(new[] { "src/a/A.cs" }, new[] { "src/a/B.cs" }).Count == 2
+                && ManifestMismatch(new[] { "src/a/A.cs" }, new[] { "src/a/a.cs" }).Count == 0
+                && ManifestMismatch(new[] { "src/a/A.cs" }, new[] { "src/a/A.cs" }).Count == 0
+                && IsBuildOutput("src/a/obj/Release/net9.0/a.AssemblyInfo.cs")
+                && IsBuildOutput("src/a/bin/Release/net9.0/x.cs")
+                && !IsBuildOutput("src/a/Objects.cs")
+                && !IsBuildOutput("src/binder/Thing.cs"),
+            new() { "the membership comparison does not notice a compiled file outside the net, does not notice a scanned file "
+                  + "outside the compilation, disagrees about a matching pair, or the build-output classifier misreads a path — "
+                  + "the first of those is a shipped source file whose prose is outside INV1's net with every arm green" }, redArm: true);
 
         // The packaging derivation, driven over a synthetic script and a synthetic project graph: the shape it
         // must read, and the three shapes it must REFUSE rather than absorb. The counts are the arm's denominator,
