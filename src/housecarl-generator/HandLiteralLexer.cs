@@ -196,18 +196,30 @@ public static class HandLiteralLexer
     /// <summary>The multi-line raw-string rule: the opening quotes are followed by nothing but a line break, the
     /// closing quotes sit on their own line, and THAT line's whitespace is removed from every content line — which
     /// is why an indented raw fixture holds the string its author meant rather than the source's indentation. A
-    /// single-line raw literal has no such rule and is taken as written.</summary>
+    /// single-line raw literal has no such rule and is taken as written.
+    /// <para>The line TERMINATORS the source used are kept, not normalized — the compiler keeps them, so a reader
+    /// that normalized would hold a different string from the one the program prints, and the two readers would
+    /// disagree about every multi-line raw literal in a CRLF checkout. That matters here specifically: this repo
+    /// is developed on Windows with git's CRLF conversion on, so the same committed file is LF in one working tree
+    /// and CRLF in another. Which is why the terminators are captured and replayed rather than assumed to be
+    /// <c>\n</c>.</para></summary>
     static string StripRawIndent(string content)
     {
-        if (!content.Contains('\n')) return content;
-        var lines = content.Split('\n');
-        if (lines.Length < 2) return content;
-        string indent = lines[^1];
+        // Odd indices are the captured terminators, even indices the lines between them.
+        var parts = System.Text.RegularExpressions.Regex.Split(content, "(\r\n|\n|\r)");
+        if (parts.Length < 5) return content;                           // fewer than two terminators: not the multi-line form
+        string indent = parts[^1];
         if (indent.Trim().Length != 0) return content;                  // closing quotes are not alone on their line
-        if (lines[0].Trim().Length != 0) return content;                // opening quotes are not alone on theirs
-        var body = lines[1..^1].Select(l =>
-            l.StartsWith(indent, StringComparison.Ordinal) ? l[indent.Length..] : l.TrimStart());
-        return string.Join("\n", body);
+        if (parts[0].Trim().Length != 0) return content;                // opening quotes are not alone on theirs
+        var sb = new StringBuilder();
+        for (int i = 2; i <= parts.Length - 3; i += 2)
+        {
+            var line = parts[i];
+            sb.Append(line.StartsWith(indent, StringComparison.Ordinal) ? line[indent.Length..] : line.TrimStart());
+            // The terminator BEFORE the closing-quote line belongs to the delimiter, not to the content.
+            if (i + 1 <= parts.Length - 4) sb.Append(parts[i + 1]);
+        }
+        return sb.ToString();
     }
 
     /// <summary>The index of the brace that closes a hole opened just before <paramref name="from"/>. Nested

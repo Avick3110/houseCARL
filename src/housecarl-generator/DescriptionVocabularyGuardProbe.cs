@@ -277,6 +277,17 @@ public static class DescriptionVocabularyGuardProbe
     /// not a filename filter.</para></summary>
     static readonly Assembly[] ShippedAssemblies = { Surface, Core, Setup };
 
+    /// <summary>The trees that ship, written out here INDEPENDENTLY of <see cref="ShippedAssemblies"/> — the same
+    /// pin discipline as <see cref="PublishedVocabulary"/>, and for a sharper reason.
+    /// <para><see cref="ShippedAssemblies"/> is one home feeding two things: the source roots INV1 scans, and the
+    /// compiled descriptions and consts INV5 checks that scan against. Drop an assembly from it and BOTH shrink
+    /// together — the net loses a tree and the oracle stops asking about it, silently and green. That is the exact
+    /// shape #386's two previous designs died of, reappearing inside the fix, and a sabotage cell measured it:
+    /// removing <c>housecarl-core</c> from that list left every arm passing. Holding the derived roots against a
+    /// list written down separately is what makes shortening the net a deliberate act that turns this arm red
+    /// once, on purpose.</para></summary>
+    static readonly string[] PublishedShippedTrees = { "housecarl-mcp", "housecarl-core", "housecarl-setup" };
+
     /// <summary>The source tree for each shipped assembly, found under <c>src/</c> by the assembly's own name
     /// rather than typed as a path, so a project rename cannot leave this scanning a directory that no longer
     /// holds the code. The match is case-insensitive because an assembly name need not match its folder's casing
@@ -301,6 +312,15 @@ public static class DescriptionVocabularyGuardProbe
         }
         return (roots.Distinct(StringComparer.OrdinalIgnoreCase).ToList(), problems);
     }
+
+    /// <summary>Shipped trees the run did not scan. A function of its input so a RED arm can drive it with a set
+    /// that is short a tree — the sabotage this pin exists to catch.</summary>
+    static List<string> MissingTrees(IReadOnlyCollection<string> scanned) =>
+        PublishedShippedTrees
+            .Where(t => !scanned.Contains(t, StringComparer.OrdinalIgnoreCase))
+            .Select(t => $"'{t}' ships but is not among the trees this run scanned ({string.Join(", ", scanned)}) — INV1's net is "
+                       + "short a tree, and INV5 cannot report it, because both come off the same assembly list")
+            .ToList();
 
     static string Rel(string p) => Path.GetRelativePath(Directory.GetCurrentDirectory(), p).Replace('\\', '/');
 
@@ -370,7 +390,9 @@ public static class DescriptionVocabularyGuardProbe
         Console.WriteLine("        NOT in reach (the by-construction claim is exactly as honest as this list):");
         foreach (var n in NotInReach) Console.WriteLine($"          · {n}");
 
-        Check($"GREEN-ROOTS   every shipped assembly's source tree was found and yielded literals ({roots.Count} of {ShippedAssemblies.Length} resolved)",
+        var scanned = roots.Select(r => Path.GetFileName(r)!).ToList();
+        rootProblems.AddRange(MissingTrees(scanned));
+        Check($"GREEN-ROOTS   every tree that SHIPS was found and scanned, and it is the set written down independently here ({scanned.Count} of {PublishedShippedTrees.Length}: {string.Join(", ", scanned)})",
             rootProblems.Count == 0, rootProblems);
         Check($"INV6-PARSE    every scanned file parses as C# ({files} file(s)) — a file the parser rejects is a file whose literals are not trustworthy",
             parseProblems.Count == 0, parseProblems);
@@ -416,8 +438,11 @@ public static class DescriptionVocabularyGuardProbe
         return bag;
     }
 
+    /// <summary>An excerpt with its line breaks made visible. The carriage return is RENDERED rather than
+    /// stripped: a disagreement about line endings is a real disagreement, and hiding the character would print
+    /// both sides of it identically.</summary>
     static string Clip(string s, int max) =>
-        (s.Length <= max ? s : s[..max] + "…").Replace("\n", "\\n").Replace("\r", "");
+        (s.Length <= max ? s : s[..max] + "…").Replace("\r", "\\r").Replace("\n", "\\n");
 
     /// <summary>Only whitespace and a single <c>+</c> between two literals — the shape of one authored sentence
     /// wrapped across lines.</summary>
@@ -985,6 +1010,12 @@ public static class DescriptionVocabularyGuardProbe
             new() { "the coverage predicate accepts an uncovered string, rejects a covered one, or lets a one-character "
                   + "literal cover anything — INV5 would pass with the SOURCE scan reading nothing" }, redArm: true);
 
+        Check("RED-ROOTS       a shipped tree missing from the scanned set is reported, and a complete set is not",
+            MissingTrees(new[] { "housecarl-mcp", "housecarl-setup" }).Count == 1
+                && MissingTrees(PublishedShippedTrees).Count == 0,
+            new() { "the root pin does not notice a tree dropped from the scanned set, or reports one that is present — "
+                  + "shortening the assembly list would shrink INV1's net and INV5's oracle together, in silence" }, redArm: true);
+
         AgreementArms();
         ReaderArms();
     }
@@ -1070,7 +1101,14 @@ public static class DescriptionVocabularyGuardProbe
             "a raw string\nover two lines",
         };
         var sentences = MergeSentences(fixture, a).Select(l => l.Text).ToList();
-        var missing = want.Where(w => !sentences.Contains(w, StringComparer.Ordinal)).Select(w => $"no sentence equals: \"{Clip(w, 60)}\"").ToList();
+        // Compared with line terminators normalized on BOTH sides. This fixture is a raw string in this file, so
+        // its own line endings are whatever the checkout used — LF here, CRLF after git's Windows conversion — and
+        // a raw literal keeps them. This arm is about which SHAPES reach a scannable sentence; whether the two
+        // readers agree about a terminator is INV6-AGREE's question, and it asks it over the whole shipped tree in
+        // whichever form that tree was checked out.
+        static string Nl(string s) => s.Replace("\r\n", "\n");
+        var flat = sentences.Select(Nl).ToList();
+        var missing = want.Where(w => !flat.Contains(Nl(w), StringComparer.Ordinal)).Select(w => $"no sentence equals: \"{Clip(w, 60)}\"").ToList();
         var leaked = sentences.Where(s => s.Contains("non-literal", StringComparison.Ordinal) || s.Contains("not a literal", StringComparison.Ordinal))
             .Select(s => $"COMMENT text was read as a literal: \"{Clip(s, 60)}\" — every docstring would enter INV1's net").ToList();
         var joined = sentences.Contains("leftright", StringComparer.Ordinal)
