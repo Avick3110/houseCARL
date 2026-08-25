@@ -320,13 +320,148 @@ public static class DescriptionVocabularyGuardProbe
         return (roots.Distinct(StringComparer.OrdinalIgnoreCase).ToList(), problems);
     }
 
-    /// <summary>Shipped trees the run did not scan. A function of its input so a RED arm can drive it with a set
-    /// that is short a tree — the sabotage this pin exists to catch.</summary>
-    static List<string> MissingTrees(IReadOnlyCollection<string> scanned) =>
+    /// <summary>Shipped trees the run did not scan, AND trees it scanned that are not on the published list. SET
+    /// EQUALITY, both directions, and the second direction is the point.
+    /// <para>This tested SUBSET ONLY until 2026-08-25: <c>PublishedShippedTrees ⊆ scanned</c>. A tree ADDED to
+    /// <see cref="ShippedAssemblies"/> and never enrolled here therefore passed green — its prose entered INV1's
+    /// net silently and the pin that exists to make enrolment deliberate said nothing, because a pin that only
+    /// notices subtraction is not holding a set, it is holding a floor. Both directions now, so enrolling a tree
+    /// is one deliberate edit here that reds once, on purpose — the same shape as adding a verb to
+    /// <see cref="PublishedVocabulary"/>.</para>
+    /// <para>A function of its input so a RED arm can drive it with a set short a tree AND with one carrying an
+    /// extra.</para></summary>
+    static List<string> TreeSetMismatch(IReadOnlyCollection<string> scanned) =>
         PublishedShippedTrees
             .Where(t => !scanned.Contains(t, StringComparer.OrdinalIgnoreCase))
             .Select(t => $"'{t}' ships but is not among the trees this run scanned ({string.Join(", ", scanned)}) — INV1's net is "
                        + "short a tree, and INV5 cannot report it, because both come off the same assembly list")
+            .Concat(scanned
+                .Where(t => !PublishedShippedTrees.Contains(t, StringComparer.OrdinalIgnoreCase))
+                .Select(t => $"'{t}' was scanned but is not on the published shipped-tree list ({string.Join(", ", PublishedShippedTrees)}) — a "
+                           + "tree joined the net without being enrolled here. If it ships, add it to PublishedShippedTrees in the same "
+                           + "commit that added it to ShippedAssemblies; if it does not, it should not be scanned"))
+            .ToList();
+
+    // ---- the packaging authority: what the build script actually publishes ----
+
+    /// <summary>The script that assembles the shippable package — the ACTUAL authority on what ships, as opposed
+    /// to this file's opinion about it. Read as text rather than run: the guard needs the answer at CI time on any
+    /// machine, and running a packaging build to learn which trees it publishes would cost minutes to answer a
+    /// question the script states in two lines.</summary>
+    const string PackagingScript = "scripts/build-plugin.ps1";
+
+    /// <summary>What <see cref="DeriveShippedTrees"/> found, WITH ITS OWN COVERAGE. The counts are the arm's
+    /// denominator: a derivation that silently resolved fewer publish calls than the script contains is exactly
+    /// the silent-shortfall shape this revision exists to end, so the numbers are printed and every unresolved
+    /// call is named.</summary>
+    readonly record struct ShipDerivation(List<string> Trees, int PublishCalls, int Resolved, List<string> Residue);
+
+    /// <summary>Every <c>dotnet publish</c> call in the packaging script. The project argument is captured whether
+    /// it is a variable (<c>$McpProj</c>, the form the script uses) or a path.</summary>
+    static readonly Regex PublishCall =
+        new(@"dotnet\s+publish\s+(\$?[A-Za-z_]\w*|'[^']+'|""[^""]+""|\S+)", RegexOptions.Compiled);
+
+    /// <summary>How a publish-call argument names its project directory, when it is a PowerShell variable.</summary>
+    const string JoinPathAssignment = @"\s*=\s*Join-Path\s+\$\w+\s+['""]([^'""]+)['""]";
+
+    /// <summary>The trees whose SOURCE reaches a caller, derived from the packaging script: every project it
+    /// publishes, plus the transitive closure of their <c>ProjectReference</c>s — a referenced project's code is
+    /// compiled into or shipped beside the published output, so its prose ships too.
+    /// <para><b>BEST-EFFORT — this reads a PowerShell script by pattern (Class 2).</b> It is not, and cannot be, a
+    /// by-construction statement about what ships; MSBuild and PowerShell are the only things that know that for
+    /// certain. What makes it worth having anyway is that it CANNOT hide a shortfall: the denominator is the
+    /// number of <c>dotnet publish</c> calls the script text contains, the numerator is how many resolved to a
+    /// tree under <c>src/</c>, and every call that did not resolve is named. A derivation that quietly stopped
+    /// finding publish calls reports a smaller denominator, and the set equality against
+    /// <see cref="PublishedShippedTrees"/> reds either way.</para>
+    /// <para>A function of its inputs — the script text and a project-reference lookup — so the RED arms can drive
+    /// it with a synthetic script and a synthetic graph, including the shapes it must refuse.</para></summary>
+    static ShipDerivation DeriveShippedTrees(string scriptText, Func<string, List<string>?> projectReferences)
+    {
+        var residue = new List<string>();
+        var roots = new List<string>();
+        int calls = 0, resolved = 0;
+
+        foreach (Match m in PublishCall.Matches(scriptText))
+        {
+            calls++;
+            var arg = m.Groups[1].Value.Trim('\'', '"');
+            string? tree = null;
+            if (arg.StartsWith("$", StringComparison.Ordinal))
+            {
+                // Regex.Escape already escapes the leading '$'; escaping it again matched a literal backslash and
+                // found no assignment at all — which the arm reported as a 0-of-2 denominator rather than as an
+                // empty derived set that agreed with nothing. That is the Class-2 contract working: a derivation
+                // that cannot read its input says so in a number instead of certifying the pin from thin air.
+                var assign = Regex.Match(scriptText, "^\\s*" + Regex.Escape(arg) + JoinPathAssignment, RegexOptions.Multiline);
+                if (assign.Success) tree = assign.Groups[1].Value;
+                else residue.Add($"{PackagingScript}: 'dotnet publish {arg}' — no 'Join-Path' assignment of {arg} to a path was found, so this "
+                               + "publish call resolved to no source tree. Whatever it publishes is outside the derived set");
+            }
+            else tree = arg;
+
+            if (tree is null) continue;
+            var slashed = tree.Replace('\\', '/').TrimEnd('/');
+            var name = Path.GetFileName(slashed);
+            if (name.Length == 0 || !slashed.Contains("src/", StringComparison.OrdinalIgnoreCase))
+            {
+                residue.Add($"{PackagingScript}: 'dotnet publish {arg}' resolves to '{tree}', which is not a tree under src/ — it is not in the "
+                          + "derived set, and if it carries authored English it is outside INV1's net");
+                continue;
+            }
+            resolved++;
+            roots.Add(name);
+        }
+
+        if (calls == 0)
+            residue.Add($"{PackagingScript}: no 'dotnet publish' call was found at all. Either the script stopped publishing, or it stopped "
+                      + "spelling it this way and this derivation is reading nothing — which is why the CALL COUNT is printed, not the trees alone");
+
+        // Transitive ProjectReference closure. A project whose file cannot be read is NAMED, never treated as a
+        // leaf: a silently-empty reference list is how a tree drops out of the derived set with nothing red.
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var queue = new Queue<string>(roots);
+        while (queue.Count > 0)
+        {
+            var t = queue.Dequeue();
+            if (!seen.Add(t)) continue;
+            var refs = projectReferences(t);
+            if (refs is null)
+            {
+                residue.Add($"the project file for '{t}' could not be read, so its ProjectReferences were not followed — any tree reachable "
+                          + "ONLY through it is missing from the derived set");
+                continue;
+            }
+            foreach (var r in refs) queue.Enqueue(r);
+        }
+        return new ShipDerivation(seen.OrderBy(s => s, StringComparer.Ordinal).ToList(), calls, resolved, residue);
+    }
+
+    /// <summary>The trees one project references, by name, or null when its project file cannot be read at all.
+    /// Null rather than an empty list, because "references nothing" and "could not be asked" are different facts
+    /// and the derivation reports the second as residue.</summary>
+    static List<string>? ProjectReferencesOf(string tree)
+    {
+        var proj = Path.Combine("src", tree, tree + ".csproj");
+        if (!File.Exists(proj)) return null;
+        string xml;
+        try { xml = File.ReadAllText(proj); } catch { return null; }
+        return Regex.Matches(xml, "<ProjectReference\\s+Include\\s*=\\s*\"([^\"]+)\"")
+            .Select(m => Path.GetFileNameWithoutExtension(m.Groups[1].Value.Replace('\\', '/')))
+            .Where(n => n.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>Where the derived set and the independently written pin disagree, in both directions.</summary>
+    static List<string> DerivedSetMismatch(IReadOnlyCollection<string> derived) =>
+        PublishedShippedTrees.Where(t => !derived.Contains(t, StringComparer.OrdinalIgnoreCase))
+            .Select(t => $"'{t}' is on the published shipped-tree list but {PackagingScript} does not publish it, directly or through a "
+                       + "ProjectReference — either it stopped shipping (drop it here and from ShippedAssemblies) or the script stopped shipping it")
+            .Concat(derived.Where(t => !PublishedShippedTrees.Contains(t, StringComparer.OrdinalIgnoreCase))
+                .Select(t => $"'{t}' is published by {PackagingScript} (directly or through a ProjectReference) but is NOT on the published "
+                           + "shipped-tree list — a tree started shipping and nothing enrolled it, so whatever prose it carries is outside "
+                           + "INV1's net. Add it to ShippedAssemblies and to PublishedShippedTrees, or stop shipping it"))
             .ToList();
 
     static string Rel(string p) => Path.GetRelativePath(Directory.GetCurrentDirectory(), p).Replace('\\', '/');
@@ -401,9 +536,25 @@ public static class DescriptionVocabularyGuardProbe
         foreach (var n in NotInReach) Console.WriteLine($"          · {n}");
 
         var scanned = roots.Select(r => Path.GetFileName(r)!).ToList();
-        rootProblems.AddRange(MissingTrees(scanned));
-        Check($"GREEN-ROOTS   every tree that SHIPS was found and scanned, and it is the set written down independently here ({scanned.Count} of {PublishedShippedTrees.Length}: {string.Join(", ", scanned)})",
+        rootProblems.AddRange(TreeSetMismatch(scanned));
+        Check($"GREEN-ROOTS   [class 1, by construction] the trees SCANNED are exactly the set written down independently here — neither short one nor carrying one ({scanned.Count} of {PublishedShippedTrees.Length}: {string.Join(", ", scanned)})",
             rootProblems.Count == 0, rootProblems);
+
+        // The packaging authority, held against the same pin. Class 2 and labelled so: it reads a PowerShell
+        // script and a set of .csproj files by pattern, which is not construction — so it prints its coverage,
+        // and every publish call it could not resolve is named rather than absorbed.
+        var ship = File.Exists(PackagingScript)
+            ? DeriveShippedTrees(File.ReadAllText(PackagingScript), ProjectReferencesOf)
+            : new ShipDerivation(new List<string>(), 0, 0,
+                new List<string> { $"{PackagingScript} is not readable from '{Directory.GetCurrentDirectory()}' — nothing derived. The guard must "
+                                 + "run from the repo root; a derivation with no input cannot certify the pin, and does not pretend to" });
+        Console.WriteLine($"        packaging authority ({PackagingScript}): {ship.Resolved} of {ship.PublishCalls} 'dotnet publish' call(s) resolved to a tree "
+                        + $"under src/; ProjectReference closure -> {ship.Trees.Count} tree(s): {(ship.Trees.Count == 0 ? "(none)" : string.Join(", ", ship.Trees))}");
+        foreach (var r in ship.Residue) Console.WriteLine($"          · not derived: {r}");
+        Check($"SHIP-DERIVED  [class 2, BEST-EFFORT — reads {PackagingScript} and the .csproj graph by pattern] the trees that authority publishes are exactly the "
+            + $"published list ({ship.Resolved}/{ship.PublishCalls} publish call(s) resolved, {ship.Residue.Count} not derived and named above)",
+            DerivedSetMismatch(ship.Trees).Count == 0 && ship.Residue.Count == 0,
+            DerivedSetMismatch(ship.Trees).Concat(ship.Residue).ToList());
         Check($"INV6-PARSE    every scanned file parses as C# ({files} file(s)) — a file the parser rejects is a file whose literals are not trustworthy",
             parseProblems.Count == 0, parseProblems);
         Check($"INV6-AGREE    the two independently written readers agree about every literal in every file ({literals} literal(s), {inHoles} of them inside interpolation holes)",
@@ -1107,11 +1258,52 @@ public static class DescriptionVocabularyGuardProbe
             new() { "the coverage predicate accepts an uncovered string, rejects a covered one, or lets a one-character "
                   + "literal cover anything — INV5 would pass with the SOURCE scan reading nothing" }, redArm: true);
 
-        Check("RED-ROOTS       a shipped tree missing from the scanned set is reported, and a complete set is not",
-            MissingTrees(new[] { "housecarl-mcp", "housecarl-setup" }).Count == 1
-                && MissingTrees(PublishedShippedTrees).Count == 0,
-            new() { "the root pin does not notice a tree dropped from the scanned set, or reports one that is present — "
-                  + "shortening the assembly list would shrink INV1's net and INV5's oracle together, in silence" }, redArm: true);
+        // BOTH DIRECTIONS. The subtraction half is the original arm; the ADDITION half is new, and it is the one
+        // that was missing — the sabotage that "proved" this pin only ever removed a tree, so a tree added to the
+        // net and never enrolled here passed green and its prose entered INV1's net in silence.
+        Check("RED-ROOTS        a shipped tree missing from the scanned set is reported, an EXTRA scanned tree is reported, and a matching set is not",
+            TreeSetMismatch(new[] { "housecarl-mcp", "housecarl-setup" }).Count == 1
+                && TreeSetMismatch(PublishedShippedTrees.Append("housecarl-newthing").ToList()).Count == 1
+                && TreeSetMismatch(new[] { "housecarl-mcp", "housecarl-newthing" }).Count == 3
+                && TreeSetMismatch(PublishedShippedTrees).Count == 0,
+            new() { "the root pin does not notice a tree dropped from the scanned set, does not notice one ADDED to it, or "
+                  + "reports a set that matches — dropping a tree shrinks INV1's net and INV5's oracle together, and adding "
+                  + "one puts a tree's prose in the net with nothing having enrolled it" }, redArm: true);
+
+        // The packaging derivation, driven over a synthetic script and a synthetic project graph: the shape it
+        // must read, and the three shapes it must REFUSE rather than absorb. The counts are the arm's denominator,
+        // so they are asserted, not just printed.
+        const string ps1 = "$McpProj   = Join-Path $RepoRoot 'src\\housecarl-mcp'\n"
+                         + "$SetupProj = Join-Path $RepoRoot 'src\\housecarl-setup'\n"
+                         + "dotnet publish $McpProj -c Release -o $ServerDir\n"
+                         + "dotnet publish $SetupProj -c Release -o $PkgRoot\n";
+        static List<string>? Graph(string t) => t switch
+        {
+            "housecarl-mcp" => new List<string> { "housecarl-core" },
+            "housecarl-setup" => new List<string>(),
+            "housecarl-core" => new List<string>(),
+            _ => null,
+        };
+        var good = DeriveShippedTrees(ps1, Graph);
+        var noAssign = DeriveShippedTrees("dotnet publish $Mystery -c Release\n", Graph);
+        var notSrc = DeriveShippedTrees("dotnet publish $P\n$P = Join-Path $R 'tools\\thing'\n", Graph);
+        var unreadable = DeriveShippedTrees(ps1.Replace("housecarl-setup", "housecarl-ghost"), Graph);
+        var silent = DeriveShippedTrees("# the script stopped publishing anything\n", Graph);
+
+        Check("RED-SHIPDERIVE   the packaging derivation follows publish calls through the ProjectReference graph, and NAMES every call it could not resolve",
+            good.Trees.SequenceEqual(new[] { "housecarl-core", "housecarl-mcp", "housecarl-setup" }, StringComparer.Ordinal)
+                && (good.PublishCalls, good.Resolved, good.Residue.Count) == (2, 2, 0)
+                && DerivedSetMismatch(good.Trees).Count == 0
+                && (noAssign.PublishCalls, noAssign.Resolved, noAssign.Residue.Count) == (1, 0, 1)
+                && (notSrc.PublishCalls, notSrc.Resolved, notSrc.Residue.Count) == (1, 0, 1)
+                && unreadable.Residue.Count == 1 && !unreadable.Trees.Contains("housecarl-setup")
+                && (silent.PublishCalls, silent.Resolved, silent.Residue.Count) == (0, 0, 1)
+                && DerivedSetMismatch(new[] { "housecarl-mcp", "housecarl-core", "housecarl-setup", "housecarl-extra" }).Count == 1
+                && DerivedSetMismatch(new[] { "housecarl-mcp", "housecarl-core" }).Count == 1,
+            new() { "the derivation loses a tree reachable only through a ProjectReference, absorbs an unresolvable publish "
+                  + "call instead of naming it, treats an unreadable .csproj as a leaf, reports a denominator that does not "
+                  + "match the calls in the script, or stays silent when the script publishes nothing at all — any of which "
+                  + "lets a tree start shipping with its prose outside INV1's net and nothing red" }, redArm: true);
 
         AgreementArms();
         ReaderArms();
