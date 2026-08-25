@@ -1649,6 +1649,8 @@ public static class DescriptionVocabularyGuardProbe
                 """;
             var n = $$$"""a {{ doubled brace pair }} kept and a {{{hole}}} opened""";
             var o = $$"""a {{{value}}} hole with one surplus brace, and a { single one""";
+            var p = @"""quoted"" opens this verbatim string";
+            var q = "an ANSI reset \e[0m sits in console prose";
             """";
 
         var a = RoslynLiteralReader.Read(fixture, out var parseErrors);
@@ -1681,6 +1683,12 @@ public static class DescriptionVocabularyGuardProbe
             // A run longer than the opener count is a surplus brace of content plus the opener; reader B took the
             // whole run as the opener and dropped that character.
             "a {{\u2026}} hole with one surplus brace, and a { single one",
+            // A verbatim literal that OPENS on an escaped quote. Reader B decided raw-vs-regular on the quote
+            // run alone, so @"""… read as a raw string: the wrong text, or the rest of the file swallowed.
+            "\"quoted\" opens this verbatim string",
+            // C# 13's \e (U+001B). Reader A decodes it at LanguageVersion.Preview; reader B had no arm for it
+            // and appended the letter instead, so the two disagreed about text neither had lost.
+            "an ANSI reset \u001b[0m sits in console prose",
         };
         var sentences = MergeSentences(fixture, a).Select(l => l.Text).ToList();
         // Compared with line terminators normalized on BOTH sides. This fixture is a raw string in this file, so
