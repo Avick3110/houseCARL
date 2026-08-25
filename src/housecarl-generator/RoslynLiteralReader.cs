@@ -22,7 +22,8 @@ namespace HousecarlGenerator;
 /// stopping early makes the two disagree and turns it red, naming the file.</para>
 ///
 /// <para><b>Parsing, not compiling.</b> No references are resolved and no semantic model is built — this is a
-/// syntax parse of one file at a time, which is why it costs ~1.6s over the whole shipped surface. The parse is
+/// syntax parse of one file at a time, and it dominates the guard's cost: the whole run over the shipped surface
+/// takes about two seconds end to end rather than milliseconds. The parse is
 /// run at <see cref="LanguageVersion.Preview"/> so a language feature newer than the pinned package is a PARSE
 /// ERROR that <c>INV6-PARSE</c> reports by name, rather than a construct silently misread into fewer literals.</para>
 /// </summary>

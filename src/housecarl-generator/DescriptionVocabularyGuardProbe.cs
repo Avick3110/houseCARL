@@ -16,8 +16,11 @@ namespace HousecarlGenerator;
 /// consts and reach neither; <c>wire-names-guard</c> does reach a <c>[Description]</c>, but only to parse the
 /// brace shape declaration out of it and hold that against the reflected wire names — it has no opinion about the
 /// sentence the declaration sits in, and a stale consent claim is invisible to it. So the in-place consent fix (#378) — which changed exactly one fact, that a REFUSED
-/// call records nothing — left stale text behind that four separate hand sweeps found in four separate homes, each
-/// sweep triggered by a reviewer noticing a claim by eye rather than by anything going red.</para>
+/// call records nothing — left stale text behind that took FOUR sweeps to clear: three, run surface by surface,
+/// found thirteen stale claims (the acknowledge= parameters, the WriteTools lane parentheticals, the two handshake
+/// builders), and a fourth, run repo-wide by VOCABULARY instead, found fourteen more in homes the first three had
+/// no reason to look at. Three of the four were triggered by a reviewer noticing a claim by eye rather than by
+/// anything going red.</para>
 ///
 /// <para><b>Two readers, because a completeness claim cannot certify itself.</b> This is the third design. The
 /// first enumerated the surface by REFLECTION and was class-stopped: five measured routes carried a consent
@@ -236,8 +239,9 @@ public static class DescriptionVocabularyGuardProbe
         "shipped JSON data files and the generated corpus (machine-shaped identifiers and paths; nothing in them is a sentence)",
         "whether a sentence built entirely of known words is TRUE (vocabulary, not truth — #308's boundary)",
         "prose inside a conditional-compilation region — reader A parses with no symbols defined and reader B has "
-            + "no notion of directives, so the two would report a disagreement rather than a shared answer. There "
-            + "are none in the shipped trees, and INV6-DIRECTIVES holds that true rather than assuming it",
+            + "no notion of directives, so a literal in a disabled arm is outside the net and one in an enabled arm "
+            + "makes the two disagree. The count of regions in the scanned trees is printed on every run, and "
+            + "INV6-DIRECTIVES names one whenever it could explain a disagreement the readers actually had",
     };
 
     // ================= entry =================
@@ -282,7 +286,8 @@ public static class DescriptionVocabularyGuardProbe
     /// <summary>Every assembly that SHIPS and carries authored English. The tool surface (<c>housecarl-mcp</c>),
     /// the write engine with its sentence consts (<c>housecarl-core</c>), and the setup utility
     /// (<c>housecarl-setup</c>), which <c>build-plugin.ps1</c> publishes into the package root beside the plugin
-    /// and which talks to a modder in ~45 lines of console prose. The setup tree was named in #386's second
+    /// and which talks to a modder in 47 <c>Console.Write*</c> calls, 37 of them opening on a literal. The setup
+    /// tree was named in #386's second
     /// escalation as an unscanned caller-facing surface; it is scanned, not excluded.
     /// <para>The generator is absent because it is the INSPECTOR, not the inspected: its probes quote the
     /// vocabulary in order to assert on it, and a scanner that treated its own statement of a rule as an instance
@@ -487,7 +492,8 @@ public static class DescriptionVocabularyGuardProbe
         var sentences = new List<Sentence>();
         var parseProblems = new List<string>();
         var agreeProblems = new List<string>();
-        var directiveProblems = new List<string>();
+        var directivesByFile = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        var readersDisagreeIn = new HashSet<string>(StringComparer.Ordinal);
         long chars = 0;
         int files = 0, literals = 0, inHoles = 0;
 
@@ -502,7 +508,8 @@ public static class DescriptionVocabularyGuardProbe
                 try { text = File.ReadAllText(file); }
                 catch (Exception ex) { parseProblems.Add($"{label}: could not be read — {ex.GetType().Name}: {ex.Message}"); continue; }
 
-                directiveProblems.AddRange(ConditionalDirectives(label, text));
+                var directives = ConditionalDirectives(label, text);
+                if (directives.Count > 0) directivesByFile[label] = directives;
 
                 // Each reader is attempted separately and a throw NAMES ITS FILE. The second design wrapped the
                 // whole guard in one catch, so a single malformed escape reported "the guard threw" and took all
@@ -518,7 +525,12 @@ public static class DescriptionVocabularyGuardProbe
                 List<SourceLiteral>? b = null;
                 try { b = HandLiteralLexer.Read(text); }
                 catch (Exception ex) { agreeProblems.Add($"{label}: READER B threw — {ex.GetType().Name}: {ex.Message}"); }
-                if (b is not null) agreeProblems.AddRange(Disagreements(label, a, b));
+                if (b is not null)
+                {
+                    var disagreements = Disagreements(label, a, b);
+                    if (disagreements.Count > 0) readersDisagreeIn.Add(label);
+                    agreeProblems.AddRange(disagreements);
+                }
 
                 foreach (var s in MergeSentences(text, a))
                 {
@@ -565,7 +577,24 @@ public static class DescriptionVocabularyGuardProbe
             parseProblems.Count == 0, parseProblems);
         Check($"INV6-AGREE    the two independently written readers agree about every literal in every file ({literals} literal(s), {inHoles} of them inside interpolation holes)",
             agreeProblems.Count == 0, agreeProblems);
-        Check($"INV6-DIRECTIVES no scanned file carries conditional compilation, which the two readers are entitled to read differently ({files} file(s))",
+        // SCOPED to files the two readers actually disagree about. It reported every conditional region in every
+        // scanned file until 2026-08-25, which reds on a #if that carries no literal at all — nothing for either
+        // reader to read differently — and on a "#if" sitting inside a multi-line verbatim or raw literal, which
+        // is not a directive. Both are green facts wearing a red remedy about prose. A directive can only BE the
+        // cause of a disagreement in a file where a disagreement exists, so that is the file set it speaks about;
+        // the rest are a census line, printed, because the boundary stays visible either way.
+        var directiveProblems = directivesByFile
+            .Where(kv => readersDisagreeIn.Contains(kv.Key))
+            .SelectMany(kv => kv.Value)
+            .ToList();
+        Console.WriteLine($"        conditional-compilation regions: {directivesByFile.Values.Sum(v => v.Count)} in "
+                        + $"{directivesByFile.Count} scanned file(s)"
+                        + (directivesByFile.Count == 0
+                            ? " — the construct the two readers are entitled to read differently is absent"
+                            : $": {string.Join(", ", directivesByFile.Keys)}"));
+        Check($"INV6-DIRECTIVES no file the two readers DISAGREE about carries conditional compilation — the one construct in "
+            + "ordinary C# that would explain a disagreement rather than a reader having stopped "
+            + $"({readersDisagreeIn.Count} file(s) in disagreement, {directivesByFile.Count} carrying a directive)",
             directiveProblems.Count == 0, directiveProblems);
         Console.WriteLine();
         return sentences;
@@ -582,7 +611,9 @@ public static class DescriptionVocabularyGuardProbe
     /// what either reader sees, so they are not named.</para></summary>
     static List<string> ConditionalDirectives(string label, string src) =>
         Regex.Matches(src, @"^[ \t]*#[ \t]*(if|elif|else|endif)\b", RegexOptions.Multiline)
-            .Select(m => $"{label}:{src.Take(m.Index).Count(c => c == '\n') + 1}: a conditional-compilation directive. "
+            .Select(m => $"{label}:{src.Take(m.Index).Count(c => c == '\n') + 1}: a conditional-compilation directive — or, "
+                       + "inside a multi-line verbatim or raw literal, text shaped like one, which this reads by "
+                       + "line and cannot tell apart. "
                        + "Reader A parses with no symbols defined and never sees the disabled arm; reader B reads every "
                        + "arm. Thread the build's symbols into BOTH readers, or do not ship prose from a #if region — "
                        + "teaching reader B to skip disabled text would hide the defined-symbol case from INV1 in silence.")
@@ -1185,9 +1216,14 @@ public static class DescriptionVocabularyGuardProbe
     /// verb it lands on — that is authored prose, the residue #337/#330 ruled non-mechanizable, and the guard
     /// catches unknown vocabulary rather than false sentences. What it makes structural is the COUPLING: the
     /// gloss's subject is identified by position, so the position is now a checked fact.</para>
-    /// <para>If a future edit makes the gloss name its own subject, the pin steps aside rather than punishing the
-    /// improvement: a glued parenthetical that names exactly one verb is held against THAT verb, since it no
-    /// longer depends on position at all.</para></summary>
+    /// <para><b>A self-naming gloss changes WHICH verb is pinned, and nothing more.</b> When the parenthetical
+    /// names exactly one verb, that verb becomes the subject instead of <see cref="TailGlossVerb"/> — but the arm
+    /// still requires the recital to END with it. So following this docstring's own former advice (reword the
+    /// gloss to name its subject) and then appending a ninth verb still reds the arm, on a description that reads
+    /// correctly. That paragraph claimed the pin "steps aside"; it does not, and saying so was the same class of
+    /// stale sentence this guard exists to catch. The conservatism is deliberate — the gloss is still glued to the
+    /// tail, and nothing here can tell whether a reader binds it to the name or to the adjacency — but it is a
+    /// limitation, recorded, not a courtesy the arm extends.</para></summary>
     static void TailGlossArm(IEnumerable<SurfaceSite> surface)
     {
         var problems = new List<string>();
@@ -1348,7 +1384,11 @@ public static class DescriptionVocabularyGuardProbe
         }
     }
 
-    /// <summary>The verb names a const recital states, read the same way a description's is.</summary>
+    /// <summary>The verb names a const recital states. Read more loosely than a recital on a DESCRIPTION is: this
+    /// splits on <c>|</c> alone and takes whatever is between the separators, while <see cref="Run"/> also admits
+    /// <c>/</c> and requires each token to be Capitalised. The looseness is deliberate here — a const that stopped
+    /// being a well-formed recital should reach INV4-HOMES as a disagreement about the NAMES, not vanish from the
+    /// comparison for failing a shape test.</summary>
     static List<string> RecitalNames(string recital) =>
         Parenthetical.Replace(recital, " ").Split('|').Select(t => t.Trim()).Where(t => t.Length > 0).ToList();
 
