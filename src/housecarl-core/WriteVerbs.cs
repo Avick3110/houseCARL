@@ -93,9 +93,9 @@ public static class WriteVerbs
         new[] { "Set", "Add", "Remove", "SetAtIndex", "InsertAtIndex", "ReplaceAll", "Merge", "CopyFrom" };
 
     /// <summary>The same vocabulary as the CALLER-FACING recital a <c>[Description]</c> prints — the pipe-joined
-    /// form, with the defaulting verb marked. Every tool description that names the WHOLE verb set concatenates
-    /// this instead of typing the names out (<c>ApplyTools</c>'s <c>op=</c>, the <c>ApplyOp.op</c> and
-    /// <c>BulkOp.verb</c> shape declarations).
+    /// form, with the defaulting verb marked. Three shipped descriptions concatenate it today rather than typing
+    /// the names out: <c>ApplyTools</c>'s <c>op=</c> method prose, the <c>ApplyOp.op</c> shape declaration, and
+    /// the <c>BulkOp.verb</c> one.
     ///
     /// <para><b>Why a second member, rather than reading <see cref="All"/> there.</b> An attribute argument must be
     /// a compile-time constant, and <see cref="All"/> is a collection built at runtime — so a description literally
@@ -104,10 +104,12 @@ public static class WriteVerbs
     /// when it added <c>InsertAtIndex</c>, and the one PR #339 retired everywhere it could reach. This is that
     /// pattern applied to the description surface (#386).</para>
     ///
-    /// <para>Two members are still two statements of one fact, so they are HELD TOGETHER rather than trusted:
-    /// <c>description-vocab-guard</c>'s INV4 asserts this recital names exactly <see cref="All"/>, and asserts both
-    /// against a vocabulary written independently inside the guard — the second spelling that lets the check fail,
-    /// since comparing either of these to the other alone would pass just as happily on two matching mistakes.</para></summary>
+    /// <para><b>What this does NOT establish.</b> Two members are two statements of one fact, and nothing here
+    /// holds them together: no build step asserts that this recital names exactly <see cref="All"/>. Nor does
+    /// anything stop a future description from hand-typing the whole set instead of concatenating this — a site
+    /// that did would be the #302 edit-every-site regression back again, silently. The three sites named above are
+    /// a statement about the code as it stands, not a property anything enforces. Making both of those checkable
+    /// is #386's job; this const is the single home the check would be written against.</para></summary>
     public const string AllRecital = "Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge | CopyFrom";
 
     /// <summary>The verbs that work on <paramref name="shape"/>, each with the slot it consumes and the phrase a
