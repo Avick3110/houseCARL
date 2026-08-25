@@ -430,6 +430,23 @@ public sealed class CorpusRulebook
         // Set arm was written to close, reached through a third door.
         if (SchemaClassifier.IsOwnedChildRecord(leaf, _corpus))
             return OwnedChildSetRefusal(leaf);
+        // …and the COLLECTION twin of that shape, which the singular predicate above does not match and which
+        // therefore fell through to the not-composable label below — a label that reads the element kind off
+        // FormLinkTarget, and so called Cell.Persistent's owned child records "coercible values (Placed)" while the
+        // derived tail beside it correctly named the record axis. One sentence asserting two contradictory facts,
+        // and the HEAD was the false half: step-4-rec refuses every plain-value verb on that field.
+        //
+        // Asked HERE, before the label, and answered from the SAME classification step-4-rec decides with, so head
+        // and tail come from one reading of the field rather than two. Deliberately NOT verb-scoped the way
+        // step-4-rec is: composes= is a build-from-parts INPUT surface, and a record is not built from parts under
+        // any verb, so this answer does not depend on which verb arrived.
+        //
+        // The singular refusal above cannot carry this wording, because its remedy is the opposite one: a singular
+        // child routes to #350 ("giving a parent a child it lacks is an open gap") since create_record parent= is
+        // MEASURED refused for it, while the collection form is the shape parent= serves. Two shapes, two measured
+        // remedies, two sentences — not a near-twin fork.
+        if (IsOwnedChildRecordCollection(leaf))
+            return OwnedChildRecordCollectionRefusal(leaf);
         if (leaf.Cardinality != "list")
             return $"composes= builds a LIST of modeled elements, but '{leaf.Name}' on '{owner.Name}' is a " +
                    $"{leaf.Cardinality}. (A dict takes keyed entries, not a positional list; a substruct/scalar takes " +
@@ -510,7 +527,10 @@ public sealed class CorpusRulebook
                    "another plugin use housecarl_forward_record on the CHILD record itself; read the parent at " +
                    $"depth=2 and the '{leaf.Name}' field shows the child's FormID. Giving a parent a child it does " +
                    "not have is an open gap (#350).";
-        if (leaf.Cardinality is "list" or "dict" && SchemaClassifier.ClassifyElement(leaf, _corpus) == ElementKind.Record)
+        // The same recogniser as the other two collection doors; the SENTENCE stays this door's own, because
+        // CopyFrom's measured remedy is forward_record (carrying across a record that already exists) rather than
+        // create_record parent= alone. Shared predicate, per-door remedy.
+        if (IsOwnedChildRecordCollection(leaf))
             return $"'{leaf.Name}' on '{owner.Name}' holds owned child records ({leaf.ElementTypeRef}); CopyFrom copies a " +
                    "FIELD's value, not owned child records. To carry the WHOLE record from another plugin use " +
                    "housecarl_forward_record; a child record is authored on its own (housecarl_create_record with parent=).";
@@ -536,6 +556,33 @@ public sealed class CorpusRulebook
         $"itself by its own FormID — read the parent at depth=2 and the '{leaf.Name}' field shows it. A path through " +
         "the parent reaches a child only when the record being written already carries one, which a patch's fresh " +
         "override of a parent never does; giving a parent a child it lacks is an open gap (#350).";
+
+    /// <summary>True iff a leaf is the COLLECTION form of the owned-child shape — a list/dict whose ELEMENT is an
+    /// owned child record (<c>Cell.Persistent</c>, <c>DialogTopic.Responses</c>, the typed record groups). The
+    /// collection twin of <see cref="SchemaClassifier.IsOwnedChildRecord"/>, which matches only the SINGULAR shape.
+    /// <para/>
+    /// It exists as one named predicate because three separate doors ask the question — the collection verbs
+    /// (step 4-rec), <c>composes=</c> (<see cref="ComposesLegality"/>) and <c>CopyFrom</c> — and the composes=
+    /// door did NOT ask it: it fell through to a label that reads the element kind off <c>FormLinkTarget</c> and so
+    /// called an owned child record "coercible". A door that has to remember to run the test can forget to.</summary>
+    bool IsOwnedChildRecordCollection(FieldSchema leaf) =>
+        leaf.Cardinality is "list" or "dict" && SchemaClassifier.ClassifyElement(leaf, _corpus) == ElementKind.Record;
+
+    /// <summary>The ONE sentence every element-PLACING door at an owned-child-record COLLECTION gets — a plain-value
+    /// or composed Add / SetAtIndex / InsertAtIndex / ReplaceAll, and <c>composes=</c> alike. Shared for the reason
+    /// <see cref="OwnedChildSetRefusal"/> is: the doors reach one shape by different routes, and a per-door phrasing
+    /// is where one of them starts describing the field differently from the others.
+    /// <para/>
+    /// The remedy it names is the MEASURED one for THIS shape (and the one the singular twin must not name):
+    /// nested-create-guard's INTOCELL arm creates a PlacedObject with <c>parent=</c> the cell and
+    /// <c>collection=Persistent</c> and reads it back out of the cell override's Persistent list, and the arm beside
+    /// it measures <c>collection=</c> being REQUIRED when the parent holds more than one fitting list — which is
+    /// why the parenthetical names it rather than leaving the caller to a second refusal.</summary>
+    static string OwnedChildRecordCollectionRefusal(FieldSchema leaf) =>
+        $"'{leaf.Name}' holds owned child records ({leaf.ElementTypeRef}); a child record is created on its " +
+        "own (the record axis), not added into a parent's collection by a write verb. Use housecarl_create_record " +
+        "/ housecarl_bulk_create with parent= the parent's FormID (and collection= when the parent holds more " +
+        "than one fitting list) — surfaced here, never accepted and thrown at apply.";
 
     // ---- writability rejection (plan §3 P-DISC) ----
     static string WritabilityRejection(TypeSchema owner, FieldSchema leaf)
@@ -849,12 +896,13 @@ public sealed class CorpusRulebook
         // two paths: BuildStruct -> Instantiate -> CompositionRequiredException with a compose, "No coercion rule"
         // with a plain value. Its position argument changes nothing about that — a child record is allocated on the
         // record axis whichever slot of a parent's list it would land in.
-        if (leaf.Cardinality is "list" or "dict" && req.Verb is "Add" or "SetAtIndex" or "InsertAtIndex" or "ReplaceAll"
-            && SchemaClassifier.ClassifyElement(leaf, _corpus) == ElementKind.Record)
-            return $"'{leaf.Name}' holds owned child records ({leaf.ElementTypeRef}); a child record is created on its " +
-                   "own (the record axis), not added into a parent's collection by a write verb. Use housecarl_create_record " +
-                   "/ housecarl_bulk_create with parent= the parent's FormID (and collection= when the parent holds more " +
-                   "than one fitting list) — surfaced here, never accepted and thrown at apply.";
+        //
+        // The SENTENCE moved to OwnedChildRecordCollectionRefusal and the PREDICATE to
+        // IsOwnedChildRecordCollection, because composes= reaches this same shape through a door that never gets
+        // here (it short-circuits at 3a-composes, well above step 4) and answered it with a hand-written label
+        // instead. One recogniser and one sentence, so the doors cannot disagree about what the field holds.
+        if (IsOwnedChildRecordCollection(leaf) && req.Verb is "Add" or "SetAtIndex" or "InsertAtIndex" or "ReplaceAll")
+            return OwnedChildRecordCollectionRefusal(leaf);
         // (step 4) collection-verb value legality. A struct-element OR arm-element list takes a build-from-parts
         // StructSpec on Add — NOT a plain value — which is wave-1 half B composition (an ARM element composes by its
         // concrete arm type, validated against that arm's own schema — the VMAD shape, #35; before this, arm-element

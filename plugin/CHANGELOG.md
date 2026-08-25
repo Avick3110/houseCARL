@@ -33,7 +33,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   derive the verbs they offer from the field's own shape — its cardinality, and whether its elements are
   plain values, built from parts, or child records — so a dict is never offered an index verb, a list is never
   offered `Merge`, and a collection of child records is pointed at the record axis instead of at a verb that
-  will refuse. Each suggested verb also states the input it needs (`compose=`, `values=`, `key=`), which the
+  will refuse. `composes=` reaches a field ahead of those checks and is answered from the same classification,
+  so it describes a collection of child records the way the verbs do rather than calling its elements coercible.
+  Each suggested verb also states the input it needs (`compose=`, `values=`, `key=`), which the
   old messages left you to infer. What a message names is checked against what the write pre-flight actually
   accepts, for every collection field in the record library, in both directions.
 

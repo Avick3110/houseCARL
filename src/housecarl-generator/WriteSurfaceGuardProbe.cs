@@ -1499,6 +1499,30 @@ public static class WriteSurfaceGuardProbe
                 new WriteRequest { RecordType = "Cell", Path = new[] { "Persistent" }, Verb = "SetAtIndex", Key = "0",
                     Struct = new StructSpec { Type = "PlacedObject" } },
                 "holds owned child records"),
+            // THE DOOR THIS TABLE MISSED. composes= at the LIST form of the family: the rows above cover composes=
+            // at the SINGULAR child and every collection verb at the list, but not the batch input surface AT the
+            // list — and that is the one door composes= reaches by short-circuiting above step 4, so it answered
+            // from its own hand-written label rather than from the shape. Measured at 4130d5d, this row's mustSay
+            // was absent and the message said "holds coercible values (Placed)" instead, in the same sentence whose
+            // derived tail named the record axis.
+            ("composes= at the LIST form — the batch input surface, which short-circuits above the collection verbs",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Persistent" }, Verb = "Add",
+                    Structs = new[] { new StructSpec { Type = "PlacedObject" } } },
+                "holds owned child records"),
+            ("composes= at the LIST form, ReplaceAll — the other verb that reaches it, so the answer is the input surface's and not one verb's",
+                new WriteRequest { RecordType = "Cell", Path = new[] { "Persistent" }, Verb = "ReplaceAll",
+                    Structs = new[] { new StructSpec { Type = "PlacedObject" } } },
+                "holds owned child records"),
+            ("composes= at the LIST form of the OTHER record-element family, so the answer is the shape's and not one field's",
+                new WriteRequest { RecordType = "DialogTopic", Path = new[] { "Responses" }, Verb = "Add",
+                    Structs = new[] { new StructSpec { Type = "DialogResponses" } } },
+                "holds owned child records"),
+            // CONTROL for the row above — the clause sits immediately before the composes= cardinality sentence, so
+            // an ordinary MODELED list is what proves it did not widen to every list with a composes= on it.
+            ("CONTROL composes= on an ordinary modeled list still reaches the composes= surface",
+                new WriteRequest { RecordType = "Faction", Path = new[] { "Conditions" }, Verb = "Set",
+                    Structs = new[] { new StructSpec { Type = "ConditionFloat" } } },
+                "composes= appends/replaces a LIST"),
             // The composes= control has to be an ordinary SUBSTRUCT, not an ordinary list: the record clause sits
             // immediately before the "composes= builds a LIST … but this is a {cardinality}" sentence, so only a
             // non-record substruct crosses the same branch and proves the clause did not widen. (Added after the

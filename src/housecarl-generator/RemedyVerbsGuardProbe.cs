@@ -386,6 +386,37 @@ public static class RemedyVerbsGuardProbe
                 && !coercibleComposes.Contains("use it with Add", StringComparison.Ordinal),
             coercibleComposes ?? "(accepted)");
 
+        // The FOURTH shape that reaches the composes= refusal, and the one this arm set did not fixture: a list of
+        // owned child RECORDS. It has no placing verb at all, so it cannot be CheckShaped — the assertion is that
+        // the whole sentence comes off ONE classification. The head used to be a two-way formlink/coercible ternary
+        // with no arm for a record element, so Cell.Persistent was told it "holds coercible values (Placed)" in the
+        // same sentence whose derived tail said "its elements are owned child RECORDS". Both halves are asserted
+        // here — the record-axis remedy present, AND the coercible/formlink/not-modeled-structs vocabulary of the
+        // label absent — because either one alone stays green on the contradiction.
+        foreach (var (rec, field) in new[] { ("Cell", "Persistent"), ("DialogTopic", "Responses") })
+        {
+            var m = Rules.Validate(new WriteRequest { RecordType = rec, Path = new[] { field }, Verb = "Add",
+                Structs = new[] { new StructSpec { Type = "PlacedObject" } } });
+            Check($"SITE-COMPOSES-OWNEDRECORD — composes= on {rec}.{field} (a list of owned child records) gets the record axis, and no half of the sentence calls those elements coercible or formlink",
+                m is not null
+                    && m.Contains("owned child records", StringComparison.Ordinal)
+                    && m.Contains("housecarl_create_record", StringComparison.Ordinal)
+                    && !m.Contains("coercible", StringComparison.Ordinal)
+                    && !m.Contains("formlink", StringComparison.Ordinal)
+                    && !m.Contains("not modeled structs", StringComparison.Ordinal)
+                    && !ListOnly.Any(v => m.Contains(v, StringComparison.Ordinal)),
+                m ?? "(accepted)");
+        }
+        // …and it is the SAME sentence the collection-verb door gives, not a near-twin: one shape, one description
+        // of what the field holds, whichever input surface the caller used to reach it.
+        var composesRec = Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Persistent" },
+            Verb = "Add", Structs = new[] { new StructSpec { Type = "PlacedObject" } } });
+        var verbRec = Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Persistent" },
+            Verb = "Add", Struct = new StructSpec { Type = "PlacedObject" } });
+        Check("SITE-COMPOSES-OWNEDRECORD-ONE-SENTENCE — the composes= door and the collection-verb door give one sentence, not two phrasings of the shape",
+            composesRec is not null && string.Equals(composesRec, verbRec, StringComparison.Ordinal),
+            $"composes=[{composesRec ?? "(accepted)"}] || verb=[{verbRec ?? "(accepted)"}]");
+
         // (6) THE class-A medium: the modeled-elements message, emitted for a list OR a dict.
         CheckShaped("SITE-MODELED-LIST — a values= ReplaceAll on a modeled LIST is answered with the list's own placing verbs",
             Rules.Validate(new WriteRequest { RecordType = "Faction", Path = new[] { "Conditions" }, Verb = "ReplaceAll",
