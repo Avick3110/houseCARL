@@ -85,13 +85,30 @@ public readonly record struct VerbUse(string Verb, VerbInput Input, bool NeedsKe
 /// </summary>
 public static class WriteVerbs
 {
-    /// <summary>Every verb the write surface accepts, in the order the shipped tool descriptions list them
-    /// (checked: <c>ApplyTools</c>'s <c>op</c> reads "Set | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll
-    /// | Merge | CopyFrom"). The one home in CODE for the NAMES; <see cref="On"/> is the one home for which of them
-    /// apply where. The prose home is the tool-surface SPEC, which CLAUDE.md points readers at — these are two
-    /// homes for two audiences, not two authorities on one fact.</summary>
+    /// <summary>Every verb the write surface accepts, in the order the shipped tool descriptions list them. The one
+    /// home in CODE for the NAMES; <see cref="On"/> is the one home for which of them apply where. The prose home is
+    /// the tool-surface SPEC, which CLAUDE.md points readers at — these are two homes for two audiences, not two
+    /// authorities on one fact.</summary>
     public static readonly IReadOnlyList<string> All =
         new[] { "Set", "Add", "Remove", "SetAtIndex", "InsertAtIndex", "ReplaceAll", "Merge", "CopyFrom" };
+
+    /// <summary>The same vocabulary as the CALLER-FACING recital a <c>[Description]</c> prints — the pipe-joined
+    /// form, with the defaulting verb marked. Every tool description that names the WHOLE verb set concatenates
+    /// this instead of typing the names out (<c>ApplyTools</c>'s <c>op=</c>, the <c>ApplyOp.op</c> and
+    /// <c>BulkOp.verb</c> shape declarations).
+    ///
+    /// <para><b>Why a second member, rather than reading <see cref="All"/> there.</b> An attribute argument must be
+    /// a compile-time constant, and <see cref="All"/> is a collection built at runtime — so a description literally
+    /// cannot read it. The choice is therefore between one <c>const</c> the descriptions share and one hand-typed
+    /// copy per description — and the hand-typed arrangement is the one #302 had to go round and edit site by site
+    /// when it added <c>InsertAtIndex</c>, and the one PR #339 retired everywhere it could reach. This is that
+    /// pattern applied to the description surface (#386).</para>
+    ///
+    /// <para>Two members are still two statements of one fact, so they are HELD TOGETHER rather than trusted:
+    /// <c>description-vocab-guard</c>'s INV4 asserts this recital names exactly <see cref="All"/>, and asserts both
+    /// against a vocabulary written independently inside the guard — the second spelling that lets the check fail,
+    /// since comparing either of these to the other alone would pass just as happily on two matching mistakes.</para></summary>
+    public const string AllRecital = "Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge | CopyFrom";
 
     /// <summary>The verbs that work on <paramref name="shape"/>, each with the slot it consumes and the phrase a
     /// remedy prints for it. Indexed by shape — the two facts in <see cref="CollectionShape"/> are the whole input,

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ModelContextProtocol.Server;
+using HousecarlCore;
 
 namespace HousecarlMcp;
 
@@ -47,7 +48,7 @@ public static class ApplyTools
          "dotted ('BasicStats.Damage', 'Name', 'Keywords'); step INTO a list/dict element MID-path with brackets " +
          "('Effects[0].Data.Magnitude'), but at the LEAF use op + key instead of brackets. value is coerced to the " +
          "field's real type — a number, an enum name ('OneHanded'), or a FormID for a reference.\n" +
-         "op is Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge | CopyFrom. " +
+         "op is " + WriteVerbs.AllRecital + ". " +
          "InsertAtIndex inserts a NEW element AT key= and shifts the rest right (key = the list's length appends); use it to grow a POSITION-CONTIGUOUS run in place, e.g. adding an arm to an existing CTDA OR-group, where Add would land the row at the end as a separate AND-group. On a [Flags] enum (SPEL " +
          "Flags, NPC Configuration.Flags, WEAP Data.Flags...) Add SETS a bit and Remove CLEARS one, leaving the " +
          "OTHER bits untouched — the way to flip one flag WITHOUT a Set silently dropping every bit you didn't " +
@@ -350,7 +351,7 @@ public sealed record ApplyOp
     [JsonPropertyName("field_path"), Description("Dotted field path, e.g. 'BasicStats.Damage' or 'Entries'. Step into a list/dict element mid-path with brackets ('Effects[0].Data.Magnitude'); at the LEAF use op + key, not brackets.")]
     public string? FieldPath { get; init; }
 
-    [JsonPropertyName("op"), Description("Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge | CopyFrom. SetAtIndex OVERWRITES the element at key=; InsertAtIndex inserts a new one AT key= and shifts the rest right (key = the list's length appends). On a [Flags] enum, Add sets one bit and Remove clears one, leaving the others untouched.")]
+    [JsonPropertyName("op"), Description(WriteVerbs.AllRecital + ". SetAtIndex OVERWRITES the element at key=; InsertAtIndex inserts a new one AT key= and shifts the rest right (key = the list's length appends). On a [Flags] enum, Add sets one bit and Remove clears one, leaving the others untouched.")]
     public string? Op { get; init; }
 
     [JsonPropertyName("value"), Description("The value, coerced to the field's type. Omit for Remove / ReplaceAll / Merge / compose / CopyFrom.")]
