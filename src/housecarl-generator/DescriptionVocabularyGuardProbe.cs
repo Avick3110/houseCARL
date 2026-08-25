@@ -238,6 +238,10 @@ public static class DescriptionVocabularyGuardProbe
         "third-party library messages surfaced to a caller (not ours to author, and not ours to fix)",
         "shipped JSON data files and the generated corpus (machine-shaped identifiers and paths; nothing in them is a sentence)",
         "whether a sentence built entirely of known words is TRUE (vocabulary, not truth — #308's boundary)",
+        "a COMPANION clause that lives in a different sentence from its phrase — the companion test reads one "
+            + "authored sentence, and a const reference breaks a run, so single-sourcing a claim without its "
+            + "correction reds on caller text that did not change. Moving both together is the fix; an exemption "
+            + "row is not, and MaxExemptions is deliberately too small to make it one",
         "prose inside a conditional-compilation region — reader A parses with no symbols defined and reader B has "
             + "no notion of directives, so a literal in a disabled arm is outside the net and one in an enabled arm "
             + "makes the two disagree. The count of regions in the scanned trees is printed on every run, and "
@@ -800,7 +804,13 @@ public static class DescriptionVocabularyGuardProbe
             violations.Add($"{s.Label}: says \"{rule.Phrase}\" — {rule.Ground}"
                 + (rule.Companions.Length == 0
                     ? ""
-                    : $" (nothing in it states {string.Join(" or ", rule.Companions.Select(c => $"\"{c}\""))})")
+                    : $" (nothing in THIS SENTENCE states {string.Join(" or ", rule.Companions.Select(c => $"\"{c}\""))})"
+                      // The remedy, spelled out, because the wrong one is cheap and reachable: an exemption row.
+                      // The companion is required in the same AUTHORED sentence, and a const reference breaks a
+                      // run — so single-sourcing a shared claim into a const and leaving its correction behind reds
+                      // on caller text that did not change. Move BOTH; do not declare the site exempt.
+                    + " — keep the phrase and the clause that redeems it in the SAME literal run: if this claim is "
+                    + "being single-sourced into a const, move the correction into that const with it")
                 + $"\n            … {Excerpt(s.Text, rule.Phrase)}");
         }
         return (violations, carriers, exempted);
