@@ -1358,7 +1358,7 @@ public static class CheckErrorsProbe
             && exCase.Reports.All(x => x.Plugin != "Skyrim.esm") && ExcludeLeftOut(exCase.FilterNote) == 1,
             $"success={exCase.Success} err=[{exCase.Error}] scanned={exCase.PluginsScanned} total={exCase.TotalDangling} note=[{exCase.FilterNote}]");
 
-        Check("EXCLUDE-DESCRIPTION-NAMES-EVERY-GROUP: the caller-facing token list is held against SweepExclusion.Tokens, the one place they are enumerated — no wire-name guard reaches a tool parameter's prose (#386), so this parameter brings its own",
+        Check("EXCLUDE-DESCRIPTION-NAMES-EVERY-GROUP: the caller-facing token list is held against SweepExclusion.Tokens, the one place they are enumerated — description-vocab-guard (#386) polices that surface's VOCABULARY, not whether one parameter's prose names a set, so this parameter brings its own",
             ExcludeDescriptionNamesTokens(out var descDetail), descDetail);
 
         // ---- the accounting's central identity, on a fixture where BOTH causes fired. Every other cell is cut by
@@ -2296,8 +2296,10 @@ public static class CheckErrorsProbe
     }
 
     /// <summary>The exclude= parameter's [Description] must name every token SweepExclusion accepts. A tool
-    /// parameter's prose is a SECOND spelling of an accepted vocabulary, on a surface no existing guard reads
-    /// (#386), so a token added to the set and not to the description would be undiscoverable.
+    /// parameter's prose is a SECOND spelling of an accepted vocabulary, and the guard that does read that surface
+    /// (<c>description-vocab-guard</c>, #386) checks the vocabulary a description USES rather than whether a
+    /// particular one names a particular set — so a token added to the set and not to the description would still
+    /// be undiscoverable, and this arm is what makes it visible.
     ///
     /// <para>The converse — a word in the description that is NOT an accepted token — is deliberately not checked:
     /// the description is prose, and every ordinary word in it would have to be exempted. What protects that
