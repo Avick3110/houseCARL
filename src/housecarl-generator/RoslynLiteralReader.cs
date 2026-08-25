@@ -72,16 +72,22 @@ public static class RoslynLiteralReader
     /// <para>The doubled braces are collapsed here rather than taken from the token. A text segment's
     /// <c>ValueText</c> resolves backslash escapes but leaves <c>{{</c> and <c>}}</c> as written — brace
     /// un-doubling happens later, when the compiler lowers the interpolation — so the token's value is not yet the
-    /// string the program prints. Inside a text segment a doubled brace can only BE an escape (a real hole is a
-    /// separate node), so the collapse is exact, and it puts this reader on the value a caller actually reads.
-    /// Found by <c>INV6-AGREE</c> on shipped GraphQL and JSON-shaped messages, which is the disagreement that arm
-    /// exists to produce.</para></summary>
+    /// string the program prints. Found by <c>INV6-AGREE</c> on shipped GraphQL and JSON-shaped messages, which is
+    /// the disagreement that arm exists to produce.</para>
+    /// <para><b>Only for the flavours that HAVE escapes.</b> Doubling is how a brace is spelled in the two regular
+    /// interpolated forms, so there a doubled brace can only BE an escape and the collapse is exact. A RAW
+    /// interpolated string escapes nothing: its hole opens on a run of as many braces as it has dollar signs, and
+    /// any shorter run is ordinary content — so collapsing there would hand back a value the compiler never
+    /// builds, and INV6-AGREE would red on correct source naming neither reader. The start token says which
+    /// flavour this is, so the question is answered by the parse rather than assumed.</para></summary>
     static string Interpolated(InterpolatedStringExpressionSyntax interp)
     {
+        bool doubles = interp.StringStartToken.IsKind(SyntaxKind.InterpolatedStringStartToken)
+                    || interp.StringStartToken.IsKind(SyntaxKind.InterpolatedVerbatimStringStartToken);
         var sb = new System.Text.StringBuilder();
         foreach (var part in interp.Contents)
             sb.Append(part is InterpolatedStringTextSyntax t
-                ? t.TextToken.ValueText.Replace("{{", "{").Replace("}}", "}")
+                ? (doubles ? t.TextToken.ValueText.Replace("{{", "{").Replace("}}", "}") : t.TextToken.ValueText)
                 : SourceLiteral.HoleMarker);
         return sb.ToString();
     }

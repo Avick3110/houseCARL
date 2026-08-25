@@ -157,7 +157,12 @@ public static class HandLiteralLexer
 
     /// <summary>A raw string literal — three quotes or more. No escapes at all: the content is exactly what is
     /// written, minus the indentation rule. With <paramref name="dollars"/> greater than zero, a hole is opened by
-    /// that many braces in a row and closed by the same count, so fewer braces are plain text.</summary>
+    /// that many braces in a row and closed by the same count, so fewer braces are plain text.
+    /// <para>A run LONGER than the opener count is a brace of content followed by the opener, not a wider opener:
+    /// the extra braces are emitted as text and only the last <paramref name="dollars"/> of the run start the
+    /// hole. Taking the whole run as the opener drops those characters, and because a brace is not a letter the
+    /// loss is invisible to the phrase check — it surfaces only as an INV6-AGREE disagreement, which is exactly
+    /// how it was found.</para></summary>
     static (string Text, int End) LexRaw(string src, int quote, int quoteRun, int to, int dollars, int depth, List<SourceLiteral> outp)
     {
         int j = quote + quoteRun, close = -1;
@@ -166,7 +171,9 @@ public static class HandLiteralLexer
         {
             if (dollars > 0 && src[j] == '{' && RunLength(src, j, to, '{') >= dollars)
             {
-                int holeStart = j + dollars;
+                int open = RunLength(src, j, to, '{');
+                sb.Append('{', open - dollars);          // the surplus leading braces are content, not opener
+                int holeStart = j + open;
                 int holeEnd = FindHoleEnd(src, holeStart, to);
                 Scan(src, holeStart, holeEnd, depth + 1, outp);
                 sb.Append(SourceLiteral.HoleMarker);
