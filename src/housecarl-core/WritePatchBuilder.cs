@@ -1013,7 +1013,7 @@ public static class WritePatchBuilder
         //     artificially excluded the referenced plugin (HCBR-2026-07-08-01 F2). A link to a plugin genuinely NOT
         //     active still fails loud below (Q3), now meaning what it says. ---
         session.ReleaseOverlay(fileName);
-        try { WriteEngine.WriteInPlace(targetMod, session.AllMastersExcept(fileName), targetPath); }
+        try { WriteEngine.WriteInPlace(targetMod, session.AllMastersExcept(fileName), targetPath, resolver.DataDir); }
         catch (MissingModException ex)
         {
             // #314: this arm fires FIRST, so it is where the unopenable residual lands on this lane — and its
@@ -1512,7 +1512,7 @@ public static class WritePatchBuilder
         {
             ISkyrimModGetter[] ownMasters = ResolveOwnMasters(view, targetMod, masterOverlays, out var missing);
             if (missing is not null) return RemovalOutcome.Fail(missing);
-            try { WriteEngine.WriteInPlace(targetMod, ownMasters, targetPath); }
+            try { WriteEngine.WriteInPlace(targetMod, ownMasters, targetPath, resolver.DataDir); }
             // The localized-target refusal names its own whole sentence; this lane's lead would put it after "failed
             // (serialize or commit…)", which is a step the refusal happens before. (The lanes that render through
             // SerializeFailure get the same treatment inside it.)
@@ -1836,7 +1836,7 @@ public static class WritePatchBuilder
         // --- Phase 4: model-C re-serialize over the original (WriteInPlace, whole known-master set — the copied
         //     bodies' links grow the header; the self-lock ReleaseOverlay first; atomic swap). ---
         session.ReleaseOverlay(fileName);
-        try { WriteEngine.WriteInPlace(targetMod, session.AllMastersExcept(fileName), targetPath); }
+        try { WriteEngine.WriteInPlace(targetMod, session.AllMastersExcept(fileName), targetPath, resolver.DataDir); }
         catch (MissingModException ex)
         {
             // Same shadowing as the apply twin — see there.
@@ -2513,7 +2513,22 @@ public static class WritePatchBuilder
             // one step earlier, where the loss is written rather than merely displayed.
             srcOv = LoadOrderResolver.OpenOverlay(srcPath, dataDir);
             declaredMasters = srcOv.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToList();
-            pPrime = new SkyrimMod(modKey, SkyrimRelease.SkyrimSE) { IsSmallMaster = esl };
+            // LOCALIZED SOURCES (Q2, ruled 2026-08-26). A compaction builds a FRESH mod rather than re-serializing the
+            // source, and the fresh mod carries no header flags — which is why a compacted localized plugin came out
+            // DE-localized, with one language baked in and the rest gone. Measured: the record copy below preserves
+            // every language a TranslatedString holds, so flagging P′ localized makes the write emit a matching set of
+            // tables and P′ stays the same kind of thing the source was.
+            //
+            // Gated on the SOURCE's strings shape, not merely on its header flag, and deliberately: for a source whose
+            // languages are incomplete, flagging P′ localized would emit the missing files holding EMPTY text — a
+            // plugin that looks translated and is not, which is worse than the de-localized output rather than better.
+            // Those shapes keep the old behaviour and the caller is told what was lost and why.
+            var srcAssessment = LocalizedStrings.Assess(srcPath, dataDir);
+            pPrime = new SkyrimMod(modKey, SkyrimRelease.SkyrimSE)
+            {
+                IsSmallMaster = esl,
+                UsingLocalization = srcAssessment.CanCommitStrings,
+            };
             ren = RemapEngine.RenumberModInto(pPrime, srcOv, dict);
         }
         catch (Exception ex)
@@ -2558,7 +2573,7 @@ public static class WritePatchBuilder
                 }
                 overlays.Add((IDisposable)mov); resolved.Add(mov);
             }
-            try { WriteEngine.WriteInPlace(pPrime, resolved, outPath); }
+            try { WriteEngine.WriteInPlace(pPrime, resolved, outPath, dataDir); }
             catch (Exception ex)
             {
                 return CompactBuildResult.Fail(
@@ -2696,7 +2711,7 @@ public static class WritePatchBuilder
                 }
                 masterOverlays.Add((IDisposable)mov); resolved.Add(mov);
             }
-            try { WriteEngine.WriteInPlace(m, resolved, outPath); }
+            try { WriteEngine.WriteInPlace(m, resolved, outPath, dataDir); }
             catch (Exception ex)
             {
                 return MergeBuildResult.Fail(
@@ -3214,7 +3229,7 @@ public static class WritePatchBuilder
                 // preserved (NoNextFormIDProcessing, no re-floor; the allocation already floored+advanced it), no baseline
                 // force-include. Handed the SAME whole-master set as WritePatch, so a new record's cross-mod reference (incl.
                 // an overridden-in foreign parent) resolves + pulls its master into the lean derived header — xEdit-parity.
-                WriteEngine.WriteInPlace(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath);
+                WriteEngine.WriteInPlace(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath, resolver.DataDir);
             else
                 WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath);
         }

@@ -252,7 +252,7 @@ public static class RemapWave1Probe
                 var pPrime = new SkyrimMod(donorKey, SkyrimRelease.SkyrimSE);
                 ren = RemapEngine.RenumberRecordsInto(pPrime, donorOv.EnumerateMajorRecords().Where(r => r.FormKey.ModKey == donorKey), plan.Dict);
                 pPrime.ModHeader.Stats.NextFormID = 0x802;
-                if (ren.Success) WriteEngine.WriteInPlace(pPrime, Array.Empty<ISkyrimModGetter>(), pPrimePath);
+                if (ren.Success) WriteEngine.WriteInPlace(pPrime, Array.Empty<ISkyrimModGetter>(), pPrimePath, dataDir: null);   // synthetic, non-localized fixture: no game-Data set to rule out
             }
 
             // 2. re-read P′: weapons at 0x800, formlists at 0x801, the FL's internal ref repointed to 0x800.
@@ -477,7 +477,8 @@ public static class RemapWave1Probe
                     }
                     if (!missing)
                     {
-                        try { WriteEngine.WriteInPlace(pPrime, resolved, pPrimePath); wroteP = true; Console.WriteLine($"   WROTE compacted P′ → {pPrimePath}  ({ren.RecordsCopied} records, {ren.RecordsRenumbered} renumbered into 0x800+)"); }
+                        // dataDir: null — synthetic, non-localized fixture, so there is no game-Data set to rule out.
+                        try { WriteEngine.WriteInPlace(pPrime, resolved, pPrimePath, dataDir: null); wroteP = true; Console.WriteLine($"   WROTE compacted P′ → {pPrimePath}  ({ren.RecordsCopied} records, {ren.RecordsRenumbered} renumbered into 0x800+)"); }
                         catch (Exception ex) { Console.WriteLine($"   WRITE FAILED ({WriteEngine.Describe(ex)}) — note a sub-0x800 originating record is rejected by the light floor."); }
                     }
                 }
