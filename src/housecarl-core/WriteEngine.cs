@@ -4005,7 +4005,8 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
 
         LocalizedShape.NotLocalized
             or LocalizedShape.LooseComplete or LocalizedShape.LoosePartial or LocalizedShape.LooseWithGameDataDuplicate
-            or LocalizedShape.BsaEmbedded or LocalizedShape.GameDataOnly or LocalizedShape.Nowhere
+            or LocalizedShape.BsaEmbedded or LocalizedShape.GameDataOnly or LocalizedShape.StringsFolderUnreadable
+            or LocalizedShape.Nowhere
             => WhereTheTextIs(a) + " " + WhyNotInPlace(a),
 
         // Enumerated above one by one, so a shape added later lands HERE and says nothing rather than inheriting
@@ -4093,6 +4094,14 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
             + "put matching files is beside the plugin — where they would SHADOW the set in Data\\Strings rather than "
             + "replace it, leaving that set on disk describing a plugin that has changed underneath it." + Settled,
 
+        // The folder is there and could not be listed, so the ONE thing this shape cannot say is what is in it. Both
+        // hazards are live and houseCARL cannot tell which — which is the sentence.
+        LocalizedShape.StringsFolderUnreadable =>
+            "A localized plugin's text is not in the plugin, and houseCARL could not read the Strings folder beside it "
+            + "to see what is in there. Rewriting the plugin renumbers the indices its text is looked up by, and "
+            + "houseCARL cannot tell whether the files written beside it would replace a set that is already there or "
+            + "land next to one it never saw." + Settled,
+
         // houseCARL cannot see the source, so it cannot name a hazard it has verified. Saying which one it cannot
         // rule out is the honest form.
         LocalizedShape.Nowhere =>
@@ -4131,6 +4140,9 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
     static string NothingMatched(LocalizedAssessment a)
     {
         var u = a.UnmatchedTables;
+        // A CHECKED absence, now that it is one: a folder that could not be listed classifies as
+        // StringsFolderUnreadable and never arrives here, so "there are none" is a claim about a folder houseCARL
+        // actually read (or found absent) rather than one whose enumeration threw.
         if (u.Total == 0)
             return "no .STRINGS files beside it";
         // The COUNT is the folder's; the NAMES are what fits. Rendering the capped list's length as the count made
@@ -4190,6 +4202,12 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
             LocalizedShape.GameDataOnly =>
                 "It is flagged LOCALIZED and its text is not beside it — it resolves from your game's Data\\Strings "
                 + "folder (" + string.Join(", ", a.GameDataLanguages) + ").",
+
+            // The folder is THERE. Nothing is claimed about its contents, because nothing could be read — the arm that
+            // exists so an unlistable folder cannot arrive at Nowhere's sentence and be described as an empty one.
+            LocalizedShape.StringsFolderUnreadable =>
+                "It is flagged LOCALIZED and there is a Strings folder beside it that houseCARL could not read, so "
+                + "whether its text is in there — and in which languages — is unknown" + AlsoLoose(a) + ".",
 
             // Says what was SEARCHED and what was FOUND, never what exists.
             //
@@ -4274,6 +4292,9 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
         // Strings folder is sitting there with files in it, it says that too rather than claiming the folder is bare.
         LocalizedShape.Nowhere =>
             "It is flagged LOCALIZED and houseCARL cannot find its .STRINGS files: " + NothingMatched(a) + ".",
+        LocalizedShape.StringsFolderUnreadable =>
+            "It is flagged LOCALIZED and houseCARL could not read the Strings folder beside it, so where its text "
+            + "lives is unknown.",
         LocalizedShape.Unreadable =>
             "houseCARL could not read it to see whether it is localized or where its text lives.",
         // Asserts no localization state, for the same reason WhereTheTextIs' does not (Q3, and the render seam).
