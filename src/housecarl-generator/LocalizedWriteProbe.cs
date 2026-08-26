@@ -44,6 +44,8 @@ public static class LocalizedWriteProbe
         Console.WriteLine();
         M3(args);
         Console.WriteLine();
+        M4();
+        Console.WriteLine();
         Console.WriteLine($"SUMMARY: {_total - _red}/{_total} green, {_red} RED");
         return _red == 0 ? 0 : 1;
     }
@@ -357,6 +359,56 @@ public static class LocalizedWriteProbe
     /// <summary>A REAL, small .bsa to stand beside the plugin for the #369 arm — the archive's contents do not matter,
     /// only that it parses. Null when no Skyrim install is on this machine, which downgrades that arm to skipped rather
     /// than turning a missing install into a RED.</summary>
+    // ------------------------------------------------------------------------------------------------------------
+    // M4 — Q2: what a LOCALIZED compacted P′ would actually carry
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// <summary>Q2 asks whether the compact NEW-FILE lane should keep de-localizing P′ or emit a localized P′ with a
+    /// matching strings set. That turns on one fact nobody has measured: does the renumbering copy carry every language
+    /// the source had, or only the one the read resolved? If it carries only one, a localized P′ would be a plugin that
+    /// LOOKS translated and silently is not — worse than the de-localized output, not better.</summary>
+    static void M4()
+    {
+        Console.WriteLine("== M4 — Q2 input: does the compact copy carry every language into P′? ==");
+        var root = NewRoot();
+        try
+        {
+            var f = BuildFixture(root, relocate: false, secondLanguage: true);
+            var src = LoadOrderResolver.OpenOverlay(f.PluginPath, f.DataDir);
+            try
+            {
+                var srcLangs = src.Weapons.First(w => w.EditorID == "ZRefWeap0").Name!.NumLanguages;
+
+                // The identity renumber: the copy machinery, with the FormIDs left alone, so the ONLY thing the arm can
+                // be measuring is what the record copy does to a TranslatedString.
+                var dict = src.EnumerateMajorRecords().ToDictionary(r => r.FormKey, r => r.FormKey);
+                var pPrime = new SkyrimMod(f.Key, SkyrimRelease.SkyrimSE);
+                var ren = RemapEngine.RenumberModInto(pPrime, src, dict);
+                if (!ren.Success) { Row("M4-copy", false, "the renumber failed: " + ren.Error); return; }
+                var copiedLangs = pPrime.Weapons.First(w => w.EditorID == "ZRefWeap0").Name!.NumLanguages;
+                Row("M4-copy", null, $"source carries {srcLangs} languages in memory; the copy into P′ carries {copiedLangs}");
+
+                // What Q2-A would ship: the same P′, flagged localized, serialized. Measured rather than reasoned —
+                // the emit is what decides whether a localized P′ is faithful or a translated-looking blank.
+                pPrime.UsingLocalization = true;
+                var outDir = Path.Combine(root, "pprime-localized");
+                EmitTo(pPrime, f, Path.Combine(outDir, f.Key.FileName.String));
+                var emitted = LanguageFiles(Path.Combine(outDir, "Strings"), f.Key);
+                var readFr = SkyrimMod.CreateFromBinary(Path.Combine(outDir, f.Key.FileName.String), SkyrimRelease.SkyrimSE,
+                    BinaryReadParameters.Default with { StringsParam = new StringsReadParameters { TargetLanguage = Language.French } });
+                var en = ReadBack(Path.Combine(outDir, f.Key.FileName.String), f.DataDir);
+                var expected = ExpectedValues(edited: false);
+                var wrongEn = expected.Count(kv => !en.TryGetValue(kv.Key, out var g) || g != kv.Value);
+                Row("M4-localized-pprime", null,
+                    $"P′ flagged localized emits {emitted.Count} files; English {expected.Count - wrongEn}/{expected.Count} faithful; "
+                    + $"French weapon FULL='{readFr.Weapons.First(w => w.EditorID == "ZRefWeap0").Name?.String}'");
+            }
+            finally { ((IDisposable)src).Dispose(); }
+        }
+        catch (Exception ex) { Row("M4", false, $"THREW {ex.GetType().Name}: {Trunc(ex.Message)}"); }
+        finally { Nuke(root); }
+    }
+
     static string? SmallRealBsa()
     {
         foreach (var data in SkyrimDataDirs())
