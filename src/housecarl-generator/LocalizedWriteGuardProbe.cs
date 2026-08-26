@@ -400,7 +400,108 @@ public static class LocalizedWriteGuardProbe
                 $"a localized mod written over a NON-localized file refuses, naming that mismatch [{msg ?? "<WROTE INSTEAD>"}]");
             Check(new FileInfo(plain).Length == beforeLen, "and the file at that path is untouched");
         });
+
+        UnreadableSaysNothingAboutLocalization();
     }
+
+    /// <summary>The vocabulary a file houseCARL never opened may NOT be described in — Aaron's review of PR #436, and
+    /// the class the whole render seam answers.
+    ///
+    /// <para>The fail-closed DECISION is right and stays: anything that is not <c>NotLocalized</c> refuses. What was
+    /// wrong is that the same collapsed boolean chose the WORDS, so an unreadable destination inherited a localized
+    /// plugin's sentences — "is flagged LOCALIZED", "its text lives in separate .STRINGS files", "It does not edit a
+    /// localized plugin in place" — asserted about a file that was never read. Both directions are armed, because an
+    /// arm that only checked the vocabulary was absent would pass just as well with it absent everywhere.</para></summary>
+    static void UnreadableSaysNothingAboutLocalization()
+    {
+        Console.WriteLine();
+        Console.WriteLine("== a file houseCARL never opened is not described in a localized plugin's words ==");
+
+        // The vocabulary that asserts a localization state. Every one of these is a claim about the file.
+        var localizedVocabulary = new[]
+        {
+            "flagged LOCALIZED",
+            "A localized plugin's text is not in the plugin",
+            "does not edit a localized plugin in place",
+            "its text lives in separate .STRINGS files",
+        };
+
+        Run(Variant.LooseComplete, f =>
+        {
+            string? unreadable, unreadableRemove;
+            using (var hold = new FileStream(f.Plugin, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                unreadable = LocalizedStrings.RefusalFor(f.Plugin, "ZRef.esp", f.DataDir);
+                // The lane whose clause turns a momentary lock into a permanent dead end if it is appended here.
+                unreadableRemove = LocalizedStrings.RefusalFor(f.Plugin, "ZRef.esp", f.DataDir,
+                                                               LocalizedTargetUnsupportedException.RemoveNoEquivalent);
+            }
+            var localized = LocalizedStrings.RefusalFor(f.Plugin, "ZRef.esp", f.DataDir,
+                                                        LocalizedTargetUnsupportedException.RemoveNoEquivalent);
+
+            var leaked = localizedVocabulary.Where(v => unreadable?.Contains(v, StringComparison.Ordinal) ?? false).ToArray();
+            Check(unreadable is not null && leaked.Length == 0,
+                $"an unreadable destination's refusal claims no localization state ({(unreadable is null ? "NO REFUSAL" : leaked.Length == 0 ? "none of the vocabulary present" : "LEAKED: " + string.Join(" | ", leaked))})");
+            if (leaked.Length > 0) Console.WriteLine("          got: " + unreadable);
+
+            Check(unreadable?.Contains("does not write to a destination it cannot classify", StringComparison.Ordinal) ?? false,
+                $"…and says what it actually is — a destination houseCARL cannot classify [{unreadable}]");
+
+            // The OTHER direction, on the same fixture one lock apart: readable and localized, the vocabulary is
+            // exactly what the caller must get. Without this the arm above passes on a refusal that says nothing
+            // anywhere.
+            var present = localizedVocabulary.Where(v => localized?.Contains(v, StringComparison.Ordinal) ?? false).ToArray();
+            Check(localized is not null && present.Length > 0,
+                $"the SAME plugin unlocked and localized IS described in that vocabulary ({present.Length}/{localizedVocabulary.Length} phrases)");
+
+            // The remove lane's clause: absent for the unreadable target (it names a permanent dead end), present for
+            // the localized one (where it is the truth), and replaced by the remedy that matches what failed.
+            Check(!(unreadableRemove?.Contains("no way to remove this record", StringComparison.Ordinal) ?? true),
+                $"the remove lane's dead-end clause is NOT appended to a target that was never read [{unreadableRemove}]");
+            Check(localized?.Contains("no way to remove this record", StringComparison.Ordinal) ?? false,
+                $"…and IS appended to a target that really is localized [{localized}]");
+            Check(unreadableRemove?.Contains("has the file open", StringComparison.Ordinal) ?? false,
+                $"the unreadable target gets the remedy for what actually failed — check what holds the file, and retry [{unreadableRemove}]");
+        });
+
+        // THE SEAM ITSELF, walked over the enum rather than over the fixtures: every shape renders a body, and only
+        // the shapes whose LOCALIZED flag was actually READ may render the localized vocabulary. A shape added later
+        // that inherits another's words fails here, which is what makes the seam hold past this session.
+        foreach (var shape in Enum.GetValues<LocalizedShape>())
+        {
+            var body = LocalizedTargetUnsupportedException.ShapeBody(Synthetic(shape));
+            var carries = localizedVocabulary.Any(v => body.Contains(v, StringComparison.Ordinal));
+            var mayCarry = MayAssertLocalization(shape);
+            Check(body.Length > 0 && carries == mayCarry,
+                $"{shape}: renders a body, and {(mayCarry ? "carries" : "carries NO")} localized vocabulary (carries={carries})");
+            if (carries != mayCarry) Console.WriteLine("          got: " + body);
+        }
+    }
+
+    /// <summary>May this shape's refusal assert that a plugin is localized? An exhaustive switch on purpose: a shape
+    /// added later has to be answered here, which is the walk's whole value.</summary>
+    static bool MayAssertLocalization(LocalizedShape shape) => shape switch
+    {
+        // The FILE's own header was read and the flag was set.
+        LocalizedShape.LooseComplete or LocalizedShape.LoosePartial or LocalizedShape.LooseWithGameDataDuplicate
+            or LocalizedShape.BsaEmbedded or LocalizedShape.GameDataOnly or LocalizedShape.Nowhere => true,
+
+        // The file read fine with the flag CLEAR — and this arm is reached only from the write's choke point, where
+        // the MOD in hand is localized and that fact came out of memory. So the sentence may say so; what it may not
+        // do is describe an arrangement, and it does not.
+        LocalizedShape.NotLocalized => true,
+
+        // Nothing was read. Nothing may be asserted.
+        LocalizedShape.Unreadable => false,
+
+        _ => false,
+    };
+
+    /// <summary>A bare assessment in one shape, for the enum walk above. Synthetic on purpose: the walk is about the
+    /// RENDER's arms, and a fixture per shape would only re-measure the classifier the Shapes() arms already pin.</summary>
+    static LocalizedAssessment Synthetic(LocalizedShape shape)
+        => new(shape, Array.Empty<string>(), new Dictionary<string, IReadOnlyList<string>>(),
+               Array.Empty<string>(), shape == LocalizedShape.BsaEmbedded ? "Z.bsa" : null, false, false);
 
     /// <summary>Drive the real <see cref="WriteEngine.WriteInPlace"/> with a freshly built LOCALIZED mod aimed at
     /// <paramref name="outPath"/> — for the destinations the fixture's own plugin cannot express (absent, or present

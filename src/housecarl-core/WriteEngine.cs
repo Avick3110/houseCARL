@@ -3980,18 +3980,75 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
     public static string Shaped(string pluginFileName, LocalizedAssessment a, string? laneClause = null)
     {
         var head = $"houseCARL did not write '{pluginFileName}' — the file is unchanged and nothing was staged. ";
-        return head + ShapeBody(a) + (laneClause is null ? "" : " " + laneClause);
+        var remedy = RemedyFor(a, laneClause);
+        return head + ShapeBody(a) + (remedy is null ? "" : " " + remedy);
     }
 
     /// <summary>The shape half of <see cref="Shaped"/> on its own — no "houseCARL did not write X" head. For a lane
     /// refusing over a plugin the caller did not name (a compaction blocked by one of its referencers): the caller
     /// needs that plugin's reason and remedy, but nesting a whole second refusal sentence inside the first reads as
-    /// two refusals rather than one explained one.</summary>
-    public static string ShapeBody(LocalizedAssessment a) => WhereTheTextIs(a) + " " + WhyNotInPlace(a);
+    /// two refusals rather than one explained one.
+    ///
+    /// <para><b>THE RENDER SEAM.</b> Every shape gets an arm here, and no sentence is rendered off a collapsed
+    /// boolean. The DECISION may collapse — "anything that is not NotLocalized refuses" is right, and fail-closed —
+    /// but the WORDS may not, because the collapse makes <see cref="LocalizedShape.Unreadable"/> inherit a localized
+    /// plugin's sentences: "is flagged LOCALIZED", "its text lives in separate .STRINGS files", asserted about a file
+    /// houseCARL explicitly could not open. That is what the fail-open sentence used to do in mirror image — name a
+    /// cause it had not established instead of the one it had — and it stopped being harmless the moment the service
+    /// pre-flights began failing CLOSED on an unreadable target (Aaron's review of PR #436).</para></summary>
+    public static string ShapeBody(LocalizedAssessment a) => a.Shape switch
+    {
+        // NOT AN ARRANGEMENT, so not composed from the arrangement halves at all. The file was never opened: nothing
+        // is claimed about localization, and the close is the unclassifiable one rather than Settled — which is a
+        // sentence about localized plugins.
+        LocalizedShape.Unreadable => UnreadableText + SettledUnreadable,
 
-    /// <summary>The closing sentence every refusal ends on. Shared verbatim because it is the one part that IS the
-    /// same for every shape: the outcome.</summary>
+        LocalizedShape.NotLocalized
+            or LocalizedShape.LooseComplete or LocalizedShape.LoosePartial or LocalizedShape.LooseWithGameDataDuplicate
+            or LocalizedShape.BsaEmbedded or LocalizedShape.GameDataOnly or LocalizedShape.Nowhere
+            => WhereTheTextIs(a) + " " + WhyNotInPlace(a),
+
+        // Enumerated above one by one, so a shape added later lands HERE and says nothing rather than inheriting
+        // another shape's words (Q3). Deliberately claims no localization state: the wrong half of this arm to guess
+        // at is the half the whole seam exists to stop guessing at.
+        _ => "houseCARL has no wording for the arrangement this plugin classified into, so it will not describe it — "
+             + "and it does not write in place against a destination it cannot describe.",
+    };
+
+    /// <summary>Which remedy a refusal ends on — per shape, for the same reason the body is.
+    ///
+    /// <para>A lane's clause answers "this plugin is localized, so what should I do instead": drop <c>in_place=</c>,
+    /// or (the remove lane) there is no new-plugin form at all. Appended to an UNREADABLE destination it answers a
+    /// question nobody established the answer to, and the remove lane's spelling turns a momentary file lock into a
+    /// permanent dead end — the #374 shape, reappearing on this arm. So the unreadable destination gets the remedy
+    /// that matches what actually happened, and the lane's clause is not appended at all.</para></summary>
+    static string? RemedyFor(LocalizedAssessment a, string? laneClause) => a.Shape switch
+    {
+        LocalizedShape.Unreadable => RemedyUnreadable,
+        _ => laneClause,
+    };
+
+    /// <summary>The closing sentence every LOCALIZED shape's refusal ends on. Shared verbatim because it is the one
+    /// part that IS the same for all of them: the outcome. Deliberately NOT shared with
+    /// <see cref="LocalizedShape.Unreadable"/> — see <see cref="SettledUnreadable"/>.</summary>
     const string Settled = " It does not edit a localized plugin in place.";
+
+    /// <summary>The close for a destination houseCARL could not open. <see cref="Settled"/>'s counterpart, and a
+    /// separate constant on purpose: "it does not edit a localized plugin in place" states that the file IS one.</summary>
+    const string SettledUnreadable =
+        " houseCARL does not write to a destination it cannot classify. Nothing here says the file is or is not "
+        + "localized — it was never opened, so neither was established.";
+
+    /// <summary>What houseCARL can say about a file it could not open, and the only thing it can say. One home,
+    /// because <see cref="WhereTheTextIs"/> and <see cref="ShapeBody"/> both render it.</summary>
+    const string UnreadableText = "houseCARL could not read the file at that path to see where its text lives.";
+
+    /// <summary>The remedy for an unreadable destination — measured against what actually failed (the open), not
+    /// against a localization state nobody established. Names no lane, because every lane's next step reads the same
+    /// file and meets the same failure.</summary>
+    public const string RemedyUnreadable =
+        "Check whether something else has the file open — Mod Organizer refreshing, an antivirus scan, xEdit, the "
+        + "running game — or whether that path names a file that exists at all, and retry once it is free.";
 
     /// <summary>Why this ARRANGEMENT cannot be rewritten in place — per shape, because the hazard genuinely differs
     /// and one sentence covering all of them can only be true of the one it was written for.
@@ -4043,15 +4100,22 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
             + "Rewriting the plugin renumbers those indices, and houseCARL cannot tell whether a set written beside it "
             + "would replace what the game reads or shadow it, nor what would be left stale either way." + Settled,
 
-        // The plugin itself could not be read. Nothing about its arrangement was looked at, so nothing about its
-        // arrangement is claimed.
-        LocalizedShape.Unreadable or LocalizedShape.NotLocalized =>
+        // The mod being written IS localized (this arm is only reached from the write's choke point, which decides off
+        // the mod in memory), and the file already at that path is not. Nothing about an arrangement is claimed.
+        LocalizedShape.NotLocalized =>
             "A localized plugin's text is not in the plugin, and houseCARL could not establish where this one's is, so "
             + "it cannot tell what rewriting the plugin would do to that text." + Settled,
 
-        // Enumerated above; a shape added later fails LOUD and generic rather than inheriting another's reason (Q3).
-        _ => "A localized plugin's text is not in the plugin, and houseCARL cannot rewrite the plugin and its tables "
-             + "as one operation." + Settled,
+        // The file itself could not be opened. ShapeBody does not route here — it has its own arm — but this one
+        // exists so a DIRECT caller cannot get a localized plugin's reasoning for a file nobody read either.
+        LocalizedShape.Unreadable =>
+            "houseCARL could not open the file at that path, so it cannot tell what rewriting it would do to any text "
+            + "it carries." + SettledUnreadable,
+
+        // Enumerated above; a shape added later fails LOUD and generic rather than inheriting another's reason (Q3),
+        // and claims no localization state of its own — the seam's rule applies to this arm too.
+        _ => "houseCARL has no account of this plugin's arrangement, so it cannot say what rewriting it in place "
+             + "would do to its text.",
     };
 
     /// <summary>Where the archive naming this plugin's tables was found — beside the plugin, or in the game folder.</summary>
@@ -4144,8 +4208,7 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
             // The plugin could not be read at all, so nothing is said about an arrangement nobody looked at. This is
             // the answer a locked, absent or unparseable destination gets — and it REFUSES rather than proceeding,
             // which is the whole reason the read behind it reports three answers instead of two.
-            LocalizedShape.Unreadable =>
-                "houseCARL could not read the file at that path to see where its text lives.",
+            LocalizedShape.Unreadable => UnreadableText,
 
             // The mod being written is flagged LOCALIZED, but the file already at that path does not read as one. The
             // write refuses on the mod in hand — this arm is only reached from there, never from a pre-flight, which
@@ -4155,8 +4218,10 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
                 + "houseCARL could not establish where the text being written would resolve from.",
 
             // Every shape is enumerated above; this arm exists so a shape added later fails LOUD and generic rather
-            // than silently inheriting another shape's sentence (Q3).
-            _ => "It is flagged LOCALIZED, so its text lives in separate .STRINGS files rather than in the plugin.",
+            // than silently inheriting another shape's sentence (Q3). It asserts NO localization state: the old
+            // spelling ("It is flagged LOCALIZED, so its text lives in separate .STRINGS files…") is exactly the
+            // inherited-words defect the seam exists to stop, one level down.
+            _ => "houseCARL has no account of where this plugin's text lives.",
         };
     }
 
@@ -4206,8 +4271,9 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
             "It is flagged LOCALIZED and houseCARL cannot find its .STRINGS files: " + NothingMatched(a) + ".",
         LocalizedShape.Unreadable =>
             "houseCARL could not read it to see whether it is localized or where its text lives.",
+        // Asserts no localization state, for the same reason WhereTheTextIs' does not (Q3, and the render seam).
         _ =>
-            "It is flagged LOCALIZED, so its text lives in separate .STRINGS files rather than in the plugin.",
+            "houseCARL has no account of where its text lives.",
     };
 
     /// <summary>Throw a sentence that is already whole — <see cref="Shaped"/>'s. The ONLY way to build this
