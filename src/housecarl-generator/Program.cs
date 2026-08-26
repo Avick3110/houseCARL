@@ -65,6 +65,7 @@ if (args.Length > 0 && args[0] == "strings-resolve-probe") return StringsResolve
 // EXPLORATORY (#368): the MUTABLE strings-aware open + the mutate → WriteInPlace round-trip.
 if (args.Length > 0 && args[0] == "repoint-strings-probe") return RepointStringsProbe.Run(args[1..]);
 if (args.Length > 0 && args[0] == "localized-write-probe") return LocalizedWriteProbe.Run(args[1..]);
+if (args.Length > 0 && args[0] == "localized-shape-sweep") return LocalizedShapeSweep.Run(args[1..]);
 
 // EXPLORATORY (F1): the disabled-mod asset source lane's two binding kickoff measurements.
 if (args.Length > 0 && args[0] == "f1-measure") return F1MeasureProbe.Run(args[1..]);
