@@ -48,8 +48,12 @@ public enum LocalizedShape
 /// kinds they are missing — what <see cref="LocalizedShape.LoosePartial"/>'s refusal names.</param>
 /// <param name="GameDataLanguages">Languages found for this plugin in game-Data.</param>
 /// <param name="BsaPath">The archive that embeds (or could not be read to rule out) this plugin's strings.</param>
-/// <param name="BsaUnreadable">The archive beside the plugin could not be parsed, so whether it embeds this plugin's
-/// strings is unknown. Classified as embedded — a shape we cannot see into is refused, never assumed harmless (Q3).</param>
+/// <param name="BsaInGameData">That archive was found in the game's Data folder rather than beside the plugin. The
+/// refusal has to say which, because "the archive beside it" is a checkable claim and it is false for the whole
+/// game-Data class — the vanilla masters and every plugin whose tables live in a game archive.</param>
+/// <param name="BsaUnreadable">The archive named by <paramref name="BsaPath"/> could not be parsed, so whether it
+/// embeds this plugin's strings is unknown. Classified as embedded — a shape we cannot see into is refused, never
+/// assumed harmless (Q3).</param>
 /// <param name="GameDataUnknown">No game-Data folder was supplied, so whether a competing set lives there could not be
 /// checked. This is NOT the same as having checked and found none: it makes
 /// <see cref="LocalizedShape.LooseComplete"/> unsafe to act on, because the duplicate it cannot rule out is precisely
@@ -61,11 +65,17 @@ public sealed record LocalizedAssessment(
     IReadOnlyList<string> GameDataLanguages,
     string? BsaPath,
     bool BsaUnreadable,
-    bool GameDataUnknown)
+    bool GameDataUnknown,
+    bool BsaInGameData = false)
 {
-    /// <summary>The only state an in-place write may commit string tables for: a complete loose set beside the plugin,
-    /// with the game-Data duplicate positively ruled OUT rather than merely unexamined.</summary>
-    public bool CanCommitStrings => Shape is LocalizedShape.LooseComplete && !GameDataUnknown;
+    /// <summary>May a COMPACTION keep its output localized off this source? A complete loose set beside the plugin,
+    /// with a game-Data duplicate positively ruled OUT rather than merely unexamined — because a duplicate makes it
+    /// ambiguous which set describes the plugin, and P′ would carry whichever one this read happened to resolve.
+    ///
+    /// <para>This is the compact lane's gate (Q2-A) and nothing else. It is NOT a licence to rewrite a localized
+    /// plugin in place: that is refused for every shape, this one included — see
+    /// <see cref="LocalizedTableCommit"/> for what was cut and why.</para></summary>
+    public bool CanKeepLocalized => Shape is LocalizedShape.LooseComplete && !GameDataUnknown;
 }
 
 /// <summary>
@@ -132,7 +142,7 @@ public static class LocalizedStrings
             var (gdBsa, gdUnreadable) = BsaEmbedding(dataDir, stem);
             if (gdBsa is not null)
                 return new LocalizedAssessment(LocalizedShape.BsaEmbedded, Array.Empty<string>(), NoneIncomplete,
-                                               Array.Empty<string>(), gdBsa, gdUnreadable, false);
+                                               Array.Empty<string>(), gdBsa, gdUnreadable, false, BsaInGameData: true);
         }
 
         return Plain(LocalizedShape.Nowhere, dataDir is null);
@@ -143,23 +153,14 @@ public static class LocalizedStrings
     /// does every service pre-flight that has to predict the same answer before spending a consent or reporting a dry
     /// run. Two spellings of this would drift, and a dry run whose answer differs from the real call is the defect the
     /// pre-flights exist to prevent.</summary>
-    /// <param name="laneClause">The calling lane's own remedy clause, appended when the refusal is a shape refusal.
-    /// Not appended to the interrupted-commit refusal, which carries a recovery instruction of its own and would only
-    /// be muddied by "use the default lane instead".</param>
+    /// <param name="laneClause">The calling lane's own remedy clause, appended to the shape's explanation. The shape
+    /// says WHERE this plugin's text lives; the lane says what to do instead. Only the lane knows whether it has a
+    /// new-plugin equivalent to offer, which is why the remedy is the caller's to supply and not this file's.</param>
     public static string? RefusalFor(string pluginPath, string pluginFileName, string? dataDir, string? laneClause = null)
     {
         var a = Assess(pluginPath, dataDir);
         if (a.Shape == LocalizedShape.NotLocalized) return null;
-
-        // The interrupted commit is checked FIRST, and the order is load-bearing rather than stylistic: an interrupted
-        // commit has already DELETED the plugin's live tables, so its shape reads as "no strings anywhere" and the
-        // shape refusal would answer with a sentence about a missing strings source — sending the caller looking for a
-        // problem with their mod instead of at the backups sitting beside it. Measured by the guard's window arms,
-        // which failed on exactly that until this moved above the shape check.
-        if (LocalizedTableCommit.PendingCommit(pluginPath) is { } pending)
-            return LocalizedTargetUnsupportedException.InterruptedCommit(pluginFileName, pending);
-
-        return a.CanCommitStrings ? null : LocalizedTargetUnsupportedException.Shaped(pluginFileName, a, laneClause);
+        return LocalizedTargetUnsupportedException.Shaped(pluginFileName, a, laneClause);
     }
 
     /// <summary>The same decision as <see cref="RefusalFor"/>, rendered WITHOUT the "houseCARL did not write X" head —
@@ -168,9 +169,7 @@ public static class LocalizedStrings
     {
         var a = Assess(pluginPath, dataDir);
         if (a.Shape == LocalizedShape.NotLocalized) return null;
-        if (LocalizedTableCommit.PendingCommit(pluginPath) is { } pending)
-            return LocalizedTargetUnsupportedException.InterruptedCommit(pluginFileName, pending);
-        return a.CanCommitStrings ? null : LocalizedTargetUnsupportedException.ShapeBody(a);
+        return LocalizedTargetUnsupportedException.ShapeBody(a);
     }
 
     /// <summary>The loose table files this plugin's own folder carries, in the order a commit should write them —
@@ -179,10 +178,14 @@ public static class LocalizedStrings
     {
         var folder = Path.GetDirectoryName(pluginPath);
         if (folder is null) return Array.Empty<string>();
-        return TableFiles(Path.Combine(folder, "Strings"), Path.GetFileNameWithoutExtension(pluginPath));
+        return TableFilesIn(Path.Combine(folder, "Strings"), Path.GetFileNameWithoutExtension(pluginPath));
     }
 
-    static IReadOnlyList<string> TableFiles(string stringsDir, string stem)
+    /// <summary>The table files in <paramref name="stringsDir"/> that belong to the plugin named
+    /// <paramref name="stem"/> — never a neighbour's. Public because the commit path needs the same stem filter this
+    /// classifier uses: a <c>Strings\</c> folder is shared by every plugin beside it, and matching on anything looser
+    /// makes one plugin's write act on another plugin's files.</summary>
+    public static IReadOnlyList<string> TableFilesIn(string stringsDir, string stem)
     {
         if (!Directory.Exists(stringsDir)) return Array.Empty<string>();
         try
@@ -199,7 +202,7 @@ public static class LocalizedStrings
     static Dictionary<string, List<string>> LanguagesIn(string stringsDir, string stem)
     {
         var found = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var p in TableFiles(stringsDir, stem))
+        foreach (var p in TableFilesIn(stringsDir, stem))
         {
             if (Parse(Path.GetFileName(p), stem) is not { } hit) continue;
             if (!found.TryGetValue(hit.Language, out var kinds)) found[hit.Language] = kinds = new List<string>();
@@ -237,12 +240,17 @@ public static class LocalizedStrings
     /// No archive is opened unless one is present, which is the common case at ~0.06 ms.</summary>
     static (string? Path, bool Unreadable) BsaEmbedding(string folder, string stem)
     {
+        // A POSITIVE hit wins over an unreadable one, and the pass order is why: returning on the first unreadable
+        // archive made a single unparseable .bsa anywhere in game-Data answer for every plugin that searched there —
+        // naming an archive that neither sits beside the plugin nor carries its tables. An archive we cannot see into
+        // still refuses (Q3), but only once no archive has actually claimed the stem.
+        string? unreadable = null;
         foreach (var e in ArchiveStrings(folder))
         {
-            if (e.Unreadable) return (e.Archive, true);
+            if (e.Unreadable) { unreadable ??= e.Archive; continue; }
             if (e.Stems.Contains(stem)) return (e.Archive, false);
         }
-        return (null, false);
+        return unreadable is null ? (null, false) : (unreadable, true);
     }
 
     /// <summary>Per archive in a folder: which plugin stems it embeds strings for. Cached by folder, because game-Data
