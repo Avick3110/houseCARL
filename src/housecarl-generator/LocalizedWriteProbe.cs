@@ -12,7 +12,17 @@ namespace HousecarlGenerator;
 
 /// <summary>
 /// PHASE 0, the #368/#373 attended engagement's binding measurements. Not a guard — the evidence the design ruling
-/// (A-narrow with C as the floor) is gated on. Every arm prints ONE line; the summary is the last line.
+/// (A-narrow with C as the floor) was gated on. Every arm prints ONE line; the summary is the last line.
+///
+/// <para><b>HISTORICAL, and it does not run green any more.</b> The arm these measurements unlocked — an in-place
+/// write of a localized plugin, committing its emitted tables — was CUT (2026-08-26) after the pre-PR review found
+/// the machinery protecting it destroyed its own recovery set and instructed users into the corruption it existed to
+/// prevent. The measurements below are still true about MUTAGEN (M2's emit coverage and M3's detection costs are
+/// what the shipped classifier rests on); what changed is the ruling they fed. M1 drives its own commit helper rather
+/// than the shipped write, so it still measures what it always did — but nothing in the product performs that commit
+/// on a user's own file, and no arm here should be read as describing shipped behaviour. The behaviour that ships is
+/// pinned by <c>localized-write-guard</c>. Kept rather than deleted because the ruling's reversal is only legible
+/// alongside the evidence it was made on.</para>
 ///
 /// <para><b>M1 — round-trip fidelity.</b> Re-serialize a localized plugin, commit the emitted .STRINGS/.DLSTRINGS/
 /// .ILSTRINGS <i>together with</i> the plugin (which is what <c>CommitStagedPatch</c> does not do today — #373), and
