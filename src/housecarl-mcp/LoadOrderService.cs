@@ -6214,24 +6214,28 @@ public sealed class LoadOrderService : IDisposable
             // the distinction this whole refusal rests on.
             // Read once: the in-place lane refuses on it, and the new-file lane reports on it (below).
             //
-            // SHAPE-GATED since the strings commit seam landed. When the source's strings are a complete loose set
-            // beside it, the rebuild carries every language into P′ (measured) and the write commits P′ with matching
-            // tables, so P′ is the same KIND of thing the source was and the de-localization this refusal exists for
-            // does not happen. Every other shape still de-localizes, and in place that is still silent and unundoable.
+            // Keyed on the header flag for the IN-PLACE lane, every shape included. The shape still decides what the
+            // NEW-FILE lane can carry into P′ (keepLocalized, below) — but no shape earns an in-place rebuild over the
+            // modder's own file: houseCARL does not put a plugin and a replacement set of .STRINGS files onto a file
+            // it cannot review afterwards. The new-file output CAN now stay localized, and the sentence says so, which
+            // is what makes the remedy worth taking rather than merely available.
             var srcShape = LocalizedStrings.Assess(srcPath, view.DataDir);
             bool srcLocalized = srcShape.Shape != LocalizedShape.NotLocalized;
-            bool keepLocalized = srcShape.CanCommitStrings;
-            if (inPlace && srcLocalized && !keepLocalized)
+            bool keepLocalized = srcShape.CanKeepLocalized;
+            if (inPlace && srcLocalized)
                 return WritePatchBuilder.CompactOutcome.Fail(
                     $"houseCARL did not compact '{name}' in place — the file is unchanged and nothing was staged. " +
                     LocalizedTargetUnsupportedException.ShapeClause(srcShape) + " A " +
                     "compaction does not re-serialize your plugin, it builds a NEW one and writes that over the original, " +
-                    "and the rebuilt plugin is not localized: what it would carry is whichever language resolved when " +
-                    "houseCARL read it, written into the plugin itself — or blanks, if those strings resolved nowhere. " +
-                    "Either way the file the game loads would stop being the translated plugin you have, with no backup " +
-                    $"and nothing to undo it. Re-run without in_place to compact '{name}' into a NEW plugin instead: the " +
-                    "same renumber, left in its own mod folder for you to check and enable yourself. That output is not " +
-                    "localized either — read it before you swap it in.");
+                    "and houseCARL will not replace a translated plugin's .STRINGS files on your own copy: it cannot swap " +
+                    "the plugin and its tables as one operation, and the file the game loads would stop being the " +
+                    "translated plugin you have, with no backup and nothing to undo it. " +
+                    $"Re-run without in_place to compact '{name}' into a NEW plugin instead: the same renumber, left in " +
+                    "its own mod folder for you to check and enable yourself. " +
+                    (keepLocalized
+                        ? "That output keeps its .STRINGS files, rewritten to match the new FormIDs and sitting beside it."
+                        : "That output is not localized — " + LocalizedTargetUnsupportedException.WhyNotKept(srcShape) +
+                          " Read it before you swap it in."));
 
             // 1. originating record keys + the remap into the (light, by default) window.
             if (!WritePatchBuilder.TryReadOriginatingKeys(srcPath, modKey, out var keys, out var keyErr))
@@ -6287,8 +6291,14 @@ public sealed class LoadOrderService : IDisposable
                         : $"Re-running with repoint_externals=true will NOT work here: {string.Join(", ", blocked.Take(25).Select(b => b.Plugin))}"
                           + $"{(blocked.Count > 25 ? $", … (+{blocked.Count - 25} more)" : "")} "
                           + (blocked.Count == 1 ? "is localized" : "are localized")
-                          + " in a state houseCARL cannot rewrite, so the repoint would refuse before touching anything. "
-                          + $"Why: {blocked[0].Why} Until that is resolved, handle the references yourself instead.";
+                          + ", and houseCARL does not rewrite a localized plugin in place, so the repoint would refuse "
+                          + "before touching anything. "
+                          // ATTRIBUTED to the plugin it describes. Blocked referencers can be in different shapes, so
+                          // an unattributed reason reads as the reason for all of them and hands one plugin's account
+                          // of where its text lives to another.
+                          + $"Where {blocked[0].Plugin}'s text is: {blocked[0].Why}"
+                          + (blocked.Count > 1 ? $" (the other {blocked.Count - 1} are reported the same way if you compact them.)" : "")
+                          + " Until that is resolved, handle the references yourself instead.";
                     return WritePatchBuilder.CompactOutcome.Fail(
                         $"refused — {id.ExternalPlugins.Count} plugin(s) outside '{name}' reference records it is about to renumber; compacting it " +
                         $"WOULD BREAK those references (they would point at FormIDs that no longer exist). Referencers: {refList}. " +
@@ -6329,13 +6339,14 @@ public sealed class LoadOrderService : IDisposable
                         $"refused — compacting '{name}' means rewriting the plugins that reference it, and " +
                         $"{(localized.Count == 1 ? "one of them is" : $"{localized.Count} of them are")} flagged LOCALIZED: " +
                         $"{string.Join(", ", localized.Take(25).Select(l => l.Plugin))}{(localized.Count > 25 ? $", … (+{localized.Count - 25} more)" : "")}. " +
-                        // The referencer's OWN reason, verbatim from the same decision the write would have made. A
-                        // caller refused here is being told about a plugin they did not name, so "it is localized" is
-                        // not enough to act on — what they need is which state it is in and what would change it, and
-                        // that sentence already exists and is already measured.
-                        $"Why houseCARL cannot rewrite {(localized.Count == 1 ? "it" : "the first of them")}: {localized[0].Why} " +
+                        // The referencer's OWN reason, verbatim from the same decision the write would have made, and
+                        // ATTRIBUTED: a caller refused here is being told about a plugin they did not name, so "it is
+                        // localized" is not enough to act on — what they need is where that plugin's text actually is.
+                        $"Where {localized[0].Plugin}'s text is: {localized[0].Why} " +
                         "NOTHING was written and nothing was staged — " +
-                        $"'{name}' is untouched. houseCARL cannot compact '{name}' while a localized plugin references it.");
+                        $"'{name}' is untouched. houseCARL cannot compact '{name}' while a localized plugin references it, " +
+                        "because following the renumber means rewriting that referencer in place and houseCARL does not " +
+                        "rewrite a localized plugin in place.");
             }
             if ((willOverwriteTarget || willRepoint) && !acknowledge)
             {

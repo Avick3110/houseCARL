@@ -2523,11 +2523,16 @@ public static class WritePatchBuilder
             // languages are incomplete, flagging P′ localized would emit the missing files holding EMPTY text — a
             // plugin that looks translated and is not, which is worse than the de-localized output rather than better.
             // Those shapes keep the old behaviour and the caller is told what was lost and why.
+            //
+            // This is the NEW-FILE lane only. P′ goes into a houseCARL mod folder the modder reviews before enabling,
+            // which is what makes writing a plugin plus a matching table set safe here and not in the in-place lane —
+            // where a localized target is refused outright (WriteEngine.WriteInPlace's choke point). The compact
+            // service refuses an in-place compaction of any localized source before reaching this.
             var srcAssessment = LocalizedStrings.Assess(srcPath, dataDir);
             pPrime = new SkyrimMod(modKey, SkyrimRelease.SkyrimSE)
             {
                 IsSmallMaster = esl,
-                UsingLocalization = srcAssessment.CanCommitStrings,
+                UsingLocalization = srcAssessment.CanKeepLocalized,
             };
             ren = RemapEngine.RenumberModInto(pPrime, srcOv, dict);
         }
@@ -2573,7 +2578,10 @@ public static class WritePatchBuilder
                 }
                 overlays.Add((IDisposable)mov); resolved.Add(mov);
             }
-            try { WriteEngine.WriteInPlace(pPrime, resolved, outPath, dataDir); }
+            // The OWNED-OUTPUT write, not the in-place one: P′ may be flagged localized (Q2-A above), and this is the
+            // one lane allowed to put a plugin and a matching set of .STRINGS files down together — because outPath is
+            // in a houseCARL mod folder the modder has not enabled.
+            try { WriteEngine.WriteOwnedOutput(pPrime, resolved, outPath); }
             catch (Exception ex)
             {
                 return CompactBuildResult.Fail(

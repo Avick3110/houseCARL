@@ -299,8 +299,8 @@ public static class CompactServiceGuardProbe
 
                 var q2Src = Path.Combine(q2fx.Mods, q2.ModFolder, q2.Key.FileName.String);
                 var q2Shape = LocalizedStrings.Assess(q2Src, q2fx.Data);
-                Check(q2Shape.CanCommitStrings && q2Shape.Languages.Count == 2,
-                    $"Q2 fixture: the source really is the ACCEPTED shape with two languages (shape={q2Shape.Shape} langs=[{string.Join(",", q2Shape.Languages)}])");
+                Check(q2Shape.CanKeepLocalized && q2Shape.Languages.Count == 2,
+                    $"Q2 fixture: the source really is the shape a compaction may keep, with two languages (shape={q2Shape.Shape} langs=[{string.Join(",", q2Shape.Languages)}])");
 
                 var q2o = q2Svc.CompactPlugin(q2.Key.FileName.String);
                 bool localizedOut = false, hasTables = false;
@@ -321,6 +321,21 @@ public static class CompactServiceGuardProbe
                     $"Q2 both languages survive the compaction into P′ (English='{en}' French='{fr}')");
                 Check(q2o.Success && (q2o.Note?.Contains("travels with it", StringComparison.Ordinal) ?? false),
                     $"Q2 the report tells the caller the Strings folder travels with P′ [{q2o.Note}]");
+
+                // IN PLACE, the same source is REFUSED — the shape a compaction may keep in a NEW plugin still earns
+                // no rewrite of the modder's own file. This is the arm that went from "writes" to "refuses" when the
+                // in-place localized arm was cut (2026-08-26), so it is the one that would notice it coming back.
+                var q2Before = File.ReadAllBytes(q2Src);
+                var q2ip = q2Svc.CompactPlugin(q2.Key.FileName.String, inPlace: true, acknowledge: false);
+                bool q2Untouched = File.ReadAllBytes(q2Src).AsSpan().SequenceEqual(q2Before);
+                bool q2NoStaging = !Directory.Exists(Path.Combine(Path.GetDirectoryName(q2Src)!, ".housecarl-tmp"));
+                Check(!q2ip.Success && !q2ip.NeedsAcknowledge && q2Untouched && q2NoStaging,
+                    $"Q2 the SAME source compacted IN PLACE is refused before the consent prompt, file untouched " +
+                    $"(refused={!q2ip.Success} preConsent={!q2ip.NeedsAcknowledge} untouched={q2Untouched} noStaging={q2NoStaging}) [{q2ip.Error}]");
+                // …and the refusal points at the new-file lane with the TRUE promise for this shape. The opposite arm
+                // — a shape whose output cannot stay localized — is TARGET-LOC below.
+                Check(!q2ip.Success && (q2ip.Error?.Contains("keeps its .STRINGS files", StringComparison.Ordinal) ?? false),
+                    $"Q2 the in-place refusal tells this caller the new-file output KEEPS its .STRINGS [{q2ip.Error}]");
             }
 
             {
@@ -403,6 +418,13 @@ public static class CompactServiceGuardProbe
                 Check(named && preConsent && untouched && noStaging,
                     $"TARGET-LOC compacting a LOCALIZED plugin IN PLACE is refused before the consent prompt, file untouched " +
                     $"(refused={!oip.Success} named={named} preConsent={preConsent} untouched={untouched} noStaging={noStaging}) [{oip.Error}]");
+                // The other direction of the refusal's new-file promise (Q2's arm is the first): this source's strings
+                // are in game-Data, so the output CANNOT stay localized and the sentence has to say so, with a cause.
+                Check(!oip.Success
+                      && (oip.Error?.Contains("That output is not localized", StringComparison.Ordinal) ?? false)
+                      && (oip.Error?.Contains(@"Data\Strings", StringComparison.Ordinal) ?? false)
+                      && !(oip.Error?.Contains("keeps its .STRINGS files", StringComparison.Ordinal) ?? false),
+                    $"TARGET-LOC the refusal tells THIS caller the new-file output is NOT localized, and why [{oip.Error}]");
             }
 
             // NEWFILE-NOTE, other direction: the SAME lane over a NON-localized source says nothing about localization.
@@ -493,6 +515,49 @@ public static class CompactServiceGuardProbe
                         $"REPOINT-LOC backstop: RepointInPlace itself refuses the localized referencer verbatim, file untouched " +
                         $"(refused={!rep.Success} verbatim={verbatim} untouched={untouched}) [{rep.Error}]");
                 }
+            }
+
+            // ---- REPOINT-BESIDE: a referencer in the arrangement houseCARL classifies most confidently — a complete
+            //      loose set BESIDE it — blocks the repoint too. This is the write that was briefly permitted and then
+            //      cut (2026-08-26): the repoint would have rewritten a localized plugin the caller never named,
+            //      plugin and tables together, on their own file. The arm exists so that permission cannot return
+            //      unnoticed, and it is deliberately the same fixture shape a compaction IS allowed to keep in a new
+            //      plugin — the two lanes differ by where the output lands, not by the arrangement.
+            {
+                var rbRoot = Path.Combine(root, "repbeside");
+                var tgt = new LocalizedStringsFixture.Spec("RbTgt", new ModKey("HcCsRbTgt", ModType.Plugin), "TGT NAME", "TGT DESC",
+                                                          Localized: false);
+                var rf = new LocalizedStringsFixture.Spec("RbRef", new ModKey("HcCsRbRef", ModType.Plugin), "REF NAME", "REF DESC",
+                                                          LinksTo: LocalizedStringsFixture.WeaponKey(tgt),
+                                                          StringsBeside: true, SecondLanguage: "French");
+                var fx = LocalizedStringsFixture.Build(rbRoot, new[] { tgt, rf });
+                var rbStore = new UserConfigStore(Path.Combine(rbRoot, "houseCARL.user.json"));
+                using var rbSvc = LoadOrderService.WithInstance(fx.Instance, 0, rbStore);
+                rbSvc.Stats();
+
+                var tgtPath = Path.Combine(fx.Mods, tgt.ModFolder, tgt.Key.FileName.String);
+                var refPath = Path.Combine(fx.Mods, rf.ModFolder, rf.Key.FileName.String);
+
+                var refShape = LocalizedStrings.Assess(refPath, fx.Data);
+                Check(refShape.Shape == LocalizedShape.LooseComplete && refShape.CanKeepLocalized,
+                    $"REPOINT-BESIDE fixture: the referencer really is the complete-loose-set arrangement (shape={refShape.Shape})");
+
+                var tgtBefore = File.ReadAllBytes(tgtPath);
+                var refBefore = File.ReadAllBytes(refPath);
+                var refTablesBefore = LocalizedStrings.OwnTableFiles(refPath)
+                    .ToDictionary(p => Path.GetFileName(p), File.ReadAllBytes, StringComparer.OrdinalIgnoreCase);
+
+                var o = rbSvc.CompactPlugin(tgt.Key.FileName.String, inPlace: true, repointExternals: true, acknowledge: true);
+                bool named = !o.Success && (o.Error?.Contains(rf.Key.FileName.String, StringComparison.OrdinalIgnoreCase) ?? false);
+                bool tgtUntouched = File.ReadAllBytes(tgtPath).AsSpan().SequenceEqual(tgtBefore);
+                bool refUntouched = File.ReadAllBytes(refPath).AsSpan().SequenceEqual(refBefore);
+                var refTablesAfter = LocalizedStrings.OwnTableFiles(refPath)
+                    .ToDictionary(p => Path.GetFileName(p), File.ReadAllBytes, StringComparer.OrdinalIgnoreCase);
+                bool tablesUntouched = refTablesBefore.Count == refTablesAfter.Count
+                    && refTablesBefore.All(kv => refTablesAfter.TryGetValue(kv.Key, out var b) && b.AsSpan().SequenceEqual(kv.Value));
+                Check(named && tgtUntouched && refUntouched && tablesUntouched,
+                    $"REPOINT-BESIDE a complete-loose-set referencer blocks the repoint; target, referencer AND its tables untouched " +
+                    $"(named={named} tgt={tgtUntouched} ref={refUntouched} tables={tablesUntouched}/{refTablesBefore.Count}) [{o.Error}]");
             }
 
             // ---- REPOINT-PLAIN: a NON-localized target with a NON-localized referencer still compacts and repoints ----
