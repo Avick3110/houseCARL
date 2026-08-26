@@ -6274,11 +6274,26 @@ public sealed class LoadOrderService : IDisposable
             {
                 var refList = $"{string.Join(", ", id.ExternalPlugins.Take(25))}{(id.ExternalPlugins.Count > 25 ? $", … (+{id.ExternalPlugins.Count - 25} more)" : "")}";
                 if (!repointExternals)
+                {
+                    // #374: this refusal's remedy is "re-run with repoint_externals" — so it has to know whether that
+                    // re-run would itself be refused. It is refused when a referencer's strings are in a state houseCARL
+                    // cannot rewrite, and the caller learns that here rather than by following the instruction and
+                    // meeting a second refusal. The check runs only on the referencers already named, and only on this
+                    // branch: the repoint branch below has its own, which refuses before anything is written.
+                    var blocked = RemapEngine.LocalizedAmong(resolver, id.ExternalPlugins);
+                    var repointClause = blocked.Count == 0
+                        ? "Re-run with repoint_externals=true AND in_place=true (+ acknowledge=true) to ALSO rewrite those plugins in place to follow "
+                          + "the renumber, or handle them yourself first."
+                        : $"Re-running with repoint_externals=true will NOT work here: {string.Join(", ", blocked.Take(25).Select(b => b.Plugin))}"
+                          + $"{(blocked.Count > 25 ? $", … (+{blocked.Count - 25} more)" : "")} "
+                          + (blocked.Count == 1 ? "is localized" : "are localized")
+                          + " in a state houseCARL cannot rewrite, so the repoint would refuse before touching anything. "
+                          + $"Why: {blocked[0].Why} Until that is resolved, handle the references yourself instead.";
                     return WritePatchBuilder.CompactOutcome.Fail(
                         $"refused — {id.ExternalPlugins.Count} plugin(s) outside '{name}' reference records it is about to renumber; compacting it " +
                         $"WOULD BREAK those references (they would point at FormIDs that no longer exist). Referencers: {refList}. " +
-                        "Re-run with repoint_externals=true AND in_place=true (+ acknowledge=true) to ALSO rewrite those plugins in place to follow " +
-                        "the renumber, or handle them yourself first. Nothing was written.");
+                        repointClause + " Nothing was written.");
+                }
                 // repoint is only COHERENT paired with in_place (PR #122 review #1): in the new-file lane the renumbered
                 // records live ONLY in the not-yet-active P′, so repointing the externals now would leave them dangling
                 // against the still-active original until the MO2 swap — and broken if the user rejects P′. Couple them.
