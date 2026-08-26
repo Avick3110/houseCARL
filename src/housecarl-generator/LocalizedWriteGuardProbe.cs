@@ -42,6 +42,8 @@ public static class LocalizedWriteGuardProbe
         Console.WriteLine();
         UndecidableDestination();
         Console.WriteLine();
+        UnlistableStringsFolder();
+        Console.WriteLine();
         Console.WriteLine(_fail == 0
             ? "[localized-write-guard] PASS — every arrangement refuses in place and in its own words, and a destination houseCARL cannot classify refuses too."
             : $"[localized-write-guard] FAIL — {_fail} arm(s).");
@@ -517,11 +519,119 @@ public static class LocalizedWriteGuardProbe
         // do is describe an arrangement, and it does not.
         LocalizedShape.NotLocalized => true,
 
+        // The PLUGIN's flag was read and is set; only its Strings folder could not be listed. So it may be called
+        // localized — what it may not do is describe what is in that folder.
+        LocalizedShape.StringsFolderUnreadable => true,
+
         // Nothing was read. Nothing may be asserted.
         LocalizedShape.Unreadable => false,
 
         _ => false,
     };
+
+    // ------------------------------------------------- a Strings folder houseCARL cannot list
+
+    /// <summary>The FOLDER's third answer (Aaron's review, finding 3). A <c>Strings\</c> folder that is there and
+    /// cannot be enumerated is not an empty one, and the classifier used to treat them the same: the enumeration
+    /// swallowed <c>UnauthorizedAccessException</c>, returned nothing, and a plugin with a complete loose set sitting
+    /// right there classified as <see cref="LocalizedShape.Nowhere"/> — whose sentence then told the modder there were
+    /// "no .STRINGS files beside it". The same unchecked-absence falsehood that arm was rewritten twice to remove,
+    /// arriving through the exception path rather than the matching path.
+    ///
+    /// <para>Fixtured with a real deny ACE, and the deny is VERIFIED to bite before anything is asserted — a fixture
+    /// that silently did not take would make every arm below pass for the wrong reason. If it cannot be built on this
+    /// host the cell FAILS rather than skipping (Q3).</para></summary>
+    static void UnlistableStringsFolder()
+    {
+        Console.WriteLine();
+        Console.WriteLine("== a Strings folder houseCARL cannot LIST is not a Strings folder it found empty ==");
+
+        Run(Variant.LooseComplete, f =>
+        {
+            var strings = Path.Combine(Path.GetDirectoryName(f.Plugin)!, "Strings");
+            var listed = LocalizedStrings.Assess(f.Plugin, f.DataDir);
+            Check(listed.Shape == LocalizedShape.LooseComplete && listed.Languages.Count == 2,
+                $"fixture: listable, the folder holds a complete loose set in two languages (shape={listed.Shape})");
+
+            if (!TryDenyListing(strings))
+            {
+                Check(false, "fixture: the deny-listing ACE did not take on this host — the cell cannot be built, so it FAILS rather than passing");
+                return;
+            }
+            try
+            {
+                var a = LocalizedStrings.Assess(f.Plugin, f.DataDir);
+                Check(a.Shape == LocalizedShape.StringsFolderUnreadable,
+                    $"an unlistable folder classifies as its own shape, NOT as Nowhere (shape={a.Shape})");
+
+                var msg = LocalizedStrings.RefusalFor(f.Plugin, "ZRef.esp", f.DataDir) ?? "";
+                Check(!msg.Contains("no .STRINGS files beside it", StringComparison.Ordinal)
+                      && !msg.Contains("cannot find its text", StringComparison.Ordinal),
+                    $"…and its refusal asserts no absence over a folder houseCARL could not read");
+                Check(msg.Contains("could not read the Strings folder beside it", StringComparison.Ordinal),
+                    $"…and says what actually happened — the folder is there and could not be read [{msg}]");
+                if (msg.Contains("no .STRINGS files beside it")) Console.WriteLine("          got: " + msg);
+            }
+            finally { UndenyListing(strings); }
+
+            // The other direction, on the same folder once the deny is lifted: back to the shape it really is, so the
+            // arms above cannot pass by the classifier answering StringsFolderUnreadable for everything.
+            var after = LocalizedStrings.Assess(f.Plugin, f.DataDir);
+            Check(after.Shape == LocalizedShape.LooseComplete,
+                $"with the deny lifted the same folder classifies as the loose set it is (shape={after.Shape})");
+        });
+
+        // And the genuinely-absent folder keeps the absence claim it is entitled to — the arm that stops the fix from
+        // being "never say there are none".
+        Run(Variant.Nowhere, f =>
+        {
+            var a = LocalizedStrings.Assess(f.Plugin, f.DataDir);
+            var msg = LocalizedStrings.RefusalFor(f.Plugin, "ZRef.esp", f.DataDir) ?? "";
+            Check(a.Shape == LocalizedShape.Nowhere && msg.Contains("no .STRINGS files beside it", StringComparison.Ordinal),
+                $"a folder that really is gone still gets the checked absence (shape={a.Shape})");
+        });
+    }
+
+    /// <summary>Deny LISTING on one directory for the current user, and say whether it actually bit. Deliberately not
+    /// a deny-all: <c>Directory.Exists</c> reads the path's attributes, and denying that too would make the folder
+    /// look ABSENT rather than unlistable — which is the wrong state to measure.</summary>
+    static bool TryDenyListing(string dir)
+    {
+        try
+        {
+            var me = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
+            var di = new DirectoryInfo(dir);
+            var sec = di.GetAccessControl();
+            sec.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(
+                me, System.Security.AccessControl.FileSystemRights.ListDirectory,
+                System.Security.AccessControl.AccessControlType.Deny));
+            di.SetAccessControl(sec);
+            // Verified, not trusted: the folder must still LOOK present and must refuse to be enumerated.
+            if (!Directory.Exists(dir)) { UndenyListing(dir); return false; }
+            try { Directory.EnumerateFiles(dir).ToList(); }
+            catch (UnauthorizedAccessException) { return true; }
+            catch (IOException) { return true; }
+            UndenyListing(dir);
+            return false;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Lift the deny again — always in a finally, or the temp tree cannot be cleaned up afterwards.</summary>
+    static void UndenyListing(string dir)
+    {
+        try
+        {
+            var me = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
+            var di = new DirectoryInfo(dir);
+            var sec = di.GetAccessControl();
+            sec.RemoveAccessRuleAll(new System.Security.AccessControl.FileSystemAccessRule(
+                me, System.Security.AccessControl.FileSystemRights.ListDirectory,
+                System.Security.AccessControl.AccessControlType.Deny));
+            di.SetAccessControl(sec);
+        }
+        catch { /* best effort; Run's recursive delete is the backstop */ }
+    }
 
     /// <summary>A bare assessment in one shape, for the enum walk above. Synthetic on purpose: the walk is about the
     /// RENDER's arms, and a fixture per shape would only re-measure the classifier the Shapes() arms already pin.</summary>

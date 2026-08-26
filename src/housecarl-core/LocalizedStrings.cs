@@ -57,6 +57,16 @@ public enum LocalizedShape
     /// it — the values would be faithful, but the game-Data set would silently go stale.</summary>
     GameDataOnly,
 
+    /// <summary>Flagged localized, with a <c>Strings\</c> folder beside it that houseCARL could not LIST — an ACL that
+    /// denies enumeration, a path the filesystem refuses, a folder held by something else.
+    ///
+    /// <para>Its own shape because the folder needs the third answer the plugin already has: "enumerated it and found
+    /// nothing" and "could not enumerate it" are different facts, and collapsing them classified a folder holding a
+    /// complete loose set as <see cref="Nowhere"/> — whose sentence then told the modder there were no .STRINGS files
+    /// beside a plugin whose folder is full. The same unchecked-absence falsehood that arm was rewritten twice to
+    /// remove, arriving through the exception path instead of the matching path.</para></summary>
+    StringsFolderUnreadable,
+
     /// <summary>Flagged localized, and houseCARL can find no strings source for it — the residual case (#371).
     ///
     /// <para>This says what houseCARL could FIND, not what exists: MO2's VFS merges mod folders at runtime, so a
@@ -165,11 +175,16 @@ public static class LocalizedStrings
         if (folder is null) return Plain(LocalizedShape.Nowhere);
         var stem = Path.GetFileNameWithoutExtension(pluginPath);
 
-        var own = LanguagesIn(Path.Combine(folder, "Strings"), stem);
-        var unmatched = UnmatchedTablesIn(Path.Combine(folder, "Strings"), stem);
+        var ownFolder = ReadStringsFolder(Path.Combine(folder, "Strings"), stem);
+        var own = ownFolder.Languages;
+        var unmatched = ownFolder.Unmatched;
+        // The game-Data side stays two-answer on purpose, and it is safe to: nothing rendered off it asserts an
+        // absence. The Nowhere sentence says houseCARL "cannot find" the text, AlsoLoose names a game-Data set only
+        // when one was found, and GameDataUnknown already carries the one absence claim there is (no Data folder to
+        // search). The claim that WAS false — "no .STRINGS files beside it" — is about the folder below.
         var gameData = dataDir is null
             ? new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
-            : LanguagesIn(Path.Combine(dataDir, "Strings"), stem);
+            : ReadStringsFolder(Path.Combine(dataDir, "Strings"), stem).Languages;
 
         // An archive the write cannot rewrite decides the shape regardless of what else is on disk — a loose set beside
         // a BSA that also embeds this plugin's strings is an ambiguous source, and which one Mutagen prefers is not
@@ -178,6 +193,15 @@ public static class LocalizedStrings
         if (bsaPath is not null)
             return new LocalizedAssessment(LocalizedShape.BsaEmbedded, Names(own), Incomplete(own), Names(gameData),
                                            bsaPath, bsaUnreadable, dataDir is null, UnmatchedTables: unmatched);
+
+        // THE FOLDER'S THIRD ANSWER. A Strings folder that is there and could not be LISTED tells us nothing about
+        // what is in it — so it cannot fall through to the loose shapes (which would report zero languages) nor to
+        // Nowhere (whose sentence then asserts there are no .STRINGS files beside a plugin whose folder may hold a
+        // complete set). Checked after the archive, which is decisive whatever else is on disk, and before every shape
+        // that reasons from what the folder was seen to contain.
+        if (ownFolder.Read == StringsFolderRead.Unlistable)
+            return new LocalizedAssessment(LocalizedShape.StringsFolderUnreadable, Array.Empty<string>(), NoneIncomplete,
+                                           Names(gameData), null, false, dataDir is null, UnmatchedTables: unmatched);
 
         if (own.Count > 0)
         {
@@ -253,59 +277,76 @@ public static class LocalizedStrings
     /// classifier uses: a <c>Strings\</c> folder is shared by every plugin beside it, and matching on anything looser
     /// makes one plugin's write act on another plugin's files.</summary>
     public static IReadOnlyList<string> TableFilesIn(string stringsDir, string stem)
+        => ReadStringsFolder(stringsDir, stem).MatchedFiles;
+
+    /// <summary>What happened when houseCARL looked in a <c>Strings\</c> folder — THREE answers, for the same reason
+    /// the plugin's own header read has three. "Enumerated it and found nothing" and "could not enumerate it" are
+    /// different facts, and a classifier that collapses them makes an absence claim it never checked.</summary>
+    public enum StringsFolderRead
     {
-        if (!Directory.Exists(stringsDir)) return Array.Empty<string>();
-        try
-        {
-            return Directory.EnumerateFiles(stringsDir)
-                            .Where(p => Parse(Path.GetFileName(p), stem) is not null)
-                            .ToList();
-        }
-        catch (IOException) { return Array.Empty<string>(); }
-        catch (UnauthorizedAccessException) { return Array.Empty<string>(); }
+        /// <summary>No <c>Strings\</c> folder beside the plugin at all. A checked absence, and sayable as one.</summary>
+        Absent,
+
+        /// <summary>Listed it. Whatever is reported is what is in there.</summary>
+        Listed,
+
+        /// <summary>The folder is there and could not be listed. Nothing may be concluded about its contents.</summary>
+        Unlistable,
     }
 
-    /// <summary>The table files in <paramref name="stringsDir"/> that houseCARL did NOT match to
-    /// <paramref name="stem"/> in a language it models — by file name, capped, so a refusal can quote the folder back
-    /// at the modder rather than asserting the folder is empty.
+    /// <summary>One look inside a <c>Strings\</c> folder, answering everything this classifier asks of it: which
+    /// languages matched the plugin, which table files did NOT, and whether the folder could be read at all.
     ///
-    /// <para>Deliberately does NOT try to say WHOSE those files are. Two plugins share a <c>Strings\</c> folder, and
-    /// telling a neighbour's <c>ksws07_quest_shrubs_English.STRINGS</c> apart from this plugin's own
-    /// <c>ZRef_ptbr.STRINGS</c> means guessing where the stem ends — the exact guess whose first spelling made one
-    /// plugin's assessment read another's files. What is checkable without guessing is that the files are there and
-    /// that none of them matched, and that is all the sentence claims.</para></summary>
-    static UnmatchedTableFiles UnmatchedTablesIn(string stringsDir, string stem)
-    {
-        if (!Directory.Exists(stringsDir)) return UnmatchedTableFiles.None;
-        try
-        {
-            // The whole set first, and the cap applied to the NAMES only. Capping the enumeration itself is what made
-            // the count and the list the same number — so a folder holding thirty announced eight, as a fact about the
-            // modder's disk.
-            var all = Directory.EnumerateFiles(stringsDir)
-                               .Where(p => Kinds.Contains(Path.GetExtension(p).TrimStart('.'), StringComparer.OrdinalIgnoreCase))
-                               .Where(p => Parse(Path.GetFileName(p), stem) is null)
-                               .Select(Path.GetFileName)
-                               .OfType<string>()
-                               .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
-                               .ToList();
-            return new UnmatchedTableFiles(all.Take(UnmatchedTableFiles.Cap).ToList(), all.Count);
-        }
-        catch (IOException) { return UnmatchedTableFiles.None; }
-        catch (UnauthorizedAccessException) { return UnmatchedTableFiles.None; }
-    }
+    /// <para>ONE enumeration on purpose. The matched pass and the unmatched pass used to walk the same folder
+    /// separately, so they could disagree with each other — one succeeding while the other threw would produce an
+    /// assessment claiming a folder held nothing unmatched while the languages said otherwise. Every claim made about
+    /// this folder now comes from the same listing.</para>
+    ///
+    /// <para>The unmatched files are reported by NAME and deliberately NOT attributed. Two plugins share a
+    /// <c>Strings\</c> folder, and telling a neighbour's <c>ksws07_quest_shrubs_English.STRINGS</c> apart from this
+    /// plugin's own <c>ZRef_ptbr.STRINGS</c> means guessing where the stem ends — the exact guess whose first spelling
+    /// made one plugin's assessment read another's files. What is checkable without guessing is that the files are
+    /// there and that none of them matched, and that is all the sentence claims.</para></summary>
+    readonly record struct StringsFolder(
+        StringsFolderRead Read,
+        Dictionary<string, List<string>> Languages,
+        UnmatchedTableFiles Unmatched,
+        IReadOnlyList<string> MatchedFiles);
 
-    /// <summary>language → the table kinds present for it, for one strings folder and one plugin stem.</summary>
-    static Dictionary<string, List<string>> LanguagesIn(string stringsDir, string stem)
+    static StringsFolder EmptyFolder(StringsFolderRead read)
+        => new(read, new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase),
+               UnmatchedTableFiles.None, Array.Empty<string>());
+
+    static StringsFolder ReadStringsFolder(string stringsDir, string stem)
     {
-        var found = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var p in TableFilesIn(stringsDir, stem))
+        if (!Directory.Exists(stringsDir)) return EmptyFolder(StringsFolderRead.Absent);
+
+        List<string> files;
+        // .ToList() INSIDE the try: EnumerateFiles is lazy, so an access failure surfaces while the sequence is being
+        // walked rather than at the call.
+        try { files = Directory.EnumerateFiles(stringsDir).ToList(); }
+        catch (IOException) { return EmptyFolder(StringsFolderRead.Unlistable); }
+        catch (UnauthorizedAccessException) { return EmptyFolder(StringsFolderRead.Unlistable); }
+
+        var langs = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var matched = new List<string>();
+        var unmatched = new List<string>();
+        foreach (var p in files)
         {
-            if (Parse(Path.GetFileName(p), stem) is not { } hit) continue;
-            if (!found.TryGetValue(hit.Language, out var kinds)) found[hit.Language] = kinds = new List<string>();
-            if (!kinds.Contains(hit.Kind, StringComparer.OrdinalIgnoreCase)) kinds.Add(hit.Kind);
+            var name = Path.GetFileName(p);
+            if (Parse(name, stem) is { } hit)
+            {
+                matched.Add(p);
+                if (!langs.TryGetValue(hit.Language, out var kinds)) langs[hit.Language] = kinds = new List<string>();
+                if (!kinds.Contains(hit.Kind, StringComparer.OrdinalIgnoreCase)) kinds.Add(hit.Kind);
+            }
+            else if (Kinds.Contains(Path.GetExtension(name).TrimStart('.'), StringComparer.OrdinalIgnoreCase))
+                unmatched.Add(name);
         }
-        return found;
+        unmatched.Sort(StringComparer.OrdinalIgnoreCase);
+        return new StringsFolder(StringsFolderRead.Listed, langs,
+                                 new UnmatchedTableFiles(unmatched.Take(UnmatchedTableFiles.Cap).ToList(), unmatched.Count),
+                                 matched);
     }
 
     /// <summary>Every language Mutagen models, as the token it writes into a table's file name. The set of languages
