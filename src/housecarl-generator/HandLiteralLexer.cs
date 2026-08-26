@@ -35,7 +35,8 @@ public static class HandLiteralLexer
     public static List<SourceLiteral> Read(string src)
     {
         var found = new List<SourceLiteral>();
-        Scan(src, 0, src.Length, 0, found);
+        // One cache per file, threaded through every level. See FindHoleEnd for what it costs not to have it.
+        Scan(src, 0, src.Length, 0, found, new Dictionary<(int From, int To), int>());
         var newlines = NewlineOffsets(src);
         return found
             .Select(l => l with { Line = LineOf(newlines, l.Start) })
@@ -48,7 +49,7 @@ public static class HandLiteralLexer
     /// literals are skipped rather than read — a comment is not a literal, which is where the guard's declared
     /// docstring boundary is enforced, and a character literal holding a quote would otherwise open a string that
     /// never closes.</summary>
-    static void Scan(string src, int from, int to, int depth, List<SourceLiteral> outp)
+    static void Scan(string src, int from, int to, int depth, List<SourceLiteral> outp, Dictionary<(int From, int To), int> holeEnds)
     {
         int i = from;
         while (i < to)
@@ -74,7 +75,7 @@ public static class HandLiteralLexer
                 }
                 if (prefixEnd < to && src[prefixEnd] == '"')
                 {
-                    i = LexLiteral(src, i, prefixEnd, to, dollars, verbatim, depth, outp);
+                    i = LexLiteral(src, i, prefixEnd, to, dollars, verbatim, depth, outp, holeEnds);
                     continue;
                 }
                 // An identifier escape (a keyword used as a name) is not a literal — step past the prefix so the
@@ -102,7 +103,7 @@ public static class HandLiteralLexer
 
     /// <summary>Lex one literal whose quote starts at <paramref name="quote"/>, emit it (and anything inside its
     /// holes) into <paramref name="outp"/>, and return the index just past it.</summary>
-    static int LexLiteral(string src, int start, int quote, int to, int dollars, bool verbatim, int depth, List<SourceLiteral> outp)
+    static int LexLiteral(string src, int start, int quote, int to, int dollars, bool verbatim, int depth, List<SourceLiteral> outp, Dictionary<(int From, int To), int> holeEnds)
     {
         int quoteRun = RunLength(src, quote, to, '"');
         // A run of three or more quotes opens a RAW literal only when the literal is not VERBATIM. C# has no
@@ -111,8 +112,8 @@ public static class HandLiteralLexer
         // Shapes like it ship one character away from the scanned trees (SkseConfigReferenceExtractor.cs:45), and
         // the generator tree - which is deliberately not scanned - is full of them.
         var (text, end) = quoteRun >= 3 && !verbatim
-            ? LexRaw(src, quote, quoteRun, to, dollars, depth, outp)
-            : LexRegular(src, quote, to, dollars > 0, verbatim, depth, outp);
+            ? LexRaw(src, quote, quoteRun, to, dollars, depth, outp, holeEnds)
+            : LexRegular(src, quote, to, dollars > 0, verbatim, depth, outp, holeEnds);
         // A u8 suffix changes the literal's TYPE, not its text.
         if (end + 1 < to && src[end] == 'u' && src[end + 1] == '8') end += 2;
         outp.Add(new SourceLiteral(0, depth, text, start, end));
@@ -121,7 +122,7 @@ public static class HandLiteralLexer
 
     /// <summary>Plain, verbatim, interpolated, and verbatim-interpolated in either prefix order. Returns the
     /// decoded text and the index just past the closing quote.</summary>
-    static (string Text, int End) LexRegular(string src, int quote, int to, bool interpolated, bool verbatim, int depth, List<SourceLiteral> outp)
+    static (string Text, int End) LexRegular(string src, int quote, int to, bool interpolated, bool verbatim, int depth, List<SourceLiteral> outp, Dictionary<(int From, int To), int> holeEnds)
     {
         var sb = new StringBuilder();
         int j = quote + 1;
@@ -148,8 +149,8 @@ public static class HandLiteralLexer
             if (interpolated && c == '{')
             {
                 if (j + 1 < to && src[j + 1] == '{') { sb.Append('{'); j += 2; continue; }
-                int holeEnd = FindHoleEnd(src, j + 1, to);
-                Scan(src, j + 1, holeEnd, depth + 1, outp);
+                int holeEnd = FindHoleEnd(src, j + 1, to, holeEnds);
+                Scan(src, j + 1, holeEnd, depth + 1, outp, holeEnds);
                 sb.Append(SourceLiteral.HoleMarker);
                 j = Math.Min(to, holeEnd + 1);
                 continue;
@@ -168,7 +169,7 @@ public static class HandLiteralLexer
     /// hole. Taking the whole run as the opener drops those characters, and because a brace is not a letter the
     /// loss is invisible to the phrase check — it surfaces only as an INV6-AGREE disagreement, which is exactly
     /// how it was found.</para></summary>
-    static (string Text, int End) LexRaw(string src, int quote, int quoteRun, int to, int dollars, int depth, List<SourceLiteral> outp)
+    static (string Text, int End) LexRaw(string src, int quote, int quoteRun, int to, int dollars, int depth, List<SourceLiteral> outp, Dictionary<(int From, int To), int> holeEnds)
     {
         int j = quote + quoteRun, close = -1;
         var sb = new StringBuilder();
@@ -179,8 +180,8 @@ public static class HandLiteralLexer
                 int open = RunLength(src, j, to, '{');
                 sb.Append('{', open - dollars);          // the surplus leading braces are content, not opener
                 int holeStart = j + open;
-                int holeEnd = FindHoleEnd(src, holeStart, to);
-                Scan(src, holeStart, holeEnd, depth + 1, outp);
+                int holeEnd = FindHoleEnd(src, holeStart, to, holeEnds);
+                Scan(src, holeStart, holeEnd, depth + 1, outp, holeEnds);
                 sb.Append(SourceLiteral.HoleMarker);
                 j = Math.Min(to, holeEnd + dollars);
                 continue;
@@ -236,9 +237,23 @@ public static class HandLiteralLexer
 
     /// <summary>The index of the brace that closes a hole opened just before <paramref name="from"/>. Nested
     /// braces, strings, character literals and comments inside the expression are stepped over, so a closing brace
-    /// inside a nested literal does not end the hole early.</summary>
-    static int FindHoleEnd(string src, int from, int to)
+    /// inside a nested literal does not end the hole early.
+    /// <para><b>Memoized per file, and that is not an optimization — it is what makes the reader terminate.</b>
+    /// Finding a hole's end LEXES everything inside it (into a sink, for skipping); the caller then hands the same
+    /// span to <see cref="Scan"/>, which lexes it again to emit. Every nesting level therefore did its subtree's
+    /// work twice, so cost was 2ⁿ in nesting depth: measured on this branch, a legal 296-byte file nested 28 deep
+    /// took the whole guard from 1.8s to 21.1s, and each further level doubles it. Nothing bounded the depth and
+    /// nothing timed out, so a file a few characters longer was an unkillable CI job rather than a failure anyone
+    /// could read.</para>
+    /// <para>Keyed on <c>(from, to)</c> because the bound varies between callers, and it is a plain dictionary
+    /// created in <see cref="Read"/> and threaded down rather than a static: a cache keyed by source INDEX is only
+    /// valid for the one string it was built for, and a static one would silently answer for the wrong file. With
+    /// it, each hole is located once and the cost is linear in the file rather than exponential in its nesting —
+    /// so no depth cap is needed, and none is imposed: a cap would put a legal literal outside the net, which is
+    /// the silent narrowing this whole design exists to prevent.</para></summary>
+    static int FindHoleEnd(string src, int from, int to, Dictionary<(int From, int To), int> holeEnds)
     {
+        if (holeEnds.TryGetValue((from, to), out int cached)) return cached;
         int i = from, nest = 0;
         var sink = new List<SourceLiteral>();
         while (i < to)
@@ -261,7 +276,7 @@ public static class HandLiteralLexer
                 if (p < to && src[p] == '"')
                 {
                     sink.Clear();
-                    i = LexLiteral(src, i, p, to, dollars, verbatim, 0, sink);
+                    i = LexLiteral(src, i, p, to, dollars, verbatim, 0, sink, holeEnds);
                     continue;
                 }
                 if (p > i) { i = p; continue; }
@@ -269,12 +284,12 @@ public static class HandLiteralLexer
             if (c == '{') { nest++; i++; continue; }
             if (c == '}')
             {
-                if (nest == 0) return i;
+                if (nest == 0) return holeEnds[(from, to)] = i;
                 nest--; i++; continue;
             }
             i++;
         }
-        return to;
+        return holeEnds[(from, to)] = to;
     }
 
     /// <summary>Decode one backslash escape at <paramref name="at"/>; return the index just past it. The numeric
