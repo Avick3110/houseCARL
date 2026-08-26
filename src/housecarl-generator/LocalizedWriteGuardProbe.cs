@@ -226,11 +226,37 @@ public static class LocalizedWriteGuardProbe
                       && !msg.Contains("no .STRINGS files for this plugin beside it", StringComparison.Ordinal)
                       && !msg.Contains("no .STRINGS files beside it", StringComparison.Ordinal)
                       && msg.Contains("matched none of them to this plugin", StringComparison.Ordinal)
-                      && files.Count > 0 && files.All(n => msg.Contains(n, StringComparison.Ordinal)),
-                    $"{v}: the refusal describes the folder the modder is looking at and names its {files.Count} file(s), "
+                      && files.Total > 0 && files.Names.All(n => msg.Contains(n, StringComparison.Ordinal)),
+                    $"{v}: the refusal describes the folder the modder is looking at and names its {files.Total} file(s), "
                     + "rather than asserting an absence it did not check");
                 if (msg.Length > 0 && !msg.Contains("matched none of them")) Console.WriteLine("          got: " + msg);
+
+                // UNDER the cap: every file is named, so there is nothing left over to announce. This is the direction
+                // that stops "and N more" being appended unconditionally.
+                Check(files.Total <= UnmatchedTableFiles.Cap && files.Names.Count == files.Total
+                      && !msg.Contains(" more —", StringComparison.Ordinal),
+                    $"{v}: with {files.Total} file(s), under the cap of {UnmatchedTableFiles.Cap}, all of them are named and nothing is counted off");
             });
+
+        // OVER THE CAP. `UnmatchedTablesIn` quotes at most eight names; the sentence used to render that list's LENGTH
+        // as what the folder holds, so a folder of thirty was described as holding eight and the list stopped with no
+        // ellipsis. The count and the names now travel together (UnmatchedTableFiles), and this is the fixture that
+        // can tell them apart — the arms above cannot, because both their folders sit under the cap.
+        Run(Variant.ManyNeighbourTables, f =>
+        {
+            var msg = WriteThrough(f, _ => { }) ?? "";
+            var files = LocalizedStrings.Assess(f.Plugin, f.DataDir).UnmatchedTables;
+            Check(files.Total > UnmatchedTableFiles.Cap && files.Names.Count == UnmatchedTableFiles.Cap,
+                $"fixture: the folder holds {files.Total} unmatched table file(s), more than the {UnmatchedTableFiles.Cap} a refusal quotes");
+            Check(msg.Contains($"holds {files.Total} .STRINGS file(s)", StringComparison.Ordinal),
+                $"the refusal reports the folder's TRUE count, not the capped list's length ({files.Total} of them)");
+            Check(msg.Contains($", and {files.Unnamed} more", StringComparison.Ordinal),
+                $"…and says the list stopped, naming how many it did not quote ({files.Unnamed})");
+            Check(files.Names.All(n => msg.Contains(n, StringComparison.Ordinal)),
+                $"…and every name it does quote is one that is actually there ({files.Names.Count} named)");
+            if (!msg.Contains($"holds {files.Total} .STRINGS file(s)") || !msg.Contains($", and {files.Unnamed} more"))
+                Console.WriteLine("          got: " + msg);
+        });
 
         Run(Variant.Nowhere, f =>
         {
@@ -599,7 +625,7 @@ public static class LocalizedWriteGuardProbe
     internal enum Variant
     {
         LooseComplete, LoosePartial, LooseAndGameData, GameDataOnly, Nowhere, MalformedBsa, SiblingStem,
-        GameDataBsa, NeighbourTablesOnly, UnknownLanguageToken,
+        GameDataBsa, NeighbourTablesOnly, UnknownLanguageToken, ManyNeighbourTables,
     }
 
     internal sealed record Fixture(string Plugin, string DataDir, string SkyrimEsm);
@@ -655,9 +681,20 @@ public static class LocalizedWriteGuardProbe
                 break;
             case Variant.NeighbourTablesOnly:
                 // The folder stays, holding only a DIFFERENT plugin's tables — the state whose refusal used to claim
-                // there was no Strings folder at all.
+                // there was no Strings folder at all. SIX files, deliberately under the naming cap, so it is the
+                // "every name is quoted" direction of the count arm.
                 foreach (var p in Directory.GetFiles(own))
                     File.Move(p, Path.Combine(own, Path.GetFileName(p).Replace("ZRef_", "ZOther_")));
+                break;
+            case Variant.ManyNeighbourTables:
+                // The same folder OVER the naming cap: a neighbour shipping enough languages that the refusal cannot
+                // quote them all. Twelve files against a cap of eight — the state where rendering the capped list's
+                // length as the folder's contents is a false claim about the modder's disk.
+                foreach (var p in Directory.GetFiles(own))
+                    File.Move(p, Path.Combine(own, Path.GetFileName(p).Replace("ZRef_", "ZOther_")));
+                foreach (var lang in new[] { "German", "Italian" })
+                    foreach (var kind in new[] { "STRINGS", "DLSTRINGS", "ILSTRINGS" })
+                        File.WriteAllBytes(Path.Combine(own, $"ZOther_{lang}.{kind}"), new byte[] { 0 });
                 break;
             case Variant.MalformedBsa:
                 File.WriteAllBytes(Path.Combine(modDir, "ZRef.bsa"), new byte[] { 0x42, 0x53, 0x41, 0x00 });
