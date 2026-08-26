@@ -3978,7 +3978,16 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
     public static string Shaped(string pluginFileName, LocalizedAssessment a, string? laneClause = null)
     {
         var head = $"houseCARL did not write '{pluginFileName}' — the file is unchanged and nothing was staged. ";
-        var body = a.Shape switch
+        return head + ShapeBody(a) + (laneClause is null ? "" : " " + laneClause);
+    }
+
+    /// <summary>The shape half of <see cref="Shaped"/> on its own — no "houseCARL did not write X" head. For a lane
+    /// refusing over a plugin the caller did not name (a compaction blocked by one of its referencers): the caller
+    /// needs that plugin's reason and remedy, but nesting a whole second refusal sentence inside the first reads as
+    /// two refusals rather than one explained one.</summary>
+    public static string ShapeBody(LocalizedAssessment a)
+    {
+        return a.Shape switch
         {
             LocalizedShape.LoosePartial =>
                 "It is flagged LOCALIZED and its strings are beside it, but "
@@ -4026,7 +4035,6 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
             // rather than silently inheriting another shape's sentence (Q3).
             _ => "It is flagged LOCALIZED: " + Why,
         };
-        return head + body + (laneClause is null ? "" : " " + laneClause);
     }
 
     /// <summary>What the three lanes that HAVE a new-plugin equivalent append. Measured before it was named: the

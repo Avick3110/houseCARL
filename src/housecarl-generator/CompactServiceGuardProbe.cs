@@ -301,7 +301,7 @@ public static class CompactServiceGuardProbe
                     ? LocalizedStringsFixture.ReadBackBare(o.OutputPath, LocalizedStringsFixture.WeaponEdid(ls))
                     : (Name: null, Desc: null);
                 Check(o.Success && rb.Name == ls.Name && rb.Desc == ls.Desc,
-                    $"LOCALIZED compact carries FULL+DESC into P′ (Name='{rb.Name}' Desc='{rb.Desc}'{(o.Success ? "" : ", ERR " + o.Error)})");
+                    $"LOCALIZED (game-Data shape) compact carries FULL+DESC into P′ (Name='{rb.Name}' Desc='{rb.Desc}'{(o.Success ? "" : ", ERR " + o.Error)})");
 
                 // The compacted output is a bare SkyrimMod too — non-localized, strings inline. Same reasoning as the
                 // merge guard's twin: it is what makes the read-back above a read of the bytes rather than of a
@@ -313,14 +313,19 @@ public static class CompactServiceGuardProbe
                     flagOk = !ov.UsingLocalization;
                     noStringsFolder = !Directory.Exists(Path.Combine(Path.GetDirectoryName(o.OutputPath)!, "Strings"));
                 }
+                // Still the pinned outcome for THIS fixture, and deliberately so: its strings were relocated to
+                // game-Data, which is a shape the write refuses to rewrite, so the compaction cannot keep the output
+                // localized and de-localizes as it always did. The ACCEPTED shape's opposite outcome is pinned by the
+                // Q2 arms below — the two are different shapes, not a before and after.
                 Check(flagOk && noStringsFolder,
-                    $"LOCALIZED compact output is written NON-localized with strings inline (flagClear={flagOk} noStringsFolder={noStringsFolder})");
+                    $"LOCALIZED (game-Data shape) compact output is written NON-localized with strings inline (flagClear={flagOk} noStringsFolder={noStringsFolder})");
 
                 // NEWFILE-NOTE: the new-file lane produces the same de-localized plugin the in-place lane is refused
                 // for, so it says so at the point the caller takes it. Non-fatal — the compaction still succeeds.
-                bool noteOn = o.Success && (o.Note?.Contains("is NOT localized", StringComparison.Ordinal) ?? false);
+                bool noteOn = o.Success && (o.Note?.Contains("is NOT localized", StringComparison.Ordinal) ?? false)
+                              && (o.Note?.Contains(@"Data\Strings", StringComparison.Ordinal) ?? false);
                 Check(noteOn, $"NEWFILE-NOTE a localized SOURCE compacted to a new file still succeeds AND is reported " +
-                              $"(success={o.Success} noted={noteOn}) [{o.Note}]");
+                              $"WITH the reason its strings could not be carried (success={o.Success} noted={noteOn}) [{o.Note}]");
 
                 // The arm above IS the measurement behind the in-place refusal's remedy: the same localized source,
                 // compacted to a NEW file, keeps its FULL+DESC. The refusal names that lane, so it is named against a

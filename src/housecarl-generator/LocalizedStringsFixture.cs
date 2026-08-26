@@ -34,13 +34,29 @@ internal static class LocalizedStringsFixture
     /// <param name="Localized">Build this one NON-localized. Needed because the in-place lanes now refuse a localized
     /// plugin outright: an arm about the REFERENCER check has to give the operation a target it will accept, or the
     /// target check answers first and the arm measures that instead of what it is named for.</param>
+    /// <param name="StringsBeside">LEAVE the strings in the plugin's own folder rather than relocating them to
+    /// game-Data. That is the one shape a write may commit rewritten tables for, so an arm about the ACCEPTED path
+    /// needs it — the relocated default is a shape the write refuses, and an arm built on it would be measuring the
+    /// refusal.</param>
+    /// <param name="SecondLanguage">Also carry a French value, so a claim about a multi-language plugin surviving a
+    /// compaction rests on a language something actually reads back.</param>
     internal sealed record Spec(string ModFolder, ModKey Key, string Name, string Desc, bool StringsNowhere = false,
-                                FormKey? LinksTo = null, bool Localized = true);
+                                FormKey? LinksTo = null, bool Localized = true, bool StringsBeside = false,
+                                string? SecondLanguage = null);
 
     /// <param name="Instance">The MO2 instance dir to hand <c>LoadOrderService.WithInstance</c>.</param>
     /// <param name="Mods">The instance's mods dir.</param>
     /// <param name="Data">The game-Data dir — what the resolver's DataDir must resolve to.</param>
     internal sealed record Built(string Instance, string Mods, string Data);
+
+    /// <summary>A value carrying the spec's second language when it asked for one.</summary>
+    static Mutagen.Bethesda.Strings.TranslatedString Loc(Spec spec, string en, string fr)
+    {
+        var ts = new Mutagen.Bethesda.Strings.TranslatedString(Mutagen.Bethesda.Strings.Language.English, en);
+        if (spec.SecondLanguage is not null)
+            ts.Set(Enum.Parse<Mutagen.Bethesda.Strings.Language>(spec.SecondLanguage), fr);
+        return ts;
+    }
 
     /// <summary>The EditorID of the localized weapon in the plugin built from <paramref name="spec"/> — the handle every
     /// arm reads back by, since a merge/compact renumbers the FormKey but never the EditorID.</summary>
@@ -83,8 +99,8 @@ internal static class LocalizedStringsFixture
                 m.Weapons.Add(new Weapon(new FormKey(spec.Key, 0xA01), SkyrimRelease.SkyrimSE)
                 {
                     EditorID = WeaponEdid(spec),
-                    Name = spec.Name,
-                    Description = spec.Desc,
+                    Name = Loc(spec, spec.Name, "FR " + spec.Name),
+                    Description = Loc(spec, spec.Desc, "FR " + spec.Desc),
                     BasicStats = new WeaponBasicStats { Damage = 7 },
                 });
                 if (spec.LinksTo is { } into)
@@ -113,6 +129,7 @@ internal static class LocalizedStringsFixture
                             $"fixture: '{spec.Key.FileName}' was written NON-localized but produced a Strings folder.");
                 }
                 else if (spec.StringsNowhere) Directory.Delete(own, true);
+                else if (spec.StringsBeside) { /* the accepted shape: its tables stay where Mutagen wrote them */ }
                 else
                 {
                     var target = Path.Combine(data, "Strings");

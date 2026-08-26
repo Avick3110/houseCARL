@@ -150,10 +150,27 @@ public static class LocalizedStrings
     {
         var a = Assess(pluginPath, dataDir);
         if (a.Shape == LocalizedShape.NotLocalized) return null;
-        if (!a.CanCommitStrings) return LocalizedTargetUnsupportedException.Shaped(pluginFileName, a, laneClause);
-        return LocalizedTableCommit.PendingCommit(pluginPath) is { } pending
-            ? LocalizedTargetUnsupportedException.InterruptedCommit(pluginFileName, pending)
-            : null;
+
+        // The interrupted commit is checked FIRST, and the order is load-bearing rather than stylistic: an interrupted
+        // commit has already DELETED the plugin's live tables, so its shape reads as "no strings anywhere" and the
+        // shape refusal would answer with a sentence about a missing strings source — sending the caller looking for a
+        // problem with their mod instead of at the backups sitting beside it. Measured by the guard's window arms,
+        // which failed on exactly that until this moved above the shape check.
+        if (LocalizedTableCommit.PendingCommit(pluginPath) is { } pending)
+            return LocalizedTargetUnsupportedException.InterruptedCommit(pluginFileName, pending);
+
+        return a.CanCommitStrings ? null : LocalizedTargetUnsupportedException.Shaped(pluginFileName, a, laneClause);
+    }
+
+    /// <summary>The same decision as <see cref="RefusalFor"/>, rendered WITHOUT the "houseCARL did not write X" head —
+    /// for a lane reporting on a plugin the caller did not ask about.</summary>
+    public static string? RefusalReasonFor(string pluginPath, string pluginFileName, string? dataDir)
+    {
+        var a = Assess(pluginPath, dataDir);
+        if (a.Shape == LocalizedShape.NotLocalized) return null;
+        if (LocalizedTableCommit.PendingCommit(pluginPath) is { } pending)
+            return LocalizedTargetUnsupportedException.InterruptedCommit(pluginFileName, pending);
+        return a.CanCommitStrings ? null : LocalizedTargetUnsupportedException.ShapeBody(a);
     }
 
     /// <summary>The loose table files this plugin's own folder carries, in the order a commit should write them —

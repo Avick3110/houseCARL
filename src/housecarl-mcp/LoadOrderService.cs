@@ -6313,9 +6313,13 @@ public sealed class LoadOrderService : IDisposable
                     return WritePatchBuilder.CompactOutcome.Fail(
                         $"refused — compacting '{name}' means rewriting the plugins that reference it, and " +
                         $"{(localized.Count == 1 ? "one of them is" : $"{localized.Count} of them are")} flagged LOCALIZED: " +
-                        $"{string.Join(", ", localized.Take(25))}{(localized.Count > 25 ? $", … (+{localized.Count - 25} more)" : "")}. " +
-                        "For a localized plugin " + LocalizedTargetUnsupportedException.Why +
-                        " NOTHING was written and nothing was staged — " +
+                        $"{string.Join(", ", localized.Take(25).Select(l => l.Plugin))}{(localized.Count > 25 ? $", … (+{localized.Count - 25} more)" : "")}. " +
+                        // The referencer's OWN reason, verbatim from the same decision the write would have made. A
+                        // caller refused here is being told about a plugin they did not name, so "it is localized" is
+                        // not enough to act on — what they need is which state it is in and what would change it, and
+                        // that sentence already exists and is already measured.
+                        $"Why houseCARL cannot rewrite {(localized.Count == 1 ? "it" : "the first of them")}: {localized[0].Why} " +
+                        "NOTHING was written and nothing was staged — " +
                         $"'{name}' is untouched. houseCARL cannot compact '{name}' while a localized plugin references it.");
             }
             if ((willOverwriteTarget || willRepoint) && !acknowledge)

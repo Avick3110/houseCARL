@@ -859,10 +859,10 @@ public static class RemapEngine
     /// renumbered plugin whose referencer still points at the old FormIDs (reported per referencer, never silent).
     /// That is the outcome this pre-flight exists to avoid, and the reason it is worth having on top of the write's
     /// own refusal rather than relying on it.</para></summary>
-    public static IReadOnlyList<string> LocalizedAmong(LoadOrderResolver resolver, IEnumerable<string> pluginNames)
+    public static IReadOnlyList<(string Plugin, string Why)> LocalizedAmong(LoadOrderResolver resolver, IEnumerable<string> pluginNames)
     {
         var view = resolver.Capture();
-        var hits = new List<string>();
+        var hits = new List<(string, string)>();
         foreach (var name in pluginNames)
         {
             var path = view.PluginPath(name);
@@ -872,8 +872,9 @@ public static class RemapEngine
                 // The SHAPE, not merely the header flag: a localized referencer whose strings are a complete loose set
                 // beside it can now be repointed — the write commits its rewritten tables with it — so reporting it
                 // here would refuse a whole compaction over a plugin the write would have handled. Only the shapes the
-                // write still refuses belong in this list.
-                if (LocalizedStrings.RefusalFor(path, name, view.DataDir) is not null) hits.Add(name);
+                // write still refuses belong in this list, and each carries the reason it is in it, so the compaction's
+                // refusal can say WHY this referencer cannot be rewritten instead of only that one cannot.
+                if (LocalizedStrings.RefusalReasonFor(path, name, view.DataDir) is { } why) hits.Add((name, why));
             }
             catch { /* see the summary: unreadable here is not a localization claim, and the write still refuses. */ }
         }
