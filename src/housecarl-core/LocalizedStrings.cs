@@ -254,6 +254,29 @@ public static class LocalizedStrings
         return LocalizedTargetUnsupportedException.Shaped(pluginFileName, a, laneClause);
     }
 
+    /// <summary>Did houseCARL actually READ this plugin's header and find the LOCALIZED flag set?
+    ///
+    /// <para>The predicate any lane needs before its output SAYS something about localization — as opposed to before
+    /// it REFUSES, which is the wider, fail-closed "anything but NotLocalized". A report note, a census, a label: all
+    /// of them assert, and an unreadable plugin gives them nothing to assert. Written as an exhaustive switch rather
+    /// than <c>!= NotLocalized</c> so a shape added later has to be answered here instead of being swept into
+    /// whichever side the operator happens to fall on.</para></summary>
+    public static bool ConfirmedLocalized(LocalizedShape shape) => shape switch
+    {
+        // The header was read and the flag is set. Where the text lives varies; that it is localized does not.
+        LocalizedShape.LooseComplete or LocalizedShape.LoosePartial or LocalizedShape.LooseWithGameDataDuplicate
+            or LocalizedShape.BsaEmbedded or LocalizedShape.GameDataOnly or LocalizedShape.StringsFolderUnreadable
+            or LocalizedShape.Nowhere => true,
+
+        // Read it, flag clear.
+        LocalizedShape.NotLocalized => false,
+
+        // Never read at all — the answer is unknown, and "unknown" is not "yes".
+        LocalizedShape.Unreadable => false,
+
+        _ => false,
+    };
+
     /// <summary>The same decision as <see cref="RefusalFor"/>, rendered WITHOUT the "houseCARL did not write X" head —
     /// for a lane reporting on a plugin the caller did not ask about.</summary>
     public static string? RefusalReasonFor(string pluginPath, string pluginFileName, string? dataDir)

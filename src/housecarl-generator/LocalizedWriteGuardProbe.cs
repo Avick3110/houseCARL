@@ -44,6 +44,8 @@ public static class LocalizedWriteGuardProbe
         Console.WriteLine();
         UnlistableStringsFolder();
         Console.WriteLine();
+        ConfirmedLocalizedIsNotTheRefusalBoolean();
+        Console.WriteLine();
         Console.WriteLine(_fail == 0
             ? "[localized-write-guard] PASS — every arrangement refuses in place and in its own words, and a destination houseCARL cannot classify refuses too."
             : $"[localized-write-guard] FAIL — {_fail} arm(s).");
@@ -504,6 +506,39 @@ public static class LocalizedWriteGuardProbe
                 $"{shape}: renders a body, and {(mayCarry ? "carries" : "carries NO")} localized vocabulary (carries={carries})");
             if (carries != mayCarry) Console.WriteLine("          got: " + body);
         }
+    }
+
+    /// <summary>The predicate every lane consults before its output SAYS something about localization — as opposed to
+    /// before it REFUSES, which is the wider, fail-closed "anything but NotLocalized". Armed here, at the seam, rather
+    /// than through each consumer: the compact report note's consumer cannot be driven end to end (its Assess and its
+    /// plugin read are the same `CreateFromBinaryOverlay` call a few lines apart, so a file one cannot open the other
+    /// cannot either — see compact-service-guard's UNREADABLE-SRC block), and an arm that looked like it had driven it
+    /// would be measuring a failed compaction.
+    ///
+    /// <para>Walked over the whole enum, both directions, so it cannot pass by answering true everywhere or false
+    /// everywhere — and so a shape added later is a FAILURE here rather than a silent default.</para></summary>
+    static void ConfirmedLocalizedIsNotTheRefusalBoolean()
+    {
+        Console.WriteLine();
+        Console.WriteLine("== \"houseCARL read the flag and it is set\" is a narrower question than \"refuse this\" ==");
+
+        foreach (var shape in Enum.GetValues<LocalizedShape>())
+        {
+            // What the REFUSAL decides on: fail-closed, and deliberately wider.
+            var refuses = shape != LocalizedShape.NotLocalized;
+            var mayAssert = LocalizedStrings.ConfirmedLocalized(shape);
+            var expected = shape is not (LocalizedShape.NotLocalized or LocalizedShape.Unreadable);
+            Check(mayAssert == expected,
+                $"{shape}: ConfirmedLocalized={mayAssert} (refusal boolean says {refuses})");
+        }
+
+        // The two must actually DISAGREE somewhere, or the narrower predicate is the wider one wearing a new name and
+        // every consumer that moved onto it moved onto nothing.
+        var disagree = Enum.GetValues<LocalizedShape>()
+                           .Where(s => (s != LocalizedShape.NotLocalized) != LocalizedStrings.ConfirmedLocalized(s))
+                           .ToArray();
+        Check(disagree.Length == 1 && disagree[0] == LocalizedShape.Unreadable,
+            $"…and they disagree on exactly the shape this exists for: [{string.Join(", ", disagree)}]");
     }
 
     /// <summary>May this shape's refusal assert that a plugin is localized? An exhaustive switch on purpose: a shape

@@ -6222,19 +6222,11 @@ public sealed class LoadOrderService : IDisposable
             // de-localized, which the refusal states plainly rather than promising a lane that keeps the text as it
             // found it: Q2-A, which did keep it for one arrangement, was cut (2026-08-26).
             var srcShape = LocalizedStrings.Assess(srcPath, view.DataDir);
+            // THE DECISION collapses, and stays fail-closed: anything that is not a read-and-clear flag refuses. The
+            // WORDS do not — see CompactInPlaceRefusal. Same boolean, two jobs, and only one of them may collapse.
             bool srcLocalized = srcShape.Shape != LocalizedShape.NotLocalized;
             if (inPlace && srcLocalized)
-                return WritePatchBuilder.CompactOutcome.Fail(
-                    $"houseCARL did not compact '{name}' in place — the file is unchanged and nothing was staged. " +
-                    LocalizedTargetUnsupportedException.ShapeClause(srcShape) + " A " +
-                    "compaction does not re-serialize your plugin, it builds a NEW one and writes that over the original, " +
-                    "and houseCARL will not replace a translated plugin's .STRINGS files on your own copy: it cannot swap " +
-                    "the plugin and its tables as one operation, and the file the game loads would stop being the " +
-                    "translated plugin you have, with no backup and nothing to undo it. " +
-                    $"Re-run without in_place to compact '{name}' into a NEW plugin instead: the same renumber, left in " +
-                    "its own mod folder for you to check and enable yourself. That output is NOT localized — it carries " +
-                    "the text that resolved when houseCARL read the source, written into the plugin itself, and the " +
-                    "source's .STRINGS files do not describe it. Read it before you swap it in.");
+                return WritePatchBuilder.CompactOutcome.Fail(CompactInPlaceRefusal(name, srcShape));
 
             // 1. originating record keys + the remap into the (light, by default) window.
             if (!WritePatchBuilder.TryReadOriginatingKeys(srcPath, modKey, out var keys, out var keyErr))
@@ -6476,7 +6468,14 @@ public sealed class LoadOrderService : IDisposable
             // The claim about the OUTPUT — that it is not localized and has no tables beside it — is not computed from
             // the source folder's file list. It is pinned by compact-service-guard's arm, which reads P′ back and
             // asserts both. (The de-localized-vs-kept conditional the old note carried is gone with Q2-A.)
-            if (!inPlace && srcLocalized)
+            //
+            // GATED ON THE SHAPE, NOT ON srcLocalized. That boolean is deliberately fail-CLOSED for the refusal above
+            // — an unreadable source must not be rewritten in place — and fail-closed is the wrong answer for a note,
+            // where the honest response to "houseCARL never read the file" is to say nothing. With it gating this,
+            // a plain non-localized plugin locked for the instant of the Assess (an AV scan, MO2 refreshing) and
+            // readable again seventeen lines later compacted fine and was then told its text lives in .STRINGS files
+            // that do not exist. ConfirmedLocalized is the narrower question: was the flag actually read and set.
+            if (!inPlace && LocalizedStrings.ConfirmedLocalized(srcShape.Shape))
                 markerNotes.Add(
                     $"'{name}' is flagged LOCALIZED — its text lives in separate .STRINGS files rather than in the "
                     + "plugin"
@@ -6498,6 +6497,45 @@ public sealed class LoadOrderService : IDisposable
                 build.Bytes, id.ExternalPlugins, repointed, id.PluginsScanned, id.UnscannableRecords, id.UnscannableSamples,
                 markerNotes.Count > 0 ? string.Join(" ", markerNotes) : null, assetRename, id.ExternalOverriders, voiceRename, seqRegen);
         }
+    }
+
+    /// <summary>The in-place compaction's refusal, rendered per SHAPE.
+    ///
+    /// <para>The refusal DECISION is one boolean and stays that way — anything but a read-and-clear flag refuses,
+    /// fail-closed, which is right. The refusal's WORDS cannot be, because the localized arm's every clause is about a
+    /// translated plugin's <c>.STRINGS</c> files and the remedy it ends on is the new-file lane. Told to a source
+    /// houseCARL could not OPEN, that describes tables nobody established exist and points at a lane that reads the
+    /// same file and meets the same failure — a remedy that dead-ends, which is #374's shape reappearing on this
+    /// arm.</para></summary>
+    static string CompactInPlaceRefusal(string name, LocalizedAssessment a)
+    {
+        var head = $"houseCARL did not compact '{name}' in place — the file is unchanged and nothing was staged. "
+                 + LocalizedTargetUnsupportedException.ShapeClause(a) + " ";
+        return a.Shape switch
+        {
+            // Never opened. No claim about tables, and no lane to switch to — measured, not assumed: the compact
+            // guard drives the new-file lane against the same held file and requires it to fail.
+            LocalizedShape.Unreadable =>
+                head + "houseCARL does not rewrite a destination it cannot classify. Compacting into a NEW plugin is "
+                     + "not the lane to switch to either — it reads the same file and fails the same way. "
+                     + LocalizedTargetUnsupportedException.RemedyUnreadable,
+
+            LocalizedShape.LooseComplete or LocalizedShape.LoosePartial or LocalizedShape.LooseWithGameDataDuplicate
+                or LocalizedShape.BsaEmbedded or LocalizedShape.GameDataOnly
+                or LocalizedShape.StringsFolderUnreadable or LocalizedShape.Nowhere =>
+                head + "A compaction does not re-serialize your plugin, it builds a NEW one and writes that over the "
+                     + "original, and houseCARL will not replace a translated plugin's .STRINGS files on your own copy: "
+                     + "it cannot swap the plugin and its tables as one operation, and the file the game loads would "
+                     + "stop being the translated plugin you have, with no backup and nothing to undo it. "
+                     + $"Re-run without in_place to compact '{name}' into a NEW plugin instead: the same renumber, left "
+                     + "in its own mod folder for you to check and enable yourself. That output is NOT localized — it "
+                     + "carries the text that resolved when houseCARL read the source, written into the plugin itself, "
+                     + "and the source's .STRINGS files do not describe it. Read it before you swap it in.",
+
+            // NotLocalized cannot reach here (the caller's gate excludes it) and a later shape has no wording — so
+            // this arm says only what is certain, rather than borrowing either branch above (Q3).
+            _ => head + "houseCARL will not compact this plugin in place.",
+        };
     }
 
     /// <summary>Merge one or more ACTIVE plugins into ONE new plugin (housecarl_merge_plugins — the A4 orchestration

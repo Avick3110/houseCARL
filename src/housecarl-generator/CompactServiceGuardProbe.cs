@@ -457,6 +457,96 @@ public static class CompactServiceGuardProbe
                              $"(success={plainOut.Success} quiet={quiet}) [{plainOut.Note}]");
             }
 
+            // ---- UNREADABLE-SRC (Aaron's review, findings 4): the compact lane's two consumers of the same shape ----
+            //      read, and why only one of them may collapse.
+            //
+            //      `srcLocalized` is `Shape != NotLocalized` — deliberately fail-CLOSED, and right, for the in-place
+            //      REFUSAL: a source houseCARL could not open must not be rewritten. It also gated the report NOTE,
+            //      where fail-closed is the wrong answer: a plain non-localized plugin held for the instant of the
+            //      Assess and readable again by the time the compaction ran was told its text lives in .STRINGS files
+            //      that do not exist, and to distrust an output that is exactly what it asked for.
+            //
+            //      Fixtured by holding the source FileShare.None across the call — the same repro shape the write
+            //      guard's fail-open arms use. The plugin is NOT localized here on purpose: that is what makes the
+            //      note's claim provably false rather than merely unestablished.
+            {
+                var urRoot = Path.Combine(root, "unreadable");
+                var ur = new LocalizedStringsFixture.Spec("UrSrc", new ModKey("HcCsUr", ModType.Plugin), "UR NAME", "UR DESC",
+                                                          Localized: false);
+                var fx = LocalizedStringsFixture.Build(urRoot, new[] { ur });
+                var urStore = new UserConfigStore(Path.Combine(urRoot, "houseCARL.user.json"));
+                using var urSvc = LoadOrderService.WithInstance(fx.Instance, 0, urStore);
+                urSvc.Stats();
+
+                var urPath = Path.Combine(fx.Mods, ur.ModFolder, ur.Key.FileName.String);
+                var urBefore = File.ReadAllBytes(urPath);
+
+                // The baseline, unheld: this plugin is not localized, so nothing about localization may be said of it
+                // in either lane. Without this the arms below could pass on a fixture that really was localized.
+                var baseline = LocalizedStrings.Assess(urPath, fx.Data);
+                Check(baseline.Shape == LocalizedShape.NotLocalized,
+                    $"UNREADABLE-SRC fixture: unheld, the source is a plain NON-localized plugin (shape={baseline.Shape})");
+
+                WritePatchBuilder.CompactOutcome heldNewFile, heldInPlace;
+                LocalizedShape heldShape;
+                using (var hold = new FileStream(urPath, FileMode.Open, FileAccess.Read, FileShare.None))
+                {
+                    heldShape = LocalizedStrings.Assess(urPath, fx.Data).Shape;
+                    heldNewFile = urSvc.CompactPlugin(ur.Key.FileName.String);
+                    heldInPlace = urSvc.CompactPlugin(ur.Key.FileName.String, inPlace: true, acknowledge: true);
+                }
+                Check(heldShape == LocalizedShape.Unreadable,
+                    $"UNREADABLE-SRC fixture: held FileShare.None, the same source classifies Unreadable (shape={heldShape})");
+
+                // THE REMEDY THAT WOULD DEAD-END, measured before the sentence declines to name it. The in-place
+                // refusal used to point at the new-file lane; this is the run that shows that lane fails for the
+                // underlying reason nobody had been told about — which is why the Unreadable arm names the read
+                // failure instead. #374's shape, on this arm.
+                Check(!heldNewFile.Success,
+                    $"UNREADABLE-SRC probe: the NEW-FILE lane over the same held source ALSO fails, so it is not a remedy " +
+                    $"(success={heldNewFile.Success}) [{heldNewFile.Error}]");
+
+                // THE REPORT NOTE IS NOT ARMED FROM HERE, AND THIS SAYS SO RATHER THAN LOOKING LIKE IT IS.
+                //
+                // The note's gate moved from `srcLocalized` (fail-closed, `Shape != NotLocalized`) to
+                // `ConfirmedLocalized` (was the flag actually READ and set). Driving that difference end to end needs
+                // a source that classifies Unreadable at the Assess and then compacts SUCCESSFULLY — and it cannot be
+                // built: `PluginIsLocalized` and `TryReadOriginatingKeys` make the identical
+                // `SkyrimMod.CreateFromBinaryOverlay` call on the same path a few lines apart, so a file the first
+                // cannot open the second cannot either. The arm above measures exactly that. What is left between them
+                // is a sub-millisecond race inside one `_writeGate` hold — real (it is the scenario the finding
+                // names), and not something a fixture can reproduce honestly.
+                //
+                // So an arm asserting "the held source produced no localization note" would pass because the
+                // compaction FAILED, not because the gate is right — vacuous in the way a guard is worst at showing.
+                // It is armed at the predicate instead, in localized-write-guard's ConfirmedLocalized walk, and this
+                // block asserts only what it actually drove.
+                Check(heldNewFile.Note is null,
+                    $"UNREADABLE-SRC (not a gate arm) the failed new-file run carries no report at all, which is why the " +
+                    $"note's gate cannot be measured from here [{heldNewFile.Note ?? "<no note>"}]");
+
+                // THE IN-PLACE REFUSAL. Its own words: no claim that the plugin is localized, no .STRINGS clauses, and
+                // the remedy is what actually failed rather than a lane that fails the same way.
+                var ipErr = heldInPlace.Error ?? "";
+                Check(!heldInPlace.Success
+                      && !ipErr.Contains("translated plugin", StringComparison.Ordinal)
+                      && !ipErr.Contains("Re-run without in_place", StringComparison.Ordinal),
+                    $"UNREADABLE-SRC the in-place refusal claims no .STRINGS files and points at no dead-end lane [{ipErr}]");
+                Check(ipErr.Contains("could not read it to see whether it is localized", StringComparison.Ordinal)
+                      && ipErr.Contains("has the file open", StringComparison.Ordinal),
+                    $"UNREADABLE-SRC …and says what actually failed, with the remedy for it [{ipErr}]");
+                Check(File.ReadAllBytes(urPath).AsSpan().SequenceEqual(urBefore),
+                    "UNREADABLE-SRC and the held source is byte-identical afterwards");
+
+                // OTHER DIRECTION, same fixture one lock apart: unheld, the plugin is readable and non-localized, so
+                // the in-place lane proceeds and the note stays silent. Without this the arms above pass on a service
+                // that refuses everything.
+                var freeOut = urSvc.CompactPlugin(ur.Key.FileName.String);
+                Check(freeOut.Success && !(freeOut.Note?.Contains("localized", StringComparison.OrdinalIgnoreCase) ?? false),
+                    $"UNREADABLE-SRC unheld, the same source compacts and still says nothing about localization " +
+                    $"(success={freeOut.Success}) [{freeOut.Note ?? freeOut.Error}]");
+            }
+
             // ---- REPOINT-LOC: a repoint that would REWRITE a localized external referencer is refused UP FRONT ----
             //      houseCARL cannot re-serialize a localized plugin without corrupting its text, and the referencer
             //      rewrites happen only AFTER the target is already compacted on disk. So the refusal has to come
