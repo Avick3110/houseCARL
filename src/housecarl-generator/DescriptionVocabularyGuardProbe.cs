@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Text;
 using System.Text.RegularExpressions;
 using HousecarlCore;
 using HousecarlMcp;
@@ -176,11 +177,15 @@ public static class DescriptionVocabularyGuardProbe
         new("first time only", NoCompanion, "the same claim, adjectival form."),
         new("single time", NoCompanion, "the same claim, spelled around 'once'."),
         new("ask again", NoCompanion,
-            "reaches \"won't ask again\" / \"will not ask again\". The true statement is phrased the other way "
-          + "round ('may be needed again'), so nothing honest needs this span."),
+            "reaches \"won't ask again\" / \"will not ask again\". This rule is BLUNT ON PURPOSE and the ground "
+          + "says so rather than pretending otherwise: the span also sits inside honest wordings ('you may be "
+          + "asked again'), and they are refused too. The settled way to say the true thing on this surface is "
+          + "'may be needed again' / 'may see this again' — the correction clauses — so a sentence that reds here "
+          + "is rephrased, not exempted."),
         new("asked again", NoCompanion,
             "the passive spelling — \"never asked again\", the wording sweep 1 actually found. A separate rule "
-          + "because \"ask again\" does not reach it: these are substring tests, not stems."),
+          + "because \"ask again\" does not reach it: these are substring tests, not stems. Blunt in the same way "
+          + "and for the same reason as the rule above; the remedy is the settled phrasing, not an exemption row."),
         new("not see this again", NoCompanion,
             "the negation of the prompt's own correct sentence ('so you may see this again')."),
         new("never see this again", NoCompanion, "the same claim, emphatic form."),
@@ -886,7 +891,14 @@ public static class DescriptionVocabularyGuardProbe
     /// printed claim TRUE rather than narrowing it, which is why the ruling directed the completion.</para>
     /// <para>Anything else still breaks the run — a second argument, an intervening statement, a different
     /// method, a different named receiver.</para></summary>
-    static readonly Regex AppendGap = new(@"\A\s*\)\s*(?:;\s*([A-Za-z_]\w*)\s*\.|\.)\s*Append\s*\(\s*\z", RegexOptions.Compiled);
+    /// <para><b>The METHOD is captured too</b>, because <c>Append</c> is not the only call that puts a literal in
+    /// front of a caller with nothing between: <c>housecarl-setup</c> talks to a modder in 47 <c>Console.Write*</c>
+    /// calls, and consecutive <c>Console.Write("…"); Console.Write("…");</c> concatenates on the modder's screen
+    /// exactly as an Append run concatenates in a builder. Both are read; the two names must MATCH, so a run that
+    /// changes method is two sentences. <c>WriteLine</c> is deliberately not in the set — it puts a line break
+    /// between the two halves, so they are not one sentence on the screen either.</para></summary>
+    static readonly Regex AppendGap = new(
+        @"\A\s*\)\s*(?:;\s*(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_.]*)\s*\.|\.)\s*(Append|Write)\s*\(\s*\z", RegexOptions.Compiled);
 
     /// <summary>The <c>Append</c> call a literal is the argument OF, read from the text immediately before it.
     /// The receiver is either a NAME (group 1 — the head of the run) or a closing paren, which is what the middle
@@ -896,7 +908,40 @@ public static class DescriptionVocabularyGuardProbe
     /// <para>Bounded to a short window: the receiver and the method name are a few characters, and slicing the
     /// whole preceding file for every candidate pair would make the merge quadratic over a 7,000-line
     /// service.</para></summary>
-    static readonly Regex AppendCallBefore = new(@"(?:([A-Za-z_]\w*)|\))\s*\.\s*Append\s*\(\s*\z", RegexOptions.Compiled);
+    static readonly Regex AppendCallBefore = new(
+        @"(?:(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_.]*)|\))\s*\.\s*(Append|Write)\s*\(\s*\z", RegexOptions.Compiled);
+
+    /// <summary>The text between two literals with its comments blanked out, so a run is not broken by one.
+    /// <para><c>"a" + // why\n "b"</c> is one authored sentence and read as two until 2026-08-26, because the
+    /// join test asks for nothing but whitespace and a <c>+</c>. A phrase spanning the join was then in no
+    /// fragment, silently — the same shape as the Append gap, wearing a comment.</para>
+    /// <para>Safe on this input specifically: the span lies BETWEEN two adjacent literals, so a <c>//</c> or
+    /// <c>/*</c> in it cannot be inside a string. Applied to the gap only, never to the window in front of a
+    /// literal, where an unterminated opener could be cut in half.</para></summary>
+    static string StripComments(string gap)
+    {
+        if (gap.IndexOf('/') < 0) return gap;
+        var sb = new StringBuilder(gap.Length);
+        for (int i = 0; i < gap.Length; i++)
+        {
+            if (gap[i] == '/' && i + 1 < gap.Length && gap[i + 1] == '/')
+            {
+                while (i < gap.Length && gap[i] != '\n') i++;
+                if (i < gap.Length) sb.Append('\n');
+                continue;
+            }
+            if (gap[i] == '/' && i + 1 < gap.Length && gap[i + 1] == '*')
+            {
+                i += 2;
+                while (i + 1 < gap.Length && !(gap[i] == '*' && gap[i + 1] == '/')) i++;
+                i++;                                    // onto the '/', which the loop's own i++ then steps past
+                sb.Append(' ');
+                continue;
+            }
+            sb.Append(gap[i]);
+        }
+        return sb.ToString();
+    }
 
     /// <summary>Whether two literals are consecutive <c>Append</c> arguments on ONE receiver — the second half of
     /// what a sentence is here.
@@ -913,11 +958,14 @@ public static class DescriptionVocabularyGuardProbe
     /// onto a DIFFERENT builder, which <c>RED-APPENDRUN</c> drives in both directions.</para></summary>
     static bool AppendRun(string src, SourceLiteral prev, SourceLiteral next)
     {
-        var gap = AppendGap.Match(src[prev.End..next.Start]);
+        var gap = AppendGap.Match(StripComments(src[prev.End..next.Start]));
         if (!gap.Success) return false;
         var window = src[Math.Max(0, prev.Start - 80)..prev.Start];
         var before = AppendCallBefore.Match(window);
         if (!before.Success) return false;
+        // The same METHOD both sides. Append and Write each add text with nothing between, but a run that changes
+        // from one to the other is two different calls, and joining them would manufacture text nobody reads.
+        if (!string.Equals(before.Groups[2].Value, gap.Groups[2].Value, StringComparison.Ordinal)) return false;
         // Fluent gap: no receiver named, none needed — the chain IS the receiver.
         if (!gap.Groups[1].Success) return true;
         // Statement gap: the names must match. In front of an already-merged run that is the chain's head.
@@ -958,7 +1006,7 @@ public static class DescriptionVocabularyGuardProbe
         foreach (var lit in top)
         {
             if (outp.Count > 0 && outp[^1].End <= lit.Start
-                && (Join.IsMatch(src[outp[^1].End..lit.Start]) || AppendRun(src, outp[^1], lit)))
+                && (Join.IsMatch(StripComments(src[outp[^1].End..lit.Start])) || AppendRun(src, outp[^1], lit)))
                 outp[^1] = outp[^1] with { Text = outp[^1].Text + lit.Text, End = lit.End };
             else
                 outp.Add(lit);
@@ -1089,15 +1137,28 @@ public static class DescriptionVocabularyGuardProbe
     /// <c>inherit: false</c> throughout, parameters included: an inherited description is declared by the base and
     /// would be counted there, and counting it twice would inflate a census this guard reports as a
     /// measurement.</summary>
-    static IEnumerable<SurfaceSite> SurfaceSites()
+    static IEnumerable<SurfaceSite> SurfaceSites() => SurfaceSitesOf(Surface.GetTypes());
+
+    /// <summary>The same enumeration over any type set, so <c>RED-NESTEDTYPE</c> can drive BOTH branches of the
+    /// nested-type skip with a synthetic type that has one — the live surface has no nested type carrying a
+    /// type-level <c>[Description]</c> today, so nothing on it can exercise either branch.</summary>
+    static IEnumerable<SurfaceSite> SurfaceSitesOf(IEnumerable<Type> types)
     {
-        foreach (var t in Surface.GetTypes().OrderBy(t => t.FullName, StringComparer.Ordinal))
+        foreach (var t in types.OrderBy(t => t.FullName, StringComparer.Ordinal))
         {
             if (Text(t.GetCustomAttribute<DescriptionAttribute>(inherit: false)) is { } td)
                 yield return new SurfaceSite($"[Description] on type {t.Name}", td, t, null);
 
             foreach (var m in t.GetMembers(AllMembers).OrderBy(m => m.Name, StringComparer.Ordinal))
             {
+                // A NESTED TYPE is a member of its declaring type AND a type in GetTypes(), so counting it here
+                // as well would yield the same [Description] twice — inflating three printed censuses (the
+                // surface count, the default-parenthetical denominator, and the recital count) with duplicates
+                // that make every ratio read better than it is. LATENT, not live, and measured as such: the
+                // surface has nested types (RecordsTools' three) but none carries a type-level [Description], so
+                // no census moved when this landed. RED-NESTEDTYPE drives both branches over a synthetic type,
+                // which is the only way to reach them. The outer loop owns types; this loop owns the rest.
+                if (m is Type) continue;
                 if (Text(m.GetCustomAttribute<DescriptionAttribute>(inherit: false)) is { } md)
                     yield return new SurfaceSite($"[Description] on {t.Name}.{m.Name}", md, m, null);
                 if (m is not MethodBase method) continue;
@@ -1196,7 +1257,8 @@ public static class DescriptionVocabularyGuardProbe
         var marks = new List<(SurfaceSite Site, string Verb)>();
         var unreadDefaults = new List<string>();
         var markerDisagree = new List<string>();
-        int recitals = 0, dropped = 0, defaultParens = 0;
+        int recitals = 0, dropped = 0, defaultParens = 0, unrecitedMentions = 0;
+        var proseDefaults = new List<string>();
 
         foreach (var s in surface)
         {
@@ -1218,6 +1280,20 @@ public static class DescriptionVocabularyGuardProbe
                 dropped++;
                 Console.WriteLine($"        (not read as a verb recital)  [{d}]  {s.Label}");
             }
+            // The independent denominator. A description that NAMES two or more verbs and yielded no recital is
+            // a verb list joined by something Run does not read — a comma list, most likely. Both of INV3's
+            // counts come off the same run pattern, so such a site was in neither of them; it is a printed line
+            // now rather than a number that quietly did not move.
+            var mentioned = VerbsNamed(s.Text);
+            if (mentioned.Count >= 2 && !Recitals(s.Text, vocab).Any())
+            {
+                unrecitedMentions++;
+                Console.WriteLine($"        (names {mentioned.Count} verb(s) but yields NO recital — a list joined by something the run "
+                                + $"pattern does not read)  [{string.Join(", ", mentioned)}]  {s.Label}");
+            }
+            // Defaults declared in PROSE. Counted and named, never compared — see ProseDefault.
+            foreach (Match pm in ProseDefault.Matches(s.Text))
+                proseDefaults.Add($"{s.Label}: …{Clip(s.Text[Math.Max(0, pm.Index - 46)..Math.Min(s.Text.Length, pm.Index + 44)], 90)}…");
             // Marked defaults are read from the WHOLE description, not from inside the recital loop. The second
             // design collected them only for runs the admission test had already accepted, so a "(default)" on a
             // run that was dropped — or on a slot that recites nothing — entered neither the published-default
@@ -1244,13 +1320,15 @@ public static class DescriptionVocabularyGuardProbe
                                      + "see a marker there — the pattern is reading something the second spelling calls a value-inside form");
         }
 
-        Check($"INV3-TOKENS   every verb recited on the surface is a real verb ({recitals} recital(s) read, {dropped} run(s) not read as recitals)",
+        Check($"INV3-TOKENS   every verb recited on the surface is a real verb ({recitals} recital(s) read, {dropped} run(s) not read as "
+            + $"recitals, {unrecitedMentions} description(s) naming two or more verbs in no run shape at all)",
             unknown.Count == 0, unknown, tier: Tier.BestEffort);
 
         var unrecited = PublishedVocabulary.Where(v => !named.Contains(v)).ToList();
         Check($"INV3-UNION    the recitals it READ name {named.Count} of {PublishedVocabulary.Length} published verb(s) — a verb no "
             + $"description mentions is a verb no caller can find. Read from {recitals} recital(s); {dropped} separator-joined run(s) "
-            + "were not read as recitals and are printed above, so a verb named only in one of those is not counted here",
+            + $"and {unrecitedMentions} verb-naming description(s) in no run shape were not read as recitals and are printed above, so a "
+            + "verb named only in one of those is not counted here",
             unrecited.Count == 0,
             unrecited.Select(v => $"'{v}' is a write verb that no [Description] recital names").ToList(), tier: Tier.BestEffort);
 
@@ -1268,6 +1346,10 @@ public static class DescriptionVocabularyGuardProbe
         Console.WriteLine($"        default parentheticals on the surface: {defaultParens} — {marks.Count} read as a \"token (default)\" marker, "
                         + $"{unreadDefaults.Count} not read as one, each named below with the reason it was rejected on");
         foreach (var u in unreadDefaults) Console.WriteLine($"          · not read as a marker: {u}");
+        Console.WriteLine($"        defaults declared in PROSE rather than as a marker: {proseDefaults.Count} — counted and named here, "
+                        + "compared against nothing. INV4-DEFAULT's denominator is the '(default' parenthetical, so these were in no census "
+                        + "at all until 2026-08-26: changing \"verb defaults to Set\" to \"Merge\" moved no number and stayed green");
+        foreach (var d in proseDefaults) Console.WriteLine($"          · prose default: {d}");
         Check($"INV4-MARKCOVER the marker pattern and an independently written character walk agree about which of "
             + $"the {defaultParens} default parenthetical(s) are marker-shaped",
             markerDisagree.Count == 0, markerDisagree, tier: Tier.Construction);
@@ -1644,6 +1726,30 @@ public static class DescriptionVocabularyGuardProbe
             if (!tokens.Any(vocab.Contains)) yield return string.Join(" | ", tokens);
     }
 
+    /// <summary>The published verbs a text names AS WORDS, with no opinion about run shape — the independent
+    /// denominator the recital census is read against.
+    /// <para>Every count INV3 prints comes off <see cref="AllRuns"/>, so a recital that stops matching
+    /// <see cref="Run"/> leaves the numerator AND the denominator together and the census does not move.
+    /// Measured: comma-joining a seven-verb recital took "16 recitals read" to 15, green, with the recital named
+    /// nowhere — it matched neither <see cref="Recitals"/> nor <see cref="DroppedRuns"/>, because both start from
+    /// the same run pattern. Counting verb NAMES instead of runs cannot be walked past that way: the words are
+    /// still there whatever punctuation joins them.</para>
+    /// <para>This does NOT read a comma list as a recital — settled decision 16 stands, and <c>RED-NOTVERB</c>
+    /// pins it. It makes such a site a printed line with its label instead of a silence.</para></summary>
+    static List<string> VerbsNamed(string text) =>
+        PublishedVocabulary.Where(v => Regex.IsMatch(text, $@"\b{Regex.Escape(v)}\b")).ToList();
+
+    /// <summary>A default declared in PROSE rather than as a <c>(default)</c> marker — "verb defaults to Set",
+    /// "the default is 500", "by default".
+    /// <para><c>INV4-DEFAULT</c>'s denominator is its own <c>(default</c> pattern, so a default stated any other
+    /// way is counted nowhere and named nowhere. Measured: changing <c>housecarl_set_field</c>'s "verb defaults
+    /// to Set" to "Merge" left every census number identical and the run green. These are not compared against a
+    /// slot — mapping a prose sentence to the member it describes is prose-parsing, not a fact anything here
+    /// owns — but they are COUNTED and NAMED, so the reach of the marked-default arm reads honestly against how
+    /// many defaults the surface actually declares.</para></summary>
+    static readonly Regex ProseDefault =
+        new(@"\bdefault(?:s|ing)?\s+(?:to|is|of)\b|\bby default\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     static IEnumerable<List<string>> AllRuns(string text)
     {
         foreach (Match m in Run.Matches(Parenthetical.Replace(text, " ")))
@@ -1745,6 +1851,26 @@ public static class DescriptionVocabularyGuardProbe
 
         // The slot comparison, driven in both directions over the case the vocabulary gate used to skip: a marked
         // token that is not a known verb at all. A slot that declares no default is asserted about by nothing, and
+        // The nested-type skip, BOTH branches, over a synthetic type set — the live surface cannot drive either,
+        // because no nested type on it carries a type-level [Description] yet. A nested type is a member of its
+        // declaring type AND a type in GetTypes(), so without the skip its description enters every census twice
+        // and each ratio reads better than it is. The nested type's MEMBERS must still be reached exactly once.
+        var nestedSet = new[] { typeof(NestedFixture), typeof(NestedFixture.Inner) };
+        var nestedSites = SurfaceSitesOf(nestedSet).ToList();
+        Check("RED-NESTEDTYPE   a nested type's own [Description] is enumerated ONCE, and its members are still reached",
+            nestedSites.Count(s => s.Text == "the nested type's own description") == 1
+                && nestedSites.Count(s => s.Text == "the nested type's member description") == 1
+                && nestedSites.Count(s => s.Text == "the outer type's own description") == 1
+                // The PRECONDITION the skip rests on: Assembly.GetTypes() lists nested types in its own right, so
+                // the outer loop reaches them and dropping them from the member loop loses nothing. If that ever
+                // stopped being true the skip would silently REMOVE a shipped description from the surface, which
+                // is the failure this arm has to be able to see.
+                && Surface.GetTypes().Any(t => t.IsNested),
+            new() { "a nested type's description is counted twice, or lost, or the assembly's type list has stopped "
+                  + "including nested types. Twice inflates the surface count, the default-parenthetical denominator "
+                  + "and the recital count together, so every printed ratio reads better than it is; lost or dropped "
+                  + "puts a shipped description outside the reach arm entirely" }, redArm: true);
+
         // The marker's LEFT boundary and the rejection reasons, together: the two spellings of "marker-shaped"
         // have to agree about a token that does not START where a token starts, and the residue line has to say
         // which of the several reasons applied. Both halves shipped wrong — the pattern read '3d (default)' as a
@@ -1869,12 +1995,39 @@ public static class DescriptionVocabularyGuardProbe
             c.Append("this ").Append("prompt is shown ");
             d.Append("once.");
             """;
+        // Console.Write — the OTHER call that concatenates with nothing between, and the one housecarl-setup
+        // talks to a modder through. WriteLine must not merge: a line break lands between the two halves, so
+        // they are not one sentence on the screen.
+        const string consoleSrc = """
+            Console.Write("this prompt is shown ");
+            Console.Write("once.");
+            """;
+        const string consoleLineSrc = """
+            Console.Write("this prompt is shown ");
+            Console.WriteLine("once.");
+            """;
+        const string mixedMethodSrc = """
+            c.Write("this prompt is shown ");
+            c.Append("once.");
+            """;
+        // A comment does not end an authored sentence. Both comment forms, on both join shapes.
+        const string commentJoinSrc = """
+            var s = "this prompt is shown " + // the modder reads one line
+                "once.";
+            """;
+        const string blockCommentJoinSrc = """
+            var s = "this prompt is shown " + /* aside */ "once.";
+            """;
+        const string commentAppendSrc = """
+            c.Append("this prompt is shown ");   // aside
+            c.Append("once.");
+            """;
         static List<string> Merged(string src) =>
             MergeSentences(src, RoslynLiteralReader.Read(src, out _)).Select(l => l.Text).ToList();
         static bool Carries(string src) =>
             Merged(src).Any(t => t.Contains("shown once", StringComparison.Ordinal));
 
-        Check("RED-APPENDRUN    consecutive Append literals on ONE receiver merge into one sentence in BOTH the statement and the fluent form and across a switch between them, and six shapes that are NOT one run do not",
+        Check("RED-APPENDRUN    consecutive Append or Console.Write literals on ONE receiver merge into one sentence in BOTH the statement and the fluent form and across a switch between them, and eight shapes that are NOT one run do not",
             Carries(appendSrc)
                 && Merged(appendSrc).Contains("this prompt is shown once.", StringComparer.Ordinal)
                 && Carries(chainSrc)
@@ -1888,7 +2041,14 @@ public static class DescriptionVocabularyGuardProbe
                 && !Carries(chainOtherMethodSrc)
                 && Carries(formSwitchSrc)
                 && Merged(formSwitchSrc).Contains("this prompt is shown once.", StringComparer.Ordinal)
-                && !Carries(formSwitchOtherReceiverSrc),
+                && !Carries(formSwitchOtherReceiverSrc)
+                && Carries(consoleSrc)
+                && Merged(consoleSrc).Contains("this prompt is shown once.", StringComparer.Ordinal)
+                && !Carries(consoleLineSrc)
+                && !Carries(mixedMethodSrc)
+                && Carries(commentJoinSrc)
+                && Carries(blockCommentJoinSrc)
+                && Carries(commentAppendSrc),
             new() { "the merge does not read an unbroken Append run as one sentence in one of its two written forms — so a "
                   + "phrase split across two calls ships to a modder with INV1 green, which is what compact_plugin's prompt "
                   + "made possible and what the fluent chain, the commoner shape, went on doing — or it joins across an "
@@ -2121,6 +2281,20 @@ public static class DescriptionVocabularyGuardProbe
     }
 
     // ================= reporting =================
+
+    /// <summary>A type carrying a nested type, both described, so <c>RED-NESTEDTYPE</c> has a shape the live
+    /// surface does not yet provide. Lives in the generator, which is never scanned, so its prose is not in
+    /// INV1's net and cannot be mistaken for shipped text.</summary>
+    [Description("the outer type's own description")]
+    sealed class NestedFixture
+    {
+        [Description("the nested type's own description")]
+        internal sealed class Inner
+        {
+            [Description("the nested type's member description")]
+            internal string? Slot { get; init; }
+        }
+    }
 
     /// <summary>Which TIER an arm's claim belongs to. Declared per arm rather than inferred from its name,
     /// because the whole point of the split is that a reader can tell the two apart without knowing the code.
