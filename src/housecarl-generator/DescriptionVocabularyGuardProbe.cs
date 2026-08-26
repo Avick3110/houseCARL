@@ -720,9 +720,10 @@ public static class DescriptionVocabularyGuardProbe
                 // whole guard in one catch, so a single malformed escape reported "the guard threw" and took all
                 // 38 arms with it, naming nothing.
                 List<SourceLiteral> a;
+                Dictionary<int, AppendCall> calls;
                 try
                 {
-                    a = RoslynLiteralReader.Read(text, out var errs);
+                    a = RoslynLiteralReader.Read(text, out var errs, out calls);
                     foreach (var e in errs) parseProblems.Add($"{label}: {e}");
                 }
                 catch (Exception ex) { parseProblems.Add($"{label}: READER A threw — {ex.GetType().Name}: {ex.Message}"); continue; }
@@ -737,7 +738,7 @@ public static class DescriptionVocabularyGuardProbe
                     agreeProblems.AddRange(disagreements);
                 }
 
-                foreach (var s in MergeSentences(text, a))
+                foreach (var s in MergeSentences(text, a, calls))
                 {
                     if (string.IsNullOrWhiteSpace(s.Text)) continue;
                     sentences.Add(new Sentence($"{label}:{s.Line}", s.Text));
@@ -895,44 +896,6 @@ public static class DescriptionVocabularyGuardProbe
     /// wrapped across lines.</summary>
     static readonly Regex Join = new(@"^\s*\+\s*$", RegexOptions.Compiled);
 
-    /// <summary>The gap between two literals when the second is the argument of the NEXT <c>Append</c> call on
-    /// the same builder. TWO shapes, because C# has two ways to write one run:
-    /// <list type="bullet">
-    ///   <item><b>statement form</b> — <c>) ; recv . Append (</c>: the call closes, the statement ends, and
-    ///         another <c>Append</c> opens on a NAMED receiver, which group 1 captures so it can be compared;</item>
-    ///   <item><b>fluent form</b> — <c>) . Append (</c>: the next call is made on the previous call's RESULT, so
-    ///         there is no name to compare and none is needed — the receiver is the same one by construction.
-    ///         Group 1 does not participate, and that is how <see cref="AppendRun"/> tells the two apart.</item>
-    /// </list>
-    /// <para><b>The fluent half was missing until 2026-08-26</b>, and it was the majority shape: this file
-    /// PRINTED, and settled decision 10 said, that an unbroken run of <c>Append</c> calls on one receiver is one
-    /// sentence, while the code read only the statement form. Measured in the shipped trees: 2,479 chained
-    /// <c>).Append(</c> gaps against 257 statement-form ones, and closing the gap merged 37 further adjacent
-    /// literal pairs (10,099 sentences to 10,062). So <c>sb.Append("shown ").Append("once.")</c> put the phrase in
-    /// front of a caller with INV1 green — the arm was green over its own gap. Completing the merge makes the
-    /// printed claim TRUE rather than narrowing it, which is why the ruling directed the completion.</para>
-    /// <para>Anything else still breaks the run — a second argument, an intervening statement, a different
-    /// method, a different named receiver.</para></summary>
-    /// <para><b>The METHOD is captured too</b>, because <c>Append</c> is not the only call that puts a literal in
-    /// front of a caller with nothing between: <c>housecarl-setup</c> talks to a modder in 47 <c>Console.Write*</c>
-    /// calls, and consecutive <c>Console.Write("…"); Console.Write("…");</c> concatenates on the modder's screen
-    /// exactly as an Append run concatenates in a builder. Both are read; the two names must MATCH, so a run that
-    /// changes method is two sentences. <c>WriteLine</c> is deliberately not in the set — it puts a line break
-    /// between the two halves, so they are not one sentence on the screen either.</para></summary>
-    static readonly Regex AppendGap = new(
-        @"\A\s*\)\s*(?:;\s*(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_.]*)\s*\.|\.)\s*(Append|Write)\s*\(\s*\z", RegexOptions.Compiled);
-
-    /// <summary>The <c>Append</c> call a literal is the argument OF, read from the text immediately before it.
-    /// The receiver is either a NAME (group 1 — the head of the run) or a closing paren, which is what the middle
-    /// of a fluent chain looks like: <c>sb.Append("a").Append("b").Append("c")</c> puts <c>).Append(</c> in front
-    /// of every literal after the first, and a pattern that demanded an identifier there would read a three-link
-    /// chain as a two-link one.
-    /// <para>Bounded to a short window: the receiver and the method name are a few characters, and slicing the
-    /// whole preceding file for every candidate pair would make the merge quadratic over a 7,000-line
-    /// service.</para></summary>
-    static readonly Regex AppendCallBefore = new(
-        @"(?:(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_.]*)|\))\s*\.\s*(Append|Write)\s*\(\s*\z", RegexOptions.Compiled);
-
     /// <summary>The text between two literals with its comments blanked out, so a run is not broken by one.
     /// <para><c>"a" + // why\n "b"</c> is one authored sentence and read as two until 2026-08-26, because the
     /// join test asks for nothing but whitespace and a <c>+</c>. A phrase spanning the join was then in no
@@ -965,43 +928,62 @@ public static class DescriptionVocabularyGuardProbe
         return sb.ToString();
     }
 
-    /// <summary>Whether two literals are consecutive <c>Append</c> arguments on ONE receiver — the second half of
-    /// what a sentence is here.
-    /// <para>The receiver is compared, not just the method name. Two builders appended to in alternation are two
-    /// sentences, and merging them would manufacture text no caller ever reads — the failure mode a merge rule has
-    /// to avoid, since a phrase invented by the merge is a false RED on correct prose.</para>
-    /// <para>Both literals must be <c>Append</c> arguments, in both forms. The fluent form skips the NAME
-    /// comparison only — the next call's receiver is the previous call's result, so identity is structural — and
-    /// it still requires that the previous literal was itself appended, which is what keeps
-    /// <c>Format("a").Append("b")</c> out.</para>
-    /// <para>A run that SWITCHES form mid-way — <c>sb.Append("a").Append("b"); sb.Append("c");</c> — merges too,
-    /// and reads the right receiver: <see cref="MergeSentences"/> carries the run's START position forward, so the
-    /// text this looks behind is the chain's HEAD, where the name is. That is also what stops the switch merging
-    /// onto a DIFFERENT builder, which <c>RED-APPENDRUN</c> drives in both directions.</para></summary>
-    static bool AppendRun(string src, SourceLiteral prev, SourceLiteral next)
+    /// <summary>Whether two literals are consecutive text-adding arguments on ONE receiver — the second half of
+    /// what a sentence is here. Every question this asks is answered by READER A's syntax tree
+    /// (<see cref="AppendCall"/>), never by the characters between or in front of the two literals.
+    /// <para><b>Why not the text.</b> Until 2026-08-26 this read a receiver NAME out of a regex window in front
+    /// of the literal, and two shipped shapes could not be spelled that way: a chain whose earlier link takes a
+    /// VALUE (<c>sb.Append(count).Append("a"); sb.Append("b");</c>) presents a <c>)</c> where the pattern wanted
+    /// a name, and an INDEXER receiver (<c>cells[i].Sb</c>) is not an identifier at all. Both refused a run this
+    /// guard PRINTS that it reads, so a phrase split across one shipped with INV1 green — the same class of hole
+    /// the fluent-form gap was, one layer down. Reading the receiver off the tree closes the class rather than
+    /// the two instances: any spelling of a receiver is one node, so there is nothing left to enumerate.</para>
+    /// <para><b>The receiver is compared, not just the method.</b> Two builders appended to in alternation are
+    /// two sentences, and merging them would manufacture text no caller ever reads — the failure mode a merge
+    /// rule has to avoid, since a phrase invented by the merge is a false RED on correct prose. The comparison is
+    /// of the chain's HEAD receiver, so a run that switches from the fluent form to the statement form reads the
+    /// same receiver on both sides.</para>
+    /// <para><b>Adjacency is a tree relation too, and it means NOTHING between the two literals.</b> Either the
+    /// second call is chained directly onto the first (<see cref="AppendCall.Inner"/> is the first's
+    /// <see cref="AppendCall.Node"/>, which admits no room for anything else), or the two stand in consecutive
+    /// statements of one body — and then the first must be the LAST thing its chain does
+    /// (<c>Node == Outer</c>) and the second the FIRST thing its own chain does (<c>Inner &lt; 0</c>). Without
+    /// that pair of conditions the statement form joins across values:
+    /// <c>sb.Append("a").Append(name); sb.Append(pad).Append("b");</c> puts <c>name</c> and <c>pad</c> between
+    /// the two halves, and a caller reads no "ab" anywhere. Anything else — an intervening statement, a second
+    /// argument, a different method, a different receiver, a call in another block — breaks the run by
+    /// construction.</para>
+    /// <para><b>A single-statement <c>if</c> body does NOT continue into the next statement</b>, and that is the
+    /// declared control-flow boundary rather than an omission: <see cref="AppendCall.Following"/> is -1 there,
+    /// because the statement after an <c>if</c> is not a continuation of the arm. The regex this replaced merged
+    /// those by accident whenever the <c>if</c> sat before the run's first literal, where a gap-only lookback
+    /// could not see it — so it was reaching past a boundary <see cref="NotInReach"/> prints that it does not
+    /// cross. Six shipped literals stopped being merged that way when the receiver moved onto the tree, each of
+    /// them the statement after a one-line <c>if</c> body.</para></summary>
+    static bool AppendRun(IReadOnlyDictionary<int, AppendCall> calls, SourceLiteral prev, SourceLiteral next)
     {
-        var gap = AppendGap.Match(StripComments(src[prev.End..next.Start]));
-        if (!gap.Success) return false;
-        var window = src[Math.Max(0, prev.Start - 80)..prev.Start];
-        var before = AppendCallBefore.Match(window);
-        if (!before.Success) return false;
+        // Keyed by the literal's END: a merged run carries its TAIL's end forward, so this looks up the call the
+        // run last made rather than the one it started with.
+        if (!calls.TryGetValue(prev.End, out var a) || !calls.TryGetValue(next.End, out var b)) return false;
         // The same METHOD both sides. Append and Write each add text with nothing between, but a run that changes
         // from one to the other is two different calls, and joining them would manufacture text nobody reads.
-        if (!string.Equals(before.Groups[2].Value, gap.Groups[2].Value, StringComparison.Ordinal)) return false;
-        // Fluent gap: no receiver named, none needed — the chain IS the receiver.
-        if (!gap.Groups[1].Success) return true;
-        // Statement gap: the names must match. In front of an already-merged run that is the chain's head.
-        return before.Groups[1].Success
-            && string.Equals(before.Groups[1].Value, gap.Groups[1].Value, StringComparison.Ordinal);
+        if (!string.Equals(a.Method, b.Method, StringComparison.Ordinal)) return false;
+        if (!string.Equals(a.Receiver, b.Receiver, StringComparison.Ordinal)) return false;
+        return b.Inner == a.Node
+            || (a.Statement >= 0 && b.Statement >= 0 && a.Following == b.Statement
+                && a.Node == a.Outer && b.Inner < 0);
     }
 
     /// <summary>Adjacent TOP-LEVEL literals are ONE sentence when the author wrote them as one. Two shapes count:
     /// <list type="bullet">
     ///   <item>a run joined by nothing but <c>+</c> — how every long description and every shared refusal here is
     ///         written;</item>
-    ///   <item>a run of consecutive <c>Append</c> calls on ONE receiver, each taking a literal and nothing else —
-    ///         how the inline consent prompts are written. Written as separate statements or as a fluent chain;
-    ///         both are one run, and the chained call is by far the commoner shape in these trees.</item>
+    ///   <item>a run of consecutive <c>Append</c> or <c>Write</c> calls on ONE receiver, each taking a literal
+    ///         and nothing else — how the inline consent prompts are written. Written as separate statements or
+    ///         as a fluent chain; both are one run, and the chained call is by far the commoner shape in these
+    ///         trees. Which calls those are, and what receiver each is on, comes from READER A's syntax tree
+    ///         (<see cref="AppendRun"/>), so a receiver spelled with an indexer or reached past an earlier
+    ///         value argument is read like any other.</item>
     /// </list>
     /// A run breaks at anything else — a const reference, a method call, an argument separator, an intervening
     /// statement, a different receiver — which keeps the merge conservative: it never joins two things an author
@@ -1011,6 +993,17 @@ public static class DescriptionVocabularyGuardProbe
     /// <c>compact_plugin</c>'s in-place consent prompt is a run of <c>c.Append(…)</c> calls
     /// (<c>LoadOrderService.cs:6316-6325</c>), so <c>c.Append("This is shown "); c.Append("once.")</c> put the
     /// phrase in front of a modder with INV1 green and no fragment carrying it.</para>
+    /// <para><b>The FLUENT form was added 2026-08-26</b>, and it was the majority shape: this file printed, and
+    /// settled decision 10 said, that an unbroken run of <c>Append</c> calls on one receiver is one sentence,
+    /// while the code read only the statement form — 2,479 chained <c>).Append(</c> gaps in the shipped trees
+    /// against 257 statement-form ones. <c>Write</c> entered the set with it: <c>housecarl-setup</c> talks to a
+    /// modder in 47 <c>Console.Write*</c> calls, and <c>Console.Write("…"); Console.Write("…");</c> concatenates
+    /// on that modder's screen exactly as an Append run concatenates in a builder, so a run that CHANGES method
+    /// is two sentences and a run that keeps it is one. <b>The receiver then moved onto the syntax tree the same
+    /// day</b>: 12 further literals joined the run in front of them — every one a statement-form continuation
+    /// the lookback could not read, because the call before it ended on a VALUE rather than on a name — and 6
+    /// stopped being merged, each of them the statement after a one-line <c>if</c> body that the old pattern
+    /// crossed by accident. Census 10,056 sentences to 10,050.</para>
     /// <para><b>The boundary that remains, and it is DECLARED rather than narrowed away</b> (see
     /// <see cref="NotInReach"/>, printed every run): text assembled ACROSS control flow, or through a helper. The
     /// live prompt interleaves its appends with <c>if</c> blocks, and joining across those would mean deciding
@@ -1021,14 +1014,15 @@ public static class DescriptionVocabularyGuardProbe
     /// <para>A literal INSIDE an interpolation hole is its own sentence and never merges, because what surrounds
     /// it is an expression rather than prose. Its neighbours in the source are the ternary's other arm and the
     /// text around the hole, none of which the author wrote as one sentence with it.</para></summary>
-    static List<SourceLiteral> MergeSentences(string src, List<SourceLiteral> lits)
+    static List<SourceLiteral> MergeSentences(string src, List<SourceLiteral> lits,
+                                              IReadOnlyDictionary<int, AppendCall> calls)
     {
         var outp = new List<SourceLiteral>();
         var top = lits.Where(l => l.Depth == 0).OrderBy(l => l.Start).ToList();
         foreach (var lit in top)
         {
             if (outp.Count > 0 && outp[^1].End <= lit.Start
-                && (Join.IsMatch(StripComments(src[outp[^1].End..lit.Start])) || AppendRun(src, outp[^1], lit)))
+                && (Join.IsMatch(StripComments(src[outp[^1].End..lit.Start])) || AppendRun(calls, outp[^1], lit)))
                 outp[^1] = outp[^1] with { Text = outp[^1].Text + lit.Text, End = lit.End };
             else
                 outp.Add(lit);
@@ -2020,6 +2014,49 @@ public static class DescriptionVocabularyGuardProbe
             c.Append("this ").Append("prompt is shown ");
             d.Append("once.");
             """;
+        // The two shapes a TEXT lookback in front of the literal could not read, both measured on this branch
+        // before the receiver came off the syntax tree: a chain whose EARLIER link takes a value leaves a ")"
+        // where an identifier pattern wanted a name, and an INDEXER receiver is not an identifier at all. Each
+        // one refused a run this guard prints that it reads, so a phrase split across it shipped with INV1 green.
+        // Driven with the negative alongside, because reading the receiver off a node is only worth anything if
+        // it still tells two different indexed receivers apart.
+        const string valueArgThenStatementSrc = """
+            c.Append(count).Append("this prompt is shown ");
+            c.Append("once.");
+            """;
+        const string indexerReceiverSrc = """
+            cells[i].Sb.Append("this prompt is shown ");
+            cells[i].Sb.Append("once.");
+            """;
+        const string indexerOtherReceiverSrc = """
+            cells[i].Sb.Append("this prompt is shown ");
+            other[i].Sb.Append("once.");
+            """;
+        // A VALUE between the two halves, in the statement form. The two literals are the tail of one statement
+        // and the head of the next, but the chain keeps going after the first and starts before the second, so a
+        // caller reads name and pad in between and the phrase exists nowhere. Both directions, because the two
+        // are separate conditions and either one alone would let this through — DialogueTools.AppendTopic is the
+        // live shape, and it is both at once.
+        const string trailingValueSrc = """
+            c.Append("this prompt is shown ").Append(name);
+            c.Append("once.");
+            """;
+        const string leadingValueSrc = """
+            c.Append("this prompt is shown ");
+            c.Append(pad).Append("once.");
+            """;
+        // The argument must BE the literal, not merely END with one. An expression can close on a string and
+        // append something else entirely — `name == "…"` appends True or False, and the literal is never read
+        // by anyone — so a run link is the literal itself or an interpolated string, and nothing else. Driven
+        // both ways: the compared literal must not merge, and an interpolated argument must.
+        const string comparedLiteralSrc = """
+            c.Append(name == "this prompt is shown ");
+            c.Append("once.");
+            """;
+        const string interpolatedArgSrc = """
+            c.Append("this prompt is shown ");
+            c.Append($"once. {tail}");
+            """;
         // Console.Write — the OTHER call that concatenates with nothing between, and the one housecarl-setup
         // talks to a modder through. WriteLine must not merge: a line break lands between the two halves, so
         // they are not one sentence on the screen.
@@ -2048,11 +2085,12 @@ public static class DescriptionVocabularyGuardProbe
             c.Append("once.");
             """;
         static List<string> Merged(string src) =>
-            MergeSentences(src, RoslynLiteralReader.Read(src, out _)).Select(l => l.Text).ToList();
+            MergeSentences(src, RoslynLiteralReader.Read(src, out _, out var calls), calls)
+                .Select(l => l.Text).ToList();
         static bool Carries(string src) =>
             Merged(src).Any(t => t.Contains("shown once", StringComparison.Ordinal));
 
-        Check("RED-APPENDRUN    consecutive Append or Console.Write literals on ONE receiver merge into one sentence in BOTH the statement and the fluent form and across a switch between them, and eight shapes that are NOT one run do not",
+        Check("RED-APPENDRUN    consecutive Append or Console.Write literals on ONE receiver merge into one sentence in BOTH the statement and the fluent form, across a switch between them, past an earlier value argument and on an indexer-spelled receiver and into an interpolated argument, and twelve shapes that are NOT one run do not",
             Carries(appendSrc)
                 && Merged(appendSrc).Contains("this prompt is shown once.", StringComparer.Ordinal)
                 && Carries(chainSrc)
@@ -2067,6 +2105,15 @@ public static class DescriptionVocabularyGuardProbe
                 && Carries(formSwitchSrc)
                 && Merged(formSwitchSrc).Contains("this prompt is shown once.", StringComparer.Ordinal)
                 && !Carries(formSwitchOtherReceiverSrc)
+                && Carries(valueArgThenStatementSrc)
+                && Merged(valueArgThenStatementSrc).Contains("this prompt is shown once.", StringComparer.Ordinal)
+                && Carries(indexerReceiverSrc)
+                && Merged(indexerReceiverSrc).Contains("this prompt is shown once.", StringComparer.Ordinal)
+                && !Carries(indexerOtherReceiverSrc)
+                && !Carries(trailingValueSrc)
+                && !Carries(leadingValueSrc)
+                && !Carries(comparedLiteralSrc)
+                && Carries(interpolatedArgSrc)
                 && Carries(consoleSrc)
                 && Merged(consoleSrc).Contains("this prompt is shown once.", StringComparer.Ordinal)
                 && !Carries(consoleLineSrc)
@@ -2074,12 +2121,15 @@ public static class DescriptionVocabularyGuardProbe
                 && Carries(commentJoinSrc)
                 && Carries(blockCommentJoinSrc)
                 && Carries(commentAppendSrc),
-            new() { "the merge does not read an unbroken Append run as one sentence in one of its two written forms — so a "
+            new() { "the merge does not read an unbroken Append run as one sentence in one of its two written forms, or "
+                  + "loses one because an earlier link took a value or the receiver is spelled with an indexer — so a "
                   + "phrase split across two calls ships to a modder with INV1 green, which is what compact_plugin's prompt "
                   + "made possible and what the fluent chain, the commoner shape, went on doing — or it joins across an "
                   + "intervening statement, across two different builders, past a second argument, into a different method, "
-                  + "or off the head of a chain onto a DIFFERENT builder, any of which manufactures a phrase no caller "
-                  + "reads and reds INV1 on correct prose" }, redArm: true);
+                  + "off the head of a chain onto a DIFFERENT builder, between two different indexed receivers, or "
+                  + "across a value that one statement ends with or the next begins with, or into an expression that "
+                  + "merely ENDS on a literal while appending something else, any of which manufactures a phrase no "
+                  + "caller reads and reds INV1 on correct prose" }, redArm: true);
 
         Check("RED-COVER        INV5's coverage predicate reports a compiled string no literal accounts for",
             !Covered("a compiled description no source literal accounts for", new[] { "something else entirely" })
@@ -2230,7 +2280,7 @@ public static class DescriptionVocabularyGuardProbe
             var q = "an ANSI reset \e[0m sits in console prose";
             """";
 
-        var a = RoslynLiteralReader.Read(fixture, out var parseErrors);
+        var a = RoslynLiteralReader.Read(fixture, out var parseErrors, out var fixtureCalls);
         var b = HandLiteralLexer.Read(fixture);
         var divergence = Disagreements("fixture", a, b);
 
@@ -2267,7 +2317,7 @@ public static class DescriptionVocabularyGuardProbe
             // and appended the letter instead, so the two disagreed about text neither had lost.
             "an ANSI reset \u001b[0m sits in console prose",
         };
-        var sentences = MergeSentences(fixture, a).Select(l => l.Text).ToList();
+        var sentences = MergeSentences(fixture, a, fixtureCalls).Select(l => l.Text).ToList();
         // Compared with line terminators normalized on BOTH sides. This fixture is a raw string in this file, so
         // its own line endings are whatever the checkout used — LF here, CRLF after git's Windows conversion — and
         // a raw literal keeps them. This arm is about which SHAPES reach a scannable sentence; whether the two
@@ -2287,7 +2337,7 @@ public static class DescriptionVocabularyGuardProbe
 
         // The whole point of the fixture: the phrases planted inside interpolation holes are REACHABLE. Three of
         // them sit behind the exact shapes that were measured green on live shipped prose one design ago.
-        var labelled = MergeSentences(fixture, a).Select((l, n) => new Sentence($"fixture:{n}", l.Text)).ToList();
+        var labelled = MergeSentences(fixture, a, fixtureCalls).Select((l, n) => new Sentence($"fixture:{n}", l.Text)).ToList();
         const int PlantedInFixture = 6;
         var holeHits = Phrases
             .Where(p => p.Companions.Length == 0)
@@ -2308,9 +2358,9 @@ public static class DescriptionVocabularyGuardProbe
         string inComment = $"// a {banned.Phrase} thing\n";
         string inLiteral = $"var x = \"a {banned.Phrase} thing\";";
         Check("RED-COMMENTS     a phrase planted in a COMMENT is NOT reported — the declared docstring boundary, tested rather than asserted",
-            Scan(banned, MergeSentences(inComment, RoslynLiteralReader.Read(inComment, out _))
+            Scan(banned, MergeSentences(inComment, RoslynLiteralReader.Read(inComment, out _, out var commentCalls), commentCalls)
                     .Select((l, n) => new Sentence($"fixture:{n}", l.Text)).ToList(), Array.Empty<Exemption>(), null).Violations.Count == 0
-                && Scan(banned, MergeSentences(inLiteral, RoslynLiteralReader.Read(inLiteral, out _))
+                && Scan(banned, MergeSentences(inLiteral, RoslynLiteralReader.Read(inLiteral, out _, out var literalCalls), literalCalls)
                     .Select((l, n) => new Sentence($"fixture:{n}", l.Text)).ToList(), Array.Empty<Exemption>(), null).Violations.Count == 1,
             new() { "the scanner does not see a phrase in a literal, or DOES see one in a comment — the declared "
                   + "docstring boundary would be false in one direction or the other" }, redArm: true);
