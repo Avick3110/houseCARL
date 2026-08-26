@@ -1,7 +1,9 @@
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Binary.Parameters;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
+using Mutagen.Bethesda.Strings;
 using HousecarlCore;
 using HousecarlMcp;
 
@@ -281,6 +283,46 @@ public static class CompactServiceGuardProbe
             // ---- LOCALIZED (#362): a source whose .STRINGS live in the game-Data folder, not its own mod folder ----
             //      Its own instance, because the fixture's load-bearing part is a game-Data Skyrim.esm (see
             //      LocalizedStringsFixture) and the order above deliberately has none.
+            // ---- Q2 (ruled 2026-08-26): a localized source in the shape a write CAN rewrite keeps its output
+            //      localized, with a matching set of tables beside it. Driven through the whole CompactPlugin service
+            //      path — rider folder, output folder, the real write seam — because the measurement that decided Q2
+            //      was a synthetic renumber and does not by itself say the shipped lane does this.
+            {
+                var q2Root = Path.Combine(root, "q2");
+                var q2 = new LocalizedStringsFixture.Spec(
+                    "Q2Src", new ModKey("HcCsQ2", ModType.Plugin), "Q2 NAME", "Q2 DESC",
+                    StringsBeside: true, SecondLanguage: "French");
+                var q2fx = LocalizedStringsFixture.Build(q2Root, new[] { q2 });
+                var q2Store = new UserConfigStore(Path.Combine(q2Root, "houseCARL.user.json"));
+                using var q2Svc = LoadOrderService.WithInstance(q2fx.Instance, 0, q2Store);
+                q2Svc.Stats();
+
+                var q2Src = Path.Combine(q2fx.Mods, q2.ModFolder, q2.Key.FileName.String);
+                var q2Shape = LocalizedStrings.Assess(q2Src, q2fx.Data);
+                Check(q2Shape.CanCommitStrings && q2Shape.Languages.Count == 2,
+                    $"Q2 fixture: the source really is the ACCEPTED shape with two languages (shape={q2Shape.Shape} langs=[{string.Join(",", q2Shape.Languages)}])");
+
+                var q2o = q2Svc.CompactPlugin(q2.Key.FileName.String);
+                bool localizedOut = false, hasTables = false;
+                string? en = null, fr = null;
+                if (q2o.Success && File.Exists(q2o.OutputPath))
+                {
+                    using (var ov = SkyrimMod.CreateFromBinaryOverlay(q2o.OutputPath, SkyrimRelease.SkyrimSE))
+                        localizedOut = ov.UsingLocalization;
+                    hasTables = LocalizedStrings.OwnTableFiles(q2o.OutputPath).Count == 6;
+                    // Read the OUTPUT back per language. Bare-and-adjacent on purpose: a localized P′ must resolve from
+                    // the tables written beside IT, not from anything the source's folder still has.
+                    en = ReadLang(q2o.OutputPath, LocalizedStringsFixture.WeaponEdid(q2), Language.English);
+                    fr = ReadLang(q2o.OutputPath, LocalizedStringsFixture.WeaponEdid(q2), Language.French);
+                }
+                Check(q2o.Success && localizedOut && hasTables,
+                    $"Q2 an ACCEPTED-shape localized source compacts to a LOCALIZED P′ with its own tables beside it (success={q2o.Success} localized={localizedOut} sixTables={hasTables}{(q2o.Success ? "" : ", ERR " + q2o.Error)})");
+                Check(en == q2.Name && fr == "FR " + q2.Name,
+                    $"Q2 both languages survive the compaction into P′ (English='{en}' French='{fr}')");
+                Check(q2o.Success && (q2o.Note?.Contains("travels with it", StringComparison.Ordinal) ?? false),
+                    $"Q2 the report tells the caller the Strings folder travels with P′ [{q2o.Note}]");
+            }
+
             {
                 var locRoot = Path.Combine(root, "loc");
                 var ls = new LocalizedStringsFixture.Spec("LocSrc", new ModKey("HcCsLoc", ModType.Plugin), "LOC NAME", "LOC DESC");
@@ -413,6 +455,15 @@ public static class CompactServiceGuardProbe
                 Check(!o2.Success && (o2.Error?.Contains(rf.Key.FileName.String, StringComparison.OrdinalIgnoreCase) ?? false),
                     $"REPOINT-LOC fixture: the referencer IS an external referencer of the target (plain compact names it) [{o2.Error}]");
 
+                // #374: that first refusal's remedy is "re-run with repoint_externals". With a referencer houseCARL
+                // cannot rewrite, following it meets a second refusal — so the first one has to say so instead. The
+                // OTHER direction of this conditional is REPOINT-PLAIN's arm below, where the ordinary remedy stands.
+                bool warns = (o2.Error?.Contains("will NOT work here", StringComparison.Ordinal) ?? false)
+                             && (o2.Error?.Contains(rf.Key.FileName.String, StringComparison.OrdinalIgnoreCase) ?? false)
+                             && !(o2.Error?.Contains("Re-run with repoint_externals=true AND in_place=true", StringComparison.Ordinal) ?? false);
+                Check(warns,
+                    $"REPOINT-LOC the referencer refusal does NOT send the caller down a repoint that would refuse (#374) [{o2.Error}]");
+
                 // The refusal must come BEFORE the consent gate. Without acknowledge the caller would otherwise get
                 // "CONFIRM in-place rewrite (your ORIGINAL file(s) will be rewritten — no houseCARL backup or undo)"
                 // and be asked to accept an irreversible trade-off for a run that was never going to write anything.
@@ -463,6 +514,15 @@ public static class CompactServiceGuardProbe
                 using var rpSvc = LoadOrderService.WithInstance(fx.Instance, 0, rpStore);
                 rpSvc.Stats();
 
+                // The other direction of #374's conditional: with nothing blocking the repoint, the original remedy is
+                // still what the caller is given. An arm that only checked the warning would let the warning fire on
+                // every referencer and still pass.
+                var oPlainFirst = rpSvc.CompactPlugin(tgt.Key.FileName.String);
+                Check(!oPlainFirst.Success
+                      && (oPlainFirst.Error?.Contains("Re-run with repoint_externals=true AND in_place=true", StringComparison.Ordinal) ?? false)
+                      && !(oPlainFirst.Error?.Contains("will NOT work here", StringComparison.Ordinal) ?? false),
+                    $"REPOINT-PLAIN a referencer houseCARL CAN rewrite still gets the ordinary repoint remedy (#374, other direction) [{oPlainFirst.Error}]");
+
                 var o = rpSvc.CompactPlugin(tgt.Key.FileName.String, inPlace: true, repointExternals: true, acknowledge: true);
                 FormKey? tgtWeapAfter = null, refLinkAfter = null;
                 if (o.Success)
@@ -494,6 +554,16 @@ public static class CompactServiceGuardProbe
         var m = new SkyrimMod(key, SkyrimRelease.SkyrimSE);
         build(m);
         m.BeginWrite.ToPath(Path.Combine(dir, key.FileName.String)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+    }
+
+    /// <summary>Read one weapon's FULL from a written plugin in a specific language, resolving strictly from the
+    /// tables beside THAT plugin — the read a localized output has to satisfy on its own.</summary>
+    static string? ReadLang(string pluginPath, string edid, Language lang)
+    {
+        using var ov = SkyrimMod.CreateFromBinaryOverlay(pluginPath, SkyrimRelease.SkyrimSE,
+            BinaryReadParameters.Default with { StringsParam = new StringsReadParameters { TargetLanguage = lang } });
+        var w = ov.Weapons.FirstOrDefault(x => x.EditorID == edid);
+        return w?.Name?.String;
     }
 
     /// <summary>File an interior cell into a mod's Cells block tree by its FormID digits (mirrors WriteEngine.AddInteriorCell).</summary>

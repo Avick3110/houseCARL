@@ -13,6 +13,40 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **houseCARL can now edit a localized plugin in place, when it can rewrite that plugin's `.STRINGS` files
+  along with it — and says which case yours is when it cannot.** A localized plugin keeps its text in
+  separate `.STRINGS`/`.DLSTRINGS`/`.ILSTRINGS` files and carries only indices into them, and re-serializing
+  renumbers those indices; houseCARL previously committed the plugin without the tables its own serialize had
+  produced, so values landed on records they did not belong to, and it has been refusing every localized
+  in-place write since. It now commits the plugin and its rewritten tables together when the plugin's strings
+  are a complete loose set in a `Strings` folder beside it with no competing copy in your game's `Data\Strings`
+  — every language present is rewritten, not just the one that was read. Every other arrangement is refused
+  with a sentence naming that arrangement and what to change: a language missing one of its three files,
+  strings present both beside the plugin and in `Data\Strings`, strings inside a `.bsa`, strings resolving
+  from `Data\Strings` alone, and strings houseCARL cannot find at all. To see which case a plugin is in,
+  run the write and read the refusal — each one names the folder or archive it looked at.
+  This covers `housecarl_apply`, `housecarl_create`, `housecarl_forward` and `housecarl_remove` with
+  `in_place=`, and the `housecarl_compact_plugin` lane that rewrites external referencers.
+
+- **Compacting a localized plugin now produces a localized plugin, when its strings can be rewritten.** The
+  compacted output used to be de-localized whichever lane you used — one language baked into the plugin, the
+  rest of the languages gone, and the mod's `.STRINGS` files no longer describing it. When the source's
+  strings are in the arrangement above, the compacted plugin is localized too and its rewritten `Strings`
+  folder sits beside it; that folder is part of the plugin and travels with it. When they are not, the output
+  is de-localized as before and the report says which languages were lost and why.
+
+- **`housecarl_compact_plugin`'s external-referencer refusal no longer sends you down a route that will
+  refuse.** It ends by telling you to re-run with `repoint_externals=true`; when one of those referencers is
+  localized in an arrangement houseCARL cannot rewrite, that re-run was always going to be refused. The
+  refusal now names that plugin and why, up front, instead.
+
+- **An interrupted `.STRINGS` rewrite leaves a plugin that reads blank rather than one that reads the wrong
+  text, and houseCARL refuses to write over it.** A plugin and its tables cannot be swapped as one atomic
+  operation, so the previous tables are backed up and removed before either is replaced: whatever a crash
+  interrupts, no record ends up displaying another record's text. A manifest beside the plugin names the
+  backups and what was in flight, and the next in-place write refuses and points at it rather than
+  overwriting them.
+
 - **List fields gain an `InsertAtIndex` op: put a new element AT a position instead of only at the end.**
   `key=` is the position to insert at and every element from there on shifts right by one; the list's own
   length is a legal index and appends, so `InsertAtIndex` at `count` is `Add`. It builds the element exactly
