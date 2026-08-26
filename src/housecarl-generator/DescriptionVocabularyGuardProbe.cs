@@ -19,9 +19,11 @@ namespace HousecarlGenerator;
 /// brace shape declaration out of it and hold that against the reflected wire names — it has no opinion about the
 /// sentence the declaration sits in, and a stale consent claim is invisible to it. So the in-place consent fix (#378) — which changed exactly one fact, that a REFUSED
 /// call records nothing — left stale text behind that took FOUR sweeps to clear: three, run surface by surface,
-/// found thirteen stale claims (the acknowledge= parameters, the WriteTools lane parentheticals, the two handshake
-/// builders), and a fourth, run repo-wide by VOCABULARY instead, found fourteen more in homes the first three had
-/// no reason to look at. Three of the four were triggered by a reviewer noticing a claim by eye rather than by
+/// found 11 on the <c>acknowledge=</c> parameters, 6 in the <c>WriteTools</c> lane parentheticals and 2 in the
+/// handshake builders, and a fourth, run repo-wide by VOCABULARY instead, found fourteen more in homes the first
+/// three had no reason to look at. (The per-pass counts are #386's own table; its headline totals those three
+/// passes as thirteen, which is a discrepancy in the issue rather than something to average here — the counts
+/// are given per pass so nothing restates a total its own itemisation contradicts.) Three of the four were triggered by a reviewer noticing a claim by eye rather than by
 /// anything going red.</para>
 ///
 /// <para><b>Two readers, because a completeness claim cannot certify itself.</b> This is the third design. The
@@ -402,9 +404,13 @@ public static class DescriptionVocabularyGuardProbe
     readonly record struct ShipDerivation(List<string> Trees, int PublishCalls, int Resolved, List<string> Residue);
 
     /// <summary>Every <c>dotnet publish</c> call in the packaging script. The project argument is captured whether
-    /// it is a variable (<c>$McpProj</c>, the form the script uses) or a path.</summary>
+    /// it is a variable (<c>$McpProj</c>, the form the script uses), a quoted path, or a bare one.
+    /// <para>The variable alternative requires the <c>$</c>. It was optional until 2026-08-26, which made it
+    /// match the leading IDENTIFIER of a bare relative path and stop there — <c>dotnet publish src/housecarl-mcp</c>
+    /// captured <c>src</c>, and "or a path" was false for the commonest way to write one. An unquoted path now
+    /// falls through to the last alternative and is captured whole.</para></summary>
     static readonly Regex PublishCall =
-        new(@"dotnet\s+publish\s+(\$?[A-Za-z_]\w*|'[^']+'|""[^""]+""|\S+)", RegexOptions.Compiled);
+        new(@"dotnet\s+publish\s+(\$[A-Za-z_]\w*|'[^']+'|""[^""]+""|\S+)", RegexOptions.Compiled);
 
     /// <summary>How a publish-call argument names its project directory, when it is a PowerShell variable.</summary>
     const string JoinPathAssignment = @"\s*=\s*Join-Path\s+\$\w+\s+['""]([^'""]+)['""]";
@@ -1647,8 +1653,11 @@ public static class DescriptionVocabularyGuardProbe
     /// <para>It read <c>p.DefaultValue as string</c> until 2026-08-25, so every non-string default came back null
     /// and the census printed "whose slot declares none" about a slot that declares one.
     /// <c>WriteTools.CompactPlugin(esl=)</c> is <c>bool esl = true</c> behind a description reading "When true
-    /// (default)"; flipping it to <c>false</c> left the guard 54 passed, 0 failed. A default is a compile-time
-    /// constant whatever its type, so all of them are spellable and the cast was the whole defect.</para></summary>
+    /// (default)"; flipping it to <c>false</c> left the guard 54 passed, 0 failed. The cast was the whole defect
+    /// for every default the renderer can spell — strings, bools, numbers, chars and named enum members, which is
+    /// what the surface declares. It is not "all of them": <see cref="Render"/> still refuses a null, an enum
+    /// value naming no member, and anything that is not one of those types, and each refusal comes back as a
+    /// stated reason rather than as a null that reads like "declares none".</para></summary>
     readonly record struct SlotDefault(string? Rendered, string? SkippedBecause);
 
     /// <summary>A constant default as a description would write it: <c>true</c>, <c>10</c>, an enum member's name,
@@ -2113,8 +2122,14 @@ public static class DescriptionVocabularyGuardProbe
         var notSrc = DeriveShippedTrees("dotnet publish $P\n$P = Join-Path $R 'tools\\thing'\n", Graph);
         var unreadable = DeriveShippedTrees(ps1.Replace("housecarl-setup", "housecarl-ghost"), Graph);
         var silent = DeriveShippedTrees("# the script stopped publishing anything\n", Graph);
+        // A BARE relative path, the form the docstring always claimed to read. The variable alternative used to
+        // allow the '$' to be absent, so it matched 'src' and stopped, and the call resolved to a tree that is
+        // not under src/ — reported as residue, which reads as "the script does something odd" rather than as
+        // "this pattern cannot read a path".
+        var barePath = DeriveShippedTrees("dotnet publish src/housecarl-mcp -c Release\n", Graph);
+        var quotedPath = DeriveShippedTrees("dotnet publish 'src/housecarl-setup' -c Release\n", Graph);
 
-        Check("RED-SHIPDERIVE   the packaging derivation follows publish calls through the ProjectReference graph, and NAMES every call it could not resolve",
+        Check("RED-SHIPDERIVE   the packaging derivation follows publish calls through the ProjectReference graph, and NAMES every call it could not resolve, whether the project is a variable, a quoted path, or a bare one",
             good.Trees.SequenceEqual(new[] { "housecarl-core", "housecarl-mcp", "housecarl-setup" }, StringComparer.Ordinal)
                 && (good.PublishCalls, good.Resolved, good.Residue.Count) == (2, 2, 0)
                 && DerivedSetMismatch(good.Trees).Count == 0
@@ -2122,12 +2137,17 @@ public static class DescriptionVocabularyGuardProbe
                 && (notSrc.PublishCalls, notSrc.Resolved, notSrc.Residue.Count) == (1, 0, 1)
                 && unreadable.Residue.Count == 1 && !unreadable.Trees.Contains("housecarl-setup")
                 && (silent.PublishCalls, silent.Resolved, silent.Residue.Count) == (0, 0, 1)
+                && barePath.Trees.SequenceEqual(new[] { "housecarl-core", "housecarl-mcp" }, StringComparer.Ordinal)
+                && (barePath.PublishCalls, barePath.Resolved, barePath.Residue.Count) == (1, 1, 0)
+                && quotedPath.Trees.SequenceEqual(new[] { "housecarl-setup" }, StringComparer.Ordinal)
+                && (quotedPath.PublishCalls, quotedPath.Resolved, quotedPath.Residue.Count) == (1, 1, 0)
                 && DerivedSetMismatch(new[] { "housecarl-mcp", "housecarl-core", "housecarl-setup", "housecarl-extra" }).Count == 1
                 && DerivedSetMismatch(new[] { "housecarl-mcp", "housecarl-core" }).Count == 1,
             new() { "the derivation loses a tree reachable only through a ProjectReference, absorbs an unresolvable publish "
                   + "call instead of naming it, treats an unreadable .csproj as a leaf, reports a denominator that does not "
-                  + "match the calls in the script, or stays silent when the script publishes nothing at all — any of which "
-                  + "lets a tree start shipping with its prose outside INV1's net and nothing red" }, redArm: true);
+                  + "match the calls in the script, stays silent when the script publishes nothing at all, or cannot read a "
+                  + "project named as a bare relative path — any of which lets a tree start shipping with its prose outside "
+                  + "INV1's net and nothing red" }, redArm: true);
 
         AgreementArms();
         ReaderArms();
