@@ -197,10 +197,14 @@ public static class CiAll
         // itself. Self-contained (no corpus, no MO2 instance).
         ("wire-names-guard", WireNamesProbe.RunGuard),
         // Caller-facing prose vocabulary (#386): nothing read the WORDS of the [Description] attributes a model
-        // reads or of the consent prompts a modder reads, so the in-place consent fix left thirteen stale claims
-        // that three hand sweeps found surface by surface, and a fourth sweep — run by vocabulary instead — found
-        // fourteen more in other homes. (wire-names-guard does reach the description surface, but for the brace
-        // shape declaration it parses out of one — never for what the sentence around it claims.)
+        // reads or of the consent prompts a modder reads, so the in-place consent fix left stale claims that took
+        // four sweeps to clear — three run surface by surface, finding 11 on the acknowledge= parameters, 6 in the
+        // WriteTools lane parentheticals and 2 in the handshake builders, and a fourth run repo-wide by VOCABULARY
+        // instead, finding fourteen more in homes the first three had no reason to look at. (The counts are given
+        // per pass, as the probe's own header gives them: #386's headline totals its first three as thirteen,
+        // which its table contradicts, so nothing here restates a total.) (wire-names-guard does reach the
+        // description surface, but for the brace shape declaration it parses out of one — never for what the
+        // sentence around it claims.)
         // The net is every string literal in the three SHIPPED trees, read TWICE —
         // by Roslyn and by an independently written lexer — with INV6-AGREE holding the two against each other, so
         // a reader that stops early turns red instead of quietly shrinking the net. Self-contained (no corpus, no
