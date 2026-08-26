@@ -24,15 +24,24 @@ saying it sets an expectation their install may contradict. Say what is known, a
   files inside a `.bsa` (saying whether that archive sits beside the plugin or in your game folder), files
   resolving from `Data\Strings` alone, and files houseCARL cannot find at all — which says it could not
   find them, not that they do not exist, because Mod Organizer merges mod folders at runtime and houseCARL
-  reads them as they sit on disk. A plugin houseCARL could not read at all is refused too, saying that —
-  rather than being treated as not localized, which is what it did when the file was locked by another
-  program at the moment it looked. To edit such a plugin, use the default lane and write to a new plugin.
-  The lanes this covers are the ones whose own `in_place=` description now says so.
+  reads them as they sit on disk. To edit a localized plugin, use the default lane and write to a new
+  plugin. The lanes this covers are the ones whose own `in_place=` description now says so.
+
+- **A plugin houseCARL could not open at all is refused too, and told apart from a localized one.** When
+  the file is locked by another program at the moment houseCARL looks — Mod Organizer refreshing, an
+  antivirus scan, xEdit, the running game — or the path names no file, houseCARL used to treat it as not
+  localized and write anyway. It now refuses, and it says only what happened: it could not read the file,
+  so it will not write to a destination it cannot classify. It does not tell you the plugin is localized,
+  does not describe `.STRINGS` files it never saw, and does not point you at the new-plugin lane, which
+  reads the same file and fails the same way. The remedy it gives is the one that matches: find what has
+  the file open, or check the path, and retry.
 
 - **`housecarl_compact_plugin`'s external-referencer refusal no longer sends you down a route that will
-  refuse.** It ends by telling you to re-run with `repoint_externals=true`; when one of those referencers
-  is localized, that re-run was always going to be refused. The refusal now names that plugin and where
-  its text is, up front, instead.
+  refuse.** It ends by telling you to re-run with `repoint_externals=true`; when houseCARL cannot rewrite
+  one of those referencers, that re-run was always going to be refused. The refusal now says so up front,
+  counting and naming the referencers it cannot rewrite — separately for the ones flagged localized and
+  the ones it could not read — and giving a reason for one of each, so a referencer it could not open is
+  not reported as a localized one.
 
 - **List fields gain an `InsertAtIndex` op: put a new element AT a position instead of only at the end.**
   `key=` is the position to insert at and every element from there on shifts right by one; the list's own
