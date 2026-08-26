@@ -2513,27 +2513,18 @@ public static class WritePatchBuilder
             // one step earlier, where the loss is written rather than merely displayed.
             srcOv = LoadOrderResolver.OpenOverlay(srcPath, dataDir);
             declaredMasters = srcOv.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToList();
-            // LOCALIZED SOURCES (Q2, ruled 2026-08-26). A compaction builds a FRESH mod rather than re-serializing the
-            // source, and the fresh mod carries no header flags — which is why a compacted localized plugin came out
-            // DE-localized, with one language baked in and the rest gone. Measured: the record copy below preserves
-            // every language a TranslatedString holds, so flagging P′ localized makes the write emit a matching set of
-            // tables and P′ stays the same kind of thing the source was.
+            // A compaction builds a FRESH mod rather than re-serializing the source, and the fresh mod carries no
+            // header flags — so a compacted localized plugin comes out DE-LOCALIZED: whichever language resolved at
+            // read time is written into the plugin itself and the source's .STRINGS files no longer describe it. That
+            // is deliberate, and the service says so in the report (Q3 — a changed nature is never silent).
             //
-            // Gated on the SOURCE's strings shape, not merely on its header flag, and deliberately: for a source whose
-            // languages are incomplete, flagging P′ localized would emit the missing files holding EMPTY text — a
-            // plugin that looks translated and is not, which is worse than the de-localized output rather than better.
-            // Those shapes keep the old behaviour and the caller is told what was lost and why.
-            //
-            // This is the NEW-FILE lane only. P′ goes into a houseCARL mod folder the modder reviews before enabling,
-            // which is what makes writing a plugin plus a matching table set safe here and not in the in-place lane —
-            // where a localized target is refused outright (WriteEngine.WriteInPlace's choke point). The compact
-            // service refuses an in-place compaction of any localized source before reaching this.
-            var srcAssessment = LocalizedStrings.Assess(srcPath, dataDir);
-            pPrime = new SkyrimMod(modKey, SkyrimRelease.SkyrimSE)
-            {
-                IsSmallMaster = esl,
-                UsingLocalization = srcAssessment.CanKeepLocalized,
-            };
+            // Q2-A — emitting a LOCALIZED P′ with a matching rewritten table set — was ruled, built, and then CUT
+            // (2026-08-26). It was measured to work; what killed it is that it generated defects faster than review
+            // cleared them, over a population the frequency sweep priced at one plugin in sixty-three on a real load
+            // order. Aaron's ground for the cut: multi-language mods do not exist in the wild — Nexus ships
+            // single-language translations — so the language the read resolves IS the mod's language, and carrying a
+            // table set forward buys nothing to offset the surface it costs.
+            pPrime = new SkyrimMod(modKey, SkyrimRelease.SkyrimSE) { IsSmallMaster = esl };
             ren = RemapEngine.RenumberModInto(pPrime, srcOv, dict);
         }
         catch (Exception ex)
@@ -2578,10 +2569,9 @@ public static class WritePatchBuilder
                 }
                 overlays.Add((IDisposable)mov); resolved.Add(mov);
             }
-            // The OWNED-OUTPUT write, not the in-place one: P′ may be flagged localized (Q2-A above), and this is the
-            // one lane allowed to put a plugin and a matching set of .STRINGS files down together — because outPath is
-            // in a houseCARL mod folder the modder has not enabled.
-            try { WriteEngine.WriteOwnedOutput(pPrime, resolved, outPath); }
+            // P′ is a fresh mod and never flagged localized (see the build above), so its serialize emits no string
+            // tables and this is the plain single-file commit — the same one this lane used before Q2-A and after it.
+            try { WriteEngine.WriteInPlace(pPrime, resolved, outPath, dataDir); }
             catch (Exception ex)
             {
                 return CompactBuildResult.Fail(

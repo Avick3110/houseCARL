@@ -283,10 +283,17 @@ public static class CompactServiceGuardProbe
             // ---- LOCALIZED (#362): a source whose .STRINGS live in the game-Data folder, not its own mod folder ----
             //      Its own instance, because the fixture's load-bearing part is a game-Data Skyrim.esm (see
             //      LocalizedStringsFixture) and the order above deliberately has none.
-            // ---- Q2 (ruled 2026-08-26): a localized source in the shape a write CAN rewrite keeps its output
-            //      localized, with a matching set of tables beside it. Driven through the whole CompactPlugin service
-            //      path — rider folder, output folder, the real write seam — because the measurement that decided Q2
-            //      was a synthetic renumber and does not by itself say the shipped lane does this.
+            // ---- Q2-A, CUT (2026-08-26). This block used to pin the opposite outcome: a localized source in the
+            //      arrangement a write can rewrite kept its output LOCALIZED, with a matching rewritten table set
+            //      beside P′. It was measured working, and it was cut anyway — it generated defects faster than
+            //      review cleared them, over a population the frequency sweep priced at one plugin in sixty-three on a
+            //      real load order, and Aaron's ground is that multi-language mods do not exist in the wild (Nexus
+            //      ships single-language translations), so the language the read resolves IS the mod's language.
+            //
+            //      The fixture stays — it is the strongest localized source a guard can build, a complete loose set
+            //      beside the plugin with two languages — and its arms now pin the DE-LOCALIZED outcome and the note
+            //      that announces it. Kept rather than deleted precisely because this is the arrangement the cut arm
+            //      served: if a localized P′ ever comes back, it comes back here first.
             {
                 var q2Root = Path.Combine(root, "q2");
                 var q2 = new LocalizedStringsFixture.Spec(
@@ -299,32 +306,38 @@ public static class CompactServiceGuardProbe
 
                 var q2Src = Path.Combine(q2fx.Mods, q2.ModFolder, q2.Key.FileName.String);
                 var q2Shape = LocalizedStrings.Assess(q2Src, q2fx.Data);
-                Check(q2Shape.CanKeepLocalized && q2Shape.Languages.Count == 2,
-                    $"Q2 fixture: the source really is the shape a compaction may keep, with two languages (shape={q2Shape.Shape} langs=[{string.Join(",", q2Shape.Languages)}])");
+                Check(q2Shape.Shape == LocalizedShape.LooseComplete && q2Shape.Languages.Count == 2,
+                    $"Q2 fixture: the source is a complete loose set beside the plugin, two languages (shape={q2Shape.Shape} langs=[{string.Join(",", q2Shape.Languages)}])");
 
                 var q2o = q2Svc.CompactPlugin(q2.Key.FileName.String);
-                bool localizedOut = false, hasTables = false;
-                string? en = null, fr = null;
+                bool localizedOut = true, tablesBeside = true;
+                string? en = null;
                 if (q2o.Success && File.Exists(q2o.OutputPath))
                 {
                     using (var ov = SkyrimMod.CreateFromBinaryOverlay(q2o.OutputPath, SkyrimRelease.SkyrimSE))
                         localizedOut = ov.UsingLocalization;
-                    hasTables = LocalizedStrings.OwnTableFiles(q2o.OutputPath).Count == 6;
-                    // Read the OUTPUT back per language. Bare-and-adjacent on purpose: a localized P′ must resolve from
-                    // the tables written beside IT, not from anything the source's folder still has.
+                    tablesBeside = Directory.Exists(Path.Combine(Path.GetDirectoryName(q2o.OutputPath)!, "Strings"));
                     en = ReadLang(q2o.OutputPath, LocalizedStringsFixture.WeaponEdid(q2), Language.English);
-                    fr = ReadLang(q2o.OutputPath, LocalizedStringsFixture.WeaponEdid(q2), Language.French);
                 }
-                Check(q2o.Success && localizedOut && hasTables,
-                    $"Q2 an ACCEPTED-shape localized source compacts to a LOCALIZED P′ with its own tables beside it (success={q2o.Success} localized={localizedOut} sixTables={hasTables}{(q2o.Success ? "" : ", ERR " + q2o.Error)})");
-                Check(en == q2.Name && fr == "FR " + q2.Name,
-                    $"Q2 both languages survive the compaction into P′ (English='{en}' French='{fr}')");
-                Check(q2o.Success && (q2o.Note?.Contains("travels with it", StringComparison.Ordinal) ?? false),
-                    $"Q2 the report tells the caller the Strings folder travels with P′ [{q2o.Note}]");
+                // READ BACK FROM THE OUTPUT. This is what makes the report note's claim about P′ a measured one
+                // rather than something computed from the source folder's file list — the defect that let a note
+                // announce tables that were never written.
+                Check(q2o.Success && !localizedOut && !tablesBeside,
+                    $"Q2 an accepted-shape localized source compacts to a DE-LOCALIZED P′ with no Strings folder beside it (success={q2o.Success} localized={localizedOut} tablesBeside={tablesBeside}{(q2o.Success ? "" : ", ERR " + q2o.Error)})");
+                Check(en == q2.Name,
+                    $"Q2 the text this read resolved is written into the plugin itself and reads back (English='{en}')");
 
-                // IN PLACE, the same source is REFUSED — the shape a compaction may keep in a NEW plugin still earns
-                // no rewrite of the modder's own file. This is the arm that went from "writes" to "refuses" when the
-                // in-place localized arm was cut (2026-08-26), so it is the one that would notice it coming back.
+                // THE NOTE. It names what the SOURCE shipped, states the output is not localized, and carries no
+                // count: the sentence this replaces said "including the 1 other language(s) it shipped (English,
+                // French)" — a count of N−1 against a list of N, with the surviving language listed as lost.
+                var note = q2o.Note ?? "";
+                Check(q2o.Success && note.Contains("is NOT localized", StringComparison.Ordinal)
+                      && note.Contains("(English, French)", StringComparison.Ordinal)
+                      && !note.Contains("other language(s) it shipped", StringComparison.Ordinal),
+                    $"Q2 the report names both languages the source shipped and claims no count against that list [{note}]");
+
+                // IN PLACE, the same source is REFUSED. This is the arm that went from "writes" to "refuses" when the
+                // in-place localized arm was cut, so it is the one that would notice it coming back.
                 var q2Before = File.ReadAllBytes(q2Src);
                 var q2ip = q2Svc.CompactPlugin(q2.Key.FileName.String, inPlace: true, acknowledge: false);
                 bool q2Untouched = File.ReadAllBytes(q2Src).AsSpan().SequenceEqual(q2Before);
@@ -332,10 +345,12 @@ public static class CompactServiceGuardProbe
                 Check(!q2ip.Success && !q2ip.NeedsAcknowledge && q2Untouched && q2NoStaging,
                     $"Q2 the SAME source compacted IN PLACE is refused before the consent prompt, file untouched " +
                     $"(refused={!q2ip.Success} preConsent={!q2ip.NeedsAcknowledge} untouched={q2Untouched} noStaging={q2NoStaging}) [{q2ip.Error}]");
-                // …and the refusal points at the new-file lane with the TRUE promise for this shape. The opposite arm
-                // — a shape whose output cannot stay localized — is TARGET-LOC below.
-                Check(!q2ip.Success && (q2ip.Error?.Contains("keeps its .STRINGS files", StringComparison.Ordinal) ?? false),
-                    $"Q2 the in-place refusal tells this caller the new-file output KEEPS its .STRINGS [{q2ip.Error}]");
+                // …and the refusal promises the new-file lane only what it delivers. "keeps its .STRINGS files" was
+                // the cut arm's promise; a refusal still making it would be sending callers to a lane that does not.
+                Check(!q2ip.Success
+                      && (q2ip.Error?.Contains("That output is NOT localized", StringComparison.Ordinal) ?? false)
+                      && !(q2ip.Error?.Contains("keeps its .STRINGS files", StringComparison.Ordinal) ?? false),
+                    $"Q2 the in-place refusal tells this caller the new-file output is NOT localized [{q2ip.Error}]");
             }
 
             {
@@ -379,10 +394,14 @@ public static class CompactServiceGuardProbe
 
                 // NEWFILE-NOTE: the new-file lane produces the same de-localized plugin the in-place lane is refused
                 // for, so it says so at the point the caller takes it. Non-fatal — the compaction still succeeds.
+                // The note's claim about the OUTPUT, checked against the output itself two arms above: NOT localized,
+                // and carrying no tables of its own. It no longer names a per-shape reason the strings could not be
+                // carried — there is one reason now, the same for every shape, because Q2-A was cut and no
+                // arrangement keeps its tables.
                 bool noteOn = o.Success && (o.Note?.Contains("is NOT localized", StringComparison.Ordinal) ?? false)
-                              && (o.Note?.Contains(@"Data\Strings", StringComparison.Ordinal) ?? false);
+                              && (o.Note?.Contains("with no .STRINGS files of its own", StringComparison.Ordinal) ?? false);
                 Check(noteOn, $"NEWFILE-NOTE a localized SOURCE compacted to a new file still succeeds AND is reported " +
-                              $"WITH the reason its strings could not be carried (success={o.Success} noted={noteOn}) [{o.Note}]");
+                              $"as de-localized with no tables of its own (success={o.Success} noted={noteOn}) [{o.Note}]");
 
                 // The arm above IS the measurement behind the in-place refusal's remedy: the same localized source,
                 // compacted to a NEW file, keeps its FULL+DESC. The refusal names that lane, so it is named against a
@@ -418,13 +437,15 @@ public static class CompactServiceGuardProbe
                 Check(named && preConsent && untouched && noStaging,
                     $"TARGET-LOC compacting a LOCALIZED plugin IN PLACE is refused before the consent prompt, file untouched " +
                     $"(refused={!oip.Success} named={named} preConsent={preConsent} untouched={untouched} noStaging={noStaging}) [{oip.Error}]");
-                // The other direction of the refusal's new-file promise (Q2's arm is the first): this source's strings
-                // are in game-Data, so the output CANNOT stay localized and the sentence has to say so, with a cause.
+                // The refusal names the new-file output as de-localized AND says where THIS source's text actually
+                // is — game-Data, not beside the plugin, which is the half a caller can act on. The Q2 fixture is the
+                // same pair of claims over a different arrangement, so between them the location clause is measured
+                // varying while the output clause is measured constant.
                 Check(!oip.Success
-                      && (oip.Error?.Contains("That output is not localized", StringComparison.Ordinal) ?? false)
-                      && (oip.Error?.Contains(@"Data\Strings", StringComparison.Ordinal) ?? false)
+                      && (oip.Error?.Contains("That output is NOT localized", StringComparison.Ordinal) ?? false)
+                      && (oip.Error?.Contains(@"Data\Strings folder, not beside the plugin", StringComparison.Ordinal) ?? false)
                       && !(oip.Error?.Contains("keeps its .STRINGS files", StringComparison.Ordinal) ?? false),
-                    $"TARGET-LOC the refusal tells THIS caller the new-file output is NOT localized, and why [{oip.Error}]");
+                    $"TARGET-LOC the refusal tells THIS caller the new-file output is NOT localized, and where its text is [{oip.Error}]");
             }
 
             // NEWFILE-NOTE, other direction: the SAME lane over a NON-localized source says nothing about localization.
@@ -521,8 +542,8 @@ public static class CompactServiceGuardProbe
             //      loose set BESIDE it — blocks the repoint too. This is the write that was briefly permitted and then
             //      cut (2026-08-26): the repoint would have rewritten a localized plugin the caller never named,
             //      plugin and tables together, on their own file. The arm exists so that permission cannot return
-            //      unnoticed, and it is deliberately the same fixture shape a compaction IS allowed to keep in a new
-            //      plugin — the two lanes differ by where the output lands, not by the arrangement.
+            //      unnoticed — and it checks the referencer's TABLES byte-for-byte, not only the plugin, because what
+            //      that write did was replace both.
             {
                 var rbRoot = Path.Combine(root, "repbeside");
                 var tgt = new LocalizedStringsFixture.Spec("RbTgt", new ModKey("HcCsRbTgt", ModType.Plugin), "TGT NAME", "TGT DESC",
@@ -539,8 +560,8 @@ public static class CompactServiceGuardProbe
                 var refPath = Path.Combine(fx.Mods, rf.ModFolder, rf.Key.FileName.String);
 
                 var refShape = LocalizedStrings.Assess(refPath, fx.Data);
-                Check(refShape.Shape == LocalizedShape.LooseComplete && refShape.CanKeepLocalized,
-                    $"REPOINT-BESIDE fixture: the referencer really is the complete-loose-set arrangement (shape={refShape.Shape})");
+                Check(refShape.Shape == LocalizedShape.LooseComplete && refShape.Languages.Count == 2,
+                    $"REPOINT-BESIDE fixture: the referencer really is the complete-loose-set arrangement (shape={refShape.Shape} langs={refShape.Languages.Count})");
 
                 var tgtBefore = File.ReadAllBytes(tgtPath);
                 var refBefore = File.ReadAllBytes(refPath);

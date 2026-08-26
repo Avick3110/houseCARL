@@ -2,10 +2,8 @@ using System.Collections;
 using System.Reflection;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
-using Mutagen.Bethesda.Plugins.Binary.Parameters;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
-using Mutagen.Bethesda.Strings;
 
 namespace HousecarlCore;
 
@@ -852,13 +850,12 @@ public static class RemapEngine
     /// renumbered on disk, its referencers still pointing at the old FormIDs. So the caller asks this FIRST and refuses
     /// the whole operation while everything is still untouched.</para>
     ///
-    /// <para>Reads the header only, through the lazy overlay. A plugin whose header cannot be read is NOT reported as
-    /// localized: the identify pass that produced these names already enumerated each of them successfully, so a fault
-    /// here is a race rather than a normal state. Failing open costs the EARLINESS, not the safety — the write's choke
-    /// point still refuses, so nothing is corrupted, but by then the target is compacted and the caller is left with a
-    /// renumbered plugin whose referencer still points at the old FormIDs (reported per referencer, never silent).
-    /// That is the outcome this pre-flight exists to avoid, and the reason it is worth having on top of the write's
-    /// own refusal rather than relying on it.</para></summary>
+    /// <para>Reads the header only, through the lazy overlay — and a plugin whose header cannot be read IS reported,
+    /// as a plugin houseCARL could not classify. It used to be reported as not-localized on the ground that the write's
+    /// choke point would refuse anyway; that ground no longer holds and never fully did. What it costs when it is
+    /// wrong is not merely EARLINESS: by the time the write refuses, the target is already compacted and the caller is
+    /// left with a renumbered plugin whose referencer still points at the old FormIDs. That is the outcome this
+    /// pre-flight exists to avoid, so it fails CLOSED.</para></summary>
     public static IReadOnlyList<(string Plugin, string Why)> LocalizedAmong(LoadOrderResolver resolver, IEnumerable<string> pluginNames)
     {
         var view = resolver.Capture();
@@ -869,14 +866,20 @@ public static class RemapEngine
             if (path is null) continue;
             try
             {
-                // The SHAPE, not merely the header flag: a localized referencer whose strings are a complete loose set
-                // beside it can now be repointed — the write commits its rewritten tables with it — so reporting it
-                // here would refuse a whole compaction over a plugin the write would have handled. Only the shapes the
-                // write still refuses belong in this list, and each carries the reason it is in it, so the compaction's
-                // refusal can say WHY this referencer cannot be rewritten instead of only that one cannot.
+                // The same decision the write itself would make, through the one home for it — so this pre-flight and
+                // the write cannot disagree about a referencer. Each hit carries the reason it is a hit, so the
+                // compaction's refusal can say WHERE that referencer's text lives rather than only that it is
+                // localized: the caller is being refused over a plugin they did not name, and "it is localized" is not
+                // something they can act on.
+                //
+                // A plugin houseCARL could NOT read lands here too, which is the point: the answer is unknown, and a
+                // repoint that rewrote it on the strength of a failed read is the fail-open this decision was moved
+                // off a fallible re-read to prevent.
                 if (LocalizedStrings.RefusalReasonFor(path, name, view.DataDir) is { } why) hits.Add((name, why));
             }
-            catch { /* see the summary: unreadable here is not a localization claim, and the write still refuses. */ }
+            // Assess handles an unreadable plugin itself (it becomes a hit); this catch is for a fault in the path
+            // handling around it, and it stays best-effort so one bad name cannot take the whole pre-flight down.
+            catch { }
         }
         return hits;
     }
@@ -895,31 +898,6 @@ public static class RemapEngine
     /// refusal or serialize fault leaves the original file byte-intact. A sub-0x800 originating record (a vanilla master)
     /// makes the write throw <c>LowerFormKeyRangeDisallowed</c> — surfaced LOUD here, never a silent partial write (Q3).
     /// </summary>
-    /// <summary>Open ONE plugin MUTABLE with the same strings resolution <see cref="LoadOrderResolver.OpenOverlay"/>
-    /// wires for reads — the mutable twin of that choke point, and #368's fix.
-    ///
-    /// <para>The bare <c>CreateFromBinary</c> this replaces scans only the plugin's OWN folder for strings, so a
-    /// localized plugin resolved to a mod folder without them read every <c>TranslatedString</c> EMPTY — and this lane
-    /// then wrote those blanks back over the user's file. The redirect is applied on exactly the condition the read
-    /// path uses (a game-Data folder is known AND the plugin's own folder carries no strings source of its own), so
-    /// the mutable open and the overlay open cannot disagree about where a plugin's text comes from.</para></summary>
-    static SkyrimMod OpenMutable(string path, string? dataDir)
-    {
-        if (dataDir is not null && !LoadOrderResolver.FolderHasOwnStrings(path))
-        {
-            var prm = BinaryReadParameters.Default with
-            {
-                StringsParam = new StringsReadParameters
-                {
-                    BsaFolderOverride = dataDir,
-                    StringsFolderOverride = Path.Combine(dataDir, "Strings"),
-                },
-            };
-            return SkyrimMod.CreateFromBinary(path, SkyrimRelease.SkyrimSE, prm);
-        }
-        return SkyrimMod.CreateFromBinary(path, SkyrimRelease.SkyrimSE);
-    }
-
     public static RepointResult RepointInPlace(
         LoadOrderResolver resolver, string pluginName, IReadOnlyDictionary<FormKey, FormKey> dict)
     {
@@ -937,7 +915,7 @@ public static class RemapEngine
             return RepointResult.Fail($"repoint target '{pluginName}' not found on disk at {path ?? "<unresolved>"} — the file is untouched.");
 
         SkyrimMod targetMod;
-        try { targetMod = OpenMutable(path, view.DataDir); }
+        try { targetMod = SkyrimMod.CreateFromBinary(path, SkyrimRelease.SkyrimSE); }
         catch (Exception ex)
         {
             return RepointResult.Fail(
