@@ -1266,7 +1266,7 @@ public static class DescriptionVocabularyGuardProbe
 
         // Printed BEFORE the arms that read markers, so the coverage a verdict rests on is on screen above it.
         Console.WriteLine($"        default parentheticals on the surface: {defaultParens} — {marks.Count} read as a \"token (default)\" marker, "
-                        + $"{unreadDefaults.Count} declaring their value inside the parenthesis and named below");
+                        + $"{unreadDefaults.Count} not read as one, each named below with the reason it was rejected on");
         foreach (var u in unreadDefaults) Console.WriteLine($"          · not read as a marker: {u}");
         Check($"INV4-MARKCOVER the marker pattern and an independently written character walk agree about which of "
             + $"the {defaultParens} default parenthetical(s) are marker-shaped",
@@ -1298,9 +1298,16 @@ public static class DescriptionVocabularyGuardProbe
     /// with the marker never even collected — so the census count did not move either, and nothing indicated a
     /// marker had been skipped.</para>
     /// <para>The parenthetical may also CONTINUE past the word (<c>(default, best-regarded first)</c>); it is the
-    /// separator after "default" that says the token is outside, not the closing paren.</para></summary>
+    /// separator after "default" that says the token is outside, not the closing paren.</para>
+    /// <para><b>The LEFT boundary is load-bearing, and was missing until 2026-08-26.</b> Without it the token
+    /// group could start in the MIDDLE of a word, because all it requires is a letter: <c>3d (default)</c>
+    /// matched from the <c>d</c>, <c>0x800 (default)</c> from the <c>x</c>, <c>_id (default)</c> from the
+    /// <c>i</c>. Each put a token in the census that no author wrote — and because <see cref="MarkerShaped"/>
+    /// walks the whole word backwards and refuses one that does not START with a letter, each was also a FALSE
+    /// RED on <c>INV4-MARKCOVER</c>, a class-1 arm. The lookbehind sits before the optional quote, so the quoted
+    /// form still matches from inside the quotes.</para></summary>
     static readonly Regex DefaultMarker = new(
-        @"['""‘’]?([A-Za-z][A-Za-z0-9_]*)['""‘’]?\s*\(\s*default\b\s*(?=[),;–—])",
+        @"(?<![A-Za-z0-9_])['""‘’]?([A-Za-z][A-Za-z0-9_]*)['""‘’]?\s*\(\s*default\b\s*(?=[),;–—])",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     static List<DefaultMark> MarkedDefaultsAt(string text) =>
@@ -1336,30 +1343,49 @@ public static class DescriptionVocabularyGuardProbe
     static List<int> MarkerShaped(string text)
     {
         var outp = new List<int>();
-        const string word = "default";
         for (int i = 0; i < text.Length; i++)
-        {
-            if (text[i] != '(') continue;
-            int j = i + 1;
-            while (j < text.Length && char.IsWhiteSpace(text[j])) j++;
-            if (j + word.Length > text.Length) continue;
-            if (!text.Substring(j, word.Length).Equals(word, StringComparison.OrdinalIgnoreCase)) continue;
-            int after = j + word.Length;
-            // "defaulting", "defaults" — a longer word, not this one.
-            if (after < text.Length && (char.IsLetterOrDigit(text[after]) || text[after] == '_')) continue;
-            while (after < text.Length && char.IsWhiteSpace(text[after])) after++;
-            if (after >= text.Length || Array.IndexOf(MarkerTerminators, text[after]) < 0) continue;
-
-            int k = i - 1;
-            while (k >= 0 && char.IsWhiteSpace(text[k])) k--;
-            if (k >= 0 && (text[k] == '\'' || text[k] == '"' || text[k] == '‘' || text[k] == '’')) k--;
-            int end = k;
-            while (k >= 0 && (char.IsLetterOrDigit(text[k]) || text[k] == '_')) k--;
-            if (k == end) continue;                                  // nothing in front: the parenthetical stands alone
-            if (!char.IsLetter(text[k + 1])) continue;               // a token that does not start with a letter
-            outp.Add(i);
-        }
+            if (text[i] == '(' && MarkerRejectReason(text, i) is null) outp.Add(i);
         return outp;
+    }
+
+    /// <summary>Why the parenthesis at <paramref name="at"/> is NOT a marker — or <c>null</c> when it is one.
+    /// <para>ONE home for the backward walk, so <see cref="MarkerShaped"/> and <see cref="UnreadDefaults"/> can
+    /// never disagree about a parenthetical, and so the residue line an author reads states the reason this code
+    /// actually rejected on. It used to say "the value is INSIDE the parenthesis, so there is no token in front
+    /// of it" about every unread parenthetical — false for <c>"*" (default)</c> on <c>RecordsWalk.follow</c>,
+    /// where a token IS in front and is rejected for not starting with a letter. One residue line in thirty-eight
+    /// pointing an author at a repair that would not have helped.</para></summary>
+    static string? MarkerRejectReason(string text, int at)
+    {
+        const string word = "default";
+        if (at >= text.Length || text[at] != '(') return "is not a parenthesis";
+        int j = at + 1;
+        while (j < text.Length && char.IsWhiteSpace(text[j])) j++;
+        if (j + word.Length > text.Length || !text.Substring(j, word.Length).Equals(word, StringComparison.OrdinalIgnoreCase))
+            return "does not open on the word \"default\"";
+        int after = j + word.Length;
+        // "defaulting", "defaults" — a longer word, not this one.
+        if (after < text.Length && (char.IsLetterOrDigit(text[after]) || text[after] == '_'))
+            return "opens on a LONGER word that starts with \"default\"";
+        while (after < text.Length && char.IsWhiteSpace(text[after])) after++;
+        if (after >= text.Length || Array.IndexOf(MarkerTerminators, text[after]) < 0)
+            return "declares a default with the value INSIDE the parenthesis, so there is no token in front of it to hold "
+                 + "against the slot. This arm reads the \"token (default)\" form only";
+
+        int k = at - 1;
+        while (k >= 0 && char.IsWhiteSpace(text[k])) k--;
+        // NOTHING in front and a non-identifier token in front are different facts, and conflating them is what
+        // made the residue line wrong: after stepping over a closing quote the identifier walk consumes nothing
+        // for "*" exactly as it does for an empty run, so the two have to be separated BEFORE the walk.
+        if (k < 0)
+            return "has nothing in front of it — the parenthetical stands alone, so there is no token to hold against the slot";
+        if (text[k] == '\'' || text[k] == '"' || text[k] == '‘' || text[k] == '’') k--;
+        int end = k;
+        while (k >= 0 && (char.IsLetterOrDigit(text[k]) || text[k] == '_')) k--;
+        if (k == end || !char.IsLetter(text[k + 1]))
+            return "has a token in front of it that does not start with a LETTER, so it names no slot value this arm can "
+                 + "compare. Quote-wrapped punctuation (\"*\"), a number-led token (3d) and an underscore-led one all land here";
+        return null;
     }
 
     /// <summary>The default-declaring parentheticals a run did NOT read as markers, each named with its site and
@@ -1367,9 +1393,10 @@ public static class DescriptionVocabularyGuardProbe
     static List<string> UnreadDefaults(string label, string text, IReadOnlyCollection<int> parsed) =>
         DefaultParentheticals(text)
             .Where(i => !parsed.Contains(i))
-            .Select(i => $"{label}: …{Clip(text[Math.Max(0, i - 46)..Math.Min(text.Length, i + 44)], 90)}… — this declares a default "
-                       + "with the value INSIDE the parenthesis, so there is no token in front of it to hold against the slot. This arm reads "
-                       + "the \"token (default)\" form only")
+            .Select(i => $"{label}: …{Clip(text[Math.Max(0, i - 46)..Math.Min(text.Length, i + 44)], 90)}… — this "
+                       + (MarkerRejectReason(text, i)
+                          ?? "IS marker-shaped, but the pattern did not read it. The two spellings of \"marker-shaped\" "
+                           + "disagree here, which is what INV4-MARKCOVER exists to report"))
             .ToList();
 
     /// <summary>The default marked on the SURFACE is the published verb wherever the marked token is a write verb,
@@ -1718,6 +1745,26 @@ public static class DescriptionVocabularyGuardProbe
 
         // The slot comparison, driven in both directions over the case the vocabulary gate used to skip: a marked
         // token that is not a known verb at all. A slot that declares no default is asserted about by nothing, and
+        // The marker's LEFT boundary and the rejection reasons, together: the two spellings of "marker-shaped"
+        // have to agree about a token that does not START where a token starts, and the residue line has to say
+        // which of the several reasons applied. Both halves shipped wrong — the pattern read '3d (default)' as a
+        // marker on 'd' and the walk did not, a false RED on a class-1 arm; and every residue line claimed the
+        // value was inside the parenthesis, which was false for the one site where a token IS in front.
+        Check("RED-MARKBOUND    a marker cannot start mid-token, the two spellings agree on every such shape, and each rejection states ITS OWN reason",
+            MarkedDefaults("3d (default)").Count == 0
+                && MarkedDefaults("0x800 (default)").Count == 0
+                && MarkedDefaults("_id (default)").Count == 0
+                && MarkerShaped("3d (default)").Count == 0
+                && MarkedDefaults("Set (default)") is ["Set"] && MarkerShaped("Set (default)").Count == 1
+                && MarkedDefaults("'text' (default)") is ["text"] && MarkerShaped("'text' (default)").Count == 1
+                && MarkerRejectReason("\"*\" (default)", 4) is { } starReason && starReason.Contains("does not start with a LETTER", StringComparison.Ordinal)
+                && MarkerRejectReason("(default 'Patch')", 0) is { } valueReason && valueReason.Contains("VALUE INSIDE", StringComparison.OrdinalIgnoreCase)
+                && MarkerRejectReason(" (default)", 1) is { } aloneReason && aloneReason.Contains("stands alone", StringComparison.Ordinal)
+                && MarkerRejectReason("Set (default)", 4) is null,
+            new() { "the marker pattern reads a token from the middle of a word — a token no author wrote, and a false RED on "
+                  + "INV4-MARKCOVER, which is class 1 — or the two spellings disagree about one of those shapes, or a residue "
+                  + "line gives the same reason for every rejection and sends an author at the wrong repair" }, redArm: true);
+
         // that half is driven too — otherwise "cannot compare" and "compared and agreed" would look alike.
         Check("RED-MARKSLOT     a marked default that disagrees with the slot's declared default is reported, verb or not",
             MarkDisagrees("Sett", "Set") && MarkDisagrees("Add", "Set") && MarkDisagrees("summary", "table")
