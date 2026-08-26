@@ -856,10 +856,15 @@ public static class RemapEngine
     /// wrong is not merely EARLINESS: by the time the write refuses, the target is already compacted and the caller is
     /// left with a renumbered plugin whose referencer still points at the old FormIDs. That is the outcome this
     /// pre-flight exists to avoid, so it fails CLOSED.</para></summary>
-    public static IReadOnlyList<(string Plugin, string Why)> LocalizedAmong(LoadOrderResolver resolver, IEnumerable<string> pluginNames)
+    /// <returns>One entry per blocked referencer, each carrying the SHAPE it was blocked on. The shape is part of the
+    /// result because the hits are NOT homogeneous — a plugin flagged localized and a plugin houseCARL could not open
+    /// both land here, both correctly — and a caller that renders them as one list calls the unreadable one localized,
+    /// which is a claim nobody established. Splitting is the caller's job; supplying what it splits on is this one's.</returns>
+    public static IReadOnlyList<(string Plugin, LocalizedShape Shape, string Why)> LocalizedAmong(
+        LoadOrderResolver resolver, IEnumerable<string> pluginNames)
     {
         var view = resolver.Capture();
-        var hits = new List<(string, string)>();
+        var hits = new List<(string, LocalizedShape, string)>();
         foreach (var name in pluginNames)
         {
             var path = view.PluginPath(name);
@@ -875,7 +880,7 @@ public static class RemapEngine
                 // A plugin houseCARL could NOT read lands here too, which is the point: the answer is unknown, and a
                 // repoint that rewrote it on the strength of a failed read is the fail-open this decision was moved
                 // off a fallible re-read to prevent.
-                if (LocalizedStrings.RefusalReasonFor(path, name, view.DataDir) is { } why) hits.Add((name, why));
+                if (LocalizedStrings.RefusalShapeFor(path, name, view.DataDir) is { } hit) hits.Add((name, hit.Shape, hit.Why));
             }
             // Assess handles an unreadable plugin itself (it becomes a hit); this catch is for a fault in the path
             // handling around it, and it stays best-effort so one bad name cannot take the whole pre-flight down.

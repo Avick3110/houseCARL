@@ -6279,16 +6279,18 @@ public sealed class LoadOrderService : IDisposable
                     var repointClause = blocked.Count == 0
                         ? "Re-run with repoint_externals=true AND in_place=true (+ acknowledge=true) to ALSO rewrite those plugins in place to follow "
                           + "the renumber, or handle them yourself first."
-                        : $"Re-running with repoint_externals=true will NOT work here: {string.Join(", ", blocked.Take(25).Select(b => b.Plugin))}"
-                          + $"{(blocked.Count > 25 ? $", … (+{blocked.Count - 25} more)" : "")} "
-                          + (blocked.Count == 1 ? "is localized" : "are localized")
-                          + ", and houseCARL does not rewrite a localized plugin in place, so the repoint would refuse "
-                          + "before touching anything. "
-                          // ATTRIBUTED to the plugin it describes. Blocked referencers can be in different shapes, so
+                        // SPLIT BY CLASS. LocalizedAmong deliberately fails closed on a referencer it could not read,
+                        // so its hits are not homogeneous — and rendering them as one list called every one of them
+                        // "is localized", including the file nobody managed to open.
+                        : $"Re-running with repoint_externals=true will NOT work here: {BlockedReferencerCensus(blocked)}. "
+                          + "houseCARL rewrites neither a localized plugin nor one it cannot read in place, so the "
+                          + "repoint would refuse before touching anything. "
+                          // ATTRIBUTED, and now once per CLASS. Blocked referencers can be in different shapes, so
                           // an unattributed reason reads as the reason for all of them and hands one plugin's account
-                          // of where its text lives to another.
-                          + $"Where {blocked[0].Plugin}'s text is: {blocked[0].Why}"
-                          + (blocked.Count > 1 ? $" (the other {blocked.Count - 1} are reported the same way if you compact them.)" : "")
+                          // of where its text lives to another — and with only the first hit attributed, a whole class
+                          // could go unmentioned, sending the modder to look for .STRINGS files instead of for the
+                          // file they cannot open.
+                          + BlockedReferencerReasons(blocked)
                           + " Until that is resolved, handle the references yourself instead.";
                     return WritePatchBuilder.CompactOutcome.Fail(
                         $"refused — {id.ExternalPlugins.Count} plugin(s) outside '{name}' reference records it is about to renumber; compacting it " +
@@ -6327,17 +6329,19 @@ public sealed class LoadOrderService : IDisposable
                 var localized = RemapEngine.LocalizedAmong(resolver, id.ExternalPlugins);
                 if (localized.Count > 0)
                     return WritePatchBuilder.CompactOutcome.Fail(
-                        $"refused — compacting '{name}' means rewriting the plugins that reference it, and " +
-                        $"{(localized.Count == 1 ? "one of them is" : $"{localized.Count} of them are")} flagged LOCALIZED: " +
-                        $"{string.Join(", ", localized.Take(25).Select(l => l.Plugin))}{(localized.Count > 25 ? $", … (+{localized.Count - 25} more)" : "")}. " +
+                        $"refused — compacting '{name}' means rewriting the plugins that reference it, and houseCARL " +
+                        // SPLIT BY CLASS, count and label both. "N of them are flagged LOCALIZED: A.esp, B.esp" was
+                        // false about every hit houseCARL could not open — a different problem with a different fix,
+                        // reported as the one it is not.
+                        $"cannot rewrite all of them: {BlockedReferencerCensus(localized)}. " +
                         // The referencer's OWN reason, verbatim from the same decision the write would have made, and
-                        // ATTRIBUTED: a caller refused here is being told about a plugin they did not name, so "it is
-                        // localized" is not enough to act on — what they need is where that plugin's text actually is.
-                        $"Where {localized[0].Plugin}'s text is: {localized[0].Why} " +
+                        // ATTRIBUTED once per CLASS: a caller refused here is being told about a plugin they did not
+                        // name, so "it is localized" is not enough to act on — what they need is where that plugin's
+                        // text actually is, or that houseCARL could not open it.
+                        $"{BlockedReferencerReasons(localized)} " +
                         "NOTHING was written and nothing was staged — " +
-                        $"'{name}' is untouched. houseCARL cannot compact '{name}' while a localized plugin references it, " +
-                        "because following the renumber means rewriting that referencer in place and houseCARL does not " +
-                        "rewrite a localized plugin in place.");
+                        $"'{name}' is untouched. Following the renumber means rewriting those referencers in place, and " +
+                        "houseCARL rewrites neither a localized plugin nor one it cannot read in place.");
             }
             if ((willOverwriteTarget || willRepoint) && !acknowledge)
             {
@@ -6497,6 +6501,54 @@ public sealed class LoadOrderService : IDisposable
                 build.Bytes, id.ExternalPlugins, repointed, id.PluginsScanned, id.UnscannableRecords, id.UnscannableSamples,
                 markerNotes.Count > 0 ? string.Join(" ", markerNotes) : null, assetRename, id.ExternalOverriders, voiceRename, seqRegen);
         }
+    }
+
+    /// <summary>A blocked referencer list, split into the two classes it actually holds.
+    ///
+    /// <para><see cref="RemapEngine.LocalizedAmong"/> fails CLOSED on a referencer it could not open — right, and this
+    /// branch's own change — so its hits are a mix of "flagged LOCALIZED" and "houseCARL could not read this". Both
+    /// block the repoint; they are not the same problem and they do not have the same fix. Rendered as one list, the
+    /// count and the label both went to the wider class and the unreadable file was reported as localized.</para></summary>
+    static (IReadOnlyList<(string Plugin, LocalizedShape Shape, string Why)> Localized,
+            IReadOnlyList<(string Plugin, LocalizedShape Shape, string Why)> Unread)
+        SplitBlockedReferencers(IReadOnlyList<(string Plugin, LocalizedShape Shape, string Why)> blocked)
+        => (blocked.Where(b => LocalizedStrings.ConfirmedLocalized(b.Shape)).ToList(),
+            blocked.Where(b => !LocalizedStrings.ConfirmedLocalized(b.Shape)).ToList());
+
+    /// <summary>"2 flagged LOCALIZED (A.esp, B.esp), and 1 houseCARL could not read (C.esp)" — counts and names per
+    /// class, and a class with no hits contributes nothing.</summary>
+    internal static string BlockedReferencerCensus(IReadOnlyList<(string Plugin, LocalizedShape Shape, string Why)> blocked)
+    {
+        var (localized, unread) = SplitBlockedReferencers(blocked);
+        var parts = new List<string>();
+        if (localized.Count > 0) parts.Add($"{localized.Count} flagged LOCALIZED ({NameList(localized)})");
+        if (unread.Count > 0) parts.Add($"{unread.Count} houseCARL could not read ({NameList(unread)})");
+        return string.Join(", and ", parts);
+
+        static string NameList(IReadOnlyList<(string Plugin, LocalizedShape Shape, string Why)> l)
+            => string.Join(", ", l.Take(25).Select(x => x.Plugin)) + (l.Count > 25 ? $", … (+{l.Count - 25} more)" : "");
+    }
+
+    /// <summary>An attributed reason for the FIRST of EACH class — never only the first hit overall, which left a
+    /// whole class unmentioned and sent the modder looking for .STRINGS files instead of for the file they cannot
+    /// open. The lead-in differs because the two facts differ.</summary>
+    internal static string BlockedReferencerReasons(IReadOnlyList<(string Plugin, LocalizedShape Shape, string Why)> blocked)
+    {
+        var (localized, unread) = SplitBlockedReferencers(blocked);
+        var parts = new List<string>();
+        if (localized.Count > 0)
+        {
+            parts.Add($"Where {localized[0].Plugin}'s text is: {localized[0].Why}");
+            if (localized.Count > 1)
+                parts.Add($"(The other {localized.Count - 1} localized referencer(s) are reported the same way if you compact them.)");
+        }
+        if (unread.Count > 0)
+        {
+            parts.Add($"Why {unread[0].Plugin} is blocked: {unread[0].Why}");
+            if (unread.Count > 1)
+                parts.Add($"(The other {unread.Count - 1} unreadable referencer(s) are the same.)");
+        }
+        return string.Join(" ", parts);
     }
 
     /// <summary>The in-place compaction's refusal, rendered per SHAPE.
