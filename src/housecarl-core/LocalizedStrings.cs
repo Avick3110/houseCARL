@@ -280,10 +280,19 @@ public static class LocalizedStrings
     /// <summary>The same decision as <see cref="RefusalFor"/>, rendered WITHOUT the "houseCARL did not write X" head —
     /// for a lane reporting on a plugin the caller did not ask about.</summary>
     public static string? RefusalReasonFor(string pluginPath, string pluginFileName, string? dataDir)
+        => RefusalShapeFor(pluginPath, pluginFileName, dataDir)?.Why;
+
+    /// <summary>The same decision as <see cref="RefusalReasonFor"/>, carrying the SHAPE it was made on.
+    ///
+    /// <para>For a lane that reports on a SET of blocked plugins. Its hits are not homogeneous — a referencer that is
+    /// flagged localized and one houseCARL could not open both block a repoint, and both must — so a caller rendering
+    /// them needs to know which is which. Without it the count and the label collapse onto the wider one and every
+    /// hit reads as "is localized", including the file nobody managed to read.</para></summary>
+    public static (LocalizedShape Shape, string Why)? RefusalShapeFor(string pluginPath, string pluginFileName, string? dataDir)
     {
         var a = Assess(pluginPath, dataDir);
         if (a.Shape == LocalizedShape.NotLocalized) return null;
-        return LocalizedTargetUnsupportedException.ShapeBody(a);
+        return (a.Shape, LocalizedTargetUnsupportedException.ShapeBody(a));
     }
 
     /// <summary>The loose table files this plugin's own folder carries — what a read resolves against, and what a

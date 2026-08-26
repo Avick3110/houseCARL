@@ -628,6 +628,98 @@ public static class CompactServiceGuardProbe
                 }
             }
 
+            // ---- REPOINT-MIXED (Aaron's review, findings 5+6): LocalizedAmong's hits are NOT homogeneous ----
+            //      Failing closed on a referencer houseCARL could not read is this branch's own change and it is
+            //      right — but both refusals then rendered the whole hit list as "is localized" / "N of them are
+            //      flagged LOCALIZED", and only the FIRST hit got an attributed reason. A referencer briefly held by
+            //      xEdit was therefore reported as a localized plugin, and if it was not hit zero its actual condition
+            //      appeared nowhere in the message: the modder goes looking for .STRINGS files instead of for the file
+            //      they cannot open.
+            //
+            //      Two referencers of one target, one per class: RmRefLoc really is localized, RmRefLock is a plain
+            //      plugin held FileShare.None across the call. Both must block; neither may be described as the other.
+            {
+                var rmRoot = Path.Combine(root, "repmixed");
+                var tgt = new LocalizedStringsFixture.Spec("RmTgt", new ModKey("HcCsRmTgt", ModType.Plugin), "TGT NAME", "TGT DESC",
+                                                          Localized: false);
+                var refLoc = new LocalizedStringsFixture.Spec("RmRefLoc", new ModKey("HcCsRmRefLoc", ModType.Plugin), "L NAME", "L DESC",
+                                                             LinksTo: LocalizedStringsFixture.WeaponKey(tgt));
+                var refLock = new LocalizedStringsFixture.Spec("RmRefLock", new ModKey("HcCsRmRefLock", ModType.Plugin), "K NAME", "K DESC",
+                                                              LinksTo: LocalizedStringsFixture.WeaponKey(tgt), Localized: false);
+                var fx = LocalizedStringsFixture.Build(rmRoot, new[] { tgt, refLoc, refLock });
+                var rmStore = new UserConfigStore(Path.Combine(rmRoot, "houseCARL.user.json"));
+                using var rmSvc = LoadOrderService.WithInstance(fx.Instance, 0, rmStore);
+                rmSvc.Stats();
+
+                var tgtPath = Path.Combine(fx.Mods, tgt.ModFolder, tgt.Key.FileName.String);
+                var locPath = Path.Combine(fx.Mods, refLoc.ModFolder, refLoc.Key.FileName.String);
+                var lockPath = Path.Combine(fx.Mods, refLock.ModFolder, refLock.Key.FileName.String);
+
+                Check(LocalizedStrings.Assess(locPath, fx.Data).Shape != LocalizedShape.NotLocalized
+                      && LocalizedStrings.Assess(lockPath, fx.Data).Shape == LocalizedShape.NotLocalized,
+                    "REPOINT-MIXED fixture: one referencer is localized, the other is a plain plugin (unheld)");
+
+                // WHY THE MIXED LIST IS NOT DRIVEN END TO END, measured rather than assumed. Hold the plain referencer
+                // FileShare.None and the identify pass cannot read it either — so it drops OUT of ExternalPlugins
+                // entirely and LocalizedAmong is never asked about it. A referencer houseCARL cannot open therefore
+                // reaches the Unreadable class only by becoming unreadable BETWEEN the identify pass and this
+                // pre-flight, which is a race inside one _writeGate hold and not something a fixture can reproduce
+                // honestly. That is exactly why LocalizedAmong fails closed on it — and why the RENDER is armed
+                // directly below, on the real renderer, rather than through a service path that cannot produce the
+                // input.
+                WritePatchBuilder.CompactOutcome held;
+                using (var hold = new FileStream(lockPath, FileMode.Open, FileAccess.Read, FileShare.None))
+                    held = rmSvc.CompactPlugin(tgt.Key.FileName.String);
+                Check(!held.Success && (held.Error?.Contains("Referencers: HcCsRmRefLoc.esp.", StringComparison.Ordinal) ?? false),
+                    $"REPOINT-MIXED (not a render arm) a held referencer never reaches the pre-flight — the identify pass drops it first [{held.Error}]");
+
+                // END TO END, one class: the localized referencer alone. The census counts it, names it, attributes
+                // its reason — and carries NO second clause, which is the other direction of the split.
+                var onlyLoc = rmSvc.CompactPlugin(tgt.Key.FileName.String).Error ?? "";
+                Check(onlyLoc.Contains("1 flagged LOCALIZED (HcCsRmRefLoc.esp)", StringComparison.Ordinal)
+                      && onlyLoc.Contains("Where HcCsRmRefLoc.esp's text is:", StringComparison.Ordinal)
+                      && !onlyLoc.Contains("houseCARL could not read (", StringComparison.Ordinal)
+                      && !onlyLoc.Contains("is blocked:", StringComparison.Ordinal),
+                    $"REPOINT-MIXED end to end, a localized-only hit list gets one class and no unreadable clause [{onlyLoc}]");
+
+                // THE RENDER ITSELF, on the REAL renderers (internal to housecarl-mcp, reachable via
+                // InternalsVisibleTo) with the mixed hit list the service cannot be made to produce. This is the fold:
+                // LocalizedAmong now returns the SHAPE with each hit, and both refusals split on it.
+                var mixed = new (string Plugin, LocalizedShape Shape, string Why)[]
+                {
+                    ("A.esp", LocalizedShape.GameDataOnly, "A's text is in game-Data."),
+                    ("B.esp", LocalizedShape.Unreadable, "houseCARL could not read the file at that path to see where its text lives."),
+                    ("C.esp", LocalizedShape.LooseComplete, "C's text is beside it."),
+                };
+                var census = LoadOrderService.BlockedReferencerCensus(mixed);
+                var reasons = LoadOrderService.BlockedReferencerReasons(mixed);
+
+                Check(census.Contains("2 flagged LOCALIZED (A.esp, C.esp)", StringComparison.Ordinal)
+                      && census.Contains("1 houseCARL could not read (B.esp)", StringComparison.Ordinal),
+                    $"REPOINT-MIXED render: the census counts and names per class [{census}]");
+                Check(!census.Contains("3 flagged LOCALIZED", StringComparison.Ordinal)
+                      && !census.Contains("B.esp, C.esp", StringComparison.Ordinal),
+                    $"REPOINT-MIXED render: the unreadable hit is NOT in the localized count or its name list [{census}]");
+
+                // The defect finding 6 names precisely: only localized[0] was attributed, so a hit in the other class
+                // — B.esp here, which is not even hit zero — had its actual condition appear nowhere in the message.
+                Check(reasons.Contains("Where A.esp's text is:", StringComparison.Ordinal)
+                      && reasons.Contains("Why B.esp is blocked:", StringComparison.Ordinal)
+                      && reasons.Contains("could not read the file at that path", StringComparison.Ordinal),
+                    $"REPOINT-MIXED render: the FIRST of EACH class is attributed, with its own lead-in [{reasons}]");
+                Check(reasons.Contains("The other 1 localized referencer(s)", StringComparison.Ordinal)
+                      && !reasons.Contains("unreadable referencer(s)", StringComparison.Ordinal),
+                    $"REPOINT-MIXED render: the per-class tails count their own class, and a class of one gets none [{reasons}]");
+
+                // Single-class inputs, both ways, so neither clause is unconditional.
+                var locOnly = LoadOrderService.BlockedReferencerCensus(mixed.Where(m => m.Shape != LocalizedShape.Unreadable).ToArray());
+                var unreadOnly = LoadOrderService.BlockedReferencerCensus(mixed.Where(m => m.Shape == LocalizedShape.Unreadable).ToArray());
+                Check(!locOnly.Contains("could not read", StringComparison.Ordinal)
+                      && !unreadOnly.Contains("flagged LOCALIZED", StringComparison.Ordinal)
+                      && unreadOnly.Contains("1 houseCARL could not read (B.esp)", StringComparison.Ordinal),
+                    $"REPOINT-MIXED render: a class with no hits contributes nothing [{locOnly}] [{unreadOnly}]");
+            }
+
             // ---- REPOINT-BESIDE: a referencer in the arrangement houseCARL classifies most confidently — a complete
             //      loose set BESIDE it — blocks the repoint too. This is the write that was briefly permitted and then
             //      cut (2026-08-26): the repoint would have rewritten a localized plugin the caller never named,
