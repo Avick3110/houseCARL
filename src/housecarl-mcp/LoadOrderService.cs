@@ -6214,14 +6214,15 @@ public sealed class LoadOrderService : IDisposable
             // the distinction this whole refusal rests on.
             // Read once: the in-place lane refuses on it, and the new-file lane reports on it (below).
             //
-            // Keyed on the header flag for the IN-PLACE lane, every shape included. The shape still decides what the
-            // NEW-FILE lane can carry into P′ (keepLocalized, below) — but no shape earns an in-place rebuild over the
-            // modder's own file: houseCARL does not put a plugin and a replacement set of .STRINGS files onto a file
-            // it cannot review afterwards. The new-file output CAN now stay localized, and the sentence says so, which
-            // is what makes the remedy worth taking rather than merely available.
+            // EVERY shape refuses in place, and a source houseCARL could not READ refuses too — Unreadable is not
+            // NotLocalized, and treating it as such is how this decision failed open once already. The shape decides
+            // only which sentence the caller gets, never the outcome.
+            //
+            // No arrangement earns an in-place rebuild over the modder's own file. The new-file output is always
+            // de-localized, which the refusal states plainly rather than promising a lane that keeps the text as it
+            // found it: Q2-A, which did keep it for one arrangement, was cut (2026-08-26).
             var srcShape = LocalizedStrings.Assess(srcPath, view.DataDir);
             bool srcLocalized = srcShape.Shape != LocalizedShape.NotLocalized;
-            bool keepLocalized = srcShape.CanKeepLocalized;
             if (inPlace && srcLocalized)
                 return WritePatchBuilder.CompactOutcome.Fail(
                     $"houseCARL did not compact '{name}' in place — the file is unchanged and nothing was staged. " +
@@ -6231,11 +6232,9 @@ public sealed class LoadOrderService : IDisposable
                     "the plugin and its tables as one operation, and the file the game loads would stop being the " +
                     "translated plugin you have, with no backup and nothing to undo it. " +
                     $"Re-run without in_place to compact '{name}' into a NEW plugin instead: the same renumber, left in " +
-                    "its own mod folder for you to check and enable yourself. " +
-                    (keepLocalized
-                        ? "That output keeps its .STRINGS files, rewritten to match the new FormIDs and sitting beside it."
-                        : "That output is not localized — " + LocalizedTargetUnsupportedException.WhyNotKept(srcShape) +
-                          " Read it before you swap it in."));
+                    "its own mod folder for you to check and enable yourself. That output is NOT localized — it carries " +
+                    "the text that resolved when houseCARL read the source, written into the plugin itself, and the " +
+                    "source's .STRINGS files do not describe it. Read it before you swap it in.");
 
             // 1. originating record keys + the remap into the (light, by default) window.
             if (!WritePatchBuilder.TryReadOriginatingKeys(srcPath, modKey, out var keys, out var keyErr))
@@ -6466,20 +6465,26 @@ public sealed class LoadOrderService : IDisposable
             // refusal invokes was being applied to one lane and not the other — and the quiet one is the lane the
             // refusal recommends. Own-behaviour only: it does NOT claim the strings resolved, because when they resolve
             // nowhere this same path writes blanks and the sentence has to stay true there too.
+            //
+            // NO COUNT. The sentence this replaces said "including the N other language(s) it shipped (English,
+            // French)" with N computed as (languages − 1) — so a two-language source announced "the 1 other language
+            // (English, French)", a count and a list contradicting each other in one clause, and the list named the
+            // language the output had actually baked IN as one it had lost. What the source shipped is a fact about
+            // the source and is stated as one; which of them survived into the plugin is not something this can read
+            // back out of a de-localized output, so it is not claimed.
+            //
+            // The claim about the OUTPUT — that it is not localized and has no tables beside it — is not computed from
+            // the source folder's file list. It is pinned by compact-service-guard's arm, which reads P′ back and
+            // asserts both. (The de-localized-vs-kept conditional the old note carried is gone with Q2-A.)
             if (!inPlace && srcLocalized)
-                markerNotes.Add(keepLocalized
-                    ? $"'{name}' is flagged LOCALIZED, and so is the compacted plugin houseCARL wrote: its "
-                      + string.Join("/", srcShape.Languages) + " .STRINGS files were rewritten to match the new FormIDs "
-                      + "and sit in a Strings folder beside it. That folder is part of the plugin — it travels with it."
-                    : $"'{name}' is flagged LOCALIZED — its text lives in separate .STRINGS files, and "
-                      + LocalizedTargetUnsupportedException.WhyNotKept(srcShape) + " So the compacted plugin houseCARL "
-                      + "wrote is NOT localized: it carries whatever this read of the source produced, written into the "
-                      + "plugin itself, and the source's .STRINGS files do not describe it"
-                      + (srcShape.Languages.Count > 1
-                          ? ", including the " + (srcShape.Languages.Count - 1) + " other language(s) it shipped ("
-                            + string.Join(", ", srcShape.Languages) + "), which the output does not carry"
-                          : "")
-                      + ". Read the output before you enable it in place of the original.");
+                markerNotes.Add(
+                    $"'{name}' is flagged LOCALIZED — its text lives in separate .STRINGS files rather than in the "
+                    + "plugin"
+                    + (srcShape.Languages.Count > 0 ? " (" + string.Join(", ", srcShape.Languages) + ")" : "")
+                    + ". The compacted plugin houseCARL wrote is NOT localized: it carries whatever this read of the "
+                    + "source produced, written into the plugin itself, with no .STRINGS files of its own — so the "
+                    + "source's .STRINGS files do not describe it, and any language it shipped that this read did not "
+                    + "resolve is not in the output. Read the output before you enable it in place of the original.");
             if (flagOnlyNote is not null) markerNotes.Add(flagOnlyNote);
             if (inPlace) { var n = MergeEditedInPlaceMarker(Path.GetDirectoryName(srcPath)); if (n is not null) markerNotes.Add(n); }
             foreach (var r in repointed.Where(r => r.Success))

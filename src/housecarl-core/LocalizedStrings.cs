@@ -4,17 +4,41 @@ using Mutagen.Bethesda.Strings;
 
 namespace HousecarlCore;
 
+/// <summary>What a plugin's own header said when houseCARL asked whether it is flagged LOCALIZED — three answers, not
+/// two, because "could not read it" is not "not localized" and a decision that treats them the same fails OPEN.
+///
+/// <para>The two-answer form of this is why this enum exists: the read returned a bool, a fault answered
+/// <c>false</c>, and a destination held by another process for the instant of the check — an AV scan, MO2 refreshing,
+/// xEdit, the game — classified as not-localized and let a write through. Measured on a fixture that then read every
+/// value back empty.</para></summary>
+public enum LocalizedFlagRead
+{
+    /// <summary>Read the header; the LOCALIZED flag is clear.</summary>
+    NotLocalized,
+
+    /// <summary>Read the header; the LOCALIZED flag is set.</summary>
+    Localized,
+
+    /// <summary>The header could not be read at all — the file is absent, locked, or not a plugin. Whether it is
+    /// localized is UNKNOWN, and every caller must treat it as unknown rather than as an answer.</summary>
+    Unreadable,
+}
+
 /// <summary>Which strings shape a plugin is in — the one classifier behind every localized-write decision: what the
-/// in-place refusal SAYS (the outcome is the same for all of them), the compact lane's localized-P′ gate, and the
-/// load-order frequency sweep.</summary>
+/// in-place refusal SAYS (the outcome is the same for all of them), and the load-order frequency sweep.</summary>
 public enum LocalizedShape
 {
     /// <summary>Not flagged localized: its text is inside the plugin and none of this applies.</summary>
     NotLocalized,
 
+    /// <summary>The plugin could not be read, so whether it is localized — let alone where its text lives — is
+    /// UNKNOWN. Distinct from every shape below, each of which is something houseCARL looked at and found. A lane that
+    /// must not act on a destination it cannot classify refuses on this rather than proceeding.</summary>
+    Unreadable,
+
     /// <summary>A loose <c>Strings\</c> beside the plugin, every language present carrying all three table kinds, and
-    /// no competing set in game-Data. The one shape a COMPACTION may keep localized in its new-file output — and, like
-    /// every other shape, still refused for an in-place write.</summary>
+    /// no competing set in game-Data. The arrangement houseCARL classifies most confidently — and, like every other
+    /// shape, still refused for an in-place write.</summary>
     LooseComplete,
 
     /// <summary>A loose set beside the plugin in which some language is missing a table kind. Re-serializing
@@ -22,8 +46,7 @@ public enum LocalizedShape
     LoosePartial,
 
     /// <summary>A loose set beside the plugin AND a set for the same plugin in game-Data. Which of the two describes
-    /// the plugin is ambiguous, so a compaction cannot safely carry either into P′ — it would bake in whichever set
-    /// this read happened to resolve.</summary>
+    /// the plugin is ambiguous, and only one of them is where a write beside the plugin would land.</summary>
     LooseWithGameDataDuplicate,
 
     /// <summary>The plugin's strings are embedded in a <c>.bsa</c> beside it, which a plugin write cannot rewrite.</summary>
@@ -57,9 +80,13 @@ public enum LocalizedShape
 /// embeds this plugin's strings is unknown. Classified as embedded — a shape we cannot see into is refused, never
 /// assumed harmless (Q3).</param>
 /// <param name="GameDataUnknown">No game-Data folder was supplied, so whether a competing set lives there could not be
-/// checked. This is NOT the same as having checked and found none: it makes
-/// <see cref="LocalizedShape.LooseComplete"/> unsafe to carry into a compacted P′, because the duplicate it cannot
-/// rule out is what would make the source's own set ambiguous.</param>
+/// checked. This is NOT the same as having checked and found none, and the refusal sentences say which.</param>
+/// <param name="UnmatchedTables">File names in the <c>Strings\</c> folder beside the plugin that carry a table
+/// extension and that houseCARL did NOT match to this plugin in a language it models — a neighbouring plugin's tables
+/// out of the shared folder, or this plugin's own tables named for a language token Mutagen does not model
+/// (<c>ZRef_ptbr.STRINGS</c>). Carried so the <see cref="LocalizedShape.Nowhere"/> sentence can describe the folder
+/// the modder is looking at instead of claiming nothing is in it — the falsehood that survived one directed fix by
+/// being re-stated a second way.</param>
 public sealed record LocalizedAssessment(
     LocalizedShape Shape,
     IReadOnlyList<string> Languages,
@@ -68,25 +95,22 @@ public sealed record LocalizedAssessment(
     string? BsaPath,
     bool BsaUnreadable,
     bool GameDataUnknown,
-    bool BsaInGameData = false)
+    bool BsaInGameData = false,
+    IReadOnlyList<string>? UnmatchedTables = null)
 {
-    /// <summary>May a COMPACTION keep its output localized off this source? A complete loose set beside the plugin,
-    /// with a game-Data duplicate positively ruled OUT rather than merely unexamined — because a duplicate makes it
-    /// ambiguous which set describes the plugin, and P′ would carry whichever one this read happened to resolve.
-    ///
-    /// <para>This is the compact lane's gate (Q2-A) and nothing else. It is NOT a licence to rewrite a localized
-    /// plugin in place: that is refused for every shape, this one included — see
-    /// <see cref="LocalizedTableCommit"/> for what was cut and why.</para></summary>
-    public bool CanKeepLocalized => Shape is LocalizedShape.LooseComplete && !GameDataUnknown;
+    /// <summary>The unmatched table files beside the plugin, never null — see the parameter's own note.</summary>
+    public IReadOnlyList<string> UnmatchedTables { get; init; } = UnmatchedTables ?? Array.Empty<string>();
 }
 
 /// <summary>
 /// Classifies where a localized plugin's <c>.STRINGS</c> / <c>.DLSTRINGS</c> / <c>.ILSTRINGS</c> actually live, so a
-/// refusal can tell the caller where their text is, and so a compaction can decide whether its new-file output may
-/// stay localized.
+/// refusal can tell the caller where their text is.
 ///
-/// <para>It no longer decides whether an in-place write may proceed: that answer is now the same for every shape —
-/// no. See <see cref="LocalizedTableCommit"/> for what was cut and why.</para>
+/// <para><b>It supplies WORDS, not the in-place outcome.</b> That answer is the same for every shape — no — and at
+/// the write's own choke point it is decided off the mod already in memory, which cannot fail to be read. This
+/// classifier re-opens the file on disk, which can; making the OUTCOME depend on that re-read is what let a locked
+/// destination through, so it decides only which sentence the refusal carries. At the SERVICE pre-flights, which
+/// hold no such mod, an unreadable file refuses too — see <see cref="RefusalFor"/>.</para>
 ///
 /// <para>The shapes were measured, not assumed (localized-write-probe, 2026-08-26): Mutagen loads and re-emits EVERY
 /// language present beside a plugin, so a complete loose set of any size round-trips through a serialize; a language
@@ -105,13 +129,21 @@ public static class LocalizedStrings
     /// case no game-Data set can be seen and the game-Data shapes are unreachable.</summary>
     public static LocalizedAssessment Assess(string pluginPath, string? dataDir)
     {
-        if (!WriteEngine.PluginIsLocalized(pluginPath)) return Plain(LocalizedShape.NotLocalized);
+        // THREE answers, and the third is not a shape. A plugin houseCARL could not read is not a plugin houseCARL
+        // knows to be safe: every lane that must not act on an unclassifiable file refuses on Unreadable, and the
+        // sentence says so in those words rather than describing an arrangement nobody looked at.
+        switch (WriteEngine.PluginIsLocalized(pluginPath))
+        {
+            case LocalizedFlagRead.NotLocalized: return Plain(LocalizedShape.NotLocalized);
+            case LocalizedFlagRead.Unreadable: return Plain(LocalizedShape.Unreadable, dataDir is null);
+        }
 
         var folder = Path.GetDirectoryName(pluginPath);
         if (folder is null) return Plain(LocalizedShape.Nowhere);
         var stem = Path.GetFileNameWithoutExtension(pluginPath);
 
         var own = LanguagesIn(Path.Combine(folder, "Strings"), stem);
+        var unmatched = UnmatchedTablesIn(Path.Combine(folder, "Strings"), stem);
         var gameData = dataDir is null
             ? new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
             : LanguagesIn(Path.Combine(dataDir, "Strings"), stem);
@@ -122,20 +154,20 @@ public static class LocalizedStrings
         var (bsaPath, bsaUnreadable) = BsaEmbedding(folder, stem);
         if (bsaPath is not null)
             return new LocalizedAssessment(LocalizedShape.BsaEmbedded, Names(own), Incomplete(own), Names(gameData),
-                                           bsaPath, bsaUnreadable, dataDir is null);
+                                           bsaPath, bsaUnreadable, dataDir is null, UnmatchedTables: unmatched);
 
         if (own.Count > 0)
         {
             var incomplete = Incomplete(own);
             if (incomplete.Count > 0)
-                return new LocalizedAssessment(LocalizedShape.LoosePartial, Names(own), incomplete, Names(gameData), null, false, dataDir is null);
+                return new LocalizedAssessment(LocalizedShape.LoosePartial, Names(own), incomplete, Names(gameData), null, false, dataDir is null, UnmatchedTables: unmatched);
             if (gameData.Count > 0)
-                return new LocalizedAssessment(LocalizedShape.LooseWithGameDataDuplicate, Names(own), incomplete, Names(gameData), null, false, false);
-            return new LocalizedAssessment(LocalizedShape.LooseComplete, Names(own), incomplete, Names(gameData), null, false, dataDir is null);
+                return new LocalizedAssessment(LocalizedShape.LooseWithGameDataDuplicate, Names(own), incomplete, Names(gameData), null, false, false, UnmatchedTables: unmatched);
+            return new LocalizedAssessment(LocalizedShape.LooseComplete, Names(own), incomplete, Names(gameData), null, false, dataDir is null, UnmatchedTables: unmatched);
         }
 
         if (gameData.Count > 0)
-            return new LocalizedAssessment(LocalizedShape.GameDataOnly, Array.Empty<string>(), NoneIncomplete, Names(gameData), null, false, false);
+            return new LocalizedAssessment(LocalizedShape.GameDataOnly, Array.Empty<string>(), NoneIncomplete, Names(gameData), null, false, false, UnmatchedTables: unmatched);
 
         // Nothing loose anywhere and no archive beside the plugin — but the vanilla masters' strings live in the
         // game-Data ARCHIVES (Skyrim - Interface.bsa carries the base and DLC tables both), so a classifier that
@@ -147,17 +179,24 @@ public static class LocalizedStrings
             var (gdBsa, gdUnreadable) = BsaEmbedding(dataDir, stem);
             if (gdBsa is not null)
                 return new LocalizedAssessment(LocalizedShape.BsaEmbedded, Array.Empty<string>(), NoneIncomplete,
-                                               Array.Empty<string>(), gdBsa, gdUnreadable, false, BsaInGameData: true);
+                                               Array.Empty<string>(), gdBsa, gdUnreadable, false, BsaInGameData: true,
+                                               UnmatchedTables: unmatched);
         }
 
-        return Plain(LocalizedShape.Nowhere, dataDir is null);
+        return Plain(LocalizedShape.Nowhere, dataDir is null) with { UnmatchedTables = unmatched };
     }
 
     /// <summary>Should an in-place write of <paramref name="pluginPath"/> be refused, and if so with what sentence?
-    /// Null means the lane may proceed. THE one home for that decision: the write's own choke point calls it, and so
-    /// does every service pre-flight that has to predict the same answer before spending a consent or reporting a dry
-    /// run. Two spellings of this would drift, and a dry run whose answer differs from the real call is the defect the
-    /// pre-flights exist to prevent.</summary>
+    /// Null means the lane may proceed — and it is returned for exactly ONE answer, "read the header, the flag is
+    /// clear". A plugin houseCARL could not read refuses with a sentence saying that, because a pre-flight that
+    /// answered "go ahead" on a file it never managed to open is how this decision failed OPEN.
+    ///
+    /// <para>THE one home for the pre-flight decision: every service lane that has to predict the write's answer
+    /// before spending a consent or reporting a dry run calls this. The write's own choke point does NOT — it decides
+    /// off the mod it already holds in memory, which cannot fail to be read, and calls
+    /// <see cref="LocalizedTargetUnsupportedException.Shaped"/> only for the WORDS. The two questions differ: a
+    /// pre-flight asks "is the file I am about to write localized", the write asks "the mod I hold IS localized, so
+    /// where does the file at this path keep its text".</para></summary>
     /// <param name="laneClause">The calling lane's own remedy clause, appended to the shape's explanation. The shape
     /// says WHERE this plugin's text lives; the lane says what to do instead. Only the lane knows whether it has a
     /// new-plugin equivalent to offer, which is why the remedy is the caller's to supply and not this file's.</param>
@@ -177,8 +216,8 @@ public static class LocalizedStrings
         return LocalizedTargetUnsupportedException.ShapeBody(a);
     }
 
-    /// <summary>The loose table files this plugin's own folder carries, in the order a commit should write them —
-    /// the set <see cref="LocalizedShape.LooseComplete"/>'s write backs up, deletes, and replaces.</summary>
+    /// <summary>The loose table files this plugin's own folder carries — what a read resolves against, and what a
+    /// refusal has to leave byte-identical.</summary>
     public static IReadOnlyList<string> OwnTableFiles(string pluginPath)
     {
         var folder = Path.GetDirectoryName(pluginPath);
@@ -197,6 +236,33 @@ public static class LocalizedStrings
         {
             return Directory.EnumerateFiles(stringsDir)
                             .Where(p => Parse(Path.GetFileName(p), stem) is not null)
+                            .ToList();
+        }
+        catch (IOException) { return Array.Empty<string>(); }
+        catch (UnauthorizedAccessException) { return Array.Empty<string>(); }
+    }
+
+    /// <summary>The table files in <paramref name="stringsDir"/> that houseCARL did NOT match to
+    /// <paramref name="stem"/> in a language it models — by file name, capped, so a refusal can quote the folder back
+    /// at the modder rather than asserting the folder is empty.
+    ///
+    /// <para>Deliberately does NOT try to say WHOSE those files are. Two plugins share a <c>Strings\</c> folder, and
+    /// telling a neighbour's <c>ksws07_quest_shrubs_English.STRINGS</c> apart from this plugin's own
+    /// <c>ZRef_ptbr.STRINGS</c> means guessing where the stem ends — the exact guess whose first spelling made one
+    /// plugin's assessment read another's files. What is checkable without guessing is that the files are there and
+    /// that none of them matched, and that is all the sentence claims.</para></summary>
+    static IReadOnlyList<string> UnmatchedTablesIn(string stringsDir, string stem)
+    {
+        if (!Directory.Exists(stringsDir)) return Array.Empty<string>();
+        try
+        {
+            return Directory.EnumerateFiles(stringsDir)
+                            .Where(p => Kinds.Contains(Path.GetExtension(p).TrimStart('.'), StringComparer.OrdinalIgnoreCase))
+                            .Where(p => Parse(Path.GetFileName(p), stem) is null)
+                            .Select(Path.GetFileName)
+                            .OfType<string>()
+                            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+                            .Take(8)
                             .ToList();
         }
         catch (IOException) { return Array.Empty<string>(); }
@@ -260,27 +326,55 @@ public static class LocalizedStrings
 
     /// <summary>Per archive in a folder: which plugin stems it embeds strings for. Cached by folder, because game-Data
     /// holds dozens of archives and a whole-order sweep would otherwise re-enumerate every one of them once per
-    /// plugin. Keyed on the folder's own write time, so an archive added or replaced between calls invalidates the
-    /// entry rather than serving a stale answer.</summary>
-    static readonly Dictionary<string, (DateTime Stamp, List<ArchiveEntry> Entries)> ArchiveCache =
+    /// plugin — measured at ~0.7 ms for a real 101 MB archive, which a 3800-plugin sweep would pay per plugin.
+    ///
+    /// <para>Keyed on each archive's OWN name, length and write time, not on the folder's write time. The folder's
+    /// stamp was the first spelling and it is measurably insufficient: on NTFS, rewriting a file's contents in place
+    /// leaves the parent directory's <c>LastWriteTimeUtc</c> byte-identical (measured 2026-08-26, identical to
+    /// 100 ns), so <c>housecarl_bsa_repack</c> rewriting a <c>.bsa</c> inside one server process kept serving the
+    /// pre-rewrite stem list. Add, delete and rename change the folder stamp; overwrite does not, and overwrite is the
+    /// one this server does to itself.</para>
+    ///
+    /// <para><b>Unarmed, deliberately, and this note is the whole ground</b> (same shape as the
+    /// <see cref="BsaEmbedding"/> ordering fix): observing a stale-vs-fresh stem list needs an archive that PARSES,
+    /// and Mutagen exposes no in-process archive builder — packing shells out to <c>bsarch</c>, which no guard may
+    /// depend on. A malformed fixture archive reads "unreadable" before and after any rewrite, so it cannot tell the
+    /// two answers apart. The key is stated to be what it is; nothing here claims it was measured.</para></summary>
+    static readonly Dictionary<string, (string Stamp, List<ArchiveEntry> Entries)> ArchiveCache =
         new(StringComparer.OrdinalIgnoreCase);
 
     readonly record struct ArchiveEntry(string Archive, HashSet<string> Stems, bool Unreadable);
 
     static readonly List<ArchiveEntry> NoArchives = new();
 
+    /// <summary>The cache key for one folder's archives: every <c>.bsa</c>'s name, length and write time. A file whose
+    /// contents were replaced in place changes its own length-or-stamp even where the folder's stamp does not move.</summary>
+    static string ArchiveStamp(string[] archives)
+    {
+        var parts = new List<string>(archives.Length);
+        foreach (var a in archives.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+        {
+            // An archive we cannot stat is keyed as un-stattable rather than skipped: dropping it would make two
+            // different folder states share a key, which is the failure this whole key exists to avoid.
+            try
+            {
+                var fi = new FileInfo(a);
+                parts.Add($"{fi.Name}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}");
+            }
+            catch (IOException) { parts.Add(Path.GetFileName(a) + "|?"); }
+            catch (UnauthorizedAccessException) { parts.Add(Path.GetFileName(a) + "|?"); }
+        }
+        return string.Join(" ", parts);
+    }
+
     static List<ArchiveEntry> ArchiveStrings(string folder)
     {
-        DateTime stamp;
         string[] archives;
-        try
-        {
-            stamp = Directory.GetLastWriteTimeUtc(folder);
-            archives = Directory.GetFiles(folder, "*.bsa");
-        }
+        try { archives = Directory.GetFiles(folder, "*.bsa"); }
         catch (IOException) { return NoArchives; }
         catch (UnauthorizedAccessException) { return NoArchives; }
         if (archives.Length == 0) return NoArchives;
+        var stamp = ArchiveStamp(archives);
 
         lock (ArchiveCache)
             if (ArchiveCache.TryGetValue(folder, out var hit) && hit.Stamp == stamp) return hit.Entries;

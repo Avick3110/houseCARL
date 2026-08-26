@@ -9,16 +9,17 @@ namespace HousecarlGenerator;
 
 /// <summary>
 /// The localized write gate (#368 + #373): that houseCARL refuses to rewrite a localized plugin IN PLACE whatever
-/// arrangement its <c>.STRINGS</c> files are in, that each arrangement is named accurately in the refusal, that a
-/// refusal leaves the plugin and its tables byte-untouched, and that the one lane which may write a plugin together
-/// with a set of tables — houseCARL's OWN output — round-trips every language.
+/// arrangement its <c>.STRINGS</c> files are in, that each arrangement is named accurately in the refusal — both
+/// where the text is and which hazard that arrangement actually carries — that a refusal leaves the plugin and its
+/// tables byte-untouched, and that a destination houseCARL CANNOT classify refuses rather than being read as
+/// not-localized.
 ///
-/// <para><b>Why there is no crash-window section here.</b> An earlier form of this branch let the complete-loose-set
-/// arrangement through and committed emitted tables over the user's live set, with backups, a manifest and a recovery
-/// refusal to make that survivable. Review measured that machinery destroying its own recovery set whenever another
-/// plugin in the same mod folder was written, and instructing users into the corruption it existed to prevent; it was
-/// cut (2026-08-26). Nothing replaces those arms because nothing replaces that write — the refusal below is the
-/// behaviour now, and the ratified-refusal arm is what pins it.</para>
+/// <para><b>What this guard deliberately does not contain, and why.</b> No round-trip pass, no remedy pass, no
+/// fault-injected crash window. Two arms were cut from the branch this guards (2026-08-26): the in-place write of a
+/// complete-loose-set localized plugin, whose recovery machinery review measured destroying its own recovery set and
+/// instructing users into the corruption it existed to prevent; and Q2-A, which kept a compacted P′ localized with a
+/// rewritten table set. There is no accepted in-place write left to round-trip and no commit window to fault-inject.
+/// The refusal is the behaviour, and the arms below are what pin it.</para>
 ///
 /// Run: dotnet run --project src/housecarl-generator localized-write-guard
 /// </summary>
@@ -30,7 +31,7 @@ public static class LocalizedWriteGuardProbe
 
     public static int RunGuard(string[] args)
     {
-        Console.WriteLine("################  LOCALIZED WRITE — shape classification, in-place refusal, owned-output round trip  ################");
+        Console.WriteLine("################  LOCALIZED WRITE — shape classification, in-place refusal, unclassifiable destinations  ################");
         Console.WriteLine();
         _fail = 0;
         Shapes();
@@ -39,10 +40,10 @@ public static class LocalizedWriteGuardProbe
         Console.WriteLine();
         RefusalLeavesEverythingAlone();
         Console.WriteLine();
-        OwnedOutput();
+        UndecidableDestination();
         Console.WriteLine();
         Console.WriteLine(_fail == 0
-            ? "[localized-write-guard] PASS — every arrangement refuses in place and in its own words; the owned-output lane round-trips."
+            ? "[localized-write-guard] PASS — every arrangement refuses in place and in its own words, and a destination houseCARL cannot classify refuses too."
             : $"[localized-write-guard] FAIL — {_fail} arm(s).");
         return _fail == 0 ? 0 : 1;
     }
@@ -56,44 +57,44 @@ public static class LocalizedWriteGuardProbe
         Run(Variant.LooseComplete, f =>
         {
             var a = LocalizedStrings.Assess(f.Plugin, f.DataDir);
-            Check(a.Shape == LocalizedShape.LooseComplete && a.CanKeepLocalized
+            Check(a.Shape == LocalizedShape.LooseComplete
                   && a.Languages.Count == 2 && a.Languages.Contains("French"),
-                $"complete loose set beside the plugin classifies, and a COMPACTION may keep it (shape={a.Shape} keep={a.CanKeepLocalized} langs=[{string.Join(",", a.Languages)}])");
+                $"complete loose set beside the plugin classifies, both languages seen (shape={a.Shape} langs=[{string.Join(",", a.Languages)}])");
         });
 
         Run(Variant.LoosePartial, f =>
         {
             var a = LocalizedStrings.Assess(f.Plugin, f.DataDir);
             var named = a.IncompleteLanguages.TryGetValue("French", out var kinds) && kinds.Count == 2;
-            Check(a.Shape == LocalizedShape.LoosePartial && !a.CanKeepLocalized && named,
+            Check(a.Shape == LocalizedShape.LoosePartial && named,
                 $"a language missing table kinds is LoosePartial and the missing kinds are named (shape={a.Shape} missing={string.Join("+", a.IncompleteLanguages.SelectMany(kv => kv.Value))})");
         });
 
         Run(Variant.LooseAndGameData, f =>
         {
             var a = LocalizedStrings.Assess(f.Plugin, f.DataDir);
-            Check(a.Shape == LocalizedShape.LooseWithGameDataDuplicate && !a.CanKeepLocalized && a.GameDataLanguages.Count > 0,
-                $"a loose set duplicated in game-Data classifies, and a compaction may NOT keep it (shape={a.Shape} gameData=[{string.Join(",", a.GameDataLanguages)}])");
+            Check(a.Shape == LocalizedShape.LooseWithGameDataDuplicate && a.GameDataLanguages.Count > 0,
+                $"a loose set duplicated in game-Data classifies as the duplicate shape (shape={a.Shape} gameData=[{string.Join(",", a.GameDataLanguages)}])");
         });
 
         Run(Variant.GameDataOnly, f =>
         {
             var a = LocalizedStrings.Assess(f.Plugin, f.DataDir);
-            Check(a.Shape == LocalizedShape.GameDataOnly && !a.CanKeepLocalized,
+            Check(a.Shape == LocalizedShape.GameDataOnly,
                 $"strings resolving from game-Data only classifies (shape={a.Shape})");
         });
 
         Run(Variant.Nowhere, f =>
         {
             var a = LocalizedStrings.Assess(f.Plugin, f.DataDir);
-            Check(a.Shape == LocalizedShape.Nowhere && !a.CanKeepLocalized,
+            Check(a.Shape == LocalizedShape.Nowhere,
                 $"no findable strings source classifies (shape={a.Shape})");
         });
 
         Run(Variant.MalformedBsa, f =>
         {
             var a = LocalizedStrings.Assess(f.Plugin, f.DataDir);
-            Check(a.Shape == LocalizedShape.BsaEmbedded && a.BsaUnreadable && !a.CanKeepLocalized,
+            Check(a.Shape == LocalizedShape.BsaEmbedded && a.BsaUnreadable,
                 $"an archive that cannot be parsed is refused rather than assumed harmless (shape={a.Shape} unreadable={a.BsaUnreadable})");
         });
 
@@ -109,13 +110,13 @@ public static class LocalizedWriteGuardProbe
                 $"a plugin whose name prefixes a sibling's claims only its OWN tables (mine={mine.Languages.Count} sibling={sibling.Languages.Count} files={mineFiles.Count})");
         });
 
-        // dataDir unknown cannot be treated as "checked and found nothing" for the COMPACTION gate: a duplicate it
-        // failed to rule out means P′ would carry whichever set this read happened to resolve.
+        // dataDir unknown is recorded as UNKNOWN rather than collapsed into "checked and found nothing" — the
+        // distinction the Nowhere sentence reads to decide whether it may claim it searched the game folder.
         Run(Variant.LooseComplete, f =>
         {
             var a = LocalizedStrings.Assess(f.Plugin, dataDir: null);
-            Check(a.Shape == LocalizedShape.LooseComplete && a.GameDataUnknown && !a.CanKeepLocalized,
-                $"an unknown game-Data folder blocks keeping P′ localized rather than passing it (unknown={a.GameDataUnknown} keep={a.CanKeepLocalized})");
+            Check(a.Shape == LocalizedShape.LooseComplete && a.GameDataUnknown,
+                $"an unknown game-Data folder is recorded as unknown, not as checked (unknown={a.GameDataUnknown})");
         });
 
         // An archive found in the GAME folder is not "beside the plugin". This is the fallback the vanilla masters and
@@ -137,11 +138,45 @@ public static class LocalizedWriteGuardProbe
         // The RATIFIED refusal: the arrangement houseCARL can classify most confidently, and the one an earlier form of
         // this branch wrote to, now refuses like the rest. Its sentence must still say where the text is — a refusal
         // that only says "no" teaches the modder nothing about their own install.
-        Refuse(Variant.LooseComplete, "Strings folder beside it", "English", "does not edit a localized plugin in place");
-        Refuse(Variant.LoosePartial, "French has no", "does not edit a localized plugin in place");
-        Refuse(Variant.LooseAndGameData, "two places at once", "does not edit a localized plugin in place");
-        Refuse(Variant.GameDataOnly, "not beside it", "does not edit a localized plugin in place");
-        Refuse(Variant.Nowhere, "cannot find its text", "Mod Organizer merges");
+        //
+        // The HAZARD clause is checked per shape, not just the shared outcome. It used to be one sentence applied
+        // verbatim everywhere: "an interruption would leave records reading text that belongs to other records" — exact
+        // where a live table set beside the plugin would be replaced, and false where a write would replace no table at
+        // all. Where the text is in game-Data or inside an archive, a plugin write cannot reach it; what it would
+        // actually do is SHADOW it and leave it stale. These arms pin which hazard each shape is told about, so the
+        // wording cannot silently collapse back into one.
+        Refuse(Variant.LooseComplete, "Strings folder beside it", "English",
+               "would have to be replaced in the same breath", "does not edit a localized plugin in place");
+        Refuse(Variant.LoosePartial, "French has no",
+               "would have to be replaced in the same breath", "does not edit a localized plugin in place");
+        Refuse(Variant.LooseAndGameData, "two places at once",
+               "would have to be replaced in the same breath", "does not edit a localized plugin in place");
+        Refuse(Variant.GameDataOnly, "not beside it",
+               "does not reach your game's Data folder", "SHADOW the set in Data\\Strings rather than replace it",
+               "does not edit a localized plugin in place");
+        Refuse(Variant.Nowhere, "cannot find its text", "Mod Organizer merges",
+               "cannot see the files its indices point at", "does not edit a localized plugin in place");
+
+        // The shadow shapes must NOT be told about a mid-write scramble — the hazard that cannot happen there. This is
+        // the arm that fails if the shared sentence comes back.
+        foreach (var v in new[] { Variant.GameDataOnly, Variant.MalformedBsa, Variant.Nowhere })
+            Run(v, f =>
+            {
+                var msg = LocalizedStrings.RefusalFor(f.Plugin, "ZRef.esp", f.DataDir) ?? "";
+                Check(msg.Length > 0 && !msg.Contains("would have to be replaced in the same breath", StringComparison.Ordinal)
+                      && !msg.Contains("text that belongs to other records", StringComparison.Ordinal),
+                    $"{v}'s refusal does not describe replacing a table set it would never replace");
+                if (msg.Contains("text that belongs to other records")) Console.WriteLine("          got: " + msg);
+            });
+
+        // …and the loose shapes MUST be, so the arm above cannot pass by the clause being gone everywhere.
+        foreach (var v in new[] { Variant.LooseComplete, Variant.LoosePartial, Variant.LooseAndGameData })
+            Run(v, f =>
+            {
+                var msg = LocalizedStrings.RefusalFor(f.Plugin, "ZRef.esp", f.DataDir) ?? "";
+                Check(msg.Contains("text that belongs to other records", StringComparison.Ordinal),
+                    $"{v}'s refusal DOES name the scramble, which is the real hazard for a set beside the plugin");
+            });
 
         // No refusal may promise that rearranging the .STRINGS files makes the write work — it never does now, and one
         // of those remedies was measured dead-ending in a second refusal even while the write still existed.
@@ -171,15 +206,66 @@ public static class LocalizedWriteGuardProbe
             if (msg is not null && missing.Length > 0) Console.WriteLine("          got: " + msg);
         });
 
-        // A Strings folder holding only a NEIGHBOUR's tables reaches the Nowhere shape. The sentence must not tell the
-        // modder there is no Strings folder while they are looking straight at one.
-        Run(Variant.NeighbourTablesOnly, f =>
+        // THE NOWHERE SENTENCE'S ABSENCE CLAIM — the class signal in its purest form, so both of its recorded
+        // falsehoods get a fixture and the shape they share gets one too.
+        //
+        //   1st: "no Strings folder beside it", while the folder was there holding a NEIGHBOUR's tables.
+        //   2nd, after that was fixed: "no .STRINGS files for this plugin beside it", while ZRef_ptbr.STRINGS sat in
+        //        that folder — houseCARL had not MATCHED it (ptbr is not a language Mutagen models), which is a
+        //        different claim from it not being there.
+        //
+        // The sentence now asserts no absence at all when the folder holds files: it says how many are there, names
+        // them, and claims only that none matched. Both fixtures below reach the same wording, and the third arm is
+        // the other direction — a folder that really is gone, where "no .STRINGS files beside it" is true.
+        foreach (var v in new[] { Variant.NeighbourTablesOnly, Variant.UnknownLanguageToken })
+            Run(v, f =>
+            {
+                var msg = WriteThrough(f, _ => { }) ?? "";
+                var files = LocalizedStrings.Assess(f.Plugin, f.DataDir).UnmatchedTables;
+                Check(!msg.Contains("no Strings folder", StringComparison.OrdinalIgnoreCase)
+                      && !msg.Contains("no .STRINGS files for this plugin beside it", StringComparison.Ordinal)
+                      && !msg.Contains("no .STRINGS files beside it", StringComparison.Ordinal)
+                      && msg.Contains("matched none of them to this plugin", StringComparison.Ordinal)
+                      && files.Count > 0 && files.All(n => msg.Contains(n, StringComparison.Ordinal)),
+                    $"{v}: the refusal describes the folder the modder is looking at and names its {files.Count} file(s), "
+                    + "rather than asserting an absence it did not check");
+                if (msg.Length > 0 && !msg.Contains("matched none of them")) Console.WriteLine("          got: " + msg);
+            });
+
+        Run(Variant.Nowhere, f =>
         {
             var msg = WriteThrough(f, _ => { }) ?? "";
-            Check(!msg.Contains("no Strings folder", StringComparison.OrdinalIgnoreCase)
-                  && msg.Contains("no .STRINGS files for this plugin", StringComparison.Ordinal),
-                "a folder holding only a neighbour's tables is described as no tables FOR THIS PLUGIN, not as no folder");
-            if (msg.Length > 0 && msg.Contains("no Strings folder")) Console.WriteLine("          got: " + msg);
+            Check(msg.Contains("no .STRINGS files beside it", StringComparison.Ordinal)
+                  && !msg.Contains("matched none of them", StringComparison.Ordinal),
+                "with the folder genuinely gone, the refusal DOES say there are no .STRINGS files beside it");
+            if (msg.Contains("matched none of them")) Console.WriteLine("          got: " + msg);
+        });
+
+        // TWO LOCATIONS. An archive decides the shape whatever else is on disk — but the assessment is still carrying
+        // the loose set beside the plugin, and a sentence naming one location while two sit there sends the modder to
+        // look in the wrong place. Fixtured on the UNREADABLE archive, which is the archive shape a guard can build:
+        // arming the readable one needs a .bsa that parses and Mutagen exposes no in-process archive builder.
+        Run(Variant.MalformedBsa, f =>
+        {
+            var a = LocalizedStrings.Assess(f.Plugin, f.DataDir);
+            var msg = LocalizedStrings.RefusalFor(f.Plugin, "ZRef.esp", f.DataDir) ?? "";
+            Check(a.Shape == LocalizedShape.BsaEmbedded && a.Languages.Count == 2,
+                $"fixture: an archive beside a plugin that ALSO has a loose set classifies as the archive shape, carrying the loose languages (shape={a.Shape} langs={a.Languages.Count})");
+            Check(msg.Contains("ZRef.bsa", StringComparison.Ordinal)
+                  && msg.Contains("and there is also", StringComparison.Ordinal)
+                  && msg.Contains("English", StringComparison.Ordinal) && msg.Contains("French", StringComparison.Ordinal),
+                $"the archive refusal names the loose set beside the plugin too, not only the archive");
+            if (!msg.Contains("and there is also")) Console.WriteLine("          got: " + msg);
+        });
+
+        // The other direction: with no loose set there, the sentence must not invent a second location. GameDataBsa is
+        // the fixture whose loose set IS gone.
+        Run(Variant.GameDataBsa, f =>
+        {
+            var msg = LocalizedStrings.RefusalFor(f.Plugin, "ZRef.esp", f.DataDir) ?? "";
+            Check(msg.Contains("ZGame.bsa", StringComparison.Ordinal)
+                  && !msg.Contains("and there is also", StringComparison.Ordinal),
+                "an archive with nothing loose beside it names one location, because there is one");
         });
 
         // With no game-Data folder known, the refusal may not claim it searched one.
@@ -229,112 +315,131 @@ public static class LocalizedWriteGuardProbe
         });
     }
 
-    // ---------------------------------------------------------------- owned output
+    // ------------------------------------------------- a destination houseCARL cannot classify
 
-    /// <summary>The ONE lane that may put a plugin and a matching set of tables down together: houseCARL's own output
-    /// folder, which is what the compact lane's localized P′ uses. Every language must survive, a re-run must not
-    /// leave a previous run's tables behind, and a neighbouring plugin's tables must never be touched.</summary>
-    static void OwnedOutput()
+    /// <summary>The FAIL-OPEN arms, both directions. The refusal is decided off the mod already in memory
+    /// (<c>targetMod.UsingLocalization</c>), which cannot fail to be read; the shape lookup that re-opens the file on
+    /// disk supplies only the WORDS.
+    ///
+    /// <para>An earlier form made that re-read the DECISION, and its fault path answered "not localized": with the
+    /// destination held by a second process for the instant of the read, the write proceeded, replaced the plugin, and
+    /// every value read back empty. These arms drive exactly that state — the file locked <c>FileShare.None</c> while
+    /// the write runs — and require a refusal. The unlocked cell beside each is the other direction, so an arm cannot
+    /// pass by refusing everything for an unrelated reason.</para></summary>
+    static void UndecidableDestination()
     {
-        Console.WriteLine("== the owned-output lane: plugin and tables written together ==");
+        Console.WriteLine("== a destination houseCARL cannot classify REFUSES, rather than being read as not-localized ==");
 
-        var root = Path.Combine(Path.GetTempPath(), "hc-locwrite-owned-" + Guid.NewGuid().ToString("N"));
-        try
-        {
-            var data = Path.Combine(root, "game", "Data");
-            var outDir = Path.Combine(root, "mods", "ZOut");
-            Directory.CreateDirectory(data); Directory.CreateDirectory(outDir);
-            var skyrimKey = new ModKey("Skyrim", ModType.Master);
-            var skyrimEsm = Path.Combine(data, skyrimKey.FileName.String);
-            new SkyrimMod(skyrimKey, SkyrimRelease.SkyrimSE)
-                .BeginWrite.ToPath(skyrimEsm).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-
-            var outPath = Path.Combine(outDir, "ZOwned.esp");
-            WriteOwned(outPath, skyrimEsm, "OWNED", twoLanguages: true);
-
-            var f = new Fixture(outPath, data, skyrimEsm);
-            var en = Values(f, Language.English);
-            var fr = Values(f, Language.French);
-            Check(en["ZOwnedWeap0.Name"] == "OWNED NAME 0" && en["ZOwnedBook1.Text"] == "OWNED TEXT 1",
-                $"English survives the owned-output write (weap0='{en["ZOwnedWeap0.Name"]}')");
-            Check(fr["ZOwnedWeap0.Name"] == "FR NAME 0" && fr["ZOwnedBook1.Text"] == "FR TEXT 1",
-                $"FRENCH survives the same write (weap0='{fr["ZOwnedWeap0.Name"]}' book1='{fr["ZOwnedBook1.Text"]}')");
-
-            var a = LocalizedStrings.Assess(outPath, data);
-            Check(a.Shape == LocalizedShape.LooseComplete && a.Languages.Count == 2,
-                $"the output is a complete loose set of its own (shape={a.Shape} langs={a.Languages.Count})");
-            Check(!Directory.Exists(Path.Combine(outDir, ".housecarl-tmp")),
-                "a successful owned-output commit leaves no staging directory behind");
-
-            // A NEIGHBOUR in the same output folder, with its own tables, must come through untouched — the staging
-            // directory is shared by every plugin in a folder, so a commit that globbed it would take these.
-            var neighbour = Path.Combine(outDir, "ZNeighbour.esp");
-            WriteOwned(neighbour, skyrimEsm, "NEIGH", twoLanguages: false);
-            var neighbourBefore = Snapshot(neighbour, "ZNeighbour");
-
-            // Re-run the first plugin: fewer languages this time, so a stale-table bug shows up as a French set that
-            // survives a write which no longer carries French.
-            WriteOwned(outPath, skyrimEsm, "REDONE", twoLanguages: false);
-            var redone = LocalizedStrings.Assess(outPath, data);
-            Check(redone.Languages.Count == 1 && redone.Languages[0].Equals("English", StringComparison.OrdinalIgnoreCase),
-                $"a re-run replaces the previous run's table set rather than leaving a stale language behind (langs=[{string.Join(",", redone.Languages)}])");
-            var enRedone = Values(new Fixture(outPath, data, skyrimEsm), Language.English);
-            Check(enRedone["ZOwnedWeap0.Name"] == "REDONE NAME 0",
-                $"and the re-run's own values read back (weap0='{enRedone["ZOwnedWeap0.Name"]}')");
-
-            var neighbourAfter = Snapshot(neighbour, "ZNeighbour");
-            Check(neighbourBefore.Count > 0 && neighbourBefore.Count == neighbourAfter.Count
-                  && neighbourBefore.All(kv => neighbourAfter.TryGetValue(kv.Key, out var h) && h == kv.Value),
-                $"a neighbouring plugin's files in the same folder are byte-identical afterwards ({neighbourBefore.Count} file(s) compared)");
-        }
-        catch (Exception ex) { Check(false, $"owned-output: arm THREW {ex.GetType().Name}: {ex.Message}"); }
-        finally { try { Directory.Delete(root, true); } catch { } }
-
-        // The wiring guard, both directions. An in-place write of a localized mod to a path that does not exist yet is
-        // the shape whose emitted tables would be silently discarded, so it fails LOUD and names the lane that does it
-        // properly; to a path that DOES exist it is the ordinary refusal.
+        // (1) LOCKED. The classifier's own answer first — this is the value that used to be "not localized" — then the
+        //     write driven against the same locked file.
         Run(Variant.LooseComplete, f =>
         {
-            var missingPath = Path.Combine(Path.GetDirectoryName(f.Plugin)!, "ZAbsent.esp");
-            var mod = new SkyrimMod(new ModKey("ZAbsent", ModType.Plugin), SkyrimRelease.SkyrimSE) { UsingLocalization = true };
-            mod.Weapons.Add(new Weapon(new FormKey(mod.ModKey, 0xA02), SkyrimRelease.SkyrimSE)
-            { EditorID = "ZAbsentWeap", Name = Loc("A", "FR A") });
+            var unlocked = LocalizedStrings.Assess(f.Plugin, f.DataDir);
+            var before = Snapshot(f.Plugin);
 
-            string? wiring = null;
-            try { WriteEngine.WriteInPlace(mod, Array.Empty<ISkyrimModGetter>(), missingPath, f.DataDir); }
-            catch (InvalidOperationException ex) when (ex is not LocalizedTargetUnsupportedException) { wiring = ex.Message; }
-            catch (Exception ex) { wiring = "WRONG EXCEPTION " + ex.GetType().Name; }
-            Check(wiring is not null && wiring.Contains("WriteOwnedOutput", StringComparison.Ordinal),
-                $"a localized in-place write to a not-yet-existing path fails loud and names the owned-output lane [{wiring}]");
-            Check(!File.Exists(missingPath), "and writes nothing at that path");
+            LocalizedShape lockedShape;
+            string? lockedRefusal;
+            string? writeRefusal;
+            using (var hold = new FileStream(f.Plugin, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                lockedShape = LocalizedStrings.Assess(f.Plugin, f.DataDir).Shape;
+                // The SERVICE pre-flights' shared decision point, which holds no mod in memory and must fail CLOSED.
+                lockedRefusal = LocalizedStrings.RefusalFor(f.Plugin, "ZRef.esp", f.DataDir);
+                writeRefusal = WriteThroughHeld(f);
+            }
 
-            var existing = WriteThrough(f, _ => { });
-            Check(existing is not null && existing.Contains("does not edit a localized plugin in place", StringComparison.Ordinal),
-                "while the same mod at an EXISTING path gets the ordinary refusal, not the wiring error");
+            Check(unlocked.Shape == LocalizedShape.LooseComplete && lockedShape == LocalizedShape.Unreadable,
+                $"a locked destination classifies as Unreadable, NOT as not-localized (unlocked={unlocked.Shape} locked={lockedShape})");
+            Check(lockedRefusal is not null && lockedRefusal.Contains("could not read the file at that path", StringComparison.Ordinal),
+                $"the pre-flight every service lane shares refuses a locked plugin, saying it could not read it [{lockedRefusal ?? "<PROCEEDED>"}]");
+            Check(writeRefusal is not null,
+                "the in-place write of a localized mod at a LOCKED destination refuses"
+                + (writeRefusal is null ? " — IT WROTE INSTEAD" : ""));
+
+            var after = Snapshot(f.Plugin);
+            Check(before.Count == after.Count && before.All(kv => after.TryGetValue(kv.Key, out var h) && h == kv.Value),
+                $"and the plugin and its tables are byte-identical afterwards ({before.Count} file(s) compared)");
+            Check(!Directory.Exists(Path.Combine(Path.GetDirectoryName(f.Plugin)!, ".housecarl-tmp")),
+                "and nothing was staged — no orphaned .housecarl-tmp holding emitted tables");
+        });
+
+        // (2) The OTHER direction of the pre-flight, so its refusal is not simply unconditional: a readable plugin
+        //     with the flag clear returns null and the lane proceeds.
+        Run(Variant.LooseComplete, f =>
+        {
+            var plain = Path.Combine(Path.GetDirectoryName(f.Plugin)!, "ZPlain.esp");
+            WritePlain(plain, f.SkyrimEsm);
+            var a = LocalizedStrings.Assess(plain, f.DataDir);
+            Check(a.Shape == LocalizedShape.NotLocalized
+                  && LocalizedStrings.RefusalFor(plain, "ZPlain.esp", f.DataDir) is null,
+                $"a readable NON-localized plugin still returns no refusal, so the pre-flight is not refusing everything (shape={a.Shape})");
+        });
+
+        // (3) ABSENT. A localized mod bound for a path with no file at it cannot be classified either, and its emitted
+        //     tables would be discarded by an in-place commit — so it refuses rather than writing a plugin whose
+        //     indices resolve against nothing.
+        Run(Variant.LooseComplete, f =>
+        {
+            var missing = Path.Combine(Path.GetDirectoryName(f.Plugin)!, "ZAbsent.esp");
+            var msg = WriteLocalizedModTo(missing, "ZAbsent", f.DataDir, f.SkyrimEsm);
+            Check(msg is not null && msg.Contains("could not read the file at that path", StringComparison.Ordinal),
+                $"a localized in-place write to a path with no file at it refuses, saying so [{msg ?? "<WROTE INSTEAD>"}]");
+            Check(!File.Exists(missing), "and writes nothing at that path");
+        });
+
+        // (4) READABLE BUT NOT LOCALIZED ON DISK. The mod in hand is flagged localized and the file at the path is
+        //     not, so houseCARL cannot say where the text being written would resolve from — and says THAT, rather
+        //     than describing an arrangement it did not find.
+        Run(Variant.LooseComplete, f =>
+        {
+            var plain = Path.Combine(Path.GetDirectoryName(f.Plugin)!, "ZPlain.esp");
+            WritePlain(plain, f.SkyrimEsm);
+            var beforeLen = new FileInfo(plain).Length;
+            var msg = WriteLocalizedModTo(plain, "ZPlain", f.DataDir, f.SkyrimEsm);
+            Check(msg is not null && msg.Contains("does not read as a localized plugin", StringComparison.Ordinal),
+                $"a localized mod written over a NON-localized file refuses, naming that mismatch [{msg ?? "<WROTE INSTEAD>"}]");
+            Check(new FileInfo(plain).Length == beforeLen, "and the file at that path is untouched");
         });
     }
 
-    static void WriteOwned(string outPath, string skyrimEsm, string tag, bool twoLanguages)
+    /// <summary>Drive the real <see cref="WriteEngine.WriteInPlace"/> with a freshly built LOCALIZED mod aimed at
+    /// <paramref name="outPath"/> — for the destinations the fixture's own plugin cannot express (absent, or present
+    /// but not localized). Returns the refusal, or null if it wrote.</summary>
+    static string? WriteLocalizedModTo(string outPath, string stem, string dataDir, string skyrimEsm)
     {
-        var key = new ModKey(Path.GetFileNameWithoutExtension(outPath), ModType.Plugin);
-        var stem = key.Name;
-        var m = new SkyrimMod(key, SkyrimRelease.SkyrimSE) { UsingLocalization = true };
-        for (int i = 0; i < Records; i++)
-            m.Weapons.Add(new Weapon(new FormKey(key, (uint)(0xA02 + i)), SkyrimRelease.SkyrimSE)
-            {
-                EditorID = stem + "Weap" + i,
-                Name = twoLanguages ? Loc(tag + " NAME " + i, "FR NAME " + i) : new TranslatedString(Language.English, tag + " NAME " + i),
-            });
-        for (int i = 0; i < Records; i++)
-            m.Books.Add(new Book(new FormKey(key, (uint)(0xB02 + i)), SkyrimRelease.SkyrimSE)
-            {
-                EditorID = stem + "Book" + i,
-                BookText = twoLanguages ? Loc(tag + " TEXT " + i, "FR TEXT " + i) : new TranslatedString(Language.English, tag + " TEXT " + i),
-            });
-        m.ModHeader.Stats.NextFormID = (uint)(0xB02 + Records);
-
+        var key = new ModKey(stem, ModType.Plugin);
+        var mod = new SkyrimMod(key, SkyrimRelease.SkyrimSE) { UsingLocalization = true };
+        mod.Weapons.Add(new Weapon(new FormKey(key, 0xA02), SkyrimRelease.SkyrimSE)
+        { EditorID = stem + "Weap", Name = Loc("A", "FR A") });
         var sky = SkyrimMod.CreateFromBinaryOverlay(skyrimEsm, SkyrimRelease.SkyrimSE);
-        try { WriteEngine.WriteOwnedOutput(m, new ISkyrimModGetter[] { sky }, outPath); }
+        try { WriteEngine.WriteInPlace(mod, new ISkyrimModGetter[] { sky }, outPath, dataDir); return null; }
+        catch (LocalizedTargetUnsupportedException ex) { return ex.Message; }
+        finally { ((IDisposable)sky).Dispose(); }
+    }
+
+    /// <summary>A plain NON-localized plugin at <paramref name="path"/>.</summary>
+    static void WritePlain(string path, string skyrimEsm)
+    {
+        var key = new ModKey(Path.GetFileNameWithoutExtension(path), ModType.Plugin);
+        var m = new SkyrimMod(key, SkyrimRelease.SkyrimSE);
+        m.Weapons.Add(new Weapon(new FormKey(key, 0xA02), SkyrimRelease.SkyrimSE)
+        { EditorID = key.Name + "Weap", Name = "PLAIN" });
+        var sky = SkyrimMod.CreateFromBinaryOverlay(skyrimEsm, SkyrimRelease.SkyrimSE);
+        try { m.BeginWrite.ToPath(path).WithLoadOrder(new ISkyrimModGetter[] { sky }).Write(); }
+        finally { ((IDisposable)sky).Dispose(); }
+    }
+
+    /// <summary>Like <see cref="WriteThrough"/>, but the mod is opened BEFORE the caller takes its lock — the write
+    /// itself then runs against a destination it cannot re-open, which is the state the fail-open let through.</summary>
+    static string? WriteThroughHeld(Fixture f)
+    {
+        var key = new ModKey(Path.GetFileNameWithoutExtension(f.Plugin), ModType.Plugin);
+        var mut = new SkyrimMod(key, SkyrimRelease.SkyrimSE) { UsingLocalization = true };
+        mut.Weapons.Add(new Weapon(new FormKey(key, 0xA02), SkyrimRelease.SkyrimSE)
+        { EditorID = "ZRefWeap0", Name = Loc("EDITED 0", "FR EDITED 0") });
+        var sky = SkyrimMod.CreateFromBinaryOverlay(f.SkyrimEsm, SkyrimRelease.SkyrimSE);
+        try { WriteEngine.WriteInPlace(mut, new ISkyrimModGetter[] { sky }, f.Plugin, f.DataDir); return null; }
+        catch (LocalizedTargetUnsupportedException ex) { return ex.Message; }
         finally { ((IDisposable)sky).Dispose(); }
     }
 
@@ -393,7 +498,7 @@ public static class LocalizedWriteGuardProbe
     internal enum Variant
     {
         LooseComplete, LoosePartial, LooseAndGameData, GameDataOnly, Nowhere, MalformedBsa, SiblingStem,
-        GameDataBsa, NeighbourTablesOnly,
+        GameDataBsa, NeighbourTablesOnly, UnknownLanguageToken,
     }
 
     internal sealed record Fixture(string Plugin, string DataDir, string SkyrimEsm);
@@ -440,6 +545,12 @@ public static class LocalizedWriteGuardProbe
                 break;
             case Variant.Nowhere:
                 Directory.Delete(own, true);
+                break;
+            case Variant.UnknownLanguageToken:
+                // THIS plugin's own tables, named for a language token Mutagen does not model — the state whose
+                // refusal claimed there were "no .STRINGS files for this plugin beside it" while they sat right there.
+                foreach (var q in Directory.GetFiles(own))
+                    File.Move(q, Path.Combine(own, Path.GetFileName(q).Replace("_English", "_ptbr").Replace("_French", "_ptpt")));
                 break;
             case Variant.NeighbourTablesOnly:
                 // The folder stays, holding only a DIFFERENT plugin's tables — the state whose refusal used to claim

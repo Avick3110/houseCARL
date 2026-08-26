@@ -1814,26 +1814,20 @@ public static class WriteEngine
         // The localized-target choke point — the backstop for every caller of this method. It runs BEFORE the staging
         // directory exists and before the serialize, so a refused write leaves nothing at all behind.
         //
-        // EVERY localized shape is refused here, the complete-loose-set one included. An earlier form of this branch
-        // let that one shape through and committed the emitted tables over the user's live set; review measured that
-        // the machinery making that survivable destroyed its own recovery set and instructed users into the very
-        // corruption it existed to prevent, so the whole arm was cut (2026-08-26). The shape still decides the
-        // SENTENCE — where a plugin's text lives is what the caller needs — but no longer the outcome.
+        // THE OUTCOME IS DECIDED OFF targetMod.UsingLocalization AND NOTHING ELSE. That is a fact about the mod this
+        // call already holds in memory: it cannot fail to be read, so this refusal cannot fail to fire. An earlier
+        // form of this branch made the decision itself a re-read of the destination file, whose fault path answered
+        // "not localized" — and a destination held by another process for the instant of that read (an AV scan, MO2
+        // refreshing, xEdit, the game) let the write through and replaced the user's plugin with one reading every
+        // value empty. Measured. The re-read below supplies only the SENTENCE.
+        //
+        // EVERY localized shape is refused, the complete-loose-set one included. An earlier form of this branch let
+        // that one shape through and committed the emitted tables over the user's live set; review measured that the
+        // machinery making that survivable destroyed its own recovery set and instructed users into the very
+        // corruption it existed to prevent, so the whole arm was cut (2026-08-26).
         if (targetMod.UsingLocalization)
-        {
-            // A localized mod bound for a path that does not exist yet is not an in-place write at all, and its
-            // emitted tables would be discarded here. The one lane that legitimately does that is the compact lane's
-            // P′, which has its own entry point; anything else reaching this is a wiring mistake and says so (Q3)
-            // rather than silently writing a plugin whose indices resolve against nothing.
-            if (!File.Exists(outputPath))
-                throw new InvalidOperationException(
-                    $"In-place write of LOCALIZED '{expected}' to a path that does not exist yet ({outputPath}). The " +
-                    $"tables its serialize emits would be discarded and the plugin would read blank. A localized " +
-                    $"plugin written to houseCARL's own output goes through {nameof(WriteOwnedOutput)}.");
-
-            if (LocalizedStrings.RefusalFor(outputPath, expected, dataDir) is { } refusal)
-                throw LocalizedTargetUnsupportedException.FromSentence(refusal);
-        }
+            throw LocalizedTargetUnsupportedException.FromSentence(
+                LocalizedTargetUnsupportedException.Shaped(expected, LocalizedStrings.Assess(outputPath, dataDir)));
 
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         var ordered = ownMasters as ISkyrimModGetter[] ?? ownMasters.ToArray();
@@ -1849,44 +1843,31 @@ public static class WriteEngine
         CommitStagedPatch(staged, outputPath);
     }
 
-    /// <summary>Serialize a mod into an output houseCARL OWNS — the compact lane's P′ — committing the plugin together
-    /// with any string tables its serialize emitted.
-    ///
-    /// <para>Separate from <see cref="WriteInPlace"/> on purpose, and the separation is the whole safety argument: a
-    /// localized plugin written here lands in a houseCARL mod folder the modder has not enabled, where no authored
-    /// text is at risk and an interruption leaves an output nobody is running. <see cref="WriteInPlace"/> writes the
-    /// modder's OWN file, and refuses every localized target precisely because that trade is not available there.
-    /// Callers must not use this to reach a path the modder authored.</para></summary>
-    public static void WriteOwnedOutput(SkyrimMod mod, IReadOnlyList<ISkyrimModGetter> ownMasters, string outputPath)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-        var ordered = ownMasters as ISkyrimModGetter[] ?? ownMasters.ToArray();
-        // Same composed-null-arm treatment as the lanes above — RootNullArm re-stamps a bare/wrapped NRE as a NAMED
-        // refusal, and the staged temp is already discarded on any throw.
-        string staged;
-        try { staged = WriteInPlaceStaged(mod, ordered, outputPath); }
-        catch (Exception ex) when (RootNullArm(ex) is { } nre) { throw new NullArmSerializeException(nre); }
-        LocalizedTableCommit.CommitOwnedOutput(staged, outputPath);
-    }
-
-    /// <summary>Is the plugin at <paramref name="path"/> flagged LOCALIZED? The pre-flight form of
-    /// <see cref="WriteInPlace"/>'s choke point, for the lanes that must answer BEFORE they reach the write — a dry
-    /// run (whose job is to give the same answer the real call would), and any lane whose refusal carries a remedy
-    /// clause of its own, which the throw cannot name because it does not know which lane called it.
+    /// <summary>Is the plugin at <paramref name="path"/> flagged LOCALIZED — read it, and say which of THREE things
+    /// happened. The pre-flight read behind <see cref="LocalizedStrings.Assess"/>, and through it every lane that has
+    /// to answer BEFORE reaching the write: a dry run (whose job is to give the same answer the real call would), and
+    /// any lane whose refusal carries a remedy clause of its own.
     ///
     /// <para>Reads the header only, and deliberately with the BARE overlay: the localized FLAG is in the header, so
     /// unlike reading the strings themselves this needs no game-Data fallback and cannot be wrong about the flag
-    /// because a strings source is missing. Any fault answers "not localized" and leaves the write's own choke point
-    /// to refuse — a pre-flight that threw would turn a readable-header failure into a different refusal.</para></summary>
-    public static bool PluginIsLocalized(string path)
+    /// because a strings source is missing.</para>
+    ///
+    /// <para><b>It returns three answers rather than a bool, and that is the point.</b> The bool form answered
+    /// <c>false</c> on any fault, and its docstring justified that by pointing at the write's own choke point as the
+    /// backstop — but this read had by then become that choke point's own decision, so the net it named was the net
+    /// it was inside. A locked destination classified as not-localized and the write proceeded. Callers must handle
+    /// <see cref="LocalizedFlagRead.Unreadable"/> as unknown; the compiler makes them.</para></summary>
+    public static LocalizedFlagRead PluginIsLocalized(string path)
     {
         ISkyrimModGetter? ov = null;
         try
         {
             ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
-            return ov.ModHeader.Flags.HasFlag(SkyrimModHeader.HeaderFlag.Localized);
+            return ov.ModHeader.Flags.HasFlag(SkyrimModHeader.HeaderFlag.Localized)
+                ? LocalizedFlagRead.Localized
+                : LocalizedFlagRead.NotLocalized;
         }
-        catch { return false; }
+        catch { return LocalizedFlagRead.Unreadable; }
         finally { if (ov is IDisposable d) { try { d.Dispose(); } catch { } } }
     }
 
@@ -3979,26 +3960,16 @@ public sealed class NullArmSerializeException : InvalidOperationException
 ///
 /// <para>So this is NOT the read-side blanking of a localized plugin whose strings resolve elsewhere; that one is a
 /// separate defect on the way IN. This is the round-trip's write half, and it is why resolving the strings correctly
-/// on the way in does not on its own make the rewrite faithful. Both are chartered to an attended engagement; until
-/// that lands, the write refuses rather than corrupt a file it cannot faithfully re-emit.</para></summary>
+/// on the way in does not on its own make the rewrite faithful. The settled answer to both is this refusal: houseCARL
+/// does not rewrite a localized plugin in place, whatever arrangement its tables are in.</para>
+///
+/// <para><b>One sentence, one home.</b> This class held a second, constructor-built refusal sentence describing the
+/// pre-refusal behaviour ("some records kept their text, some went blank…") long after the live sentence had stopped
+/// saying that. Two refusal texts for one behaviour is one of them waiting to be found by whoever wires up the
+/// obvious-looking constructor, so the constructor and its sentence are gone: the only way to build this exception is
+/// <see cref="FromSentence"/>, off <see cref="Shaped"/>.</para></summary>
 public sealed class LocalizedTargetUnsupportedException : InvalidOperationException
 {
-    /// <summary>The refusal sentence, in ONE place — the exception below throws it, and the lanes that predict the
-    /// refusal BEFORE reaching the write (see <see cref="WriteEngine.PluginIsLocalized"/> for who those are and why)
-    /// state it without throwing. Two spellings of this would drift, and the dry run's whole job is to give the same
-    /// answer as the real call.
-    ///
-    /// <para>"would no longer reliably be its own record's" and not "would all land on the wrong record": the probe
-    /// measures a MIX — of five localized weapons in arm C, two kept their own text exactly, one went blank, and two
-    /// read a book's. The absolute was the easier sentence to write and the more dangerous one to act on, because a
-    /// caller who checks a few records, finds them intact, and concludes the diagnosis does not fit their file is
-    /// looking at precisely the failure being described.</para></summary>
-    public static string Text(string pluginFileName, string? laneClause = null)
-        => $"houseCARL did not write '{pluginFileName}' — the file is unchanged and nothing was staged. It is flagged " +
-           "LOCALIZED: " + Why + " Measured, some records kept their text, some went blank, and others read text " +
-           "belonging to a different record. houseCARL refuses the write instead of corrupting the file." +
-           (laneClause is null ? "" : " " + laneClause);
-
     /// <summary>The refusal for a localized plugin whose strings houseCARL cannot rewrite as a set — one sentence per
     /// SHAPE, because the shapes fail for different reasons and a single sentence covering all of them can only be
     /// true of the one it was written for.
@@ -4016,23 +3987,101 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
     /// refusing over a plugin the caller did not name (a compaction blocked by one of its referencers): the caller
     /// needs that plugin's reason and remedy, but nesting a whole second refusal sentence inside the first reads as
     /// two refusals rather than one explained one.</summary>
-    public static string ShapeBody(LocalizedAssessment a) => WhereTheTextIs(a) + " " + WhyNotInPlace;
+    public static string ShapeBody(LocalizedAssessment a) => WhereTheTextIs(a) + " " + WhyNotInPlace(a);
 
-    /// <summary>The shared reason, which is the same for every shape and is now the ONLY reason: houseCARL does not
-    /// rewrite a localized plugin in place at all.
+    /// <summary>The closing sentence every refusal ends on. Shared verbatim because it is the one part that IS the
+    /// same for every shape: the outcome.</summary>
+    const string Settled = " It does not edit a localized plugin in place.";
+
+    /// <summary>Why this ARRANGEMENT cannot be rewritten in place — per shape, because the hazard genuinely differs
+    /// and one sentence covering all of them can only be true of the one it was written for.
     ///
-    /// <para>Deliberately says nothing about the plugin's particular arrangement. An earlier form of these sentences
-    /// ended each shape with a way to reach an arrangement houseCARL WOULD rewrite ("add the missing file, then
-    /// retry", "move them beside the plugin, then retry"). Those remedies are false now that no arrangement is
-    /// rewritten in place — one of them was measured dead-ending in a second refusal even before the arm was cut — so
-    /// the remedy that ships is the calling lane's, and it is the lane clause the caller actually gets.</para></summary>
-    public const string WhyNotInPlace =
-        "A localized plugin's text is not in the plugin, so rewriting the plugin means rewriting its .STRINGS files " +
-        "in the same breath — and houseCARL cannot swap a plugin and its tables as one operation, so an interruption " +
-        "would leave records reading text that belongs to other records. It does not edit a localized plugin in place.";
+    /// <para>The shared spelling this replaces described an interruption leaving records reading other records' text.
+    /// That is exact for a plugin with a live table set beside it, which a write would have to replace — and false
+    /// for the shapes where a write would replace NO existing table: with the text in game-Data or inside an archive,
+    /// a plugin write cannot reach the files the indices point at at all, so what it would actually do is leave a
+    /// competing set beside the plugin, shadowing the real one and leaving it stale. Naming a mid-write scramble
+    /// there describes a hazard that cannot happen and hides the one that can.</para>
+    ///
+    /// <para>Deliberately says nothing about how to reach an arrangement houseCARL WOULD rewrite. An earlier form
+    /// ended each shape with exactly that ("add the missing file, then retry", "move them beside the plugin, then
+    /// retry"); those are false now that no arrangement is rewritten in place — one was measured dead-ending in a
+    /// second refusal even before the arm was cut. The remedy that ships is the calling lane's.</para></summary>
+    public static string WhyNotInPlace(LocalizedAssessment a) => a.Shape switch
+    {
+        // A live set sits beside the plugin. A rewrite renumbers the indices and would have to replace those exact
+        // files in the same breath — the swap houseCARL cannot make atomic.
+        LocalizedShape.LooseComplete or LocalizedShape.LoosePartial or LocalizedShape.LooseWithGameDataDuplicate =>
+            "A localized plugin's text is not in the plugin, so rewriting the plugin renumbers the indices its text is "
+            + "looked up by and those .STRINGS files beside it would have to be replaced in the same breath — and "
+            + "houseCARL cannot swap a plugin and its tables as one operation, so an interruption would leave records "
+            + "reading text that belongs to other records." + Settled,
+
+        // The files the indices point at are somewhere a plugin write cannot reach. Nothing would be replaced; a new
+        // set would land beside the plugin and SHADOW the real one, which stays on disk and goes stale.
+        LocalizedShape.BsaEmbedded when a.BsaUnreadable =>
+            "A localized plugin's text is not in the plugin, and until that archive can be read houseCARL cannot tell "
+            + "what rewriting the plugin would leave its text resolving against — nor whether a set written beside the "
+            + "plugin would replace that text or merely shadow it." + Settled,
+
+        LocalizedShape.BsaEmbedded =>
+            "A localized plugin's text is not in the plugin, and a plugin write cannot rewrite the inside of an "
+            + "archive. Rewriting the plugin renumbers the indices its text is looked up by, and the only place "
+            + "houseCARL could put matching files is beside the plugin — where they would SHADOW the archive's rather "
+            + "than replace them, leaving the archive carrying a table that no longer describes the plugin." + Settled,
+
+        LocalizedShape.GameDataOnly =>
+            "A localized plugin's text is not in the plugin, and a plugin write does not reach your game's Data folder. "
+            + "Rewriting the plugin renumbers the indices its text is looked up by, and the only place houseCARL could "
+            + "put matching files is beside the plugin — where they would SHADOW the set in Data\\Strings rather than "
+            + "replace it, leaving that set on disk describing a plugin that has changed underneath it." + Settled,
+
+        // houseCARL cannot see the source, so it cannot name a hazard it has verified. Saying which one it cannot
+        // rule out is the honest form.
+        LocalizedShape.Nowhere =>
+            "A localized plugin's text is not in the plugin, and houseCARL cannot see the files its indices point at. "
+            + "Rewriting the plugin renumbers those indices, and houseCARL cannot tell whether a set written beside it "
+            + "would replace what the game reads or shadow it, nor what would be left stale either way." + Settled,
+
+        // The plugin itself could not be read. Nothing about its arrangement was looked at, so nothing about its
+        // arrangement is claimed.
+        LocalizedShape.Unreadable or LocalizedShape.NotLocalized =>
+            "A localized plugin's text is not in the plugin, and houseCARL could not establish where this one's is, so "
+            + "it cannot tell what rewriting the plugin would do to that text." + Settled,
+
+        // Enumerated above; a shape added later fails LOUD and generic rather than inheriting another's reason (Q3).
+        _ => "A localized plugin's text is not in the plugin, and houseCARL cannot rewrite the plugin and its tables "
+             + "as one operation." + Settled,
+    };
 
     /// <summary>Where the archive naming this plugin's tables was found — beside the plugin, or in the game folder.</summary>
     static string BsaWhere(LocalizedAssessment a) => a.BsaInGameData ? "in your game's Data folder" : "beside the plugin";
+
+    /// <summary>The SECOND location, when the archive shape is carrying one. An archive decides the shape whatever
+    /// else is on disk, but a loose set beside the plugin (or a set in game-Data) is still there and still what a
+    /// modder would find if they went looking — so the sentence names both rather than the one that won the
+    /// classification.</summary>
+    /// <summary>What the <c>Strings\</c> folder beside the plugin actually holds, for a plugin nothing in it matched.
+    /// Names the files when there are some, so the modder is not told "nothing is there" while looking at a folder
+    /// with files in it — and asserts an absence only where the absence was checked.</summary>
+    static string NothingMatched(LocalizedAssessment a)
+    {
+        if (a.UnmatchedTables.Count == 0)
+            return "no .STRINGS files beside it";
+        return "the Strings folder beside it holds " + a.UnmatchedTables.Count + " .STRINGS file(s) — "
+             + string.Join(", ", a.UnmatchedTables)
+             + " — but houseCARL matched none of them to this plugin in a language it recognises";
+    }
+
+    static string AlsoLoose(LocalizedAssessment a)
+    {
+        var also = new List<string>();
+        if (a.Languages.Count > 0)
+            also.Add(".STRINGS files for it in a Strings folder beside the plugin (" + string.Join(", ", a.Languages) + ")");
+        if (a.GameDataLanguages.Count > 0)
+            also.Add("a set for it in your game's Data\\Strings folder (" + string.Join(", ", a.GameDataLanguages) + ")");
+        return also.Count == 0 ? "" : " — and there is also " + string.Join(", and ", also);
+    }
 
     /// <summary>Where THIS plugin's text actually lives, in the caller's terms — the half of the refusal that is worth
     /// reading, because it tells a modder something about their install they cannot easily see. Every arm states only
@@ -4057,31 +4106,53 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
 
             // WHERE the archive is, not merely its name. The game-Data fallback exists precisely because the vanilla
             // masters' tables live in a game archive, so "the archive beside it" was false for that entire class.
+            // AlsoLoose names the OTHER location when one exists: the archive decides the shape, but the assessment is
+            // still carrying a loose set beside the plugin, and a sentence naming one location while two sit on disk
+            // sends the modder to look in the wrong place.
             LocalizedShape.BsaEmbedded when a.BsaUnreadable =>
                 "It is flagged LOCALIZED and the archive " + Path.GetFileName(a.BsaPath) + " " + BsaWhere(a)
-                + " could not be read, so houseCARL cannot tell whether this plugin's text is inside it.",
+                + " could not be read, so houseCARL cannot tell whether this plugin's text is inside it"
+                + AlsoLoose(a) + ".",
 
             LocalizedShape.BsaEmbedded =>
                 "It is flagged LOCALIZED and its text is inside the archive " + Path.GetFileName(a.BsaPath) + " "
-                + BsaWhere(a) + ".",
+                + BsaWhere(a) + AlsoLoose(a) + ".",
 
             LocalizedShape.GameDataOnly =>
                 "It is flagged LOCALIZED and its text is not beside it — it resolves from your game's Data\\Strings "
                 + "folder (" + string.Join(", ", a.GameDataLanguages) + ").",
 
-            // Says what was SEARCHED, not what exists: the game-folder clause is only claimed when a game folder was
-            // actually known, and the wording is "no .STRINGS files for this plugin" rather than "no Strings folder",
-            // because a Strings folder holding a NEIGHBOUR's tables reaches this shape and the caller is looking
-            // straight at the folder the old sentence said was absent.
+            // Says what was SEARCHED and what was FOUND, never what exists.
+            //
+            // This sentence has now been false about the modder's disk twice, each time by asserting an absence it had
+            // not checked. First: "no Strings folder beside it", while the folder was there holding a neighbour's
+            // tables. Then, after that fix: "no .STRINGS files for this plugin beside it", while ZRef_ptbr.STRINGS sat
+            // in that folder — houseCARL had not matched it (ptbr is not a language Mutagen models), which is not the
+            // same claim. So the sentence no longer asserts an absence at all: NothingMatched describes the folder as
+            // it actually is, and the only claim made is the one houseCARL can stand behind — that nothing in it
+            // matched this plugin in a language it recognises.
             LocalizedShape.Nowhere =>
-                "It is flagged LOCALIZED and houseCARL cannot find its text: no .STRINGS files for this plugin beside "
-                + "it, and no archive beside it"
+                "It is flagged LOCALIZED and houseCARL cannot find its text: " + NothingMatched(a)
+                + ", and no archive beside it"
                 + (a.GameDataUnknown ? "" : " or in your game folder")
                 + " carrying its tables"
                 + (a.GameDataUnknown ? ", and your game's Data folder could not be determined, so it was not searched" : "")
                 + ". Mod Organizer merges mod folders when the game runs, so the text may well exist in a different "
                 + "mod folder than the plugin — houseCARL reads the folders as they sit on disk and does not see that "
                 + "merge.",
+
+            // The plugin could not be read at all, so nothing is said about an arrangement nobody looked at. This is
+            // the answer a locked, absent or unparseable destination gets — and it REFUSES rather than proceeding,
+            // which is the whole reason the read behind it reports three answers instead of two.
+            LocalizedShape.Unreadable =>
+                "houseCARL could not read the file at that path to see where its text lives.",
+
+            // The mod being written is flagged LOCALIZED, but the file already at that path does not read as one. The
+            // write refuses on the mod in hand — this arm is only reached from there, never from a pre-flight, which
+            // takes a clear flag as its answer and proceeds.
+            LocalizedShape.NotLocalized =>
+                "It is flagged LOCALIZED, but the file already at that path does not read as a localized plugin, so "
+                + "houseCARL could not establish where the text being written would resolve from.",
 
             // Every shape is enumerated above; this arm exists so a shape added later fails LOUD and generic rather
             // than silently inheriting another shape's sentence (Q3).
@@ -4105,16 +4176,6 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
         "This lane has no new-plugin form: a separate plugin can override a record but cannot un-define one, so there is " +
         "no way to remove this record without rewriting the plugin that defines it.";
 
-    /// <summary>The MECHANISM clause on its own, for the lanes that refuse over a plugin OTHER than the one they were
-    /// asked about — compact refusing because a plugin that REFERENCES its target is localized, where "houseCARL did
-    /// not write 'X'" would name the wrong file. Same words, one source: the sentence that explains why a localized
-    /// plugin cannot be re-emitted is the same explanation wherever it is given, and two hand-written spellings of it
-    /// would drift apart the first time either was edited.</summary>
-    public const string Why =
-        "its text is held in separate .STRINGS files and the plugin itself carries only indices into them, so " +
-        "re-serializing it renumbers those indices while houseCARL commits the plugin file alone — a value in the " +
-        "rewritten plugin would no longer reliably be its own record's.";
-
     /// <summary>Where this plugin's strings actually are, as a clause a lane can drop into its own sentence — for the
     /// lanes that refuse for their OWN reason (compact rebuilds rather than re-serializes) but still owe the caller an
     /// accurate account of the shape, rather than the generic "it is flagged LOCALIZED" that was true of every shape
@@ -4133,54 +4194,29 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
             + "in your game's Data\\Strings folder.",
         LocalizedShape.BsaEmbedded when a.BsaUnreadable =>
             "It is flagged LOCALIZED and the archive " + Path.GetFileName(a.BsaPath) + " " + BsaWhere(a)
-            + " could not be read, so houseCARL cannot tell where its text is.",
+            + " could not be read, so houseCARL cannot tell where its text is" + AlsoLoose(a) + ".",
         LocalizedShape.BsaEmbedded =>
-            "It is flagged LOCALIZED and its text lives inside " + Path.GetFileName(a.BsaPath) + ".",
+            "It is flagged LOCALIZED and its text lives inside " + Path.GetFileName(a.BsaPath) + AlsoLoose(a) + ".",
         LocalizedShape.GameDataOnly =>
             "It is flagged LOCALIZED and its text lives in separate .STRINGS files in your game's Data\\Strings folder, "
             + "not beside the plugin.",
+        // The same absence discipline as WhereTheTextIs's arm: houseCARL says it could not FIND them, and where a
+        // Strings folder is sitting there with files in it, it says that too rather than claiming the folder is bare.
         LocalizedShape.Nowhere =>
-            "It is flagged LOCALIZED and houseCARL cannot find its .STRINGS files at all.",
+            "It is flagged LOCALIZED and houseCARL cannot find its .STRINGS files: " + NothingMatched(a) + ".",
+        LocalizedShape.Unreadable =>
+            "houseCARL could not read it to see whether it is localized or where its text lives.",
         _ =>
             "It is flagged LOCALIZED, so its text lives in separate .STRINGS files rather than in the plugin.",
     };
 
-    /// <summary>Why a compaction could not keep the output localized — the half of the report note that has to name a
-    /// cause rather than merely announce an outcome.</summary>
-    public static string WhyNotKept(LocalizedAssessment a) => a.Shape switch
-    {
-        LocalizedShape.LoosePartial =>
-            "houseCARL could not rewrite them to match the new FormIDs because "
-            + string.Join("; ", a.IncompleteLanguages.Select(kv => $"{kv.Key} is missing its .{string.Join("/.", kv.Value)}"))
-            + ", and writing that language's missing files would have invented empty text.",
-        LocalizedShape.LooseWithGameDataDuplicate =>
-            "houseCARL could not rewrite them to match the new FormIDs because a second copy of this plugin's .STRINGS "
-            + "sits in your game's Data\\Strings folder and only one of the two could be replaced.",
-        LocalizedShape.BsaEmbedded when a.BsaUnreadable =>
-            "houseCARL could not rewrite them to match the new FormIDs because the archive "
-            + Path.GetFileName(a.BsaPath) + " " + BsaWhere(a) + " could not be read.",
-        LocalizedShape.BsaEmbedded =>
-            "houseCARL could not rewrite them to match the new FormIDs because they are inside "
-            + Path.GetFileName(a.BsaPath) + ", which a plugin write cannot rewrite.",
-        LocalizedShape.GameDataOnly =>
-            "houseCARL could not rewrite them to match the new FormIDs because they live in your game's Data\\Strings "
-            + "folder, where files written beside the compacted plugin would override rather than replace them.",
-        LocalizedShape.Nowhere =>
-            "houseCARL could not find them at all, so it had nothing to rewrite to match the new FormIDs.",
-        _ when a.GameDataUnknown =>
-            "houseCARL could not determine your game's Data folder, so it could not rule out a second copy of this "
-            + "plugin's .STRINGS there.",
-        _ => "houseCARL could not rewrite them to match the new FormIDs.",
-    };
+    /// <summary>Throw a sentence that is already whole — <see cref="Shaped"/>'s. The ONLY way to build this
+    /// exception, and deliberately so: a second, filename-taking constructor built its own refusal text, which went on
+    /// asserting the pre-refusal behaviour long after the live sentence had stopped saying it. One behaviour, one
+    /// sentence, one home.</summary>
+    public static LocalizedTargetUnsupportedException FromSentence(string message) => new(message);
 
-    /// <summary>Throw a sentence that is already whole — <see cref="Shaped"/>'s.
-    /// Named rather than a second constructor, because the constructor below takes a plugin FILENAME and builds the
-    /// sentence from it; two constructors both taking one string would differ only in what that string means.</summary>
-    public static LocalizedTargetUnsupportedException FromSentence(string message) => new(message, sentence: true);
-
-    LocalizedTargetUnsupportedException(string message, bool sentence) : base(message) { }
-
-    public LocalizedTargetUnsupportedException(string pluginFileName) : base(Text(pluginFileName)) { }
+    LocalizedTargetUnsupportedException(string message) : base(message) { }
 }
 
 /// <summary>A refusal whose cause is LIVE COLLECTION/RECORD STATE the schema-only pre-flight provably CANNOT see —

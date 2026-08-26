@@ -24,30 +24,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   files inside a `.bsa` (saying whether that archive sits beside the plugin or in your game folder), files
   resolving from `Data\Strings` alone, and files houseCARL cannot find at all — which says it could not
   find them, not that they do not exist, because Mod Organizer merges mod folders at runtime and houseCARL
-  reads them as they sit on disk. To edit such a plugin, use the default lane and write to a new plugin.
-  This covers `housecarl_apply`, `housecarl_create`, `housecarl_forward` and `housecarl_remove` with
-  `in_place=`, and the `housecarl_compact_plugin` lane that rewrites external referencers.
-
-- **Compacting a localized plugin to a NEW plugin now keeps it localized, when its strings can be
-  rewritten.** The compacted output used to be de-localized — one language baked into the plugin, the rest
-  gone, and the mod's `.STRINGS` files no longer describing it. When the source's files are a complete set
-  in a `Strings` folder beside it with no competing copy in your game's `Data\Strings`, the compacted
-  plugin is localized too and its rewritten `Strings` folder sits beside it; every language present is
-  rewritten, not just the one that was read, and that folder is part of the plugin and travels with it.
-  When they are not, the output is de-localized as before and the report says which languages were lost
-  and why. Compacting a localized plugin **in place** is refused whichever arrangement it is in, and the
-  refusal says whether the new-plugin route would keep its text.
+  reads them as they sit on disk. A plugin houseCARL could not read at all is refused too, saying that —
+  rather than being treated as not localized, which is what it did when the file was locked by another
+  program at the moment it looked. To edit such a plugin, use the default lane and write to a new plugin.
+  The lanes this covers are the ones whose own `in_place=` description now says so.
 
 - **`housecarl_compact_plugin`'s external-referencer refusal no longer sends you down a route that will
   refuse.** It ends by telling you to re-run with `repoint_externals=true`; when one of those referencers
   is localized, that re-run was always going to be refused. The refusal now names that plugin and where
   its text is, up front, instead.
-
-- **Two plugins sharing one mod folder no longer confuse each other's `.STRINGS` files.** houseCARL
-  matched table files by name prefix, so for two plugins in one folder whose names share a prefix, the
-  shorter-named one claimed the longer-named one's files. It now matches the language part against the
-  languages it models. Separately, a plugin whose tables live in one of your game folder's archives — the
-  base game and DLC masters among them — is no longer reported as having no `.STRINGS` files at all.
 
 - **List fields gain an `InsertAtIndex` op: put a new element AT a position instead of only at the end.**
   `key=` is the position to insert at and every element from there on shifts right by one; the list's own

@@ -317,10 +317,12 @@ public static class CiAll
         // MO2 instance — the clean new-file lane, esl=false, override-of-master-cell-with-new-child, external refusal, the
         // repoint→in_place gate, not-active, and the in_place+repoint consent handshake. Covers the policy the engine guard bypasses.
         ("compact-service-guard", CompactServiceGuardProbe.RunGuard),
-        // LOCALIZED IN-PLACE WRITE (#368 + #373): which strings shapes a write may act on, that the one it accepts
-        // round-trips both its languages, that each refused shape refuses in its own words, that every remedy those
-        // sentences name actually works, and that an interrupted commit leaves a BLANK plugin rather than a scrambled
-        // one — fault-injected into the commit itself, with a canary cell that must come back un-refused.
+        // LOCALIZED IN-PLACE WRITE (#368 + #373): that EVERY strings arrangement refuses the in-place write and each
+        // refuses in its own words, naming where that plugin's text actually is; that the refusal is decided off the
+        // mod in memory, so a destination locked by another process still refuses; that a destination houseCARL cannot
+        // read refuses rather than being read as not-localized; and that a refusal leaves the plugin and its tables
+        // byte-identical. It carries NO round-trip, remedy or crash-window pass: there is no accepted in-place write
+        // to round-trip and no commit window to fault-inject, both having been cut (2026-08-26).
         ("localized-write-guard", LocalizedWriteGuardProbe.RunGuard),
         // COMPACT/MERGE Wave A1 — the asset-rename SPINE's first category: compacting an NPC mod carries its FormID-keyed
         // FaceGen (head mesh + face tint) to the new FormID, end-to-end through the real service, so it no longer silently
