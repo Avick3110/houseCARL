@@ -59,8 +59,8 @@ public readonly record struct VerbUse(string Verb, VerbInput Input, bool NeedsKe
 /// produced it, and they drifted: a dict caller reached a message offering <c>InsertAtIndex</c> (measured on
 /// <c>Package.Data</c> — following the offer returns "InsertAtIndex is only valid on list"); the Set-on-list remedy
 /// named two of the five list verbs; the leaf-bracket remedy offered both cardinalities' verbs at once and left the
-/// caller to work out which half was theirs. Adding <c>InsertAtIndex</c> (#302) made the drift visible by adding a
-/// seventh name to keep in sync, but it did not cause it — a hand-maintained copy of a set rots whether or not the
+/// caller to work out which half was theirs. Adding <c>InsertAtIndex</c> (#302) made the drift visible by adding an
+/// eighth name to keep in sync, but it did not cause it — a hand-maintained copy of a set rots whether or not the
 /// set is growing. Two consecutive pre-PR review rounds returned instances of it, which is the CLAUDE.md §11
 /// class-stop: the fix is the generator, not another round of copies.</para>
 ///
