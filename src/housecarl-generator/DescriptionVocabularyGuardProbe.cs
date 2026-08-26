@@ -585,11 +585,19 @@ public static class DescriptionVocabularyGuardProbe
     /// <para><b>The two ways this can go wrong, and both are LOUD.</b> A document reaches the table only where
     /// the compiler emitted sequence points, so a <c>.cs</c> file with no method body at all could in principle
     /// be compiled and absent from the receipt; that arrives as "scanned but no manifest names it" — a red
-    /// naming the file, which an author resolves, never a silent narrowing. And documents carry the building
-    /// machine's absolute paths: <c>ContinuousIntegrationBuild</c>, <c>DeterministicSourcePaths</c>,
-    /// <c>PathMap</c> and SourceLink are set nowhere in this repo and CI builds and runs in one workspace, but a
-    /// future build that mapped paths would make them stop resolving under the guard's working directory — and a
-    /// document that cannot be mapped is reported as a problem rather than dropped from the comparison.</para></summary>
+    /// naming the file, which an author resolves, never a silent narrowing.</para>
+    ///
+    /// <para><b>The path-shape condition, measured rather than assumed.</b> Documents carry the paths the
+    /// compiler was given. SourceLink IS active here — the SDK includes it — but it only ANONYMISES source paths
+    /// when <c>ContinuousIntegrationBuild</c> is set, which nothing in this repo or its CI workflow does, so the
+    /// receipt names real local files and resolves under the guard's working directory. Building with
+    /// <c>-p:ContinuousIntegrationBuild=true</c> was tried: every document comes back as <c>/_/src/…</c> and
+    /// <c>MANIFEST-SET</c> goes RED, naming the condition, the cause and the remedy, with the count per manifest.
+    /// <para>That red is deliberate and is not repaired by teaching this to strip the deterministic root. A build
+    /// that has anonymised its source paths has removed the fact this arm needs; reconstructing it from a prefix
+    /// convention would make the net's membership rest on a pattern again — one floor up from where the ruling
+    /// rejected exactly that — and a reconstruction that was subtly wrong would match a file set silently rather
+    /// than fail. So it stays loud, and whoever hardens the build resolves it deliberately.</para></para></summary>
     static CompilationManifest ReadManifest(Assembly asm)
     {
         var name = asm.GetName().Name!;
@@ -620,6 +628,10 @@ public static class DescriptionVocabularyGuardProbe
             using var stream = File.OpenRead(pdb);
             using var provider = MetadataReaderProvider.FromPortablePdbStream(stream);
             var md = provider.GetMetadataReader();
+            // Unresolvable documents are ONE problem line per manifest with a count and an example, not one per
+            // document: a mapped build makes every document unresolvable at once, and 123 identical lines bury
+            // the single fact an author needs. Never a bare count — the count, the cause and a specimen.
+            var unresolvable = new List<string>();
             foreach (var handle in md.Documents)
             {
                 var raw = md.GetString(md.GetDocument(handle).Name);
@@ -631,15 +643,19 @@ public static class DescriptionVocabularyGuardProbe
                 var rel = Rel(raw);
                 if (rel.StartsWith("../", StringComparison.Ordinal) || Path.IsPathRooted(rel))
                 {
-                    problems.Add($"{Rel(pdb)}: the manifest names '{raw.Replace('\\', '/')}', which is not under this run's working directory "
-                               + $"('{Directory.GetCurrentDirectory().Replace('\\', '/')}'), so it cannot be matched against a scanned file. Either the guard "
-                               + "is not running from the repo root, or the build maps source paths (ContinuousIntegrationBuild / PathMap / "
-                               + "SourceLink) and the receipt no longer names files this machine has");
+                    unresolvable.Add(raw.Replace('\\', '/'));
                     continue;
                 }
                 if (IsBuildOutput(rel)) { generated++; continue; }
                 documents.Add(rel);
             }
+            if (unresolvable.Count > 0)
+                problems.Add($"{Rel(pdb)}: {unresolvable.Count} of its document(s) are not under this run's working directory "
+                           + $"('{Directory.GetCurrentDirectory().Replace('\\', '/')}') and cannot be matched against a scanned file — for example "
+                           + $"'{unresolvable[0]}'. Either the guard is not running from the repo root, or the build ANONYMISED its source paths "
+                           + "(ContinuousIntegrationBuild, DeterministicSourcePaths or PathMap — a '/_/' root is SourceLink's). The receipt then no "
+                           + "longer names files this machine has, and the net's membership is uncertified: build the guard's inputs without path "
+                           + "mapping, or bring the change here deliberately. This does not reconstruct the paths — see ReadManifest for why");
         }
         catch (Exception ex)
         {
