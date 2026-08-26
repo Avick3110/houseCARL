@@ -2,8 +2,10 @@ using System.Collections;
 using System.Reflection;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Binary.Parameters;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
+using Mutagen.Bethesda.Strings;
 
 namespace HousecarlCore;
 
@@ -865,14 +867,15 @@ public static class RemapEngine
         {
             var path = view.PluginPath(name);
             if (path is null) continue;
-            ISkyrimModGetter? ov = null;
             try
             {
-                ov = LoadOrderResolver.OpenOverlay(path, view.DataDir);
-                if (ov.ModHeader.Flags.HasFlag(SkyrimModHeader.HeaderFlag.Localized)) hits.Add(name);
+                // The SHAPE, not merely the header flag: a localized referencer whose strings are a complete loose set
+                // beside it can now be repointed — the write commits its rewritten tables with it — so reporting it
+                // here would refuse a whole compaction over a plugin the write would have handled. Only the shapes the
+                // write still refuses belong in this list.
+                if (LocalizedStrings.RefusalFor(path, name, view.DataDir) is not null) hits.Add(name);
             }
             catch { /* see the summary: unreadable here is not a localization claim, and the write still refuses. */ }
-            finally { if (ov is IDisposable d) { try { d.Dispose(); } catch { } } }
         }
         return hits;
     }
@@ -891,6 +894,31 @@ public static class RemapEngine
     /// refusal or serialize fault leaves the original file byte-intact. A sub-0x800 originating record (a vanilla master)
     /// makes the write throw <c>LowerFormKeyRangeDisallowed</c> — surfaced LOUD here, never a silent partial write (Q3).
     /// </summary>
+    /// <summary>Open ONE plugin MUTABLE with the same strings resolution <see cref="LoadOrderResolver.OpenOverlay"/>
+    /// wires for reads — the mutable twin of that choke point, and #368's fix.
+    ///
+    /// <para>The bare <c>CreateFromBinary</c> this replaces scans only the plugin's OWN folder for strings, so a
+    /// localized plugin resolved to a mod folder without them read every <c>TranslatedString</c> EMPTY — and this lane
+    /// then wrote those blanks back over the user's file. The redirect is applied on exactly the condition the read
+    /// path uses (a game-Data folder is known AND the plugin's own folder carries no strings source of its own), so
+    /// the mutable open and the overlay open cannot disagree about where a plugin's text comes from.</para></summary>
+    static SkyrimMod OpenMutable(string path, string? dataDir)
+    {
+        if (dataDir is not null && !LoadOrderResolver.FolderHasOwnStrings(path))
+        {
+            var prm = BinaryReadParameters.Default with
+            {
+                StringsParam = new StringsReadParameters
+                {
+                    BsaFolderOverride = dataDir,
+                    StringsFolderOverride = Path.Combine(dataDir, "Strings"),
+                },
+            };
+            return SkyrimMod.CreateFromBinary(path, SkyrimRelease.SkyrimSE, prm);
+        }
+        return SkyrimMod.CreateFromBinary(path, SkyrimRelease.SkyrimSE);
+    }
+
     public static RepointResult RepointInPlace(
         LoadOrderResolver resolver, string pluginName, IReadOnlyDictionary<FormKey, FormKey> dict)
     {
@@ -908,7 +936,7 @@ public static class RemapEngine
             return RepointResult.Fail($"repoint target '{pluginName}' not found on disk at {path ?? "<unresolved>"} — the file is untouched.");
 
         SkyrimMod targetMod;
-        try { targetMod = SkyrimMod.CreateFromBinary(path, SkyrimRelease.SkyrimSE); }
+        try { targetMod = OpenMutable(path, view.DataDir); }
         catch (Exception ex)
         {
             return RepointResult.Fail(
@@ -962,7 +990,7 @@ public static class RemapEngine
                 resolved.Add(ov);
             }
 
-            try { WriteEngine.WriteInPlace(targetMod, resolved, path); }
+            try { WriteEngine.WriteInPlace(targetMod, resolved, path, resolver.DataDir); }
             // The localized-target refusal is its own whole sentence, and it happens BEFORE the serialize — so the
             // generic arm below would both misattribute it and append a sub-0x800 note about a cause that isn't this
             // one. The service pre-flight (LocalizedAmong) normally refuses long before a referencer gets here; this is

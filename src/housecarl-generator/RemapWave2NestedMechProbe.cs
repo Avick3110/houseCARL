@@ -286,7 +286,7 @@ public static class RemapWave2NestedMechProbe
             var pPrime = new SkyrimMod(donorKey, SkyrimRelease.SkyrimSE) { IsSmallMaster = true };
             ren = RemapEngine.RenumberModInto(pPrime, donorOv, plan.Dict);
             pPrime.ModHeader.Stats.NextFormID = (uint)(RemapEngine.EslFloor + plan.Dict.Count);
-            if (ren.Success) WriteEngine.WriteInPlace(pPrime, Array.Empty<ISkyrimModGetter>(), pPrimePath);
+            if (ren.Success) WriteEngine.WriteInPlace(pPrime, Array.Empty<ISkyrimModGetter>(), pPrimePath, dataDir: null);   // synthetic, non-localized fixture: no game-Data set to rule out
         }
 
         FormKey New(FormKey old) => plan.Success && plan.Dict.TryGetValue(old, out var nk) ? nk : default;

@@ -50,16 +50,22 @@ public enum LocalizedShape
 /// <param name="BsaPath">The archive that embeds (or could not be read to rule out) this plugin's strings.</param>
 /// <param name="BsaUnreadable">The archive beside the plugin could not be parsed, so whether it embeds this plugin's
 /// strings is unknown. Classified as embedded — a shape we cannot see into is refused, never assumed harmless (Q3).</param>
+/// <param name="GameDataUnknown">No game-Data folder was supplied, so whether a competing set lives there could not be
+/// checked. This is NOT the same as having checked and found none: it makes
+/// <see cref="LocalizedShape.LooseComplete"/> unsafe to act on, because the duplicate it cannot rule out is precisely
+/// what would keep the commit's blank window from being blank.</param>
 public sealed record LocalizedAssessment(
     LocalizedShape Shape,
     IReadOnlyList<string> Languages,
     IReadOnlyDictionary<string, IReadOnlyList<string>> IncompleteLanguages,
     IReadOnlyList<string> GameDataLanguages,
     string? BsaPath,
-    bool BsaUnreadable)
+    bool BsaUnreadable,
+    bool GameDataUnknown)
 {
-    /// <summary>The only shape an in-place write may commit string tables for.</summary>
-    public bool CanCommitStrings => Shape is LocalizedShape.LooseComplete;
+    /// <summary>The only state an in-place write may commit string tables for: a complete loose set beside the plugin,
+    /// with the game-Data duplicate positively ruled OUT rather than merely unexamined.</summary>
+    public bool CanCommitStrings => Shape is LocalizedShape.LooseComplete && !GameDataUnknown;
 }
 
 /// <summary>
@@ -101,20 +107,20 @@ public static class LocalizedStrings
         var (bsaPath, bsaUnreadable) = BsaEmbedding(folder, stem);
         if (bsaPath is not null)
             return new LocalizedAssessment(LocalizedShape.BsaEmbedded, Names(own), Incomplete(own), Names(gameData),
-                                           bsaPath, bsaUnreadable);
+                                           bsaPath, bsaUnreadable, dataDir is null);
 
         if (own.Count > 0)
         {
             var incomplete = Incomplete(own);
             if (incomplete.Count > 0)
-                return new LocalizedAssessment(LocalizedShape.LoosePartial, Names(own), incomplete, Names(gameData), null, false);
+                return new LocalizedAssessment(LocalizedShape.LoosePartial, Names(own), incomplete, Names(gameData), null, false, dataDir is null);
             if (gameData.Count > 0)
-                return new LocalizedAssessment(LocalizedShape.LooseWithGameDataDuplicate, Names(own), incomplete, Names(gameData), null, false);
-            return new LocalizedAssessment(LocalizedShape.LooseComplete, Names(own), incomplete, Names(gameData), null, false);
+                return new LocalizedAssessment(LocalizedShape.LooseWithGameDataDuplicate, Names(own), incomplete, Names(gameData), null, false, false);
+            return new LocalizedAssessment(LocalizedShape.LooseComplete, Names(own), incomplete, Names(gameData), null, false, dataDir is null);
         }
 
         if (gameData.Count > 0)
-            return new LocalizedAssessment(LocalizedShape.GameDataOnly, Array.Empty<string>(), NoneIncomplete, Names(gameData), null, false);
+            return new LocalizedAssessment(LocalizedShape.GameDataOnly, Array.Empty<string>(), NoneIncomplete, Names(gameData), null, false, false);
 
         // Nothing loose anywhere and no archive beside the plugin — but the vanilla masters' strings live in the
         // game-Data ARCHIVES (Skyrim - Interface.bsa carries the base and DLC tables both), so a classifier that
@@ -126,10 +132,28 @@ public static class LocalizedStrings
             var (gdBsa, gdUnreadable) = BsaEmbedding(dataDir, stem);
             if (gdBsa is not null)
                 return new LocalizedAssessment(LocalizedShape.BsaEmbedded, Array.Empty<string>(), NoneIncomplete,
-                                               Array.Empty<string>(), gdBsa, gdUnreadable);
+                                               Array.Empty<string>(), gdBsa, gdUnreadable, false);
         }
 
-        return Plain(LocalizedShape.Nowhere);
+        return Plain(LocalizedShape.Nowhere, dataDir is null);
+    }
+
+    /// <summary>Should an in-place write of <paramref name="pluginPath"/> be refused, and if so with what sentence?
+    /// Null means the lane may proceed. THE one home for that decision: the write's own choke point calls it, and so
+    /// does every service pre-flight that has to predict the same answer before spending a consent or reporting a dry
+    /// run. Two spellings of this would drift, and a dry run whose answer differs from the real call is the defect the
+    /// pre-flights exist to prevent.</summary>
+    /// <param name="laneClause">The calling lane's own remedy clause, appended when the refusal is a shape refusal.
+    /// Not appended to the interrupted-commit refusal, which carries a recovery instruction of its own and would only
+    /// be muddied by "use the default lane instead".</param>
+    public static string? RefusalFor(string pluginPath, string pluginFileName, string? dataDir, string? laneClause = null)
+    {
+        var a = Assess(pluginPath, dataDir);
+        if (a.Shape == LocalizedShape.NotLocalized) return null;
+        if (!a.CanCommitStrings) return LocalizedTargetUnsupportedException.Shaped(pluginFileName, a, laneClause);
+        return LocalizedTableCommit.PendingCommit(pluginPath) is { } pending
+            ? LocalizedTargetUnsupportedException.InterruptedCommit(pluginFileName, pending)
+            : null;
     }
 
     /// <summary>The loose table files this plugin's own folder carries, in the order a commit should write them —
@@ -269,6 +293,6 @@ public static class LocalizedStrings
     static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> NoneIncomplete =
         new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
 
-    static LocalizedAssessment Plain(LocalizedShape shape)
-        => new(shape, Array.Empty<string>(), NoneIncomplete, Array.Empty<string>(), null, false);
+    static LocalizedAssessment Plain(LocalizedShape shape, bool gameDataUnknown = false)
+        => new(shape, Array.Empty<string>(), NoneIncomplete, Array.Empty<string>(), null, false, gameDataUnknown);
 }

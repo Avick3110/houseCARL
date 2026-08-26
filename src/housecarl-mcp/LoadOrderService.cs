@@ -5445,8 +5445,8 @@ public sealed class LoadOrderService : IDisposable
         //      no dry run, isolates.)
         //      It is no longer what keeps a refusal from spending the acknowledgement — nothing records consent until
         //      the write has landed (see PersistInPlaceConsent).
-        if (WriteEngine.PluginIsLocalized(targetPath))
-            return WritePatchBuilder.PatchOutcome.Fail(LocalizedTargetUnsupportedException.Text(targetName, LocalizedTargetUnsupportedException.RemedyDefaultLane))
+        if (LocalizedStrings.RefusalFor(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } locRefusal)
+            return WritePatchBuilder.PatchOutcome.Fail(locRefusal)
                 with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
         // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path. NOT a
@@ -5847,8 +5847,8 @@ public sealed class LoadOrderService : IDisposable
         //      refusal from spending the acknowledgement — nothing records consent until the write has landed (see
         //      PersistInPlaceConsent). The two lanes with a dry run need the prediction for a second reason — see
         //      ApplyEditsInPlace.
-        if (WriteEngine.PluginIsLocalized(targetPath))
-            return WritePatchBuilder.RemovalOutcome.Fail(LocalizedTargetUnsupportedException.Text(targetName, LocalizedTargetUnsupportedException.RemoveNoEquivalent))
+        if (LocalizedStrings.RefusalFor(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemoveNoEquivalent) is { } locRefusal)
+            return WritePatchBuilder.RemovalOutcome.Fail(locRefusal)
                 with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
         // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path (shared
@@ -6007,8 +6007,8 @@ public sealed class LoadOrderService : IDisposable
         //      no dry run, isolates.)
         //      It is no longer what keeps a refusal from spending the acknowledgement — nothing records consent until
         //      the write has landed (see PersistInPlaceConsent).
-        if (WriteEngine.PluginIsLocalized(targetPath))
-            return WritePatchBuilder.ForwardOutcome.Fail(LocalizedTargetUnsupportedException.Text(targetName, LocalizedTargetUnsupportedException.RemedyDefaultLane))
+        if (LocalizedStrings.RefusalFor(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } locRefusal)
+            return WritePatchBuilder.ForwardOutcome.Fail(locRefusal)
                 with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
         // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path (shared
@@ -6213,11 +6213,18 @@ public sealed class LoadOrderService : IDisposable
             // The NEW-FILE lane is untouched: its output is a plugin the modder reviews before swapping it in, which is
             // the distinction this whole refusal rests on.
             // Read once: the in-place lane refuses on it, and the new-file lane reports on it (below).
-            bool srcLocalized = WriteEngine.PluginIsLocalized(srcPath);
-            if (inPlace && srcLocalized)
+            //
+            // SHAPE-GATED since the strings commit seam landed. When the source's strings are a complete loose set
+            // beside it, the rebuild carries every language into P′ (measured) and the write commits P′ with matching
+            // tables, so P′ is the same KIND of thing the source was and the de-localization this refusal exists for
+            // does not happen. Every other shape still de-localizes, and in place that is still silent and unundoable.
+            var srcShape = LocalizedStrings.Assess(srcPath, view.DataDir);
+            bool srcLocalized = srcShape.Shape != LocalizedShape.NotLocalized;
+            bool keepLocalized = srcShape.CanCommitStrings;
+            if (inPlace && srcLocalized && !keepLocalized)
                 return WritePatchBuilder.CompactOutcome.Fail(
-                    $"houseCARL did not compact '{name}' in place — the file is unchanged and nothing was staged. It is " +
-                    "flagged LOCALIZED, so its text lives in separate .STRINGS files rather than in the plugin. A " +
+                    $"houseCARL did not compact '{name}' in place — the file is unchanged and nothing was staged. " +
+                    LocalizedTargetUnsupportedException.ShapeClause(srcShape) + " A " +
                     "compaction does not re-serialize your plugin, it builds a NEW one and writes that over the original, " +
                     "and the rebuilt plugin is not localized: what it would carry is whichever language resolved when " +
                     "houseCARL read it, written into the plugin itself — or blanks, if those strings resolved nowhere. " +
@@ -6430,11 +6437,19 @@ public sealed class LoadOrderService : IDisposable
             // refusal recommends. Own-behaviour only: it does NOT claim the strings resolved, because when they resolve
             // nowhere this same path writes blanks and the sentence has to stay true there too.
             if (!inPlace && srcLocalized)
-                markerNotes.Add(
-                    $"'{name}' is flagged LOCALIZED — its text lives in separate .STRINGS files. The compacted plugin " +
-                    "houseCARL wrote is NOT localized: it carries whatever this read of the source produced, written " +
-                    "into the plugin itself, and the source's .STRINGS files do not describe it. Read the output before " +
-                    "you enable it in place of the original.");
+                markerNotes.Add(keepLocalized
+                    ? $"'{name}' is flagged LOCALIZED, and so is the compacted plugin houseCARL wrote: its "
+                      + string.Join("/", srcShape.Languages) + " .STRINGS files were rewritten to match the new FormIDs "
+                      + "and sit in a Strings folder beside it. That folder is part of the plugin — it travels with it."
+                    : $"'{name}' is flagged LOCALIZED — its text lives in separate .STRINGS files, and "
+                      + LocalizedTargetUnsupportedException.WhyNotKept(srcShape) + " So the compacted plugin houseCARL "
+                      + "wrote is NOT localized: it carries whatever this read of the source produced, written into the "
+                      + "plugin itself, and the source's .STRINGS files do not describe it"
+                      + (srcShape.Languages.Count > 1
+                          ? ", including the " + (srcShape.Languages.Count - 1) + " other language(s) it shipped ("
+                            + string.Join(", ", srcShape.Languages) + "), which the output does not carry"
+                          : "")
+                      + ". Read the output before you enable it in place of the original.");
             if (flagOnlyNote is not null) markerNotes.Add(flagOnlyNote);
             if (inPlace) { var n = MergeEditedInPlaceMarker(Path.GetDirectoryName(srcPath)); if (n is not null) markerNotes.Add(n); }
             foreach (var r in repointed.Where(r => r.Success))
@@ -7115,8 +7130,8 @@ public sealed class LoadOrderService : IDisposable
         //      refusal from spending the acknowledgement — nothing records consent until the write has landed (see
         //      PersistInPlaceConsent). The two lanes with a dry run need the prediction for a second reason — see
         //      ApplyEditsInPlace.
-        if (WriteEngine.PluginIsLocalized(targetPath))
-            return WritePatchBuilder.CreateOutcome.Fail(LocalizedTargetUnsupportedException.Text(targetName, LocalizedTargetUnsupportedException.RemedyDefaultLane))
+        if (LocalizedStrings.RefusalFor(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } locRefusal)
+            return WritePatchBuilder.CreateOutcome.Fail(locRefusal)
                 with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
         // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path (shared with
