@@ -1103,7 +1103,7 @@ public sealed class PapyrusDecompiler
     }
 
     // ------------------------------------------------------------------ shared helpers
-    /// <summary>Compiler expression temps only: ::temp<N> and the ::NoneVar discard slot. Other
+    /// <summary>Compiler expression temps only: <c>::temp&lt;N&gt;</c> and the ::NoneVar discard slot. Other
     /// ::-prefixed names (CK fragment ::mangled_* locals, ::X_var auto-prop backing) are real storage.</summary>
     static bool IsTemp(string name)
         => name.Equals("::NoneVar", StringComparison.OrdinalIgnoreCase)

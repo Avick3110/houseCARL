@@ -576,7 +576,7 @@ internal static class ReadSentences
     ///
     /// <para>Unstated, a caller who wrote <c>plugins=["MyMod.esp"] findings=["errors","dialogue"]</c> would read the
     /// dialogue section as scoped to their plugin when it is scoped to their seeds — the two answers differ and
-    /// nothing in the response would say which one they were reading.</para></summary>
+    /// nothing in the response would say which one they were reading.</para>
     /// <para>What it says about HOW MANY is two sentences, not one, and that is the point: "it validated exactly
     /// the N seed(s) given in seeds=" was printed from the number NAMED, so a call whose <c>limit=</c> stopped it
     /// short claimed a completeness the accounting in the same section immediately contradicted (round-1

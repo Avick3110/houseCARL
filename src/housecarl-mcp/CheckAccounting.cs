@@ -551,7 +551,7 @@ internal sealed class CheckAccounting
     /// the clauses above it cannot disagree, and a subject the lane does not have cannot make it true. Dropped
     /// sections belong here: a sweep whose findings are all missing masters omits no dangling ref, so without this
     /// term a response missing 34 of 41 sections closed as complete — with no remedy, no roster, and a json twin that
-    /// said truncated.</summary>
+    /// said truncated.
     /// <para>It does NOT take <c>v.Worst</c> as an answer on its own. The worst case is every DECLARED subject at
     /// its widest, not every subject declared: read as "assume something is missing", it wrote the remedy clauses
     /// into a reserve for a lane where nothing can be. The worst case still dominates the real one term by term —
