@@ -4130,10 +4130,15 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
     /// with files in it — and asserts an absence only where the absence was checked.</summary>
     static string NothingMatched(LocalizedAssessment a)
     {
-        if (a.UnmatchedTables.Count == 0)
+        var u = a.UnmatchedTables;
+        if (u.Total == 0)
             return "no .STRINGS files beside it";
-        return "the Strings folder beside it holds " + a.UnmatchedTables.Count + " .STRINGS file(s) — "
-             + string.Join(", ", a.UnmatchedTables)
+        // The COUNT is the folder's; the NAMES are what fits. Rendering the capped list's length as the count made
+        // this sentence false about the modder's disk a third way — the folder holds thirty, the sentence said eight,
+        // and the list stopped with no ellipsis to say it had.
+        return "the Strings folder beside it holds " + u.Total + " .STRINGS file(s) — "
+             + string.Join(", ", u.Names)
+             + (u.Unnamed > 0 ? ", and " + u.Unnamed + " more" : "")
              + " — but houseCARL matched none of them to this plugin in a language it recognises";
     }
 

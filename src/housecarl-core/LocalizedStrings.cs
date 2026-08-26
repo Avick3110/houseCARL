@@ -67,6 +67,28 @@ public enum LocalizedShape
     Nowhere,
 }
 
+/// <summary>The table files in the <c>Strings\</c> folder beside a plugin that houseCARL did NOT match to it: the
+/// NAMES a refusal may quote — capped, because one folder can hold a translation mod's whole set — and the TRUE
+/// count those names were taken from.
+///
+/// <para><b>One type carrying both, so a sentence cannot render the cap as the count.</b> The refusal used to say
+/// "the Strings folder beside it holds {list.Count} .STRINGS file(s) — a, b, c, d, e, f, g, h" off a list that ended
+/// <c>.Take(8)</c>, so a folder holding thirty was described as holding eight and the list stopped without saying so.
+/// That is an assertion about the modder's disk the code never checked — the same class as the two absence claims
+/// this sentence was already rewritten twice to remove, arriving through the cap instead of the matching.</para></summary>
+/// <param name="Names">The names the sentence may quote — at most <see cref="Cap"/> of them, ordered.</param>
+/// <param name="Total">How many unmatched table files are actually there. Never less than <c>Names.Count</c>.</param>
+public sealed record UnmatchedTableFiles(IReadOnlyList<string> Names, int Total)
+{
+    /// <summary>How many names a refusal quotes before it starts counting instead.</summary>
+    public const int Cap = 8;
+
+    /// <summary>The unmatched files the sentence did not name — the "and N more" it owes the reader.</summary>
+    public int Unnamed => Total - Names.Count;
+
+    public static readonly UnmatchedTableFiles None = new(Array.Empty<string>(), 0);
+}
+
 /// <param name="Shape">The classification.</param>
 /// <param name="Languages">Languages found beside the plugin (empty unless a loose set is there).</param>
 /// <param name="IncompleteLanguages">Those of <paramref name="Languages"/> missing at least one table kind, with the
@@ -86,7 +108,8 @@ public enum LocalizedShape
 /// out of the shared folder, or this plugin's own tables named for a language token Mutagen does not model
 /// (<c>ZRef_ptbr.STRINGS</c>). Carried so the <see cref="LocalizedShape.Nowhere"/> sentence can describe the folder
 /// the modder is looking at instead of claiming nothing is in it — the falsehood that survived one directed fix by
-/// being re-stated a second way.</param>
+/// being re-stated a second way. Names and true count travel together; see
+/// <see cref="UnmatchedTableFiles"/>.</param>
 public sealed record LocalizedAssessment(
     LocalizedShape Shape,
     IReadOnlyList<string> Languages,
@@ -96,10 +119,10 @@ public sealed record LocalizedAssessment(
     bool BsaUnreadable,
     bool GameDataUnknown,
     bool BsaInGameData = false,
-    IReadOnlyList<string>? UnmatchedTables = null)
+    UnmatchedTableFiles? UnmatchedTables = null)
 {
     /// <summary>The unmatched table files beside the plugin, never null — see the parameter's own note.</summary>
-    public IReadOnlyList<string> UnmatchedTables { get; init; } = UnmatchedTables ?? Array.Empty<string>();
+    public UnmatchedTableFiles UnmatchedTables { get; init; } = UnmatchedTables ?? UnmatchedTableFiles.None;
 }
 
 /// <summary>
@@ -251,22 +274,25 @@ public static class LocalizedStrings
     /// <c>ZRef_ptbr.STRINGS</c> means guessing where the stem ends — the exact guess whose first spelling made one
     /// plugin's assessment read another's files. What is checkable without guessing is that the files are there and
     /// that none of them matched, and that is all the sentence claims.</para></summary>
-    static IReadOnlyList<string> UnmatchedTablesIn(string stringsDir, string stem)
+    static UnmatchedTableFiles UnmatchedTablesIn(string stringsDir, string stem)
     {
-        if (!Directory.Exists(stringsDir)) return Array.Empty<string>();
+        if (!Directory.Exists(stringsDir)) return UnmatchedTableFiles.None;
         try
         {
-            return Directory.EnumerateFiles(stringsDir)
-                            .Where(p => Kinds.Contains(Path.GetExtension(p).TrimStart('.'), StringComparer.OrdinalIgnoreCase))
-                            .Where(p => Parse(Path.GetFileName(p), stem) is null)
-                            .Select(Path.GetFileName)
-                            .OfType<string>()
-                            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
-                            .Take(8)
-                            .ToList();
+            // The whole set first, and the cap applied to the NAMES only. Capping the enumeration itself is what made
+            // the count and the list the same number — so a folder holding thirty announced eight, as a fact about the
+            // modder's disk.
+            var all = Directory.EnumerateFiles(stringsDir)
+                               .Where(p => Kinds.Contains(Path.GetExtension(p).TrimStart('.'), StringComparer.OrdinalIgnoreCase))
+                               .Where(p => Parse(Path.GetFileName(p), stem) is null)
+                               .Select(Path.GetFileName)
+                               .OfType<string>()
+                               .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+                               .ToList();
+            return new UnmatchedTableFiles(all.Take(UnmatchedTableFiles.Cap).ToList(), all.Count);
         }
-        catch (IOException) { return Array.Empty<string>(); }
-        catch (UnauthorizedAccessException) { return Array.Empty<string>(); }
+        catch (IOException) { return UnmatchedTableFiles.None; }
+        catch (UnauthorizedAccessException) { return UnmatchedTableFiles.None; }
     }
 
     /// <summary>language → the table kinds present for it, for one strings folder and one plugin stem.</summary>
