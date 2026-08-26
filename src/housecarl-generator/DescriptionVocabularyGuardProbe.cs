@@ -62,9 +62,10 @@ namespace HousecarlGenerator;
 /// <list type="bullet">
 ///   <item><b>SOURCE</b> — every string-literal SENTENCE in the three shipped trees (<c>housecarl-mcp</c>,
 ///         <c>housecarl-core</c>, <c>housecarl-setup</c>), a sentence being a maximal run of adjacent literals
-///         joined by <c>+</c> OR a run of consecutive <c>Append</c> calls on one receiver: the unit an author
-///         writes. This answers ABSENCE (INV1) — a phrase absent from every literal is absent from every string
-///         built out of them by those two shapes. Assembly across control flow or through a helper is a DECLARED
+///         joined by <c>+</c> OR a run of consecutive <c>Append</c> / <c>Write</c> calls on one receiver,
+///         optionally finished by the <c>Line</c> form of that verb: the unit an author writes. This answers
+///         ABSENCE (INV1) — a phrase absent from every literal is absent from every string built out of them by
+///         those two shapes. Assembly across control flow or through a helper is a DECLARED
 ///         boundary, printed on every run (<see cref="NotInReach"/>), not a claim this quietly covers.</item>
 ///   <item><b>SURFACE</b> — the compiled <c>[Description]</c> attributes of the tool assembly. This answers
 ///         PRESENCE and COMPLETENESS (INV3/INV4): "which verbs does a caller read" needs the text assembled, and
@@ -250,8 +251,10 @@ public static class DescriptionVocabularyGuardProbe
         "the READMEs, the shipped skills, plugin/CHANGELOG.md, and the plugin / marketplace JSON metadata (not in a scanned tree)",
         "a phrase split around a VALUE — \"shown \" + n + \"once\", or across an interpolation hole (no fragment carries it)",
         "prose assembled ACROSS CONTROL FLOW or through a helper — a run of Append calls broken by an 'if', or a "
-            + "sentence one method starts and another finishes. A +-run and an unbroken Append run on one receiver "
-            + "ARE read as one sentence, written as separate statements or as a fluent chain; deciding which "
+            + "sentence one method starts and another finishes. A +-run and an unbroken Append or Write run on one "
+            + "receiver ARE read as one sentence, written as separate statements or as a fluent chain, and a run "
+            + "FINISHED with the Line form of its verb is one too, because that break lands after the last half; "
+            + "a Line call does not CONTINUE a run, since then the break falls between the halves. Deciding which "
             + "conditional arms run together is dataflow analysis, not a merge rule, so this edge is declared "
             + "rather than guessed at",
         "third-party library messages surfaced to a caller (not ours to author, and not ours to fix)",
@@ -698,6 +701,8 @@ public static class DescriptionVocabularyGuardProbe
         // Every file the net ENUMERATED, recorded before it is read: membership is about which files the net
         // reaches, and a file that then fails to read is INV6-PARSE's red, not a hole in the file set.
         var scannedFiles = new List<string>();
+        var lineProblems = new List<string>();
+        int lineClosedAppend = 0, lineClosedWrite = 0;
         long chars = 0;
         int files = 0, literals = 0, inHoles = 0;
 
@@ -738,12 +743,26 @@ public static class DescriptionVocabularyGuardProbe
                     agreeProblems.AddRange(disagreements);
                 }
 
-                foreach (var s in MergeSentences(text, a, calls))
+                var merged = MergeSentences(text, a, calls);
+                foreach (var s in merged)
                 {
                     if (string.IsNullOrWhiteSpace(s.Text)) continue;
                     sentences.Add(new Sentence($"{label}:{s.Line}", s.Text));
                     rootSentences++;
                     chars += s.Text.Length;
+                }
+                // The Line rule, held against what the merge actually PRODUCED rather than against the predicate
+                // that decides it. A sentence carries the START of its head, so a literal that opens a sentence
+                // was not merged into what came before it; a Line-closed gap whose second literal is missing from
+                // that set was joined across a line break the modder can see.
+                var opens = merged.Select(m => m.Start).ToHashSet();
+                foreach (var (lit, adds) in LineClosedGaps(a, calls))
+                {
+                    if (adds == "Append") lineClosedAppend++; else lineClosedWrite++;
+                    if (!opens.Contains(lit.Start))
+                        lineProblems.Add($"{label}:{lit.Line} — the call before this one already broke the line, and the two "
+                                       + "were merged anyway: the phrase this reports would be split across a line break on "
+                                       + "the caller's screen");
                 }
                 literals += a.Count;
                 rootHoles += a.Count(l => l.Depth > 0);
@@ -758,6 +777,19 @@ public static class DescriptionVocabularyGuardProbe
         Console.WriteLine($"        total: {files} file(s), {literals} literal(s) ({inHoles} inside interpolation holes), {sentences.Count} sentence(s), {chars / 1000}k char(s)");
         Console.WriteLine("        NOT in reach (the by-construction claim is exactly as honest as this list):");
         foreach (var n in NotInReach) Console.WriteLine($"          · {n}");
+
+        // A run FINISHED by a Line call is one sentence (the break lands after it); a run that a Line call already
+        // closed is two. The second half is the one with live instances in these trees, so it gets an arm over the
+        // merge's own output. The count is printed rather than pinned: a new WriteLine pair is ordinary authoring,
+        // and what must hold is that none of them merged — but if the count ever reaches zero this arm is asserting
+        // nothing about nothing, and says so instead of passing quietly.
+        int lineClosed = lineClosedAppend + lineClosedWrite;
+        if (lineClosed == 0)
+            lineProblems.Add("no run in the shipped trees is closed by a Line call any more — this arm has nothing left "
+                           + "to hold, and a merge that started crossing line breaks would now pass it silently");
+        Check($"GREEN-LINEBREAK  every run a Line call already CLOSED stayed two sentences ({lineClosedWrite} WriteLine "
+            + $"and {lineClosedAppend} AppendLine gap(s) in the shipped trees, none merged)",
+            lineProblems.Count == 0, lineProblems, tier: Tier.Construction);
 
         var scanned = roots.Select(r => Path.GetFileName(r)!).ToList();
         rootProblems.AddRange(TreeSetMismatch(scanned));
@@ -961,17 +993,44 @@ public static class DescriptionVocabularyGuardProbe
     /// cross. Six shipped literals stopped being merged that way when the receiver moved onto the tree, each of
     /// them the statement after a one-line <c>if</c> body.</para></summary>
     static bool AppendRun(IReadOnlyDictionary<int, AppendCall> calls, SourceLiteral prev, SourceLiteral next)
+        // A call that breaks the line can FINISH a run but never continue one: the break lands after its own
+        // text, so Write("a"); WriteLine("b"); reads "ab" on one line, and WriteLine("a"); Write("b"); does not.
+        => Contiguous(calls, prev, next, out var first) && !first.EndsLine;
+
+    /// <summary>Everything a run needs EXCEPT the line rule: the same verb, on the same receiver, with nothing
+    /// between. Split out from <see cref="AppendRun"/> so that <see cref="LineClosedGaps"/> can ask for the pairs
+    /// that differ from a run in exactly one respect, without a second copy of the test to drift from this
+    /// one. <paramref name="first"/> is the call the earlier literal belongs to.</summary>
+    static bool Contiguous(IReadOnlyDictionary<int, AppendCall> calls, SourceLiteral prev, SourceLiteral next,
+                           out AppendCall first)
     {
         // Keyed by the literal's END: a merged run carries its TAIL's end forward, so this looks up the call the
         // run last made rather than the one it started with.
+        first = default;
         if (!calls.TryGetValue(prev.End, out var a) || !calls.TryGetValue(next.End, out var b)) return false;
-        // The same METHOD both sides. Append and Write each add text with nothing between, but a run that changes
+        first = a;
+        // The same VERB both sides. Append and Write each add text with nothing between, but a run that changes
         // from one to the other is two different calls, and joining them would manufacture text nobody reads.
-        if (!string.Equals(a.Method, b.Method, StringComparison.Ordinal)) return false;
+        if (!string.Equals(a.Adds, b.Adds, StringComparison.Ordinal)) return false;
         if (!string.Equals(a.Receiver, b.Receiver, StringComparison.Ordinal)) return false;
         return b.Inner == a.Node
             || (a.Statement >= 0 && b.Statement >= 0 && a.Following == b.Statement
                 && a.Node == a.Outer && b.Inner < 0);
+    }
+
+    /// <summary>The adjacent literal pairs that are a run in every respect except that the FIRST call already
+    /// broke the line. These must stay two sentences, and there are enough of them in the shipped trees for that
+    /// to be worth checking against the merge's actual output rather than against the predicate that decides it —
+    /// which is what <c>GREEN-LINEBREAK</c> does.</summary>
+    static List<(SourceLiteral Next, string Adds)> LineClosedGaps(
+        List<SourceLiteral> lits, IReadOnlyDictionary<int, AppendCall> calls)
+    {
+        var outp = new List<(SourceLiteral, string)>();
+        var top = lits.Where(l => l.Depth == 0).OrderBy(l => l.Start).ToList();
+        for (int i = 1; i < top.Count; i++)
+            if (Contiguous(calls, top[i - 1], top[i], out var a) && a.EndsLine)
+                outp.Add((top[i], a.Adds));
+        return outp;
     }
 
     /// <summary>Adjacent TOP-LEVEL literals are ONE sentence when the author wrote them as one. Two shapes count:
@@ -998,8 +1057,18 @@ public static class DescriptionVocabularyGuardProbe
     /// while the code read only the statement form — 2,479 chained <c>).Append(</c> gaps in the shipped trees
     /// against 257 statement-form ones. <c>Write</c> entered the set with it: <c>housecarl-setup</c> talks to a
     /// modder in 47 <c>Console.Write*</c> calls, and <c>Console.Write("…"); Console.Write("…");</c> concatenates
-    /// on that modder's screen exactly as an Append run concatenates in a builder, so a run that CHANGES method
-    /// is two sentences and a run that keeps it is one. <b>The receiver then moved onto the syntax tree the same
+    /// on that modder's screen exactly as an Append run concatenates in a builder, so a run that CHANGES verb
+    /// is two sentences and a run that keeps it is one. <b>A <c>Line</c> variant is the same verb</b>, admitted
+    /// 2026-08-26 in the run's LAST position only: it adds its text and breaks AFTER, so
+    /// <c>Write("a"); WriteLine("b");</c> is one line the modder reads as "ab" while
+    /// <c>WriteLine("a"); Write("b");</c> is two. Ending a run with the <c>Line</c> form is the commoner way to
+    /// write one, and reading it as two sentences left that whole shape outside INV1 with nothing on the printed
+    /// boundary list saying so. It moved no shipped sentence: the trees hold ZERO plain-then-Line gaps today, and
+    /// the 38 Line gaps they do hold (35 <c>WriteLine</c>, 3 <c>AppendLine</c>) are all Line-then-Line, which must
+    /// stay two sentences and do — <c>GREEN-LINEBREAK</c> holds that against the merge's own output. The review
+    /// that directed this counted 53 and 5 by the textual gap SHAPE alone; this count is of pairs that satisfy
+    /// every other condition of a run, which is the set the rule can actually decide.
+    /// <b>The receiver then moved onto the syntax tree the same
     /// day</b>: 12 further literals joined the run in front of them — every one a statement-form continuation
     /// the lookback could not read, because the call before it ended on a VALUE rather than on a name — and 6
     /// stopped being merged, each of them the statement after a one-line <c>if</c> body that the old pattern
@@ -1986,7 +2055,8 @@ public static class DescriptionVocabularyGuardProbe
             c.Append("this prompt is shown ", n);
             c.Append("once.");
             """;
-        const string otherMethodSrc = """
+        // Append finished with AppendLine: one sentence, for the same reason as Write/WriteLine.
+        const string appendThenLineSrc = """
             c.Append("this prompt is shown ");
             c.AppendLine("once.");
             """;
@@ -1999,7 +2069,7 @@ public static class DescriptionVocabularyGuardProbe
         const string longChainSrc = """
             c.Append("this ").Append("prompt is shown ").Append("once.");
             """;
-        const string chainOtherMethodSrc = """
+        const string chainThenLineSrc = """
             c.Append("this prompt is shown ").AppendLine("once.");
             """;
         // A run that SWITCHES form mid-way. It merges, and correctly: MergeSentences carries the run's START
@@ -2058,15 +2128,31 @@ public static class DescriptionVocabularyGuardProbe
             c.Append($"once. {tail}");
             """;
         // Console.Write — the OTHER call that concatenates with nothing between, and the one housecarl-setup
-        // talks to a modder through. WriteLine must not merge: a line break lands between the two halves, so
-        // they are not one sentence on the screen.
+        // talks to a modder through.
         const string consoleSrc = """
             Console.Write("this prompt is shown ");
             Console.Write("once.");
             """;
+        // The Line variant, on the side of the break that matters. WriteLine adds its text and breaks AFTER, so
+        // the modder reads "this prompt is shown once." on one line and it is one sentence. The claim this
+        // fixture used to carry — that a line break lands BETWEEN the two halves — is true only the other way
+        // round, and it left every run FINISHED with a Line call outside INV1 with nothing declaring it.
         const string consoleLineSrc = """
             Console.Write("this prompt is shown ");
             Console.WriteLine("once.");
+            """;
+        // The other way round, which really is two sentences: the break falls between the halves.
+        const string lineThenPlainSrc = """
+            Console.WriteLine("this prompt is shown ");
+            Console.Write("once.");
+            """;
+        const string lineThenLineSrc = """
+            Console.WriteLine("this prompt is shown ");
+            Console.WriteLine("once.");
+            """;
+        const string appendLineThenAppendSrc = """
+            c.AppendLine("this prompt is shown ");
+            c.Append("once.");
             """;
         const string mixedMethodSrc = """
             c.Write("this prompt is shown ");
@@ -2090,7 +2176,7 @@ public static class DescriptionVocabularyGuardProbe
         static bool Carries(string src) =>
             Merged(src).Any(t => t.Contains("shown once", StringComparison.Ordinal));
 
-        Check("RED-APPENDRUN    consecutive Append or Console.Write literals on ONE receiver merge into one sentence in BOTH the statement and the fluent form, across a switch between them, past an earlier value argument and on an indexer-spelled receiver and into an interpolated argument, and twelve shapes that are NOT one run do not",
+        Check("RED-APPENDRUN    consecutive Append or Console.Write literals on ONE receiver merge into one sentence in BOTH the statement and the fluent form, across a switch between them, past an earlier value argument and on an indexer-spelled receiver and into an interpolated argument, and FINISHED with the Line variant of its verb, and fifteen shapes that are NOT one run do not",
             Carries(appendSrc)
                 && Merged(appendSrc).Contains("this prompt is shown once.", StringComparer.Ordinal)
                 && Carries(chainSrc)
@@ -2100,8 +2186,8 @@ public static class DescriptionVocabularyGuardProbe
                 && !Carries(brokenSrc)
                 && !Carries(twoBuildersSrc)
                 && !Carries(secondArgSrc)
-                && !Carries(otherMethodSrc)
-                && !Carries(chainOtherMethodSrc)
+                && Carries(appendThenLineSrc)
+                && Carries(chainThenLineSrc)
                 && Carries(formSwitchSrc)
                 && Merged(formSwitchSrc).Contains("this prompt is shown once.", StringComparer.Ordinal)
                 && !Carries(formSwitchOtherReceiverSrc)
@@ -2116,7 +2202,11 @@ public static class DescriptionVocabularyGuardProbe
                 && Carries(interpolatedArgSrc)
                 && Carries(consoleSrc)
                 && Merged(consoleSrc).Contains("this prompt is shown once.", StringComparer.Ordinal)
-                && !Carries(consoleLineSrc)
+                && Carries(consoleLineSrc)
+                && Merged(consoleLineSrc).Contains("this prompt is shown once.", StringComparer.Ordinal)
+                && !Carries(lineThenPlainSrc)
+                && !Carries(lineThenLineSrc)
+                && !Carries(appendLineThenAppendSrc)
                 && !Carries(mixedMethodSrc)
                 && Carries(commentJoinSrc)
                 && Carries(blockCommentJoinSrc)
@@ -2125,8 +2215,9 @@ public static class DescriptionVocabularyGuardProbe
                   + "loses one because an earlier link took a value or the receiver is spelled with an indexer — so a "
                   + "phrase split across two calls ships to a modder with INV1 green, which is what compact_plugin's prompt "
                   + "made possible and what the fluent chain, the commoner shape, went on doing — or it joins across an "
-                  + "intervening statement, across two different builders, past a second argument, into a different method, "
-                  + "off the head of a chain onto a DIFFERENT builder, between two different indexed receivers, or "
+                  + "intervening statement, across two different builders, past a second argument, out of a run that a "
+                  + "Line call already closed, into a different verb, off the head of a chain onto a DIFFERENT "
+                  + "builder, between two different indexed receivers, or "
                   + "across a value that one statement ends with or the next begins with, or into an expression that "
                   + "merely ENDS on a literal while appending something else, any of which manufactures a phrase no "
                   + "caller reads and reds INV1 on correct prose" }, redArm: true);

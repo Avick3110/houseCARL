@@ -98,7 +98,8 @@ public static class RoslynLiteralReader
         {
             // A call with no receiver expression adds text to nothing this can name, so it is not a run link.
             if (inv.Expression is not MemberAccessExpressionSyntax ma) continue;
-            if (Array.IndexOf(RunMethods, ma.Name.Identifier.ValueText) < 0) continue;
+            var verb = Array.Find(RunMethods, m => m.Name == ma.Name.Identifier.ValueText);
+            if (verb.Name is null) continue;
             // ONE argument, and it must BE the literal: a second argument is a value between the two halves, and
             // a named or by-ref argument is not the text-adding shape either. "Be" rather than "end with" —
             // `sb.Append(name == "…")` closes on a string and appends a bool, so its literal is read by nobody,
@@ -131,15 +132,24 @@ public static class RoslynLiteralReader
             }
 
             map[arg.Span.End] = new AppendCall(
-                ma.Name.Identifier.ValueText, HeadText(recv), inv.Span.End, inner,
+                verb.Adds, verb.EndsLine, HeadText(recv), inv.Span.End, inner,
                 ((InvocationExpressionSyntax)outer).Span.End, statement, following);
         }
         return map;
     }
 
-    /// <summary>The calls that put a literal in front of a caller with nothing between — the two that
-    /// concatenate and stop there.</summary>
-    static readonly string[] RunMethods = { "Append", "Write" };
+    /// <summary>The calls that put a literal in front of a caller with nothing between, each mapped to the verb
+    /// it IS and to whether it breaks the line afterwards.
+    /// <para>A <c>Line</c> variant is the same verb wearing a terminator: <c>AppendLine("b")</c> appends "b" and
+    /// THEN breaks, so <c>Append("a"); AppendLine("b");</c> is read as "ab" on one line and is one sentence,
+    /// while <c>AppendLine("a"); Append("b");</c> puts the break between the halves and is two. Which side the
+    /// break falls on is the whole distinction, and it is a property of the call rather than of the pair, so it
+    /// is recorded here and the merge asks for it.</para></summary>
+    static readonly (string Name, string Adds, bool EndsLine)[] RunMethods =
+    {
+        ("Append", "Append", false), ("AppendLine", "Append", true),
+        ("Write",  "Write",  false), ("WriteLine",  "Write",  true),
+    };
 
     /// <summary>Where the next statement in the same body begins, or -1 when this one is last — or stands alone
     /// as an <c>if</c> body, where what follows the <c>if</c> is not a continuation of anything.</summary>
@@ -197,7 +207,11 @@ public static class RoslynLiteralReader
 /// This is what lets a run of them be recognised as ONE authored sentence without asking a regex what stood in
 /// front of a literal.
 /// </summary>
-/// <param name="Method">The called name exactly as written.</param>
+/// <param name="Adds">The text-adding verb this call IS — <c>Append</c> or <c>Write</c>. A <c>Line</c> variant
+/// reports the same verb as its plain form, because it adds the same text; where they differ is
+/// <see cref="EndsLine"/>.</param>
+/// <param name="EndsLine">Whether the call breaks the line AFTER its own text. Such a call can FINISH a run — the
+/// two halves still read as one line — but never continue one, because the break then lands between them.</param>
 /// <param name="Receiver">The HEAD of the invocation chain, as text — <c>sb</c>, <c>cells[i].Sb</c>,
 /// <c>Console</c>. Two calls are on the same receiver when these are equal; an indexer or a dotted path is just
 /// another node here, which is the whole point of taking it from the tree.</param>
@@ -214,5 +228,5 @@ public static class RoslynLiteralReader
 /// <param name="Following">The start offset of the next statement in the same body, or -1. Equality with another
 /// entry's <see cref="Statement"/> is the statement-run relation — which is why an intervening <c>if</c>, or any
 /// other statement, breaks a run by construction rather than by a pattern that has to enumerate it.</param>
-public readonly record struct AppendCall(string Method, string Receiver, int Node, int Inner, int Outer,
-                                         int Statement, int Following);
+public readonly record struct AppendCall(string Adds, bool EndsLine, string Receiver, int Node, int Inner,
+                                         int Outer, int Statement, int Following);
