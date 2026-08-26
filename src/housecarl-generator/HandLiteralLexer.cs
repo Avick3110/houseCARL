@@ -109,8 +109,10 @@ public static class HandLiteralLexer
         // A run of three or more quotes opens a RAW literal only when the literal is not VERBATIM. C# has no
         // @"""x""" form: that is a verbatim string whose first character is an escaped quote, and reading it as
         // raw either hands back the wrong text or runs off looking for a three-quote terminator that never comes.
-        // Shapes like it ship one character away from the scanned trees (SkseConfigReferenceExtractor.cs:45), and
-        // the generator tree - which is deliberately not scanned - is full of them.
+        // Measured, so the reason is not hypothetical: the scanned trees hold NO @""" today, but they do hold the
+        // raw and verbatim forms this has to tell apart, and SkseConfigReferenceExtractor.cs is IN one of them
+        // (src/housecarl-core) rather than near one. The generator tree - deliberately not scanned - is full of
+        // the shape, which is where a reader that got this wrong would first be noticed and then not be caught.
         var (text, end) = quoteRun >= 3 && !verbatim
             ? LexRaw(src, quote, quoteRun, to, dollars, depth, outp, holeEnds)
             : LexRegular(src, quote, to, dollars > 0, verbatim, depth, outp, holeEnds);
