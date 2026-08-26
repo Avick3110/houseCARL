@@ -4,24 +4,26 @@ using Mutagen.Bethesda.Strings;
 
 namespace HousecarlCore;
 
-/// <summary>Which strings shape a plugin is in — the one classifier behind every localized-write decision: the in-place
-/// write's allow/refuse gate, the compact lane's localized-P′ gate, and the load-order frequency sweep.</summary>
+/// <summary>Which strings shape a plugin is in — the one classifier behind every localized-write decision: what the
+/// in-place refusal SAYS (the outcome is the same for all of them), the compact lane's localized-P′ gate, and the
+/// load-order frequency sweep.</summary>
 public enum LocalizedShape
 {
     /// <summary>Not flagged localized: its text is inside the plugin and none of this applies.</summary>
     NotLocalized,
 
     /// <summary>A loose <c>Strings\</c> beside the plugin, every language present carrying all three table kinds, and
-    /// no competing set in game-Data. The ONE shape the write may commit tables for.</summary>
+    /// no competing set in game-Data. The one shape a COMPACTION may keep localized in its new-file output — and, like
+    /// every other shape, still refused for an in-place write.</summary>
     LooseComplete,
 
     /// <summary>A loose set beside the plugin in which some language is missing a table kind. Re-serializing
     /// MATERIALISES the missing files holding empty values, so a player on that language loses the fallback they had.</summary>
     LoosePartial,
 
-    /// <summary>A loose set beside the plugin AND a set for the same plugin in game-Data. Committing tables beside the
-    /// plugin leaves the game-Data set stale, and — the reason this cannot merely be tolerated — the game-Data set
-    /// still resolves during the commit's own window, so the blank window the write relies on would not be blank.</summary>
+    /// <summary>A loose set beside the plugin AND a set for the same plugin in game-Data. Which of the two describes
+    /// the plugin is ambiguous, so a compaction cannot safely carry either into P′ — it would bake in whichever set
+    /// this read happened to resolve.</summary>
     LooseWithGameDataDuplicate,
 
     /// <summary>The plugin's strings are embedded in a <c>.bsa</c> beside it, which a plugin write cannot rewrite.</summary>
@@ -56,8 +58,8 @@ public enum LocalizedShape
 /// assumed harmless (Q3).</param>
 /// <param name="GameDataUnknown">No game-Data folder was supplied, so whether a competing set lives there could not be
 /// checked. This is NOT the same as having checked and found none: it makes
-/// <see cref="LocalizedShape.LooseComplete"/> unsafe to act on, because the duplicate it cannot rule out is precisely
-/// what would keep the commit's blank window from being blank.</param>
+/// <see cref="LocalizedShape.LooseComplete"/> unsafe to carry into a compacted P′, because the duplicate it cannot
+/// rule out is what would make the source's own set ambiguous.</param>
 public sealed record LocalizedAssessment(
     LocalizedShape Shape,
     IReadOnlyList<string> Languages,
@@ -80,14 +82,17 @@ public sealed record LocalizedAssessment(
 
 /// <summary>
 /// Classifies where a localized plugin's <c>.STRINGS</c> / <c>.DLSTRINGS</c> / <c>.ILSTRINGS</c> actually live, so a
-/// write can decide whether it may commit its own emitted tables beside the plugin or must refuse.
+/// refusal can tell the caller where their text is, and so a compaction can decide whether its new-file output may
+/// stay localized.
 ///
-/// <para>The shapes and their rulings were measured, not assumed (localized-write-probe, 2026-08-26): committing the
-/// emitted tables with the plugin round-trips every value faithfully across all three table kinds; Mutagen loads and
-/// re-emits EVERY language present beside the plugin, so a complete loose set of any size round-trips; and a language
-/// present only partially has its missing kinds materialised holding empty values. Detection was priced in the same
-/// run — the language enumeration at ~0.1 ms, and asking a real 101 MB archive whether it embeds strings keyed to a
-/// given plugin at under 1 ms.</para>
+/// <para>It no longer decides whether an in-place write may proceed: that answer is now the same for every shape —
+/// no. See <see cref="LocalizedTableCommit"/> for what was cut and why.</para>
+///
+/// <para>The shapes were measured, not assumed (localized-write-probe, 2026-08-26): Mutagen loads and re-emits EVERY
+/// language present beside a plugin, so a complete loose set of any size round-trips through a serialize; a language
+/// present only partially has its missing kinds materialised holding empty values; and detection was priced in the
+/// same run — the language enumeration at ~0.1 ms, and asking a real 101 MB archive whether it embeds strings keyed
+/// to a given plugin at under 1 ms.</para>
 /// </summary>
 public static class LocalizedStrings
 {
