@@ -35,6 +35,29 @@ static class JsonWire
         if (v is null) w.WriteNull(name); else w.WriteString(name, v);
     }
 
+    /// <summary>The ONE way a json DOCUMENT declares itself a refusal: <c>ok:false</c> followed by the message.
+    /// Every whole-call refusal on the read surface writes its discriminant through here, so the shape cannot be
+    /// stated one way in one renderer and another way in the next (#403 — the discriminant was absent entirely
+    /// while <see cref="RenderError"/>'s own summary claimed json consumers saw one refusal grammar).
+    ///
+    /// <para><b>Document-level only.</b> A per-ROW <c>error</c> field — a malformed FormID in a batch, a seed that
+    /// did not resolve — is NOT a refusal: the call succeeded and rendered a row that failed. Those sites keep a
+    /// bare <c>error</c> and must never gain <c>ok</c>, or a consumer branching on the discriminant would read a
+    /// served document as a refused one.</para>
+    ///
+    /// <para><b>Epoch is the caller's, deliberately.</b> Some refusals stamp the build they consulted
+    /// (<c>epoch:"…"</c>), some state it as null, and the pre-capture validation refusals omit it entirely because
+    /// they consulted no build (PR #305). That three-way split is a live contract, so this helper writes the
+    /// discriminant and the message and leaves epoch to the site.</para></summary>
+    internal static void WriteRefusal(Utf8JsonWriter w, string? error)
+    {
+        w.WriteBoolean("ok", false);
+        // `error` is nullable at one caller (read_plugin_file's error mode reads a DTO field that is typed
+        // optional), and that site wrote a json null before this helper existed. Preserved rather than tightened:
+        // changing what a refusal document says is not this lane's change.
+        WriteNullable(w, "error", error);
+    }
+
     // ---- housecarl_resolve (P3) ---------------------------------------------------------------------
     /// <summary>Render the bulk name-resolution result as JSON: <c>{count, resolved:[…], rendered, truncated}</c> —
     /// one <c>{formid,type,editorid,name,winner}</c> row per resolvable input, or <c>{formid,error}</c> for a
@@ -122,7 +145,7 @@ static class JsonWire
             // Refusals carry the bare stamp only — coverage is an assertion about RESOLVED inputs, and a refusal's
             // poles were never resolved (emitting true there claimed full coverage on e.g. an off-order-path
             // refusal; PR #305 third round, finding 2). Text refusals carry no qualifier either — D2 restored.
-            if (o.Error is not null) { w.WriteString("error", o.Error); WriteNullable(w, "epoch", o.Epoch); }
+            if (o.Error is not null) { WriteRefusal(w, o.Error); WriteNullable(w, "epoch", o.Epoch); }
             else
             {
                 WriteEpochWithCoverage(w, o);   // §2.1.1: the INDEX build + whether it covers every input
@@ -179,17 +202,27 @@ static class JsonWire
 
     static int Cap(int maxChars) => maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
 
-    /// <summary>A bare whole-call refusal document: <c>{error, epoch?}</c> — for tool-layer refusals that have no
-    /// outcome object to render (e.g. the §2.1.1 artifact epoch-mismatch handed back beside the batch), matching
+    /// <summary>A whole-call refusal document: <c>{ok:false, error, epoch}</c> — for tool-layer refusals that have
+    /// no outcome object to render (e.g. the §2.1.1 artifact epoch-mismatch handed back beside the batch), matching
     /// the outcome-borne refusal shape so json consumers see ONE refusal grammar. The stamp rides when the refusal
-    /// consulted a build (the PR #305 contract).</summary>
+    /// consulted a build (the PR #305 contract).
+    ///
+    /// <para><b>The discriminant is written through <see cref="WriteRefusal"/>, not here.</b> This summary used to
+    /// claim the one-grammar match while the document carried no <c>ok</c> at all, so a consumer branching on it
+    /// found the property absent on exactly the refusals this method serves (#403). The claim is now true by
+    /// construction: every whole-call refusal on the surface goes through that one writer.</para>
+    ///
+    /// <para><b><c>ok</c> marks refusals only.</b> A served read document carries no <c>ok</c> — absence means the
+    /// call was answered. Deliberate asymmetry with the write surface, which writes the flag on both outcomes:
+    /// stamping <c>ok:true</c> across every read render is a change to documents that are not refusals, and this
+    /// lane's contract is the refusal grammar.</para></summary>
     internal static string RenderError(string error, string? epoch)
     {
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
-            w.WriteString("error", error);
+            WriteRefusal(w, error);
             WriteNullable(w, "epoch", epoch);
             w.WriteEndObject();
         }
@@ -349,7 +382,7 @@ static class JsonWire
             if (o.Error is not null)
             {
                 // A stamped refusal carries its stamp on the wire too (PR #305 review) — same contract as text.
-                w.WriteStartObject(); w.WriteString("error", o.Error); WriteNullable(w, "epoch", o.Epoch); w.WriteEndObject();
+                w.WriteStartObject(); WriteRefusal(w, o.Error); WriteNullable(w, "epoch", o.Epoch); w.WriteEndObject();
             }
             else WriteReadRecord(w, o, ms, cap, epoch: o.Epoch,
                                  childFields: new SortedSet<string>(StringComparer.Ordinal), stateChildNote: true);
@@ -959,7 +992,7 @@ static class JsonWire
             WriteEnvelope(w, envelope);
             // Post-capture refusals are stamped (PR #305 contract — e.g. the artifact epoch-mismatch refusal);
             // pre-capture validation refusals carry null and render bare, same as the text twin.
-            if (q.Error is not null) { w.WriteString("error", q.Error); if (q.Epoch is not null) w.WriteString("epoch", q.Epoch); }
+            if (q.Error is not null) { WriteRefusal(w, q.Error); if (q.Epoch is not null) w.WriteString("epoch", q.Epoch); }
             else if (q.Groups is not null)                                   // group_by= → count table
             {
                 WriteNullable(w, "group_by", q.GroupBy);
@@ -1074,7 +1107,7 @@ static class JsonWire
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
             // Post-capture refusals are stamped (PR #305 contract); pre-capture validation refusals stay bare.
-            if (q.Error is not null) { w.WriteString("error", q.Error); if (q.Epoch is not null) w.WriteString("epoch", q.Epoch); }
+            if (q.Error is not null) { WriteRefusal(w, q.Error); if (q.Epoch is not null) w.WriteString("epoch", q.Epoch); }
             else
             {
                 bool detail = fields is { Count: > 0 };
@@ -1247,7 +1280,7 @@ static class JsonWire
             // bytes never reach the stream and the refusal rendered as an EMPTY STRING — a latent, pre-existing Q3
             // break on every json-mode sweep refusal, surfaced by the epoch guard's refusal-render arm (PR #305).
             // Bare stamp only: coverage is an assertion about SWEPT inputs, and a refusal swept none (finding 2).
-            if (r.Error is not null) { w.WriteString("error", r.Error); WriteNullable(w, "epoch", r.Epoch); w.WriteEndObject(); w.Flush(); return Finish(ms); }
+            if (r.Error is not null) { WriteRefusal(w, r.Error); WriteNullable(w, "epoch", r.Epoch); w.WriteEndObject(); w.Flush(); return Finish(ms); }
 
             WriteErrorsHead(w, r);
             // EVERYTHING A CAP CAN REFUSE GOES THROUGH `body`, including the excluded roster, which used to be
@@ -1632,7 +1665,7 @@ static class JsonWire
             using (var ew = new Utf8JsonWriter(ems, Opts))
             {
                 ew.WriteStartObject();
-                ew.WriteString("error", o.Error);
+                WriteRefusal(ew, o.Error);
                 WriteNullable(ew, "epoch", o.Epoch);
                 ew.WriteEndObject();
                 ew.Flush();
@@ -1805,7 +1838,7 @@ static class JsonWire
         {
             w.WriteStartObject();
             // w.Flush() before Finish — same latent empty-refusal bug as RenderCheckErrors' early return (see there).
-            if (r.Error is not null) { w.WriteString("error", r.Error); WriteNullable(w, "epoch", r.Epoch); w.WriteEndObject(); w.Flush(); return Finish(ms); }
+            if (r.Error is not null) { WriteRefusal(w, r.Error); WriteNullable(w, "epoch", r.Epoch); w.WriteEndObject(); w.Flush(); return Finish(ms); }
 
             WriteScriptsHead(w, r);
             var body = new BoundedBody(acct, budget, () => Size(w, ms));
@@ -2221,10 +2254,10 @@ static class JsonWire
         {
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
-            if (o.Mode == "error") { w.WriteString("error", o.Error); }
+            if (o.Mode == "error") { WriteRefusal(w, o.Error); }
             else if (o.Mode == "ambiguous")
             {
-                w.WriteString("error", $"'{Path.GetFileName(o.Requested)}' is provided by {o.Ambiguous.Count} locations — specify which with mod= (or pass an absolute path).");
+                WriteRefusal(w, $"'{Path.GetFileName(o.Requested)}' is provided by {o.Ambiguous.Count} locations — specify which with mod= (or pass an absolute path).");
                 w.WriteStartArray("ambiguous");
                 foreach (var h in o.Ambiguous) { w.WriteStartObject(); w.WriteString("where", h.Where); w.WriteString("path", h.Path); w.WriteEndObject(); }
                 w.WriteEndArray();
