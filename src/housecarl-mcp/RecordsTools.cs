@@ -987,9 +987,9 @@ public static class RecordsTools
                     // considered; the named source= decides whose VERSION the body forms read. Identity-fact
                     // forms have nothing for the pole to change — accepting-and-ignoring it is the sin.
                     if (form is "summary" or "aggregate")
-                        return Wire.Refuse(json, $"error: a plugins= scope with a named source= reads the POLE's version of each scoped match — and the '{form}' form's rows are identity facts the pole doesn't change. Drop source=, or use form='fields'/'everything' (the pole's bodies) or 'delta'/'tree' (comparisons).");
+                        return Wire.Refuse(json, $"error: a plugins= scope with a named source= reads the POLE's version of each scoped match — and the '{form}' form's rows are identity facts the pole doesn't change. Drop source=, or use form='fields'/'everything' (the pole's bodies) or 'delta'/'tree' (comparisons).", probeEpoch);
                     if (winnerFields)
-                        return Wire.Refuse(json, "error: fields_source='winner' and a named source= under a plugins= scope are TWO display poles on one call — the pole's version is what this composition reads. Drop fields_source= (or drop source= and keep fields_source='winner').");
+                        return Wire.Refuse(json, "error: fields_source='winner' and a named source= under a plugins= scope are TWO display poles on one call — the pole's version is what this composition reads. Drop fields_source= (or drop source= and keep fields_source='winner').", probeEpoch);
                     scopePlusPole = true;
                     // The scope statement is the truthful arm only for the forms that READ the pole's bodies;
                     // delta's pipeline states its subject itself (R3-2). A scoped TREE reads every provider,
@@ -1276,25 +1276,25 @@ public static class RecordsTools
             envelope.Add(new("epoch_covers_source", "false"));
             headerLine += "\n(the off-order file's content is OUTSIDE the epoch fingerprint — an edit to it changes answers without changing the epoch)";
             if (conflicts_only)
-                return Wire.Refuse(json, "error: conflicts_only= has no meaning on an out-of-load-order file — it is not in the conflict frame. Drop it, or read the winner (source=\"winner\").");
+                return Wire.Refuse(json, "error: conflicts_only= has no meaning on an out-of-load-order file — it is not in the conflict frame. Drop it, or read the winner (source=\"winner\").", pole.Epoch);
             if (form == "info_order")
-                return Wire.Refuse(json, "error: the info_order form merges the ACTIVE order's touching plugins — an out-of-load-order file is not in that frame. Read the winner's merge (drop source=), or enumerate the file's DIAL records with form='summary'.");
+                return Wire.Refuse(json, "error: the info_order form merges the ACTIVE order's touching plugins — an out-of-load-order file is not in that frame. Read the winner's merge (drop source=), or enumerate the file's DIAL records with form='summary'.", pole.Epoch);
             if (walk is not null)
-                return Wire.Refuse(json, "error: the walk expands the ACTIVE order's winner link graph — an out-of-load-order file's records are not in that graph. Enumerate the file with form='summary', then walk specific records via formids= (dropping source=).");
+                return Wire.Refuse(json, "error: the walk expands the ACTIVE order's winner link graph — an out-of-load-order file's records are not in that graph. Enumerate the file with form='summary', then walk specific records via formids= (dropping source=).", pole.Epoch);
             if (dense) return "error: format='dense' is the in-order scan's columnar form — an off-order file scan renders text or json.";
             if (versusSpec?.Kind == LoadOrderService.PoleKind.Overlay)
                 return Wire.Refuse(json, "error: an overlay pole on a SCAN would replay the SkyPatcher INI layer over every match — a per-record replay at scan scale " +
                        "(a scan comparison compares EVERY match, so it is not a bound). Name the records via formids= — the list lane reads and " +
-                       "compares their post-state bodies — or read the whole layer via housecarl_skypatcher_layer.");
+                       "compares their post-state bodies — or read the whole layer via housecarl_skypatcher_layer.", pole.Epoch);
             if (where_source is not null)
             {
                 // Full-vocabulary validation, mirroring the in-order engine (review F9): an unknown spelling must
                 // refuse by name, never be accepted-and-ignored.
                 var ws = where_source.Trim().ToLowerInvariant();
                 if (ws == "winner")
-                    return Wire.Refuse(json, "error: where_source=winner matches on the live load-order winner — but this scan streams an out-of-load-order FILE's bodies, many of which have no winner. Match the winner by scanning the winner (drop source=), or drop where_source=.");
+                    return Wire.Refuse(json, "error: where_source=winner matches on the live load-order winner — but this scan streams an out-of-load-order FILE's bodies, many of which have no winner. Match the winner by scanning the winner (drop source=), or drop where_source=.", pole.Epoch);
                 if (ws is not ("scoped" or "scanned"))
-                    return Wire.Refuse(json, $"error: where_source='{where_source}' is not a known source — over an out-of-load-order file the match reads the FILE's own bodies ('scoped', the default); drop where_source=, or use 'winner' on an in-order scan.");
+                    return Wire.Refuse(json, $"error: where_source='{where_source}' is not a known source — over an out-of-load-order file the match reads the FILE's own bodies ('scoped', the default); drop where_source=, or use 'winner' on an in-order scan.", pole.Epoch);
             }
 
             // The completed off-order lane (W2 PR 2): the same filter grammar as the in-order scan, run by the
