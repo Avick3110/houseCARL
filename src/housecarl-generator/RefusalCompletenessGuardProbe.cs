@@ -57,20 +57,27 @@ public static class RefusalCompletenessGuardProbe
     /// — a surface that renders refusals correctly through its own helper is not a hole.</para></summary>
     static readonly string[] ApprovedRenderers = { "Wire.Refuse", "JsonWire.Render", "Wire.Render", "Refuse" };
 
-    /// <summary>The refusals that stay bare inside a format-consuming tool body, each with the settled decision
-    /// that rules it correct. Keyed <c>file:sentence-fragment</c> rather than by line, so ordinary edits above a
-    /// site do not rot the list while a CHANGE to the site still trips it.</summary>
-    static readonly (string File, string Fragment, string Decision, string Why)[] Allow =
+    /// <summary>The refusals that stay bare inside a policed scope, each with the settled decision that rules it
+    /// correct. Keyed <c>file:kind:fragment</c> rather than by line, so ordinary edits above a site do not rot the
+    /// list while a CHANGE to the site still trips it.
+    ///
+    /// <para>An entry is TYPED, and matched only against its own kind. A <see cref="HitKind.Binding"/> entry names
+    /// an identifier and must equal it exactly; a <see cref="HitKind.Literal"/> entry names message text and
+    /// matches a substring of it. Untyped substring matching let the binding entry <c>ferr</c> rule a future
+    /// refusal SENTENCE correct for containing those four letters — "…the record was transferred…" would have
+    /// dropped out of <c>unexplained</c> silently. Nothing on the tree hit it, which is exactly why it needed
+    /// closing: the allowlist is the guard's only escape hatch, and a hole in it is silent by construction.</para></summary>
+    static readonly (string File, HitKind Kind, string Fragment, string Decision, string Why)[] Allow =
     {
         // The format= parse refusal itself. Surface-wide ("*") on purpose: the population derives past the read
         // lane into the write tools, and the rule does not change there — a call whose format VALUE did not parse
         // has not told anyone which shape it wanted, so there is no known render to answer in. ApplyTools states
         // exactly that in its own comment at the site.
-        ("*", "ferr",   "#7", "the format= parse refusal cannot know the shape the caller wanted"),
-        ("*", "fmtErr", "#7", "the format= parse refusal cannot know the shape the caller wanted"),
+        ("*", HitKind.Binding, "ferr",   "#7", "the format= parse refusal cannot know the shape the caller wanted"),
+        ("*", HitKind.Binding, "fmtErr", "#7", "the format= parse refusal cannot know the shape the caller wanted"),
         // dense is a textual transport, so its two refusals are text by definition rather than by omission.
-        ("RecordsTools.cs", "format='dense' is the scan lane's columnar form",     "#7", "dense is a textual transport"),
-        ("RecordsTools.cs", "format='dense' is the in-order scan's columnar form", "#7", "dense is a textual transport"),
+        ("RecordsTools.cs", HitKind.Literal, "format='dense' is the scan lane's columnar form",     "#7", "dense is a textual transport"),
+        ("RecordsTools.cs", HitKind.Literal, "format='dense' is the in-order scan's columnar form", "#7", "dense is a textual transport"),
     };
 
     /// <summary>THE KNOWN-RED FIXTURE — <c>RecordsTools.cs:223</c> as it stood BEFORE the fold: a return whose
@@ -168,6 +175,22 @@ public static class RefusalCompletenessGuardProbe
         }
         """;
 
+    /// <summary>THE ALLOWLIST-KIND FIXTURE — Aaron's latent-hole example, made a test. Two hits from one policed
+    /// helper: the binding <c>ferr</c>, which the surface-wide entry rules correct, and a refusal SENTENCE that
+    /// happens to contain those same four letters inside "transferred", which it must NOT. Under untyped substring
+    /// matching the second was ruled correct and left <c>unexplained</c> silently.</summary>
+    const string AllowlistKindFixture = """
+        static class Fixture
+        {
+            static string Body(bool json)
+            {
+                bool j = Wire.WantsJson(format, out var ferr);
+                if (ferr is not null) return ferr;
+                return $"error: the record was transferred from a plugin outside the order.";
+            }
+        }
+        """;
+
     public static int RunGuard(string[] args)
     {
         _pass = _fail = 0;
@@ -223,6 +246,17 @@ public static class RefusalCompletenessGuardProbe
         // ---- 3. the residue: every flagged site must cite a ruling -------------------------------------
         Console.WriteLine();
         Console.WriteLine("--- 3: every bare refusal in the population cites a settled decision ---");
+
+        var kinds = Enumerate("<fixture>", AllowlistKindFixture, out var kindErrors, populationOnly: true);
+        Check(kindErrors.Count == 0, $"the allowlist-kind fixture parses ({string.Join("; ", kindErrors)})");
+        var binding = kinds.FirstOrDefault(h => h.Kind == HitKind.Binding);
+        var literal = kinds.FirstOrDefault(h => h.Kind == HitKind.Literal);
+        Check(kinds.Count == 2 && binding.Sentence == "ferr" && literal.Sentence?.Contains("transferred", StringComparison.Ordinal) == true,
+              $"the allowlist-kind fixture yields one binding hit and one literal hit (found {kinds.Count})");
+        Check(Match(binding) is not null, "a binding entry rules the identifier it names (`ferr`)");
+        Check(Match(literal) is null,
+              "…and does NOT rule a refusal SENTENCE containing the same letters — \"the record was transferred\" "
+              + "stays unexplained (an entry only matches its own kind)");
         var flagged = new List<Hit>();
         foreach (var file in Directory.EnumerateFiles(srcDir, "*.cs"))
         {
@@ -240,7 +274,7 @@ public static class RefusalCompletenessGuardProbe
         // A stale allowlist is a silent hole: it says a site is fine when the site is gone or has changed shape.
         var unused = Allow.Where(a => !flagged.Any(h => Matches(h, a))).ToList();
         foreach (var a in unused)
-            Console.WriteLine($"    STALE ALLOWLIST ENTRY  {a.File} :: '{a.Fragment}' ({a.Decision}) matches nothing");
+            Console.WriteLine($"    STALE ALLOWLIST ENTRY  {a.File} :: {a.Kind} '{a.Fragment}' ({a.Decision}) matches nothing");
         Check(unused.Count == 0,
               $"every allowlist entry still names a live site (found {unused.Count} stale)");
 
@@ -275,7 +309,13 @@ public static class RefusalCompletenessGuardProbe
 
     // ================= the enumeration =================
 
-    internal readonly record struct Hit(string File, int Line, string Sentence);
+    /// <summary>What a hit's <c>Sentence</c> IS. The two kinds are different vocabularies — an identifier the
+    /// body returned, and a message a caller reads — and an allowlist entry that matched across them is a hole:
+    /// Aaron's gate review named the shape, a refusal LITERAL containing the substring "ferr" (e.g. "…the record
+    /// was transferred…") silently ruled correct by the binding entry meant for `out var ferr`.</summary>
+    internal enum HitKind { Literal, Binding }
+
+    internal readonly record struct Hit(string File, int Line, string Sentence, HitKind Kind);
 
     /// <summary>Every <c>Guard.Tool</c> body that consults the format machinery — the surface this guard polices,
     /// derived rather than named. Returns the FILES those bodies live in; <paramref name="bodies"/> counts them.</summary>
@@ -422,13 +462,14 @@ public static class RefusalCompletenessGuardProbe
                 if (IsWrapped(expr)) continue;
 
                 string? sentence = RefusalLiteral(expr);
+                var kind = HitKind.Literal;
                 if (sentence is null && expr is IdentifierNameSyntax id && outNames.Contains(id.Identifier.Text))
-                    sentence = id.Identifier.Text;
+                    (sentence, kind) = (id.Identifier.Text, HitKind.Binding);
                 if (sentence is null) continue;
                 if (TransportAlreadyLeft(ret)) continue;
 
                 int line = ret.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
-                if (seen.Add(line)) hits.Add(new Hit(file, line, sentence));
+                if (seen.Add(line)) hits.Add(new Hit(file, line, sentence, kind));
             }
         }
         return hits;
@@ -544,16 +585,23 @@ public static class RefusalCompletenessGuardProbe
 
     // ================= allowlist matching =================
 
-    static (string File, string Fragment, string Decision, string Why)? Match(Hit h)
+    static (string File, HitKind Kind, string Fragment, string Decision, string Why)? Match(Hit h)
     {
         foreach (var a in Allow)
             if (Matches(h, a)) return a;
         return null;
     }
 
-    static bool Matches(Hit h, (string File, string Fragment, string Decision, string Why) a)
-        => (a.File == "*" || string.Equals(h.File, a.File, StringComparison.OrdinalIgnoreCase))
-           && h.Sentence.Contains(a.Fragment, StringComparison.Ordinal);
+    /// <summary>An entry rules a hit only when it is the SAME KIND of thing. A binding entry names an identifier,
+    /// so it must equal it — a substring there would let <c>ferr</c> rule <c>transferErr</c>. A literal entry names
+    /// message text, where a substring is the point: the entry quotes the stable clause, not the whole sentence.</summary>
+    static bool Matches(Hit h, (string File, HitKind Kind, string Fragment, string Decision, string Why) a)
+        => h.Sentence is not null
+           && (a.File == "*" || string.Equals(h.File, a.File, StringComparison.OrdinalIgnoreCase))
+           && h.Kind == a.Kind
+           && (a.Kind == HitKind.Binding
+                   ? string.Equals(h.Sentence, a.Fragment, StringComparison.Ordinal)
+                   : h.Sentence.Contains(a.Fragment, StringComparison.Ordinal));
 
     static string Trim(string s) => s.Length <= 110 ? s : s[..110] + "…";
 
