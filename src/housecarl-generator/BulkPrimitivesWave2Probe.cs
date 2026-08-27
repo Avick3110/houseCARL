@@ -282,8 +282,16 @@ public static class BulkPrimitivesWave2Probe
             // conflict_tree + json is REFUSED loud (a text-only diff view — never silently dropped, Q3).
             var ctJson = ReadTools.ReadRecord(svc, w1Fk.ToString(), plugin: null, fields: null, depth: 1,
                 conflict_tree: true, resolve_names: false, format: "json", max_chars: 0);
+            // The refusal is a json DOCUMENT now, not prose: a json caller gets the refusal grammar
+            // ({ok:false, error}) like every other reachable refusal on this surface (#403). This pin used to
+            // assert the bare "error: …" spelling — the behaviour the refusal grammar deliberately replaced.
+            var ctDoc = ParseOrNull(ctJson);
             Check("conflict_tree=true + format=json is REFUSED loud (text-only diff, not silently dropped — Q3)",
-                  ctJson.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && ctJson.Contains("conflict_tree", StringComparison.OrdinalIgnoreCase));
+                  ctDoc is not null
+                  && ctDoc.RootElement.TryGetProperty("ok", out var ctOk) && ctOk.ValueKind == JsonValueKind.False
+                  && ctDoc.RootElement.TryGetProperty("error", out var ctErr)
+                  && ctErr.GetString()!.Contains("conflict_tree", StringComparison.OrdinalIgnoreCase));
+            ctDoc?.Dispose();
 
             // batch json: {count, records, rendered, truncated}; records carry the same record objects.
             var batchJson = ReadTools.BatchRecordDetail(svc, new[] { w1Fk.ToString(), "not-a-formid" }, fields: new[] { "Name" }, depth: 1,
