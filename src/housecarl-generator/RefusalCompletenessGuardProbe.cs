@@ -108,6 +108,38 @@ public static class RefusalCompletenessGuardProbe
         }
         """;
 
+    /// <summary>THE SECOND KNOWN-RED FIXTURE — <c>ReadTools.cs:101</c> under Aaron's gate-review mutation: the
+    /// refusal <c>Artifacts.ExpandListInput</c> hands back through a tuple, returned bare. This shape defeated the
+    /// net until the deconstruction designation joined it, and the miss was invisible to every other cell in the
+    /// sweep because <c>is { } verr</c> — the shape one line below it in the same file — WAS in the net. The
+    /// enumerator must flag this; eight live sites carry it.</summary>
+    const string HelperTupleFixture = """
+        static class Fixture
+        {
+            static string Body()
+            {
+                bool json = Wire.WantsJson(format, out var ferr);
+                var (toks, demand, echoSrc, xerr) = Artifacts.ExpandListInput(formids, "formids");
+                if (xerr is not null) return xerr;
+                return Ok();
+            }
+        }
+        """;
+
+    /// <summary>Its counter-fixture: the same tuple, wrapped. Silence here is an arm too.</summary>
+    const string WrappedTupleFixture = """
+        static class Fixture
+        {
+            static string Body()
+            {
+                bool json = Wire.WantsJson(format, out var ferr);
+                var (toks, demand, echoSrc, xerr) = Artifacts.ExpandListInput(formids, "formids");
+                if (xerr is not null) return Wire.Refuse(json, xerr);
+                return Ok();
+            }
+        }
+        """;
+
     public static int RunGuard(string[] args)
     {
         _pass = _fail = 0;
@@ -125,6 +157,15 @@ public static class RefusalCompletenessGuardProbe
         Check(greenHits.Count == 0,
               $"…and the wrapped form of the same shape is NOT flagged (found {greenHits.Count}, expected 0) — "
               + "an enumerator that flags everything proves nothing");
+
+        var tupleRed = Enumerate("<fixture>", HelperTupleFixture, out var tupleErrors);
+        Check(tupleErrors.Count == 0, $"the tuple-deconstruction fixture parses ({string.Join("; ", tupleErrors)})");
+        Check(tupleRed.Count == 1,
+              $"KNOWN-RED FIXTURE: a refusal handed back through a deconstructed tuple is FLAGGED "
+              + $"(found {tupleRed.Count}, expected 1) — the binding is a designation, not an out argument");
+        var tupleGreen = Enumerate("<fixture>", WrappedTupleFixture, out _);
+        Check(tupleGreen.Count == 0,
+              $"…and the wrapped form of the same tuple is NOT flagged (found {tupleGreen.Count}, expected 0)");
 
         // ---- 2. the population, derived from the artifact ----------------------------------------------
         Console.WriteLine();
@@ -278,11 +319,13 @@ public static class RefusalCompletenessGuardProbe
         foreach (var scope in scopes)
         {
             // Names bound to a string a HELPER produced — the shape of a refusal handed straight back, which is
-            // how twelve of the fourteen escaped. Two bindings carry it, and both must be in the net: an
-            // `out var X` argument (Wire.WantsJson, ExpandListInput's tuple) and an `is { } X` pattern
-            // (Artifacts.ValidateToFile). An earlier draft took only the first, and the ValidateToFile sites —
-            // the fold's own fix — went invisible; the mutation sweep's cell for them came back with nothing
-            // flagged, which is how the gap was found.
+            // how twelve of the fourteen escaped. THREE bindings carry it on this surface, and each is its own
+            // syntax: an `out var X` argument (Wire.WantsJson), a tuple deconstruction `var (…, X) = Helper(…)`
+            // (Artifacts.ExpandListInput), and an `is { } X` recursive pattern (Artifacts.ValidateToFile). Each
+            // one was missing from a draft of this net and each miss was found the same way — by a mutation cell
+            // that reverted the site and came back with nothing flagged. ExpandListInput's tuple is NOT an out
+            // argument: its left side is a DeclarationExpressionSyntax carrying a ParenthesizedVariableDesignation,
+            // so the `out var` walk below cannot see it and an earlier comment here said otherwise.
             //
             // One binding is excluded, structurally and by name rather than by file: a designation bound from
             // ConfigPromptOrNull(). What that returns is trained guidance addressed to the model when no MO2
@@ -294,6 +337,14 @@ public static class RefusalCompletenessGuardProbe
                 if (!arg.RefKindKeyword.IsKind(SyntaxKind.OutKeyword)) continue;
                 if (arg.Expression is DeclarationExpressionSyntax { Designation: SingleVariableDesignationSyntax sv })
                     outNames.Add(sv.Identifier.Text);
+            }
+            foreach (var decl in scope.DescendantNodes().OfType<DeclarationExpressionSyntax>())
+            {
+                if (decl.Designation is not ParenthesizedVariableDesignationSyntax pd) continue;
+                if (decl.Parent is AssignmentExpressionSyntax asg
+                    && asg.Right.ToString().Contains("ConfigPromptOrNull", StringComparison.Ordinal)) continue;
+                foreach (var v in pd.DescendantNodesAndSelf().OfType<SingleVariableDesignationSyntax>())
+                    outNames.Add(v.Identifier.Text);
             }
             foreach (var pat in scope.DescendantNodes().OfType<IsPatternExpressionSyntax>())
             {
