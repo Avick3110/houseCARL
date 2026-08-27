@@ -46,10 +46,10 @@ public static class ReadTools
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;
-        if (json && conflict_tree) return "error: conflict_tree=true is a text-only diff view and is not carried in json mode — use format=text for the conflict tree, or drop conflict_tree for the json field data.";
+        if (json && conflict_tree) return Wire.Refuse(json, "error: conflict_tree=true is a text-only diff view and is not carried in json mode — use format=text for the conflict tree, or drop conflict_tree for the json field data.");
         FormKey fk;
         try { fk = FormKey.Factory(formid.Trim()); }
-        catch (Exception ex) { return $"error: bad FormID '{formid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '0F1AC1:Skyrim.esm'."; }
+        catch (Exception ex) { return Wire.Refuse(json, $"error: bad FormID '{formid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '0F1AC1:Skyrim.esm'."); }
 
         var outcome = svc.ResolveRead(fk, plugin?.Trim(), fields, conflict_tree, depth <= 0 ? 1 : depth, resolve_names);
         return json ? JsonWire.RenderRecord(outcome, max_chars) : Wire.RenderRecord(svc, outcome, fields, conflict_tree, max_chars);
@@ -87,10 +87,12 @@ public static class ReadTools
             string? to_file = null) => Guard.Tool("housecarl_batch_record_detail", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        if (formids is null || formids.Length == 0) return "error: formids is empty. Pass one or more 'XXXXXX:Plugin.esp' FormIDs.";
+        // Transport BEFORE the first refusal: the empty-formids check used to fire above this line, so a json
+        // caller got that one refusal as bare prose while every later refusal in the same body honoured json.
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;
-        if (json && conflict_tree) return "error: conflict_tree=true is a text-only diff view and is not carried in json mode — use format=text for the conflict tree, or drop conflict_tree for the json field data.";
+        if (formids is null || formids.Length == 0) return Wire.Refuse(json, "error: formids is empty. Pass one or more 'XXXXXX:Plugin.esp' FormIDs.");
+        if (json && conflict_tree) return Wire.Refuse(json, "error: conflict_tree=true is a text-only diff view and is not carried in json mode — use format=text for the conflict tree, or drop conflict_tree for the json field data.");
 
         // formids= under the @file convention (§5.1): a single "@<path>" element stands for the whole list — a
         // plain file's tokens, or a §2.1.1 artifact's identity column + its epoch demand (checked in the batch's
@@ -104,7 +106,7 @@ public static class ReadTools
         if (wantFile)
         {
             if (Artifacts.ValidateToFile(toFile!) is { } verr) return verr;
-            if (conflict_tree) return "error: to_file= writes the result as JSONL rows, and conflict_tree=true is a text-only diff view with no row form — drop one of the two.";
+            if (conflict_tree) return Wire.Refuse(json, "error: to_file= writes the result as JSONL rows, and conflict_tree=true is a text-only diff view with no row form — drop one of the two.");
         }
 
         var outcomes = svc.ResolveBatch(formids, fields, conflict_tree, depth <= 0 ? 1 : depth, resolve_names, plugin?.Trim(),
@@ -257,16 +259,19 @@ public static class ReadTools
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         var fmt = Wire.CrossQueryFormat(format, out var ferr);
         if (ferr is not null) return ferr;
-        if (fmt is not Wire.QueryFormat.Text && conflict_tree) return $"error: conflict_tree=true is a text-only diff view and is not carried in {(fmt is Wire.QueryFormat.Json ? "json" : "dense")} mode — use format=text for the conflict tree, or drop conflict_tree for the field data.";
+        // This tool carries the three-value format; `dense` is a textual transport, so only the json arm gets the
+        // refusal document. Named once here so the refusals below read the same as every other tool body's.
+        bool json = fmt is Wire.QueryFormat.Json;
+        if (fmt is not Wire.QueryFormat.Text && conflict_tree) return Wire.Refuse(json, $"error: conflict_tree=true is a text-only diff view and is not carried in {(fmt is Wire.QueryFormat.Json ? "json" : "dense")} mode — use format=text for the conflict tree, or drop conflict_tree for the field data.");
         if (group_by is not null && ((fields is { Length: > 0 }) || conflict_tree))
-            return "error: group_by aggregates matches into a count table and cannot be combined with fields= or conflict_tree=true (those expand each match to full detail — pick one). Drop fields=/conflict_tree, or drop group_by.";
+            return Wire.Refuse(json, "error: group_by aggregates matches into a count table and cannot be combined with fields= or conflict_tree=true (those expand each match to full detail — pick one). Drop fields=/conflict_tree, or drop group_by.");
         if (depth <= 0) depth = 1;
         if (depth > 1 && group_by is not null)
-            return "error: depth= expands per-match field contents, and group_by= renders a count table with no field values — depth= never applies there. Drop depth= (or drop group_by= and pass fields= for per-match detail).";
+            return Wire.Refuse(json, "error: depth= expands per-match field contents, and group_by= renders a count table with no field values — depth= never applies there. Drop depth= (or drop group_by= and pass fields= for per-match detail).");
         if (depth > 1 && fields is not { Length: > 0 } && !conflict_tree)
-            return "error: depth= expands the list/dict contents of fields= paths, and no fields= was passed — summary lines have nothing to expand. Pass fields= (e.g. fields=['Effects'], depth=4) or conflict_tree=true (the whole-record dump), or drop depth=.";
+            return Wire.Refuse(json, "error: depth= expands the list/dict contents of fields= paths, and no fields= was passed — summary lines have nothing to expand. Pass fields= (e.g. fields=['Effects'], depth=4) or conflict_tree=true (the whole-record dump), or drop depth=.");
         if (depth > 1 && fmt is Wire.QueryFormat.Dense)
-            return "error: depth>1 is not carried in format='dense' — dense rows are positional (one cell per requested fields= path), and depth expansion emits extra sub-paths that would break the column alignment. Use format=text or format=json for depth expansion, or drop depth= for the dense summary cells.";
+            return Wire.Refuse(json, "error: depth>1 is not carried in format='dense' — dense rows are positional (one cell per requested fields= path), and depth expansion emits extra sub-paths that would break the column alignment. Use format=text or format=json for depth expansion, or drop depth= for the dense summary cells.");
         // references= may itself be an @file / @artifact list (the §5.1 @file convention) — expanded BEFORE the
         // FormKey parse; an artifact target contributes its epoch demand, checked inside the scan's own capture.
         HousecarlCore.ArtifactDemand? refDemand = null;
@@ -285,7 +290,7 @@ public static class ReadTools
             {
                 if (string.IsNullOrWhiteSpace(r)) continue;
                 try { list.Add(FormKey.Factory(r.Trim())); }
-                catch (Exception ex) { return $"error: bad references FormID '{r}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."; }
+                catch (Exception ex) { return Wire.Refuse(json, $"error: bad references FormID '{r}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
             }
             if (list.Count > 0) refFks = list.Distinct().ToList();   // preserve input order, drop dupes
         }
@@ -296,8 +301,8 @@ public static class ReadTools
         if (wantFile)
         {
             if (Artifacts.ValidateToFile(toFile!) is { } verr) return verr;
-            if (conflict_tree) return "error: to_file= writes the result as JSONL rows, and conflict_tree=true is a text-only diff view with no row form — drop one of the two.";
-            if (offset > 0) return "error: to_file= captures the COMPLETE result (the artifact is never a window), so offset= has nothing to page — drop offset=.";
+            if (conflict_tree) return Wire.Refuse(json, "error: to_file= writes the result as JSONL rows, and conflict_tree=true is a text-only diff view with no row form — drop one of the two.");
+            if (offset > 0) return Wire.Refuse(json, "error: to_file= captures the COMPLETE result (the artifact is never a window), so offset= has nothing to page — drop offset=.");
         }
 
         var outcome = svc.CrossQuery(type, refFks, editorid_contains, conflicts_only, plugins, where,
@@ -392,9 +397,10 @@ public static class ReadTools
             string? to_file = null) => Guard.Tool("housecarl_resolve", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        if (formids is null || formids.Length == 0) return "error: formids is empty. Pass one or more 'XXXXXX:Plugin.esp' FormIDs.";
+        // Transport BEFORE the first refusal — see the same hoist in BatchRecordDetail.
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;
+        if (formids is null || formids.Length == 0) return Wire.Refuse(json, "error: formids is empty. Pass one or more 'XXXXXX:Plugin.esp' FormIDs.");
 
         // formids= under the @file convention — see batch_record_detail's twin.
         var (toks, demand, echoSrc, xerr) = Artifacts.ExpandListInput(formids, "formids");
@@ -668,6 +674,36 @@ static class Wire
         if (f.Equals("json", StringComparison.OrdinalIgnoreCase)) return true;
         error = $"error: format='{format}' is not recognized — use 'text' (the default) or 'json'.";
         return false;
+    }
+
+    /// <summary>The read surface's refusal literal prefix. The text lane states a refusal as <c>"error: …"</c>;
+    /// the json lane carries the same sentence in an <c>error</c> property WITHOUT the prefix (the property name
+    /// already says what it is). One definition so the two lanes cannot disagree about where the sentence starts.</summary>
+    internal const string RefusalPrefix = "error: ";
+
+    /// <summary>THE ONE REFUSAL RENDER PATH for the read surface. A tool body states its refusal once, in the text
+    /// spelling, and this decides the shape the caller actually asked for.
+    ///
+    /// <para><b>Why it exists.</b> A read tool decides its transport early and then refuses in prose regardless —
+    /// <c>housecarl_records</c> settles <c>json</c> at the top of its body and 60-odd later refusals returned a bare
+    /// string anyway. <see cref="Guard"/> hands a body's return value straight back, so nothing downstream converted
+    /// it: a caller who asked for json got a non-json body for a third of the surface's refusals. The discriminant
+    /// (#403) was the smaller half of that; this is the half that decides whether a refusal is json at all.</para>
+    ///
+    /// <para><b>Text is byte-identical to what it was.</b> The message passed here is the sentence as authored, so
+    /// the text lane returns it unchanged — this call site is not a wording change. The json lane strips
+    /// <see cref="RefusalPrefix"/> and renders <c>{ok:false, error, epoch}</c> through
+    /// <see cref="JsonWire.RenderError"/>, matching the shape the already-wrapped sites emit.</para>
+    ///
+    /// <para><b>Not for per-row failures.</b> A row that failed inside a call that succeeded is not a refusal; it
+    /// keeps its per-row <c>error</c> field. This path is whole-call only.</para></summary>
+    internal static string Refuse(bool json, string message, string? epoch = null)
+    {
+        if (!json) return message;
+        var bare = message.StartsWith(RefusalPrefix, StringComparison.Ordinal)
+            ? message[RefusalPrefix.Length..]
+            : message;
+        return JsonWire.RenderError(bare, epoch);
     }
 
     /// <summary>The cross_plugin_query format vocabulary — the one tool with a third format (<c>dense</c>, the #223
