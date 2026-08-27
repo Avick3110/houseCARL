@@ -827,17 +827,29 @@ internal static class RecordsGuardProbe
             // A per-ROW failure is NOT a refusal: the call was answered and rendered a row that failed.
             var rowJson = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]), "FFFFF1:HcRecBase.esp" },
                                                format: "json");
-            bool rowDoc = false, rowHasOk = true;
+            bool rowDoc = false, rowHasOk = true, anyRowOk = true, sawFailedRow = false;
             try
             {
                 var rd = Je(rowJson);
-                rowDoc = rd.TryGetProperty("records", out _);
+                rowDoc = rd.TryGetProperty("records", out var recs);
                 rowHasOk = rd.TryGetProperty("ok", out _);
+                if (rowDoc)
+                {
+                    anyRowOk = false;
+                    foreach (var row in recs.EnumerateArray())
+                    {
+                        if (row.TryGetProperty("ok", out _)) anyRowOk = true;
+                        if (row.TryGetProperty("error", out _)) sawFailedRow = true;
+                    }
+                }
             }
             catch { }
             Check(rowDoc, "a batch with one unresolvable row still RENDERS (the call succeeded)");
+            Check(sawFailedRow, "…the unresolvable row really is carried as a failed row (the fixture bites)");
             Check(rowDoc && !rowHasOk,
-                  "…and carries no ok — a failed row must never read as a refused call");
+                  "…the DOCUMENT carries no ok — a failed row must never read as a refused call");
+            Check(rowDoc && !anyRowOk,
+                  "…and no ROW carries ok either — the discriminant is document-level only");
 
             Console.WriteLine();
             Console.WriteLine(_fail == 0
