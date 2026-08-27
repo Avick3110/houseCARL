@@ -902,20 +902,27 @@ internal static class RecordsGuardProbe
             var tinyJson = RecordsTools.Records(
                 svc, formids: weapons.Select(Fid).ToArray(), format: "json", max_chars: 220,
                 project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage", "EditorID", "Name" } });
-            var notes = new List<string>();
-            void Harvest(JsonElement e)
+            // Every note-bearing key anywhere in the document — a remedy is wrong wherever it sits, and a
+            // harvester that only reads the top level would miss the per-row ones, which is where they are.
+            static List<string> HarvestNotes(string json)
             {
-                if (e.ValueKind == JsonValueKind.Object)
-                    foreach (var p in e.EnumerateObject())
-                    {
-                        if (p.Name is "note" or "truncation_note" && p.Value.ValueKind == JsonValueKind.String)
-                            notes.Add(p.Value.GetString()!);
-                        Harvest(p.Value);
-                    }
-                else if (e.ValueKind == JsonValueKind.Array)
-                    foreach (var it in e.EnumerateArray()) Harvest(it);
+                var found = new List<string>();
+                void Walk(JsonElement e)
+                {
+                    if (e.ValueKind == JsonValueKind.Object)
+                        foreach (var p in e.EnumerateObject())
+                        {
+                            if (p.Name is "note" or "truncation_note" or "error" && p.Value.ValueKind == JsonValueKind.String)
+                                found.Add(p.Value.GetString()!);
+                            Walk(p.Value);
+                        }
+                    else if (e.ValueKind == JsonValueKind.Array)
+                        foreach (var it in e.EnumerateArray()) Walk(it);
+                }
+                try { Walk(JsonDocument.Parse(json).RootElement); } catch { }
+                return found;
             }
-            try { Harvest(Je(tinyJson)); } catch { }
+            var notes = HarvestNotes(tinyJson);
 
             Check(notes.Count > 0, "a max_chars-starved fields read emits a truncation notice at all");
             // The claim: no notice this TOOL emits may advertise the OTHER generation's selector. Spelled
@@ -941,6 +948,35 @@ internal static class RecordsGuardProbe
             Check(textTruncated, "the text lane truncates the same starved read");
             Check(textTruncated && !textWrongLever,
                   "…and its notice names project.fields= too — one vocabulary per caller, both lanes");
+
+            // MEASURED SURFACE — a remedy predicts what a LATER call produces, so the sentences are read,
+            // not reasoned about. This prints every lever-naming sentence a housecarl_records caller can be
+            // handed across the site families, both lanes, on every run. The assertions above pin the two
+            // that regressed; this block is the evidence for the rest, and the place a NEW wrong lever shows
+            // up before anyone writes an arm for it.
+            var lever = new System.Text.RegularExpressions.Regex(
+                @"\bfields=|\bdepth=|\boffset=|\blimit=|\bmax_chars=|conflict_tree|\bto_file=|\bform=");
+            void Measure(string label, string resp)
+            {
+                var hits = resp.StartsWith("{", StringComparison.Ordinal)
+                    ? HarvestNotes(resp)
+                    : resp.Split('\n').Where(l => l.Contains('[') || l.Contains("error:")).ToList();
+                foreach (var h in hits.Where(h => lever.IsMatch(h)).Distinct())
+                    Console.WriteLine($"        [{label}] {h.Trim()}");
+            }
+            string[] wf = weapons.Select(Fid).ToArray();
+            var containerFields = new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects" } };
+            foreach (var (label, resp) in new (string, string)[]
+            {
+                ("fields/json", tinyJson), ("fields/text", tinyText),
+                ("container/text", RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, project: containerFields)),
+                ("container/json", RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, format: "json", project: containerFields)),
+                ("tree/text",  RecordsTools.Records(svc, formids: wf, max_chars: 300, project: new RecordsTools.RecordsProject { form = "tree" })),
+                ("tree/json",  RecordsTools.Records(svc, formids: wf, max_chars: 300, format: "json", project: new RecordsTools.RecordsProject { form = "tree" })),
+                ("scan/text",  RecordsTools.Records(svc, types: new[] { "WEAP" }, max_chars: 300, project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage" } })),
+                ("scan/json",  RecordsTools.Records(svc, types: new[] { "WEAP" }, max_chars: 300, format: "json", project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage" } })),
+            })
+                Measure(label, resp);
 
             Console.WriteLine();
             Console.WriteLine(_fail == 0
