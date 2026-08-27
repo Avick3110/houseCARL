@@ -890,6 +890,58 @@ internal static class RecordsGuardProbe
             Check(offIsRefusal, "an off-order scan refusal reaches a json caller as a refusal document");
             Check(offStamped, "…carrying the build it consulted, not epoch:null (settled #4's post-capture bucket)");
 
+            // ============================================================================================
+            //  7 — REMEDY GRAMMAR: a truncation notice names levers THIS tool actually has
+            // ============================================================================================
+            // A remedy predicts what a later call produces. housecarl_records spells its field selector
+            // project.fields=; the 1.x read tools spell it fields=. The json body renderers are shared by
+            // both generations, so a remedy composed inside one can name the other's vocabulary.
+            Console.WriteLine();
+            Console.WriteLine("--- 7: remedy notices name this tool's own levers ---");
+
+            var tinyJson = RecordsTools.Records(
+                svc, formids: weapons.Select(Fid).ToArray(), format: "json", max_chars: 220,
+                project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage", "EditorID", "Name" } });
+            var notes = new List<string>();
+            void Harvest(JsonElement e)
+            {
+                if (e.ValueKind == JsonValueKind.Object)
+                    foreach (var p in e.EnumerateObject())
+                    {
+                        if (p.Name is "note" or "truncation_note" && p.Value.ValueKind == JsonValueKind.String)
+                            notes.Add(p.Value.GetString()!);
+                        Harvest(p.Value);
+                    }
+                else if (e.ValueKind == JsonValueKind.Array)
+                    foreach (var it in e.EnumerateArray()) Harvest(it);
+            }
+            try { Harvest(Je(tinyJson)); } catch { }
+
+            Check(notes.Count > 0, "a max_chars-starved fields read emits a truncation notice at all");
+            // The claim: no notice this TOOL emits may advertise the OTHER generation's selector. Spelled
+            // out here rather than compared against the render's own constant.
+            var wrongLever = notes.Where(n => System.Text.RegularExpressions.Regex.IsMatch(n, @"(?<!project\.)\bfields=")).ToList();
+            foreach (var n in wrongLever) Console.WriteLine("        offending notice: " + n);
+            Check(notes.Count > 0 && wrongLever.Count == 0,
+                  "…and no notice tells a housecarl_records caller to narrow with 'fields=' (it has project.fields=)");
+
+            // The same question on the text lane — the two lanes compose their notices separately, so a
+            // vocabulary fix on one proves nothing about the other (D2).
+            var tinyText = RecordsTools.Records(
+                svc, formids: weapons.Select(Fid).ToArray(), max_chars: 220,
+                project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage", "EditorID", "Name" } });
+            bool textTruncated = tinyText.Contains("truncated") || tinyText.Contains("max_chars=");
+            // Report the whole LINE each hit sits on, not a character window around it: the window
+            // prints the middle of a field render and says nothing about what actually matched.
+            var textHits = tinyText.Split('\n')
+                .Where(l => System.Text.RegularExpressions.Regex.IsMatch(l, @"(?<!project\.)\bfields="))
+                .ToList();
+            bool textWrongLever = textHits.Count > 0;
+            foreach (var l in textHits) Console.WriteLine("        offending line: " + l.Trim());
+            Check(textTruncated, "the text lane truncates the same starved read");
+            Check(textTruncated && !textWrongLever,
+                  "…and its notice names project.fields= too — one vocabulary per caller, both lanes");
+
             Console.WriteLine();
             Console.WriteLine(_fail == 0
                 ? "[records-guard] PASS — the 2.0 read surface's core contract holds."
