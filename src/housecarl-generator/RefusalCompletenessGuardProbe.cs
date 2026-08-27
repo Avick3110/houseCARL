@@ -264,17 +264,30 @@ public static class RefusalCompletenessGuardProbe
         var seen = new HashSet<int>();
         foreach (var scope in scopes)
         {
-            // Names bound by an `out var X` ARGUMENT — the shape of a refusal produced inside a helper and handed
-            // straight back. Deliberately NOT every SingleVariableDesignation: `is { } prompt` binds the same way
-            // and the MO2-not-configured prompt it binds is trained guidance addressed to the model, not a
-            // refusal sentence — it is returned bare by the whole tool surface, write tools included, and is a
-            // separate surface-wide question rather than part of this grammar.
+            // Names bound to a string a HELPER produced — the shape of a refusal handed straight back, which is
+            // how twelve of the fourteen escaped. Two bindings carry it, and both must be in the net: an
+            // `out var X` argument (Wire.WantsJson, ExpandListInput's tuple) and an `is { } X` pattern
+            // (Artifacts.ValidateToFile). An earlier draft took only the first, and the ValidateToFile sites —
+            // the fold's own fix — went invisible; the mutation sweep's cell for them came back with nothing
+            // flagged, which is how the gap was found.
+            //
+            // One binding is excluded, structurally and by name rather than by file: a designation bound from
+            // ConfigPromptOrNull(). What that returns is trained guidance addressed to the model when no MO2
+            // instance is configured — not a refusal sentence, returned bare by the whole tool surface including
+            // the write tools, and a separate surface-wide question rather than part of this grammar.
             var outNames = new HashSet<string>(StringComparer.Ordinal);
             foreach (var arg in scope.DescendantNodes().OfType<ArgumentSyntax>())
             {
                 if (!arg.RefKindKeyword.IsKind(SyntaxKind.OutKeyword)) continue;
                 if (arg.Expression is DeclarationExpressionSyntax { Designation: SingleVariableDesignationSyntax sv })
                     outNames.Add(sv.Identifier.Text);
+            }
+            foreach (var pat in scope.DescendantNodes().OfType<IsPatternExpressionSyntax>())
+            {
+                if (pat.Pattern is not RecursivePatternSyntax { Designation: SingleVariableDesignationSyntax pv })
+                    continue;
+                if (pat.Expression.ToString().Contains("ConfigPromptOrNull", StringComparison.Ordinal)) continue;
+                outNames.Add(pv.Identifier.Text);
             }
 
             foreach (var ret in scope.DescendantNodes().OfType<ReturnStatementSyntax>())
