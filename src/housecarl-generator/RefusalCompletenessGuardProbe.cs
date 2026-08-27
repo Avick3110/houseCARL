@@ -281,6 +281,9 @@ public static class RefusalCompletenessGuardProbe
             {
                 var expr = ret.Expression;
                 if (expr is null) continue;
+                // `return (xerr);` is `return xerr;` with noise. Unwrap before asking what shape it is, so a
+                // refusal cannot escape the net behind a pair of brackets.
+                while (expr is ParenthesizedExpressionSyntax paren) expr = paren.Expression;
                 if (IsWrapped(expr)) continue;
 
                 string? sentence = RefusalLiteral(expr);
