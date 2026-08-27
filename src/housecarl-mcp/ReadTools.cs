@@ -98,14 +98,14 @@ public static class ReadTools
         // plain file's tokens, or a §2.1.1 artifact's identity column + its epoch demand (checked in the batch's
         // own capture: scan once, project forever, never against a build the artifact didn't come from).
         var (toks, demand, echoSrc, xerr) = Artifacts.ExpandListInput(formids, "formids");
-        if (xerr is not null) return xerr;
+        if (xerr is not null) return Wire.Refuse(json, xerr);
         formids = toks!;
 
         var toFile = to_file?.Trim();
         bool wantFile = !string.IsNullOrEmpty(toFile);
         if (wantFile)
         {
-            if (Artifacts.ValidateToFile(toFile!) is { } verr) return verr;
+            if (Artifacts.ValidateToFile(toFile!) is { } verr) return Wire.Refuse(json, verr);
             if (conflict_tree) return Wire.Refuse(json, "error: to_file= writes the result as JSONL rows, and conflict_tree=true is a text-only diff view with no row form — drop one of the two.");
         }
 
@@ -279,7 +279,7 @@ public static class ReadTools
         if (references is { Length: > 0 })
         {
             var (toks, demand, echoSrc, xerr) = Artifacts.ExpandListInput(references, "references");
-            if (xerr is not null) return xerr;
+            if (xerr is not null) return Wire.Refuse(json, xerr);
             references = toks!; refDemand = demand; refEcho = echoSrc;
         }
         IReadOnlyList<FormKey>? refFks = null;
@@ -300,7 +300,7 @@ public static class ReadTools
         bool wantFile = !string.IsNullOrEmpty(toFile);
         if (wantFile)
         {
-            if (Artifacts.ValidateToFile(toFile!) is { } verr) return verr;
+            if (Artifacts.ValidateToFile(toFile!) is { } verr) return Wire.Refuse(json, verr);
             if (conflict_tree) return Wire.Refuse(json, "error: to_file= writes the result as JSONL rows, and conflict_tree=true is a text-only diff view with no row form — drop one of the two.");
             if (offset > 0) return Wire.Refuse(json, "error: to_file= captures the COMPLETE result (the artifact is never a window), so offset= has nothing to page — drop offset=.");
         }
@@ -404,12 +404,12 @@ public static class ReadTools
 
         // formids= under the @file convention — see batch_record_detail's twin.
         var (toks, demand, echoSrc, xerr) = Artifacts.ExpandListInput(formids, "formids");
-        if (xerr is not null) return xerr;
+        if (xerr is not null) return Wire.Refuse(json, xerr);
         formids = toks!;
 
         var toFile = to_file?.Trim();
         bool wantFile = !string.IsNullOrEmpty(toFile);
-        if (wantFile && Artifacts.ValidateToFile(toFile!) is { } verr) return verr;
+        if (wantFile && Artifacts.ValidateToFile(toFile!) is { } verr) return Wire.Refuse(json, verr);
 
         var rows = svc.ResolveRefs(formids, demand, out var epoch, out var artifactRefusal);
         if (artifactRefusal is not null)
