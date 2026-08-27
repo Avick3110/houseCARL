@@ -2841,8 +2841,9 @@ public sealed class LoadOrderService : IDisposable
     /// batch twin of housecarl_read_record's plugin= (HCBR-2026-07-15): a formid that plugin doesn't touch yields
     /// its own per-item error (ResolveRead's "does not define this record"), never failing the batch.</summary>
     public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
-                                                   bool resolveNames = false, string? plugin = null)
-        => ResolveBatch(formids, fields, conflictTree, depth, resolveNames, plugin, null, out _, out _);
+                                                   bool resolveNames = false, string? plugin = null,
+                                                   string? containerHint = ReadEngine.DepthExpandHint)
+        => ResolveBatch(formids, fields, conflictTree, depth, resolveNames, plugin, null, out _, out _, containerHint);
 
     /// <summary>The §2.1.1-aware overload: <paramref name="artifactDemand"/> (a formids=@artifact input) is
     /// checked against THIS capture's epoch — the same build that would answer — and a mismatch hands back
@@ -2850,7 +2851,8 @@ public sealed class LoadOrderService : IDisposable
     /// refusal renders stamped, per the PR #305 contract).</summary>
     public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth,
                                                    bool resolveNames, string? plugin, ArtifactDemand? artifactDemand,
-                                                   out string? artifactRefusal, out string? refusalEpoch)
+                                                   out string? artifactRefusal, out string? refusalEpoch,
+                                                   string? containerHint = ReadEngine.DepthExpandHint)
     {
         artifactRefusal = null; refusalEpoch = null;
         var resolver = Resolver;                // build/refresh ONCE for the batch
@@ -2869,7 +2871,7 @@ public sealed class LoadOrderService : IDisposable
             FormKey fk;
             try { fk = FormKey.Factory(raw.Trim()); }
             catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
-            outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo)
+            outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint)
                          with { Epoch = view.Epoch, Pin = pin });   // the batch's ONE build, stamped + pinned per item (SPEC §2.1.1)
         }
         return outcomes;

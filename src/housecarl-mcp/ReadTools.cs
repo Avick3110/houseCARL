@@ -903,8 +903,9 @@ static class Wire
     /// the diff view and the #342 precise tier, so the annotation costs no record fetch of its own. Without
     /// conflict_tree the outcome keeps the cheap index-only annotation the service already put on it.</summary>
     static void AppendRecordBlock(StringBuilder sb, LoadOrderService svc, ReadOutcome o, IReadOnlyList<string>? fields,
-                                  bool conflictTree, int cap, ChildNotes notes)
+                                  bool conflictTree, int cap, ChildNotes notes, LeverNames? levers = null)
     {
+        var lv = levers ?? LeverNames.Legacy;
         var outcome = o;
         LoadOrderService.TreeFill? fill = null;
         bool precise = false;
@@ -932,8 +933,8 @@ static class Wire
             foreach (var shape in annotated.Values) notes.May(ClauseOf(shape, precise));
         // The RESERVE is held back from the budget, never from the number the render QUOTES: a cut that told the
         // caller "at max_chars=1124" when they passed 2000 would be a wrong sentence of its own.
-        AppendRecord(sb, outcome, cap, notes.Reserve, precise, notes);
-        if (conflictTree) AppendConflictTree(sb, svc, outcome, fields, cap, fill?.View, notes.Reserve);
+        AppendRecord(sb, outcome, cap, notes.Reserve, precise, notes, lv);
+        if (conflictTree) AppendConflictTree(sb, svc, outcome, fields, cap, fill?.View, notes.Reserve, lv);
     }
 
     /// <summary>Which clause an annotated field earns: the cheap tier knows only that other plugins were not read,
@@ -965,10 +966,14 @@ static class Wire
     public static string RenderBatch(LoadOrderService svc, IReadOnlyList<ReadOutcome> outcomes, IReadOnlyList<string>? fields, bool conflictTree, int maxChars)
         => RenderBatch(svc, outcomes, fields, conflictTree, maxChars, null, out _);
 
+    /// <summary><paramref name="levers"/> is the CALLER's lever vocabulary for the remedy sentences below —
+    /// this renderer is shared by both tool generations and they spell the selector differently (#439).
+    /// Omitted means the 1.x spelling, so a 1.x call site renders byte-identically.</summary>
     public static string RenderBatch(LoadOrderService svc, IReadOnlyList<ReadOutcome> outcomes, IReadOnlyList<string>? fields, bool conflictTree, int maxChars,
-                                     SpillState? spill, out bool truncated)
+                                     SpillState? spill, out bool truncated, LeverNames? levers = null)
     {
         truncated = false;
+        var lv = levers ?? LeverNames.Legacy;
         int cap = Cap(maxChars);
         var notes = new ChildNotes();   // #342: accumulated over the rows actually rendered, not over the input list
         var sb = new StringBuilder();
@@ -986,12 +991,12 @@ static class Wire
                 truncated = true;
                 sb.Append("... [truncated: rendered ").Append(rendered).Append(" of ").Append(outcomes.Count)
                   .Append(" records before hitting max_chars=").Append(cap)
-                  .Append("; request fewer formids, pass fields= to slim each, or raise max_chars]\n");
+                  .Append("; request fewer formids, pass ").Append(lv.Fields).Append(" to slim each, or raise max_chars]\n");
                 break;
             }
             sb.Append('\n');
             if (o.Error is not null) sb.Append("error: ").Append(o.Error).Append('\n');
-            else AppendRecordBlock(sb, svc, o, fields, conflictTree, cap, notes);
+            else AppendRecordBlock(sb, svc, o, fields, conflictTree, cap, notes, lv);
             rendered++;
         }
         AppendOwnedChildNotes(sb, notes);
@@ -1001,12 +1006,8 @@ static class Wire
 
     // ---- housecarl_cross_plugin_query ---------------------------------------------------------------
 
-    /// <summary>The container hint for the DENSE render's field cells: dense refuses depth&gt;1 (positional cells align
-    /// 1:1 with the requested paths — #231), so the generic " — pass depth=2 to expand" alone would send the caller
-    /// into that refusal blind. Name the format hop with the knob. Used only by
-    /// <see cref="JsonWire.RenderCrossQueryDense"/>; the text/json renders take depth= directly and use the generic
-    /// <see cref="HousecarlCore.ReadEngine.DepthExpandHint"/>.</summary>
-    internal const string DenseContainerHint = " — pass depth=2 with format=text/json to expand (dense cells are positional)";
+    // The dense render's container hint moved to LeverNames.DenseContainerHint (#439): dense refuses depth>1, so
+    // the hint names the format hop with the knob — and the knob is spelled per caller like every other lever.
 
     public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, bool conflictTree, int maxChars,
                                           bool resolveNames = false, bool winnerFields = false, int depth = 1)
@@ -1016,9 +1017,11 @@ static class Wire
     /// spilled marker / to_file manifest-only mode / failed-spill warning), and <paramref name="truncated"/> hands
     /// the row-level max_chars cut back to the tool layer — the auto-spill trigger.</summary>
     public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, bool conflictTree, int maxChars,
-                                          bool resolveNames, bool winnerFields, int depth, SpillState? spill, out bool truncated)
+                                          bool resolveNames, bool winnerFields, int depth, SpillState? spill, out bool truncated,
+                                          LeverNames? levers = null)
     {
         truncated = false;
+        var lv = levers ?? LeverNames.Legacy;
         // A post-capture refusal is stamped (PR #305 contract) — e.g. the artifact epoch-mismatch refusal, which
         // consulted the build to compare against it. Pre-capture validation refusals carry null and render bare.
         if (q.Error is not null) return "error: " + q.Error + (q.Epoch is not null ? $"\nepoch={q.Epoch}" : "");
@@ -1062,7 +1065,7 @@ static class Wire
                 truncated = true;
                 sb.Append("... [truncated: rendered ").Append(rendered).Append(" of ").Append(q.Keys.Count)
                   .Append(" returned matches before hitting max_chars=").Append(cap)
-                  .Append("; lower limit=, drop fields=/conflict_tree, or raise max_chars]\n");
+                  .Append("; lower limit=, drop ").Append(lv.FieldsOrTree).Append(", or raise max_chars]\n");
                 break;
             }
             var fk = q.Keys[i];
@@ -1073,11 +1076,12 @@ static class Wire
                 // body the scan filtered (scoped plugin under plugins=, else winner) — so display never contradicts filter.
                 // PINNED to the scan's build (ResolveReadOn / the q-carrying AppendConflictTree): the header's epoch
                 // names ONE build, so every fill must read it (PR #305 review).
-                var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, conflictTree, depth, resolveNames: resolveNames, linkMemo: linkMemo);
+                var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, conflictTree, depth, resolveNames: resolveNames, linkMemo: linkMemo,
+                                          containerHint: lv.ContainerHint);   // a collapsed cell names the caller's own expansion knob (#439)
                 sb.Append('\n');
                 if (matches is not null) sb.Append("  ").Append(fk).Append("  matches=").Append(matches).Append('\n');
                 if (o.Error is not null) sb.Append(fk).Append(": error: ").Append(o.Error).Append('\n');
-                else AppendRecordBlock(sb, svc, o, fields, conflictTree, cap, notes);   // o carries the scan's pin
+                else AppendRecordBlock(sb, svc, o, fields, conflictTree, cap, notes, lv);   // o carries the scan's pin
             }
             else
             {
@@ -1832,8 +1836,10 @@ static class Wire
     /// the lanes that render a record outside a #342-annotated response (readback, verify).</summary>
     /// <param name="reserve">Chars held back for the response-level clauses this render may still state: the field
     /// loop stops that much earlier, while the notice still quotes the caller's own <paramref name="cap"/>.</param>
-    static void AppendRecord(StringBuilder sb, ReadOutcome o, int cap, int reserve = 0, bool precise = false, ChildNotes? notes = null)
+    static void AppendRecord(StringBuilder sb, ReadOutcome o, int cap, int reserve = 0, bool precise = false, ChildNotes? notes = null,
+                             LeverNames? levers = null)
     {
+        var lv = levers ?? LeverNames.Legacy;
         var r = o.Record!;
         sb.Append("type=").Append(r.Type)
           .Append("  formid=").Append(r.FormKey)
@@ -1847,7 +1853,7 @@ static class Wire
             {
                 sb.Append("  ... [truncated: showing ").Append(i).Append(" of ").Append(r.Fields.Count)
                   .Append(" field lines at max_chars=").Append(cap)
-                  .Append("; narrow with fields=, lower depth=, or raise max_chars]\n");
+                  .Append("; narrow with ").Append(lv.Fields).Append(", lower ").Append(lv.Depth).Append(", or raise max_chars]\n");
                 break;
             }
             var f = r.Fields[i];
@@ -1877,8 +1883,9 @@ static class Wire
     /// <param name="reserve">Chars held back for the #342 response-level clauses — the same split
     /// <see cref="AppendRecord"/> makes: budget against <c>cap - reserve</c>, quote <c>cap</c>.</param>
     static void AppendConflictTree(StringBuilder sb, LoadOrderService svc, ReadOutcome o, IReadOnlyList<string>? fields, int cap,
-                                   ConflictTreeView? prefetched = null, int reserve = 0)
+                                   ConflictTreeView? prefetched = null, int reserve = 0, LeverNames? levers = null)
     {
+        var lv = levers ?? LeverNames.Legacy;
         var tp = o.TouchingPlugins;
         if (tp is null) return;
         sb.Append("conflict_tree: ").Append(tp.Count).Append(tp.Count == 1 ? " plugin touches" : " plugins touch")
@@ -1888,7 +1895,7 @@ static class Wire
             if (sb.Length >= cap - reserve && i < tp.Count - 1)            // budget gone mid-list — name the rest + the winner, stop
             {
                 sb.Append("  ... [").Append(tp.Count - i).Append(" more plugins omitted at max_chars=").Append(cap)
-                  .Append("; winner (last in load order) = ").Append(tp[^1]).Append("; raise max_chars or narrow with fields=]\n");
+                  .Append("; winner (last in load order) = ").Append(tp[^1]).Append("; raise max_chars or narrow with ").Append(lv.Fields).Append("]\n");
                 return;                                                    // and skip the diff (the all-bodies fetch too) — already over budget
             }
             sb.Append("  ").Append(i + 1).Append(". ").Append(tp[i]).Append(i == tp.Count - 1 ? "  (winner)" : "").Append('\n');
@@ -1921,14 +1928,14 @@ static class Wire
             if (sb.Length >= cap - reserve)
             {
                 sb.Append("  ... [truncated: response hit max_chars=").Append(cap)
-                  .Append("; pass fields= to narrow the diff or raise max_chars]\n");
+                  .Append("; pass ").Append(lv.Fields).Append(" to narrow the diff or raise max_chars]\n");
                 return;
             }
             var node = tree.Nodes[n];
             var diff = FieldsDiff.Compare(node.Record, winnerNode.Record);
             string line = diff.Deltas.Count > 0
                 ? string.Join("; ", diff.Deltas)
-                  + (diff.Complete ? "" : " [comparison TRUNCATED at the expansion cap — only value mismatches observed on both sides are shown; list contents and one-sided fields were NOT compared; narrow with fields= to fully compare]")
+                  + (diff.Complete ? "" : " [comparison TRUNCATED at the expansion cap — only value mismatches observed on both sides are shown; list contents and one-sided fields were NOT compared; narrow with " + lv.Fields + " to fully compare]")
                 : diff.Complete
                     // No deltas. Surface HOW MANY modeled fields read identical to the winner (item 4.3) — node-
                     // neutral, because this renders for every touching plugin including the master (Nodes[0]),
@@ -1938,13 +1945,13 @@ static class Wire
                     ? (fields is { Count: > 0 }
                         ? IdenticalAcrossFields(diff)
                         : IdenticalWholeRecord(diff))
-                    : "(no differences found, but the comparison was TRUNCATED at the expansion cap — NOT a verified ITM; narrow with fields= to fully compare)";
+                    : "(no differences found, but the comparison was TRUNCATED at the expansion cap — NOT a verified ITM; narrow with " + lv.Fields + " to fully compare)";
             // One node's joined deltas are unbounded (two divergent deep reads can carry thousands); slice
             // against the remaining char budget with the same explicit notice the other cuts use (Q3).
             int room = cap - reserve - sb.Length;
             if (line.Length > room)
                 line = string.Concat(line.AsSpan(0, Math.Max(0, room)),
-                    " ... [delta line truncated at max_chars; narrow with fields= or raise max_chars]");
+                    " ... [delta line truncated at max_chars; narrow with " + lv.Fields + " or raise max_chars]");
             sb.Append("  ").Append(node.Plugin).Append(": ").Append(line).Append('\n');
         }
     }
