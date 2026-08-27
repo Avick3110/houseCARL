@@ -220,9 +220,9 @@ public static class RecordsTools
             // forms while `depth: 2` refused — the rule must not depend on the value), and 0/negative is refused
             // rather than silently becoming 1.
             if (form is not ("fields" or "everything"))
-                return comparisonForm
+                return Wire.Refuse(json, comparisonForm
                     ? $"error: project.depth belongs to the 'fields'/'everything' forms — the '{form}' comparison always deep-reads BOTH sides at the diff engine's fixed depth so line sets correspond (narrow with project.fields instead)."
-                    : $"error: project.depth expands field contents and belongs to the 'fields'/'everything' forms (got form='{form}').";
+                    : $"error: project.depth expands field contents and belongs to the 'fields'/'everything' forms (got form='{form}').");
             if (dv < 1)
                 return Wire.Refuse(json, $"error: project.depth={dv} — depth must be >= 1 (1 shows a container as a collapsed summary; higher opens it).");
         }
@@ -378,7 +378,7 @@ public static class RecordsTools
         bool wantFile = !string.IsNullOrEmpty(toFile);
         if (wantFile)
         {
-            if (Artifacts.ValidateToFile(toFile!) is { } verr) return verr;
+            if (Artifacts.ValidateToFile(toFile!) is { } verr) return Wire.Refuse(json, verr);
             if (offset > 0) return Wire.Refuse(json, "error: to_file= captures the COMPLETE result (the artifact is never a window), so offset= has nothing to page — drop offset=.");
             if (form == "aggregate") return Wire.Refuse(json, "error: to_file= writes row artifacts, and the aggregate form is a count table with no record rows — drop one of the two.");
             if (counts_only) return Wire.Refuse(json, "error: counts_only= returns the census with no rows, and to_file= writes the rows — the two contradict; drop one (review: this pair used to return the census and silently write nothing).");
@@ -439,7 +439,7 @@ public static class RecordsTools
             if (dense) return "error: format='dense' is the scan lane's columnar form — a formids= read renders text or json.";
 
             var (toks, demand, echoSrc, xerr) = Artifacts.ExpandListInput(formids!, "formids");
-            if (xerr is not null) return xerr;
+            if (xerr is not null) return Wire.Refuse(json, xerr);
             var ids = toks!;
 
             List<KeyValuePair<string, string>> Echo()
@@ -954,7 +954,7 @@ public static class RecordsTools
             if (hasFormids)
             {
                 var (ftoks, fdemand, fecho, fxerr) = Artifacts.ExpandListInput(formids!, "formids");
-                if (fxerr is not null) return fxerr;
+                if (fxerr is not null) return Wire.Refuse(json, fxerr);
                 fidDemand = fdemand; fidEcho = fecho;
                 var fkList = new List<FormKey>();
                 foreach (var t in ftoks!)
@@ -1009,7 +1009,7 @@ public static class RecordsTools
             if (refs is { Length: > 0 })
             {
                 var (toks, demand, echoSrc, xerr) = Artifacts.ExpandListInput(refs, "references");
-                if (xerr is not null) return xerr;
+                if (xerr is not null) return Wire.Refuse(json, xerr);
                 refs = toks!; refDemand = demand; refEcho = echoSrc;
             }
             IReadOnlyList<FormKey>? refFks = null;
@@ -1304,7 +1304,7 @@ public static class RecordsTools
             if (refs is { Length: > 0 })
             {
                 var (toks, demand, echoSrc2, xerr) = Artifacts.ExpandListInput(refs, "references");
-                if (xerr is not null) return xerr;
+                if (xerr is not null) return Wire.Refuse(json, xerr);
                 refs = toks!; refDemand = demand; refEcho = echoSrc2;
             }
             IReadOnlyList<FormKey>? refFks = null;
@@ -1324,7 +1324,7 @@ public static class RecordsTools
             if (formids is { Length: > 0 })
             {
                 var (ftoks, fdemand, fecho, fxerr) = Artifacts.ExpandListInput(formids!, "formids");
-                if (fxerr is not null) return fxerr;
+                if (fxerr is not null) return Wire.Refuse(json, fxerr);
                 fidDemand = fdemand; fidEcho = fecho;
                 var fkList = new List<FormKey>();
                 foreach (var t in ftoks!)

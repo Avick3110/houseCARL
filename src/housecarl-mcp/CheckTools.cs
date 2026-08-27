@@ -151,7 +151,7 @@ public static class CheckTools
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         bool json = Wire.WantsJson(format, out var fmtErr);
         if (fmtErr is not null) return fmtErr;
-        if (!SweepFamilySelection.TryParse(findings, out var selection, out var famErr)) return "error: " + famErr;
+        if (!SweepFamilySelection.TryParse(findings, out var selection, out var famErr)) return Wire.Refuse(json, "error: " + famErr);
         int lim = limit <= 0 ? 1000 : limit;
 
         // WHAT EVERY FAMILY AGREES IS MALFORMED, CHECKED BEFORE ANY OF THEM IS DISPATCHED. These parameters were
