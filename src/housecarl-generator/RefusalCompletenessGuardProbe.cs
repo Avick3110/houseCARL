@@ -24,18 +24,21 @@ namespace HousecarlGenerator;
 ///   exact pre-fix ternary as a permanent known-RED fixture: <c>INV-FIXTURE-RED</c> asserts the enumerator flags
 ///   it. <b>If that fixture ever passes, the guard is broken, not the tree</b> — a checker whose known-red case
 ///   comes back green is a broken checker, never a clean surface (§11).</item>
-///   <item><b>The population is DERIVED, never listed.</b> <see cref="DerivePopulation"/> finds every
-///   <c>Guard.Tool</c> body that consults the format machinery (<c>Wire.WantsJson</c> /
-///   <c>Wire.CrossQueryFormat</c>) and takes THAT as the surface under guard. A new json-capable read tool
-///   enrols itself; a hand-named file set is what let <c>housecarl_check</c> sit outside the trace with a bare
-///   refusal and its own comment stating the rule it was breaking.</item>
+///   <item><b>The population is DERIVED, never listed.</b> <see cref="DerivePopulation"/> takes every scope in
+///   which the transport is DECIDED — a <c>Guard.Tool</c> body consulting <c>Wire.WantsJson</c> /
+///   <c>Wire.CrossQueryFormat</c> — or HANDED over — a method or local function declaring a <c>bool json</c> or
+///   a <c>QueryFormat</c> parameter. A new json-capable read tool enrols itself, and so does a new helper given
+///   the transport; a hand-named file set is what let <c>housecarl_check</c> sit outside the trace with a bare
+///   refusal and its own comment stating the rule it was breaking, and the tool-body-only draft of this net is
+///   what let <c>RenderListAggregate</c> revert to prose while the guard stayed green.</item>
 /// </list>
 ///
-/// <para><b>The allowlist is small BECAUSE the population is derived.</b> Of the 26 refusal returns that stay
-/// bare on the tree, only the ones actually inside a format-consuming tool body are the guard's business; the
-/// text-lane renderers and <c>ParsePole</c>'s own returns are not in a tool body at all, and their call sites —
-/// which ARE in one — are covered like any other site. Every entry below cites the settled decision that makes
-/// it correct, so an exception cannot be added without naming the ruling that permits it.</para>
+/// <para><b>The allowlist is small BECAUSE the population is derived.</b> Of the refusal returns that stay bare
+/// on the tree, only the ones in a policed scope are the guard's business, and a text-lane return inside one is
+/// excluded STRUCTURALLY rather than by hand when the json arm returned above it (<see cref="TransportAlreadyLeft"/>).
+/// <c>ParsePole</c>'s own returns are in no policed scope at all — no transport is decided in it or handed to it —
+/// and its call sites, which ARE policed, are covered like any other site. Every entry below cites the settled
+/// decision that makes it correct, so an exception cannot be added without naming the ruling that permits it.</para>
 ///
 /// <para>Self-contained: reads source files, no corpus and no MO2 instance, so it must run from the repo root.
 /// Run: <c>dotnet run --project src/housecarl-generator -- refusal-completeness-guard</c></para>
@@ -140,6 +143,31 @@ public static class RefusalCompletenessGuardProbe
         }
         """;
 
+    /// <summary>THE POPULATION FIXTURE — three helpers, none of them a <c>Guard.Tool</c> body, enumerated with
+    /// the population filter ON. Two were HANDED the transport (a <c>bool json</c>, a <c>QueryFormat</c>) and
+    /// must be policed; the third has none in scope and must not be, because its shape is decided at its call
+    /// sites (<c>ParsePole</c>'s posture, settled #8). This is the arm that proves the derivation itself rather
+    /// than asserting it — the <c>QueryFormat</c> half has no live site today, so nothing else would.</summary>
+    const string TransportHelperFixture = """
+        static class Fixture
+        {
+            static string Render(string groupBy, bool json)
+            {
+                return $"error: project.group_by='{groupBy}' is not a count key.";
+            }
+
+            static string Scan(QueryFormat fmt)
+            {
+                return $"error: the scan lane refused.";
+            }
+
+            static string NoTransport(string pole)
+            {
+                return $"error: a helper with no transport in scope decides nothing here.";
+            }
+        }
+        """;
+
     public static int RunGuard(string[] args)
     {
         _pass = _fail = 0;
@@ -177,11 +205,19 @@ public static class RefusalCompletenessGuardProbe
             return Done();
         }
 
+        var handed = Enumerate("<fixture>", TransportHelperFixture, out var handedErrors, populationOnly: true);
+        Check(handedErrors.Count == 0, $"the transport-helper fixture parses ({string.Join("; ", handedErrors)})");
+        Check(handed.Count == 2,
+              $"a helper HANDED the transport is in the population — both spellings (found {handed.Count}, "
+              + "expected 2: the `bool json` helper and the `QueryFormat` one)");
+        Check(handed.All(h => !h.Sentence.Contains("decides nothing here", StringComparison.Ordinal)),
+              "…and a helper with NO transport in scope is not (settled #8 — its shape is decided at its call sites)");
+
         var population = DerivePopulation(srcDir, out var parseErrors, out var bodies);
         Check(parseErrors.Count == 0,
               $"every scanned file PARSES — a file that does not parse has untrustworthy returns ({string.Join("; ", parseErrors)})");
-        Check(population.Count > 0, "the derived population is non-empty (Guard.Tool bodies consulting the format machinery)");
-        Console.WriteLine($"    population: {bodies} tool body/bodies across {population.Count} file(s) — "
+        Check(population.Count > 0, "the derived population is non-empty (bodies that decide the transport, and helpers handed it)");
+        Console.WriteLine($"    population: {bodies} policed scope(s) across {population.Count} file(s) — "
                         + string.Join(", ", population.OrderBy(f => f)));
 
         // ---- 3. the residue: every flagged site must cite a ruling -------------------------------------
@@ -263,10 +299,20 @@ public static class RefusalCompletenessGuardProbe
         return files;
     }
 
-    /// <summary>A <c>Guard.Tool(...)</c> invocation's body lambda, when that body consults the format machinery.
-    /// This is the definition of "on the json-capable read surface" — a tool that never asks about the transport
-    /// has no transport to honour, which is why <c>housecarl_effect_chain</c> is correctly absent without an
-    /// allowlist entry, and why a NEW json-capable tool enrols itself the day it is written.</summary>
+    /// <summary>Every scope on the json-capable surface, derived from the artifact in two ways — a scope is
+    /// policed when the transport is DECIDED in it or HANDED to it.
+    ///
+    /// <para>(a) A <c>Guard.Tool(...)</c> body lambda that consults the format machinery. A tool that never asks
+    /// about the transport has no transport to honour, which is why <c>housecarl_effect_chain</c> is correctly
+    /// absent without an allowlist entry, and why a NEW json-capable tool enrols itself the day it is written.</para>
+    ///
+    /// <para>(b) Any method or local function DECLARING a transport parameter — a <c>bool json</c>, or a
+    /// <c>QueryFormat</c>. Aaron's gate review found (a) alone insufficient: a helper handed the transport
+    /// produces its refusal AND returns it inside itself, so no tool-body return ever carries the sentence and
+    /// the site sat outside the net entirely (<c>RecordsTools.RenderListAggregate</c>, reverted to prose, left
+    /// the guard green). Deriving on the parameter closes it without naming a file — a helper that was given the
+    /// transport was given the obligation with it. <c>ParsePole</c> stays correctly outside both: it has no
+    /// transport in scope, so its shape is decided at its call sites, which ARE in a tool body.</para></summary>
     static IEnumerable<SyntaxNode> ToolBodies(SyntaxNode root)
     {
         foreach (var inv in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
@@ -281,7 +327,19 @@ public static class RefusalCompletenessGuardProbe
                 if (ConsultsFormat(e)) yield return e;
             }
         }
+        foreach (var m in root.DescendantNodes().OfType<MethodDeclarationSyntax>())
+            if (CarriesTransport(m.ParameterList)) yield return m;
+        foreach (var f in root.DescendantNodes().OfType<LocalFunctionStatementSyntax>())
+            if (CarriesTransport(f.ParameterList)) yield return f;
     }
+
+    /// <summary>Does this signature take the transport as an argument? <c>bool json</c> by name and type — the
+    /// spelling the whole read surface uses — or a <c>QueryFormat</c> of any name, which carries the three-way
+    /// text/json/dense answer and so is unambiguous on its type alone.</summary>
+    static bool CarriesTransport(ParameterListSyntax? ps)
+        => ps is not null && ps.Parameters.Any(p =>
+               (p.Type?.ToString() is "bool" or "bool?" && p.Identifier.Text == "json")
+               || p.Type?.ToString() is "QueryFormat" or "Wire.QueryFormat");
 
     static bool ConsultsFormat(SyntaxNode body)
         => body.DescendantNodes().OfType<InvocationExpressionSyntax>()
