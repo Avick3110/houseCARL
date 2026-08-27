@@ -15,12 +15,26 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 - **A read tool asked for json now refuses in json.** Reads that take `format="json"` previously answered
   some refusals with a plain sentence instead of a json document, so a caller parsing the response had to
-  handle two shapes depending on which rule it broke. Every refusal those tools can reach on a json call is
-  now one document — `ok:false` plus the `error` sentence, and the build stamp where the refusal consulted
-  one. A row that failed inside a call that succeeded is not a refusal and keeps its own `error` field, with
-  no `ok`: that is how a served answer is told from a refused one. Text output is unchanged. The refusals
-  still outside this shape are the ones whose own render says so: the tools with no json format, the
-  `format='dense'` refusals, and an unreadable `format=` itself, which cannot know the shape you wanted.
+  handle two shapes depending on which rule it broke. Those refusals are now one document — `ok:false` plus
+  the `error` sentence, and the build stamp where the refusal consulted one. A row that failed inside a call
+  that succeeded is not a refusal and keeps its own `error` field, with no `ok`: that is how a served answer
+  is told from a refused one. The refusals still outside this shape are the ones whose own render says so:
+  the tools with no json format, the `format='dense'` refusals, and an unreadable `format=` itself, which
+  cannot know the shape you wanted. Which refusals are in and which are out is enforced by
+  `refusal-completeness-guard`, which derives the covered surface rather than working from a list.
+
+- **`housecarl_records` with `counts_only=true` renames one json field: `ok` is now `resolved`.** The census
+  reported `{count, ok, errors}` with `ok` holding the number of inputs that resolved — the same key the
+  refusal shape above uses to mean "this call was refused", in a different type. A caller reading the
+  response as a refusal check saw `"ok": 0` on a served census where nothing resolved. The field pairs with
+  `errors` beside it now. The `ok:false` refusal discriminant is unchanged, and the text render still says
+  `ok=`. **If you parse the json census, update the field name.**
+
+- **Two read tools refuse an unreadable `format=` before anything else.** `housecarl_batch_record_detail`
+  and `housecarl_resolve` checked for an empty `formids=` first, which meant that one refusal could not be
+  a json document however you asked for it. The transport is settled first now. If a call breaks both rules
+  at once — an unreadable `format=` *and* an empty `formids=` — you are told about the `format=` where you
+  used to be told about the `formids=`. Apart from that ordering, text output is unchanged.
 
 - **houseCARL no longer edits a localized plugin in place, and now tells you where that plugin's text
   actually lives.** A localized plugin keeps its text in separate `.STRINGS`/`.DLSTRINGS`/`.ILSTRINGS`
