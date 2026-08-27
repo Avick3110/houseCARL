@@ -303,8 +303,10 @@ static class JsonWire
     /// <param name="emitted">Collects the annotated paths this array ACTUALLY carried — the response-level clause is
     /// stated over these, so a field the truncation above dropped states nothing (Aaron's finding 1, json twin).</param>
     static void WriteFieldsArray(Utf8JsonWriter w, RecordFields r, MemoryStream ms, int cap,
-                                 IReadOnlyDictionary<string, OwnedChildShape>? annotated = null, ICollection<string>? emitted = null)
+                                 IReadOnlyDictionary<string, OwnedChildShape>? annotated = null, ICollection<string>? emitted = null,
+                                 LeverNames? levers = null)
     {
+        var lv = levers ?? LeverNames.Legacy;
         w.WriteStartArray("fields");
         for (int i = 0; i < r.Fields.Count; i++)
         {
@@ -313,7 +315,7 @@ static class JsonWire
             {
                 w.WriteStartObject();
                 w.WriteString("path", "…");   // …
-                w.WriteString("note", $"[truncated at max_chars: {i} of {r.Fields.Count} fields shown; narrow with fields=, lower depth=, or raise max_chars]");
+                w.WriteString("note", $"[truncated at max_chars: {i} of {r.Fields.Count} fields shown; narrow with {lv.Fields}, lower {lv.Depth}, or raise max_chars]");
                 w.WriteEndObject();
                 break;
             }
@@ -351,7 +353,8 @@ static class JsonWire
     /// belongs on it — written AFTER <c>fields</c> and only over what <c>fields</c> carried. It used to be the
     /// object's second key, ahead of the very array it described (Aaron's finding 3).</param>
     internal static void WriteReadRecord(Utf8JsonWriter w, ReadOutcome o, MemoryStream ms, int cap, string? matches = null,
-                                         string? epoch = null, ICollection<string>? childFields = null, bool stateChildNote = false)
+                                         string? epoch = null, ICollection<string>? childFields = null, bool stateChildNote = false,
+                                         LeverNames? levers = null)
     {
         var r = o.Record!;
         w.WriteStartObject();
@@ -363,7 +366,7 @@ static class JsonWire
         w.WriteNumber("override_depth", o.OverrideDepth);
         WriteNullable(w, "source", o.SourcePlugin);   // the body these field VALUES came from (scoped plugin vs winner)
         if (matches is not null) w.WriteString("matches", matches);
-        WriteFieldsArray(w, r, ms, cap, o.OwnedChildFields, childFields);
+        WriteFieldsArray(w, r, ms, cap, o.OwnedChildFields, childFields, levers);
         if (stateChildNote && childFields is IReadOnlyCollection<string> { Count: > 0 } stated) WriteOwnedChildNote(w, stated);
         w.WriteEndObject();
     }
@@ -409,8 +412,10 @@ static class JsonWire
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars)
         => RenderBatch(outcomes, maxChars, null, out _);
 
+    /// <summary><paramref name="levers"/>: the CALLER's lever vocabulary for the remedy sentences the row bodies
+    /// compose — this renderer is shared by both tool generations (#439). Omitted means the 1.x spelling.</summary>
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars, SpillState? spill, out bool truncated,
-                                     IReadOnlyList<KeyValuePair<string, string>>? envelope = null)
+                                     IReadOnlyList<KeyValuePair<string, string>>? envelope = null, LeverNames? levers = null)
     {
         truncated = false;
         int cap = Cap(maxChars);
@@ -433,7 +438,7 @@ static class JsonWire
                 w.Flush();
                 if (ms.Length >= cap) { rowsTruncated = true; break; }
                 if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", o.FormKey.ToString()); w.WriteString("error", o.Error); w.WriteEndObject(); }
-                else WriteReadRecord(w, o, ms, cap, childFields: childFields);
+                else WriteReadRecord(w, o, ms, cap, childFields: childFields, levers: levers);
                 rendered++;
             }
             w.WriteEndArray();
@@ -657,8 +662,13 @@ static class JsonWire
     /// <summary>One §4.1 tree row — the provider stack with per-node deltas against the row's reference pole.
     /// Shared by the json render and the artifact writer: THIS is what makes trees spillable (PR #306
     /// fold-decision 1 — the 1.x conflict_tree had no row form; the tree FORM does).</summary>
-    internal static void WriteTreeRow(Utf8JsonWriter w, LoadOrderService.TreeRow row, MemoryStream ms, int cap)
+    internal static void WriteTreeRow(Utf8JsonWriter w, LoadOrderService.TreeRow row, MemoryStream ms, int cap,
+                                      LeverNames? levers = null)
     {
+        // This row's notice was hand-written in the records spelling because the tree form is a 2.0 form. A literal
+        // that happens to agree with its caller is the next one to drift — the vocabulary comes from the carrier
+        // like every other remedy here, and the default arm is what proves the carrier is wired (#439).
+        var lv = levers ?? LeverNames.Legacy;
         w.WriteStartObject();
         w.WriteString("formid", row.Formid);
         if (row.Error is not null)
@@ -679,7 +689,7 @@ static class JsonWire
             if (ms.Length >= cap)
             {
                 w.WriteStartObject();
-                w.WriteString("note", "[nodes truncated at max_chars — raise max_chars or narrow with project.fields]");
+                w.WriteString("note", $"[nodes truncated at max_chars — raise max_chars or narrow with {lv.Fields}]");
                 w.WriteEndObject();
                 break;
             }
@@ -706,7 +716,7 @@ static class JsonWire
     public static string RenderTree(IReadOnlyList<LoadOrderService.TreeRow> rows, int maxChars, string? epoch,
                                     IReadOnlyList<KeyValuePair<string, string>> envelope,
                                     IReadOnlyList<KeyValuePair<string, int>> counts,
-                                    SpillState? spill, out bool truncated)
+                                    SpillState? spill, out bool truncated, LeverNames? levers = null)
     {
         truncated = false;
         int cap = Cap(maxChars);
@@ -725,7 +735,7 @@ static class JsonWire
                 if (manifestOnly) break;
                 w.Flush();
                 if (ms.Length >= cap) { rowsTruncated = true; break; }
-                WriteTreeRow(w, row, ms, cap);
+                WriteTreeRow(w, row, ms, cap, levers);
                 rendered++;
             }
             w.WriteEndArray();
@@ -991,7 +1001,7 @@ static class JsonWire
     /// auto-spill trigger handed back to the tool layer.</summary>
     public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields, int depth,
                                           SpillState? spill, out bool truncated,
-                                          IReadOnlyList<KeyValuePair<string, string>>? envelope = null)
+                                          IReadOnlyList<KeyValuePair<string, string>>? envelope = null, LeverNames? levers = null)
     {
         truncated = false;
         int cap = Cap(maxChars);
@@ -1052,9 +1062,10 @@ static class JsonWire
                         // winner_fields=: read the WINNER's body (source=null) regardless of scan scope; the record's
                         // "source" field still names the body read, so the json carries the same source/winner truth.
                         // Pinned to the scan's build (PR #305 review) — the document's epoch names ONE build.
-                        var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, depth, resolveNames: resolveNames, linkMemo: linkMemo);
+                        var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, depth, resolveNames: resolveNames, linkMemo: linkMemo,
+                                                  containerHint: (levers ?? LeverNames.Legacy).ContainerHint);   // a collapsed cell names the caller's own expansion knob (#439)
                         if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", fk.ToString()); w.WriteString("error", o.Error); if (matches is not null) w.WriteString("matches", matches); w.WriteEndObject(); }
-                        else WriteReadRecord(w, o, ms, cap, matches, childFields: childFields);
+                        else WriteReadRecord(w, o, ms, cap, matches, childFields: childFields, levers: levers);
                     }
                     else
                     {
@@ -1107,7 +1118,7 @@ static class JsonWire
 
     public static string RenderCrossQueryDense(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields,
                                                SpillState? spill, out bool truncated,
-                                               IReadOnlyList<KeyValuePair<string, string>>? envelope = null)
+                                               IReadOnlyList<KeyValuePair<string, string>>? envelope = null, LeverNames? levers = null)
     {
         truncated = false;
         int cap = Cap(maxChars);
@@ -1162,7 +1173,7 @@ static class JsonWire
                     if (detail)
                     {
                         var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false,
-                                                  resolveNames: resolveNames, linkMemo: linkMemo, containerHint: Wire.DenseContainerHint);   // dense refuses depth>1 — hint the format hop with the knob (#231); pinned to the scan's build
+                                                  resolveNames: resolveNames, linkMemo: linkMemo, containerHint: (levers ?? LeverNames.Legacy).DenseContainerHint);   // dense refuses depth>1 — hint the format hop with the knob (#231); pinned to the scan's build
                         if (o.Error is not null) { (errors ??= new()).Add((fk.ToString(), o.Error)); rendered++; continue; }
                         var r = o.Record!;
                         w.WriteStartArray();

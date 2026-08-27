@@ -130,7 +130,8 @@ internal static class Artifacts
     public static (SpillInfo? Spill, string? Error) WriteCrossQuery(
         LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields,
         bool resolveNames, bool winnerFields, int depth,
-        string path, string reason, IReadOnlyList<KeyValuePair<string, string>> query)
+        string path, string reason, IReadOnlyList<KeyValuePair<string, string>> query,
+        LeverNames? levers = null)
     {
         using var writer = new ResultArtifact.Writer();
         string[] schema;
@@ -157,7 +158,8 @@ internal static class Artifacts
                 var fk = q.Keys[i];
                 string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
                 var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, depth,
-                                          resolveNames: resolveNames, linkMemo: linkMemo);
+                                          resolveNames: resolveNames, linkMemo: linkMemo,
+                                          containerHint: (levers ?? LeverNames.Legacy).ContainerHint);   // an artifact row is read by the same caller (#439)
                 if (o.Error is null && o.OwnedChildFields is { } af)   // #342: the rows' labels need their clause on line 1
                     foreach (var annotatedPath in af.Keys) annotated.Add(annotatedPath);
                 if (o.Error is not null)

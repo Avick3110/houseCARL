@@ -538,7 +538,7 @@ public static class RecordsTools
             else if (srcName is null)
             {
                 if (srcOverlay) Arm("skypatcher overlay (pre) = winner — the body the INI layer starts from");
-                outcomes = svc.ResolveBatch(ids, readFields, false, depth, resolveNames, null, demand, out var refusal, out var refusalEpoch);
+                outcomes = svc.ResolveBatch(ids, readFields, false, depth, resolveNames, null, demand, out var refusal, out var refusalEpoch, LeverNames.Records.ContainerHint);
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, refusalEpoch)
                                 : "error: " + refusal + (refusalEpoch is not null ? $"\nepoch={refusalEpoch}" : "");
@@ -583,8 +583,8 @@ public static class RecordsTools
             }
             string Render2(SpillState? sp, out bool trunc) => form == "summary"
                 ? RenderRecordsSummary(winOutcomes, json, headerLine, envelope, max_chars, sp, out trunc)
-                : json ? JsonWire.RenderBatch(winOutcomes, max_chars, sp, out trunc, envelope)
-                       : headerLine + "\n" + Wire.RenderBatch(svc, winOutcomes, projFields, false, max_chars, sp, out trunc);
+                : json ? JsonWire.RenderBatch(winOutcomes, max_chars, sp, out trunc, envelope, LeverNames.Records)
+                       : headerLine + "\n" + Wire.RenderBatch(svc, winOutcomes, projFields, false, max_chars, sp, out trunc, LeverNames.Records);
             var rendered2 = Render2(spill2, out var truncated2);
             if (spill2 is null && truncated2)
             {
@@ -857,7 +857,7 @@ public static class RecordsTools
             }
             var treeCounts = new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) };
             string Render(SpillState? sp, out bool trunc) => json
-                ? JsonWire.RenderTree(winRows, max_chars, epoch, envelope, treeCounts, sp, out trunc)
+                ? JsonWire.RenderTree(winRows, max_chars, epoch, envelope, treeCounts, sp, out trunc, LeverNames.Records)
                 : RenderRecordsTree(winRows, rows.Count, contested, errs, projFields is { Length: > 0 }, headerLine, epoch, max_chars, sp, out trunc);
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated)
@@ -1167,7 +1167,7 @@ public static class RecordsTools
                     // retargets display to the winner exactly as on the fields form.
                     var srcs = outcome.Sources;
                     if (winnerFields || srcs is null || srcs.Take(keys.Count).All(s => s is null))
-                        bodies = svc.ResolveBatch(keys, null, false, depth, resolveNames);
+                        bodies = svc.ResolveBatch(keys, null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint);
                     else
                     {
                         var byIndex = new ReadOutcome[keys.Count];
@@ -1182,12 +1182,12 @@ public static class RecordsTools
                         }
                         if (winnerIdx.Count > 0)
                         {
-                            var res = svc.ResolveBatch(winnerIdx.Select(i => keys[i]).ToList(), null, false, depth, resolveNames);
+                            var res = svc.ResolveBatch(winnerIdx.Select(i => keys[i]).ToList(), null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint);
                             for (int i = 0; i < winnerIdx.Count; i++) byIndex[winnerIdx[i]] = res[i];
                         }
                         foreach (var kv in bySource)
                         {
-                            var res = svc.ResolveBatch(kv.Value.Select(i => keys[i]).ToList(), null, false, depth, resolveNames, kv.Key);
+                            var res = svc.ResolveBatch(kv.Value.Select(i => keys[i]).ToList(), null, false, depth, resolveNames, kv.Key, LeverNames.Records.ContainerHint);
                             for (int i = 0; i < kv.Value.Count; i++) byIndex[kv.Value[i]] = res[i];
                         }
                         bodies = byIndex;
@@ -1219,8 +1219,8 @@ public static class RecordsTools
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
                 string RenderEv(SpillState? sp, out bool trunc) => json
-                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope)
-                    : headerLine + "\n" + Wire.RenderBatch(svc, bodies, null, false, max_chars, sp, out trunc);
+                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, LeverNames.Records)
+                    : headerLine + "\n" + Wire.RenderBatch(svc, bodies, null, false, max_chars, sp, out trunc, LeverNames.Records);
                 SpillState? evSpill = null;
                 if (wantFile)
                 {
@@ -1243,22 +1243,22 @@ public static class RecordsTools
             SpillState? spill = null;
             if (wantFile && outcome.Error is null)
             {
-                var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, projFields, resolveNames, winnerFields, depth, toFile!, "to_file", Echo());
+                var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, projFields, resolveNames, winnerFields, depth, toFile!, "to_file", Echo(), LeverNames.Records);
                 if (aerr is not null)
                     return fmt is Wire.QueryFormat.Text ? "error: " + aerr : JsonWire.RenderError(aerr, outcome.Epoch);
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
             string Render(SpillState? sp, out bool trunc) => fmt switch
             {
-                Wire.QueryFormat.Dense when groupBy is null => JsonWire.RenderCrossQueryDense(svc, outcome, projFields, max_chars, resolveNames, winnerFields, sp, out trunc, envelope),
-                Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, projFields, max_chars, resolveNames, winnerFields, depth, sp, out trunc, envelope),
-                _ => headerLine + "\n" + Wire.RenderCrossQuery(svc, outcome, projFields, false, max_chars, resolveNames, winnerFields, depth, sp, out trunc),
+                Wire.QueryFormat.Dense when groupBy is null => JsonWire.RenderCrossQueryDense(svc, outcome, projFields, max_chars, resolveNames, winnerFields, sp, out trunc, envelope, LeverNames.Records),
+                Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, projFields, max_chars, resolveNames, winnerFields, depth, sp, out trunc, envelope, LeverNames.Records),
+                _ => headerLine + "\n" + Wire.RenderCrossQuery(svc, outcome, projFields, false, max_chars, resolveNames, winnerFields, depth, sp, out trunc, LeverNames.Records),
             };
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated && outcome.Error is null)
             {
                 var path = ResultsStore.NextPath("housecarl_records", outcome.Epoch ?? "none");
-                var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, projFields, resolveNames, winnerFields, depth, path, "ceiling", Echo());
+                var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, projFields, resolveNames, winnerFields, depth, path, "ceiling", Echo(), LeverNames.Records);
                 if (aerr is not null) ResultsStore.Release(path);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
@@ -1424,8 +1424,8 @@ public static class RecordsTools
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
                 string RenderOff(SpillState? sp, out bool trunc) => json
-                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope)
-                    : headerLine + "\n" + Wire.RenderBatch(svc, bodies, form == "fields" ? projFields : null, false, max_chars, sp, out trunc);
+                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, LeverNames.Records)
+                    : headerLine + "\n" + Wire.RenderBatch(svc, bodies, form == "fields" ? projFields : null, false, max_chars, sp, out trunc, LeverNames.Records);
                 SpillState? offSpill = null;
                 var offEpoch = bodies.FirstOrDefault(o => o.Epoch is not null)?.Epoch ?? outcome.Epoch;
                 if (wantFile)
@@ -1450,21 +1450,21 @@ public static class RecordsTools
             SpillState? spill = null;
             if (wantFile && outcome.Error is null)
             {
-                var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, toFile!, "to_file", Echo());
+                var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, toFile!, "to_file", Echo(), LeverNames.Records);
                 if (aerr is not null)
                     return fmt is Wire.QueryFormat.Text ? "error: " + aerr : JsonWire.RenderError(aerr, outcome.Epoch);
                 spill = SpillState.Spilled(sp!, manifestOnly: true);
             }
             string Render(SpillState? sp, out bool trunc) => fmt switch
             {
-                Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, null, max_chars, false, false, 1, sp, out trunc, envelope),
-                _ => headerLine + "\n" + Wire.RenderCrossQuery(svc, outcome, null, false, max_chars, false, false, 1, sp, out trunc),
+                Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, null, max_chars, false, false, 1, sp, out trunc, envelope, LeverNames.Records),
+                _ => headerLine + "\n" + Wire.RenderCrossQuery(svc, outcome, null, false, max_chars, false, false, 1, sp, out trunc, LeverNames.Records),
             };
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated && outcome.Error is null)
             {
                 var path = ResultsStore.NextPath("housecarl_records", outcome.Epoch ?? "none");
-                var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, path, "ceiling", Echo());
+                var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, path, "ceiling", Echo(), LeverNames.Records);
                 if (aerr is not null) ResultsStore.Release(path);
                 rendered = Render(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
