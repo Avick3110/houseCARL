@@ -777,6 +777,68 @@ internal static class RecordsGuardProbe
             Check(stale.StartsWith("error:") && stale.Contains(epoch0!) && stale.Contains("epoch"),
                   "…after the order changes, re-entry REFUSES naming both epochs (never mixes two worlds)");
 
+            // ============================================================================================
+            //  6 — REFUSAL GRAMMAR: a json caller gets a json refusal, every time (#403)
+            // ============================================================================================
+            // Content pins, deliberately NOT wiring pins: the shape is spelled out here — "ok", false,
+            // "error", and the text lane's "error: " prefix written as its own literal — so emptying or
+            // renaming the render-side construction fails this arm instead of moving with it.
+            Console.WriteLine();
+            Console.WriteLine("--- 6: refusal grammar — one shape per transport ---");
+
+            // A plain parameter refusal: the form name is not a form. Before this lane it came back as bare
+            // prose on BOTH transports; the json caller had to parse an error string out of English.
+            var badForm = new RecordsTools.RecordsProject { form = "notaform" };
+            var refJson = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) }, project: badForm, format: "json");
+            var refText = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) }, project: badForm);
+
+            JsonElement rj = default;
+            bool parsed = false;
+            try { rj = Je(refJson); parsed = true; } catch { /* not json at all — the bug this arm exists for */ }
+            Check(parsed, "a json-mode parameter refusal is a JSON DOCUMENT, not prose");
+            Check(parsed && rj.TryGetProperty("ok", out var okProp)
+                         && okProp.ValueKind == JsonValueKind.False,
+                  "…and declares itself refused with ok:false");
+            Check(parsed && rj.TryGetProperty("error", out var errProp)
+                         && errProp.ValueKind == JsonValueKind.String
+                         && errProp.GetString()!.Length > 0,
+                  "…carrying the sentence in an error string");
+            Check(parsed && rj.GetProperty("error").GetString()!.StartsWith("notaform", StringComparison.Ordinal) == false
+                         && rj.GetProperty("error").GetString()!.Contains("is not a form"),
+                  "…and the sentence is the one the caller needs (names the rule it broke)");
+            Check(parsed && !rj.GetProperty("error").GetString()!.StartsWith("error: ", StringComparison.Ordinal),
+                  "…without the text lane's 'error: ' prefix — the property name already says what it is");
+
+            // The text twin is unchanged prose, and states the SAME sentence.
+            Check(refText.StartsWith("error: ", StringComparison.Ordinal),
+                  "the text twin is still prose opening 'error: '");
+            Check(parsed && refText.StartsWith("error: ", StringComparison.Ordinal)
+                         && refText["error: ".Length..].Trim() == rj.GetProperty("error").GetString()!.Trim(),
+                  "…and both transports state ONE sentence, not two spellings of it");
+
+            // A refusal raised inside a helper with no transport in scope (ParsePole) takes its shape at the
+            // call site — the population this lane had to trace rather than assume.
+            var poleJson = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) },
+                                                source: Je("\"previous_provider\""), format: "json");
+            bool poleOk = false;
+            try { poleOk = Je(poleJson).GetProperty("ok").ValueKind == JsonValueKind.False; } catch { }
+            Check(poleOk, "a refusal raised in a no-transport helper still reaches the caller as json");
+
+            // A per-ROW failure is NOT a refusal: the call was answered and rendered a row that failed.
+            var rowJson = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]), "FFFFF1:HcRecBase.esp" },
+                                               format: "json");
+            bool rowDoc = false, rowHasOk = true;
+            try
+            {
+                var rd = Je(rowJson);
+                rowDoc = rd.TryGetProperty("records", out _);
+                rowHasOk = rd.TryGetProperty("ok", out _);
+            }
+            catch { }
+            Check(rowDoc, "a batch with one unresolvable row still RENDERS (the call succeeded)");
+            Check(rowDoc && !rowHasOk,
+                  "…and carries no ok — a failed row must never read as a refused call");
+
             Console.WriteLine();
             Console.WriteLine(_fail == 0
                 ? "[records-guard] PASS — the 2.0 read surface's core contract holds."
