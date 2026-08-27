@@ -18,10 +18,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   handle two shapes depending on which rule it broke. Those refusals are now one document — `ok:false` plus
   the `error` sentence, and the build stamp where the refusal consulted one. A row that failed inside a call
   that succeeded is not a refusal and keeps its own `error` field, with no `ok`: that is how a served answer
-  is told from a refused one. The refusals still outside this shape are the ones whose own render says so:
-  the tools with no json format, the `format='dense'` refusals, and an unreadable `format=` itself, which
-  cannot know the shape you wanted. Which refusals are in and which are out is enforced by
-  `refusal-completeness-guard`, which derives the covered surface rather than working from a list.
+  is told from a refused one. The refusals still outside this shape are the tools with no json format, the
+  `format='dense'` refusals, and an unreadable `format=` itself, which cannot know the shape you wanted —
+  plus an internal failure or an unconfigured instance, which are not refusals of your call. Which refusals
+  are in and which are out is enforced by `refusal-completeness-guard`, which derives the covered surface
+  rather than working from a list.
 
 - **`housecarl_records` with `counts_only=true` renames one json field: `ok` is now `resolved`.** The census
   reported `{count, ok, errors}` with `ok` holding the number of inputs that resolved — the same key the
