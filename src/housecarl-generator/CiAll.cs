@@ -210,6 +210,18 @@ public static class CiAll
         // a reader that stops early turns red instead of quietly shrinking the net. Self-contained (no corpus, no
         // MO2 instance); it reads source files, so it must run from the repo root.
         ("description-vocab-guard", DescriptionVocabularyGuardProbe.RunGuard),
+        // The read surface's refusal grammar is COMPLETE, and stays complete (#403). The grammar shipped as 81
+        // explicit Wire.Refuse sites whose population was found by a regex over two hand-named files; the pre-PR
+        // review found it short by fourteen, and proved by mutation that reverting all fourteen ReadTools sites
+        // to prose left this whole suite green. So: the population DERIVES itself (every Guard.Tool body that
+        // consults the format machinery — a new json-capable tool enrols itself, and housecarl_check stops being
+        // outside the net), the enumeration PARSES rather than pattern-matching (the construct that defeated the
+        // sweep was a ternary spanning three lines, which is exactly what a line-oriented pattern cannot see),
+        // and the bare refusals that remain each cite the settled decision that rules them correct. Carries its
+        // own known-RED fixture — the pre-fix ternary — because a checker whose known-red case comes back green
+        // is a broken checker. Self-contained (no corpus, no MO2 instance); reads source, so it must run from the
+        // repo root.
+        ("refusal-completeness-guard", RefusalCompletenessGuardProbe.RunGuard),
         ("nullarm-guard", NullArmGuardProbe.RunGuard),
         ("formlink-null-guard", FormLinkNullProbe.RunGuard),
         ("formlink-remove-guard", FormLinkRemoveProbe.RunGuard),
