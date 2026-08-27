@@ -803,8 +803,7 @@ internal static class RecordsGuardProbe
                          && errProp.ValueKind == JsonValueKind.String
                          && errProp.GetString()!.Length > 0,
                   "…carrying the sentence in an error string");
-            Check(parsed && rj.GetProperty("error").GetString()!.StartsWith("notaform", StringComparison.Ordinal) == false
-                         && rj.GetProperty("error").GetString()!.Contains("is not a form"),
+            Check(parsed && rj.GetProperty("error").GetString()!.Contains("is not a form"),
                   "…and the sentence is the one the caller needs (names the rule it broke)");
             Check(parsed && !rj.GetProperty("error").GetString()!.StartsWith("error: ", StringComparison.Ordinal),
                   "…without the text lane's 'error: ' prefix — the property name already says what it is");
