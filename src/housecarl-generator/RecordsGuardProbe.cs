@@ -851,6 +851,28 @@ internal static class RecordsGuardProbe
             Check(rowDoc && !anyRowOk,
                   "…and no ROW carries ok either — the discriminant is document-level only");
 
+            // The counts_only CENSUS is a served document too, and it used to carry `"ok": <int>` — the resolved
+            // row COUNT under the discriminant's own key (#403 round 1). Three unresolvable inputs rendered
+            // `"ok": 0`, which a consumer branching on the discriminant reads as a refusal and a consumer typing
+            // it as a boolean cannot parse at all. The count is `resolved` now, beside `errors`.
+            var censusJson = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]), "FFFFF1:HcRecBase.esp" },
+                                                  counts_only: true, format: "json");
+            bool censusDoc = false, censusHasOk = true, censusResolved = false, censusCounted = false;
+            try
+            {
+                var cd = Je(censusJson);
+                censusDoc = cd.TryGetProperty("count", out _);
+                censusHasOk = cd.TryGetProperty("ok", out _);
+                censusResolved = cd.TryGetProperty("resolved", out var rv) && rv.ValueKind == JsonValueKind.Number;
+                censusCounted = cd.TryGetProperty("errors", out var errv) && errv.GetInt32() > 0;
+            }
+            catch { }
+            Check(censusDoc, "a counts_only census RENDERS as a served document");
+            Check(censusCounted, "…with the unresolvable input really counted as an error (the fixture bites)");
+            Check(censusDoc && !censusHasOk,
+                  "…and carries NO ok — a served census must not answer to the refusal discriminant");
+            Check(censusResolved, "…the resolved count is `resolved`, beside `errors`, saying what it counts");
+
             Console.WriteLine();
             Console.WriteLine(_fail == 0
                 ? "[records-guard] PASS — the 2.0 read surface's core contract holds."
