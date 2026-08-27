@@ -873,6 +873,24 @@ internal static class RecordsGuardProbe
                   "…and carries NO ok — a served census must not answer to the refusal discriminant");
             Check(censusResolved, "…the resolved count is `resolved`, beside `errors`, saying what it counts");
 
+            // Settled #4 keeps a three-way epoch split — stamped / explicit null / omitted — and a POST-capture
+            // refusal is stamped with the build it consulted (PR #305). The off-order refusals hold that stamp in
+            // the PoleInfo they were handed, and used to render `epoch: null`: a refusal that DID consult a build
+            // saying it consulted none. Only the sites holding a stamp changed; a refusal with none still says so.
+            var offRefusal = RecordsTools.Records(svc, types: new[] { "WEAP" }, source: Je($"\"{oldName}\""),
+                                                  conflicts_only: true, format: "json");
+            bool offIsRefusal = false, offStamped = false;
+            try
+            {
+                var od = Je(offRefusal);
+                offIsRefusal = od.TryGetProperty("ok", out var ook) && ook.ValueKind == JsonValueKind.False;
+                offStamped = od.TryGetProperty("epoch", out var oep)
+                             && oep.ValueKind == JsonValueKind.String && oep.GetString()!.Length > 0;
+            }
+            catch { }
+            Check(offIsRefusal, "an off-order scan refusal reaches a json caller as a refusal document");
+            Check(offStamped, "…carrying the build it consulted, not epoch:null (settled #4's post-capture bucket)");
+
             Console.WriteLine();
             Console.WriteLine(_fail == 0
                 ? "[records-guard] PASS — the 2.0 read surface's core contract holds."
