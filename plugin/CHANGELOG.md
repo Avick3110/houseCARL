@@ -13,6 +13,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **A read tool asked for json now refuses in json.** Reads that take `format="json"` previously answered
+  some refusals with a plain sentence instead of a json document, so a caller parsing the response had to
+  handle two shapes depending on which rule it broke. Every refusal those tools can reach on a json call is
+  now one document — `ok:false` plus the `error` sentence, and the build stamp where the refusal consulted
+  one. A row that failed inside a call that succeeded is not a refusal and keeps its own `error` field, with
+  no `ok`: that is how a served answer is told from a refused one. Text output is unchanged. The refusals
+  still outside this shape are the ones whose own render says so: the tools with no json format, the
+  `format='dense'` refusals, and an unreadable `format=` itself, which cannot know the shape you wanted.
+
 - **houseCARL no longer edits a localized plugin in place, and now tells you where that plugin's text
   actually lives.** A localized plugin keeps its text in separate `.STRINGS`/`.DLSTRINGS`/`.ILSTRINGS`
   files and carries only indices into them. houseCARL previously committed such a plugin without the
