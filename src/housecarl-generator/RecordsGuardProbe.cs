@@ -923,60 +923,72 @@ internal static class RecordsGuardProbe
                 return found;
             }
             var notes = HarvestNotes(tinyJson);
-
             Check(notes.Count > 0, "a max_chars-starved fields read emits a truncation notice at all");
-            // The claim: no notice this TOOL emits may advertise the OTHER generation's selector. Spelled
-            // out here rather than compared against the render's own constant.
-            var wrongLever = notes.Where(n => System.Text.RegularExpressions.Regex.IsMatch(n, @"(?<!project\.)\bfields=")).ToList();
-            foreach (var n in wrongLever) Console.WriteLine("        offending notice: " + n);
-            Check(notes.Count > 0 && wrongLever.Count == 0,
-                  "…and no notice tells a housecarl_records caller to narrow with 'fields=' (it has project.fields=)");
 
-            // The same question on the text lane — the two lanes compose their notices separately, so a
-            // vocabulary fix on one proves nothing about the other (D2).
+            // The same starved read on the text lane. The two lanes compose their notices separately, so a
+            // vocabulary fix on one proves nothing about the other (D2) — hence a per-lane count below.
             var tinyText = RecordsTools.Records(
                 svc, formids: weapons.Select(Fid).ToArray(), max_chars: 220,
                 project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage", "EditorID", "Name" } });
-            bool textTruncated = tinyText.Contains("truncated") || tinyText.Contains("max_chars=");
-            // Report the whole LINE each hit sits on, not a character window around it: the window
-            // prints the middle of a field render and says nothing about what actually matched.
-            var textHits = tinyText.Split('\n')
-                .Where(l => System.Text.RegularExpressions.Regex.IsMatch(l, @"(?<!project\.)\bfields="))
-                .ToList();
-            bool textWrongLever = textHits.Count > 0;
-            foreach (var l in textHits) Console.WriteLine("        offending line: " + l.Trim());
-            Check(textTruncated, "the text lane truncates the same starved read");
-            Check(textTruncated && !textWrongLever,
-                  "…and its notice names project.fields= too — one vocabulary per caller, both lanes");
 
-            // MEASURED SURFACE — a remedy predicts what a LATER call produces, so the sentences are read,
-            // not reasoned about. This prints every lever-naming sentence a housecarl_records caller can be
-            // handed across the site families, both lanes, on every run. The assertions above pin the two
-            // that regressed; this block is the evidence for the rest, and the place a NEW wrong lever shows
-            // up before anyone writes an arm for it.
-            var lever = new System.Text.RegularExpressions.Regex(
-                @"\bfields=|\bdepth=|\boffset=|\blimit=|\bmax_chars=|conflict_tree|\bto_file=|\bform=");
-            void Measure(string label, string resp)
-            {
-                var hits = resp.StartsWith("{", StringComparison.Ordinal)
-                    ? HarvestNotes(resp)
-                    : resp.Split('\n').Where(l => l.Contains('[') || l.Contains("error:")).ToList();
-                foreach (var h in hits.Where(h => lever.IsMatch(h)).Distinct())
-                    Console.WriteLine($"        [{label}] {h.Trim()}");
-            }
+            // The remedy surface is wider than one starved read: a collapsed container cell names the
+            // expansion knob, a scan's cut names the slimming levers, a tree row names the selector. Drive
+            // one call per site family per lane and assert over ALL of them, so the claim is "no sentence
+            // this tool emits names a lever it lacks" rather than "not this one sentence".
             string[] wf = weapons.Select(Fid).ToArray();
             var containerFields = new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects" } };
-            foreach (var (label, resp) in new (string, string)[]
+            var scanFields = new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage" } };
+            var probes = new (string Label, string Resp)[]
             {
                 ("fields/json", tinyJson), ("fields/text", tinyText),
                 ("container/text", RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, project: containerFields)),
                 ("container/json", RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, format: "json", project: containerFields)),
                 ("tree/text",  RecordsTools.Records(svc, formids: wf, max_chars: 300, project: new RecordsTools.RecordsProject { form = "tree" })),
                 ("tree/json",  RecordsTools.Records(svc, formids: wf, max_chars: 300, format: "json", project: new RecordsTools.RecordsProject { form = "tree" })),
-                ("scan/text",  RecordsTools.Records(svc, types: new[] { "WEAP" }, max_chars: 300, project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage" } })),
-                ("scan/json",  RecordsTools.Records(svc, types: new[] { "WEAP" }, max_chars: 300, format: "json", project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage" } })),
-            })
-                Measure(label, resp);
+                ("scan/text",  RecordsTools.Records(svc, types: new[] { "WEAP" }, max_chars: 300, project: scanFields)),
+                ("scan/json",  RecordsTools.Records(svc, types: new[] { "WEAP" }, max_chars: 300, format: "json", project: scanFields)),
+            };
+
+            // Harvest with NO lever filter. A filter is where a wrong lever hides: the pre-fix tree notice
+            // said "narrow with project.fields" with no '=', and a regex keyed on '=' did not see it at all.
+            // json → every note/error string in the document; text → every line carrying remedy vocabulary.
+            var remedyLine = new System.Text.RegularExpressions.Regex(
+                @"max_chars|narrow|expand|raise |lower |drop |page with|request fewer|continue with");
+            var sentences = new List<(string Lane, string Label, string Text)>();
+            foreach (var (label, resp) in probes)
+            {
+                bool jsonLane = label.EndsWith("/json", StringComparison.Ordinal);
+                var hits = jsonLane
+                    ? HarvestNotes(resp)
+                    : resp.Split('\n').Where(l => remedyLine.IsMatch(l)).ToList();
+                foreach (var h in hits.Select(h => h.Trim()).Distinct())
+                {
+                    sentences.Add((jsonLane ? "json" : "text", label, h));
+                    Console.WriteLine($"        [{label}] {h}");
+                }
+            }
+
+            // Every lever housecarl_records spells differently, or does not have at all. Each is asserted
+            // PER LANE: a lane that emitted nothing is a broken fixture, not a pass.
+            var wrongLevers = new (string Pattern, string Claim)[]
+            {
+                (@"(?<!project\.)\bfields=", "narrow with 'fields=' (it has project.fields=)"),
+                (@"(?<!project\.)\bdepth=",  "lower or pass 'depth=' (it has project.depth=)"),
+                (@"\bconflict_tree\b",       "drop 'conflict_tree' (it has no such parameter — the tree is a project FORM)"),
+            };
+            foreach (var lane in new[] { "json", "text" })
+            {
+                var laneSentences = sentences.Where(s => s.Lane == lane).ToList();
+                Check(laneSentences.Count > 0, $"the {lane} lane emits remedy sentences at all (the fixture bites)");
+                foreach (var (pattern, claim) in wrongLevers)
+                {
+                    var bad = laneSentences
+                        .Where(s => System.Text.RegularExpressions.Regex.IsMatch(s.Text, pattern)).ToList();
+                    foreach (var b in bad) Console.WriteLine($"        OFFENDING [{b.Label}] {b.Text}");
+                    Check(laneSentences.Count > 0 && bad.Count == 0,
+                          $"…no {lane} sentence tells a housecarl_records caller to {claim}");
+                }
+            }
 
             Console.WriteLine();
             Console.WriteLine(_fail == 0
