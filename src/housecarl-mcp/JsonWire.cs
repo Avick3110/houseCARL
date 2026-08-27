@@ -452,7 +452,18 @@ static class JsonWire
 
     // ---- housecarl_records (W2 PR 1) ----------------------------------------------------------------
 
-    /// <summary>records counts_only on the list lane: the census document, no rows.</summary>
+    /// <summary>records counts_only on the list lane: the census document, no rows.
+    ///
+    /// <para><b>The resolved count is <c>resolved</c>, not <c>ok</c> (#403 round 1).</b> This document is a
+    /// SERVED answer, and it used to carry <c>"ok": &lt;int&gt;</c> — the same key the refusal grammar uses as its
+    /// discriminant, in a different type. A consumer told that <c>ok:false</c> means refused and that absence
+    /// means answered read a fully served census of three unresolvable inputs (<c>"ok": 0</c>) as a refusal, and
+    /// a consumer typing <c>ok</c> as a boolean failed to parse the document at all. <c>resolved</c> pairs with
+    /// <c>errors</c> beside it and says what the number counts. The <c>ok:false</c> discriminant is entrenched on
+    /// the write surface and keeps its meaning; it is this key that was the collision.</para>
+    ///
+    /// <para>The TEXT twin keeps <c>ok=</c>: prose has no discriminant to collide with, and the text lane's
+    /// output is deliberately unchanged by this branch.</para></summary>
     public static string RenderCounts(IReadOnlyList<KeyValuePair<string, string>> envelope, int count, int ok, int errors, string? epoch)
     {
         using var ms = new MemoryStream();
@@ -461,7 +472,7 @@ static class JsonWire
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
             w.WriteNumber("count", count);
-            w.WriteNumber("ok", ok);
+            w.WriteNumber("resolved", ok);
             w.WriteNumber("errors", errors);
             WriteNullable(w, "epoch", epoch);
             w.WriteEndObject();

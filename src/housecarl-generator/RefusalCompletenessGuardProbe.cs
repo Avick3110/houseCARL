@@ -167,6 +167,19 @@ public static class RefusalCompletenessGuardProbe
         Check(unused.Count == 0,
               $"every allowlist entry still names a live site (found {unused.Count} stale)");
 
+        // ---- 4. the discriminant means ONE thing, structurally -----------------------------------------
+        Console.WriteLine();
+        Console.WriteLine("--- 4: `ok` is the discriminant and nothing else ---");
+        var okWrites = OkKeyWrites(Path.Combine(srcDir, "JsonWire.cs"));
+        var strays = okWrites.Where(w => !w.Legal).ToList();
+        foreach (var w in strays)
+            Console.WriteLine($"    STRAY `ok`  JsonWire.cs:{w.Line}  writes ok as `{Trim(w.Value)}` in {w.Method}()");
+        Check(strays.Count == 0,
+              $"every `ok` key is either the refusal discriminant (literal false) or a write outcome (o.Success) "
+              + $"— a SERVED read document that writes `ok` is the #403 round-1 collision (found {strays.Count})");
+        Console.WriteLine($"    {okWrites.Count} `ok` write(s): "
+                        + string.Join(", ", okWrites.GroupBy(w => w.Value).Select(g => $"{g.Count()}x {g.Key}")));
+
         Console.WriteLine();
         Console.WriteLine($"    {flagged.Count} bare refusal return(s) in the population, all ruled: "
                         + string.Join(", ", Allow.Select(a => a.Decision).Distinct()));
@@ -373,6 +386,51 @@ public static class RefusalCompletenessGuardProbe
             if (v is not null && v.StartsWith("error: ", StringComparison.Ordinal)) return v;
         }
         return null;
+    }
+
+    // ================= the discriminant =================
+
+    internal readonly record struct OkWrite(int Line, string Method, string Value, bool Legal);
+
+    /// <summary>Every write of an <c>ok</c> PROPERTY in the json renderer, with what it writes and whether that
+    /// is a legal meaning.
+    ///
+    /// <para>Exactly two meanings are legal, and they are told apart by the ARGUMENT, structurally:</para>
+    /// <list type="bullet">
+    ///   <item>a literal <c>false</c> — the refusal discriminant, written in one place
+    ///   (<c>WriteRefusal</c>);</item>
+    ///   <item><c>o.Success</c> — the WRITE surface's outcome flag, which carries both verdicts by long-standing
+    ///   contract and is not this lane's business.</item>
+    /// </list>
+    ///
+    /// <para>Anything else writing that key is the #403 round-1 collision: <c>RenderCounts</c> wrote
+    /// <c>WriteNumber("ok", ok)</c> — a resolved-row COUNT — onto a served census, so a consumer branching on the
+    /// discriminant read an answered call as a refused one, and a typed consumer could not parse it. Held here as
+    /// a structural fact rather than a runtime sample, because the collision was invisible to every runtime arm on
+    /// the surface: the document it appeared on was never one the refusal probes rendered.</para></summary>
+    static List<OkWrite> OkKeyWrites(string jsonWirePath)
+    {
+        var tree = CSharpSyntaxTree.ParseText(File.ReadAllText(jsonWirePath), Options);
+        var outp = new List<OkWrite>();
+        foreach (var inv in tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>())
+        {
+            if (inv.Expression is not MemberAccessExpressionSyntax ma) continue;
+            if (!ma.Name.Identifier.Text.StartsWith("Write", StringComparison.Ordinal)) continue;
+            var args = inv.ArgumentList.Arguments;
+            if (args.Count < 2) continue;
+            if (args[0].Expression is not LiteralExpressionSyntax key
+                || !key.IsKind(SyntaxKind.StringLiteralExpression)
+                || key.Token.ValueText != "ok") continue;
+
+            var value = args[1].Expression.ToString();
+            bool legal = value == "false"                                  // the discriminant
+                      || value.EndsWith(".Success", StringComparison.Ordinal);  // a write outcome
+            var method = inv.Ancestors().OfType<MethodDeclarationSyntax>().FirstOrDefault()?.Identifier.Text
+                         ?? "<file scope>";
+            outp.Add(new OkWrite(inv.GetLocation().GetLineSpan().StartLinePosition.Line + 1,
+                                 method, value, legal));
+        }
+        return outp;
     }
 
     // ================= allowlist matching =================
