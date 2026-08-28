@@ -1002,6 +1002,13 @@ internal static class RecordsGuardProbe
                 ("pole/json", "json", RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, source: poleScope, format: "json", project: containerFields)),
                 ("overlay/text", "text", RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, source: ovlPost, project: containerFields)),
                 ("overlay/json", "json", RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, source: ovlPost, format: "json", project: containerFields)),
+                // The OFF-ORDER file pole is a second arm of source= with its own read, and the active-pole probes
+                // above cannot reach it. Measured, not assumed: with only those, sabotaging the off-order arm's
+                // hint left this guard green. BasicStats is the collapsed container on a weapon.
+                ("poleOff/text", "text", RecordsTools.Records(svc, formids: new[] { Fid(weapons[1]) }, source: Je($"\"{oldName}\""),
+                                                              project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats" } })),
+                ("poleOff/json", "json", RecordsTools.Records(svc, formids: new[] { Fid(weapons[1]) }, source: Je($"\"{oldName}\""), format: "json",
+                                                              project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats" } })),
                 // A plugins=-scoped fields scan, which is what emits the P5 scoped-vs-winner note on all three
                 // transports. It fires on every such scan, not only starved ones.
                 ("scoped/text",  "text",  RecordsTools.Records(svc, plugins: new RecordsTools.RecordsScope { names = new[] { masterName } }, types: new[] { "WEAP" }, project: scanFields)),
