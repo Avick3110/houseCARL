@@ -1084,6 +1084,34 @@ internal static class RecordsGuardProbe
             Check(!slimmed.StartsWith("error:") && slimmed.Contains("form=summary"),
                   "…and dropping project= as the scan notice says yields summary rows, not a refusal");
 
+            // The batch notice's SELECTION clause is a function of the selection LANE, not of the tool: the same
+            // Wire.RenderBatch serves the formids= lane and two scan-derived body lanes, and "request fewer formids"
+            // is inert on a call that named no formids. Both directions are asserted, because a fix that swapped the
+            // clause unconditionally would satisfy one arm and break the other. The wrong-lever patterns above cannot
+            // see this one — 'formids' is a lever housecarl_records genuinely HAS, so only the lane makes it wrong.
+            static string? BatchCut(string resp) =>
+                resp.Split('\n').FirstOrDefault(l => l.Contains("... [truncated: rendered") && l.Contains(" records before hitting"));
+            var scanBatch = RecordsTools.Records(svc, types: new[] { "WEAP" }, max_chars: 400,
+                                                 project: new RecordsTools.RecordsProject { form = "everything" });
+            var scanCut = BatchCut(scanBatch);
+            Check(scanCut is not null && scanCut.Contains("lower limit=") && !scanCut.Contains("formids"),
+                  "…a SCAN-selected batch's truncation notice names limit=, not a formids list the caller never wrote");
+            var fidBatch = RecordsTools.Records(svc, formids: wf, max_chars: 400,
+                                                project: new RecordsTools.RecordsProject { form = "everything" });
+            var fidCut = BatchCut(fidBatch);
+            Check(fidCut is not null && fidCut.Contains("request fewer formids") && !fidCut.Contains("lower limit="),
+                  "…and the formids= lane still says 'request fewer formids', which is true only there");
+            // The OFF-ORDER scan is the second scan-derived body lane and the in-order arm above cannot reach it:
+            // with only that one, reverting this lane's call site left the guard green. The off-order file holds a
+            // single weapon override by fixture design (several checks above depend on that count), so this batch
+            // has one row and the notice is driven by starving the cap rather than by a second row — the sentence
+            // it composes is the same one, which is what the arm reads.
+            var offBatch = RecordsTools.Records(svc, types: new[] { "WEAP" }, source: Je($"\"{oldName}\""), max_chars: 12,
+                                                project: new RecordsTools.RecordsProject { form = "everything" });
+            var offCut = BatchCut(offBatch);
+            Check(offCut is not null && offCut.Contains("lower limit=") && !offCut.Contains("formids"),
+                  "…and the OFF-ORDER scan's batch notice names limit= too (its own lane, its own arm)");
+
             Console.WriteLine();
             Console.WriteLine(_fail == 0
                 ? "[records-guard] PASS — the 2.0 read surface's core contract holds."

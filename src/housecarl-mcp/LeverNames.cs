@@ -23,12 +23,13 @@ namespace HousecarlMcp;
 /// </summary>
 public sealed class LeverNames
 {
-    private LeverNames(string fields, string depth, string winnerFields, string slimScan)
+    private LeverNames(string fields, string depth, string winnerFields, string slimScan, string batchSelection)
     {
         Fields = fields;
         Depth = depth;
         WinnerFields = winnerFields;
         SlimScan = slimScan;
+        BatchSelection = batchSelection;
     }
 
     /// <summary>How this caller spells the field selector, including the '=' — "fields=" or "project.fields=".</summary>
@@ -46,11 +47,12 @@ public sealed class LeverNames
 
     /// <summary>The 1.x read tools' spelling. The DEFAULT everywhere, so nothing renders differently
     /// until a caller asks for its own vocabulary.</summary>
-    public static readonly LeverNames Legacy = new("fields=", "depth=", "winner_fields=true", "fields=/conflict_tree");
+    public static readonly LeverNames Legacy = new("fields=", "depth=", "winner_fields=true", "fields=/conflict_tree", "request fewer formids");
 
     /// <summary>housecarl_records: the selector and the expansion knob are form-scoped under project=,
-    /// and there is no conflict_tree parameter at all.</summary>
-    public static readonly LeverNames Records = new("project.fields=", "project.depth=", "fields_source=\"winner\"", "project= (summary rows)");
+    /// and there is no conflict_tree parameter at all. This is the FORMIDS lane's vocabulary — a
+    /// scan-derived body lane says its selection differently (<see cref="OnScanSelection"/>).</summary>
+    public static readonly LeverNames Records = new("project.fields=", "project.depth=", "fields_source=\"winner\"", "project= (summary rows)", "request fewer formids");
 
     /// <summary>What a scan's truncation notice tells the caller to DROP to slim each row.
     ///
@@ -61,6 +63,20 @@ public sealed class LeverNames
     /// construct is the actionable move: form defaults to 'summary', which is the slim render this remedy is
     /// pointing at anyway.</summary>
     public string SlimScan { get; }
+
+    /// <summary>What a BATCH's truncation notice tells the caller to do to put fewer records in the response.
+    ///
+    /// This is the one lever whose name depends on the SELECTION LANE rather than on the tool: a batch whose
+    /// rows the caller named by hand is narrowed by naming fewer of them, and a batch whose rows a SCAN
+    /// selected is narrowed by the scan's window. housecarl_records has both lanes — formids= reaches
+    /// Wire.RenderBatch, and so do the scan-derived body lanes (form='everything', and the off-order scan) —
+    /// so the caller's lane, not the caller's tool, decides the sentence. See <see cref="OnScanSelection"/>.</summary>
+    public string BatchSelection { get; }
+
+    /// <summary>This vocabulary as spoken on a SCAN-derived body lane: the rows came from a scan, so the lever
+    /// that puts fewer of them in the response is limit=, not a formids list the caller never wrote. Every other
+    /// lever is unchanged — the selection lane is a third axis, not a different tool.</summary>
+    public LeverNames OnScanSelection() => new(Fields, Depth, WinnerFields, SlimScan, "lower limit=");
 
     /// <summary>The hint appended to a COLLAPSED container cell ("[list: 3 item(s)]"), naming the knob that
     /// expands it. Threaded as ReadEngine's containerHint, which already carries a per-call string —

@@ -991,7 +991,7 @@ static class Wire
                 truncated = true;
                 sb.Append("... [truncated: rendered ").Append(rendered).Append(" of ").Append(outcomes.Count)
                   .Append(" records before hitting max_chars=").Append(cap)
-                  .Append("; request fewer formids, pass ").Append(lv.Fields).Append(" to slim each, or raise max_chars]\n");
+                  .Append("; ").Append(lv.BatchSelection).Append(", pass ").Append(lv.Fields).Append(" to slim each, or raise max_chars]\n");
                 break;
             }
             sb.Append('\n');
