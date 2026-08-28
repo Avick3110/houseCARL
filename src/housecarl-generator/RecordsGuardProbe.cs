@@ -902,43 +902,20 @@ internal static class RecordsGuardProbe
             var tinyJson = RecordsTools.Records(
                 svc, formids: weapons.Select(Fid).ToArray(), format: "json", max_chars: 220,
                 project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage", "EditorID", "Name" } });
-            // Every note-bearing key anywhere in the document — a remedy is wrong wherever it sits, and a
-            // harvester that only reads the top level would miss the per-row ones, which is where they are.
+            // EVERY string in the response, with no key allowlist at all.
             //
-            // Round 1: the object-property-only version of this walk was itself a blind spot. WriteNotes emits an
-            // ARRAY of bare strings under "notes" (the predicate, scan, where_source and P5 scoped-vs-winner
-            // notes), so an entire note family was invisible to every assertion below — which is how a sentence
-            // naming winner_fields= to a housecarl_records caller sat green. String ELEMENTS of a notes array are
-            // harvested too now.
-            static List<string> HarvestNotes(string json)
-            {
-                var found = new List<string>();
-                void Walk(JsonElement e)
-                {
-                    if (e.ValueKind == JsonValueKind.Object)
-                        foreach (var p in e.EnumerateObject())
-                        {
-                            if (p.Name is "note" or "truncation_note" or "error" && p.Value.ValueKind == JsonValueKind.String)
-                                found.Add(p.Value.GetString()!);
-                            if (p.Name is "notes" or "layer_notes" && p.Value.ValueKind == JsonValueKind.Array)
-                                foreach (var it in p.Value.EnumerateArray())
-                                    if (it.ValueKind == JsonValueKind.String) found.Add(it.GetString()!);
-                            Walk(p.Value);
-                        }
-                    else if (e.ValueKind == JsonValueKind.Array)
-                        foreach (var it in e.EnumerateArray()) Walk(it);
-                }
-                try { Walk(JsonDocument.Parse(json).RootElement); } catch { }
-                return found;
-            }
-            // An artifact is JSONL — one json document per line, line 1 the manifest. Spilled rows are read by the
-            // same caller as the inline render, so they are part of this surface; round 1 proved they were never
-            // read back (dropping the carrier from the spill writer left the guard green).
-            // format=dense carries its container hint inside the POSITIONAL CELLS, not under a note key, so the
-            // note-key walk above harvests nothing from it (measured: container/dense and scan/dense came back
-            // empty while the sentence was plainly in the response). Every string in the document, then —
-            // deliberately over-approximate, because an over-harvest costs a triage row and an under-harvest
-            // hides a wrong lever, which is the whole lesson of this arm.
+            // The allowlist retired here was the arm-that-cannot-fail class in its purest form. It began as
+            // note/truncation_note/error object properties; round 1 found it blind to WriteNotes' ARRAY of bare
+            // strings (the predicate, scan, where_source and P5 notes), which is how a sentence naming
+            // winner_fields= to a housecarl_records caller sat green. Widening the allowlist was the wrong repair:
+            // round 2 then found that "truncation_note" occurs NOWHERE in the product source — the codebase
+            // spelling is truncated_note — so one of the three keys had never matched anything, and scan_note
+            // (reachable from records' effect_chain form) was never listed. A guard keyed on names it does not
+            // verify exist cannot fail for the reason it claims to pass.
+            //
+            // So the harvest names nothing. It is deliberately over-approximate: an over-harvest costs a triage
+            // row, an under-harvest hides a wrong lever. The shape filter that survives is on the LITERAL
+            // (a multi-word sentence vs a bare key), never on which lever a sentence names.
             static List<string> HarvestAllStrings(string json)
             {
                 var found = new List<string>();
@@ -956,10 +933,10 @@ internal static class RecordsGuardProbe
                 var found = new List<string>();
                 if (!File.Exists(path)) return found;
                 foreach (var line in File.ReadAllLines(path))
-                    if (!string.IsNullOrWhiteSpace(line)) found.AddRange(HarvestNotes(line));
+                    if (!string.IsNullOrWhiteSpace(line)) found.AddRange(HarvestAllStrings(line));
                 return found;
             }
-            var notes = HarvestNotes(tinyJson);
+            var notes = HarvestAllStrings(tinyJson);
             Check(notes.Count > 0, "a max_chars-starved fields read emits a truncation notice at all");
 
             // The same starved read on the text lane. The two lanes compose their notices separately, so a
@@ -996,7 +973,20 @@ internal static class RecordsGuardProbe
                 ("scan/json",  "json", RecordsTools.Records(svc, types: new[] { "WEAP" }, max_chars: 300, format: "json", project: scanFields)),
                 // format=dense is a THIRD transport on this tool, threaded and — until round 1 — wholly unasserted.
                 ("container/dense", "dense", RecordsTools.Records(svc, types: new[] { "SPEL" }, format: "dense", project: containerFields)),
-                ("scan/dense",      "dense", RecordsTools.Records(svc, types: new[] { "WEAP" }, format: "dense", max_chars: 300, project: scanFields)),
+                // No scan/dense probe: a starved dense scan auto-spills instead of composing a truncation
+                // notice, so it carries no remedy to assert over. Its bite check used to pass on column-name
+                // noise from the all-strings harvest, which is the arm-that-cannot-fail shape. The dense
+                // container hint is the clause the scoped claim actually makes, and container/dense holds it;
+                // the spilled rows are covered by the artifact lane.
+                // The delta form is inside the scoped claim and was unprobed: reverting its four hand-spelled
+                // sites to the 1.x vocabulary left the guard green (round 2).
+                ("delta/text", "text", RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) }, source: Je($"\"{ovName}\""),
+                                                            versus: Je("\"previous_provider\""), max_chars: 320,
+                                                            project: new RecordsTools.RecordsProject { form = "delta" })),
+                // No delta/json probe: measured, the json delta row signals a cut STRUCTURALLY — deltas_rendered
+                // plus deltas_truncated:true (JsonWire.WriteDeltaRow) — and composes no lever-naming sentence at
+                // all, so that lane has nothing this arm can be wrong about. The delta clause of the claim is
+                // therefore stated for text only, rather than asserted over a lane that emits no remedy.
                 // source= poles: the plugin pole (active arm) and the SkyPatcher overlay post pole.
                 ("pole/text", "text", RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, source: poleScope, project: containerFields)),
                 ("pole/json", "json", RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, source: poleScope, format: "json", project: containerFields)),
@@ -1034,8 +1024,7 @@ internal static class RecordsGuardProbe
                 {
                     "artifact" => HarvestArtifact(artProbe),
                     "text"     => resp.Split('\n').Where(l => remedyLine.IsMatch(l)).ToList(),
-                    "dense"    => HarvestAllStrings(resp),
-                    _          => HarvestNotes(resp),
+                    _          => HarvestAllStrings(resp),
                 };
                 foreach (var h in hits.Select(h => h.Trim()).Distinct())
                 {
@@ -1054,12 +1043,21 @@ internal static class RecordsGuardProbe
                 // Not a differently-SCOPED spelling but a rename: housecarl_records refuses winner_fields by alias
                 // and points at fields_source="winner". The P5 note named it on all three transports (round 1).
                 (@"\bwinner_fields\b",       "pass 'winner_fields=true' (it has fields_source=\"winner\")"),
+                // The '=' itself. The harvest was unfiltered from the start, but every pattern here was keyed on
+                // '=' or a bare word, so nothing held the selector's own spelling: dropping the '=' from
+                // LeverNames.Records left the guard green while six sentences reverted to the pre-fix form
+                // (round 2). The lookahead is the whole point — bare 'project.fields' in a remedy is the defect.
+                (@"\bproject\.fields(?!=)", "narrow with 'project.fields' without the '=' (the pre-fix spelling)"),
             };
             // Per-PROBE, before the per-lane assertions: a lane aggregates several site families, so a family that
             // stops emitting (fixture rot, a container that no longer collapses) leaves the lane count healthy and
             // its own absence silent. Every probe in the list above is expected to carry at least one sentence.
+            // The hit must be REMEDY-SHAPED, not merely a string. The all-strings harvest returns column names
+            // and spill paths on the dense lane, so "any hit" let a probe that composes no remedy report that it
+            // bites — the arm-that-cannot-fail shape again, one level up.
             foreach (var (label, _, _) in probes)
-                Check(sentences.Any(s => s.Label == label), $"probe '{label}' emits a sentence at all (this family bites)");
+                Check(sentences.Any(s => s.Label == label && remedyLine.IsMatch(s.Text)),
+                      $"probe '{label}' emits a remedy sentence at all (this family bites)");
 
             foreach (var lane in new[] { "json", "text", "dense", "artifact" })
             {
