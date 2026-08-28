@@ -13,19 +13,26 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
-- **`housecarl_records` truncation and expansion notices now name the parameters your call actually has.**
-  When a read hit `max_chars`, the notice told you to narrow with `fields=` and lower `depth=`; on that tool
-  those are spelled `project.fields=` and `project.depth=`, so following the advice as written got you a
-  refusal. A collapsed container cell said `pass depth=2 to expand` for the same reason — including under
-  `source=` and the SkyPatcher post view, which were a separate read path. The scoped-vs-winner note told
-  you to pass `winner_fields=true`; that parameter was renamed on this tool and is `fields_source="winner"`.
-  All of it applies on `format="text"`, `"json"` and `"dense"`, and to the rows written to a `to_file=`
-  artifact. The scan notice also offered `conflict_tree`, which `housecarl_records` has no parameter for at
-  all — it now names the field selector alone. One further spelling was inconsistent with itself: the
-  selector appeared as both `project.fields` and `project.fields=` depending on which renderer composed the
-  sentence, and is now always `project.fields=`. The 1.x read tools' notices are unchanged; they were
-  already naming their own parameters. Check it by starving a read — a few `formids=` with
-  `project={"form":"fields","fields":[…]}` and `max_chars=220` — and reading the notice back.
+- **`housecarl_records` truncation and expansion notices name that tool's own parameters — on the forms and
+  lanes listed here.** When a read hit `max_chars`, the notice told you to narrow with `fields=` and lower
+  `depth=`; on that tool those are spelled `project.fields=` and `project.depth=`, so following the advice
+  as written got you a refusal. A collapsed container cell said `pass depth=2 to expand` for the same
+  reason, including under `source=` and the SkyPatcher post view, which read through a separate path. The
+  scoped-vs-winner note told you to pass `winner_fields=true`; that parameter was renamed on this tool and
+  is `fields_source="winner"`. A scan's cut told you to drop `conflict_tree`, which this tool has no
+  parameter for in any spelling, and then to drop `project.fields=`, which the `fields` form refuses to run
+  without — it now points at dropping `project=` for summary rows, which works. The selector itself was
+  spelled two ways depending on which renderer composed the sentence, and is now always `project.fields=`.
+
+  **What this covers:** the `fields`, `tree` and `delta` forms, the collapsed-container hint on every
+  `source=` lane, and the scoped-vs-winner note — on `format="text"` and `"json"`, with the container hint
+  additionally covered on `"dense"` and in `to_file=` artifact rows. **What it does not:** the
+  `everything` form still names `project.fields=`, which that form refuses, and a walk or chain response
+  still says `raise limit=` for a bound that `walk.max_nodes` controls. Both are filed and unfixed here.
+
+  The 1.x read tools' notices are unchanged; they were already naming their own parameters. Check it by
+  starving a read — a few `formids=` with `project={"form":"fields","fields":[…]}` and `max_chars=220` —
+  and reading the notice back.
 
 - **A read tool asked for json now refuses in json.** Reads that take `format="json"` previously answered
   some refusals with a plain sentence instead of a json document, so a caller parsing the response had to
