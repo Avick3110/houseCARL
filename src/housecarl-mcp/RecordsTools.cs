@@ -1253,11 +1253,15 @@ public static class RecordsTools
                     return fmt is Wire.QueryFormat.Text ? "error: " + aerr : JsonWire.RenderError(aerr, outcome.Epoch);
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
+            // "drop project= (summary rows)" is only actionable for a call whose rows are DETAIL rows — a
+            // summary-form scan (the default) is already reading the render that clause points at, and has no
+            // project= to drop. The call site decides that from its own parameters (#439 gate review).
+            var qLevers = projFields is { Length: > 0 } ? LeverNames.Records : LeverNames.Records.WithNothingToDrop();
             string Render(SpillState? sp, out bool trunc) => fmt switch
             {
-                Wire.QueryFormat.Dense when groupBy is null => JsonWire.RenderCrossQueryDense(svc, outcome, projFields, max_chars, resolveNames, winnerFields, sp, out trunc, envelope, LeverNames.Records),
-                Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, projFields, max_chars, resolveNames, winnerFields, depth, sp, out trunc, envelope, LeverNames.Records),
-                _ => headerLine + "\n" + Wire.RenderCrossQuery(svc, outcome, projFields, false, max_chars, resolveNames, winnerFields, depth, sp, out trunc, LeverNames.Records),
+                Wire.QueryFormat.Dense when groupBy is null => JsonWire.RenderCrossQueryDense(svc, outcome, projFields, max_chars, resolveNames, winnerFields, sp, out trunc, envelope, qLevers),
+                Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, projFields, max_chars, resolveNames, winnerFields, depth, sp, out trunc, envelope, qLevers),
+                _ => headerLine + "\n" + Wire.RenderCrossQuery(svc, outcome, projFields, false, max_chars, resolveNames, winnerFields, depth, sp, out trunc, qLevers),
             };
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated && outcome.Error is null)
@@ -1463,10 +1467,13 @@ public static class RecordsTools
                     return fmt is Wire.QueryFormat.Text ? "error: " + aerr : JsonWire.RenderError(aerr, outcome.Epoch);
                 spill = SpillState.Spilled(sp!, manifestOnly: true);
             }
+            // The off-order scan passes no field paths at all, so it never has a project= to drop — unconditional
+            // here, where the in-order lane above has to ask.
+            var offQLevers = LeverNames.Records.WithNothingToDrop();
             string Render(SpillState? sp, out bool trunc) => fmt switch
             {
-                Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, null, max_chars, false, false, 1, sp, out trunc, envelope, LeverNames.Records),
-                _ => headerLine + "\n" + Wire.RenderCrossQuery(svc, outcome, null, false, max_chars, false, false, 1, sp, out trunc, LeverNames.Records),
+                Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, null, max_chars, false, false, 1, sp, out trunc, envelope, offQLevers),
+                _ => headerLine + "\n" + Wire.RenderCrossQuery(svc, outcome, null, false, max_chars, false, false, 1, sp, out trunc, offQLevers),
             };
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated && outcome.Error is null)

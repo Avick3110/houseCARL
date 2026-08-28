@@ -23,7 +23,7 @@ namespace HousecarlMcp;
 /// </summary>
 public sealed class LeverNames
 {
-    private LeverNames(string fields, string depth, string winnerFields, string slimScan, string batchSelection)
+    private LeverNames(string fields, string depth, string winnerFields, string? slimScan, string batchSelection)
     {
         Fields = fields;
         Depth = depth;
@@ -61,8 +61,18 @@ public sealed class LeverNames
     /// <see cref="Fields"/> — the 'fields' form REQUIRES its field paths and refuses without them, so "drop
     /// project.fields=" names a next call the tool rejects (round 2 drove it). Dropping the whole project=
     /// construct is the actionable move: form defaults to 'summary', which is the slim render this remedy is
-    /// pointing at anyway.</summary>
-    public string SlimScan { get; }
+    /// pointing at anyway.
+    ///
+    /// NULL when the call passed no such construct at all, and the clause is then omitted rather than rendered
+    /// over nothing: housecarl_records defaults to form='summary' and its off-order scan never passes a project
+    /// block, so "drop project= (summary rows)" told those callers to drop what they had not written and promised
+    /// them the rows they were already reading. See <see cref="WithNothingToDrop"/>.</summary>
+    public string? SlimScan { get; }
+
+    /// <summary>This vocabulary as spoken by a call that passed NOTHING to slim rows with. The scan truncation
+    /// notice drops its "drop …" clause entirely and keeps the two levers that are real on such a call — a lower
+    /// limit= and a higher max_chars.</summary>
+    public LeverNames WithNothingToDrop() => new(Fields, Depth, WinnerFields, null, BatchSelection);
 
     /// <summary>What a BATCH's truncation notice tells the caller to do to put fewer records in the response.
     ///

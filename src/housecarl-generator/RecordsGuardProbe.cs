@@ -1108,6 +1108,22 @@ internal static class RecordsGuardProbe
             Check(!slimmed.StartsWith("error:") && slimmed.Contains("form=summary"),
                   "…and dropping project= as the scan notice says yields summary rows, not a refusal");
 
+            // The scan notice's SLIM-DOWN clause is only true for a call that passed something to slim with. Both
+            // directions, because a fix that dropped the clause everywhere would satisfy the first arm and lose a
+            // remedy that is genuinely actionable on the second. No wrong-lever pattern can see this either —
+            // project= is real on housecarl_records, and only the CALL makes naming it inert.
+            static string? ScanCut(string resp) =>
+                resp.Split('\n').FirstOrDefault(l => l.Contains("... [truncated: rendered") && l.Contains(" returned matches before hitting"));
+            var sumCut = ScanCut(RecordsTools.Records(svc, types: new[] { "WEAP" }, max_chars: 300));
+            Check(sumCut is not null && sumCut.Contains("lower limit= or raise max_chars") && !sumCut.Contains("drop "),
+                  "…a summary-form scan's cut names no project= to drop (it passed none, and IS the summary render)");
+            var fldCut = ScanCut(RecordsTools.Records(svc, types: new[] { "WEAP" }, max_chars: 300, project: scanFields));
+            Check(fldCut is not null && fldCut.Contains("drop project= (summary rows)"),
+                  "…and a fields-form scan's cut still says to drop project=, which is actionable there");
+            var offSumCut = ScanCut(RecordsTools.Records(svc, types: new[] { "WEAP" }, source: Je($"\"{oldName}\""), max_chars: 12));
+            Check(offSumCut is not null && offSumCut.Contains("lower limit= or raise max_chars") && !offSumCut.Contains("drop "),
+                  "…and the OFF-ORDER scan names none either (it passes no field paths at all)");
+
             // The batch notice's SELECTION clause is a function of the selection LANE, not of the tool: the same
             // Wire.RenderBatch serves the formids= lane and two scan-derived body lanes, and "request fewer formids"
             // is inert on a call that named no formids. Both directions are asserted, because a fix that swapped the
