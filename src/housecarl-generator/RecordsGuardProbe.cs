@@ -1048,6 +1048,10 @@ internal static class RecordsGuardProbe
                 // LeverNames.Records left the guard green while six sentences reverted to the pre-fix form
                 // (round 2). The lookahead is the whole point — bare 'project.fields' in a remedy is the defect.
                 (@"\bproject\.fields(?!=)", "narrow with 'project.fields' without the '=' (the pre-fix spelling)"),
+                // Actionability, not spelling. "drop project.fields=" names a lever records genuinely HAS, so no
+                // name-based pattern above can catch it — and the 'fields' form refuses without its paths, so the
+                // call it predicts is rejected. Having the lever is not the test; the next call working is.
+                (@"drop project\.fields",  "drop 'project.fields' (the 'fields' form refuses without its paths)"),
             };
             // Per-PROBE, before the per-lane assertions: a lane aggregates several site families, so a family that
             // stops emitting (fixture rot, a container that no longer collapses) leaves the lane count healthy and
@@ -1072,6 +1076,13 @@ internal static class RecordsGuardProbe
                           $"…no {lane} sentence tells a housecarl_records caller to {claim}");
                 }
             }
+
+            // The scan remedy's predicted call, actually MADE. Every assertion above reads a sentence; this one
+            // follows it. The notice says to drop project= for slimmer rows, so drop it and require what the
+            // sentence promised: a summary render, not a refusal.
+            var slimmed = RecordsTools.Records(svc, types: new[] { "WEAP" }, max_chars: 300);
+            Check(!slimmed.StartsWith("error:") && slimmed.Contains("form=summary"),
+                  "…and dropping project= as the scan notice says yields summary rows, not a refusal");
 
             Console.WriteLine();
             Console.WriteLine(_fail == 0
