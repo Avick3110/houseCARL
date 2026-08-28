@@ -1054,7 +1054,7 @@ static class Wire
         // the silent-wrong trap (a defining esp's AR 38 vs the winner's live AR 200). Name it loud, once (Q3). The
         // helper is 4-way over (winner_fields=, where_source=) so the note never claims a scoped-body MATCH the
         // where_source=winner scan didn't make (D2 no-drift). Shared with the json/dense renders — one source of truth.
-        if (anyScoped) sb.Append("note: ").Append(JsonWire.ScopedFieldsNote(winnerFields, q.WhereWinner)).Append('\n');
+        if (anyScoped) sb.Append("note: ").Append(JsonWire.ScopedFieldsNote(winnerFields, q.WhereWinner, lv)).Append('\n');
 
         int rendered = 0;
         var notes = new ChildNotes();   // #342: accumulated over the rows actually rendered

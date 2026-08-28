@@ -2949,7 +2949,8 @@ public sealed class LoadOrderService : IDisposable
         IReadOnlyList<string> formids, string plugin, string? mod,
         IReadOnlyList<string>? fields, int depth, bool resolveNames,
         ArtifactDemand? artifactDemand,
-        out PoleInfo? pole, out string? refusal, out string? refusalEpoch)
+        out PoleInfo? pole, out string? refusal, out string? refusalEpoch,
+        string? containerHint = ReadEngine.DepthExpandHint)
     {
         pole = null; refusal = null; refusalEpoch = null;
         var resolver = Resolver;
@@ -2983,7 +2984,7 @@ public sealed class LoadOrderService : IDisposable
                 FormKey fk;
                 try { fk = FormKey.Factory(raw.Trim()); }
                 catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
-                outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo)
+                outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo, containerHint)
                              with { Epoch = view.Epoch, Pin = pin });
             }
             return outcomes;
@@ -3058,7 +3059,7 @@ public sealed class LoadOrderService : IDisposable
                         with { Epoch = view.Epoch, Pin = pin };
                     continue;
                 }
-                var record = ReadEngine.ReadFields(rec, fields, depth);          // materialise while the overlay is open
+                var record = ReadEngine.ReadFields(rec, fields, depth, containerHint);          // materialise while the overlay is open
                 if (resolveNames) record = AnnotateLinks(record, view, session!, linkMemo!);
                 var winner = view.ResolveWinner(fk);                             // winner CONTEXT where the record also lives in the order
                 results[index] = new ReadOutcome(fk, record, plugin, winner?.WinnerPlugin,
@@ -3432,7 +3433,8 @@ public sealed class LoadOrderService : IDisposable
     /// that on the envelope.</summary>
     public IReadOnlyList<ReadOutcome> OverlayPostBatch(
         IReadOnlyList<string> formids, IReadOnlyList<string>? fields, int depth, bool resolveNames,
-        ArtifactDemand? demand, out string? refusal, out string? refusalEpoch, out string? epoch)
+        ArtifactDemand? demand, out string? refusal, out string? refusalEpoch, out string? epoch,
+        string? containerHint = ReadEngine.DepthExpandHint)
     {
         refusal = null; refusalEpoch = null;
         var resolver = Resolver;
@@ -3500,7 +3502,7 @@ public sealed class LoadOrderService : IDisposable
                     continue;
                 }
             }
-            var record = ReadEngine.ReadFields(bodyToRead!, fields, depth);
+            var record = ReadEngine.ReadFields(bodyToRead!, fields, depth, containerHint);
             if (resolveNames) record = AnnotateLinks(record, view, session, overlayLinkMemo ??= new Dictionary<FormKey, ResolvedRef>());
             var ok = new ReadOutcome(fk, record, winner.Value.WinnerPlugin, winner.Value.WinnerPlugin,
                                      winner.Value.OverrideDepth, null, null)
