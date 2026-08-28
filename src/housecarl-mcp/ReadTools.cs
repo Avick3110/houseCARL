@@ -1065,7 +1065,11 @@ static class Wire
                 truncated = true;
                 sb.Append("... [truncated: rendered ").Append(rendered).Append(" of ").Append(q.Keys.Count)
                   .Append(" returned matches before hitting max_chars=").Append(cap)
-                  .Append("; lower limit=, drop ").Append(lv.SlimScan).Append(", or raise max_chars]\n");
+                  // The slim-down clause is only true for a call that passed something to slim WITH — see
+                  // LeverNames.SlimScan. A call that passed nothing gets the two levers that are real on it.
+                  .Append(lv.SlimScan is null
+                              ? "; lower limit= or raise max_chars]\n"
+                              : $"; lower limit=, drop {lv.SlimScan}, or raise max_chars]\n");
                 break;
             }
             var fk = q.Keys[i];
