@@ -22,12 +22,13 @@ namespace HousecarlMcp;
 /// </summary>
 public sealed class LeverNames
 {
-    private LeverNames(string fields, string depth, string? conflictTree, string winnerFields)
+    private LeverNames(string fields, string depth, string? conflictTree, string winnerFields, string slimScan)
     {
         Fields = fields;
         Depth = depth;
         ConflictTree = conflictTree;
         WinnerFields = winnerFields;
+        SlimScan = slimScan;
     }
 
     /// <summary>How this caller spells the field selector, including the '=' — "fields=" or "project.fields=".</summary>
@@ -50,15 +51,21 @@ public sealed class LeverNames
 
     /// <summary>The 1.x read tools' spelling. The DEFAULT everywhere, so nothing renders differently
     /// until a caller asks for its own vocabulary.</summary>
-    public static readonly LeverNames Legacy = new("fields=", "depth=", "conflict_tree", "winner_fields=true");
+    public static readonly LeverNames Legacy = new("fields=", "depth=", "conflict_tree", "winner_fields=true", "fields=/conflict_tree");
 
     /// <summary>housecarl_records: the selector and the expansion knob are form-scoped under project=,
     /// and there is no conflict_tree parameter at all.</summary>
-    public static readonly LeverNames Records = new("project.fields=", "project.depth=", null, "fields_source=\"winner\"");
+    public static readonly LeverNames Records = new("project.fields=", "project.depth=", null, "fields_source=\"winner\"", "project= (summary rows)");
 
-    /// <summary>The two slimming levers named together, as the cross-query truncation notice names them.
-    /// A caller with no conflict-tree lever gets the selector alone rather than a lever it cannot pass.</summary>
-    public string FieldsOrTree => ConflictTree is null ? Fields : Fields + "/" + ConflictTree;
+    /// <summary>What a scan's truncation notice tells the caller to DROP to slim each row.
+    ///
+    /// Not simply the selector: this remedy has to name something the caller can actually drop and re-run.
+    /// On the 1.x tools that is the two slimming levers together. On housecarl_records it is NOT
+    /// <see cref="Fields"/> — the 'fields' form REQUIRES its field paths and refuses without them, so "drop
+    /// project.fields=" names a next call the tool rejects (round 2 drove it). Dropping the whole project=
+    /// construct is the actionable move: form defaults to 'summary', which is the slim render this remedy is
+    /// pointing at anyway.</summary>
+    public string SlimScan { get; }
 
     /// <summary>The hint appended to a COLLAPSED container cell ("[list: 3 item(s)]"), naming the knob that
     /// expands it. Threaded as ReadEngine's containerHint, which already carries a per-call string —

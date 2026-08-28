@@ -1065,7 +1065,7 @@ static class Wire
                 truncated = true;
                 sb.Append("... [truncated: rendered ").Append(rendered).Append(" of ").Append(q.Keys.Count)
                   .Append(" returned matches before hitting max_chars=").Append(cap)
-                  .Append("; lower limit=, drop ").Append(lv.FieldsOrTree).Append(", or raise max_chars]\n");
+                  .Append("; lower limit=, drop ").Append(lv.SlimScan).Append(", or raise max_chars]\n");
                 break;
             }
             var fk = q.Keys[i];
