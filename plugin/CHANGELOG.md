@@ -21,14 +21,21 @@ saying it sets an expectation their install may contradict. Say what is known, a
   scoped-vs-winner note told you to pass `winner_fields=true`; that parameter was renamed on this tool and
   is `fields_source="winner"`. A scan's cut told you to drop `conflict_tree`, which this tool has no
   parameter for in any spelling, and then to drop `project.fields=`, which the `fields` form refuses to run
-  without — it now points at dropping `project=` for summary rows, which works. The selector itself was
+  without — it now points at dropping `project=` for summary rows, which works, and it says so only when
+  the call passed a `project=` block to drop: a scan that passed none is already reading the summary rows
+  that clause points at, and is told to lower `limit=` or raise `max_chars` instead. A cut over records read
+  in a batch told you to `request fewer formids` whether or not you had passed any; where the rows came from
+  a scan it names `limit=` now, which is what windows that response. The selector itself was
   spelled two ways depending on which renderer composed the sentence, and is now always `project.fields=`.
 
-  **What this covers:** the `fields`, `tree` and `delta` forms, the collapsed-container hint on every
-  `source=` lane, and the scoped-vs-winner note — on `format="text"` and `"json"`, with the container hint
-  additionally covered on `"dense"` and in `to_file=` artifact rows. **What it does not:** the
-  `everything` form still names `project.fields=`, which that form refuses, and a walk or chain response
-  still says `raise limit=` for a bound that `walk.max_nodes` controls. Both are filed and unfixed here.
+  **What this covers:** the `fields`, `tree` and `delta` forms and the `summary` form's scan cut, the
+  collapsed-container hint on every `source=` lane, and the scoped-vs-winner note — on `format="text"` and
+  `"json"`, with the container hint additionally covered on `"dense"` and in `to_file=` artifact rows. The
+  cut's own selection and slim-down clauses are covered on `"text"` alone, because that is the only format
+  that writes them: `"json"` and `"dense"` report a cut as data rather than as a sentence. **What it does
+  not:** the `everything` form still names `project.fields=`, which that form refuses, and a walk or chain
+  response still says `raise limit=` for a bound that `walk.max_nodes` controls. Both are filed and unfixed
+  here.
 
   The 1.x read tools' notices are unchanged; they were already naming their own parameters. Check it by
   starving a read — a few `formids=` with `project={"form":"fields","fields":[…]}` and `max_chars=220` —
