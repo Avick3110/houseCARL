@@ -90,7 +90,18 @@ internal static class RecordsGuardProbe
             var spellB = master.Spells.AddNew(); spellB.EditorID = "HcRecSpellB";
             { var e = new Effect(); e.BaseEffect.SetTo(mgefB.FormKey); e.Data = new EffectData { Magnitude = 7 }; spellB.Effects.Add(e); }
 
+            // A record whose deep read cannot COMPLETE: ReadEngine's expansion budget is 2000 lines, so a form
+            // list one element past it truncates, and FieldsDiff surfaces that as Complete=false. That is the only
+            // way to reach the delta form's "TRUNCATED at the cap … Narrow with project.fields=" sentence, which
+            // no other fixture record can drive (its other route, nesting past ConflictDiffDepth=16, is not
+            // buildable here). The override below is a pure copy, so the comparison has zero deltas AND is
+            // incomplete — the exact pair that branch requires.
+            var bigList = master.FormLists.AddNew(); bigList.EditorID = "HcRecBigList";
+            for (int i = 0; i < ReadEngine.MaxExpandNodes + 1; i++)
+                bigList.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(weapons[i % weapons.Count]));
+
             var ovMod = new SkyrimMod(ovKey, SkyrimRelease.SkyrimSE);
+            WriteEngine.GenericGetOrAddAsOverride(ovMod, bigList);   // identical copy — no field changed
             ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(ovMod, master.Weapons.First(w => w.FormKey == weapons[0])))
                 .BasicStats = new WeaponBasicStats { Damage = 99, Weight = 1 };
             // A DELETED override (PR #307 review fold): header/resolution-only where-terms must still see it.
@@ -983,6 +994,13 @@ internal static class RecordsGuardProbe
                 ("delta/text", "text", RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) }, source: Je($"\"{ovName}\""),
                                                             versus: Je("\"previous_provider\""), max_chars: 320,
                                                             project: new RecordsTools.RecordsProject { form = "delta" })),
+                // The delta form's OTHER truncation sentence — zero deltas but an incomplete deep read, so the row
+                // must not read as a clean 'identical'. It opens its remedy with a capital ("Narrow with …"), which
+                // is why it was invisible to a case-sensitive harvest; the big form list is the fixture that drives
+                // it. Its sentence is a records sentence like any other and is asserted with the rest.
+                ("deltaIdentical/text", "text", RecordsTools.Records(svc, formids: new[] { Fid(bigList.FormKey) }, source: Je($"\"{ovName}\""),
+                                                                     versus: Je("\"previous_provider\""),
+                                                                     project: new RecordsTools.RecordsProject { form = "delta" })),
                 // No delta/json probe: measured, the json delta row signals a cut STRUCTURALLY — deltas_rendered
                 // plus deltas_truncated:true (JsonWire.WriteDeltaRow) — and composes no lever-naming sentence at
                 // all, so that lane has nothing this arm can be wrong about. The delta clause of the claim is
@@ -1013,8 +1031,14 @@ internal static class RecordsGuardProbe
             // 'pass ' is in this alternation because leaving it out was a blind spot of exactly the kind the
             // no-lever-filter rule exists to stop: the text P5 note reads "… — pass winner_fields=true for
             // load-order truth" and matched none of the other words, so the text lane harvested it as nothing.
+            // IgnoreCase because without it this is also a filter on CAPITALISATION, which is not a property of
+            // whether a sentence is a remedy. A remedy that opens a sentence — "… Narrow with project.fields= to
+            // compare in full.", "… Drop source=." — carries a capital and matched none of these alternatives, so
+            // the text lane discarded it before `sentences` was built and every per-lane assertion below ran over
+            // a set that could not contain it. Found at the gate review on PR #450.
             var remedyLine = new System.Text.RegularExpressions.Regex(
-                @"max_chars|narrow|expand|raise |lower |drop |pass |page with|request fewer|continue with");
+                @"max_chars|narrow|expand|raise |lower |drop |pass |page with|request fewer|continue with",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             var sentences = new List<(string Lane, string Label, string Text)>();
             foreach (var (label, lane, resp) in probes)
             {
