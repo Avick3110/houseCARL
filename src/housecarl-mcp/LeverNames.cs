@@ -15,18 +15,18 @@ namespace HousecarlMcp;
 /// levers a family offers: the divergences between remedy families are correct and stay (housecarl_resolve
 /// has no fields=, housecarl_effect_chain has no offset=, and their leaner sentences are right — audited
 /// on #439, settled decision #10). The one place the SET changes is a lever the calling tool does not
-/// have at all: see <see cref="ConflictTree"/>.
+/// have at all: see <see cref="SlimScan"/>, where the 1.x phrase names conflict_tree and the records
+/// phrase cannot, because that tool has no such parameter in any spelling.
 ///
 /// <see cref="Legacy"/> is the default at every threaded seam, so a 1.x call site that passes nothing
 /// renders exactly the bytes it rendered before.
 /// </summary>
 public sealed class LeverNames
 {
-    private LeverNames(string fields, string depth, string? conflictTree, string winnerFields, string slimScan)
+    private LeverNames(string fields, string depth, string winnerFields, string slimScan)
     {
         Fields = fields;
         Depth = depth;
-        ConflictTree = conflictTree;
         WinnerFields = winnerFields;
         SlimScan = slimScan;
     }
@@ -37,11 +37,6 @@ public sealed class LeverNames
     /// <summary>How this caller spells the content-expansion knob — "depth=" or "project.depth=".</summary>
     public string Depth { get; }
 
-    /// <summary>How this caller spells the conflict-tree toggle, or NULL when it has no such lever.
-    /// housecarl_records does not: the tree is a PROJECT FORM there (project.form='tree'), a different
-    /// call shape, not a way to slim a scan — so a remedy offering it as one would be inventing a
-    /// parameter, which is the defect this type exists to stop. Null means "leave it unnamed".</summary>
-    public string? ConflictTree { get; }
 
     /// <summary>How this caller asks for the WINNER's field values on a scoped scan, as a complete token —
     /// "winner_fields=true" or "fields_source=\"winner\"". The two generations do not merely scope this one
@@ -51,11 +46,11 @@ public sealed class LeverNames
 
     /// <summary>The 1.x read tools' spelling. The DEFAULT everywhere, so nothing renders differently
     /// until a caller asks for its own vocabulary.</summary>
-    public static readonly LeverNames Legacy = new("fields=", "depth=", "conflict_tree", "winner_fields=true", "fields=/conflict_tree");
+    public static readonly LeverNames Legacy = new("fields=", "depth=", "winner_fields=true", "fields=/conflict_tree");
 
     /// <summary>housecarl_records: the selector and the expansion knob are form-scoped under project=,
     /// and there is no conflict_tree parameter at all.</summary>
-    public static readonly LeverNames Records = new("project.fields=", "project.depth=", null, "fields_source=\"winner\"", "project= (summary rows)");
+    public static readonly LeverNames Records = new("project.fields=", "project.depth=", "fields_source=\"winner\"", "project= (summary rows)");
 
     /// <summary>What a scan's truncation notice tells the caller to DROP to slim each row.
     ///
