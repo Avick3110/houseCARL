@@ -579,7 +579,7 @@ public static class RecordsTools
             SpillState? spill2 = null;
             if (wantFile)
             {
-                var (s, aerr) = Artifacts.WriteBatch(outcomes, toFile!, "to_file", Echo());
+                var (s, aerr) = Artifacts.WriteBatch(outcomes, toFile!, "to_file", Echo(), LeverNames.Records);
                 if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch2) : "error: " + aerr;
                 spill2 = SpillState.Spilled(s!, manifestOnly: true);
             }
@@ -591,7 +591,7 @@ public static class RecordsTools
             if (spill2 is null && truncated2)
             {
                 var path = ResultsStore.NextPath("housecarl_records", epoch2 ?? "none");
-                var (s, aerr) = Artifacts.WriteBatch(outcomes, path, "ceiling", Echo());
+                var (s, aerr) = Artifacts.WriteBatch(outcomes, path, "ceiling", Echo(), LeverNames.Records);
                 if (aerr is not null) ResultsStore.Release(path);
                 rendered2 = Render2(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
@@ -1229,7 +1229,7 @@ public static class RecordsTools
                 SpillState? evSpill = null;
                 if (wantFile)
                 {
-                    var (s, aerr) = Artifacts.WriteBatch(bodies, toFile!, "to_file", Echo());
+                    var (s, aerr) = Artifacts.WriteBatch(bodies, toFile!, "to_file", Echo(), evLevers);
                     if (aerr is not null) return json ? JsonWire.RenderError(aerr, bodyEpoch) : "error: " + aerr;
                     evSpill = SpillState.Spilled(s!, manifestOnly: true);
                 }
@@ -1237,7 +1237,7 @@ public static class RecordsTools
                 if (evSpill is null && evTrunc)
                 {
                     var path = ResultsStore.NextPath("housecarl_records", bodyEpoch ?? "none");
-                    var (s, aerr) = Artifacts.WriteBatch(bodies, path, "ceiling", Echo());
+                    var (s, aerr) = Artifacts.WriteBatch(bodies, path, "ceiling", Echo(), evLevers);
                     if (aerr is not null) ResultsStore.Release(path);
                     evRendered = RenderEv(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
@@ -1442,7 +1442,7 @@ public static class RecordsTools
                 var offEpoch = bodies.FirstOrDefault(o => o.Epoch is not null)?.Epoch ?? outcome.Epoch;
                 if (wantFile)
                 {
-                    var (sp, aerr) = Artifacts.WriteBatch(bodies, toFile!, "to_file", Echo());
+                    var (sp, aerr) = Artifacts.WriteBatch(bodies, toFile!, "to_file", Echo(), offLevers);
                     if (aerr is not null) return json ? JsonWire.RenderError(aerr, offEpoch) : "error: " + aerr;
                     offSpill = SpillState.Spilled(sp!, manifestOnly: true);
                 }
@@ -1450,7 +1450,7 @@ public static class RecordsTools
                 if (offSpill is null && offTrunc)
                 {
                     var path = ResultsStore.NextPath("housecarl_records", offEpoch ?? "none");
-                    var (sp, aerr) = Artifacts.WriteBatch(bodies, path, "ceiling", Echo());
+                    var (sp, aerr) = Artifacts.WriteBatch(bodies, path, "ceiling", Echo(), offLevers);
                     if (aerr is not null) ResultsStore.Release(path);
                     offRendered = RenderOff(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
