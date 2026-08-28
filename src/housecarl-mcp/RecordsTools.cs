@@ -221,7 +221,7 @@ public static class RecordsTools
             // rather than silently becoming 1.
             if (form is not ("fields" or "everything"))
                 return Wire.Refuse(json, comparisonForm
-                    ? $"error: project.depth belongs to the 'fields'/'everything' forms — the '{form}' comparison always deep-reads BOTH sides at the diff engine's fixed depth so line sets correspond (narrow with project.fields instead)."
+                    ? $"error: project.depth belongs to the 'fields'/'everything' forms — the '{form}' comparison always deep-reads BOTH sides at the diff engine's fixed depth so line sets correspond (narrow with {LeverNames.Records.Fields} instead)."
                     : $"error: project.depth expands field contents and belongs to the 'fields'/'everything' forms (got form='{form}').");
             if (dv < 1)
                 return Wire.Refuse(json, $"error: project.depth={dv} — depth must be >= 1 (1 shows a container as a collapsed summary; higher opens it).");
@@ -1582,7 +1582,7 @@ public static class RecordsTools
             if (d.Deltas.Count == 0)
             {
                 if (!d.Complete)
-                    sb.Append("  no differing fields in what was read, but the deep read was TRUNCATED at the cap — NOT a clean 'identical' (Q3). Narrow with project.fields to compare in full.\n");
+                    sb.Append("  no differing fields in what was read, but the deep read was TRUNCATED at the cap — NOT a clean 'identical' (Q3). Narrow with ").Append(LeverNames.Records.Fields).Append(" to compare in full.\n");
                 else if (d.AgreedCount > 0)
                     sb.Append("  identical across the fields read (").Append(d.AgreedCount).Append(" value leaf/leaves agree).\n");
                 else
@@ -1597,13 +1597,13 @@ public static class RecordsTools
                     if (sb.Length >= cap)
                     {
                         truncated = true;
-                        sb.Append("    ... [delta lines cut at max_chars=").Append(cap).Append(" — raise max_chars or narrow with project.fields]\n");
+                        sb.Append("    ... [delta lines cut at max_chars=").Append(cap).Append(" — raise max_chars or narrow with ").Append(LeverNames.Records.Fields).Append("]\n");
                         break;
                     }
                     sb.Append("    - ").Append(delta).Append('\n');
                 }
                 if (!d.Complete)
-                    sb.Append("  note: the deep read was TRUNCATED — list-content and one-sided-presence deltas are SUPPRESSED; narrow with project.fields to compare those in full.\n");
+                    sb.Append("  note: the deep read was TRUNCATED — list-content and one-sided-presence deltas are SUPPRESSED; narrow with ").Append(LeverNames.Records.Fields).Append(" to compare those in full.\n");
             }
             rendered++;
         }
@@ -1653,7 +1653,7 @@ public static class RecordsTools
                 if (sb.Length >= cap)
                 {
                     truncated = true;
-                    sb.Append("    ... [nodes cut at max_chars=").Append(cap).Append(" — raise max_chars or narrow with project.fields]\n");
+                    sb.Append("    ... [nodes cut at max_chars=").Append(cap).Append(" — raise max_chars or narrow with ").Append(LeverNames.Records.Fields).Append("]\n");
                     break;
                 }
                 sb.Append("    ").Append(n.Plugin).Append(n.IsWinner ? " (winner)" : "").Append(": ");
