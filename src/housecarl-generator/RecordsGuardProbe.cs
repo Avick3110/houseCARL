@@ -904,6 +904,12 @@ internal static class RecordsGuardProbe
                 project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage", "EditorID", "Name" } });
             // Every note-bearing key anywhere in the document — a remedy is wrong wherever it sits, and a
             // harvester that only reads the top level would miss the per-row ones, which is where they are.
+            //
+            // Round 1: the object-property-only version of this walk was itself a blind spot. WriteNotes emits an
+            // ARRAY of bare strings under "notes" (the predicate, scan, where_source and P5 scoped-vs-winner
+            // notes), so an entire note family was invisible to every assertion below — which is how a sentence
+            // naming winner_fields= to a housecarl_records caller sat green. String ELEMENTS of a notes array are
+            // harvested too now.
             static List<string> HarvestNotes(string json)
             {
                 var found = new List<string>();
@@ -914,12 +920,43 @@ internal static class RecordsGuardProbe
                         {
                             if (p.Name is "note" or "truncation_note" or "error" && p.Value.ValueKind == JsonValueKind.String)
                                 found.Add(p.Value.GetString()!);
+                            if (p.Name is "notes" or "layer_notes" && p.Value.ValueKind == JsonValueKind.Array)
+                                foreach (var it in p.Value.EnumerateArray())
+                                    if (it.ValueKind == JsonValueKind.String) found.Add(it.GetString()!);
                             Walk(p.Value);
                         }
                     else if (e.ValueKind == JsonValueKind.Array)
                         foreach (var it in e.EnumerateArray()) Walk(it);
                 }
                 try { Walk(JsonDocument.Parse(json).RootElement); } catch { }
+                return found;
+            }
+            // An artifact is JSONL — one json document per line, line 1 the manifest. Spilled rows are read by the
+            // same caller as the inline render, so they are part of this surface; round 1 proved they were never
+            // read back (dropping the carrier from the spill writer left the guard green).
+            // format=dense carries its container hint inside the POSITIONAL CELLS, not under a note key, so the
+            // note-key walk above harvests nothing from it (measured: container/dense and scan/dense came back
+            // empty while the sentence was plainly in the response). Every string in the document, then —
+            // deliberately over-approximate, because an over-harvest costs a triage row and an under-harvest
+            // hides a wrong lever, which is the whole lesson of this arm.
+            static List<string> HarvestAllStrings(string json)
+            {
+                var found = new List<string>();
+                void Walk(JsonElement e)
+                {
+                    if (e.ValueKind == JsonValueKind.String) found.Add(e.GetString()!);
+                    else if (e.ValueKind == JsonValueKind.Object) foreach (var p in e.EnumerateObject()) Walk(p.Value);
+                    else if (e.ValueKind == JsonValueKind.Array) foreach (var it in e.EnumerateArray()) Walk(it);
+                }
+                try { Walk(JsonDocument.Parse(json).RootElement); } catch { }
+                return found;
+            }
+            static List<string> HarvestArtifact(string path)
+            {
+                var found = new List<string>();
+                if (!File.Exists(path)) return found;
+                foreach (var line in File.ReadAllLines(path))
+                    if (!string.IsNullOrWhiteSpace(line)) found.AddRange(HarvestNotes(line));
                 return found;
             }
             var notes = HarvestNotes(tinyJson);
@@ -938,32 +975,64 @@ internal static class RecordsGuardProbe
             string[] wf = weapons.Select(Fid).ToArray();
             var containerFields = new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects" } };
             var scanFields = new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage" } };
-            var probes = new (string Label, string Resp)[]
+            var ovlPost = Je("{\"overlay\": \"skypatcher\", \"state\": \"post\"}");
+            // The SOURCE lanes. Round 1: these read through ResolveBatchFromPole / OverlayPostBatch, which had no
+            // containerHint parameter at all, so every probe above (all winner-source) could not reach them and
+            // they kept emitting the 1.x knob. A source= probe per lane is what makes that lane assertable.
+            var poleScope = Je($"\"{masterName}\"");
+            // The spilled ARTIFACT rows, read back off disk. Two writers reach an artifact — an explicit to_file
+            // and the ceiling auto-spill — and both pass the carrier; this drives the explicit one and reads the
+            // file, so dropping the carrier from the writer is a RED cell instead of a silent green.
+            var artProbe = Path.Combine(root, "remedy-rows.jsonl");
+            var artResp = RecordsTools.Records(svc, types: new[] { "SPEL" }, to_file: artProbe, project: containerFields);
+            var probes = new (string Label, string Lane, string Resp)[]
             {
-                ("fields/json", tinyJson), ("fields/text", tinyText),
-                ("container/text", RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, project: containerFields)),
-                ("container/json", RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, format: "json", project: containerFields)),
-                ("tree/text",  RecordsTools.Records(svc, formids: wf, max_chars: 300, project: new RecordsTools.RecordsProject { form = "tree" })),
-                ("tree/json",  RecordsTools.Records(svc, formids: wf, max_chars: 300, format: "json", project: new RecordsTools.RecordsProject { form = "tree" })),
-                ("scan/text",  RecordsTools.Records(svc, types: new[] { "WEAP" }, max_chars: 300, project: scanFields)),
-                ("scan/json",  RecordsTools.Records(svc, types: new[] { "WEAP" }, max_chars: 300, format: "json", project: scanFields)),
+                ("fields/json", "json", tinyJson), ("fields/text", "text", tinyText),
+                ("container/text", "text", RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, project: containerFields)),
+                ("container/json", "json", RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, format: "json", project: containerFields)),
+                ("tree/text",  "text", RecordsTools.Records(svc, formids: wf, max_chars: 300, project: new RecordsTools.RecordsProject { form = "tree" })),
+                ("tree/json",  "json", RecordsTools.Records(svc, formids: wf, max_chars: 300, format: "json", project: new RecordsTools.RecordsProject { form = "tree" })),
+                ("scan/text",  "text", RecordsTools.Records(svc, types: new[] { "WEAP" }, max_chars: 300, project: scanFields)),
+                ("scan/json",  "json", RecordsTools.Records(svc, types: new[] { "WEAP" }, max_chars: 300, format: "json", project: scanFields)),
+                // format=dense is a THIRD transport on this tool, threaded and — until round 1 — wholly unasserted.
+                ("container/dense", "dense", RecordsTools.Records(svc, types: new[] { "SPEL" }, format: "dense", project: containerFields)),
+                ("scan/dense",      "dense", RecordsTools.Records(svc, types: new[] { "WEAP" }, format: "dense", max_chars: 300, project: scanFields)),
+                // source= poles: the plugin pole (active arm) and the SkyPatcher overlay post pole.
+                ("pole/text", "text", RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, source: poleScope, project: containerFields)),
+                ("pole/json", "json", RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, source: poleScope, format: "json", project: containerFields)),
+                ("overlay/text", "text", RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, source: ovlPost, project: containerFields)),
+                ("overlay/json", "json", RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, source: ovlPost, format: "json", project: containerFields)),
+                // A plugins=-scoped fields scan, which is what emits the P5 scoped-vs-winner note on all three
+                // transports. It fires on every such scan, not only starved ones.
+                ("scoped/text",  "text",  RecordsTools.Records(svc, plugins: new RecordsTools.RecordsScope { names = new[] { masterName } }, types: new[] { "WEAP" }, project: scanFields)),
+                ("scoped/json",  "json",  RecordsTools.Records(svc, plugins: new RecordsTools.RecordsScope { names = new[] { masterName } }, types: new[] { "WEAP" }, format: "json", project: scanFields)),
+                ("scoped/dense", "dense", RecordsTools.Records(svc, plugins: new RecordsTools.RecordsScope { names = new[] { masterName } }, types: new[] { "WEAP" }, format: "dense", project: scanFields)),
+                ("spill/artifact", "artifact", artResp),
             };
 
             // Harvest with NO lever filter. A filter is where a wrong lever hides: the pre-fix tree notice
             // said "narrow with project.fields" with no '=', and a regex keyed on '=' did not see it at all.
             // json → every note/error string in the document; text → every line carrying remedy vocabulary.
+            // 'pass ' is in this alternation because leaving it out was a blind spot of exactly the kind the
+            // no-lever-filter rule exists to stop: the text P5 note reads "… — pass winner_fields=true for
+            // load-order truth" and matched none of the other words, so the text lane harvested it as nothing.
             var remedyLine = new System.Text.RegularExpressions.Regex(
-                @"max_chars|narrow|expand|raise |lower |drop |page with|request fewer|continue with");
+                @"max_chars|narrow|expand|raise |lower |drop |pass |page with|request fewer|continue with");
             var sentences = new List<(string Lane, string Label, string Text)>();
-            foreach (var (label, resp) in probes)
+            foreach (var (label, lane, resp) in probes)
             {
-                bool jsonLane = label.EndsWith("/json", StringComparison.Ordinal);
-                var hits = jsonLane
-                    ? HarvestNotes(resp)
-                    : resp.Split('\n').Where(l => remedyLine.IsMatch(l)).ToList();
+                // text is scraped line-wise; json and dense are documents; the artifact lane is read off DISK,
+                // because the response there is a manifest and the rows the caller reads are in the file.
+                var hits = lane switch
+                {
+                    "artifact" => HarvestArtifact(artProbe),
+                    "text"     => resp.Split('\n').Where(l => remedyLine.IsMatch(l)).ToList(),
+                    "dense"    => HarvestAllStrings(resp),
+                    _          => HarvestNotes(resp),
+                };
                 foreach (var h in hits.Select(h => h.Trim()).Distinct())
                 {
-                    sentences.Add((jsonLane ? "json" : "text", label, h));
+                    sentences.Add((lane, label, h));
                     Console.WriteLine($"        [{label}] {h}");
                 }
             }
@@ -975,8 +1044,17 @@ internal static class RecordsGuardProbe
                 (@"(?<!project\.)\bfields=", "narrow with 'fields=' (it has project.fields=)"),
                 (@"(?<!project\.)\bdepth=",  "lower or pass 'depth=' (it has project.depth=)"),
                 (@"\bconflict_tree\b",       "drop 'conflict_tree' (it has no such parameter — the tree is a project FORM)"),
+                // Not a differently-SCOPED spelling but a rename: housecarl_records refuses winner_fields by alias
+                // and points at fields_source="winner". The P5 note named it on all three transports (round 1).
+                (@"\bwinner_fields\b",       "pass 'winner_fields=true' (it has fields_source=\"winner\")"),
             };
-            foreach (var lane in new[] { "json", "text" })
+            // Per-PROBE, before the per-lane assertions: a lane aggregates several site families, so a family that
+            // stops emitting (fixture rot, a container that no longer collapses) leaves the lane count healthy and
+            // its own absence silent. Every probe in the list above is expected to carry at least one sentence.
+            foreach (var (label, _, _) in probes)
+                Check(sentences.Any(s => s.Label == label), $"probe '{label}' emits a sentence at all (this family bites)");
+
+            foreach (var lane in new[] { "json", "text", "dense", "artifact" })
             {
                 var laneSentences = sentences.Where(s => s.Lane == lane).ToList();
                 Check(laneSentences.Count > 0, $"the {lane} lane emits remedy sentences at all (the fixture bites)");
