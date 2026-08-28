@@ -1220,9 +1220,12 @@ public static class RecordsTools
                 var bodyEpoch = bodyEpochs.FirstOrDefault() ?? outcome.Epoch;
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
+                // These bodies were selected by a SCAN, not by a formids list, so the batch notice's selection
+                // clause names limit= — the lever that actually windows this response (#439 gate review).
+                var evLevers = LeverNames.Records.OnScanSelection();
                 string RenderEv(SpillState? sp, out bool trunc) => json
-                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, LeverNames.Records)
-                    : headerLine + "\n" + Wire.RenderBatch(svc, bodies, null, false, max_chars, sp, out trunc, LeverNames.Records);
+                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, evLevers)
+                    : headerLine + "\n" + Wire.RenderBatch(svc, bodies, null, false, max_chars, sp, out trunc, evLevers);
                 SpillState? evSpill = null;
                 if (wantFile)
                 {
@@ -1426,9 +1429,11 @@ public static class RecordsTools
                 }
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
+                // Selected by the off-order FILE scan — same third axis as the in-order body lane above.
+                var offLevers = LeverNames.Records.OnScanSelection();
                 string RenderOff(SpillState? sp, out bool trunc) => json
-                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, LeverNames.Records)
-                    : headerLine + "\n" + Wire.RenderBatch(svc, bodies, form == "fields" ? projFields : null, false, max_chars, sp, out trunc, LeverNames.Records);
+                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, offLevers)
+                    : headerLine + "\n" + Wire.RenderBatch(svc, bodies, form == "fields" ? projFields : null, false, max_chars, sp, out trunc, offLevers);
                 SpillState? offSpill = null;
                 var offEpoch = bodies.FirstOrDefault(o => o.Epoch is not null)?.Epoch ?? outcome.Epoch;
                 if (wantFile)
