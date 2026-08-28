@@ -1108,6 +1108,29 @@ internal static class RecordsGuardProbe
             Check(!slimmed.StartsWith("error:") && slimmed.Contains("form=summary"),
                   "…and dropping project= as the scan notice says yields summary rows, not a refusal");
 
+            // The two artifact ROW writers compose a field-truncation note of their own, and production writes rows
+            // uncapped (the file is the answer), so that note is dormant — but it is composed from a vocabulary the
+            // row writer is handed, and a records artifact handed nothing would say "narrow with fields=". Dormant
+            // is not proof: the writers take a rowCap so the seam can be DRIVEN here, which is the only way to read
+            // the sentence rather than reason about it. Both writers, because they are separate seams.
+            var artOutcomes = svc.ResolveBatch(new[] { Fid(spellA.FormKey) }, new[] { "Effects" }, false, 2,
+                                               containerHint: LeverNames.Records.ContainerHint);
+            var noQuery = Array.Empty<KeyValuePair<string, string>>();
+            var capBatch = Path.Combine(root, "cap-batch.jsonl");
+            Artifacts.WriteBatch(artOutcomes, capBatch, "to_file", noQuery, LeverNames.Records, rowCap: 40);
+            var batchNote = HarvestArtifact(capBatch).FirstOrDefault(s => s.Contains("[truncated at max_chars:"));
+            Check(batchNote is not null && batchNote.Contains("project.fields=") && batchNote.Contains("project.depth=")
+                  && !System.Text.RegularExpressions.Regex.IsMatch(batchNote, @"(?<!project\.)\b(fields|depth)="),
+                  "…a batch artifact ROW's truncation note speaks the caller's vocabulary, not 1.x's");
+            var capQuery = svc.CrossQuery(new[] { "SPEL" }, null, null, false, null, null, 500);
+            var capCross = Path.Combine(root, "cap-cross.jsonl");
+            Artifacts.WriteCrossQuery(svc, capQuery, new[] { "Effects" }, false, false, 2, capCross, "to_file", noQuery,
+                                      LeverNames.Records, rowCap: 40);
+            var crossNote = HarvestArtifact(capCross).FirstOrDefault(s => s.Contains("[truncated at max_chars:"));
+            Check(crossNote is not null && crossNote.Contains("project.fields=") && crossNote.Contains("project.depth=")
+                  && !System.Text.RegularExpressions.Regex.IsMatch(crossNote, @"(?<!project\.)\b(fields|depth)="),
+                  "…and a cross-query artifact ROW's does too (its own writer, its own seam)");
+
             // The scan notice's SLIM-DOWN clause is only true for a call that passed something to slim with. Both
             // directions, because a fix that dropped the clause everywhere would satisfy the first arm and lose a
             // remedy that is genuinely actionable on the second. No wrong-lever pattern can see this either —

@@ -126,12 +126,15 @@ internal static class Artifacts
     /// (fields=), or summary rows — the SAME row shapes the json render emits, via the SAME row writers, filled
     /// off the SAME pinned view the response's epoch names (ResolveReadOn/ResolveSummaryOn — a spill must never
     /// mix builds the header claims it didn't). Returns the SpillInfo for the response marker, or a named error
-    /// the caller renders (an unwritable path must fail LOUD, not produce a response claiming a file — Q3).</summary>
+    /// the caller renders (an unwritable path must fail LOUD, not produce a response claiming a file — Q3).
+    /// <para><paramref name="rowCap"/> is the per-row field budget. The artifact IS the answer, so production
+    /// writes rows uncapped and never passes it; it exists so the row writer's truncation seam can be DRIVEN,
+    /// because a seam nothing can reach is a seam nothing can prove (#439 gate review).</para></summary>
     public static (SpillInfo? Spill, string? Error) WriteCrossQuery(
         LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields,
         bool resolveNames, bool winnerFields, int depth,
         string path, string reason, IReadOnlyList<KeyValuePair<string, string>> query,
-        LeverNames? levers = null)
+        LeverNames? levers = null, int rowCap = int.MaxValue)
     {
         using var writer = new ResultArtifact.Writer();
         string[] schema;
@@ -170,7 +173,9 @@ internal static class Artifacts
                         w.WriteEndObject();
                     });
                 else
-                    writer.WriteRow((w, ms) => JsonWire.WriteReadRecord(w, o, ms, int.MaxValue, matches), o.Record!.Type);
+                    // The row writer composes its own field-truncation note, so it needs the caller's vocabulary
+                    // like every other seam — a records artifact row must not say "narrow with fields=" (#439).
+                    writer.WriteRow((w, ms) => JsonWire.WriteReadRecord(w, o, ms, rowCap, matches, levers: levers), o.Record!.Type);
             }
         }
         else                                                                  // summary rows
@@ -219,9 +224,13 @@ internal static class Artifacts
 
     /// <summary>Build + save the artifact for a batch_record_detail result — one row per input, in input order,
     /// exactly the rows the json render emits (per-item errors included: the artifact is the complete answer, and
-    /// a dropped error row would make the file claim a cleaner batch than the call returned).</summary>
+    /// a dropped error row would make the file claim a cleaner batch than the call returned).
+    /// <para><paramref name="levers"/> and <paramref name="rowCap"/> carry the same contract as
+    /// <see cref="WriteCrossQuery"/>: this writer's rows compose a field-truncation note too, so they need the
+    /// caller's vocabulary, and production writes them uncapped.</para></summary>
     public static (SpillInfo? Spill, string? Error) WriteBatch(
-        IReadOnlyList<ReadOutcome> outcomes, string path, string reason, IReadOnlyList<KeyValuePair<string, string>> query)
+        IReadOnlyList<ReadOutcome> outcomes, string path, string reason, IReadOnlyList<KeyValuePair<string, string>> query,
+        LeverNames? levers = null, int rowCap = int.MaxValue)
     {
         using var writer = new ResultArtifact.Writer();
         foreach (var o in outcomes)
@@ -229,7 +238,7 @@ internal static class Artifacts
             if (o.Error is not null)
                 writer.WriteRow((w, _) => { w.WriteStartObject(); w.WriteString("formid", o.FormKey.ToString()); w.WriteString("error", o.Error); w.WriteEndObject(); });
             else
-                writer.WriteRow((w, ms) => JsonWire.WriteReadRecord(w, o, ms, int.MaxValue), o.Record!.Type);
+                writer.WriteRow((w, ms) => JsonWire.WriteReadRecord(w, o, ms, rowCap, levers: levers), o.Record!.Type);
         }
         // The batch's ONE build (first consulted row). A batch of pure parse-failures never consulted a build and
         // carries "" — such an artifact refuses epoch-checked re-entry against ANY build, which is the honest answer.
