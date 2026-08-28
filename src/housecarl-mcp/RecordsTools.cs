@@ -526,7 +526,8 @@ public static class RecordsTools
             {
                 // The overlay POST source: every record's winner replayed through the SkyPatcher INI layer, the
                 // replayed body read at the caller's own depth (absorbs skypatcher_read's post-state view).
-                outcomes = svc.OverlayPostBatch(ids, readFields, depth, resolveNames, demand, out var ovRefusal, out var ovEpoch, out _);
+                outcomes = svc.OverlayPostBatch(ids, readFields, depth, resolveNames, demand, out var ovRefusal, out var ovEpoch, out _,
+                                                LeverNames.Records.ContainerHint);
                 if (ovRefusal is not null)
                     return json ? JsonWire.RenderError(ovRefusal, ovEpoch)
                                 : "error: " + ovRefusal + (ovEpoch is not null ? $"\nepoch={ovEpoch}" : "");
@@ -547,7 +548,8 @@ public static class RecordsTools
             else
             {
                 outcomes = svc.ResolveBatchFromPole(ids, srcName, srcMod, readFields, depth, resolveNames, demand,
-                                                    out pole, out var refusal, out var refusalEpoch);
+                                                    out pole, out var refusal, out var refusalEpoch,
+                                                    LeverNames.Records.ContainerHint);
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, refusalEpoch)
                                 : "error: " + refusal + (refusalEpoch is not null ? $"\nepoch={refusalEpoch}" : "");
@@ -1151,7 +1153,7 @@ public static class RecordsTools
                 if (srcName is not null)
                 {
                     bodies = svc.ResolveBatchFromPole(keys, srcName, srcMod, form == "fields" ? projFields : null, depth, resolveNames, null,
-                                                      out _, out var bref, out var brefEpoch);
+                                                      out _, out var bref, out var brefEpoch, LeverNames.Records.ContainerHint);
                     // A refusal is judged on the NAMED cause, never on row count (review: a zero-match scan is an
                     // honest EMPTY result, and the pole lane's real refusals were being replaced by a generic one).
                     if (bref is not null)
@@ -1408,7 +1410,8 @@ public static class RecordsTools
             {
                 var keys = outcome.Keys.Select(k => k.ToString()).ToList();
                 var bodies = svc.ResolveBatchFromPole(keys, pole.Plugin, srcMod, form == "fields" ? projFields : null,
-                                                      depth, resolveNames, null, out _, out var bref, out var brefEpoch);
+                                                      depth, resolveNames, null, out _, out var bref, out var brefEpoch,
+                                                      LeverNames.Records.ContainerHint);
                 if (bref is not null)
                     return json ? JsonWire.RenderError(bref, brefEpoch)
                                 : "error: " + bref + (brefEpoch is not null ? $"\nepoch={brefEpoch}" : "");

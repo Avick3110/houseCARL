@@ -280,8 +280,8 @@ internal static class Artifacts
     {
         using var writer = new ResultArtifact.Writer();
         foreach (var row in rows)
-            writer.WriteRow((w, ms) => JsonWire.WriteTreeRow(w, row, ms, int.MaxValue),
-                            row.Error is null ? row.Type : null);
+            writer.WriteRow((w, ms) => JsonWire.WriteTreeRow(w, row, ms, int.MaxValue, LeverNames.Records),
+                            row.Error is null ? row.Type : null);   // a records-only artifact: the rows speak the records vocabulary (#439)
         var (manifest, err) = writer.Save(path, "housecarl_records", query, "formid",
                                           new[] { "formid", "type", "editorid", "reference", "touchers", "nodes" },
                                           "input order", rows.Count, epoch ?? "");

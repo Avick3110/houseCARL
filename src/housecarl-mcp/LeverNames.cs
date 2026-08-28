@@ -22,11 +22,12 @@ namespace HousecarlMcp;
 /// </summary>
 public sealed class LeverNames
 {
-    private LeverNames(string fields, string depth, string? conflictTree)
+    private LeverNames(string fields, string depth, string? conflictTree, string winnerFields)
     {
         Fields = fields;
         Depth = depth;
         ConflictTree = conflictTree;
+        WinnerFields = winnerFields;
     }
 
     /// <summary>How this caller spells the field selector, including the '=' — "fields=" or "project.fields=".</summary>
@@ -41,13 +42,19 @@ public sealed class LeverNames
     /// parameter, which is the defect this type exists to stop. Null means "leave it unnamed".</summary>
     public string? ConflictTree { get; }
 
+    /// <summary>How this caller asks for the WINNER's field values on a scoped scan, as a complete token —
+    /// "winner_fields=true" or "fields_source=\"winner\"". The two generations do not merely scope this one
+    /// differently, they renamed it: housecarl_records refuses "winner_fields" by alias and points at
+    /// fields_source="winner", so the P5 scoped-vs-winner note has to carry the caller's own token.</summary>
+    public string WinnerFields { get; }
+
     /// <summary>The 1.x read tools' spelling. The DEFAULT everywhere, so nothing renders differently
     /// until a caller asks for its own vocabulary.</summary>
-    public static readonly LeverNames Legacy = new("fields=", "depth=", "conflict_tree");
+    public static readonly LeverNames Legacy = new("fields=", "depth=", "conflict_tree", "winner_fields=true");
 
     /// <summary>housecarl_records: the selector and the expansion knob are form-scoped under project=,
     /// and there is no conflict_tree parameter at all.</summary>
-    public static readonly LeverNames Records = new("project.fields=", "project.depth=", null);
+    public static readonly LeverNames Records = new("project.fields=", "project.depth=", null, "fields_source=\"winner\"");
 
     /// <summary>The two slimming levers named together, as the cross-query truncation notice names them.
     /// A caller with no conflict-tree lever gets the selector alone rather than a lever it cannot pass.</summary>

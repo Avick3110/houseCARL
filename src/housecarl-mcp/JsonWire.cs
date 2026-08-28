@@ -666,8 +666,10 @@ static class JsonWire
                                       LeverNames? levers = null)
     {
         // This row's notice was hand-written in the records spelling because the tree form is a 2.0 form. A literal
-        // that happens to agree with its caller is the next one to drift — the vocabulary comes from the carrier
-        // like every other remedy here, and the default arm is what proves the carrier is wired (#439).
+        // that happens to agree with its caller is the next one to drift, so the vocabulary comes from the carrier
+        // like every other remedy here. Note both callers pass Records explicitly (RenderTree via the tool layer,
+        // Artifacts.WriteTree for the spilled rows) — the Legacy default below is unreached, and is kept only so
+        // this row obeys the same "default is 1.x" rule as every other seam rather than becoming the exception.
         var lv = levers ?? LeverNames.Legacy;
         w.WriteStartObject();
         w.WriteString("formid", row.Formid);
@@ -1040,7 +1042,7 @@ static class JsonWire
             {
                 bool detail = fields is { Count: > 0 };
                 bool anyScoped = detail && q.Sources is { } ss && ss.Take(q.Keys.Count).Any(s => s is not null);   // P5
-                string? p5 = anyScoped ? ScopedFieldsNote(winnerFields, q.WhereWinner) : null;
+                string? p5 = anyScoped ? ScopedFieldsNote(winnerFields, q.WhereWinner, levers) : null;
                 w.WriteNumber("total", q.Total);
                 w.WriteBoolean("capped", q.Capped);
                 WriteNullable(w, "epoch", q.Epoch);                         // §2.1.1: offset= windows tile ONLY within one epoch
@@ -1090,15 +1092,21 @@ static class JsonWire
     /// <paramref name="whereWinner"/> (#233) is true when the MATCH decided on the live winner (where_source=winner) —
     /// then the note must NOT claim the match was selected on the scoped body (the D2 no-drift rule). Shared by the
     /// text, json, and dense renders so the note can never drift across the three.</summary>
-    internal static string ScopedFieldsNote(bool winnerFields, bool whereWinner)
+    internal static string ScopedFieldsNote(bool winnerFields, bool whereWinner, LeverNames? levers = null)
     {
+        // Two of these four arms are REMEDIES ("pass X …" — they predict a later call), so they can only be true
+        // for a caller that HAS that lever; housecarl_records refuses "winner_fields" by alias (#439). The other
+        // two are labels echoing what was passed, and they carry the caller's token for the same reason: a label
+        // naming a spelling the caller did not use is the next remedy to be copied out of. where_source= is spelled
+        // identically by both generations, so it stays a literal.
+        var wf = (levers ?? LeverNames.Legacy).WinnerFields;
         if (whereWinner)
             return winnerFields
-                ? "the MATCH and the field values are both the load-order WINNER's (where_source=winner, winner_fields=true)."
-                : "the MATCH was selected on the load-order WINNER (where_source=winner), but the field values shown are each match's SCOPED plugin's OWN version — pass winner_fields=true to display the winner too.";
+                ? $"the MATCH and the field values are both the load-order WINNER's (where_source=winner, {wf})."
+                : $"the MATCH was selected on the load-order WINNER (where_source=winner), but the field values shown are each match's SCOPED plugin's OWN version — pass {wf} to display the winner too.";
         return winnerFields
-            ? "field values are the load-order WINNER's (winner_fields=true); each match was SELECTED on its scoped plugin's body."
-            : "field values are each match's SCOPED plugin's OWN version, NOT the live load-order winner — pass winner_fields=true for load-order truth.";
+            ? $"field values are the load-order WINNER's ({wf}); each match was SELECTED on its scoped plugin's body."
+            : $"field values are each match's SCOPED plugin's OWN version, NOT the live load-order winner — pass {wf} for load-order truth.";
     }
 
     // ---- housecarl_cross_plugin_query format=dense (#223) -------------------------------------------
@@ -1139,7 +1147,7 @@ static class JsonWire
                 WriteNullable(w, "epoch", q.Epoch);                           // §2.1.1
                 if (q.Offset > 0) w.WriteNumber("offset", q.Offset);
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
-                WriteNotes(w, q, anyScoped ? ScopedFieldsNote(winnerFields, q.WhereWinner) : null);
+                WriteNotes(w, q, anyScoped ? ScopedFieldsNote(winnerFields, q.WhereWinner, levers) : null);
 
                 bool hasMatches = q.MatchedTargets is not null;               // multi-target references= → one extra column
                 w.WriteStartArray("columns");
