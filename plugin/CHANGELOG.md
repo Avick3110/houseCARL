@@ -13,14 +13,19 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
-- **A truncated `housecarl_records` response now names the parameters your call actually has.** When a read
-  hit `max_chars`, the notice told you to narrow with `fields=` and lower `depth=`; on that tool those are
-  spelled `project.fields=` and `project.depth=`, so following the advice as written got you a refusal. A
-  collapsed container cell said `pass depth=2 to expand` for the same reason. Both transports were affected
-  and both are fixed. The scan notice also offered `conflict_tree`, which `housecarl_records` has no
-  parameter for at all — it now names the field selector alone. The 1.x read tools' notices are unchanged;
-  they were already naming their own parameters. Check it by starving a read: `max_chars=220` on a
-  `project.form="fields"` call, and read the notice back.
+- **`housecarl_records` truncation and expansion notices now name the parameters your call actually has.**
+  When a read hit `max_chars`, the notice told you to narrow with `fields=` and lower `depth=`; on that tool
+  those are spelled `project.fields=` and `project.depth=`, so following the advice as written got you a
+  refusal. A collapsed container cell said `pass depth=2 to expand` for the same reason — including under
+  `source=` and the SkyPatcher post view, which were a separate read path. The scoped-vs-winner note told
+  you to pass `winner_fields=true`; that parameter was renamed on this tool and is `fields_source="winner"`.
+  All of it applies on `format="text"`, `"json"` and `"dense"`, and to the rows written to a `to_file=`
+  artifact. The scan notice also offered `conflict_tree`, which `housecarl_records` has no parameter for at
+  all — it now names the field selector alone. One further spelling was inconsistent with itself: the
+  selector appeared as both `project.fields` and `project.fields=` depending on which renderer composed the
+  sentence, and is now always `project.fields=`. The 1.x read tools' notices are unchanged; they were
+  already naming their own parameters. Check it by starving a read — a few `formids=` with
+  `project={"form":"fields","fields":[…]}` and `max_chars=220` — and reading the notice back.
 
 - **A read tool asked for json now refuses in json.** Reads that take `format="json"` previously answered
   some refusals with a plain sentence instead of a json document, so a caller parsing the response had to
