@@ -40,6 +40,8 @@ The marker is the load-bearing signal: it tells the next session, at a glance, w
 | `CLAUDE.md` | LIVING | The operating doc — how houseCARL works + how we operate. Stays stable; points at the handoff folder for tactical state (never a session log). |
 | `standards/HOUSECARL_*.md` | LIVING | Naming, skill-authoring, this doc. Standards evolve; revise when reality contradicts (§5.3). |
 | `README.md`, `CHANGELOG.md` (when they ship) | LIVING | Consumer-facing install/capability overview + version-by-version narrative. Update in the commit that changes what they describe. |
+| `docs/architecture/*` | LIVING | Public per-subsystem notes — what it is, how it's shaped, the contracts that hold it together (§8). |
+| `docs/decisions/*` | ARCHIVE | Public ADRs — numbered, immutable, superseded by a later ADR rather than edited (§8). |
 | `dev/plans/*` | **LIVING → ARCHIVE** | LIVING while actively worked against; becomes ARCHIVE when **superseded or closed** (see §4). The active plan declares `Class: LIVING`; a closed one is frozen. |
 | `dev/session-handoffs/*` | ARCHIVE | Frozen from first commit. The latest is "where we are"; older ones are history. Never edited to reflect later state. |
 | `dev/PRFAQ/*` | ARCHIVE | The immutable foundation corpus — why decisions were made (CLAUDE.md §8). New docs supersede; these never change. |
@@ -90,3 +92,23 @@ The exception is §6 applied to code: a pointer (`#N` / `PR #N`) **stays** when 
 Existing discovery citations are cleaned opportunistically when a file is touched — never as a bulk scrub.
 
 Adopted 2026-08-19 from the code-quality review (~511 `PR #` citations across `src/` at the time of the ruling, plus hundreds of review-marker variants — the *why* content was consistently worth keeping; the citation ritual was not).
+
+---
+
+## 8. Comment register, and the public home for engineering knowledge (`docs/`)
+
+**Source comments are terse. No essay paragraphs in code.** (Aaron-ruled 2026-08-31.) The essay-register comments were an adaptation — with no persistent reader, files carried their own context — but they cost every session tokens on every read, and a paragraph asserting a guarantee can be false with nothing to notice (several were, measured 2026-08-26). The knowledge they carry is not lost; it has three kinds, and each has a proper home:
+
+| Kind | Home | In the code |
+|---|---|---|
+| **Constraints & contracts** — "must not be called while X", "false means *could not read*, not *no*" | The code itself | One or two terse lines. This is what comments are for. |
+| **Guarantees** — "crash-atomic", "both halves filtered" | The probe that proves it | A pointer at the probe arm. A guarantee without a probe is a claim, not a guarantee — don't write the sentence. |
+| **Narrative & rationale** — why it's shaped this way, what was tried, what a prior approach got wrong | `docs/` (public, in-repo) | Nothing, or a one-line pointer. |
+
+**Why `docs/` and not the `dev/` corpus:** `dev/` is private. Knowledge that lives only there is invisible to cloud sessions, outside contributors, and the public repo — the essay comments were partly compensating for exactly that. Durable *engineering* knowledge (architecture, contracts, why the code is shaped this way) belongs in the repo, in the standard place: `docs/architecture/` (LIVING, one short note per subsystem) and `docs/decisions/` (ADRs — Architecture Decision Records: short numbered files, one per decision, context → decision → consequences, immutable once merged, superseded by a later ADR rather than edited). Process and tactical state (handoffs, run orders, session mechanics) stay in `dev/`; an ADR derived from a private ruling is written fresh for public eyes — plain register, no machine paths, no session lore.
+
+Three rules make it hold:
+
+1. **A PR that makes an architectural decision lands its ADR in the same PR** — same discipline as the CHANGELOG rule (CLAUDE.md §5 #10).
+2. **§6 governs the migration: `docs/` replaces the comment, never copies it.** The paragraph is deleted where the note is written; the code keeps at most a one-line pointer. A fact stated in both places is the stale-sentence factory §6 exists to close.
+3. **Prospective immediately; retroactive opportunistically.** New code is written to this rule now. Existing essay comments are cleaned when a file is touched — never as a bulk scrub, and never in deletion-flagged 1.x code (rewriting comments in condemned code is wasted work by the demolition rule).
