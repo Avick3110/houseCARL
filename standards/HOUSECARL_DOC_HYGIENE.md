@@ -17,6 +17,7 @@ Every `.md` file in the repo is **LIVING** or **ARCHIVE**. No third class. A fil
 **ARCHIVE** — a timestamped record of what was known/decided at its creation. **Immutable from first commit.** If its content is later wrong, the correction goes in a *new* doc (or a LIVING doc that supersedes it) — never in an edit to the archive. A session reading an archive must be able to trust it represents what was true at its date.
 
 - **Typo-fix exception:** a typo that makes an ARCHIVE doc ambiguous or misleading may be corrected, flagged `[ARCHIVE typo-fix]` in the commit message, with no content added or removed.
+- **Decision-record exception (adopted 2026-09-01):** a build engagement's decision-record handoff may accrete **dated `## ADDENDUM` blocks** — append-only, never rewrites of earlier text — while its engagement is open, because the review and fold sessions boot from that record mid-engagement. It freezes when the engagement's PR merges, and **engagement close writes a NEW handoff** — the addenda never substitute for one. While an engagement is open, its decision record is the boot point regardless of which handoff file is ordinally newest. (Origin: the 2026-08-26 record accreted three addenda with no close-out handoff, leaving "newest" ambiguous — the practice was right, the missing close-out was the bug.)
 
 ---
 
