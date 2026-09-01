@@ -312,10 +312,9 @@ public static class BindingShimProbe
             // -- SCHEMA: the @file union ToolSchemas publishes, and the invariant that made it necessary.
             //    ops=/assignments= are declared JsonElement (no C# type expresses "array OR '@path'"), so the
             //    generator would publish {}; ToolSchemas republishes anyOf[<generated element array>, string].
-            //    The load-bearing check is the LAST one: the generator terminates a recursive type with a
-            //    POSITIONAL "#/..." back-reference relative to its own document, so nesting a generated
-            //    sub-schema silently produces a dangling $ref — a broken schema, strictly worse than the {}
-            //    it replaced. That check is generic over every tool, not just this one.
+            //    The load-bearing check is the generic one: the generator terminates a recursive type with a
+            //    POSITIONAL "#/..." back-reference, which strict providers reject outright (#451) and which a
+            //    nested-without-rebasing sub-schema leaves dangling. No published schema may carry one.
             failures += SchemaArm(tools);
         }
         catch (Exception ex)
@@ -565,7 +564,8 @@ public static class BindingShimProbe
     };
 
     /// <summary>The published-schema arm (W3): the SPEC §5.1 <c>@file</c> union on the JsonElement-typed list
-    /// parameters, plus the same-document-pointer invariant every tool's schema must satisfy.</summary>
+    /// parameters, the no-same-document-<c>$ref</c> invariant every tool's schema must satisfy (#451), and the
+    /// bounded inline expansion that keeps the recursive shape legible once the pointers are gone.</summary>
     static int SchemaArm(JsonElement toolsList)
     {
         int failures = 0;
@@ -608,18 +608,49 @@ public static class BindingShimProbe
             }
         }
 
-        // GENERIC: every same-document $ref in every published schema must resolve. This is what catches a
-        // generated sub-schema nested without rebasing its pointers.
-        var dangling = new List<string>();
+        // GENERIC (#451): no published schema carries a same-document $ref at all. Strict providers reject a
+        // recursive schema and refuse the WHOLE server at tools/list, and the StructInput -> NestedSet.compose
+        // chain published one on five tools. ToolSchemas.FlattenRefs inlines every pointer that resolves and
+        // leaves the ones that do not, so this single arm catches both recursion that escaped the pass and the
+        // un-rebased pointer the old dangling-$ref sweep watched for (which this replaces, strictly stronger).
+        var refs = new List<string>();
         foreach (var t in toolsList.GetProperty("tools").EnumerateArray())
         {
             if (!t.TryGetProperty("inputSchema", out var schema)) continue;
             var name = t.GetProperty("name").GetString()!;
             foreach (var r in CollectRefs(schema))
-                if (!PointerResolves(schema, r)) dangling.Add($"{name}: {r}");
+                if (r.StartsWith('#')) refs.Add($"{name}: {r} {(PointerResolves(schema, r) ? "(resolves)" : "(DANGLING)")}");
         }
-        failures += Check($"SCHEMA: every same-document $ref in every published tool schema resolves ({dangling.Count} dangling)",
-            dangling.Count == 0, string.Join(" | ", dangling.Take(5)));
+        failures += Check($"SCHEMA: no published tool schema carries a same-document $ref ({refs.Count} found)",
+            refs.Count == 0, string.Join(" | ", refs.Take(5)));
+
+        // The recursion is EXPANDED, not amputated. Deleting the recursive branch would satisfy the arm above
+        // while silently telling callers a nested compose is not a thing — so walk the chain that carried the
+        // $ref and require a real object schema at each level, then the open node at the bound.
+        JsonElement applySchema = default;
+        foreach (var t in toolsList.GetProperty("tools").EnumerateArray())
+            if (t.GetProperty("name").GetString() == "housecarl_apply") { applySchema = t.GetProperty("inputSchema"); break; }
+
+        const string composeStep = "/properties/sets/items/properties/compose";
+        var chain = "#/properties/ops/anyOf/0/items/properties/compose";
+        for (var level = 1; level <= 3; level++)
+        {
+            var node = Pointer(applySchema, chain);
+            var concrete = node is { ValueKind: JsonValueKind.Object } n
+                        && n.TryGetProperty("properties", out var mem)
+                        && mem.TryGetProperty("type", out _) && mem.TryGetProperty("sets", out _);
+            failures += Check($"SCHEMA: housecarl_apply ops= spells the compose chain out concretely at nesting level {level}",
+                concrete, node?.GetRawText() ?? "pointer does not resolve");
+            chain += composeStep;
+        }
+        var bound = Pointer(applySchema, "#/properties/ops/anyOf/0/items/properties/compose"
+                                       + composeStep + composeStep + "/properties/sets");
+        failures += Check("SCHEMA: at the bound the chain closes on an OPEN node — typed, unconstrained, and saying so",
+            bound is { ValueKind: JsonValueKind.Object } b
+            && b.TryGetProperty("type", out _) && !b.TryGetProperty("items", out _)
+            && b.TryGetProperty("description", out var boundDesc)
+            && boundDesc.GetString()!.Contains("Nesting continues", StringComparison.Ordinal),
+            bound?.GetRawText() ?? "pointer does not resolve");
         return failures;
     }
 
@@ -642,28 +673,31 @@ public static class BindingShimProbe
         }
     }
 
-    /// <summary>Walk a same-document JSON pointer ("#/a/b/0"). Anything not starting with '#' is external and
-    /// counts as resolvable — this arm polices the pointers we rebase, not the whole of JSON Schema.</summary>
+    /// <summary>Anything not starting with '#' is external and counts as resolvable — these arms police the
+    /// pointers we rebase, not the whole of JSON Schema.</summary>
     static bool PointerResolves(JsonElement root, string reference)
+        => !reference.StartsWith('#') || Pointer(root, reference) is not null;
+
+    /// <summary>Walk a same-document JSON pointer ("#/a/b/0"), or null where it does not resolve.</summary>
+    static JsonElement? Pointer(JsonElement root, string reference)
     {
-        if (!reference.StartsWith('#')) return true;
         var cur = root;
         foreach (var raw in reference[1..].Split('/', StringSplitOptions.RemoveEmptyEntries))
         {
             var seg = raw.Replace("~1", "/").Replace("~0", "~");
             if (cur.ValueKind == JsonValueKind.Object)
             {
-                if (!cur.TryGetProperty(seg, out var next)) return false;
+                if (!cur.TryGetProperty(seg, out var next)) return null;
                 cur = next;
             }
             else if (cur.ValueKind == JsonValueKind.Array)
             {
-                if (!int.TryParse(seg, out var i) || i < 0 || i >= cur.GetArrayLength()) return false;
+                if (!int.TryParse(seg, out var i) || i < 0 || i >= cur.GetArrayLength()) return null;
                 cur = cur[i];
             }
-            else return false;
+            else return null;
         }
-        return true;
+        return cur;
     }
 
     /// <summary>Compute the activation census from the served tools/list and diff it against

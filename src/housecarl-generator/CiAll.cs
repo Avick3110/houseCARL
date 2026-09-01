@@ -150,6 +150,9 @@ public static class CiAll
         ("bulk-create-guard", BulkCreateGuardProbe.RunGuard),
         ("create-abstract-group-guard", CreateGlobalProbe.RunGuard),
         ("binding-shim-guard", BindingShimProbe.RunGuard),
+        // The $ref-flattening mechanism (#451), over synthetic documents — the shapes the real published surface
+        // cannot produce. The invariant on the real surface is binding-shim-guard's SCHEMA arm.
+        ("schema-flatten-guard", SchemaFlattenProbe.RunGuard),
         ("alias-layer-guard", AliasLayerProbe.RunGuard),
         ("snapshot-view-guard", SnapshotViewProbe.RunGuard),
         // Epoch fingerprint (tool-surface 2.0 W1, SPEC §2.1.1): the captured-index build identity — deterministic

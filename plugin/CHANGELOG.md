@@ -13,6 +13,16 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **The tool schemas houseCARL publishes no longer contain a `$ref`, so a provider that rejects recursive
+  schemas can load the server.** Every tool that takes a composed struct declared a nested shape referring
+  back to itself — how a JSON Schema generator spells a recursive type. Providers that validate the tool list
+  strictly reject recursion and refuse the *whole* server at connect time, with an error
+  (`Recursive JSON schemas are not currently supported`) that names neither houseCARL nor a tool, so the only
+  way through was turning the MCP server off for that model. The nested shape is now written out concretely to
+  a bounded depth and then closed with a node that accepts anything and says so in its own description. What
+  the tools accept is unchanged — arguments are read by each tool's own reader, never by the published schema.
+  Check it from your client's tool list: no houseCARL schema carries a `$ref`.
+
 - **`housecarl_records` truncation and expansion notices name that tool's own parameters — on the forms and
   lanes listed here.** When a read hit `max_chars`, the notice told you to narrow with `fields=` and lower
   `depth=`; on that tool those are spelled `project.fields=` and `project.depth=`, so following the advice

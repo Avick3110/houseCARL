@@ -7,28 +7,15 @@ using ModelContextProtocol.Server;
 namespace HousecarlMcp;
 
 /// <summary>
-/// Publishes a REAL schema for the list parameters that carry SPEC §5.1's <c>@file</c> convention.
+/// The published-schema layer: rewrites each tool's <c>inputSchema</c> once at registration, after the assembly
+/// scan has built it. Two passes — the SPEC §5.1 <c>@file</c> union on the parameters listed in
+/// <see cref="FileListParams"/>, then <see cref="FlattenRefs"/> over every tool.
 ///
-/// <para>The problem: a list-valued input accepts EITHER an inline array of objects OR the string
-/// <c>"@&lt;absolute path&gt;"</c>. C# has no type for that union, so the parameter is declared
-/// <see cref="JsonElement"/> and the SDK's schema generator — which works from the declared type — publishes
-/// "anything" (<c>{}</c>). The element shape then lives only in the tool description, where a client's schema
-/// rendering cannot use it.</para>
-///
-/// <para>The fix: after the assembly scan has built each tool, replace those property nodes with
-/// <c>anyOf[&lt;the generated array schema&gt;, string]</c>. The array arm is GENERATED from the C# element type
-/// by the same generator the SDK uses — adding a member to <see cref="ApplyOp"/> updates the published schema
-/// automatically, so this is not a hand-maintained copy. Only the union wrapper and the string arm are written
-/// here.</para>
-///
-/// <para>Route note: the SDK's <c>WithToolsFromAssembly</c> has no overload carrying
-/// <c>McpServerToolCreateOptions.SchemaCreateOptions</c>, so the per-node <c>TransformSchemaNode</c> hook cannot
-/// reach an assembly-scanned tool. <see cref="ModelContextProtocol.Protocol.Tool.InputSchema"/> is settable
-/// (and validates what it is given), so the schema is rewritten once at registration instead — which keeps
-/// every tool on the one registration path rather than special-casing one tool's wiring.</para>
-///
-/// <para><b>This changes only what is PUBLISHED, never what is ACCEPTED.</b> Binding still goes through
+/// <para>Changes only what is PUBLISHED, never what is ACCEPTED — binding still goes through
 /// <c>ApplyTools.ReadListParam</c>, whose strict reader is deliberately stricter than the SDK binder.</para>
+///
+/// <para>Why it is shaped this way: <c>docs/architecture/tool-schema-publication.md</c>. What it guarantees is
+/// pinned by <c>binding-shim-guard</c>'s SCHEMA arm and <c>apply-guard</c>.</para>
 /// </summary>
 internal static class ToolSchemas
 {
@@ -45,42 +32,41 @@ internal static class ToolSchemas
     {
         new("housecarl_apply", "ops", typeof(ApplyOp[])),
         new("housecarl_apply", "assignments", typeof(Assignment[])),
-        // W3 PR 2 — the chartered carry from PR #310's decision 1: create's records= is the same JsonElement-typed
-        // @file union, so it publishes the same anyOf. Its element type reaches StructInput/NestedSet through
-        // CreateFieldOp, which is why the $defs hoist below is first-wins BY NAME and sound here: those are
-        // literally the same C# types apply's rows generate, so a duplicate name is a duplicate schema.
         new("housecarl_create", "records", typeof(CreateRecordSpec[])),
     };
 
-    /// <summary>Register the rewrite. It runs as a POST-configure over <c>McpServerOptions</c>, which is the one
-    /// place the final tool collection exists regardless of how the tools got there: the assembly scan registers
-    /// each tool as a FACTORY, so the instances do not exist yet while the service collection is being built, and
-    /// both transports (stdio and http) build their host separately — a post-configure keeps this on ONE line
-    /// inside the shared registration instead of a call site per transport that could drift apart.
-    /// A tool or parameter not found is skipped here; <c>apply-guard</c> asserts the published shape end-to-end,
-    /// so a stale row fails there loudly rather than degrading the surface quietly.</summary>
-    internal static void PublishFileListUnions(IServiceCollection services) =>
+    /// <summary>How many times one pointer may be inlined along a single nesting chain before
+    /// <see cref="Terminator"/> closes it. Raising it deepens every recursive branch of every published schema.</summary>
+    const int MaxSelfExpansions = 1;
+
+    /// <summary>Register both passes. Runs as a POST-configure over <c>McpServerOptions</c> — the one place the
+    /// final tool collection exists whichever transport built the host, since the assembly scan registers each tool
+    /// as a factory. A tool or parameter not found is skipped; <c>apply-guard</c> asserts the published shape
+    /// end-to-end, so a stale <see cref="FileListParams"/> row fails there rather than degrading quietly.</summary>
+    internal static void PublishSchemas(IServiceCollection services) =>
         services.PostConfigure<McpServerOptions>(options =>
         {
             if (options.ToolCollection is not { } tools) return;
             foreach (var tool in tools)
             {
+                if (JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) is not JsonObject root) continue;
                 var wanted = FileListParams.Where(p => p.Tool == tool.ProtocolTool.Name).ToList();
-                if (wanted.Count == 0) continue;
-                if (Rewrite(tool.ProtocolTool.InputSchema, wanted) is { } rebuilt)
-                    tool.ProtocolTool.InputSchema = rebuilt;
+                var changed = wanted.Count > 0 && RewriteFileListUnions(root, wanted);
+                changed |= FlattenRefs(root);
+                if (changed) tool.ProtocolTool.InputSchema = JsonSerializer.Deserialize<JsonElement>(root.ToJsonString());
             }
         });
 
-    /// <summary>Build the rewritten schema, or null if the shape isn't what we expect (leave it alone rather than
-    /// publish something malformed).</summary>
-    static JsonElement? Rewrite(JsonElement schema, IReadOnlyList<FileListParam> parameters)
+    /// <summary>Republish each listed parameter as <c>anyOf[&lt;the generated element-array schema&gt;, string]</c>.
+    /// The array arm is generated from the C# element type by the same generator the SDK uses, so adding a member to
+    /// <see cref="ApplyOp"/> updates the published schema automatically. Returns false — leaving the schema
+    /// untouched — when the document is not the shape this expects.</summary>
+    static bool RewriteFileListUnions(JsonObject root, IReadOnlyList<FileListParam> parameters)
     {
-        if (JsonNode.Parse(schema.GetRawText()) is not JsonObject root) return null;
-        if (root["properties"] is not JsonObject props) return null;
+        if (root["properties"] is not JsonObject props) return false;
 
-        // $ref inside a generated sub-schema is written "#/$defs/X" — resolved against the ROOT document. So a
-        // generated schema's own $defs must be HOISTED to the tool schema's root, or every reference in it dangles.
+        // A generated sub-schema's "#/$defs/X" resolves against the ROOT document, so its $defs must be hoisted to
+        // the tool schema's root or every such reference dangles.
         var defs = root["$defs"] as JsonObject;
 
         bool changed = false;
@@ -98,11 +84,9 @@ internal static class ToolSchemas
                 defs ??= new JsonObject();
                 foreach (var name in genDefs.Select(kv => kv.Key).ToList())
                 {
-                    // First-wins on the DEFINITION NAME. Sound for today's rows and for `create`'s records= in
-                    // W3 PR 2 — same generator, and the shared shapes (StructInput/NestedSet) are literally the
-                    // same C# types, so a duplicate name is a duplicate schema. It would bind the WRONG
-                    // definition only if two DISTINCT types ever produced the same short name here; if that day
-                    // comes, key the hoist by type rather than by name.
+                    // First-wins BY NAME. Sound only while distinct types cannot produce the same short name here;
+                    // today's rows share literal C# types (StructInput/NestedSet), so a duplicate name is a
+                    // duplicate schema. Key the hoist by type if that stops holding.
                     if (defs.ContainsKey(name)) continue;
                     var node = genDefs[name];
                     genDefs.Remove(name);
@@ -110,16 +94,12 @@ internal static class ToolSchemas
                 }
             }
 
-            // EVERY "#/..." pointer in the generated schema is relative to ITS OWN document root — the standalone
-            // array schema. Nesting that document under properties/<param>/anyOf/0 silently breaks all of them.
-            // This generator terminates a RECURSIVE type (StructInput → NestedSet.compose → StructInput, our
-            // compose/sets chain) with exactly such a positional back-reference, so this is not a hypothetical:
-            // without rebasing, the published schema carries a dangling $ref, which is worse than publishing
-            // nothing at all. Rebase to where the sub-document now lives.
+            // Every "#/..." pointer in the generated schema is relative to ITS OWN document root. Nesting that
+            // document under properties/<param>/anyOf/0 breaks all of them unless they are rebased first.
             RebaseRefs(generated, $"#/properties/{p.Parameter}/anyOf/0");
 
-            // The [Description] the SDK lifted off the parameter is the caller-facing teaching — it survives the
-            // rewrite verbatim, on the union node where a client will render it.
+            // The [Description] the SDK lifted off the parameter is the caller-facing teaching — keep it verbatim,
+            // on the union node where a client will render it.
             var description = existing["description"]?.GetValue<string>();
 
             var union = new JsonObject
@@ -129,7 +109,7 @@ internal static class ToolSchemas
                     new JsonObject
                     {
                         ["type"] = "string",
-                        ["description"] = $"\"@<absolute path>\" — read the same array from a JSON file on disk instead of inlining it.",
+                        ["description"] = "\"@<absolute path>\" — read the same array from a JSON file on disk instead of inlining it.",
                     }),
             };
             if (description is not null) union["description"] = description;
@@ -138,9 +118,8 @@ internal static class ToolSchemas
             changed = true;
         }
 
-        if (!changed) return null;
-        if (defs is not null) root["$defs"] = defs;
-        return JsonSerializer.Deserialize<JsonElement>(root.ToJsonString());
+        if (changed && defs is not null) root["$defs"] = defs;
+        return changed;
     }
 
     /// <summary>Rewrite every same-document JSON pointer in a generated sub-schema so it resolves from the tool
@@ -162,6 +141,104 @@ internal static class ToolSchemas
                 foreach (var item in arr) RebaseRefs(item, basePointer);
                 break;
         }
+    }
+
+    /// <summary>Inline every same-document <c>$ref</c> that resolves, bounding each recursive chain at
+    /// <see cref="MaxSelfExpansions"/> expansions of the same pointer. One that does not resolve is left in place
+    /// to fail the invariant <c>binding-shim-guard</c> asserts: no published tool schema contains a same-document
+    /// <c>$ref</c>. Internal so <c>schema-flatten-guard</c> can drive it over synthetic documents — the published
+    /// surface exercises only the shapes today's DTOs happen to generate.</summary>
+    internal static bool FlattenRefs(JsonObject root)
+    {
+        // Inlined copies carry the pointers of the document they were copied FROM, so every pointer resolves
+        // against an immutable snapshot rather than the tree being rewritten under it.
+        if (root.DeepClone() is not JsonObject snapshot) return false;
+        if (!Inline(root, snapshot, new Dictionary<string, int>(StringComparer.Ordinal))) return false;
+        // Definitions are unreachable once nothing refers to them.
+        root.Remove("$defs");
+        return true;
+    }
+
+    static bool Inline(JsonNode? node, JsonObject snapshot, Dictionary<string, int> spent)
+    {
+        bool changed = false;
+        switch (node)
+        {
+            case JsonObject obj:
+                foreach (var key in obj.Select(kv => kv.Key).ToList())
+                {
+                    if (Expand(obj[key], snapshot, spent) is { } replacement) { obj[key] = replacement; changed = true; }
+                    else changed |= Inline(obj[key], snapshot, spent);
+                }
+                break;
+            case JsonArray arr:
+                for (var i = 0; i < arr.Count; i++)
+                {
+                    if (Expand(arr[i], snapshot, spent) is { } replacement) { arr[i] = replacement; changed = true; }
+                    else changed |= Inline(arr[i], snapshot, spent);
+                }
+                break;
+        }
+        return changed;
+    }
+
+    /// <summary>The replacement for one <c>$ref</c> node, or null if the node carries no same-document ref.</summary>
+    static JsonNode? Expand(JsonNode? node, JsonObject snapshot, Dictionary<string, int> spent)
+    {
+        if (node is not JsonObject refNode) return null;
+        if (refNode["$ref"]?.GetValue<string>() is not { } pointer || !pointer.StartsWith('#')) return null;
+
+        // A pointer that does not resolve is left exactly as it is: publishing an open node in its place would
+        // hide a broken rebase behind a schema that looks finished. It surfaces as the one $ref the guard forbids.
+        if (Resolve(snapshot, pointer) is not JsonObject target) return null;
+        spent.TryGetValue(pointer, out var used);
+        if (used >= MaxSelfExpansions) return Terminator(refNode, target);
+
+        var expanded = (JsonObject)target.DeepClone();
+        // The ref node's own members are this parameter's statement about the target, so they win — except an
+        // empty placeholder the generator leaves beside a $ref, which says nothing the target does not say better.
+        foreach (var member in refNode)
+        {
+            if (member.Key == "$ref") continue;
+            if (member.Value is JsonObject { Count: 0 } && expanded.ContainsKey(member.Key)) continue;
+            expanded[member.Key] = member.Value?.DeepClone();
+        }
+
+        spent[pointer] = used + 1;
+        Inline(expanded, snapshot, spent);
+        spent[pointer] = used;
+        return expanded;
+    }
+
+    /// <summary>Close a recursive chain at the bound: keep the node's own description and the target's <c>type</c>,
+    /// and constrain nothing further. Says exactly what is true — nesting deeper is still accepted, and this
+    /// document stops spelling it out.</summary>
+    static JsonObject Terminator(JsonObject refNode, JsonObject target)
+    {
+        var open = new JsonObject();
+        if (target["type"] is { } type) open["type"] = type.DeepClone();
+        if (refNode["description"]?.GetValue<string>() is { } description)
+            open["description"] = description + " (Nesting continues below this level with the same shape shown above; it is accepted but not spelled out again here.)";
+        return open;
+    }
+
+    /// <summary>Walk a same-document JSON pointer ("#", "#/a/b/0") against <paramref name="root"/>, or null if it
+    /// does not resolve.</summary>
+    static JsonNode? Resolve(JsonObject root, string pointer)
+    {
+        JsonNode? cur = root;
+        foreach (var raw in pointer[1..].Split('/', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var segment = raw.Replace("~1", "/").Replace("~0", "~");
+            cur = cur switch
+            {
+                JsonObject o => o.TryGetPropertyValue(segment, out var next) ? next : null,
+                JsonArray a when int.TryParse(segment, out var i) && i >= 0 && i < a.Count => a[i],
+                _ => null,
+            };
+            if (cur is null) return null;
+        }
+        return cur;
     }
 
     /// <summary>Match the SDK's own wire conventions so the generated arm reads like every other published schema
