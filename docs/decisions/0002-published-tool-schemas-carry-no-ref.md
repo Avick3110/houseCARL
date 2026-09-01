@@ -27,7 +27,8 @@ feature that some validators reject is a liability regardless of who is technica
 1. A cycle is expanded a bounded number of times and then **closed with an open node** — the
    target's `type`, the parameter's own description, and a clause saying nesting continues.
    Nothing is narrowed: the schema at the bound accepts what the recursive form accepted, and
-   what a tool accepts was never decided by the published schema.
+   nothing reads the nested part of a published schema, so rewriting it cannot move what a
+   tool accepts (see the Consequences below for what does read one).
 2. `$defs` is dropped once nothing refers to it — an unreferenced definition still carries its
    cycle to a validator that walks definitions.
 3. A pointer that does **not** resolve is left in place, not replaced by an open node. A broken
@@ -43,8 +44,13 @@ feature that some validators reject is a liability regardless of who is technica
   (~6% of `tools/list`). Raising the bound deepens every recursive branch of every schema.
 - The invariant is guarded generically over all tools, so a future recursive DTO is covered
   by construction rather than by remembering this decision.
-- Anything that consumes a published schema may now assume it is self-contained. Nothing
-  currently does — the argument-binding shim reads only top-level `properties`.
+- Anything that consumes a published schema may now assume it is self-contained. One thing
+  does: the argument-binding shim is schema-driven off `InputSchema`, coercing argument shapes
+  and refusing unknown or missing parameters. It reads only the top-level `properties` and
+  never descends into `items`/`anyOf`, which is the whole of what this pass rewrites — so the
+  flattening is invisible to it. That is a measured property of today's shim, not a rule
+  binding it: a future consumer that walks nested schemas is now free to, and would have been
+  reading a cyclic document before.
 - Should a provider one day reject something else in these schemas, the fix has a home: this
   is a publication layer that already normalizes what the generator emits.
 

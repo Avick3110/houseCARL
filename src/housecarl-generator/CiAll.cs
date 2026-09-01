@@ -150,8 +150,10 @@ public static class CiAll
         ("bulk-create-guard", BulkCreateGuardProbe.RunGuard),
         ("create-abstract-group-guard", CreateGlobalProbe.RunGuard),
         ("binding-shim-guard", BindingShimProbe.RunGuard),
-        // The $ref-flattening mechanism (#451), over synthetic documents — the shapes the real published surface
-        // cannot produce. The invariant on the real surface is binding-shim-guard's SCHEMA arm.
+        // The $ref-flattening mechanism (#451): synthetic documents for the shapes the real published surface
+        // cannot produce, the real strict reader for the terminator's accept claim (ARM 6), and every registered
+        // tool's real pre-flatten schema for the emission grammar (ARM 7). The invariant on the served surface is
+        // binding-shim-guard's SCHEMA arms.
         ("schema-flatten-guard", SchemaFlattenProbe.RunGuard),
         ("alias-layer-guard", AliasLayerProbe.RunGuard),
         ("snapshot-view-guard", SnapshotViewProbe.RunGuard),

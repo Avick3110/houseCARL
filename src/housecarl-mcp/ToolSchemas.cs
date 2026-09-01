@@ -11,8 +11,12 @@ namespace HousecarlMcp;
 /// scan has built it. Two passes — the SPEC §5.1 <c>@file</c> union on the parameters listed in
 /// <see cref="FileListParams"/>, then <see cref="FlattenRefs"/> over every tool.
 ///
-/// <para>Changes only what is PUBLISHED, never what is ACCEPTED — binding still goes through
-/// <c>ApplyTools.ReadListParam</c>, whose strict reader is deliberately stricter than the SDK binder.</para>
+/// <para>Changes only what is PUBLISHED, never what is ACCEPTED. Two readers see a call's arguments and neither
+/// is moved by this: <see cref="ToolCallShim"/> coerces and refuses off the published schema, but reads only its
+/// TOP-LEVEL <c>properties</c> and never descends into <c>items</c>/<c>anyOf</c> — which is the nested part this
+/// pass rewrites; and the composed payloads are then read by <c>ListParams.Read&lt;T&gt;</c> (reached through
+/// <c>ApplyTools.ReadOps</c>/<c>ReadAssignments</c>, and from <c>CreateTools</c> for <c>records=</c>), which is
+/// deliberately stricter than the SDK binder and consults no schema at all.</para>
 ///
 /// <para>Why it is shaped this way: <c>docs/architecture/tool-schema-publication.md</c>. What it guarantees is
 /// pinned by <c>binding-shim-guard</c>'s SCHEMA arms (the real served surface) and <c>schema-flatten-guard</c>
