@@ -352,32 +352,18 @@ internal static class ExtendResolveProbe
                       "…and the missing-patch= refusal names no spelling either when the caller hands none");
             }
 
-            // ---- 8d3: the sentence is read at the TOOL altitude, and each tool spells its OWN lane ---------------
-            //      The service cannot tell its two callers apart, and they declare different parameters: 2.0's
-            //      housecarl_remove takes in_place="<file>" and no target= at all, while 1.x remove_record takes
-            //      target= plus a bool. One shared sentence is therefore wrong on one of them — which is #356's own
-            //      defect one layer up, and invisible to every arm that calls the service directly. These call the
-            //      TOOLS.
+            // ---- 8d3: the sentence is read at the TOOL altitude, and the tool spells its OWN lane ----------------
+            //      The service hands the lane spelling down rather than choosing it, so the claim belongs where a
+            //      caller reads it. The 1.x half of this pair (remove_record's target= + in_place=true) went with
+            //      the tool at the demolition catch-up (#468) — SPEC §5.2(1) leaves that spelling nothing to name.
             Console.WriteLine();
-            Console.WriteLine("--- 8d3: each remove TOOL's refusal names the lane IT declares ---");
+            Console.WriteLine("--- 8d3: the remove TOOL's refusal names the lane IT declares ---");
             {
                 var modern = RemoveTools.Remove(svc, new[] { fid }, into: "GhostRemove");
                 Check(modern.Contains(WriteSentences.RemoveInPlaceLane, StringComparison.Ordinal),
                       "housecarl_remove names in_place=\"<plugin filename>\" — the lane it actually declares");
                 Check(!modern.Contains("target=", StringComparison.Ordinal),
                       "…and never names target=, which that tool does not declare");
-
-                var legacy = WriteTools.RemoveRecord(svc, fid, patch: "GhostRemove");
-                Check(legacy.Contains(WriteSentences.RemoveInPlaceLaneLegacy, StringComparison.Ordinal),
-                      "housecarl_remove_record names target= + in_place=true — the lane IT declares");
-
-                // BOTH of remove's no-usable-patch refusals carry the handed-down spelling, not just the
-                // not-found one: the missing-patch= arm renders what its caller passed, so 1.x reaches it and
-                // gets the 1.x sentence. Nothing about which tool can reach which arm is load-bearing any more.
-                var legacyBare = WriteTools.RemoveRecord(svc, fid);
-                Check(legacyBare.Contains("patch is required", StringComparison.Ordinal)
-                      && legacyBare.Contains(WriteSentences.RemoveInPlaceLaneLegacy, StringComparison.Ordinal),
-                      "…and its missing-patch= refusal carries that same spelling, handed down the same way");
 
                 // The 2.0 tool refuses first, in its own spelling. Kept as a statement about the TOOL — it is
                 // no longer what makes anything in the service correct.

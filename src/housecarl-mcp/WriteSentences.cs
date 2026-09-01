@@ -752,24 +752,15 @@ internal static class WriteSentences
     /// original with no prompt at all. Whether this remedy should carry a consent caveat of its own is #359's
     /// chartered design question, not something to settle by widening the sentence here.</para>
     ///
-    /// <para>There are two spellings because there are two tools, and the SERVICE cannot tell which one called it.
-    /// So each tool hands its own down (<c>housecarl_remove</c> this one, <c>housecarl_remove_record</c>
-    /// <see cref="RemoveInPlaceLaneLegacy"/>) rather than the resolver picking — the same caller-states rule the
-    /// fresh-patch remedy follows, one altitude up. Sharing ONE sentence is what #356's own fix got wrong first:
-    /// the 1.x pair was correct where it already rendered, and reusing it on the 2.0 tool named a parameter that
-    /// tool does not declare. It worked only because the 1.x→2.0 lane shim silently re-spelled it, and that shim is
-    /// scaffolding due to retire.</para></summary>
+    /// <para>There WERE two spellings, because there were two tools and the SERVICE cannot tell which one called
+    /// it, so each handed its own down rather than the resolver picking. housecarl_remove_record and its
+    /// target=+bool spelling went at the demolition catch-up (#468), leaving this one. The caller-states rule that
+    /// produced the pair still holds and is why the sentence lives on the tool: sharing ONE sentence across both is
+    /// what #356's own fix got wrong first — reusing the 1.x pair on the 2.0 tool named a parameter that tool does
+    /// not declare, and it read as correct only because the lane shim silently re-spelled it.</para></summary>
     [MustState("pass in_place=\"<plugin filename>\"")]
     internal const string RemoveInPlaceLane =
         "To remove from an existing plugin IN PLACE instead, pass in_place=\"<plugin filename>\".";
-
-    /// <summary>The same lane in <c>housecarl_remove_record</c>'s 1.x spelling — a bool plus a separate
-    /// <c>target=</c>. Rendered by that tool's not-found refusal and by the service's <c>patch is required</c>
-    /// refusal, which is reachable ONLY from 1.x (measured: the 2.0 tool refuses "no lane named" first, in its own
-    /// correct spelling, so that arm never renders for a 2.0 caller).</summary>
-    [MustState("pass target=<plugin filename> + in_place=true")]
-    internal const string RemoveInPlaceLaneLegacy =
-        "To remove from an existing plugin IN PLACE instead, pass target=<plugin filename> + in_place=true.";
 
     /// <summary>Sentences the SAME outcome must carry on BOTH transports. Reflected over by the write-surface
     /// guard's twin arm — see this class's summary. Members are whole invariant strings on purpose: a sentence
