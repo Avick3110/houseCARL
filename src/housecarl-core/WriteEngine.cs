@@ -16,15 +16,15 @@ namespace HousecarlCore;
 /// list element, polymorphic arm). It is blind to which record it edits, which is what makes coverage a property
 /// of Mutagen's model rather than of a hand-written per-type map.
 ///
-/// <para>Two contracts every entry point here keeps: a request is validated against the corpus rulebook before
-/// anything is mutated, and a path the engine cannot navigate or a value it cannot coerce is refused by name
-/// rather than skipped. The default destination is a new mod; the in-place lane is the caller's explicit,
-/// consented request, gated above this layer. <c>apply-guard</c> drives all three from the tool surface.</para>
+/// <para>What it keeps: a path it cannot navigate or a value it cannot coerce is refused by name, never skipped.
+/// <b>Corpus-rulebook validation is the CALLER's, not this layer's</b> — <see cref="ApplyVerb"/> is public and
+/// validates nothing, so a direct or CLI caller that skips pre-flight mutates unvalidated. <c>apply-guard</c>
+/// proves the pre-flight, refusal and lane contracts for the <c>housecarl_apply</c> path only.</para>
 ///
-/// <para>What the engine writes is proven per KIND by <c>oracle</c> — each cell run twice, through here and
-/// through a hand-written typed setter, and required byte-identical.</para>
+/// <para>Per-KIND equivalence against a hand-written typed setter is proven by <c>oracle</c> — hand-run, not in
+/// <c>ci-all</c>.</para>
 ///
-/// <para>The acceptance proof and the build-start diagnostics moved to <c>WriteDiagnosticsProbe</c>
+/// <para>The acceptance proof and the hand-run diagnostics moved to <c>WriteDiagnosticsProbe</c>
 /// (housecarl-generator) with #453. Still here, and still console entry points in a library: the <c>patch</c> /
 /// <c>show</c> / <c>condition-patch</c> dev harnesses, and the <c>coerce-audit</c> / <c>coerce-selftest</c>
 /// CI probes.</para>
