@@ -398,12 +398,16 @@ public static class ForwardFromPluginProbe
         }
 
         // ---- INPLACE-OPTIN: the tool params default OFF by construction (assert the schema, not by omission). ----
+        //      Reads housecarl_forward, this guard's own tool, after forward_record went at the demolition catch-up
+        //      (#468). in_place is now the overwritten file's NAME (SPEC §5.2(1)), so "off" is absent, not false, and
+        //      the target= half of the old pair has no spelling to assert. The whole in_place-declaring surface is
+        //      swept from its derived subject set in inplace-guard's arm H; this stays as forward's own statement.
         {
-            var fr = typeof(WriteTools).GetMethod(nameof(WriteTools.ForwardRecord))!;
-            bool pass = fr.GetParameters().First(p => p.Name == "in_place").DefaultValue is false
-                     && fr.GetParameters().First(p => p.Name == "target").DefaultValue is null
-                     && fr.GetParameters().First(p => p.Name == "acknowledge").DefaultValue is false;
-            Check("INPLACE-OPTIN: forward_record's in_place/target/acknowledge default OFF", pass, null);
+            var fw = typeof(ForwardTools).GetMethod(nameof(ForwardTools.Forward))!;
+            bool pass = fw.GetParameters().First(p => p.Name == "in_place").DefaultValue is null
+                     && fw.GetParameters().All(p => p.Name != "target")
+                     && fw.GetParameters().First(p => p.Name == "acknowledge").DefaultValue is false;
+            Check("INPLACE-OPTIN: forward's in_place/acknowledge default OFF, and it declares no target=", pass, null);
         }
 
         Console.WriteLine();

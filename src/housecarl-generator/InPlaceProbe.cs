@@ -251,17 +251,40 @@ public static class InPlaceProbe
                 $"firstRefused={red} untouched={untouched} ackWrote={green} landed31={greenLanded} secondNoPrompt={noReprompt} landed32={reLanded} persistedAcrossStores={persisted}"));
         }
 
-        // ===== H — OPT-IN BY CONSTRUCTION: the tool params default OFF (assert the schema, not by omission) =====
+        // ===== H — OPT-IN BY CONSTRUCTION, over the WHOLE in-place surface (assert the schema, not by omission) =====
+        // Subject set DERIVED from the registered tools, never hand-listed (CLAUDE.md §5 #11): every [McpServerTool]
+        // declaring in_place is in scope, so a new write tool joins this arm by existing. Replaces the three
+        // per-family copies (H/N/X) that named 1.x tools; those named the 1.x SPELLING (bool in_place + target=),
+        // which SPEC §5.2(1) collapses into one string. What the lane must never lose is the PROPERTY: it is off
+        // unless the caller names it, and consent is separate. Stated per declared type, so the two subject-implicit
+        // tools still carrying a bool (compact_plugin, nif_set — their string migration is W4's) pass on the same
+        // claim rather than forcing a hand exemption.
         {
-            var sf = typeof(WriteTools).GetMethod(nameof(WriteTools.SetField))!;
-            var ba = typeof(WriteTools).GetMethod(nameof(WriteTools.BulkApply))!;
-            bool DefOff(System.Reflection.MethodInfo m) =>
-                m.GetParameters().First(p => p.Name == "in_place").DefaultValue is false
-                && m.GetParameters().First(p => p.Name == "target").DefaultValue is null
-                && m.GetParameters().First(p => p.Name == "acknowledge").DefaultValue is false;
-            bool pass = DefOff(sf) && DefOff(ba);
-            results.Add(("H opt-in by construction (in_place/target/acknowledge default OFF)", pass,
-                $"set_field={DefOff(sf)} bulk_apply={DefOff(ba)}"));
+            var inPlaceTools = InPlaceDeclaringTools();
+            var offenders = new List<string>();
+            foreach (var (tool, m) in inPlaceTools)
+            {
+                var ip = m.GetParameters().First(p => p.Name == "in_place");
+                bool stringLane = ip.ParameterType == typeof(string);
+                bool offByDefault = stringLane ? ip.DefaultValue is null : ip.DefaultValue is false;
+                // §5.2(1): where in_place IS the overwritten file's NAME, the old bool+target= pair has collapsed
+                // into it, so a target= beside it means the collapse missed a tool. Asserted on the STRING lane
+                // only, deliberately: the two subject-implicit tools still on a bool have not migrated yet (W4),
+                // and housecarl_nif_set's target= is not this axis at all — §5.2(2) sends that word to element=,
+                // the NIF addressing one. Testing the bare name across both lanes reads that overload as a
+                // violation, which is a claim about a word rather than about the lane.
+                bool noTargetPair = !stringLane || m.GetParameters().All(p => p.Name != "target");
+                var ack = m.GetParameters().FirstOrDefault(p => p.Name == "acknowledge");
+                bool ackOff = ack is null || ack.DefaultValue is false;
+                if (!offByDefault || !noTargetPair || !ackOff)
+                    offenders.Add($"{tool}(off={offByDefault},noTarget={noTargetPair},ackOff={ackOff})");
+            }
+            bool pass = inPlaceTools.Count > 0 && offenders.Count == 0;
+            results.Add(("H opt-in by construction, every in_place-declaring tool (derived subject set)", pass,
+                inPlaceTools.Count == 0
+                    ? "NO tools declared in_place — the reflection found nothing, which is a broken guard, not a clean surface"
+                    : $"swept {inPlaceTools.Count}: {string.Join(", ", inPlaceTools.Select(t => t.Tool))}"
+                      + (offenders.Count == 0 ? "" : $" | OFFENDERS: {string.Join("; ", offenders)}")));
         }
 
         // ===== I — MARKER + into= BOUNDARY: the editedInPlace marker is stamped but NEVER generated=true, so the user
@@ -429,19 +452,6 @@ public static class InPlaceProbe
                 $"noTarget={Trim(noTarget.Error)} | into={Trim(withInto.Error)} | noFlag={Trim(targetNoFlag.Error)}"));
         }
 
-        // ===== N — OPT-IN BY CONSTRUCTION (create): create_record + bulk_create default the three params OFF =====
-        {
-            var cr = typeof(WriteTools).GetMethod(nameof(WriteTools.CreateRecord))!;
-            var bc = typeof(WriteTools).GetMethod(nameof(WriteTools.BulkCreate))!;
-            bool DefOff(System.Reflection.MethodInfo m) =>
-                m.GetParameters().First(p => p.Name == "in_place").DefaultValue is false
-                && m.GetParameters().First(p => p.Name == "target").DefaultValue is null
-                && m.GetParameters().First(p => p.Name == "acknowledge").DefaultValue is false;
-            bool pass = DefOff(cr) && DefOff(bc);
-            results.Add(("N opt-in by construction (create_record/bulk_create default OFF)", pass,
-                $"create_record={DefOff(cr)} bulk_create={DefOff(bc)}"));
-        }
-
         // ===== P — SAME-CALL nested unit in place (a NEW topic + its NEW line, both into the user mod) =====
         // The headline "author a new dialogue unit straight into my mod" case: bulk-create a topic AND a line under it
         // (a same-call SIBLING parent), both net-new, in place. RED if either didn't land or the sibling-parent wiring
@@ -597,17 +607,6 @@ public static class InPlaceProbe
             bool pass = red && untouched && green && removed && editAck && removeNoPrompt && removeLanded;
             results.Add(("W remove handshake RED->GREEN + SHARED with edit lane (one ack covers both)", pass,
                 $"firstRefused={red} untouched={untouched} ackRemoved={green && removed} | editAcked={editAck} removeNoReprompt={removeNoPrompt} removeLanded={removeLanded}"));
-        }
-
-        // ===== X — OPT-IN BY CONSTRUCTION (remove): remove_record defaults the three in-place params OFF =====
-        {
-            var rr = typeof(WriteTools).GetMethod(nameof(WriteTools.RemoveRecord))!;
-            bool DefOff(System.Reflection.MethodInfo m) =>
-                m.GetParameters().First(p => p.Name == "in_place").DefaultValue is false
-                && m.GetParameters().First(p => p.Name == "target").DefaultValue is null
-                && m.GetParameters().First(p => p.Name == "acknowledge").DefaultValue is false;
-            bool pass = DefOff(rr);
-            results.Add(("X opt-in by construction (remove_record defaults OFF)", pass, $"remove_record={DefOff(rr)}"));
         }
 
         // ===== Y — MASTERS (edit) GROW: an edit linking to an ACTIVE plugin the target didn't master LANDS + grows =====
@@ -1265,4 +1264,28 @@ public static class InPlaceProbe
     }
 
     static string Trim(string? s) => (s ?? "(null)").Replace("\r", " ").Replace("\n", " ").Trim();
+
+    /// <summary>Every REGISTERED tool declaring an <c>in_place</c> parameter, reflected off the shipped
+    /// <c>[McpServerTool]</c> attributes — the in-place surface as it actually is, not as a list here says it is
+    /// (CLAUDE.md §5 #11). Arm H sweeps whatever this returns, so a new write tool is covered by existing and a
+    /// deleted one leaves no stale row behind. An empty result is a BROKEN GUARD, and arm H says so rather than
+    /// reporting a clean sweep of nothing.</summary>
+    static List<(string Tool, System.Reflection.MethodInfo Method)> InPlaceDeclaringTools()
+    {
+        var found = new List<(string, System.Reflection.MethodInfo)>();
+        const System.Reflection.BindingFlags Flags =
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic
+            | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.DeclaredOnly;
+        foreach (var t in typeof(WriteTools).Assembly.GetTypes())
+            foreach (var m in t.GetMethods(Flags))
+            {
+                var a = System.Reflection.CustomAttributeExtensions
+                    .GetCustomAttribute<ModelContextProtocol.Server.McpServerToolAttribute>(m, inherit: false);
+                if (a?.Name is { Length: > 0 } name && m.GetParameters().Any(p => p.Name == "in_place"))
+                    found.Add((name, m));
+            }
+        found.Sort((x, y) => string.CompareOrdinal(x.Item1, y.Item1));
+        return found;
+    }
 }

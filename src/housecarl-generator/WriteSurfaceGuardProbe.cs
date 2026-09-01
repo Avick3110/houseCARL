@@ -2421,14 +2421,11 @@ public static class WriteSurfaceGuardProbe
             "total_removed", $"removed {rmOutcome.Removed.Count} records");
         Observe(WriteTools.RenderRemoval(rmOutcome, 60), JsonWire.RenderRemovalOutcome(rmOutcome, 60, "into"));
 
-        // …and remove's no-usable-patch REFUSALS, which are where the extend not-found tail reaches a caller (#356).
+        // …and remove's no-usable-patch REFUSAL, which is where the extend not-found tail reaches a caller (#356).
         // Driven off the real service and the real TOOL rather than a built outcome: the sentence is chosen from what
         // the caller stated about itself, so an outcome constructed here would be this probe handing itself the
-        // answer. Each spelling is observed through the TOOL that supplies it — now the only place either renders,
-        // since the service hands both down rather than choosing. Every call here is a refusal, so the fixture the
-        // later arms read is untouched. (housecarl_remove_record is text-only, so its claim is "reaches a render",
-        // like copy's.)
-        Observe(WriteTools.RemoveRecord(fx.Svc, fx.SubjectFid), "{}");
+        // answer. The call is a refusal, so the fixture the later arms read is untouched. The 1.x twin observed here
+        // went with remove_record at the demolition catch-up (#468).
         Observe(RemoveTools.Remove(fx.Svc, new[] { fx.SubjectFid }, into: "W2TwinNoSuchPatch"),
                 RemoveTools.Remove(fx.Svc, new[] { fx.SubjectFid }, into: "W2TwinNoSuchPatch", format: "json"));
 

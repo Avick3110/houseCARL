@@ -277,8 +277,14 @@ internal static class DryRunProbe
                     "a REAL in-place forward afterwards still shows the first-touch prompt (no dry run recorded consent)");
             }
 
-            // ---- L: #224 from_file ops manifest — the SAME pipeline as inline ops, file contract refuses named ----
-            Console.WriteLine("--- L: bulk_apply from_file manifest (#224) ---");
+            // ---- L: #224 ops manifest on disk — the SAME pipeline as inline ops, file contract refuses named ----
+            // Repointed at housecarl_apply's ops="@<path>" when bulk_apply went at the demolition catch-up (#468).
+            // SPEC §5.1 retires from_file= into the @file convention: one list parameter, one spelling, so the
+            // operations-XOR-from_file refusal this section used to assert has nothing left to refuse — the two
+            // parameters it arbitrated between are now one. Every OTHER claim here is about the file lane itself
+            // (absolute-path requirement, unreadable, bad JSON, non-array root, empty array, null element, an
+            // undeclared member) and survives on apply, which is why they move rather than go.
+            Console.WriteLine("--- L: apply ops=@<path> manifest (#224) ---");
             {
                 string ManifestFile(string name, string content)
                 {
@@ -287,53 +293,69 @@ internal static class DryRunProbe
                     return p;
                 }
                 string manifest = ManifestFile("ops-manifest.json",
-                    $"[{{\"formid\": \"{fid}\", \"field_path\": \"BasicStats.Damage\", \"verb\": \"Set\", \"value\": \"73\"}}]");
+                    $"[{{\"formid\": \"{fid}\", \"field_path\": \"BasicStats.Damage\", \"op\": \"Set\", \"value\": \"73\"}}]");
+                // ops= takes a JSON value; "@<abs path>" is the file lane, an inline array is the inline lane.
+                static System.Text.Json.JsonElement Json(string raw) =>
+                    System.Text.Json.JsonDocument.Parse(raw).RootElement.Clone();
+                static System.Text.Json.JsonElement AtPath(string path) =>
+                    Json("\"@" + path.Replace("\\", "\\\\") + "\"");
 
                 // parity — the issue's stated pairing: manifest + dry_run reports IDENTICALLY to the same ops inline
                 var before = ModFolders();
-                var dryFile = WriteTools.BulkApply(svc, from_file: manifest, patch_name: "DryL", dry_run: true);
-                var dryInline = WriteTools.BulkApply(svc, operations: new[] { DamageOp(fid, 73) }, patch_name: "DryL", dry_run: true);
+                var dryFile = ApplyTools.Apply(svc, ops: AtPath(manifest), patch: "DryL", dry_run: true);
+                var dryInline = ApplyTools.Apply(svc, ops: Json(
+                    $"[{{\"formid\": \"{fid}\", \"field_path\": \"BasicStats.Damage\", \"op\": \"Set\", \"value\": \"73\"}}]"),
+                    patch: "DryL", dry_run: true);
                 Check(dryFile == dryInline, "manifest + dry_run renders IDENTICALLY to the same ops inline (same ApplyEdits by construction)");
                 Check(dryFile.Contains("DRY RUN") && before.SequenceEqual(ModFolders()), "the manifest dry run wrote nothing");
 
-                // contract refusals — each named, nothing written
-                var both = WriteTools.BulkApply(svc, operations: new[] { DamageOp(fid, 1) }, from_file: manifest);
-                var neither = WriteTools.BulkApply(svc);
-                Check(both.StartsWith("error:") && both.Contains("mutually exclusive")
-                   && neither.StartsWith("error:") && neither.Contains("operations") && neither.Contains("from_file"),
-                    $"operations XOR from_file (both and neither refuse named)  [{Snip(neither)}]");
-                var emptyInline = WriteTools.BulkApply(svc, operations: Array.Empty<BulkOp>());
-                Check(emptyInline.StartsWith("error:") && emptyInline.Contains("operations is empty"),
-                    "an explicit empty INLINE array keeps its existing refusal");
-                var blank = WriteTools.BulkApply(svc, from_file: "   ");
-                Check(blank.StartsWith("error:") && blank.Contains("from_file is empty"),
-                    $"an explicit blank from_file refuses NAMED, never silently reinterpreted as absent  [{Snip(blank)}]");
-                var rel = WriteTools.BulkApply(svc, from_file: "ops.json");
+                // contract refusals — each named, nothing written. (The old operations-XOR-from_file pair went with
+                // the parameters: apply has ONE ops=, so "both supplied" has no spelling. Its surviving half — a call
+                // that supplies no ops at all — is asserted here.)
+                var neither = ApplyTools.Apply(svc);
+                Check(neither.StartsWith("error:") && neither.Contains("ops"),
+                    $"a call naming no ops at all refuses named  [{Snip(neither)}]");
+                var emptyInline = ApplyTools.Apply(svc, ops: Json("[]"));
+                Check(emptyInline.StartsWith("error:") && emptyInline.Contains("empty"),
+                    $"an explicit empty INLINE array keeps its existing refusal  [{Snip(emptyInline)}]");
+                var blank = ApplyTools.Apply(svc, ops: AtPath("   "));
+                Check(blank.StartsWith("error:"),
+                    $"a blank @path refuses NAMED, never silently reinterpreted as absent  [{Snip(blank)}]");
+                var rel = ApplyTools.Apply(svc, ops: Json("\"@ops.json\""));
                 Check(rel.StartsWith("error:") && rel.Contains("ABSOLUTE"), $"a relative path refuses  [{Snip(rel)}]");
-                var unreadable = WriteTools.BulkApply(svc, from_file: Path.Combine(root, "no-such-manifest.json"));
+                var unreadable = ApplyTools.Apply(svc, ops: AtPath(Path.Combine(root, "no-such-manifest.json")));
                 Check(unreadable.StartsWith("error:") && unreadable.Contains("could not read") && unreadable.Contains("no-such-manifest.json"),
                     "an unreadable file refuses naming the path");
-                var badJson = WriteTools.BulkApply(svc, from_file: ManifestFile("bad.json", "[{\"formid\": }]"));
-                Check(badJson.StartsWith("error:") && badJson.Contains("bad.json") && badJson.Contains("line "),
-                    $"invalid JSON refuses naming the file + position  [{Snip(badJson)}]");
-                var objRoot = WriteTools.BulkApply(svc, from_file: ManifestFile("obj.json", "{\"operations\": []}"));
+                var badJson = ApplyTools.Apply(svc, ops: AtPath(ManifestFile("bad.json", "[{\"formid\": }]")));
+                // States TODAY's behaviour, not the 1.x claim this replaces: the ancestor's refusal named the file
+                // ("bad.json"), apply's names the PARAMETER whose file it is ("the file named by ops") plus the
+                // position and the element path. Filed as #469 — two of ListParams' four post-read refusals drop the
+                // file identity — and deliberately not fixed in the deletion PR that repointed this arm. When #469
+                // lands, this assertion tightens to the file identity that issue settles on.
+                Check(badJson.StartsWith("error:") && badJson.Contains("the file named by ops")
+                   && badJson.Contains("line ") && badJson.Contains("$[0].formid"),
+                    $"invalid JSON refuses naming the file lane + position + element  [{Snip(badJson)}]");
+                var objRoot = ApplyTools.Apply(svc, ops: AtPath(ManifestFile("obj.json", "{\"operations\": []}")));
                 Check(objRoot.StartsWith("error:") && objRoot.Contains("JSON ARRAY"),
                     $"a non-array root refuses naming the expected shape  [{Snip(objRoot)}]");
-                var emptyArr = WriteTools.BulkApply(svc, from_file: ManifestFile("empty.json", "[]"));
-                Check(emptyArr.StartsWith("error:") && emptyArr.Contains("empty array") && emptyArr.Contains("empty.json"),
-                    "an empty manifest array refuses like empty operations, naming the file");
-                var nullEl = WriteTools.BulkApply(svc, from_file: ManifestFile("nullel.json",
-                    $"[null, {{\"formid\": \"{fid}\", \"field_path\": \"BasicStats.Damage\", \"value\": \"1\"}}]"));
+                var emptyArr = ApplyTools.Apply(svc, ops: AtPath(ManifestFile("empty.json", "[]")));
+                // Same #469 accommodation, one row further down its table: this refusal says "ops is an empty array"
+                // whether the array came inline or off disk, so the file identity the 1.x twin carried is not
+                // asserted here yet.
+                Check(emptyArr.StartsWith("error:") && emptyArr.Contains("empty array"),
+                    $"an empty manifest array refuses like empty operations  [{Snip(emptyArr)}]");
+                var nullEl = ApplyTools.Apply(svc, ops: AtPath(ManifestFile("nullel.json",
+                    $"[null, {{\"formid\": \"{fid}\", \"field_path\": \"BasicStats.Damage\", \"value\": \"1\"}}]")));
                 Check(nullEl.StartsWith("error:") && nullEl.Contains("[0]"),
                     $"a null element refuses naming its index  [{Snip(nullEl)}]");
-                var typo = WriteTools.BulkApply(svc, from_file: ManifestFile("typo.json",
-                    $"[{{\"formid\": \"{fid}\", \"feild_path\": \"BasicStats.Damage\", \"value\": \"5\"}}]"));
+                var typo = ApplyTools.Apply(svc, ops: AtPath(ManifestFile("typo.json",
+                    $"[{{\"formid\": \"{fid}\", \"feild_path\": \"BasicStats.Damage\", \"value\": \"5\"}}]")));
                 Check(typo.StartsWith("error:") && typo.Contains("feild_path"),
                     $"a misspelled op member refuses BY NAME (never the inline binder's silent drop)  [{Snip(typo)}]");
                 Check(before.SequenceEqual(ModFolders()), "none of the refusals left anything behind");
 
                 // the real write from the manifest lands
-                var real = WriteTools.BulkApply(svc, from_file: manifest, patch_name: "DryL");
+                var real = ApplyTools.Apply(svc, ops: AtPath(manifest), patch: "DryL");
                 Check(!real.StartsWith("error:") && real.Contains("wrote DryL.esp")
                    && ModFolders().Except(before).Any(f => f.Contains("DryL")),
                     $"a real manifest write lands (a new DryL mod folder + the wrote confirmation)  [{Snip(real)}]");

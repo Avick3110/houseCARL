@@ -32,10 +32,9 @@ namespace HousecarlGenerator;
 ///   INV1 — every settable member of a wire type carries [JsonPropertyName] or [JsonIgnore]. (A member
 ///          with neither binds under its C# name and is advertised under a camelCase one — unpinned.)
 ///   INV2 — every wire member ARRIVES, under its wire name, through EVERY reader the surface uses:
-///          ListParams.Strict (apply/create's @file lists), McpJsonUtilities.DefaultOptions (the SDK's
-///          own singleton, behind the directly bound spec arrays — bulk_apply, bulk_create,
-///          bulk_place_asset) and WriteTools.ManifestJson (bulk_apply's from_file= lane; see Readers for
-///          how far the SDK lane is verified). For a scalar or a collection, arrival is checked against the
+///          ListParams.Strict (apply/create's @file lists) and McpJsonUtilities.DefaultOptions (the SDK's
+///          own singleton, behind the directly bound spec arrays — bulk_place_asset; see Readers for how
+///          far the SDK lane is verified). For a scalar or a collection, arrival is checked against the
 ///          VALUE SENT rather than against null, so a member with a C# default ({BulkOp.Verb = "Set"})
 ///          cannot pass by keeping its default; for a member that is itself a wire object, presence is
 ///          the check, since an unbound one is null and there is nothing else it could be.
@@ -97,7 +96,17 @@ public static class WireNamesProbe
     /// passing over it — teach Synthesize the shape; do not reach for a skip.</para></summary>
     static readonly HashSet<string> NonInputWireTypes = new(StringComparer.Ordinal)
     {
-        // (none)
+        // Both stopped being caller-facing input at the demolition catch-up (#468): bulk_apply and bulk_create were
+        // the only tools that bound them off the wire. They are now INTERNAL service shapes — ApplyTools reads the
+        // 2.0 ApplyOp and constructs BulkOp for LoadOrderService.ApplyEdits, CreateTools does the same with
+        // CreateRecordSpec -> CreateOp — so INV3's "reachable from a tool parameter" is correctly false for them
+        // and INV2's reader round-trip no longer describes anything a caller can send.
+        // Their [JsonPropertyName] attributes are now vestigial, and ApplyOp's own summary says it exists as a
+        // separate type "so the 1.x tools' published schemas stay untouched through the build waves" — a reason
+        // this PR just retired. Collapsing the pairs is follow-up work, deliberately not done here: it is a
+        // reshape of live 2.0 types, not a deletion, and belongs in its own change.
+        "BulkOp",
+        "CreateOp",
     };
 
     public static int RunGuard(string[] args)
@@ -673,12 +682,16 @@ public static class WireNamesProbe
     // ================= value synthesis for the round trip =================
 
     /// <summary>The readers the surface binds spec objects with. A wire name has to work in ALL of them:
-    /// <c>ListParams.Strict</c> reads apply/create's @file lists, <c>McpJsonUtilities.DefaultOptions</c>
-    /// covers the directly typed arrays the SDK binds (bulk_apply's operations=, bulk_create's records=,
-    /// bulk_place_asset's assets=), and <c>WriteTools.ManifestJson</c> reads bulk_apply's from_file=
-    /// manifest. A name that survives only some of them is broken for the others' tools. All three are the
-    /// REAL objects, none reconstructed — which is the point, since a reconstruction drifts from the thing
-    /// it copies without anything noticing.
+    /// <c>ListParams.Strict</c> reads apply/create's @file lists, and <c>McpJsonUtilities.DefaultOptions</c>
+    /// covers the directly typed arrays the SDK binds (bulk_place_asset's assets=). Both are the REAL
+    /// objects, neither reconstructed — which is the point, since a reconstruction drifts from the thing it
+    /// copies without anything noticing.
+    ///
+    /// <para>There were THREE. <c>WriteTools.ManifestJson</c> — a separately configured options object
+    /// reading the same spec types down bulk_apply's <c>from_file=</c> lane — went with that tool at the
+    /// demolition catch-up (#468). SPEC §5.1 retires <c>from_file</c> into the <c>@file</c> convention, so
+    /// its reader has no lane left, and #341's concern (a third options object drifting from the other two
+    /// with nothing noticing) is closed by construction rather than guarded.</para>
     ///
     /// <para><b>How far the SDK lane is verified.</b> The object is the SDK's own public singleton, and the
     /// SDK documents <c>McpServerToolCreateOptions.SerializerOptions</c> — the options "used when
@@ -693,7 +706,6 @@ public static class WireNamesProbe
     {
         ("ListParams.Strict — the @file list reader", ListParams.Strict),
         ("McpJsonUtilities.DefaultOptions — the SDK-bound spec arrays", ModelContextProtocol.McpJsonUtilities.DefaultOptions),
-        ("WriteTools.ManifestJson — bulk_apply's from_file= lane", WriteTools.ManifestJson),
     };
 
     /// <summary>A JSON value for a member's type, or null when the shape is not one this arm can drive.

@@ -25,6 +25,9 @@ namespace HousecarlGenerator;
 //    (3) rewrites the SDK's generic binding-failure text into a named,
 //        actionable message when binding still fails.
 //
+//  ALSO GUARDED HERE (arm D3): the retired-tool-name redirect, which went live for nine tools at the
+//  demolition catch-up (#468) and is what a caller on pre-2.0 docs actually hits.
+//
 //  THE GUARD: drives the REAL housecarl-mcp.exe over stdio (the exact wire
 //  path the live failure took) with the exact argument shapes from the bug
 //  report. Needs NO game data and NO MO2 instance: argument binding resolves
@@ -35,6 +38,14 @@ namespace HousecarlGenerator;
 public static class BindingShimProbe
 {
     const string GenericError = "An error occurred invoking";          // the SDK's opaque text (measured live, HCBR-2026-06-11-01)
+
+    /// <summary>One-line clamp of a server response, for an arm's failure detail.</summary>
+    static string Flatten(string text)
+    {
+        var one = text.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        return one.Length > 90 ? one[..90] : one;
+    }
+
     const string ConfigPrompt = "no Mod Organizer 2 instance configured"; // the unconfigured server's trained prompt = "the tool body ran"
 
     public static int RunGuard(string[] args)
@@ -132,16 +143,63 @@ public static class BindingShimProbe
                 !d.text.Contains(GenericError) && d.text.Contains("required parameter") && d.text.Contains("formids"),
                 d.Describe());
 
-            // -- D2: #224 — bulk_apply's 'operations' moved OFF the schema's required list (operations XOR
-            //    from_file is judged in the tool BODY; dry-run-guard arm L proves that refusal named). Through the
-            //    full binding/shim stack an empty {} must still BIND cleanly — no required check fires, no binder
-            //    throw on the absent complex array — and reach the tool body (the config prompt here, since this
-            //    server is unconfigured and the body's config check runs first), never the generic error. RED if
-            //    optionalizing the parameter ever breaks {} binding (PR #241 review NOTE 4).
-            var d2 = Call(stdin, stdout, 38, "housecarl_bulk_apply", "{}");
-            failures += Check("D2 #224: bulk_apply {} binds with no required refusal and reaches the tool body",
+            // -- D2: #224 — the ops list is OFF the schema's required list (what to do when it is absent is judged
+            //    in the tool BODY; dry-run-guard arm L proves that refusal named). Through the full binding/shim
+            //    stack an empty {} must still BIND cleanly — no required check fires, no binder throw on the absent
+            //    complex array — and reach the tool body (the config prompt here, since this server is unconfigured
+            //    and the body's config check runs first), never the generic error. RED if optionalizing the
+            //    parameter ever breaks {} binding (PR #241 review NOTE 4). Repointed from bulk_apply at the
+            //    demolition catch-up (#468): apply carries the same optional list parameter and the same claim.
+            var d2 = Call(stdin, stdout, 38, "housecarl_apply", "{}");
+            failures += Check("D2 #224: apply {} binds with no required refusal and reaches the tool body",
                 !d2.text.Contains(GenericError) && !d2.text.Contains("required parameter") && d2.text.Contains(ConfigPrompt),
                 d2.Describe());
+
+            // -- D3: THE RETIRED-NAME REDIRECT, driven over the wire for every name it now governs.
+            //    ToolCallShim's retired-name check was written dormant — "load-bearing the moment one is
+            //    unregistered". The demolition catch-up (#468) is that moment for nine tools, so the path stops
+            //    being theoretical here and starts being the only thing standing between a caller on old docs and
+            //    a dead end. Nothing drove it before this arm: CheckMergeProbe only checks the TABLE has rows,
+            //    which is a statement about a list, not about what the server answers.
+            //
+            //    Subject set DERIVED, never hand-listed (CLAUDE.md §5 #11): every retired name the running server
+            //    does NOT register. A name still registered resolves normally and cannot reach the check, so it is
+            //    correctly out of scope; as later waves unregister more tools, they join this arm by existing.
+            {
+                var registered = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var t in tools.GetProperty("tools").EnumerateArray())
+                    if (t.GetProperty("name").GetString() is { Length: > 0 } rn) registered.Add(rn);
+
+                var retiredAndGone = AliasTable.AllRetiredTools
+                    .Select(r => r.Old).Where(old => !registered.Contains(old))
+                    .OrderBy(x => x, StringComparer.Ordinal).ToList();
+
+                var deadEnds = new List<string>();
+                int id = 900;
+                foreach (var old in retiredAndGone)
+                {
+                    var r = Call(stdin, stdout, id++, old, "{}");
+                    // The redirect must name a successor that EXISTS, not merely fail politely: a caller who gets
+                    // "unknown tool" learns nothing, and one sent to a tool that is itself gone learns worse than
+                    // nothing. Checked against the REGISTERED set rather than a phrase, because the rows are not
+                    // one shape — an absorbed tool reads "absorbed into housecarl_X", while housecarl_validate_dialogue
+                    // was SPLIT and names two successors. Asserting a phrase tests the house style; asserting a live
+                    // tool name tests the migration.
+                    bool named = !r.text.Contains(GenericError)
+                              && registered.Any(reg => r.text.Contains(reg, StringComparison.Ordinal));
+                    if (!named) deadEnds.Add($"{old} -> {Flatten(r.text)}");
+                }
+
+                // A zero-length sweep is a BROKEN GUARD, not a clean one: it means either the table emptied or
+                // every retired name is somehow still registered, and both deserve to be loud.
+                failures += Check(
+                    "D3 retired-name redirect: every UNREGISTERED retired tool answers with its successor call shape",
+                    retiredAndGone.Count > 0 && deadEnds.Count == 0,
+                    retiredAndGone.Count == 0
+                        ? "no retired name is unregistered — nothing was swept, which is a broken guard rather than a clean surface"
+                        : $"swept {retiredAndGone.Count} against {registered.Count} registered: {string.Join(", ", retiredAndGone)}"
+                          + (deadEnds.Count == 0 ? "" : $" | DEAD ENDS: {string.Join("; ", deadEnds)}"));
+            }
 
             // -- E: quoted number — same obvious-intent class as B. Must bind and run.
             var e = Call(stdin, stdout, 6, "housecarl_cross_plugin_query",
@@ -412,16 +470,6 @@ public static class BindingShimProbe
         "housecarl_bsa_extract: outputdir -> dest",
         "housecarl_bsa_repack: fromfolder -> source_folder",
         "housecarl_bsa_repack: patch -> archive_name",
-        "housecarl_bulk_apply: ops -> operations",
-        "housecarl_bulk_apply: patch -> patch_name",
-        "housecarl_bulk_apply: readback -> full_readback",
-        "housecarl_bulk_create: collection => hint",
-        "housecarl_bulk_create: editorid => hint",
-        "housecarl_bulk_create: grid => hint",
-        "housecarl_bulk_create: parent => hint",
-        "housecarl_bulk_create: patch -> patch_name",
-        "housecarl_bulk_create: readback -> full_readback",
-        "housecarl_bulk_create: recordtype => hint",
         "housecarl_bulk_place_asset: patch -> patch_name",
         "housecarl_check_errors: formid -> formids",
         "housecarl_check_errors: plugin -> plugins",
@@ -456,9 +504,6 @@ public static class BindingShimProbe
         "housecarl_create_plugin: plugin -> plugin_name",
         "housecarl_create_plugin: pluginnames -> plugin_name",
         "housecarl_create_plugin: plugins -> plugin_name",
-        "housecarl_create_record: ops -> operations",
-        "housecarl_create_record: patch -> patch_name",
-        "housecarl_create_record: readback -> full_readback",
         "housecarl_cross_plugin_query: plugin -> plugins",
         "housecarl_cross_plugin_query: pluginname -> plugins",
         "housecarl_cross_plugin_query: pluginnames -> plugins",
@@ -478,9 +523,6 @@ public static class BindingShimProbe
         "housecarl_forward: pluginname -> patch",
         "housecarl_forward: pluginnames -> source",
         "housecarl_forward: plugins -> source",
-        "housecarl_forward_record: formid -> formids",
-        "housecarl_forward_record: patch -> patch_name",
-        "housecarl_forward_record: readback -> full_readback",
         "housecarl_load_order_status: filter -> lookup",
         "housecarl_merge_plugins: patch -> output",
         "housecarl_merge_plugins: plugin -> plugins",
@@ -529,16 +571,7 @@ public static class BindingShimProbe
         "housecarl_remove: formid -> formids",
         "housecarl_remove: patch -> into",
         "housecarl_remove: patchname -> into",
-        "housecarl_remove_record: archivename -> patch",
-        "housecarl_remove_record: formids -> formid",
-        "housecarl_remove_record: output -> patch",
-        "housecarl_remove_record: patchname -> patch",
-        "housecarl_remove_record: pluginname -> patch",
         "housecarl_resolve: formid -> formids",
-        "housecarl_set_field: formids -> formid",
-        "housecarl_set_field: op -> verb",
-        "housecarl_set_field: patch -> patch_name",
-        "housecarl_set_field: readback -> full_readback",
         "housecarl_skse_config_audit: lookup -> filter",
         "housecarl_skse_inventory: lookup -> filter",
         "housecarl_skypatcher_layer: lookup -> filter",
