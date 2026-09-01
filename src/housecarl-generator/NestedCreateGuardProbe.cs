@@ -1463,14 +1463,14 @@ public static class NestedCreateGuardProbe
         // record Remove BY INDEX stays throw-free/accepted, and a record Remove BY VALUE is the non-plain-value Remove
         // surface closed with G7's unified Remove-by-value reject.
 
-        // ---------- G6-REJ-RECORD-ADD: an Add (compose) on a record-element list refuses, naming create_record ----------
+        // ---------- G6-REJ-RECORD-ADD: an Add (compose) on a record-element list refuses, naming housecarl_create ----------
         bool g6RejRecordAddOk;
         {
             var req = new WriteRequest { RecordType = "DialogTopic", Path = new[] { "Responses" }, Verb = "Add", Struct = new StructSpec { Type = "DialogResponses" } };
             var reject = rulebook.Validate(req);
             g6RejRecordAddOk = reject is not null
                 && reject.Contains("created on its own (the record axis)", StringComparison.OrdinalIgnoreCase)
-                && reject.Contains("housecarl_create_record", StringComparison.OrdinalIgnoreCase)
+                && reject.Contains("housecarl_create", StringComparison.OrdinalIgnoreCase)
                 && reject.Contains("Responses", StringComparison.Ordinal);
             Console.WriteLine($"   G6-REJ-RECORD-ADD record-elem Add   : {(g6RejRecordAddOk ? "PASS — a record-element Add is refused, redirected to create_record (RED before: accepted then CompositionRequiredException at apply)" : $"FAIL — reject=[{reject}]")}");
         }

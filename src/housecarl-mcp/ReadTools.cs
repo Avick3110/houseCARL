@@ -23,7 +23,7 @@ public static class ReadTools
          "winner last) AND the winner-relative field diff (each other plugin's only-the-fields-that-differ). A FormID " +
          "is 'XXXXXX:Plugin.esp'. Does NOT modify anything. For many records in one call use " +
          "housecarl_batch_record_detail; to scan the order by type/reference/conflict use housecarl_cross_plugin_query; " +
-         "to edit, use housecarl_set_field.")]
+         "to edit, use housecarl_apply.")]
     public static string ReadRecord(
         LoadOrderService svc,
         [Description("The record's FormID as 'XXXXXX:Plugin.esp' — 6 hex digits, a colon, then the defining master's filename. Example: '0F1AC1:Skyrim.esm'.")]

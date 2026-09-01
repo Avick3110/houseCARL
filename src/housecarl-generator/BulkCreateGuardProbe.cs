@@ -124,13 +124,13 @@ internal static class BulkCreateGuardProbe
                     $"BATCH-AON one bad spec refuses the whole batch, nothing written — refused={refused} noFolder={noFolder} err=[{o.Error}]");
             }
 
-            // ---- GUIDANCE: a nested create with no parent guides to parent= / bulk_create ----
+            // ---- GUIDANCE: a nested create with no parent guides to parent= / housecarl_create ----
             {
                 var o = svc.CreateRecords("DialogResponses", "HcBcNoParent", Array.Empty<BulkOp>(), "HcBcGuidance", null);
                 bool guided = !o.Success && o.Error is not null
                     && o.Error.Contains("parent", StringComparison.OrdinalIgnoreCase)
-                    && o.Error.Contains("bulk_create", StringComparison.OrdinalIgnoreCase);
-                Check(guided, $"GUIDANCE nested-with-no-parent refused + guides to parent=/bulk_create — guided={guided} err=[{o.Error}]");
+                    && o.Error.Contains("housecarl_create", StringComparison.OrdinalIgnoreCase);
+                Check(guided, $"GUIDANCE nested-with-no-parent refused + guides to parent=/housecarl_create — guided={guided} err=[{o.Error}]");
             }
 
             // ---- EXTERIOR-WIRE: create_record Cell with parent=<worldspace> + grid= → exterior cell + shell report ----

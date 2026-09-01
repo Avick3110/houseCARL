@@ -990,7 +990,7 @@ public static class WriteEngine
         reason = $"'{typeName}' has no top-level group, so it can't be created on its own — it's a nested/placed record " +
                  "(a placed object/NPC, a dialogue line, navmesh or terrain) that needs a parent. Create it WITH its parent: " +
                  "pass parent= (the parent record's FormID, or the editorid of a record created EARLIER in the same call) and, " +
-                 "if the parent holds more than one child-collection, collection= — or use housecarl_bulk_create to make a parent " +
+                 "if the parent holds more than one child-collection, collection= — or use housecarl_create to make a parent " +
                  "and its children (a dialogue topic + its lines, a cell + its placed refs) in ONE call. (A CELL is coordinate-keyed: " +
                  "create an EXTERIOR cell with parent=<Worldspace FormID> + grid=<X,Y>, or an INTERIOR cell with no parent.) If instead it's a subtype " +
                  "of an abstract group (like Global → GlobalFloat), create the concrete subtype. Flat top-level records — keywords, " +
@@ -1053,7 +1053,7 @@ public static class WriteEngine
     /// Three collisions are refused LOUD (Q3), never absorbed into a replace:
     ///   - an OVERRIDE the patch carries (another plugin's record, matched by its carried EditorID): replacing it
     ///     would serialize a blank override that GUTS the original plugin's record — the opposite of
-    ///     originals-untouched. Overrides are edited with set_field/bulk_apply, never re-created.
+    ///     originals-untouched. Overrides are edited with housecarl_apply, never re-created.
     ///   - DUPLICATE residue (2+ same-EditorID records, the pre-fix dup-append bug's own product): which FormKey
     ///     survives is the caller's call — external references may point at either copy. Named, not guessed.
     ///   - a cross-TYPE EditorID collision: a real authoring error, surfaced not swallowed.
@@ -1076,12 +1076,12 @@ public static class WriteEngine
                     throw new InvalidOperationException(
                         $"create refused: this patch already carries an OVERRIDE of {foreign.FormKey} whose editorid is '{editorId}' — " +
                         $"re-creating over an override would blank the original plugin's record. Pick a different editorid for the new record, " +
-                        "or edit the override's fields with housecarl_set_field / housecarl_bulk_apply.");
+                        "or edit the override's fields with housecarl_apply.");
                 if (matches.Count > 1)
                     throw new InvalidOperationException(
                         $"create refused: this patch carries {matches.Count} records with editorid '{editorId}' " +
                         $"({string.Join(", ", matches.Select(m => m.FormKey))}) — duplicate residue from re-running creates on a pre-fix houseCARL. " +
-                        "External references may point at either copy, so which survives is your call: remove the extra(s) with housecarl_remove_record, then re-run.");
+                        "External references may point at either copy, so which survives is your call: remove the extra(s) with housecarl_remove, then re-run.");
                 var existing = matches[0];
                 if (!CanCreateType(typeName, out var reason)) throw new InvalidOperationException(reason);
                 var formKey = existing.FormKey;

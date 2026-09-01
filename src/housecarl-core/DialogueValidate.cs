@@ -474,8 +474,8 @@ public static class DialogueValidate
             var expected = DialogueSubtype.MarkerFor((int)topic.Subtype);
             bool isOverride = !string.Equals(topic.FormKey.ModKey.FileName.String, winnerPlugin, StringComparison.OrdinalIgnoreCase);
             var fix = expected is not null
-                ? $"Set it to {expected} (the marker for Subtype={topic.Subtype}); houseCARL's create tools now auto-fill it, or housecarl_set_field SubtypeName={expected}."
-                : $"Set it to the correct 4-char marker for Subtype={topic.Subtype} via housecarl_set_field SubtypeName.";
+                ? $"Set it to {expected} (the marker for Subtype={topic.Subtype}); houseCARL's create tools now auto-fill it, or housecarl_apply on SubtypeName with value={expected}."
+                : $"Set it to the correct 4-char marker for Subtype={topic.Subtype} via housecarl_apply on SubtypeName.";
             issues.Add(isOverride
                 ? new(DialogueIssueSeverity.Warning,
                     $"DialogTopic.SubtypeName (the SNAM subtype marker) is empty (0000) on this OVERRIDE of {topic.FormKey.ModKey.FileName} — "

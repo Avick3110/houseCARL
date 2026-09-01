@@ -44,7 +44,7 @@ public static class ApplyTools
          "resolves the record's load-order WINNER and overrides it into the patch; all edits land in ONE reviewable " +
          ".esp, whose master header spans every plugin the edits reference (cross-master merge, derived not declared).\n\n" +
          "OPS. ops= is the edit list — {formid, field_path, op?, value?, values?, key?, entries?, compose?, " +
-         "composes?, from?, from_source?} each; one op is a set of one (the old set_field call). field_path is " +
+         "composes?, from?, from_source?} each; one op is a set of one. field_path is " +
          "dotted ('BasicStats.Damage', 'Name', 'Keywords'); step INTO a list/dict element MID-path with brackets " +
          "('Effects[0].Data.Magnitude'), but at the LEAF use op + key instead of brackets. value is coerced to the " +
          "field's real type — a number, an enum name ('OneHanded'), or a FormID for a reference.\n" +

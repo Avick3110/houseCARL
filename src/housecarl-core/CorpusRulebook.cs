@@ -442,7 +442,7 @@ public sealed class CorpusRulebook
         // any verb, so this answer does not depend on which verb arrived.
         //
         // The singular refusal above cannot carry this wording, because its remedy is the opposite one: a singular
-        // child routes to #350 ("giving a parent a child it lacks is an open gap") since create_record parent= is
+        // child routes to #350 ("giving a parent a child it lacks is an open gap") since create with parent= is
         // MEASURED refused for it, while the collection form is the shape parent= serves. Two shapes, two measured
         // remedies, two sentences — not a near-twin fork.
         if (IsOwnedChildRecordCollection(leaf))
@@ -488,9 +488,9 @@ public sealed class CorpusRulebook
     /// formlink/modeled list, sub-struct, polymorphic arm — WriteEngine.CopyField transplants by construction.
     /// <para/>
     /// The singular arm is not a variant of the collection arm's wording, because the two shapes have different
-    /// remedies and a refusal may only name one that works. MEASURED on both: <c>housecarl_forward_record</c> carries
+    /// remedies and a refusal may only name one that works. MEASURED on both: <c>housecarl_forward</c> carries
     /// the child record itself from another plugin (a LAND and a worldspace's top cell both forward), while
-    /// <c>create_record parent=</c> — which the collection arm can honestly offer — is refused for a singular child
+    /// <c>create</c> with <c>parent=</c> — which the collection arm can honestly offer — is refused for a singular child
     /// ("that parent models no child-collection that holds it"), so it is named for the list and NOT for the singular
     /// case, which routes to the lifecycle gap instead (#350).
     /// <para/>
@@ -519,21 +519,21 @@ public sealed class CorpusRulebook
                    $"write into another's, with neither named by this call — reported as an edit to " +
                    $"'{hopOwner?.Name ?? owner.Name}'. Copy at the CHILD record itself, addressed by its own FormID " +
                    "(read the parent at depth=2 — the field shows it), or carry the whole record across with " +
-                   "housecarl_forward_record.";
+                   "housecarl_forward.";
         if (SchemaClassifier.IsOwnedChildRecord(leaf, _corpus))
             return $"'{leaf.Name}' on '{owner.Name}' holds an owned child RECORD ({leaf.TypeRef}); CopyFrom copies a " +
                    "FIELD's value, not a record — copying it here would write another plugin's record, with its own " +
                    "FormID and everything under it, in as this parent's child. To carry that record across from " +
-                   "another plugin use housecarl_forward_record on the CHILD record itself; read the parent at " +
+                   "another plugin use housecarl_forward on the CHILD record itself; read the parent at " +
                    $"depth=2 and the '{leaf.Name}' field shows the child's FormID. Giving a parent a child it does " +
                    "not have is an open gap (#350).";
         // The same recogniser as the other two collection doors; the SENTENCE stays this door's own, because
-        // CopyFrom's measured remedy is forward_record (carrying across a record that already exists) rather than
-        // create_record parent= alone. Shared predicate, per-door remedy.
+        // CopyFrom's measured remedy is housecarl_forward (carrying across a record that already exists) rather
+        // than housecarl_create with parent= alone. Shared predicate, per-door remedy.
         if (IsOwnedChildRecordCollection(leaf))
             return $"'{leaf.Name}' on '{owner.Name}' holds owned child records ({leaf.ElementTypeRef}); CopyFrom copies a " +
                    "FIELD's value, not owned child records. To carry the WHOLE record from another plugin use " +
-                   "housecarl_forward_record; a child record is authored on its own (housecarl_create_record with parent=).";
+                   "housecarl_forward; a child record is authored on its own (housecarl_create with parent= in its records= element).";
         if (leaf.Cardinality == "dict")
             return $"'{leaf.Name}' on '{owner.Name}' is a dict field; CopyFrom transplants scalar / formlink / list / " +
                    "sub-struct fields — a dict isn't transplanted yet. Set its entries individually, or forward the whole record.";
@@ -580,8 +580,8 @@ public sealed class CorpusRulebook
     /// why the parenthetical names it rather than leaving the caller to a second refusal.</summary>
     static string OwnedChildRecordCollectionRefusal(FieldSchema leaf) =>
         $"'{leaf.Name}' holds owned child records ({leaf.ElementTypeRef}); a child record is created on its " +
-        "own (the record axis), not added into a parent's collection by a write verb. Use housecarl_create_record " +
-        "/ housecarl_bulk_create with parent= the parent's FormID (and collection= when the parent holds more " +
+        "own (the record axis), not added into a parent's collection by a write verb. Use housecarl_create with " +
+        "parent= the parent's FormID in its records= element (and collection= there when the parent holds more " +
         "than one fitting list) — surfaced here, never accepted and thrown at apply.";
 
     // ---- writability rejection (plan §3 P-DISC) ----
@@ -617,7 +617,7 @@ public sealed class CorpusRulebook
         {
             if (siblingEditorIds is null)
                 return $"'{req.Value}' for '{leaf.Name}': a '@editorid' reference names a record being created in the " +
-                       "SAME housecarl_create_record / housecarl_bulk_create call — when editing an existing record " +
+                       "SAME housecarl_create call — when editing an existing record " +
                        "there are no same-call creations to point at. Use the target's FormID (a record already " +
                        "written into a houseCARL patch is addressable by FormID with into= that patch).";
             // The singular value must land on a FormLink TARGET — a singular formlink leaf or a formlink-element list.
@@ -654,7 +654,7 @@ public sealed class CorpusRulebook
         {
             if (siblingEditorIds is null)
                 return $"a '@editorid' reference for '{leaf.Name}' names a record being created in the SAME " +
-                       "housecarl_create_record / housecarl_bulk_create call — when editing an existing record there " +
+                       "housecarl_create call — when editing an existing record there " +
                        "are no same-call creations to point at. Use the target's FormID (a record already written " +
                        "into a houseCARL patch is addressable by FormID with into= that patch).";
             if (!(req.Verb == "ReplaceAll" && leaf.Cardinality == "list" && leaf.FormLinkTarget is not null))
@@ -884,9 +884,9 @@ public sealed class CorpusRulebook
         // Add/SetAtIndex/ReplaceAll fell through to `return null` (ACCEPT) and then THREW at apply: with a compose,
         // BuildStruct -> Instantiate -> CompositionRequiredException (the record class has no public parameterless ctor);
         // with a plain value, Coerce(value, <record getter>) -> "No coercion rule" — both Q3 accept-then-throw (the
-        // second NAMED-but-misleading: it points at composition/coercion, not at "use create_record"). A child record is
+        // second NAMED-but-misleading: it points at composition/coercion, not at "use housecarl_create"). A child record is
         // allocated on the record axis, never built into a parent's collection by the verb engine; the supported path is
-        // housecarl_create_record / housecarl_bulk_create with parent=. Redirect by construction (one classifier
+        // housecarl_create with parent=. Redirect by construction (one classifier
         // predicate, no per-record-type list). Verb-scoped to the create-oriented verbs (Add/SetAtIndex/InsertAtIndex/ReplaceAll); a
         // record Remove BY INDEX (RemoveAt) is throw-free and stays accepted, and a record Remove BY VALUE is the
         // non-plain-value Remove surface closed by the unified Remove-by-value reject in the step-4-rmv block below.
@@ -1085,7 +1085,7 @@ public sealed class CorpusRulebook
             {
                 if (siblingEditorIds is null)
                     return $"a '@editorid' reference for '{f.Key}' on '{spec.Type}' names a record being created in the " +
-                           "SAME housecarl_create_record / housecarl_bulk_create call — when editing an existing record " +
+                           "SAME housecarl_create call — when editing an existing record " +
                            "there are no same-call creations to point at. Use the target's FormID.";
                 if (af.Cardinality != "formlink")
                     return $"Same-call reference '{f.Value}' for '{f.Key}' on '{spec.Type}' is only valid on a FormLink " +
