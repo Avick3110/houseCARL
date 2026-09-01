@@ -15,7 +15,20 @@ namespace HousecarlMcp;
 /// <c>ApplyTools.ReadListParam</c>, whose strict reader is deliberately stricter than the SDK binder.</para>
 ///
 /// <para>Why it is shaped this way: <c>docs/architecture/tool-schema-publication.md</c>. What it guarantees is
-/// pinned by <c>binding-shim-guard</c>'s SCHEMA arm and <c>apply-guard</c>.</para>
+/// pinned by <c>binding-shim-guard</c>'s SCHEMA arms (the real served surface) and <c>schema-flatten-guard</c>
+/// (the mechanism).</para>
+///
+/// <para><b>Scope of <see cref="FlattenRefs"/>: it normalizes what THIS SDK's schema generator emits — it is not
+/// a general JSON Schema <c>$ref</c> implementation, and must not be reused as one.</b> It reads a <c>$ref</c> as
+/// a JSON pointer wherever one appears, which is true of generator output and not of JSON Schema at large: plain-name
+/// <c>$anchor</c> fragments, percent-encoded and empty reference tokens, boolean schemas as a pointer target, a
+/// <c>$ref</c>-shaped value sitting under <c>default</c>/<c>enum</c>, and 2020-12's rule that <c>$ref</c> siblings
+/// apply IN ADDITION to the target (this merge lets them override) are all outside what it handles. None is
+/// reachable from today's DTOs, and that is PINNED rather than assumed: <c>schema-flatten-guard</c>'s ARM 7
+/// asserts the emission grammar this depends on — no <c>$defs</c>, pointer-form refs with literal tokens, ref
+/// nodes carrying only a description and an empty <c>items</c> placeholder, every target an object schema, and no
+/// <c>$ref</c> in a value position. A generator that drifts on an SDK bump reddens there, not at a user's server
+/// start. Widen the handling before widening the input, not after.</para>
 /// </summary>
 internal static class ToolSchemas
 {
@@ -41,8 +54,9 @@ internal static class ToolSchemas
 
     /// <summary>Register both passes. Runs as a POST-configure over <c>McpServerOptions</c> — the one place the
     /// final tool collection exists whichever transport built the host, since the assembly scan registers each tool
-    /// as a factory. A tool or parameter not found is skipped; <c>apply-guard</c> asserts the published shape
-    /// end-to-end, so a stale <see cref="FileListParams"/> row fails there rather than degrading quietly.</summary>
+    /// as a factory. A tool or parameter not found is skipped; <c>binding-shim-guard</c>'s SCHEMA arms name every
+    /// union row and assert the published shape, so a stale <see cref="FileListParams"/> row fails there rather
+    /// than degrading quietly. (Not <c>apply-guard</c>, which never reads a published schema.)</summary>
     internal static void PublishSchemas(IServiceCollection services) =>
         services.PostConfigure<McpServerOptions>(options =>
         {
@@ -228,7 +242,7 @@ internal static class ToolSchemas
 
     /// <summary>Walk a same-document JSON pointer ("#", "#/a/b/0") against <paramref name="root"/>, or null if it
     /// does not resolve.</summary>
-    static JsonNode? Resolve(JsonObject root, string pointer)
+    internal static JsonNode? Resolve(JsonObject root, string pointer)
     {
         JsonNode? cur = root;
         foreach (var raw in pointer[1..].Split('/', StringSplitOptions.RemoveEmptyEntries))
