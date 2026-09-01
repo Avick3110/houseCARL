@@ -1,14 +1,17 @@
 # Tool schema publication
 
 **Class:** LIVING. Subsystem: `src/housecarl-mcp/ToolSchemas.cs`, registered from `Program.cs`.
-Pinned by `binding-shim-guard`'s SCHEMA arm (the real published surface) and
-`schema-flatten-guard` (the flattening mechanism, over synthetic documents).
+Pinned by `binding-shim-guard`'s SCHEMA arms (the real published surface) and
+`schema-flatten-guard` (the flattening mechanism, over synthetic documents for the shapes the
+real surface cannot produce, and over the real pre-flatten surface for the emission grammar and
+the strict reader).
 
 houseCARL's MCP tools are discovered by an assembly scan, and the SDK generates each tool's
 `inputSchema` from its C# method signature. Two things that generator cannot get right on its
 own are corrected once, at registration, before anything is served. Both change only what is
-**published**; what a tool *accepts* is decided by its own reader, which is stricter than the
-SDK binder.
+**published**. The argument-binding shim does read a published schema, but only its top-level
+`properties` — never the nested part these passes rewrite — and the composed payloads are then
+read by `ListParams.Read<T>`, which consults no schema and is stricter than the SDK binder.
 
 ## Why the rewrite happens at registration
 

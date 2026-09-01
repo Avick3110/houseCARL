@@ -550,7 +550,7 @@ public static class ApplyGuardProbe
         Check("a bad field path refuses the whole call with nothing written (all-or-nothing preserved)",
             badPath.StartsWith("error:"), badPath);
 
-        // ROUND-4 FOLD [medium] — the COMPOSED payloads through the NEW strict reader. ReadListParam is a
+        // ROUND-4 FOLD [medium] — the COMPOSED payloads through the NEW strict reader. ListParams.Read<T> is a
         // brand-new deserialization path replacing BOTH the SDK binder (1.x inline) and the old from_file=
         // reader, and UnmappedMemberHandling.Disallow applies RECURSIVELY down StructInput -> NestedSet ->
         // StructInput. Nothing above sends one, so the recursive shape was schema-pinned but never executed —
