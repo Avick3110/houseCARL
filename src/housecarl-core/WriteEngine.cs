@@ -17,9 +17,14 @@ namespace HousecarlCore;
 /// of Mutagen's model rather than of a hand-written per-type map.
 ///
 /// <para>What it keeps: a path it cannot navigate or a value it cannot coerce is refused by name, never skipped.
-/// <b>Corpus-rulebook validation is the CALLER's, not this layer's</b> — <see cref="ApplyVerb"/> is public and does
-/// no rulebook check (it makes its own structural refusals, but nothing about identity fields, verb-vs-cardinality,
-/// enum-key legality or range), so a direct or CLI caller that skips pre-flight mutates unvalidated.
+/// <b>Corpus-rulebook validation is the CALLER's, not this layer's</b> — <see cref="ApplyVerb"/> is public and runs
+/// no rulebook check. It does refuse most of what pre-flight would, just with a CLR/structural message rather than
+/// a corpus-derived one: a verb the collection does not take (<c>ApplyDictVerb</c>'s <c>default:</c> arm), a dict
+/// key that is not a legal enum member (<c>Coerce</c> → <c>Enum.Parse</c>), a value out of its type's range
+/// (<c>byte.Parse</c>) all throw here. The genuinely rulebook-only residue is narrower: record IDENTITY —
+/// <c>FormKey</c> is settable on every concrete Mutagen record, so nothing in this layer stops a caller rewriting
+/// it and only the rulebook's flat identity reject does — and legality the corpus declares that no CLR type
+/// expresses. That residue is what a direct or CLI caller skipping pre-flight mutates unvalidated.
 /// <c>apply-guard</c> proves the pre-flight, refusal and lane contracts for the <c>housecarl_apply</c> path only.</para>
 ///
 /// <para>Byte-equivalence against a hand-written typed setter is proven by <c>oracle</c>, over the cells it
