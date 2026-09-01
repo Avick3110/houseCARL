@@ -76,6 +76,19 @@ public static class SchemaFlattenProbe
             && b["description"]?.GetValue<string>() is { } d && d.StartsWith("nested", StringComparison.Ordinal)
             && d.Contains("Nesting continues", StringComparison.Ordinal),
             bound?.ToJsonString());
+
+        // A recursive parameter carrying no description of its own must still say why the node stopped
+        // constraining — otherwise the bound closes silently on exactly the schemas with least to go on.
+        var bare = Parse("""
+        {"properties":{"sets":{"type":"array","items":{"type":"object","properties":{
+          "compose":{"type":"object","properties":{"sets":{"$ref":"#/properties/sets"}}}}}}}}
+        """);
+        ToolSchemas.FlattenRefs(bare);
+        var bareBound = bare["properties"]!["sets"]!["items"]!["properties"]!["compose"]!["properties"]!["sets"]
+            ?["items"]?["properties"]?["compose"]?["properties"]?["sets"];
+        Check("a description-less recursive parameter still gets the clause, not a silent close",
+            bareBound?["description"]?.GetValue<string>()?.StartsWith("Nesting continues", StringComparison.Ordinal) == true,
+            bareBound?.ToJsonString());
     }
 
     /// <summary>The standard recursive spelling other generators emit. Leaving <c>$defs</c> published would keep
