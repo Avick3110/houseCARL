@@ -572,6 +572,11 @@ public static class BindingShimProbe
     {
         int failures = 0;
 
+        // The derivation the expansion arms below stand on, fixtured against shapes today's DTOs cannot produce
+        // end-to-end. Its two rules are visible only under those shapes, so nothing on the real surface would
+        // redden if either were dropped.
+        failures += DerivationFixtureArm();
+
         // One row per ToolSchemas.FileListParams entry — (tool, parameter, a member that proves the generator ran
         // over the real C# type). PR #311 review [low]: this arm used to hardcode housecarl_apply, so
         // housecarl_create's records= row was covered only by the generic dangling-$ref sweep — and a dropped or
@@ -675,18 +680,18 @@ public static class BindingShimProbe
                 found, "tool absent from tools/list");
             if (!found) continue;
 
-            // The recursion STEP, derived: the one site whose pointer is a prefix of its own path is a positional
-            // back-reference to an ancestor, and the path segment between them IS one turn of the cycle. Every site
-            // aiming at that same pointer re-enters the same shape, whichever member the generator reached first —
-            // so the walk below is indifferent to [JsonPropertyName] declaration order, which an earlier fixed-level
-            // pin was not (reordering ApplyOp.Compose/Composes made it report an amputation that had not happened).
-            string? step = null, cycle = null;
-            foreach (var (path, node) in sites)
-                if (node["$ref"]?.GetValue<string>() is { } p && path.Length > p.Length
-                    && path.StartsWith(p, StringComparison.Ordinal))
-                { step = path[p.Length..]; cycle = p; }
-            failures += Check($"SCHEMA: {tool.Name} — a recursion step is derivable from its own pre-flatten refs",
-                step is not null, "no $ref points at one of its own ancestors; the expansion arm has nothing to measure");
+            // The recursion STEP and CYCLE, derived from this tool's own refs — the rules live in DeriveRecursions.
+            // EXACTLY one is required. A tool carrying two distinct cycles is refused here, never measured on
+            // whichever one the walk saw last: that is a claim quantified over a population and verified over a
+            // narrower subset, which is the class this branch was stopped on.
+            var derived = DeriveRecursions(sites);
+            failures += Check($"SCHEMA: {tool.Name} — exactly one recursion step is derivable from its own pre-flatten refs (got {derived.Count})",
+                derived.Count == 1,
+                derived.Count == 0
+                    ? "no $ref points at one of its own ancestors on a segment boundary; the expansion arm has nothing to measure"
+                    : "distinct cycles: " + string.Join(" | ", derived.Select(d => $"{d.Cycle} +{d.Step}")));
+            string? step = derived.Count == 1 ? derived[0].Step : null;
+            string? cycle = derived.Count == 1 ? derived[0].Cycle : null;
 
             foreach (var (path, node) in sites)
             {
@@ -696,7 +701,7 @@ public static class BindingShimProbe
                     pubNode is { ValueKind: JsonValueKind.Object } n && SpellsOutStructure(n),
                     pubNode is { } got ? Trunc(got) : "<path does not resolve in the published schema>");
 
-                if (step is null || node["$ref"]?.GetValue<string>() != cycle) continue;
+                if (step is null || RefPointer(node) != cycle) continue;
                 recursive++;
                 var (levels, closedOpen, detail) = WalkRecursion(published, path, step);
                 // The bound is a RULED value (decision record entry 15, Aaron: "keep 1"), spelled here independently
@@ -716,6 +721,78 @@ public static class BindingShimProbe
             subjects > 0, "the pre-flatten surface yielded no $ref sites at all");
         failures += Check($"SCHEMA: at least one derived subject is recursive ({recursive} of {subjects})",
             recursive > 0, "no site re-enters its own pointer; nothing measured the bound");
+        return failures;
+    }
+
+    /// <summary>The <c>$ref</c> pointer on a node, or null when the member is absent or does not hold a JSON
+    /// string. The safe spelling on purpose: a non-string <c>$ref</c> is a form neither pass understands, and the
+    /// invariant arm above is what reports it — reading it as a string here would take the guard down first.</summary>
+    static string? RefPointer(JsonObject node) =>
+        node["$ref"] is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;
+
+    /// <summary>Every DISTINCT (step, cycle) derivable from one tool's pre-flatten <c>$ref</c> sites. A site whose
+    /// pointer is a proper ancestor of its own path is a positional back-reference, and the path segment between
+    /// them is one turn of that cycle; every site aiming at the same pointer re-enters the same shape, so the walk
+    /// is indifferent to [JsonPropertyName] declaration order, which an earlier fixed-level pin was not.
+    ///
+    /// Two rules make the derivation say what it means, and neither is visible on today's surface:
+    /// <list type="bullet">
+    /// <item>the prefix must end ON a JSON-pointer segment boundary. A bare string prefix makes a sibling whose
+    /// wire name EXTENDS the target's into a false ancestor, and the derived step is then a fragment of a member
+    /// name that resolves nowhere — a RED on a schema the pass flattened correctly. Today's surface survives that
+    /// on one character (<c>.../compose/properties/sets</c> against <c>.../composes/items/properties/sets</c>),
+    /// which is a coincidence of two member names, not a property anyone declared.</item>
+    /// <item>every distinct pair is returned, never the last one. The caller refuses a tool that yields more than
+    /// one. Measured 2026-09-01: a second recursive family on <c>StructInput</c> took the recursive population
+    /// from 10 of 30 sites to 5 of 45 — the original compose/sets cycle measured on NO tool — with the guard
+    /// fully green, because the later pair overwrote the first and only its own sites then matched.</item>
+    /// </list></summary>
+    internal static List<(string Step, string Cycle)> DeriveRecursions(IEnumerable<(string Path, JsonObject Node)> sites)
+    {
+        var found = new List<(string Step, string Cycle)>();
+        foreach (var (path, node) in sites)
+        {
+            if (RefPointer(node) is not { } p || path.Length <= p.Length
+                || !path.StartsWith(p, StringComparison.Ordinal) || path[p.Length] != '/') continue;
+            var pair = (Step: path[p.Length..], Cycle: p);
+            if (!found.Contains(pair)) found.Add(pair);
+        }
+        return found;
+    }
+
+    /// <summary>FIXTURES for <see cref="DeriveRecursions"/>. Both shapes were measured on the real surface under
+    /// sabotage (a second <c>NestedSet[]</c> member on <c>StructInput</c>, 2026-09-01) and neither is producible by
+    /// the DTOs as they stand, so the rules they pin have no end-to-end producer to redden — the same standing as
+    /// schema-flatten-guard's $defs and mutual-recursion arms.</summary>
+    static int DerivationFixtureArm()
+    {
+        const string R = "#/properties/operations/items/properties";
+        static (string, JsonObject) Site(string path, string pointer) => (path, new JsonObject { ["$ref"] = pointer });
+
+        var failures = 0;
+
+        // TWO FAMILIES — the pointers the sabotage actually emitted. Both pairs must come back: reporting one is
+        // how the guard claimed a tool's coverage while measuring a single cycle of it.
+        var twoFamilies = DeriveRecursions(new[]
+        {
+            Site($"{R}/compose/properties/sets/items/properties/compose/properties/sets", $"{R}/compose/properties/sets"),
+            Site($"{R}/compose/properties/sets/items/properties/compose/properties/alt/items", $"{R}/compose/properties/sets/items"),
+        });
+        failures += Check("SCHEMA-FIXTURE: a surface carrying two distinct cycles derives BOTH, so the caller can refuse it",
+            twoFamilies.Count == 2, string.Join(" | ", twoFamilies.Select(d => $"{d.Cycle} +{d.Step}")));
+
+        // SEGMENT BOUNDARY — a sibling whose wire name extends the target's is not an ancestor, and today's
+        // near-miss (composes against compose) is not one either. Exactly the real cycle survives.
+        var boundary = DeriveRecursions(new[]
+        {
+            Site($"{R}/compose/properties/sets/items/properties/compose/properties/sets", $"{R}/compose/properties/sets"),
+            Site($"{R}/compose/properties/setsx", $"{R}/compose/properties/sets"),
+            Site($"{R}/composes/items/properties/sets", $"{R}/compose/properties/sets"),
+        });
+        failures += Check("SCHEMA-FIXTURE: a sibling whose wire name EXTENDS the ref target is not read as an ancestor",
+            boundary.Count == 1 && boundary[0].Step == "/items/properties/compose/properties/sets",
+            string.Join(" | ", boundary.Select(d => $"{d.Cycle} +{d.Step}")));
+
         return failures;
     }
 
