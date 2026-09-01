@@ -140,17 +140,29 @@ internal static class ToolSchemas
         return changed;
     }
 
+    /// <summary>The <c>$ref</c> pointer on a node, or null when the member is absent or does not hold a JSON
+    /// string. The one place either pass reads a <c>$ref</c>, and it reads it safely: a non-string <c>$ref</c> is
+    /// one of the spellings the class summary lists as outside this pass (a boolean target, a value-position ref),
+    /// so it is LEFT ALONE for the invariant arm to report, exactly as an unresolvable pointer is.
+    /// <c>GetValue&lt;string&gt;()</c> would instead throw <c>InvalidOperationException</c> out of the
+    /// <c>PostConfigure</c> these passes run in, while the host is being built — failing the whole server's start
+    /// on both transports and naming neither houseCARL nor a tool, which is the very shape #451 was filed
+    /// against.</summary>
+    static string? RefPointer(JsonObject node) =>
+        node["$ref"] is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;
+
     /// <summary>Rewrite every same-document JSON pointer in a generated sub-schema so it resolves from the tool
     /// schema's root once the sub-schema has been nested under <paramref name="basePointer"/>. A bare <c>"#"</c>
     /// (the whole document) becomes the base itself; <c>"#/x/y"</c> becomes <c>"&lt;base&gt;/x/y"</c>. A pointer
     /// into <c>$defs</c> is left alone — those definitions were hoisted to the root, which is exactly where
-    /// <c>#/$defs/…</c> already points. External refs (anything not starting with <c>#</c>) are untouched.</summary>
+    /// <c>#/$defs/…</c> already points. External refs (anything not starting with <c>#</c>) are untouched, and so
+    /// is a <c>$ref</c> that is not a JSON string — see <see cref="RefPointer"/>.</summary>
     static void RebaseRefs(JsonNode? node, string basePointer)
     {
         switch (node)
         {
             case JsonObject obj:
-                if (obj["$ref"]?.GetValue<string>() is { } r && r.StartsWith('#') && !r.StartsWith("#/$defs/", StringComparison.Ordinal))
+                if (RefPointer(obj) is { } r && r.StartsWith('#') && !r.StartsWith("#/$defs/", StringComparison.Ordinal))
                     obj["$ref"] = r.Length == 1 ? basePointer : basePointer + r[1..];
                 foreach (var key in obj.Select(kv => kv.Key).ToList())
                     if (key != "$ref") RebaseRefs(obj[key], basePointer);
@@ -162,10 +174,13 @@ internal static class ToolSchemas
     }
 
     /// <summary>Inline every same-document <c>$ref</c> that resolves, bounding each recursive chain at
-    /// <see cref="MaxSelfExpansions"/> expansions of the same pointer. One that does not resolve is left in place
-    /// to fail the invariant <c>binding-shim-guard</c> asserts: no published tool schema contains a same-document
-    /// <c>$ref</c>. Internal so <c>schema-flatten-guard</c> can drive it over synthetic documents — the published
-    /// surface exercises only the shapes today's DTOs happen to generate.</summary>
+    /// <see cref="MaxSelfExpansions"/> expansions of the same pointer. One that does not resolve — or is not a
+    /// same-document pointer, or is not a string at all — is left in place to fail the invariant
+    /// <c>binding-shim-guard</c> asserts: no published tool schema carries a <c>$ref</c> MEMBER, in any spelling.
+    /// That predicate is wider than this pass's gate on purpose, and it is what makes leaving a form this pass
+    /// does not understand a report rather than a silence. Internal so <c>schema-flatten-guard</c> can drive it
+    /// over synthetic documents — the published surface exercises only the shapes today's DTOs happen to
+    /// generate.</summary>
     internal static bool FlattenRefs(JsonObject root)
     {
         // Inlined copies carry the pointers of the document they were copied FROM, so every pointer resolves
@@ -204,7 +219,7 @@ internal static class ToolSchemas
     static JsonNode? Expand(JsonNode? node, JsonObject snapshot, Dictionary<string, int> spent)
     {
         if (node is not JsonObject refNode) return null;
-        if (refNode["$ref"]?.GetValue<string>() is not { } pointer || !pointer.StartsWith('#')) return null;
+        if (RefPointer(refNode) is not { } pointer || !pointer.StartsWith('#')) return null;
 
         // A pointer that does not resolve is left exactly as it is: publishing an open node in its place would
         // hide a broken rebase behind a schema that looks finished. It surfaces as the one $ref the guard forbids.
