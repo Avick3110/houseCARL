@@ -1615,12 +1615,12 @@ public static class WriteSurfaceGuardProbe
             Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "CopyFrom" })!);
 
         // …and CopyFrom names the remedy that was MEASURED to work for this shape, not the one the list twin can
-        // honestly offer: forward_record carries a LAND and a worldspace's top cell; create_record parent= is refused
+        // honestly offer: housecarl_forward carries a LAND and a worldspace's top cell; create with parent= is refused
         // for a singular child ("that parent models no child-collection that holds it"), so it must not appear here.
         var copyMsg = Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "CopyFrom" })!;
-        Check("…and CopyFrom's refusal names forward_record (measured) and NOT create_record parent= (measured refused)",
-            copyMsg.Contains("housecarl_forward_record", StringComparison.Ordinal)
-            && !copyMsg.Contains("create_record", StringComparison.Ordinal), copyMsg);
+        Check("…and CopyFrom's refusal names housecarl_forward (measured) and NOT create with parent= (measured refused)",
+            copyMsg.Contains("housecarl_forward", StringComparison.Ordinal)
+            && !copyMsg.Contains("housecarl_create with parent=", StringComparison.Ordinal), copyMsg);
 
         // --- THE REFUSALS, RENDERED. All three arms of RestoreChildGroup are user-facing sentences that no arm had
         //     ever produced (round-1 review [low]) — and this file's own standing lesson is that a message shipped

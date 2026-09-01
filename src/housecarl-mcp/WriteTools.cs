@@ -23,14 +23,14 @@ public static class WriteTools
          "folder (originals untouched). Its only job is to EXIST so its basename resolves: the artifact that SKSE configs " +
          "binding by plugin basename need (e.g. a CraftingCategories-style trigger that must ship 'Foo.esp' so 'Foo.json' " +
          "loads), a placeholder ESL for FormID reservation, a dummy plugin for another mod to list as a master, or any " +
-         "'I just need plugin Foo to be present' case. UNLIKE housecarl_create_record, it authors NO record — so it adds no conflict-tree footprint " +
+         "'I just need plugin Foo to be present' case. UNLIKE housecarl_create, it authors NO record — so it adds no conflict-tree footprint " +
          "(no filler override needed to make the plugin non-empty). plugin_name is used EXACTLY (the basename is " +
          "load-bearing — houseCARL will NOT auto-suffix it): if a plugin of that name is already active in the load order, " +
          "or a houseCARL folder of that name already exists, it REFUSES loud rather than rename or overwrite (Q3). Pass " +
          "esl=true for the lightest trigger (a header-only light plugin consumes no consequential load-order slot; with " +
          "zero records the ESL FormID-range rule is trivially satisfied). author/description are optional TES4 header " +
          "text. Returns the plugin path + mod folder — enable + sort it in MO2 to use it. To author actual records, use " +
-         "housecarl_create_record / housecarl_bulk_create instead.")]
+         "housecarl_create instead.")]
     public static string CreatePlugin(
         LoadOrderService svc,
         [Description("The EXACT plugin name (with or without a trailing .esp/.esm/.esl; e.g. 'Authoria - CraftingCategories'). Used VERBATIM as the basename — houseCARL will not auto-suffix it, because a trigger plugin's whole job is that its basename matches the config bound to it. The written file is '<name>.esp'.")]
@@ -840,7 +840,7 @@ public static class WriteTools
         return sb.ToString();
     }
 
-    /// <summary>Confirmation for housecarl_create_record: the new record's ALLOCATED FormID + editorid + type (the FormID
+    /// <summary>Confirmation for housecarl_create: the new record's ALLOCATED FormID + editorid + type (the FormID
     /// is the key output — the caller references the new record by it), the patch path + its (derived) masters, and the
     /// fields applied. On refusal, the named reason (Q3) so the caller can fix and retry.</summary>
     internal static string RenderCreate(WritePatchBuilder.CreateOutcome o, int maxChars = 0, bool fullDump = false, bool laneAsName = false)   // internal: housecarl_create renders the same outcome
@@ -912,7 +912,7 @@ public static class WriteTools
             var c = o.Created[ci];
             listed++;
             sb.Append("  ").Append(c.RecordType).Append(' ').Append(c.FormKey).Append("  ").Append(c.EditorId);
-            if (c.ReplacedExisting) sb.Append("  [REPLACED: this patch already defined this editorid — re-created fresh at the same FormID; prior contents, including any set_field edits since, were discarded]");
+            if (c.ReplacedExisting) sb.Append("  [REPLACED: this patch already defined this editorid — re-created fresh at the same FormID; prior contents, including any housecarl_apply edits since, were discarded]");
             sb.Append('\n');
             // #300 — a nested create had to override its parent in to host the child, and WHOSE version it copied is a
             // choice the caller never made and cannot see in the record afterwards. One line, only when there was one.
@@ -1167,7 +1167,8 @@ public static class WriteTools
     }
 }
 
-// ---- wire DTOs (the operation shape for bulk_apply; set_field builds one internally) ----------------------
+// ---- the retired 1.x wire DTOs: parked in WireNamesProbe.NonInputWireTypes, reachable from no tool's input
+// ---- schema. Kept rather than collapsed into ApplyOp/CreateRecordSpec -- that reshape is deferred (#469). ----
 
 /// <summary>One edit operation off the wire. RecordType is NOT supplied — the cleave derives it from the resolved
 /// winner's runtime type. Mirrors <see cref="WritePatchBuilder.PatchEdit"/> with string FormID + dotted path +
@@ -1201,12 +1202,12 @@ public sealed record BulkOp
     [JsonPropertyName("composes"), Description("Build MANY modeled list elements in ONE op — the batch sibling of compose (each entry the same {type, fields?, ctor_args?, sets?} shape). With verb=Add, APPENDS each element in order (e.g. 10 leveled-list entries, a whole block of condition rows in one op instead of ten Adds). With verb=ReplaceAll, CLEARS the list then appends each — the way to replace a whole modeled list (conditions, effects, entries); pass composes=[] with ReplaceAll to CLEAR the list to empty (the modeled twin of values=[]). LIST elements only; mutually exclusive with compose/value/values. All-or-nothing: a bad element refuses the whole call with per-element (composes[i]) reasons.")]
     public StructInput[]? Composes { get; init; }
 
-    [JsonPropertyName("from_plugin"), Description("For verb=\"CopyFrom\" ONLY: the plugin whose version of THIS record to deep-copy the field at field_path from — an ACTIVE plugin, OR a plugin FILE on disk that isn't in the load order (e.g. a disabled OLD patch you want to re-assert a field from). CopyFrom takes no value/values/entries/compose/composes — the source IS from_plugin's version of the field. Honors forward-then-edit precedence: into= a patch that already carries the record copies onto the patch's own version. Copies a WHOLE field's value (scalar, formlink, modeled list, sub-struct); it can't copy owned child records (forward the whole record with housecarl_forward_record instead).")]
+    [JsonPropertyName("from_plugin"), Description("For verb=\"CopyFrom\" ONLY: the plugin whose version of THIS record to deep-copy the field at field_path from — an ACTIVE plugin, OR a plugin FILE on disk that isn't in the load order (e.g. a disabled OLD patch you want to re-assert a field from). CopyFrom takes no value/values/entries/compose/composes — the source IS from_plugin's version of the field. Honors forward-then-edit precedence: into= a patch that already carries the record copies onto the patch's own version. Copies a WHOLE field's value (scalar, formlink, modeled list, sub-struct); it can't copy owned child records (forward the whole record with housecarl_forward instead).")]
     public string? FromPlugin { get; init; }
 }
 
-/// <summary>One brand-new record to create off the wire (housecarl_bulk_create) — the batch element matching the scalar
-/// args of housecarl_create_record: the DECLARED record_type, its editorid, optional field operations, and the optional
+/// <summary>One brand-new record to create off the wire — the retired 1.x batch element: the DECLARED
+/// record_type, its editorid, optional field operations, and the optional
 /// nested parent/collection (a child's parent may be an existing FormID or a same-call sibling's editorid).</summary>
 public sealed record CreateOp
 {
@@ -1216,7 +1217,7 @@ public sealed record CreateOp
     [JsonPropertyName("editorid"), Description("REQUIRED. The EditorID the new record is referenced by. A nested child's parent= can name this editorid (a same-call sibling parent).")]
     public string? Editorid { get; init; }
 
-    [JsonPropertyName("operations"), Description("Optional. The new record's fields, same shape as bulk_apply ops but with NO formid (and no from_plugin — there is no other version to copy from yet): {field_path, verb?, value?, key?, values?, entries?, compose?, composes?}.")]
+    [JsonPropertyName("operations"), Description("Optional. The new record's fields, same shape as housecarl_apply ops but with NO formid (and no from_plugin — there is no other version to copy from yet): {field_path, verb?, value?, key?, values?, entries?, compose?, composes?}.")]
     public BulkOp[]? Operations { get; init; }
 
     [JsonPropertyName("parent"), Description("Optional. For a NESTED record: the parent it nests under — an EXISTING parent's FormID 'XXXXXX:Plugin.esp', OR the editorid of a record declared EARLIER in this same records array (a same-call sibling). Omit for a flat top-level record.")]

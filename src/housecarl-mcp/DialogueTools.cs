@@ -39,7 +39,7 @@ public static class DialogueTools
          "condition passes (only the running game can) nor check lip-sync/audio content — so 'checks " +
          "passed' never reads as 'this will play'. Resolves against the load-order WINNERS like every other read. " +
          "A FormID is 'XXXXXX:Plugin.esp'. Does NOT modify anything. To create dialogue lines use " +
-         "housecarl_create_record; to inspect a single record use housecarl_read_record.")]
+         "housecarl_create; to inspect a single record use housecarl_read_record.")]
     public static string ValidateDialogue(
         LoadOrderService svc,
         [Description("The dialogue topic (DIAL), quest (QUST), dialogue view (DLVW), or dialogue branch (DLBR) FormID as 'XXXXXX:Plugin.esp' — 6 hex digits, a colon, then the defining master's filename. A DIAL validates one topic; a QUST validates every topic that quest owns; a DLVW/DLBR runs a record-level CK-parity check.")]

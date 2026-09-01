@@ -150,8 +150,8 @@ public static class RecordsTools
          "(line 1 = manifest with the query echo, row schema, and epoch) and the response names the file; to_file= " +
          "forces that disposition to your own path. Every response carries epoch=<hex> — the identity of the index " +
          "build it was answered from.\n\n" +
-         "This tool never writes. Authoring goes through the write tools (set_field / bulk_apply / create_record / " +
-         "remove_record / forward_record and their successors).")]
+         "This tool never writes. Authoring goes through the write tools (housecarl_apply / housecarl_create / " +
+         "housecarl_remove / housecarl_forward).")]
     public static string Records(
         LoadOrderService svc,
         [Description("SELECT: records by FormID ('XXXXXX:Plugin.esp'), or [\"@<absolute path>\"] to read the list from a file / spilled artifact. Results return in input order; a bad or absent FormID is a per-item error, never a failed batch.")]

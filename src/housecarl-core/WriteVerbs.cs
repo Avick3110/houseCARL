@@ -20,7 +20,7 @@ public enum ElementPlacement
     Coerced,
     /// <summary>Built FROM PARTS against a modeled struct or a polymorphic arm: compose=, composes=.</summary>
     Composed,
-    /// <summary>An OWNED CHILD RECORD — allocated on the record axis (housecarl_create_record with parent=), never
+    /// <summary>An OWNED CHILD RECORD — allocated on the record axis (housecarl_create with parent=), never
     /// placed into a parent's collection by a write verb.</summary>
     OwnedRecord,
 }
@@ -225,8 +225,8 @@ public static class WriteVerbs
     /// name and a remedy that named one would be sending the caller down a path that refuses.</summary>
     public static string HowToPlace(CollectionShape shape) =>
         shape.Element == ElementPlacement.OwnedRecord
-            ? "its elements are owned child RECORDS, which are created on the record axis — use housecarl_create_record "
-              + "/ housecarl_bulk_create with parent= the parent's FormID, not a write verb"
+            ? "its elements are owned child RECORDS, which are created on the record axis — use housecarl_create "
+              + "with parent= the parent's FormID in its records= element, not a write verb"
             : Sentence(On(shape).Where(u => u.Places));
 
     /// <summary>"How do I put in ONE element." <see cref="HowToPlace"/> minus the verbs that take a WHOLE

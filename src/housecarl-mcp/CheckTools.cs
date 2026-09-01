@@ -93,7 +93,7 @@ public static class CheckTools
          "does not check lip-sync or audio content, so 'checks passed' never reads as 'this will play'. NOT HERE: " +
          "the effective merged INFO order — the sequence the game walks, which line MOVED and which plugin moved it, " +
          "the answer to 'why does the wrong line play' — is an ordered sequence rather than a finding and lives on " +
-         "housecarl_records project='info_order'. To CREATE dialogue lines use housecarl_create_record; to inspect " +
+         "housecarl_records project='info_order'. To CREATE dialogue lines use housecarl_create; to inspect " +
          "one record use housecarl_read_record. " +
          // ---- narrowing, shared, with each family's own cost teaching ------------------------------
          "NARROWING: beyond plugins= it takes a record scope (type= / formids= / editorid_contains=), " +

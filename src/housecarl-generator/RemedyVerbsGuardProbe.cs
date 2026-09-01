@@ -324,7 +324,7 @@ public static class RemedyVerbsGuardProbe
         { RecordType = "Cell", Path = new[] { "Persistent" }, Verb = "Set", Value = "1" });
         Check("SITE-SET-ON-LIST-OWNEDRECORD — a list of owned child records has no placing verb, so the remedy names the record axis instead of trailing off",
             setOnRecordList is not null
-                && setOnRecordList.Contains("housecarl_create_record", StringComparison.Ordinal)
+                && setOnRecordList.Contains("housecarl_create", StringComparison.Ordinal)
                 && !ListOnly.Any(v => setOnRecordList.Contains(v, StringComparison.Ordinal)),
             setOnRecordList ?? "(accepted)");
 
@@ -400,7 +400,7 @@ public static class RemedyVerbsGuardProbe
             Check($"SITE-COMPOSES-OWNEDRECORD — composes= on {rec}.{field} (a list of owned child records) gets the record axis, and no half of the sentence calls those elements coercible or formlink",
                 m is not null
                     && m.Contains("owned child records", StringComparison.Ordinal)
-                    && m.Contains("housecarl_create_record", StringComparison.Ordinal)
+                    && m.Contains("housecarl_create", StringComparison.Ordinal)
                     && !m.Contains("coercible", StringComparison.Ordinal)
                     && !m.Contains("formlink", StringComparison.Ordinal)
                     && !m.Contains("not modeled structs", StringComparison.Ordinal)

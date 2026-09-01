@@ -468,7 +468,7 @@ public static class NpcAppearanceCopy
                 {
                     targetOverride = patchMod.Npcs.FirstOrDefault(n => n.FormKey == targetFk)
                         ?? throw new InvalidOperationException(
-                            $"{targetFk} names this patch, but '{patchFileName}' defines no such NPC. Create the NPC first (housecarl_create_record) or pass an active NPC's formid.");
+                            $"{targetFk} names this patch, but '{patchFileName}' defines no such NPC. Create the NPC first (housecarl_create) or pass an active NPC's formid.");
                 }
                 else if (targetActiveBody is not null)
                 {

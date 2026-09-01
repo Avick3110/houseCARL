@@ -40,7 +40,7 @@ public static class CreateTools
          "ONE surface: what to author (records=) x WHERE it lands (the LANE: a new patch | into= an existing one | " +
          "in_place=\"X.esp\") x how it reads back (TRANSPORT).\n\n" +
          "RECORDS. records= is the spec list — {record_type, editorid, ops?, parent?, collection?, grid?} each; ONE " +
-         "record is a set of one (the old create_record call). record_type is a catalog name ('Keyword', 'Spell', " +
+         "record is a set of one. record_type is a catalog name ('Keyword', 'Spell', " +
          "'LeveledItem', 'DialogTopic') or a 4-char signature ('KYWD'). editorid is REQUIRED — the EditorID the " +
          "record is referenced by (in SkyPatcher/SPID, in xEdit); choose a clear, prefixed name. Any flat " +
          "top-level record is fair game — a keyword, spell, perk, magic effect, faction, armor, weapon, leveled " +
