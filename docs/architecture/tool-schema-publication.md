@@ -64,9 +64,19 @@ the open node accepts what the recursive form accepted, and the binder never con
 schema in the first place. `$defs` is dropped once nothing refers to it, because an unreferenced
 definition still carries its cycle to a validator that walks definitions.
 
-A pointer that does **not** resolve is left exactly as it is. Replacing it with an open node
-would hide a broken rebase behind a schema that looks finished; left in place, it fails the one
-invariant the guard asserts — no published tool schema carries a same-document `$ref`.
+A `$ref` the pass does **not** handle is left exactly as it is — a pointer that resolves
+nowhere, and equally a form that is not a same-document pointer at all (a plain-name anchor, a
+`$ref` that is not even a JSON string). Replacing one with an open node would hide a broken
+rebase behind a schema that looks finished, and reading one as a string would throw out of the
+`PostConfigure` these passes run in and fail the server's whole start.
+
+Left in place, it fails the one invariant the guard asserts — **no published tool schema
+carries a `$ref` member, in any spelling.** That predicate is deliberately wider than this
+pass's own resolve gate and shares no code with it: an earlier version of the arm spelled the
+detector the way the flattener spells its gate, so a `$ref` the pass could not resolve was also
+one the detector could not see, and an anchor-form `{"$ref":"Node"}` injected into all 51
+schemas passed green. A detector that inherits its subject's blind spot measures nothing at the
+only moment it matters.
 
 The bound is a cost/legibility trade, not a correctness one: raising it deepens every recursive
 branch of every affected schema (at 1, the five affected tools grew ~3 KB each).
