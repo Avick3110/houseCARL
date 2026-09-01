@@ -21,8 +21,14 @@ feature that some validators reject is a liability regardless of who is technica
 
 ## Decision
 
-**No published tool schema contains a same-document `$ref`.** At registration, after the
-`@file` union rewrite, every same-document pointer is inlined:
+**No published tool schema carries a `$ref` member, in any spelling.** That is wider than
+"contains a same-document pointer" on purpose: spelling the invariant the same way as the
+flattener's own resolve gate is what made an earlier version of the guard vacuous — a `$ref`
+the pass could not resolve was also one the detector could not see, so an anchor-form
+`{"$ref":"Node"}` injected into all 51 schemas passed green. The guard asks only whether the
+member is there.
+
+At registration, after the `@file` union rewrite, every same-document pointer is inlined:
 
 1. A cycle is expanded a bounded number of times and then **closed with an open node** — the
    target's `type`, the parameter's own description, and a clause saying nesting continues.
@@ -31,8 +37,11 @@ feature that some validators reject is a liability regardless of who is technica
    tool accepts (see the Consequences below for what does read one).
 2. `$defs` is dropped once nothing refers to it — an unreferenced definition still carries its
    cycle to a validator that walks definitions.
-3. A pointer that does **not** resolve is left in place, not replaced by an open node. A broken
-   rebase must stay visible rather than hide behind a schema that looks finished.
+3. A `$ref` the pass does **not** handle — a pointer that does not resolve, a form that is not
+   a same-document pointer at all — is left in place, not replaced by an open node and not
+   thrown on. A broken rebase must stay visible rather than hide behind a schema that looks
+   finished, and the wider invariant above is what makes leaving it a report rather than a
+   silence.
 4. This is unconditional, not a config switch. The flattened form is accepted everywhere the
    recursive form is, so a switch would add a knob with no reachable benefit, leave the default
    broken for the users who hit this, and double what the guards must hold.
