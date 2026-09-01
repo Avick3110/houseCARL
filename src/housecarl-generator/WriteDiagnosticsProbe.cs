@@ -101,7 +101,7 @@ public static class WriteDiagnosticsProbe
             Console.WriteLine($"  [{mark}] {label} -> {(ok ? "ACCEPT" : "REJECT: " + msg)}");
         }
 
-        Console.WriteLine("Pre-flight probes (1 accept + 5 fail-loud rejects):");
+        Console.WriteLine("Pre-flight probes (2 accepts + 7 fail-loud rejects):");
         Probe("real write: Npc PlayerSkills.SkillValues[OneHanded]=50", req, expectOk: true);
         Probe("unknown record type", new() { RecordType = "Bogus", Path = new[] { "X" }, Verb = "Set", Value = "1" }, expectOk: false);
         Probe("unknown field", new() { RecordType = "Npc", Path = new[] { "Bogus" }, Verb = "Set", Value = "1" }, expectOk: false);
