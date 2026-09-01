@@ -188,8 +188,13 @@ public static class SchemaFlattenProbe
         Check($"…and the innermost level survives the read intact (type '{innermost}')",
             node?.Type == innermost, node?.Type ?? "<the chain did not reach level 6>");
 
-        // Past the JSON reader's OWN depth ceiling (STJ's MaxDepth, shared by the transport parse) the read must
-        // still fail loudly. Parsed with headroom here so the READER is what answers rather than this probe's parse.
+        // Past the JSON reader's OWN depth ceiling (STJ's MaxDepth) the read must still fail loudly. Parsed with
+        // headroom here so the READER is what answers rather than this probe's parse.
+        // What this does NOT model, and a reader of this arm should not assume it does: in real wire flow a
+        // request that deep dies at the TRANSPORT parse first — measured on this branch, a default-options
+        // JsonDocument.Parse throws from ~21 compose levels — so the caller sees an SDK-voiced parse error, not
+        // the named refusal below. Both are loud, which is what the published sentence claims; only this one is
+        // ours. The gap is unreachable by real compose use (live composes nest 1–2).
         var (past, _) = DeepComposeOps(30);
         var wide = JsonDocument.Parse(past, new JsonDocumentOptions { MaxDepth = 512 }).RootElement;
         var (deepItems, deepError) = ListParams.Read<ApplyOp>(wide, "ops", "{formid, field_path, …}");
