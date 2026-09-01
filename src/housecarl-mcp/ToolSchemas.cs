@@ -215,10 +215,14 @@ internal static class ToolSchemas
     /// document stops spelling it out.</summary>
     static JsonObject Terminator(JsonObject refNode, JsonObject target)
     {
+        const string continues = "Nesting continues below this level with the same shape shown above; it is accepted but not spelled out again here.";
         var open = new JsonObject();
         if (target["type"] is { } type) open["type"] = type.DeepClone();
-        if (refNode["description"]?.GetValue<string>() is { } description)
-            open["description"] = description + " (Nesting continues below this level with the same shape shown above; it is accepted but not spelled out again here.)";
+        // The clause goes on unconditionally. A parameter carrying no description of its own would otherwise
+        // close silently — an open node saying nothing about why it stopped constraining.
+        open["description"] = refNode["description"]?.GetValue<string>() is { } description
+            ? description + " (" + continues + ")"
+            : continues;
         return open;
     }
 
