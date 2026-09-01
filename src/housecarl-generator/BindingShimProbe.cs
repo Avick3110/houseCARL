@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using HousecarlMcp;
 
 namespace HousecarlGenerator;
 
@@ -608,100 +610,182 @@ public static class BindingShimProbe
             }
         }
 
-        // GENERIC (#451): no published schema carries a same-document $ref at all. Strict providers reject a
-        // recursive schema and refuse the WHOLE server at tools/list, and the StructInput -> NestedSet.compose
-        // chain published one on five tools. ToolSchemas.FlattenRefs inlines every pointer that resolves and
-        // leaves the ones that do not, so this single arm catches both recursion that escaped the pass and the
-        // un-rebased pointer the old dangling-$ref sweep watched for (which this replaces, strictly stronger).
+        // GENERIC (#451) — THE INVARIANT: zero $ref members anywhere in any published schema, whatever they hold.
+        // Strict providers reject a recursive schema and refuse the WHOLE server at tools/list, naming no tool, and
+        // the StructInput -> NestedSet.compose chain published one on five tools.
+        //
+        // The predicate is deliberately WIDER than the flattener's, and shares no code with it: ToolSchemas gates
+        // inlining on a same-document pointer (a string starting with '#') because that is what it knows how to
+        // resolve, and this arm asks only whether the MEMBER is there. Spelling them the same way is what made the
+        // earlier version of this arm vacuous — a $ref the pass could not resolve was also a $ref the detector
+        // could not see, so an anchor-form {"$ref":"Node"} injected into all 51 schemas passed green. A detector
+        // that inherits the subject's blind spot measures nothing at the only moment it matters. This one still
+        // reports whether a survivor resolves, as detail, because that says which failure it is: a pointer the
+        // pass left behind (a broken rebase) or a spelling it never understood.
         var refs = new List<string>();
         foreach (var t in toolsList.GetProperty("tools").EnumerateArray())
         {
             if (!t.TryGetProperty("inputSchema", out var schema)) continue;
             var name = t.GetProperty("name").GetString()!;
-            foreach (var r in CollectRefs(schema))
-                if (r.StartsWith('#')) refs.Add($"{name}: {r} {(PointerResolves(schema, r) ? "(resolves)" : "(DANGLING)")}");
+            foreach (var (path, value) in CollectRefMembers(schema, "#"))
+            {
+                var note = value.ValueKind != JsonValueKind.String ? "(NON-STRING)"
+                    : PointerResolves(schema, value.GetString()!) ? "(resolves)" : "(DANGLING)";
+                refs.Add($"{name}: {path} = {Trunc(value)} {note}");
+            }
         }
-        failures += Check($"SCHEMA: no published tool schema carries a same-document $ref ({refs.Count} found)",
+        failures += Check($"SCHEMA: no published tool schema carries a $ref member, in any spelling ({refs.Count} found)",
             refs.Count == 0, string.Join(" | ", refs.Take(5)));
 
-        // The recursion is EXPANDED, not amputated. Deleting the recursive branch would satisfy the arm above
-        // while silently telling callers a nested compose is not a thing — so walk each chain that carried a
-        // $ref and require a real object schema at every level, then the open node where it closes.
-        JsonElement applySchema = default;
-        foreach (var t in toolsList.GetProperty("tools").EnumerateArray())
-            if (t.GetProperty("name").GetString() == "housecarl_apply") { applySchema = t.GetProperty("inputSchema"); break; }
+        // ANTI-AMPUTATION / ANTI-EXPANSION, over subjects DERIVED from the pre-flatten surface at guard time.
+        // The invariant above is satisfied just as well by DELETING every recursive branch, which would tell
+        // callers a nested compose is not a thing — a narrowing of the published contract with nothing to notice.
+        // So every site that carried a $ref before the pass must still be spelled out after it.
+        //
+        // No tool and no arm is named here (#451, "derive, don't enumerate"). The earlier version walked
+        // housecarl_apply only; four of the five ref-carrying tools had no expansion arm at all, so a bound of 0
+        // applied to their subtree collapsed their compose/fields/ctor_args/sets to bare open nodes with both
+        // guards fully green. The subject set is now an OUTPUT of the surface: it shrinks by itself when the 2.0
+        // demolition deletes the three 1.x ref-carrying tools, where a hand-list would have gone stale and passed.
+        //
+        // PreFlattenSurface reads the raw generated schemas; the @file union pass is replayed here because the
+        // published document has it and the pointers must line up. FlattenRefs replaces each ref node IN PLACE,
+        // so a pre-flatten ref path is the same path in the published document — that is what makes the subjects
+        // portable across the two surfaces.
+        var subjects = 0;
+        var recursive = 0;
+        var carriers = new List<string>();
 
-        // BOTH recursive arms, and no depth hardcoded to a named one. ApplyOp carries `compose` AND `composes`,
-        // which reference the same pointer, so the arm the generator reaches first spends budget the other then
-        // lacks: today `compose` publishes three concrete levels and `composes` two. WHICH arm gets which is C#
-        // member declaration ORDER, not the bound — so pinning a named arm at a fixed level reports amputation on
-        // a pure member reorder, and leaves the shallower arm measured by nothing. The order-free facts: every arm
-        // is concrete for at least two levels, every arm closes on the open node, and the levels across the arms
-        // total five (MaxSelfExpansions = 1 spent once per arm over one shared pointer).
-        var depths = new List<int>();
-        foreach (var (arm, start) in new[]
+        foreach (var tool in PreFlattenSurface.Read())
         {
-            ("compose",  "#/properties/ops/anyOf/0/items/properties/compose"),
-            ("composes", "#/properties/ops/anyOf/0/items/properties/composes/items"),
-        })
-        {
-            var (levels, closedOpen, detail) = WalkComposeChain(applySchema, start);
-            depths.Add(levels);
-            failures += Check($"SCHEMA: housecarl_apply ops= spells the {arm} chain out concretely (>= 2 levels, got {levels})",
-                levels >= 2, detail);
-            failures += Check($"SCHEMA: the {arm} chain closes on an OPEN node — typed, unconstrained, and saying so",
-                closedOpen, detail);
+            var pre = (JsonObject)tool.Schema.DeepClone();
+            var unions = ToolSchemas.FileListParams.Where(p => p.Tool == tool.Name).ToList();
+            if (unions.Count > 0) ToolSchemas.RewriteFileListUnions(pre, unions);
+
+            var sites = PreFlattenSurface.RefNodes(pre);
+            if (sites.Count == 0) continue;
+            carriers.Add($"{tool.Name}:{sites.Count}");
+
+            JsonElement published = default;
+            var found = false;
+            foreach (var t in toolsList.GetProperty("tools").EnumerateArray())
+                if (t.GetProperty("name").GetString() == tool.Name)
+                { published = t.GetProperty("inputSchema"); found = true; break; }
+            failures += Check($"SCHEMA: {tool.Name} carries {sites.Count} pre-flatten $ref sites and is published",
+                found, "tool absent from tools/list");
+            if (!found) continue;
+
+            // The recursion STEP, derived: the one site whose pointer is a prefix of its own path is a positional
+            // back-reference to an ancestor, and the path segment between them IS one turn of the cycle. Every site
+            // aiming at that same pointer re-enters the same shape, whichever member the generator reached first —
+            // so the walk below is indifferent to [JsonPropertyName] declaration order, which an earlier fixed-level
+            // pin was not (reordering ApplyOp.Compose/Composes made it report an amputation that had not happened).
+            string? step = null, cycle = null;
+            foreach (var (path, node) in sites)
+                if (node["$ref"]?.GetValue<string>() is { } p && path.Length > p.Length
+                    && path.StartsWith(p, StringComparison.Ordinal))
+                { step = path[p.Length..]; cycle = p; }
+            failures += Check($"SCHEMA: {tool.Name} — a recursion step is derivable from its own pre-flatten refs",
+                step is not null, "no $ref points at one of its own ancestors; the expansion arm has nothing to measure");
+
+            foreach (var (path, node) in sites)
+            {
+                subjects++;
+                var pubNode = Pointer(published, path);
+                failures += Check($"SCHEMA: {tool.Name} {Tail(path)} survives the pass spelled out, not amputated to an open node",
+                    pubNode is { ValueKind: JsonValueKind.Object } n && SpellsOutStructure(n),
+                    pubNode is { } got ? Trunc(got) : "<path does not resolve in the published schema>");
+
+                if (step is null || node["$ref"]?.GetValue<string>() != cycle) continue;
+                recursive++;
+                var (levels, closedOpen, detail) = WalkRecursion(published, path, step);
+                // The bound is a RULED value (decision record entry 15, Aaron: "keep 1"), spelled here independently
+                // of the constant on purpose: reading ToolSchemas.MaxSelfExpansions would make this arm agree with
+                // any bound, including the 0 that open-nodes the non-cyclic leaves too. Changing the bound reddens
+                // here, which is the point — it is a published-contract change and has to be re-ratified, not slid in.
+                failures += Check($"SCHEMA: {tool.Name} {Tail(path)} expands exactly 1 level before closing (the ruled bound; got {levels})",
+                    levels == 1, detail);
+                failures += Check($"SCHEMA: {tool.Name} {Tail(path)} closes on an OPEN node — typed, unconstrained, and saying nesting continues",
+                    closedOpen, detail);
+            }
         }
-        failures += Check($"SCHEMA: the two recursive arms share one pointer budget — concrete levels total 5 (got {string.Join("+", depths)})",
-            depths.Sum() == 5, string.Join("+", depths));
+
+        // A derivation that finds nothing is a broken derivation, never a pass: without these two, every arm above
+        // is vacuously green the moment PreFlattenSurface stops returning what it is supposed to.
+        failures += Check($"SCHEMA: the derived subject set is non-empty — {subjects} pre-flatten $ref sites across {carriers.Count} tools [{string.Join(" ", carriers)}]",
+            subjects > 0, "the pre-flatten surface yielded no $ref sites at all");
+        failures += Check($"SCHEMA: at least one derived subject is recursive ({recursive} of {subjects})",
+            recursive > 0, "no site re-enters its own pointer; nothing measured the bound");
         return failures;
     }
 
-    /// <summary>Walk one published compose chain (struct → sets[] → compose → …) from <paramref name="start"/>,
-    /// counting the levels spelled out concretely and reporting whether it ends on the open node the bound writes.
-    /// Walks instead of pinning a depth, so it is indifferent to which recursive arm the generator reached first.</summary>
-    static (int Levels, bool ClosedOpen, string Detail) WalkComposeChain(JsonElement schema, string start)
+    /// <summary>True when a published node states structure rather than merely closing. <see cref="ToolSchemas"/>'s
+    /// terminator emits exactly a <c>type</c> and a <c>description</c>, so any member beyond those two is the node
+    /// still saying what it contains — which is what amputation removes.</summary>
+    static bool SpellsOutStructure(JsonElement node)
     {
-        var node = Pointer(schema, start);
+        foreach (var p in node.EnumerateObject())
+            if (p.Name is not ("type" or "description")) return true;
+        return false;
+    }
+
+    /// <summary>Walk one recursive chain from <paramref name="start"/> by repeatedly appending the derived
+    /// <paramref name="step"/>, counting the levels spelled out concretely and reporting whether it ends on the
+    /// open node the bound writes.</summary>
+    static (int Levels, bool ClosedOpen, string Detail) WalkRecursion(JsonElement schema, string start, string step)
+    {
         var levels = 0;
+        var cur = start;
         while (true)
         {
-            if (node is not { ValueKind: JsonValueKind.Object } n)
+            if (Pointer(schema, cur) is not { ValueKind: JsonValueKind.Object } node)
                 return (levels, false, $"level {levels + 1} does not resolve to an object schema");
-            if (!n.TryGetProperty("properties", out var members))
-                return (levels, false, $"level {levels + 1} is not spelled out concretely: {Trunc(n)}");
-            if (!members.TryGetProperty("type", out _) || !members.TryGetProperty("sets", out var sets))
-                return (levels, false, $"level {levels + 1} is missing type=/sets=: {Trunc(n)}");
-            levels++;
-            if (!sets.TryGetProperty("items", out var items))
+            if (!SpellsOutStructure(node))
                 return (levels,
-                    sets.TryGetProperty("type", out _)
-                    && sets.TryGetProperty("description", out var d)
+                    node.TryGetProperty("type", out _)
+                    && node.TryGetProperty("description", out var d)
                     && d.GetString()?.Contains("Nesting continues", StringComparison.Ordinal) == true,
-                    $"closing node after {levels} levels: {Trunc(sets)}");
-            if (!items.TryGetProperty("properties", out var element) || !element.TryGetProperty("compose", out var next))
-                return (levels, false, $"the sets= element at level {levels} carries no compose=: {Trunc(items)}");
-            node = next;
+                    $"closed at level {levels + 1}: {Trunc(node)}");
+            levels++;
+            cur += step;
+            // The bound exists so this terminates; an unbounded chain is a finding, not a hang.
+            if (levels > 8) return (levels, false, $"still concrete at level {levels} — the chain is not closing");
         }
+    }
+
+    /// <summary>The tail of a JSON pointer, for labels that stay readable at 100-odd characters of path.</summary>
+    static string Tail(string pointer)
+    {
+        var parts = pointer.Split('/');
+        return parts.Length <= 4 ? pointer : ".../" + string.Join("/", parts[^4..]);
     }
 
     static string Trunc(JsonElement e) { var s = e.GetRawText(); return s.Length > 240 ? s[..240] + "…" : s; }
 
-    /// <summary>Every <c>$ref</c> string anywhere in a schema document.</summary>
-    static IEnumerable<string> CollectRefs(JsonElement node)
+    /// <summary>Every <c>$ref</c> MEMBER anywhere in a schema document, by pointer, with what it holds.
+    /// <para>No filter on the value: a non-string <c>$ref</c>, a plain-name anchor, an external URI and a
+    /// same-document pointer all count the same, because the invariant is about the member being there at all.
+    /// The predecessor yielded only string values and the caller then kept only those starting with '#' — the
+    /// same test <see cref="ToolSchemas"/> gates inlining on, which is exactly why anything the pass could not
+    /// resolve was also invisible to the arm policing it.</para></summary>
+    static IEnumerable<(string Path, JsonElement Value)> CollectRefMembers(JsonElement node, string path)
     {
         switch (node.ValueKind)
         {
             case JsonValueKind.Object:
                 foreach (var p in node.EnumerateObject())
                 {
-                    if (p.Name == "$ref" && p.Value.ValueKind == JsonValueKind.String) yield return p.Value.GetString()!;
-                    else foreach (var r in CollectRefs(p.Value)) yield return r;
+                    if (p.Name == "$ref") yield return (path, p.Value);
+                    foreach (var r in CollectRefMembers(p.Value, $"{path}/{p.Name}")) yield return r;
                 }
                 break;
             case JsonValueKind.Array:
+                var i = 0;
                 foreach (var item in node.EnumerateArray())
-                    foreach (var r in CollectRefs(item)) yield return r;
+                {
+                    foreach (var r in CollectRefMembers(item, $"{path}/{i}")) yield return r;
+                    i++;
+                }
                 break;
         }
     }
