@@ -155,10 +155,14 @@ public static class SchemaFlattenProbe
     }
 
     /// <summary>A pointer that resolves nowhere is a broken rebase. Publishing an open node in its place would
-    /// hide it behind a schema that looks finished, so it is left for the invariant arm to fail on.</summary>
+    /// hide it behind a schema that looks finished, so it is left for the invariant arm to fail on. A <c>$ref</c>
+    /// that is not a JSON string at all takes the same route (PR #465 gate review): the pass leaves it, rather
+    /// than reading it as a string and throwing out of the <c>PostConfigure</c> it runs in — which would fail the
+    /// server's whole start, naming no tool. Both directions are measured here: the unhandled form survives
+    /// untouched AND the handled one beside it is still inlined.</summary>
     static void UnresolvableArm()
     {
-        Console.WriteLine("── ARM 5: an unresolvable pointer is left in place, not papered over ──");
+        Console.WriteLine("── ARM 5: a form the pass does not handle is left in place, not papered over ──");
         var doc = Parse("""
         {"properties":{"broken":{"$ref":"#/$defs/Missing","description":"d"},
                        "fine":{"$ref":"#/properties/leaf"},
@@ -172,6 +176,28 @@ public static class SchemaFlattenProbe
         Check("…and it did not stop the resolvable one beside it from being inlined",
             doc["properties"]?["fine"]?["type"]?.GetValue<string>() == "string",
             doc["properties"]?["fine"]?.ToJsonString());
+
+        // A $ref holding a boolean, a number, an object and an array — the four ways the member can be present
+        // without being a pointer. Reading any of them as a string throws; the pass must return the document.
+        var nonString = Parse("""
+        {"properties":{"b":{"$ref":true},"n":{"$ref":3},"o":{"$ref":{"a":1}},"a":{"$ref":[1]},
+                       "fine":{"$ref":"#/properties/leaf"},
+                       "leaf":{"type":"string"}}}
+        """);
+        var threw = "";
+        try { ToolSchemas.FlattenRefs(nonString); }
+        catch (Exception ex) { threw = $"{ex.GetType().Name}: {ex.Message}"; }
+        Check("a non-string $ref does not throw the pass — it would take the server's start with it", threw.Length == 0, threw);
+        Check("…each non-string $ref is left exactly as it was, for the invariant arm to report",
+            threw.Length == 0
+            && nonString["properties"]?["b"]?["$ref"]?.ToJsonString() == "true"
+            && nonString["properties"]?["n"]?["$ref"]?.ToJsonString() == "3"
+            && nonString["properties"]?["o"]?["$ref"]?.ToJsonString() == "{\"a\":1}"
+            && nonString["properties"]?["a"]?["$ref"]?.ToJsonString() == "[1]",
+            nonString["properties"]?.ToJsonString());
+        Check("…and the string pointer beside them is still inlined",
+            threw.Length == 0 && nonString["properties"]?["fine"]?["type"]?.GetValue<string>() == "string",
+            nonString["properties"]?["fine"]?.ToJsonString());
     }
 
     /// <summary>The terminator writes a SENTENCE into the published schema — "nesting continues below this level
