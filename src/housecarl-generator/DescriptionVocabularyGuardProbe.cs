@@ -288,6 +288,7 @@ public static class DescriptionVocabularyGuardProbe
         {
             var source = SourceArm();
             VocabularyArm(source);
+            ToolNameArm(source);
             var surface = SurfaceSites().ToList();
             ReachArm(surface, source);
             VerbArm(surface);
@@ -2455,6 +2456,73 @@ public static class DescriptionVocabularyGuardProbe
                     .Select((l, n) => new Sentence($"fixture:{n}", l.Text)).ToList(), Array.Empty<Exemption>(), null).Violations.Count == 1,
             new() { "the scanner does not see a phrase in a literal, or DOES see one in a comment — the declared "
                   + "docstring boundary would be false in one direction or the other" }, redArm: true);
+    }
+
+    // ================= TOOL NAMES: no caller-facing sentence points at a tool nobody can call =================
+
+    /// <summary>The names the SDK's assembly scan actually REGISTERS, by its own discovery predicate:
+    /// <c>[McpServerToolType]</c> on the declaring TYPE and <c>[McpServerTool]</c> on the method. The type half is
+    /// load-bearing and is why this is not the method-attribute-only derivation used elsewhere in the generator —
+    /// <c>CheckTools</c> carries the method attribute and no type attribute, so <c>housecarl_check</c> is declared
+    /// and has never been registered (#470), and a predicate reading the method alone reports it live.</summary>
+    static HashSet<string> RegisteredToolNames()
+    {
+        const BindingFlags Flags = BindingFlags.Public | BindingFlags.NonPublic
+                                 | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var t in Surface.GetTypes())
+        {
+            if (t.GetCustomAttribute<ModelContextProtocol.Server.McpServerToolTypeAttribute>(inherit: false) is null) continue;
+            foreach (var m in t.GetMethods(Flags))
+                if (m.GetCustomAttribute<ModelContextProtocol.Server.McpServerToolAttribute>(inherit: false)?.Name is { Length: > 0 } n)
+                    names.Add(n);
+        }
+        return names;
+    }
+
+    static readonly Regex ToolToken = new("housecarl_[a-z0-9_]+", RegexOptions.Compiled);
+
+    /// <summary>A remedy may only name a call that works (<see cref="CorpusRulebook"/>'s own rule), and a deletion
+    /// wave is when that stops being free: the six 1.x write tools left ~30 shipped sentences telling a caller to
+    /// call something no longer on the surface, in five files no survey had listed. So the check is derived on both
+    /// sides — the literals from the two-reader net above, the live names from the SDK's own predicate — rather
+    /// than from a list of what someone remembered to look at.</summary>
+    static void ToolNameArm(List<Sentence> sentences)
+    {
+        Console.WriteLine("── TOOL NAMES: every housecarl_ token a caller-facing sentence carries names a REGISTERED tool ──");
+        var registered = RegisteredToolNames();
+        // The one legitimate home for an unregistered name is the retired-name redirect table, whose rows exist to
+        // answer an old name with its successor. Derived from the table itself, BOTH halves of every row, so adding
+        // or dropping a row moves this exemption with it — and nothing else is exempt.
+        var retiredRows = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (old, successor) in AliasTable.AllRetiredTools) { retiredRows.Add(old); retiredRows.Add(successor); }
+
+        var violations = new List<string>();
+        int prose = 0, carrying = 0, tokens = 0, exempt = 0;
+        foreach (var s in sentences)
+        {
+            // PROSE only. A bare "housecarl_check" literal is the tool's own DECLARATION (the attribute's Name), not
+            // a sentence telling a caller what to call; the claim here is about instructions, not identifiers.
+            if (!s.Text.Any(char.IsWhiteSpace)) continue;
+            prose++;
+            var hits = ToolToken.Matches(s.Text);
+            if (hits.Count == 0) continue;
+            carrying++;
+            if (retiredRows.Contains(s.Text)) { exempt++; continue; }
+            foreach (Match h in hits)
+            {
+                tokens++;
+                if (!registered.Contains(h.Value))
+                    violations.Add($"{s.Label}: names '{h.Value}', which no registered tool answers to");
+            }
+        }
+        Console.WriteLine($"        coverage: {prose} prose literal(s) read, {carrying} carrying a housecarl_ token, {tokens} token(s) "
+                        + $"held against {registered.Count} registered name(s); {exempt} retired-name row(s) exempt.");
+        Console.WriteLine("        the claim reaches housecarl_-prefixed tokens ONLY. A BARE retired name (\"the old set_field call\") is "
+                        + "outside it, deliberately: bare-word matching would read ordinary vocabulary as tool names.");
+        // An empty sweep is a broken guard, not a clean surface: both populations must be non-empty to claim anything.
+        Check("TOOLNAME      every housecarl_ token in a caller-facing sentence names a REGISTERED tool",
+            violations.Count == 0 && registered.Count > 0 && carrying > 0, violations, tier: Tier.BestEffort);
     }
 
     // ================= reporting =================
