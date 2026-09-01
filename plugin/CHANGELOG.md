@@ -19,8 +19,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   strictly reject recursion and refuse the *whole* server at connect time, with an error
   (`Recursive JSON schemas are not currently supported`) that names neither houseCARL nor a tool, so the only
   way through was turning the MCP server off for that model. The nested shape is now written out concretely to
-  a bounded depth and then closed with a node that accepts anything and says so in its own description. What
-  the tools accept is unchanged — arguments are read by each tool's own reader, never by the published schema.
+  a bounded depth and then closed with a node that keeps the type but stops constraining what is inside it, and
+  says so in its own description. What the tools accept is unchanged — arguments are read by each tool's own
+  reader, never by the published schema.
   Check it from your client's tool list: no houseCARL schema carries a `$ref`.
 
 - **`housecarl_records` truncation and expansion notices name that tool's own parameters — on the forms and
