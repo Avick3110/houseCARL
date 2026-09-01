@@ -625,34 +625,67 @@ public static class BindingShimProbe
             refs.Count == 0, string.Join(" | ", refs.Take(5)));
 
         // The recursion is EXPANDED, not amputated. Deleting the recursive branch would satisfy the arm above
-        // while silently telling callers a nested compose is not a thing — so walk the chain that carried the
-        // $ref and require a real object schema at each level, then the open node at the bound.
+        // while silently telling callers a nested compose is not a thing — so walk each chain that carried a
+        // $ref and require a real object schema at every level, then the open node where it closes.
         JsonElement applySchema = default;
         foreach (var t in toolsList.GetProperty("tools").EnumerateArray())
             if (t.GetProperty("name").GetString() == "housecarl_apply") { applySchema = t.GetProperty("inputSchema"); break; }
 
-        const string composeStep = "/properties/sets/items/properties/compose";
-        var chain = "#/properties/ops/anyOf/0/items/properties/compose";
-        for (var level = 1; level <= 3; level++)
+        // BOTH recursive arms, and no depth hardcoded to a named one. ApplyOp carries `compose` AND `composes`,
+        // which reference the same pointer, so the arm the generator reaches first spends budget the other then
+        // lacks: today `compose` publishes three concrete levels and `composes` two. WHICH arm gets which is C#
+        // member declaration ORDER, not the bound — so pinning a named arm at a fixed level reports amputation on
+        // a pure member reorder, and leaves the shallower arm measured by nothing. The order-free facts: every arm
+        // is concrete for at least two levels, every arm closes on the open node, and the levels across the arms
+        // total five (MaxSelfExpansions = 1 spent once per arm over one shared pointer).
+        var depths = new List<int>();
+        foreach (var (arm, start) in new[]
         {
-            var node = Pointer(applySchema, chain);
-            var concrete = node is { ValueKind: JsonValueKind.Object } n
-                        && n.TryGetProperty("properties", out var mem)
-                        && mem.TryGetProperty("type", out _) && mem.TryGetProperty("sets", out _);
-            failures += Check($"SCHEMA: housecarl_apply ops= spells the compose chain out concretely at nesting level {level}",
-                concrete, node?.GetRawText() ?? "pointer does not resolve");
-            chain += composeStep;
+            ("compose",  "#/properties/ops/anyOf/0/items/properties/compose"),
+            ("composes", "#/properties/ops/anyOf/0/items/properties/composes/items"),
+        })
+        {
+            var (levels, closedOpen, detail) = WalkComposeChain(applySchema, start);
+            depths.Add(levels);
+            failures += Check($"SCHEMA: housecarl_apply ops= spells the {arm} chain out concretely (>= 2 levels, got {levels})",
+                levels >= 2, detail);
+            failures += Check($"SCHEMA: the {arm} chain closes on an OPEN node — typed, unconstrained, and saying so",
+                closedOpen, detail);
         }
-        var bound = Pointer(applySchema, "#/properties/ops/anyOf/0/items/properties/compose"
-                                       + composeStep + composeStep + "/properties/sets");
-        failures += Check("SCHEMA: at the bound the chain closes on an OPEN node — typed, unconstrained, and saying so",
-            bound is { ValueKind: JsonValueKind.Object } b
-            && b.TryGetProperty("type", out _) && !b.TryGetProperty("items", out _)
-            && b.TryGetProperty("description", out var boundDesc)
-            && boundDesc.GetString()!.Contains("Nesting continues", StringComparison.Ordinal),
-            bound?.GetRawText() ?? "pointer does not resolve");
+        failures += Check($"SCHEMA: the two recursive arms share one pointer budget — concrete levels total 5 (got {string.Join("+", depths)})",
+            depths.Sum() == 5, string.Join("+", depths));
         return failures;
     }
+
+    /// <summary>Walk one published compose chain (struct → sets[] → compose → …) from <paramref name="start"/>,
+    /// counting the levels spelled out concretely and reporting whether it ends on the open node the bound writes.
+    /// Walks instead of pinning a depth, so it is indifferent to which recursive arm the generator reached first.</summary>
+    static (int Levels, bool ClosedOpen, string Detail) WalkComposeChain(JsonElement schema, string start)
+    {
+        var node = Pointer(schema, start);
+        var levels = 0;
+        while (true)
+        {
+            if (node is not { ValueKind: JsonValueKind.Object } n)
+                return (levels, false, $"level {levels + 1} does not resolve to an object schema");
+            if (!n.TryGetProperty("properties", out var members))
+                return (levels, false, $"level {levels + 1} is not spelled out concretely: {Trunc(n)}");
+            if (!members.TryGetProperty("type", out _) || !members.TryGetProperty("sets", out var sets))
+                return (levels, false, $"level {levels + 1} is missing type=/sets=: {Trunc(n)}");
+            levels++;
+            if (!sets.TryGetProperty("items", out var items))
+                return (levels,
+                    sets.TryGetProperty("type", out _)
+                    && sets.TryGetProperty("description", out var d)
+                    && d.GetString()?.Contains("Nesting continues", StringComparison.Ordinal) == true,
+                    $"closing node after {levels} levels: {Trunc(sets)}");
+            if (!items.TryGetProperty("properties", out var element) || !element.TryGetProperty("compose", out var next))
+                return (levels, false, $"the sets= element at level {levels} carries no compose=: {Trunc(items)}");
+            node = next;
+        }
+    }
+
+    static string Trunc(JsonElement e) { var s = e.GetRawText(); return s.Length > 240 ? s[..240] + "…" : s; }
 
     /// <summary>Every <c>$ref</c> string anywhere in a schema document.</summary>
     static IEnumerable<string> CollectRefs(JsonElement node)
