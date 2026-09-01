@@ -13,6 +13,24 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **Six 1.x write tools are gone: `housecarl_set_field`, `housecarl_bulk_apply`, `housecarl_create_record`,
+  `housecarl_bulk_create`, `housecarl_remove_record` and `housecarl_forward_record`.** Their capability is on
+  `housecarl_apply` (both field-edit tools), `housecarl_create` (both create tools), `housecarl_remove` and
+  `housecarl_forward`, where one op or one record is a set of one. They are deleted rather than deprecated, on
+  the maintainer's ruling that a 1.x tool whose capability the finished 2.0 surface covers goes at 2.0.0 with no
+  deprecation window, in the release that ships its replacement. Calling a deleted name does not fail blank: the
+  server answers with the successor and the parameter migration for that tool — what `from_file=` and
+  `operations=` and the `target=`+`in_place=true` pair are called now.
+  Check it from your client's tool list: the six names are absent and the four successors are present.
+
+- **Refusals and remedies across the surface name a tool you can actually call.** Sentences left behind by the
+  deletion above told you to reach for a tool that is no longer there — among them the record-axis refusal that
+  answers an attempt to add a child record into a parent's list, the create refusal for a record type with no
+  top-level group, the dialogue-view and subtype-marker repair advice, and the `housecarl_records` line saying
+  where authoring goes. Each names its successor now, and where the spelling moved as well as the name it gives
+  the new spelling: `create`'s `parent=` and `collection=` are members of a `records=` element, not top-level
+  arguments.
+
 - **The tool schemas houseCARL publishes no longer contain a `$ref`, so a provider that rejects recursive
   schemas can load the server.** Every tool that takes a composed struct declared a nested shape referring
   back to itself — how a JSON Schema generator spells a recursive type. Providers that validate the tool list
