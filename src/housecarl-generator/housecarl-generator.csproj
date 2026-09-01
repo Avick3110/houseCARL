@@ -24,7 +24,7 @@
          Pinned, and the pin is load-bearing: the parse runs at LanguageVersion.Preview, so a language feature
          newer than this package is a PARSE ERROR that INV6-PARSE names, never a construct read into fewer
          literals. Bump it deliberately when the codebase adopts a newer C# — the guard will say so first. -->
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
   </ItemGroup>
 
   <ItemGroup>
