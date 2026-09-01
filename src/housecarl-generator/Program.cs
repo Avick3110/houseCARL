@@ -78,19 +78,19 @@ if (args.Length > 0 && args[0] == "f1-i14") return F1MeasureProbe.RunI14(args[1.
 if (args.Length > 0 && args[0] == "sig") return Probe.RunSig();
 
 // Step 4 write engine: build-start discovery of Mutagen's generic group-override surface.
-if (args.Length > 0 && args[0] == "write-api") return WriteEngine.RunDiscovery(args[1..]);
+if (args.Length > 0 && args[0] == "write-api") return WriteDiagnosticsProbe.RunDiscovery(args[1..]);
 
 // Step 4 write engine: NPC-skills-by-name acceptance proof (nested dict-in-substruct Set).
-if (args.Length > 0 && args[0] == "npc-skills") return WriteEngine.RunNpcSkillsProof(args[1..]);
+if (args.Length > 0 && args[0] == "npc-skills") return WriteDiagnosticsProbe.RunNpcSkillsProof(args[1..]);
 
 // Step 5 oracle: per-kind byte-identical cells (Path A engine vs Path B hand-written setter).
 if (args.Length > 0 && args[0] == "oracle") return WriteOracle.Run(args[1..]);
 
 // Step 5 build-start confirm: polymorphic arm-swap instantiation mechanism.
-if (args.Length > 0 && args[0] == "poly-probe") return WriteEngine.RunPolyProbe(args[1..]);
+if (args.Length > 0 && args[0] == "poly-probe") return WriteDiagnosticsProbe.RunPolyProbe(args[1..]);
 
 // Absent-substruct characterization: which navigate-into substructs lack a parameterless ctor (the tricky shapes).
-if (args.Length > 0 && args[0] == "substruct-probe") return WriteEngine.RunSubstructProbe(args[1..]);
+if (args.Length > 0 && args[0] == "substruct-probe") return WriteDiagnosticsProbe.RunSubstructProbe(args[1..]);
 
 // Wave 3 scout: recon Mutagen's nested-group override API (Cell/Placed*/INFO/Navmesh/Landscape) — the highest-risk unknown.
 if (args.Length > 0 && args[0] == "nested-probe") return NestedProbe.RunNestedProbe(args[1..]);
