@@ -17,12 +17,13 @@ namespace HousecarlCore;
 /// of Mutagen's model rather than of a hand-written per-type map.
 ///
 /// <para>What it keeps: a path it cannot navigate or a value it cannot coerce is refused by name, never skipped.
-/// <b>Corpus-rulebook validation is the CALLER's, not this layer's</b> — <see cref="ApplyVerb"/> is public and
-/// validates nothing, so a direct or CLI caller that skips pre-flight mutates unvalidated. <c>apply-guard</c>
-/// proves the pre-flight, refusal and lane contracts for the <c>housecarl_apply</c> path only.</para>
+/// <b>Corpus-rulebook validation is the CALLER's, not this layer's</b> — <see cref="ApplyVerb"/> is public and does
+/// no rulebook check (it makes its own structural refusals, but nothing about identity fields, verb-vs-cardinality,
+/// enum-key legality or range), so a direct or CLI caller that skips pre-flight mutates unvalidated.
+/// <c>apply-guard</c> proves the pre-flight, refusal and lane contracts for the <c>housecarl_apply</c> path only.</para>
 ///
-/// <para>Per-KIND equivalence against a hand-written typed setter is proven by <c>oracle</c> — hand-run, not in
-/// <c>ci-all</c>.</para>
+/// <para>Byte-equivalence against a hand-written typed setter is proven by <c>oracle</c>, over the cells it
+/// enumerates — hand-run, not in <c>ci-all</c>.</para>
 ///
 /// <para>The acceptance proof and the hand-run diagnostics moved to <c>WriteDiagnosticsProbe</c>
 /// (housecarl-generator) with #453. Still here, and still console entry points in a library: the <c>patch</c> /
@@ -337,8 +338,7 @@ public static class WriteEngine
     //  RE-TARGET it to a different real form THROUGH THE ENGINE (pre-flight rooted at the arm + ApplyVerb -> SetFloi),
     //  and emit ONE reviewable single-master .esp. Aaron opens it in xEdit and confirms the condition now points at
     //  the new target; the original stays byte-for-byte untouched (Q3). The write is ARM-ROOTED — the same engine
-    //  entry BuildStruct's nested Sets use; reaching arm sub-fields from a record-root path is the broader arm-breadth
-    //  nav surface (reconciles at the final completion sweep), deliberately not this wave.
+    //  entry BuildStruct's nested Sets use.
     //    dotnet run --project src/housecarl-generator condition-patch \
     //        --source "<plugin>" [--target XXXXXX:Plugin.esp] [--out <path>] [--name <patch>]
     // ======================================================================
