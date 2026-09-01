@@ -75,7 +75,7 @@ internal static class ToolSchemas
     /// The array arm is generated from the C# element type by the same generator the SDK uses, so adding a member to
     /// <see cref="ApplyOp"/> updates the published schema automatically. Returns false — leaving the schema
     /// untouched — when the document is not the shape this expects.</summary>
-    static bool RewriteFileListUnions(JsonObject root, IReadOnlyList<FileListParam> parameters)
+    internal static bool RewriteFileListUnions(JsonObject root, IReadOnlyList<FileListParam> parameters)
     {
         if (root["properties"] is not JsonObject props) return false;
 

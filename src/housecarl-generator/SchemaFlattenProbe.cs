@@ -218,7 +218,9 @@ public static class SchemaFlattenProbe
             deepError?.Contains("compose.sets[0].compose", StringComparison.Ordinal) == true, deepError);
     }
 
-    /// <summary>ARM 7 — the EMISSION GRAMMAR the pass depends on, over the real pre-flatten generated surface.
+    /// <summary>ARM 7 — the EMISSION GRAMMAR the pass depends on, over the real pre-flatten generated surface:
+    /// every registered tool's <c>ProtocolTool.InputSchema</c> as the SDK's assembly scan produced it, which is
+    /// the exact input <see cref="ToolSchemas.PublishSchemas"/> reads.
     /// <para>Everything the narrowed contract on <see cref="ToolSchemas"/> declares out of scope is safe only
     /// because this generator does not emit it. That is a precondition, and before this arm it was held by review
     /// attention alone — which never carries a completeness claim. So assert the grammar itself: no <c>$defs</c>,
@@ -226,6 +228,14 @@ public static class SchemaFlattenProbe
     /// rule was written for, every target an object schema, and no <c>$ref</c>-shaped value in a NON-schema
     /// position. A generator that drifts on an SDK bump — the shape that would resurrect #451's outage class, or
     /// worse, silently mis-normalize a published schema — goes RED here rather than at a user's server start.</para>
+    /// <para>The subjects are the SURFACE, not a list (#451, "derive, don't enumerate"). This arm used to re-derive
+    /// standalone schemas for six hand-named DTO types through its own <c>CreateJsonSchema</c> call — a second
+    /// emission that resembled the real one but was not it, so the drift claim above was never established for the
+    /// path that actually drifts, and a seventh DTO would have been covered by nobody. Reading the registered tools
+    /// makes coverage a consequence of registration.</para>
+    /// <para>Results are aggregated per grammar rule rather than per subject: 51 tools would otherwise print
+    /// hundreds of near-identical lines, and a rule that holds over the whole population is one claim. Each rule
+    /// names its violators, and the population it ran over is stated so an empty sweep cannot read as a pass.</para>
     /// <para>Deliberately NOT paired with runtime fail-safe handling: catching a malformed emission and publishing
     /// the schema unflattened would trade a loud failure for quietly republishing the recursive form (Q3).</para></summary>
     static void EmissionGrammarArm()
@@ -233,48 +243,85 @@ public static class SchemaFlattenProbe
         Console.WriteLine("── ARM 7: the generator emission grammar the pass depends on ──");
 
         var nonSchema = new[] { "default", "enum", "const", "examples" };
-        foreach (var type in new[]
+        var withDefs = new List<string>();
+        var inValuePosition = new List<string>();
+        var notPointerForm = new List<string>();
+        var badTokens = new List<string>();
+        var extraMembers = new List<string>();
+        var realItems = new List<string>();
+        var nonObjectTarget = new List<string>();
+
+        var tools = PreFlattenSurface.Read();
+        var refSites = 0;
+        var rawSites = 0;
+
+        foreach (var tool in tools)
         {
-            typeof(ApplyOp[]), typeof(Assignment[]), typeof(CreateRecordSpec[]),
-            typeof(CreateFieldOp[]), typeof(StructInput), typeof(NestedSet),
-        })
-        {
-            var raw = AIJsonUtilities.CreateJsonSchema(type, serializerOptions: new(JsonSerializerDefaults.Web)).GetRawText();
-            if (JsonNode.Parse(raw) is not JsonObject doc) { Check($"{type.Name}: generated schema parses", false, raw); continue; }
+            // The grammar precondition is about what FlattenRefs READS, which is the document after the @file
+            // union pass — not the raw scan output. Two of the five ref-carrying tools (the ones whose list
+            // parameters are declared JsonElement) emit no $ref at all until RewriteFileListUnions generates
+            // their element-array arm, so a raw-only scan would leave 12 of the 30 sites the pass handles
+            // ungoverned, and would not see a $defs the union pass introduced either. Replaying the pass in the
+            // same order the server runs it is what makes this the real input rather than a resemblance of it.
+            var doc = (JsonObject)tool.Schema.DeepClone();
+            rawSites += PreFlattenSurface.RefNodes(tool.Schema).Count;
+            var unions = ToolSchemas.FileListParams.Where(p => p.Tool == tool.Name).ToList();
+            if (unions.Count > 0) ToolSchemas.RewriteFileListUnions(doc, unions);
 
             var refNodes = new List<(string Path, JsonObject Node)>();
             var valuePositionRefs = new List<string>();
             CollectRefNodes(doc, "#", null, nonSchema, refNodes, valuePositionRefs);
 
-            Check($"{type.Name}: the generator emits no $defs (the hoist path the pass carries stays dead)",
-                FindKey(doc, "$defs") is null, FindKey(doc, "$defs"));
-            Check($"{type.Name}: no $ref sits in a non-schema position (default/enum/const/examples)",
-                valuePositionRefs.Count == 0, string.Join(" | ", valuePositionRefs.Take(3)));
+            if (FindKey(doc, "$defs") is { } defs) withDefs.Add($"{tool.Name}: {defs}");
+            foreach (var v in valuePositionRefs) inValuePosition.Add($"{tool.Name} {v}");
 
             foreach (var (path, node) in refNodes)
             {
-                var pointer = node["$ref"];
-                var spelling = pointer is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;
-                Check($"{type.Name} {path}: $ref is a STRING in pointer form (\"#/…\"), not a plain-name anchor",
-                    spelling is not null && (spelling == "#" || spelling.StartsWith("#/", StringComparison.Ordinal)),
-                    pointer?.ToJsonString() ?? "<absent>");
-                if (spelling is null) continue;
+                refSites++;
+                var where = $"{tool.Name} {path}";
+                var spelling = node["$ref"] is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;
+                if (spelling is null || !(spelling == "#" || spelling.StartsWith("#/", StringComparison.Ordinal)))
+                {
+                    notPointerForm.Add($"{where} = {node["$ref"]?.ToJsonString() ?? "<absent>"}");
+                    continue;
+                }
 
                 var tokens = spelling.Length > 1 ? spelling[1..].Split('/') : [];
-                Check($"{type.Name} {path}: every reference token is non-empty and unescaped (Resolve tokenizes literally)",
-                    tokens.Skip(1).All(t => t.Length > 0 && !t.Contains('%') && !t.Contains('~')),
-                    spelling);
+                if (!tokens.Skip(1).All(t => t.Length > 0 && !t.Contains('%') && !t.Contains('~')))
+                    badTokens.Add($"{where} = {spelling}");
 
                 var extra = node.Select(kv => kv.Key).Where(k => k is not ("$ref" or "description" or "items")).ToList();
-                Check($"{type.Name} {path}: the ref node carries only the members the merge rule was written for",
-                    extra.Count == 0, string.Join(",", extra));
-                Check($"{type.Name} {path}: an items= sibling is the empty placeholder, never a real constraint",
-                    node["items"] is null or JsonObject { Count: 0 }, node["items"]?.ToJsonString());
-                Check($"{type.Name} {path}: the target resolves to an OBJECT schema, not a boolean schema",
-                    ToolSchemas.Resolve(doc, spelling) is JsonObject,
-                    ToolSchemas.Resolve(doc, spelling)?.ToJsonString() ?? "<does not resolve>");
+                if (extra.Count > 0) extraMembers.Add($"{where}: {string.Join(",", extra)}");
+
+                if (node["items"] is not (null or JsonObject { Count: 0 }))
+                    realItems.Add($"{where}: {node["items"]?.ToJsonString()}");
+
+                if (ToolSchemas.Resolve(doc, spelling) is not JsonObject)
+                    nonObjectTarget.Add($"{where} -> {ToolSchemas.Resolve(doc, spelling)?.ToJsonString() ?? "<does not resolve>"}");
             }
         }
+
+        // A grammar asserted over nothing is asserted over nothing. Both populations are stated and required
+        // non-empty: no tools means the surface read broke, and no ref sites means every per-site rule below
+        // passed without examining anything — which is the exact shape this arm was rebuilt to stop.
+        Check($"the pre-flatten surface yields the registered tools ({tools.Count} scanned)", tools.Count > 0);
+        Check($"…and they carry $ref sites for the per-site rules to run over ({refSites} in the pass's input; {rawSites} straight from the assembly scan, the rest added by the @file union pass)",
+            refSites > 0);
+
+        Check($"no tool's generated schema emits $defs — the hoist path the pass carries stays dead ({tools.Count} tools)",
+            withDefs.Count == 0, string.Join(" | ", withDefs.Take(3)));
+        Check($"no $ref sits in a non-schema position — default/enum/const/examples ({tools.Count} tools)",
+            inValuePosition.Count == 0, string.Join(" | ", inValuePosition.Take(3)));
+        Check($"every $ref is a STRING in pointer form (\"#/…\"), never a plain-name anchor ({refSites} sites)",
+            notPointerForm.Count == 0, string.Join(" | ", notPointerForm.Take(3)));
+        Check($"every reference token is non-empty and unescaped — Resolve tokenizes literally ({refSites} sites)",
+            badTokens.Count == 0, string.Join(" | ", badTokens.Take(3)));
+        Check($"every ref node carries only the members the merge rule was written for ({refSites} sites)",
+            extraMembers.Count == 0, string.Join(" | ", extraMembers.Take(3)));
+        Check($"every items= sibling is the empty placeholder, never a real constraint ({refSites} sites)",
+            realItems.Count == 0, string.Join(" | ", realItems.Take(3)));
+        Check($"every target resolves to an OBJECT schema, not a boolean schema ({refSites} sites)",
+            nonObjectTarget.Count == 0, string.Join(" | ", nonObjectTarget.Take(3)));
     }
 
     /// <summary>Every object carrying a <c>$ref</c>, split by whether it sits in a schema position or under a
