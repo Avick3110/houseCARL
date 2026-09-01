@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using HousecarlMcp;
 
@@ -44,6 +45,7 @@ public static class SchemaFlattenProbe
         MutualRecursionArm();
         SiblingArm();
         UnresolvableArm();
+        TerminatorSentenceArm();
 
         Console.WriteLine();
         Console.WriteLine($"=== schema-flatten-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
@@ -147,5 +149,53 @@ public static class SchemaFlattenProbe
         Check("…and it did not stop the resolvable one beside it from being inlined",
             doc["properties"]?["fine"]?["type"]?.GetValue<string>() == "string",
             doc["properties"]?["fine"]?.ToJsonString());
+    }
+
+    /// <summary>The terminator writes a SENTENCE into the published schema — "nesting continues below this level
+    /// … it is accepted but not spelled out again here". That is a claim about what the caller may send, so it is
+    /// measured rather than asserted: the strict element reader the ToolSchemas header names is driven with a
+    /// compose chain nested well past any bound, and the innermost node must survive the read intact.
+    /// <para>There is no wire-side twin, deliberately: <c>ops</c> is declared <c>JsonElement</c>, so the SDK binder
+    /// accepts any shape at any depth and an arm over it could not fail. This reader IS the gate. Nor does either
+    /// check claim the deep struct is SEMANTICALLY buildable — that is content, decided by the engine, and a
+    /// refusal about it names the content.</para></summary>
+    static void TerminatorSentenceArm()
+    {
+        Console.WriteLine("── ARM 6: the sentence the terminator publishes is true of the reader ──");
+
+        // 6 levels of compose: three past where the schema stops spelling the shape out.
+        var (ops, innermost) = DeepComposeOps(6);
+        var (items, error) = ListParams.Read<ApplyOp>(
+            JsonDocument.Parse(ops).RootElement, "ops", "{formid, field_path, …}");
+
+        Check("a compose nested past the bound is READ, not refused on its shape", error is null, error);
+
+        var node = items?[0].Compose;
+        for (var level = 1; level < 6 && node is not null; level++) node = node.Sets?[0].Compose;
+        Check($"…and the innermost level survives the read intact (type '{innermost}')",
+            node?.Type == innermost, node?.Type ?? "<the chain did not reach level 6>");
+
+        // Past the JSON reader's OWN depth ceiling (STJ's MaxDepth, shared by the transport parse) the read must
+        // still fail loudly. Parsed with headroom here so the READER is what answers rather than this probe's parse.
+        var (past, _) = DeepComposeOps(30);
+        var wide = JsonDocument.Parse(past, new JsonDocumentOptions { MaxDepth = 512 }).RootElement;
+        var (deepItems, deepError) = ListParams.Read<ApplyOp>(wide, "ops", "{formid, field_path, …}");
+        Check("past the reader's own depth ceiling it is a NAMED refusal, never a silent truncation",
+            deepItems is null && deepError is not null && deepError.StartsWith("ops could not be parsed", StringComparison.Ordinal),
+            deepError ?? "<read succeeded — the ceiling moved, so the arm below is measuring nothing>");
+        Check("…and that refusal points AT the nesting it stopped on, not just at the call",
+            deepError?.Contains("compose.sets[0].compose", StringComparison.Ordinal) == true, deepError);
+    }
+
+    /// <summary>One <c>ops</c> array whose single op carries <paramref name="levels"/> of nested compose, each
+    /// level's type naming its own depth so the innermost is identifiable. Returns the JSON and that type name.</summary>
+    internal static (string Json, string InnermostType) DeepComposeOps(int levels)
+    {
+        var innermost = "Level" + levels;
+        var compose = "{\"type\":\"" + innermost + "\",\"fields\":{\"Number\":\"1\"}}";
+        for (var level = levels - 1; level >= 1; level--)
+            compose = "{\"type\":\"Level" + level + "\",\"sets\":[{\"path\":\"Data\",\"compose\":" + compose + "}]}";
+        return ("[{\"formid\":\"012E46:Skyrim.esm\",\"field_path\":\"Ranks\",\"op\":\"Add\",\"compose\":" + compose + "}]",
+                innermost);
     }
 }
