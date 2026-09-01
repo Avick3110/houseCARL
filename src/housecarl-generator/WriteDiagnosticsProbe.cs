@@ -23,13 +23,13 @@ namespace HousecarlGenerator;
 /// cannot build with a parameterless ctor. Corpus + reflection; needs no plugin.</item>
 /// </list>
 ///
-/// They lived in <see cref="WriteEngine"/> until #453 moved them here, beside the probes they resemble; a 2026-05
-/// review had already asked for the split. The engine's own header lists what stayed behind.
+/// They lived in <see cref="WriteEngine"/> until #453 moved them here, beside the probes they resemble. The
+/// engine's own header lists what stayed behind.
 /// </summary>
 public static class WriteDiagnosticsProbe
 {
-    // A convenience default for the two modes that read a plugin. Both take a path as argv[0] instead; this
-    // one machine's install is not assumed to exist anywhere.
+    // A convenience default for the two modes that read a plugin; both take a path as argv[0] instead. It names
+    // one machine's install and is not assumed to exist — each of those two refuses by name when it does not.
     const string DefaultSourcePath =
         @"C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\Skyrim.esm";
 
@@ -215,6 +215,11 @@ public static class WriteDiagnosticsProbe
         Console.WriteLine();
 
         var src = args.Length > 0 ? args[0] : DefaultSourcePath;
+        if (!File.Exists(src))
+        {
+            Console.Error.WriteLine($"error: source plugin not found: {src}");
+            return 1;
+        }
         var mod = SkyrimMod.CreateFromBinaryOverlay(src, SkyrimRelease.SkyrimSE);
         foreach (var m in mod.MagicEffects)
             if (m.Archetype is not null) { Console.WriteLine($"sample MGEF {m.FormKey} archetype concrete: {m.Archetype.GetType().Name}"); break; }
