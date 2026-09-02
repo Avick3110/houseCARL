@@ -39,7 +39,7 @@ The marker is the load-bearing signal: it tells the next session, at a glance, w
 | Path / doc | Class | Notes |
 |---|---|---|
 | `CLAUDE.md` | LIVING | The operating doc — how houseCARL works + how we operate. Stays stable; points at the handoff folder for tactical state (never a session log). |
-| `standards/HOUSECARL_*.md` | LIVING | Naming, skill-authoring, this doc. Standards evolve; revise when reality contradicts (§5.3). |
+| `standards/HOUSECARL_*.md` | LIVING | Naming, skill-authoring, review rounds, this doc. Standards evolve; revise when reality contradicts (§5.3). |
 | `README.md`, `CHANGELOG.md` (when they ship) | LIVING | Consumer-facing install/capability overview + version-by-version narrative. Update in the commit that changes what they describe. |
 | `docs/architecture/*` | LIVING | Public per-subsystem notes — what it is, how it's shaped, the contracts that hold it together (§8). |
 | `docs/decisions/*` | ARCHIVE | Public ADRs — numbered, immutable, superseded by a later ADR rather than edited (§8). |
