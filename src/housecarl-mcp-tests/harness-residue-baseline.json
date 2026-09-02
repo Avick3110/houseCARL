@@ -1,9 +1,10 @@
 {
   "_what": "The residue countdown for the two-harness window (RUN_ORDER amendment 2026-09-02 (7), items (ii) and (iv)). These are the OLD probe harness's remaining size. HarnessResidueTests derives the same three numbers from the source tree every run and fails unless they match exactly: growth is a failing test, and a shrink that is not recorded here is one too. W7 is not complete while these are above zero.",
   "_how": "probeFiles = *Probe*.cs under src/housecarl-generator (recursive, bin/obj excluded). probeLines = their total lines. ciAllRows = the (\"name\", XProbe.RunGuard) rows in CiAll.cs, which is what ci-all runs and what its summary's N/N reports.",
+  "_raised_once": "2026-09-02, #470s PR, 65227 -> 65237: BindingShimProbes alias CENSUS baseline was re-baked in place (publishing housecarl_check activates five alias rows for its schema), and the ten-line explanatory comment the file convention asks for grew the harness. Files and ci-all rows did not move. Editing an existing guard where it lives is what the two-harness rule requires, so this measure moves in both directions on ordinary work - see the decision record for whether probeLines should gate or only report.",
   "_lowered_by": "A conversion PR: it deletes the probe, adds the tests, and lowers these in the same commit.",
 
   "probeFiles": 155,
-  "probeLines": 65227,
+  "probeLines": 65237,
   "ciAllRows": 132
 }
