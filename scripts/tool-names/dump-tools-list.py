@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Dump the built server's own ``tools/list`` as canonical JSON.
 
-The tool-name registry rewrites 279 shipped literals into constant references.
+The tool-name registry rewrote 279 shipped tool-name sites, in 265 literals,
+into constant references.
 Nothing a caller sees may move by a character.  The oracle for that is not a
 sample of source sites -- it is the wire: names, descriptions, parameter
 descriptions and input schemas exactly as a client receives them.  Dump it
@@ -13,6 +14,12 @@ boots unconfigured and deterministically, even on a dev box with a real user
 config beside the exe.
 
     python scripts/tool-names/dump-tools-list.py --out before.json
+
+ONE-SHOT MIGRATION RECORD: this script ran once, to produce the tool-name
+registry and the rewrite of its call sites (#475). It is kept as the record of
+how that population was derived, not as a maintenance path, and is not re-run --
+a new tool's constant is added by hand and the completeness test catches a
+missing one.
 """
 
 from __future__ import annotations

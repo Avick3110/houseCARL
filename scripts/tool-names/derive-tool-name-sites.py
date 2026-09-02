@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Derive every shipped tool-name site under the C# sources, classified.
 
-Population, per the tool-name registry charter (RUN_ORDER amendment 2026-09-02
-base, part (i)): every occurrence of ``housecarl_[a-z0-9_]+`` in
+Population, per the tool-name registry decision
+(docs/decisions/0003-tool-names-are-compile-time-constants.md): every
+occurrence of ``housecarl_[a-z0-9_]+`` in
 ``src/housecarl-mcp``, ``src/housecarl-core`` and ``src/housecarl-mcp-tests``
 (the last does not exist before #470 lands).
 
@@ -28,6 +29,21 @@ owed to whatever the source attribute names, so the oracle here is the declared 
 
 Nothing is written by this script.  ``--json`` emits the machine-readable site
 list the sweep consumes.
+
+KNOWN LEXER LIMIT: the regular-string branch of lex() stops at the first
+unescaped quote, so it does not model a nested string inside an interpolation
+hole -- $"a {(x ? "y" : "n")} b" is lexed with wrong bounds. The rewriter
+re-emits the original bytes around each splice, so a mis-spanned literal still
+round-trips; but the sweep's own render check compares the mis-span against
+itself and is structurally blind to this class. It was closed from outside
+instead: the compiled assemblies' string heaps and their ldstr order were
+compared base-vs-branch, which does not use this lexer at all.
+
+ONE-SHOT MIGRATION RECORD: this script ran once, to produce the tool-name
+registry and the rewrite of its call sites (#475). It is kept as the record of
+how that population was derived, not as a maintenance path, and is not re-run --
+a new tool's constant is added by hand and the completeness test catches a
+missing one.
 """
 
 from __future__ import annotations
