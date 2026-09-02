@@ -237,13 +237,15 @@ internal static class AliasTable
         // W3 PR 2 — housecarl_create absorbed the SCALAR create_record call: its five per-record operands became
         // members of a records= element, because one record is a set of one. A caller arriving with the 1.x habit
         // spells them at the TOP level, where they are genuinely gone rather than renamed — so each gets the
-        // one-hop form. Gated on `records`, which is declared by housecarl_create AND by 1.x housecarl_bulk_create —
-        // so each row fires on BOTH, which is why the CENSUS bakes five `housecarl_bulk_create: … => hint`
-        // activations alongside the create ones. (The hint text is correct on either surface; the point of saying so
-        // here is that a maintainer touching a `records`-gated row is changing two tools' behaviour, not one — an
-        // earlier draft of this comment claimed "exactly housecarl_create" and contradicted the census in the same
-        // commit.) (`operations` needs no row:
-        // it is a live rename to ops=, and inside a records element that is where it lands.)
+        // one-hop form. Gated on `records`, which housecarl_create declares. It USED to be declared by 1.x
+        // housecarl_bulk_create as well, so each row fired on both tools and the census baked five
+        // `housecarl_bulk_create: … => hint` activations alongside the create ones; the demolition catch-up (#468)
+        // deleted that tool and those five census rows with it, so these rows now fire on housecarl_create alone.
+        // (This comment is kept rather than deleted because its lesson outlived the second tool: a `records`-gated
+        // row's activation set is whatever declares `records`, which is a thing to check rather than assume — an
+        // earlier draft claimed "exactly housecarl_create" and contradicted the census in the same
+        // commit.) (`operations` needs no row: it is a live rename to ops=, and inside a records element that is
+        // where it lands.)
         new("recordtype",  new[] { "records" }, "not a parameter here — one record is a set of one: records=[{\"record_type\": \"Keyword\", \"editorid\": \"MyKeyword\"}]"),
         new("editorid",    new[] { "records" }, "not a parameter here — the editorid belongs to its record: records=[{\"record_type\": \"…\", \"editorid\": \"…\"}]"),
         new("parent",      new[] { "records" }, "not a parameter here — nesting is per record: records=[{…, \"parent\": \"XXXXXX:Plugin.esp\"}] (a parent may also be an EARLIER sibling's editorid)"),

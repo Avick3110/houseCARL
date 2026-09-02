@@ -213,19 +213,24 @@ public static class DialogueCkParity
     {
         var gaps = new List<CkParityGap>(2);
 
+        // The remedy renders a WHOLE op element, so it carries every member the op REQUIRES — formid included, and
+        // the formid of the view actually being reported rather than a placeholder. #468 round 1 caught the first
+        // form of this: the 1.x text was prose shorthand over a tool that took formid as its own argument
+        // (housecarl_set_field DNAM=00), and respelling it as an ops= literal inherited the shorthand while
+        // dropping the member — a caller pasting it got "ops[0]: formid is required." instead of the fix.
         if (!HasDnam(view))
             gaps.Add(new CkParityGap("DNAM",
                 $"every CK-authored DialogView carries the DNAM byte subrecord (0x{ViewDnamHex}); a bare DLVW (with "
                 + "BNAM-less topics) crashes the Creation Kit's Dialogue Views editor (FlowchartX64 null-deref — the "
-                + "game itself tolerates it). houseCARL's create tools auto-fill it — housecarl_apply ops=[{field_path:'DNAM', value:'"
-                + ViewDnamHex + "'}] to populate it."));
+                + "game itself tolerates it). houseCARL's create tools auto-fill it — housecarl_apply ops=[{formid:'"
+                + view.FormKey + "', field_path:'DNAM', value:'" + ViewDnamHex + "'}] to populate it."));
 
         if (!HasEnam(view))
             gaps.Add(new CkParityGap("ENAM",
                 $"every CK-authored DialogView carries the ENAM byte subrecord (0x{ViewEnamHex}), pairing with DNAM "
                 + "for Creation Kit Dialogue Views parity; a bare DLVW crashes the CK's Dialogue Views editor (the "
-                + "game itself tolerates it). houseCARL's create tools auto-fill it — housecarl_apply ops=[{field_path:'ENAM', value:'"
-                + ViewEnamHex + "'}] to populate it."));
+                + "game itself tolerates it). houseCARL's create tools auto-fill it — housecarl_apply ops=[{formid:'"
+                + view.FormKey + "', field_path:'ENAM', value:'" + ViewEnamHex + "'}] to populate it."));
 
         return gaps;
     }

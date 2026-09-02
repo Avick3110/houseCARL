@@ -274,8 +274,14 @@ public static class InPlaceProbe
                 // the NIF addressing one. Testing the bare name across both lanes reads that overload as a
                 // violation, which is a claim about a word rather than about the lane.
                 bool noTargetPair = !stringLane || m.GetParameters().All(p => p.Name != "target");
+                // The consent parameter must EXIST and default off. `ack is null ||` was the hole (#468 round 1,
+                // measured with a synthetic in_place tool declaring no acknowledge at all): the three hand-listed
+                // arms this derived sweep replaced each named a tool KNOWN to declare acknowledge, so requiring its
+                // presence was implicit in them and got lost in the generalisation. Without it the sweep welcomes
+                // the next in_place tool "by existing" and passes it under a label reading "opt-in by construction"
+                // even though nothing gates the lane.
                 var ack = m.GetParameters().FirstOrDefault(p => p.Name == "acknowledge");
-                bool ackOff = ack is null || ack.DefaultValue is false;
+                bool ackOff = ack is not null && ack.DefaultValue is false;
                 if (!offByDefault || !noTargetPair || !ackOff)
                     offenders.Add($"{tool}(off={offByDefault},noTarget={noTargetPair},ackOff={ackOff})");
             }

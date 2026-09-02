@@ -25,8 +25,9 @@ namespace HousecarlGenerator;
 //    (3) rewrites the SDK's generic binding-failure text into a named,
 //        actionable message when binding still fails.
 //
-//  ALSO GUARDED HERE (arm D3): the retired-tool-name redirect, which went live for nine tools at the
-//  demolition catch-up (#468) and is what a caller on pre-2.0 docs actually hits.
+//  ALSO GUARDED HERE (arm D3): the retired-tool-name redirect, which went live for the six 1.x WRITE tools at
+//  the demolition catch-up (#468) and is what a caller on pre-2.0 docs actually hits. (The check family's three
+//  rows stay dormant: those tools are still registered, so they resolve normally and never reach the redirect.)
 //
 //  THE GUARD: drives the REAL housecarl-mcp.exe over stdio (the exact wire
 //  path the live failure took) with the exact argument shapes from the bug
@@ -157,14 +158,20 @@ public static class BindingShimProbe
 
             // -- D3: THE RETIRED-NAME REDIRECT, driven over the wire for every name it now governs.
             //    ToolCallShim's retired-name check was written dormant — "load-bearing the moment one is
-            //    unregistered". The demolition catch-up (#468) is that moment for nine tools, so the path stops
-            //    being theoretical here and starts being the only thing standing between a caller on old docs and
-            //    a dead end. Nothing drove it before this arm: CheckMergeProbe only checks the TABLE has rows,
-            //    which is a statement about a list, not about what the server answers.
+            //    unregistered". The demolition catch-up (#468) is that moment for the six 1.x write tools, so the
+            //    path stops being theoretical here and starts being the only thing standing between a caller on old
+            //    docs and a dead end. Nothing drove it before this arm: CheckMergeProbe only checks the TABLE has
+            //    rows, which is a statement about a list, not about what the server answers.
             //
-            //    Subject set DERIVED, never hand-listed (CLAUDE.md §5 #11): every retired name the running server
-            //    does NOT register. A name still registered resolves normally and cannot reach the check, so it is
-            //    correctly out of scope; as later waves unregister more tools, they join this arm by existing.
+            //    WHAT THIS ARM'S SUBJECT SET IS, stated honestly (#468 round 1): it is
+            //    AliasTable.AllRetiredTools MINUS the running server's registered set. The right-hand side is
+            //    derived from the wire; the left-hand side is a MAINTAINED LIST. So this arm proves that every
+            //    retired name the table KNOWS ABOUT redirects to a live tool — it does NOT prove the table is
+            //    complete. Delete a tool and forget its row and this arm sweeps the rows it has, reports a clean
+            //    sweep, and the caller gets a bare "Unknown tool". Closing that needs an oracle for "what the last
+            //    shipped release published" (the 1.9 tools/list, captured as a frozen fixture), which is guard
+            //    GROWTH rather than a fold: #<COMPLETENESS-ISSUE> carries it, routed with #470, whose PR already
+            //    moves the census oracle to tools/list.
             {
                 var registered = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var t in tools.GetProperty("tools").EnumerateArray())
@@ -185,8 +192,15 @@ public static class BindingShimProbe
                     // one shape — an absorbed tool reads "absorbed into housecarl_X", while housecarl_validate_dialogue
                     // was SPLIT and names two successors. Asserting a phrase tests the house style; asserting a live
                     // tool name tests the migration.
+                    //
+                    // WHOLE-IDENTIFIER match, not Contains (#468 round 1, measured): the response ECHOES the name it
+                    // is refusing — "housecarl_create_record is not on this surface — …" — and the 2.0 successors are
+                    // PREFIXES of three of the names they absorbed (create ⊂ create_record, remove ⊂ remove_record,
+                    // forward ⊂ forward_record). A Contains test of that response is therefore satisfied by the echo
+                    // alone for half this arm's subjects: two reviewers independently replaced a successor teaching
+                    // with text naming no tool at all and this arm still passed.
                     bool named = !r.text.Contains(GenericError)
-                              && registered.Any(reg => r.text.Contains(reg, StringComparison.Ordinal));
+                              && registered.Any(reg => ToolNameMatch.ReferencedAtBoundary(r.text, reg));
                     if (!named) deadEnds.Add($"{old} -> {Flatten(r.text)}");
                 }
 

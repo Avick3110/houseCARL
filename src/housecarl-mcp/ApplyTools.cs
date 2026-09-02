@@ -242,7 +242,7 @@ public static class ApplyTools
         // refusal and on the consent prompt (PR #311 review [medium]).
         return json
             ? JsonWire.RenderPatchOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "into" : "patch")
-            : WriteTools.Render(outcome, max_chars, readback, laneAsName: true);
+            : WriteTools.Render(outcome, max_chars, readback);
     });
 
     // ---- input readers -------------------------------------------------------------------------------

@@ -1470,9 +1470,12 @@ public static class NestedCreateGuardProbe
             var reject = rulebook.Validate(req);
             g6RejRecordAddOk = reject is not null
                 && reject.Contains("created on its own (the record axis)", StringComparison.OrdinalIgnoreCase)
-                && reject.Contains("housecarl_create", StringComparison.OrdinalIgnoreCase)
+                // WHOLE identifier, not Contains (#468 round 1): housecarl_create is a PREFIX of the 1.x
+                // housecarl_create_record it replaced, so a Contains test passed whether or not the sentence had
+                // been repaired — measured, by reverting the refusal and watching this arm stay green.
+                && ToolNameMatch.ReferencedAtBoundary(reject, "housecarl_create")
                 && reject.Contains("Responses", StringComparison.Ordinal);
-            Console.WriteLine($"   G6-REJ-RECORD-ADD record-elem Add   : {(g6RejRecordAddOk ? "PASS — a record-element Add is refused, redirected to create_record (RED before: accepted then CompositionRequiredException at apply)" : $"FAIL — reject=[{reject}]")}");
+            Console.WriteLine($"   G6-REJ-RECORD-ADD record-elem Add   : {(g6RejRecordAddOk ? "PASS — a record-element Add is refused, redirected to housecarl_create (RED before: accepted then CompositionRequiredException at apply)" : $"FAIL — reject=[{reject}]")}");
         }
 
         // ---------- G6-REJ-RECORD-REPLACEALL: ReplaceAll on a record-element list refuses too (verb coverage) ----------
