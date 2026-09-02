@@ -1,3 +1,4 @@
+// Converted-from: RecordsGuardProbe
 using System.Text.Json;
 using HousecarlMcp;
 using Xunit;

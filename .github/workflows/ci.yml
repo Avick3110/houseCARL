@@ -53,6 +53,28 @@ jobs:
       - name: Probes — all-in-one-process (ci-all)
         run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll ci-all
 
+      # The second harness (tool-surface 2.0 W7): guards for the 2.0 tool surface are xUnit tests under
+      # `dotnet test`, which gives the per-test naming and reporting `ci-all` structurally cannot. Both
+      # steps are required and neither is conditional — this is a two-harness window, not a migration in
+      # flight.
+      #
+      # `tier!=bridge` is the one exclusion, and it is about CI only: the bridge test exists so a LOCAL
+      # `dotnet test` with no filter also runs `ci-all` (one entry point for a developer). CI already runs
+      # ci-all as its own step above, so including the bridge here would run the whole probe suite twice
+      # for no extra signal.
+      - name: Tests — the 2.0 guard project (dotnet test)
+        if: ${{ !cancelled() }}
+        run: dotnet test src/housecarl-mcp-tests --configuration Release --no-build --filter "tier!=bridge" --logger trx
+
+      # The residue countdown (RUN_ORDER amendment 2026-09-02 (7)): how much of the OLD harness is left.
+      # These numbers are not asserted here — HarnessResidueTests derives all three from the source tree
+      # and fails unless they match this file exactly, so a green run above is what makes printing the
+      # committed file equivalent to printing the measurement. W7 is not complete while they are above zero.
+      - name: Residue countdown — what is left in the old probe harness
+        if: ${{ !cancelled() }}
+        run: type src\housecarl-mcp-tests\harness-residue-baseline.json
+        shell: cmd
+
       # freshness-capture-guard runs as its OWN cold process: its deferral arm needs a write slow enough to
       # straddle a fixed ~100ms sleep — only true in a cold process. The warm ci-all runner finishes the write
       # too fast to land that race, so it is carved out here (cold). See the note in CiAll.cs.

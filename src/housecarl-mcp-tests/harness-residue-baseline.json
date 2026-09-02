@@ -1,0 +1,9 @@
+{
+  "_what": "The residue countdown for the two-harness window (RUN_ORDER amendment 2026-09-02 (7), items (ii) and (iv)). These are the OLD probe harness's remaining size. HarnessResidueTests derives the same three numbers from the source tree every run and fails unless they match exactly: growth is a failing test, and a shrink that is not recorded here is one too. W7 is not complete while these are above zero.",
+  "_how": "probeFiles = *Probe*.cs under src/housecarl-generator (recursive, bin/obj excluded). probeLines = their total lines. ciAllRows = the (\"name\", XProbe.RunGuard) rows in CiAll.cs, which is what ci-all runs and what its summary's N/N reports.",
+  "_lowered_by": "A conversion PR: it deletes the probe, adds the tests, and lowers these in the same commit.",
+
+  "probeFiles": 155,
+  "probeLines": 65227,
+  "ciAllRows": 132
+}
