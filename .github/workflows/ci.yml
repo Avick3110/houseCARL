@@ -115,7 +115,12 @@ jobs:
 
       # freshness-capture-guard runs as its OWN cold process: its deferral arm needs a write slow enough to
       # straddle a fixed ~100ms sleep — only true in a cold process. The warm ci-all runner finishes the write
-      # too fast to land that race, so it is carved out here (cold). See the note in CiAll.cs.
+      # too fast to land that race, so it is carved out here (cold). See FreshnessCaptureProbe's own summary.
+      #
+      # A step like this one is outside the reflected roster, which is how a guard could go unrun or uncounted
+      # with everything green. CiWorkflowGuardStepTests derives the population from THIS FILE: every generator
+      # verb invoked here is either ci-all or a guard whose attribute flags it Standalone, and every Standalone
+      # guard has a step. Adding a step for an unattributed verb is a failing test that names the verb.
       - name: Probe — freshness + write-capture (own cold process; timing-sensitive deferral arm)
         # Run even if ci-all failed (but not if the run was cancelled), so one red run still shows whether
         # freshness passes — the same "report every failure" posture as the ci-all runner itself.
