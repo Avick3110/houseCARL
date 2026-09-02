@@ -4,11 +4,11 @@
 
 **Class:** LIVING.
 
-This standard holds the conduct of houseCARL's pre-PR review rounds — who conducts them and the directed folds, how reviewers are spawned and prompted, how findings are triaged, and what a fold must ship. The rule itself, the four stop rules that bound the loop, and the scope line are CLAUDE.md §5 #11, which points here; they are not restated below.
+This standard holds the conduct of houseCARL's pre-PR review rounds — who conducts them and the directed folds, how reviewers are spawned and prompted, how findings are triaged, and what a fold must ship. The rule itself, the four stop rules that bound the loop, the scope line, and the sentence naming who conducts the rounds are CLAUDE.md §5 #11, which points here. §1 below is the dated provenance of that last sentence — when each half was adopted, on what ground, and what the seam requires of a decision record — not a second statement of it. Nothing else in §5 #11 is restated here.
 
 ---
 
-## 1. Who conducts the rounds
+## 1. Who conducts the rounds — provenance
 
 Standing from 2026-08-07, trialled on PR #318; bounded 2026-08-11 after PR #323 spent ten rounds, ~4M tokens, and twenty agents on a three-fix branch — four of its five high findings were introduced by the branch's own folds, and Aaron's review still found the two mediums that mattered. Since 2026-08-25 the rounds are conducted by a **fresh session, not the branch's author**: the build session ends at branch-green with a decision record and settled-decisions list, and a fresh session boots from that record to run the rounds, triage, fold, and open the PR (measured ground and watch condition: the run-order's rule 9 in the private `dev/` corpus — author-triage's blind spot is recorded, and the seam halves peak context by construction). Since 2026-08-28 the folds directed by Aaron's gate review on the open PR also go to a **fresh fold session**, never the session that conducted the rounds, with the directive carried verbatim.
 
