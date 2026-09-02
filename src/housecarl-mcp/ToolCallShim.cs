@@ -204,8 +204,13 @@ internal static class ToolCallShim
         if (rewritten is not null) p.Arguments = rewritten;
     }
 
-    /// <summary>One value against one property schema: the coerced element, or null to leave it alone.</summary>
-    static JsonElement? Coerce(JsonElement value, JsonElement propSchema)
+    /// <summary>One value against one property schema: the coerced element, or null to leave it alone.
+    /// <para>Internal rather than private so a guard can assert the coerced VALUE. Over the wire against an
+    /// unconfigured server only "it bound and the body ran" is observable, so a coercion that dropped the
+    /// caller's value — wrapping into an empty array instead of a one-element one — passed every wire arm.
+    /// That is a silent wrong answer (the whole load order swept instead of the one plugin asked for), so
+    /// the value is asserted here directly.</para></summary>
+    internal static JsonElement? Coerce(JsonElement value, JsonElement propSchema)
     {
         var declared = DeclaredTypes(propSchema);
         if (declared.Count == 0) return null;
