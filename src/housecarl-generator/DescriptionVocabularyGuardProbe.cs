@@ -2502,11 +2502,6 @@ public static class DescriptionVocabularyGuardProbe
 
     static readonly Regex ToolToken = new("housecarl_[a-z0-9_]+", RegexOptions.Compiled);
 
-    /// <summary>A remedy may only name a call that works (<see cref="CorpusRulebook"/>'s own rule), and a deletion
-    /// wave is when that stops being free: the six 1.x write tools left ~30 shipped sentences telling a caller to
-    /// call something no longer on the surface, in five files no survey had listed. So the check is derived on both
-    /// sides — the literals from the two-reader net above, the live names from the SDK's own predicate — rather
-    /// than from a list of what someone remembered to look at.</summary>
     /// <summary>Names a tool method DECLARES but the SDK never registers, because the declaring type is missing
     /// <c>[McpServerToolType]</c>. Derived as (declared − registered), so it empties by construction the moment the
     /// attribute lands rather than needing an exemption removed by hand. Today it is exactly
@@ -2553,6 +2548,11 @@ public static class DescriptionVocabularyGuardProbe
         return (violations, unpublishedRefs, prose, carrying, tokens);
     }
 
+    /// <summary>A remedy may only name a call that works (<see cref="CorpusRulebook"/>'s own rule), and a deletion
+    /// wave is when that stops being free: the six 1.x write tools left ~30 shipped sentences telling a caller to
+    /// call something no longer on the surface, in five files no survey had listed. So the check is derived on both
+    /// sides — the literals from the two-reader net above, the live names from the SDK's own predicate — rather
+    /// than from a list of what someone remembered to look at.</summary>
     static void ToolNameArm(List<Sentence> sentences)
     {
         Console.WriteLine("── TOOL NAMES: every housecarl_ token a caller-facing sentence carries names a REGISTERED tool ──");

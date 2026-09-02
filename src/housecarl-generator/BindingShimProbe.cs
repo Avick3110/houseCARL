@@ -41,11 +41,11 @@ public static class BindingShimProbe
 {
     const string GenericError = "An error occurred invoking";          // the SDK's opaque text (measured live, HCBR-2026-06-11-01)
 
-    /// <summary>One-line clamp of a server response, for an arm's failure detail.</summary>
     /// <summary>The housecarl_ tool names a retired row's successor teaching promises. Read off the ROW,
     /// not off a hand-list: a row that gains a destination gains it here too.</summary>
     static readonly Regex ToolToken = new("housecarl_[a-z0-9_]+", RegexOptions.Compiled);
 
+    /// <summary>One-line clamp of a server response, for an arm's failure detail.</summary>
     static string Flatten(string text)
     {
         var one = text.Replace('\r', ' ').Replace('\n', ' ').Trim();
