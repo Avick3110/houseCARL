@@ -4,18 +4,13 @@
 
 **Class:** LIVING.
 
-This standard holds the pre-PR review rounds in full — the rule, who conducts them, the stop rules that bound the loop, and what makes the rounds worth the tokens rather than theatre. CLAUDE.md §5 #11 points here.
+This standard holds the conduct of houseCARL's pre-PR review rounds — who conducts them and the directed folds, how reviewers are spawned and prompted, how findings are triaged, and what a fold must ship. The rule itself, the four stop rules that bound the loop, and the scope line are CLAUDE.md §5 #11, which points here; they are not restated below.
 
 ---
 
-## 1. The rule
+## 1. Who conducts the rounds
 
-**Pre-PR review rounds — the branch is reviewed before the PR opens, with fresh independent agents, bounded by a convergence rule** (standing from 2026-08-07, trialled on PR #318; bounded 2026-08-11 after PR #323 spent ten rounds, ~4M tokens, and twenty agents on a three-fix branch — four of its five high findings were introduced by the branch's own folds, and Aaron's review still found the two mediums that mattered). Since 2026-08-25 the rounds are conducted by a **fresh session, not the branch's author**: the build session ends at branch-green with a decision record and settled-decisions list, and a fresh session boots from that record to run the rounds, triage, fold, and open the PR (measured ground and watch condition: the run-order's rule 9 in the private `dev/` corpus — author-triage's blind spot is recorded, and the seam halves peak context by construction). Since 2026-08-28 the folds directed by Aaron's gate review on the open PR also go to a **fresh fold session**, never the session that conducted the rounds, with the directive carried verbatim. Before pushing a code branch: spawn independent review agents over the branch diff, fold what survives triage, then spawn a **new** round. Stopping is governed by these rules, in order:
-
-- **Stop when a round returns only low findings.** The original terminator, still valid.
-- **Stop when the same failure CLASS recurs in two consecutive rounds.** A recurring class is a design signal, not a fix queue: invoke CLAUDE.md §4 and take the feature or seam generating it to Aaron rather than folding the third instance. The third instance is an escalation trigger, not a fix freeze — once the escalation is ruled and the seam addressed, a leftover instance is fixed, with its arm (Aaron-go 2026-09-02). Severity is not this signal (#323's rounds 2/3/4/8 were one class, four folds, while rounds 5–10 returned no highs and the feature was still broken).
-- **Hard cap: three rounds.** Whatever is open after three goes to Aaron's review with the findings listed, not into round four.
-- **No new rounds after directed folds.** Fresh eyes are for *before* the PR opens. A reviewed, measured fold on a PR that has had its rounds plus an independent review does not reopen the loop.
+Standing from 2026-08-07, trialled on PR #318; bounded 2026-08-11 after PR #323 spent ten rounds, ~4M tokens, and twenty agents on a three-fix branch — four of its five high findings were introduced by the branch's own folds, and Aaron's review still found the two mediums that mattered. Since 2026-08-25 the rounds are conducted by a **fresh session, not the branch's author**: the build session ends at branch-green with a decision record and settled-decisions list, and a fresh session boots from that record to run the rounds, triage, fold, and open the PR (measured ground and watch condition: the run-order's rule 9 in the private `dev/` corpus — author-triage's blind spot is recorded, and the seam halves peak context by construction). Since 2026-08-28 the folds directed by Aaron's gate review on the open PR also go to a **fresh fold session**, never the session that conducted the rounds, with the directive carried verbatim.
 
 ---
 
@@ -35,4 +30,3 @@ What makes the rounds worth the tokens rather than theatre:
 - **A scripted sabotage sweep carries a known-RED canary** — one cell already proven red by hand — and a sweep whose canary comes back green is a broken sweep, never a passing one. Verification machinery fails toward green (a build piped into `grep -q` gets SIGPIPEd and the guard reruns the stale binary; grep can silently swallow FAIL lines), so an all-green sweep proves the harness ran only if something in it was expected to fail. A sweep with no known-red cell makes one first — sabotage a cell already proven red by hand — rather than running canary-less.
 - **This does NOT replace Aaron's review.** His is still the gate on the open PR. The rounds exist so his review spends itself on judgement, not on things a first pass would have caught.
 - **Report the rounds in the PR body** — how many, what each found, what you refused and why. A reviewer reading the PR should be able to see what was already looked at.
-- **Scope:** code branches. A docs-only or manual-only PR doesn't need rounds — say so rather than performing them.
