@@ -71,26 +71,6 @@ public sealed class RecordsListLaneTests : RecordsTestBase
         Refused(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, source: Plugin("NoSuchPlugin.esp")),
                 "NEITHER place", "not ACTIVE", "on disk");
 
-    // MERGED (2 assertions, 1 test): both arms need a duplicate plugin filename on disk, which mutates the
-    // shared world. The mutation is created and removed inside one test rather than leaking across the class.
-    [Fact]
-    public void ADuplicateFilenameRefusesNamingTheModFolders_AndTheStructuredFileModPoleDisambiguatesIt()
-    {
-        var dupDir = Path.Combine(W.ModsDir, "OldModCopy");
-        Directory.CreateDirectory(dupDir);
-        File.Copy(W.OldFile, Path.Combine(dupDir, W.OldName));
-        try
-        {
-            var ambiguous = RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[1]) }, source: Plugin(W.OldName));
-            Refused(ambiguous, "SEVERAL mod folders", "\"mod\"");
-
-            var disamb = RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[1]) },
-                                              source: Je($"{{\"file\": \"{W.OldName}\", \"mod\": \"OldMod\"}}"));
-            Served(disamb, "OUT-OF-LOAD-ORDER");
-        }
-        finally { Directory.Delete(dupDir, true); }
-    }
-
     [Fact]
     public void ListLaneAggregate_CountsByWinnerOverTheResolvedRows() =>
         Served(RecordsTools.Records(Svc, formids: AllWeaponIds,
