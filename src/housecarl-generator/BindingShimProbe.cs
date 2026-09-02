@@ -466,10 +466,11 @@ public static class BindingShimProbe
         //     since W0;
         //   * patch -> INTO activates on housecarl_remove ALONE: it is the only tool where the artifact a write
         //     edits already exists, and the four "new artifact" candidates ahead of `into` all miss there;
-        //   * the five create-operand hints (record_type/editorid/parent/collection/grid) fire on BOTH
-        //     housecarl_create and 1.x housecarl_bulk_create — both declare records=, and on both the scalar
-        //     spelling is genuinely a member of a record rather than a top-level argument, so the hint is
-        //     correct in both places rather than noise in one;
+        //   * the five create-operand hints (record_type/editorid/parent/collection/grid) fired on BOTH
+        //     housecarl_create and 1.x housecarl_bulk_create — both declared records=, and on both the scalar
+        //     spelling is genuinely a member of a record rather than a top-level argument, so the hint was
+        //     correct in both places rather than noise in one. They fire on housecarl_create ALONE now: #468
+        //     deleted bulk_create and its five rows with it (see the #468 entry below);
         // PR #311 review [low], folded: write_seq's `pluginname` row now lands on SOURCE, not patch. Once the
         //   tool declared source= AND patch=, the likeliest 1.x word for THE PLUGIN was the one that could not
         //   reach the plugin pole — plugin_name= silently renamed the OUTPUT FOLDER. `source` is appended LAST
@@ -484,6 +485,14 @@ public static class BindingShimProbe
         //   `plugin -> source`, so the plural spellings landing on the same pole is the existing rule, not a
         //   new one). `patchname -> into` on remove closes the split where `patch=` mapped and the sibling
         //   spelling every 1.x write tool uses did not. place_asset stays excepted on all of them.
+        // #468 the demolition catch-up (eyeballed 2026-09-02): 169 -> 144, twenty-five rows deleted and none
+        //   added — set_field 4, bulk_apply 3, create_record 3, bulk_create 7, remove_record 5, forward_record 3.
+        //   (169, not the 163 this narrative last recorded: rows landed after #311 review 3 — write_seq's
+        //   output_dir pair with #312, and the records tool's — without a line of their own, so the running
+        //   total was already stale before this wave. The missing entries are not reconstructed here.) What the
+        //   diff certifies: every deleted row names one of the six deleted TOOLS, so the drop is those tools
+        //   leaving and nothing else — no surviving tool lost or gained an activation. The five create-operand
+        //   hints above are the one place where a row's activation SET narrowed rather than the row vanishing.
         "housecarl_apply: archivename -> patch",
         "housecarl_apply: fromfile => hint",
         "housecarl_apply: fullreadback -> readback",
