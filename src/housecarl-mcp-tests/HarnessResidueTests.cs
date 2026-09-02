@@ -101,8 +101,10 @@ public sealed class HarnessResidueTests
     // path — and cross-assembly guards are outside the counted set by construction, because probeFiles
     // enumerates src/housecarl-generator and nothing else.
     //
-    // Locating a project's source by its assembly name is still a convention, but its failure is loud —
-    // zero or many declarations throws and names the type — never a silent pass.
+    // The project a type's assembly was built from comes off the csproj files (RepoProjects), not off the
+    // assembly name matching a folder — that convention is already false for one project. Finding the
+    // declaration inside it is still a text search, but its failure is loud: zero or many declarations throws
+    // and names the type, never a silent pass.
 
     static readonly Regex TypeDeclaration =
         new(@"\b(?:class|struct|record)\s+(?:(?:class|struct)\s+)?([A-Za-z_][A-Za-z0-9_]*)", RegexOptions.Compiled);
@@ -133,18 +135,14 @@ public sealed class HarnessResidueTests
     static string DeclaringFile(Type t)
     {
         var project = t.Assembly.GetName().Name!;
-        var root = Path.Combine(HarnessPaths.RepoRoot, "src", project);
-
-        Assert.True(Directory.Exists(root),
-            $"The CI guard {t.FullName} is compiled into assembly '{project}', and there is no " +
-            $"'src/{project}' to search for its declaration. The residue count cannot say which file hosts it.");
+        var root = RepoProjects.DirectoryFor(project);
 
         DeclarationIndex(root).TryGetValue(t.Name, out var hits);
         hits ??= new List<string>();
 
         Assert.True(hits.Count == 1,
             $"Cannot say which file declares the CI guard {t.FullName}: found {hits.Count} " +
-            $"declarations of '{t.Name}' under src/{project}" +
+            $"declarations of '{t.Name}' under {Rel(root)}" +
             (hits.Count == 0 ? "." : " — " + string.Join(", ", hits.Select(Rel)) + ".") +
             " The residue count derives each guard's host file from its declaring type, so an unresolved or " +
             "ambiguous declaration is the count going quiet rather than a detail.");
