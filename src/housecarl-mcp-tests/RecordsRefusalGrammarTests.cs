@@ -54,10 +54,17 @@ public sealed class RecordsRefusalGrammarTests : RecordsTestBase
     public void TheTextTwinIsStillProseOpeningErrorColon() =>
         Assert.StartsWith("error: ", RefusalText());
 
+    // Same slice hazard the comment above records, one test down: on a text lane that answered empty — the
+    // regression this file exists to catch — the range operator threw ArgumentOutOfRangeException before the
+    // two sentences were ever compared. Assert the prefix first, then slice what is known to carry it.
     [Fact]
-    public void BothTransportsStateOneSentenceNotTwoSpellingsOfIt() =>
+    public void BothTransportsStateOneSentenceNotTwoSpellingsOfIt()
+    {
+        var text = RefusalText();
+        Assert.StartsWith("error: ", text);
         Assert.Equal(Doc(RefusalJson()).GetProperty("error").GetString()!.Trim(),
-                     RefusalText()["error: ".Length..].Trim());
+                     text["error: ".Length..].Trim());
+    }
 
     [Fact]
     public void ARefusalRaisedInANoTransportHelperStillReachesTheCallerAsJson() =>
