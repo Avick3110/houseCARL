@@ -322,7 +322,7 @@ public static class WriteTools
         int cap = WriteSentences.ReadbackCap(maxChars);
         // The banner covers what it can now stand behind: every edited record WAS re-read off the written file, and
         // each per-op clause below says whether it is the file's answer or the applied edit's own reading.
-        sb.Append("verified — every edited record re-read off the written file (compact; pass full_readback=true for the ")
+        sb.Append("verified — every edited record re-read off the written file (compact; pass readback=true for the ")
           .Append("full field-by-field dump):\n");
         for (int i = 0; i < rb.Count; i++)
         {
