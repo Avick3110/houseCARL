@@ -54,8 +54,18 @@ public sealed class RecordsWorld : IDisposable
 
     public static string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
 
+    /// <summary>What <c>CorpusRulebook.CorpusPath</c> named before this world repointed it.</summary>
+    readonly string _priorCorpusPath;
+
     public RecordsWorld()
     {
+        // CorpusRulebook.CorpusPath is a process-global that this world has to repoint at its own generated
+        // corpus. Capture the prior value HERE so Dispose can put it back: Dispose deletes Root, and a
+        // static left naming Root/corpus-gen/corpus.json would then name a directory that no longer exists,
+        // breaking whatever runs next. Which tests survive that is an accident of collection scheduling, not
+        // a property — so the restore happens by construction instead.
+        _priorCorpusPath = CorpusRulebook.CorpusPath;
+
         Root = Path.Combine(Path.GetTempPath(), "hc-records-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
 
@@ -166,6 +176,8 @@ public sealed class RecordsWorld : IDisposable
 
     public void Dispose()
     {
+        // Before the delete, never after: the static must not be left naming a directory this line removes.
+        CorpusRulebook.CorpusPath = _priorCorpusPath;
         Svc.Dispose();
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
