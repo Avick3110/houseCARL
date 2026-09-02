@@ -17,7 +17,6 @@
     "housecarl_bsa_repack",
     "housecarl_bulk_place_asset",
     "housecarl_check",
-    "housecarl_check_errors",
     "housecarl_compact_plugin",
     "housecarl_compile_script",
     "housecarl_copy",
@@ -52,8 +51,6 @@
     "housecarl_skypatcher_layer",
     "housecarl_skypatcher_read",
     "housecarl_update_status",
-    "housecarl_validate_dialogue",
-    "housecarl_validate_scripts",
     "housecarl_write_seq"
   ]
 }

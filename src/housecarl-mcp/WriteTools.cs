@@ -192,12 +192,12 @@ public static class WriteTools
         // Make the dialogue-coverage scope boundary VISIBLE, not silent (Q3): the .fuz/.lip presence check (unit B) AND
         // the result-script binding check (unit C1) both run on CREATE of dialogue lines, not on EDITS to existing ones.
         // An edit that adds a spoken response or a result script to an existing INFO produces the same silent-line /
-        // dead-script hazard with no note here, so flag it — and point at the on-demand validator (Unit C2 shipped:
-        // housecarl_validate_dialogue), which audits voice + result-script coverage AND the topic graph over the
+        // dead-script hazard with no note here, so flag it — and point at the on-demand sweep (Unit C2's checks now ride
+        // the dialogue findings family), which audits voice + result-script coverage AND the topic graph over the
         // edited line and every other line in the topic.
         if (o.Ops.Any(op => string.Equals(op.RecordType, VoiceCheck.InfoCatalogName, StringComparison.Ordinal)))
             sb.Append("note: this edit touched a dialogue line (INFO). Voice (.fuz) and result-script coverage are checked on CREATE, not on edits — ")
-              .Append("run " + ToolNames.ValidateDialogue + " on the topic (or its owning quest) to audit voice + result-script coverage and the topic graph over the edited line and every other line in the topic.\n");
+              .Append("run " + ToolNames.Check + " findings=[\"dialogue\"] with the topic (or its owning quest) in seeds= to audit voice + result-script coverage and the topic graph over the edited line and every other line in the topic.\n");
         // The touched-record verify (forced ON for in-place — the model-C floor substitute — and opt-in for the new-file
         // lane) renders COMPACT by default and the full field-by-field dump only on full_readback=true (HCBR-2026-06-28-01):
         // the deep dump of N records with large list fields blew past the host token cap and spilled to a file, reading as

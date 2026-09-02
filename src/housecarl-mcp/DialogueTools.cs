@@ -1,61 +1,13 @@
-using System.ComponentModel;
 using System.Text;
-using ModelContextProtocol.Server;
-using Mutagen.Bethesda.Plugins;
 
 namespace HousecarlMcp;
 
 /// <summary>
-/// houseCARL dialogue tools (Layer B unit C2). The on-demand whole-topic dialogue-graph validator — the counterpart
-/// of the per-create voice (unit B) + result-script (unit C1) teeth, but run over EXISTING dialogue resolved against
-/// the load-order winners. Read-only: it inspects + reports, never mutates. The Skyrim-typed validation lives in
-/// <see cref="HousecarlCore.DialogueValidate"/>; this file is the wire surface + the render.
+/// The dialogue report render. The tool that used to sit above it, housecarl_validate_dialogue, was deleted at the
+/// 1.x cut: its findings are housecarl_check findings=dialogue, and its merged INFO-order render is
+/// housecarl_records project=info_order. The Skyrim-typed validation lives in
+/// <see cref="HousecarlCore.DialogueValidate"/>; this file is the render alone.
 /// </summary>
-[McpServerToolType]
-public static class DialogueTools
-{
-    [McpServerTool(Name = "housecarl_validate_dialogue", ReadOnly = true, Title = "Validate a dialogue topic or quest"),
-     Description(
-         "Validate a dialogue topic's whole graph against the load order — what the game actually sees. Pass a " +
-         "dialogue topic (DIAL) FormID to validate that one topic, or a quest (QUST) FormID to validate EVERY topic " +
-         "the quest owns (plus the quest's own CK-parity subrecords, checked once). A dialogue view (DLVW) or " +
-         "dialogue branch (DLBR) FormID runs a record-level CK-parity check (the DNAM/ENAM and TNAM subrecords the " +
-         "Creation Kit always writes — a bare DLVW crashes the CK's Dialogue Views editor). " +
-         "Checks the things houseCARL CAN verify at the data layer: the topic is wired to a quest, " +
-         "the dialogue branch resolves, the INFO.LinkTo conversation chain (topic -> next topic) has no dangling " +
-         "targets, and no previous-link (PNAM) is dangling — an EMPTY PNAM is normal (vanilla selects among a " +
-         "topic's lines by their conditions, not a previous-link chain), so absence is never flagged; plus (reusing " +
-         "the create-time teeth over every existing line) each voiced line has its .fuz on disk and each result " +
-         "script is bound + compiled; non-ASCII characters in the player-facing text (topic name, line prompt, " +
-         "response text) are flagged as likely in-game mojibake (the CK/Papyrus surface is Windows-1252/ASCII); " +
-         "and each line's CTDA conditions are statically checked for a meaningful subset of MALFORMED shapes (a " +
-         "dangling form reference, a dead quest-alias index, an unset Run On reference, GetIsID pointed at a placed " +
-         "instance). Reports the EFFECTIVE, MERGED INFO ORDER — the sequence the game walks top to bottom, merged " +
-         "across EVERY plugin that touches the topic (xEdit INOM/INOA parity) — and flags any line whose position " +
-         "MOVED, naming the plugin that moved it. That is the answer to 'why does the wrong line play': the game " +
-         "plays the FIRST line whose conditions pass, re-listing a line appends it to the BOTTOM unless the plugin " +
-         "also carries its PNAM, and a pure reorder changes which line answers while leaving every field identical " +
-         "— so no field diff can show it. It LOUDLY declares what it still cannot verify — it cannot EVALUATE whether a WELL-FORMED " +
-         "condition passes (only the running game can) nor check lip-sync/audio content — so 'checks " +
-         "passed' never reads as 'this will play'. Resolves against the load-order WINNERS like every other read. " +
-         "A FormID is 'XXXXXX:Plugin.esp'. Does NOT modify anything. To create dialogue lines use " +
-         "housecarl_create; to inspect a single record use housecarl_read_record.")]
-    public static string ValidateDialogue(
-        LoadOrderService svc,
-        [Description("The dialogue topic (DIAL), quest (QUST), dialogue view (DLVW), or dialogue branch (DLBR) FormID as 'XXXXXX:Plugin.esp' — 6 hex digits, a colon, then the defining master's filename. A DIAL validates one topic; a QUST validates every topic that quest owns; a DLVW/DLBR runs a record-level CK-parity check.")]
-            string formid,
-        [Description("Optional. Max characters before the report is cut with an explicit notice (never silent). 0 = the server default (~80k). Raise for a quest that owns many topics.")]
-            int max_chars = 0) => Guard.Tool("housecarl_validate_dialogue", () =>
-    {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        FormKey fk;
-        try { fk = FormKey.Factory(formid.Trim()); }
-        catch (Exception ex) { return $"error: bad FormID '{formid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '0F1AC1:Skyrim.esm'."; }
-
-        return DialogueWire.Render(svc.ValidateDialogue(fk), max_chars);
-    });
-}
-
 /// <summary>Renders a <see cref="HousecarlCore.DialogueValidationReport"/> as a compact, honest text report: a
 /// topic (or per-topic-of-a-quest) block with its graph issues, voice + result-script verdicts, and ALWAYS the
 /// standing-limits footer (grill-rev C2 — the un-checkable CTDA/lip-sync set, so a clean structural pass is never
