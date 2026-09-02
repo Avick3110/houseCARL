@@ -102,13 +102,13 @@ public sealed class ServerTransportTests
         using var f = new ServerFixture();
 
         f.RpcTimeout = TimeSpan.Zero;         // nothing can answer inside no time at all
-        var firstFailure = Assert.Throws<TimeoutException>(() => f.Call("housecarl_check", "{}"));
+        var firstFailure = Assert.Throws<TimeoutException>(() => f.Call(ToolNames.Check, "{}"));
         Assert.Contains("tools/call", firstFailure.Message, StringComparison.Ordinal);
 
         // Full budget restored, so nothing but the poison can make the next call fail fast.
         f.RpcTimeout = TimeSpan.FromSeconds(60);
         var sw = Stopwatch.StartNew();
-        var later = Assert.Throws<InvalidOperationException>(() => f.Call("housecarl_check", "{}"));
+        var later = Assert.Throws<InvalidOperationException>(() => f.Call(ToolNames.Check, "{}"));
         sw.Stop();
 
         Assert.Contains("poisoned", later.Message, StringComparison.Ordinal);

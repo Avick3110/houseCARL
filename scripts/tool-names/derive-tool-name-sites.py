@@ -2,7 +2,7 @@
 """Derive every shipped tool-name site under the C# sources, classified.
 
 Population, per the tool-name registry decision
-(docs/decisions/0003-tool-names-are-compile-time-constants.md): every
+(docs/decisions/0004-tool-names-are-compile-time-constants.md): every
 occurrence of ``housecarl_[a-z0-9_]+`` in
 ``src/housecarl-mcp``, ``src/housecarl-core`` and ``src/housecarl-mcp-tests``
 (the last does not exist before #470 lands).

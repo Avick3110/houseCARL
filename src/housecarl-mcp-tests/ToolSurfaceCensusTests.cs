@@ -101,6 +101,6 @@ public sealed class ToolSurfaceCensusWireTests
     [Fact]
     public void ToolsListNamesHousecarlCheck_TheWholePointOf470()
     {
-        Assert.Contains("housecarl_check", _s.PublishedNames);
+        Assert.Contains(ToolNames.Check, _s.PublishedNames);
     }
 }
