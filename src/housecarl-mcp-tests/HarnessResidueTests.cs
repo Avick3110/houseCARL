@@ -7,19 +7,19 @@ using Xunit.Abstractions;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The residue countdown and the one-way-conversion guard (RUN_ORDER amendment 2026-09-02 (7),
-/// residue items (ii) and (iv), and the sizing pass's "no family in both harnesses").
+/// The residue countdown and the one-way-conversion guard — the rules in ADR 0003 (docs/decisions/)
+/// that keep the two-harness window honest, including "no family lives in both harnesses".
 ///
 /// Both subjects are DERIVED from the source tree every run. Nothing here is a maintained list of what
-/// is left: the old harness is measured where it lives, and the only checked-in number is the baseline
-/// the measurement is compared against.
+/// is left: the old harness is measured where it lives, and the only checked-in numbers are the baseline
+/// the measurements are compared against.
 ///
-/// TWO of the three measures gate. probeFiles and ciAllRows move only when a family actually leaves the
-/// old harness, so exact equality in both directions is a countdown. probeLines moves in both directions
-/// on ordinary in-place guard edits, which the two-harness rule explicitly requires ("if you are editing
-/// one, edit it where it already lives") — gating it would punish the correct act. It is derived and
-/// printed beside the gated pair, and it stays in the baseline file as information a conversion PR still
-/// updates (Aaron, 2026-09-02, RUN_ORDER amendment 2026-09-02 (8)).
+/// THREE of the four measures gate. probeFiles, ciAllRows and guardFilesOutsideTheCount move only when a
+/// guard actually leaves the old harness, so exact equality in both directions is a countdown. probeLines
+/// moves in both directions on ordinary in-place guard edits, which the two-harness rule explicitly
+/// requires ("if you are editing one, edit it where it already lives") — gating it would punish the
+/// correct act. It is derived and printed beside the gated three, and it stays in the baseline file as
+/// information a conversion PR still updates (ADR 0003).
 /// </summary>
 [Trait("tier", "unit")]
 public sealed class HarnessResidueTests
