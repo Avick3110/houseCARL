@@ -8,11 +8,20 @@ using HousecarlCore;
 namespace HousecarlMcp;
 
 /// <summary>
-/// houseCARL write tools (§8.4 Beat C). Both ride the PROVEN public write cleave (<see cref="WritePatchBuilder.Apply"/>)
-/// through <see cref="LoadOrderService.ApplyEdits"/>: resolve each record's load-order WINNER, override it into a NEW
-/// patch plugin, pre-flight EVERY edit through the corpus rulebook, apply the generic verbs, and serialize ONCE with the
-/// full master set (cross-master merges included). Originals are never written. Output model (Aaron-locked): one
-/// complete .esp per call; <c>into=</c> extends an existing patch (the multi-session accumulation lever).
+/// houseCARL's PLUGIN-LEVEL write tools — the three this type declares: <c>housecarl_create_plugin</c> (an empty
+/// header-only trigger plugin), <c>housecarl_compact_plugin</c> (FormID renumber, ESL or contiguous) and
+/// <c>housecarl_merge_plugins</c> (donors into one new plugin). Each takes a whole plugin FILE as its subject and
+/// rides its own core builder — <see cref="WritePatchBuilder.CreatePlugin"/>, <c>CompactBuild</c>, <c>MergeBuild</c>
+/// — not the record-edit cleave: none calls <see cref="LoadOrderService.ApplyEdits"/>, none resolves a record's
+/// load-order winner, none pre-flights edits through the corpus rulebook, and none declares <c>into=</c>. The output
+/// lanes differ per tool: create_plugin and merge_plugins write a NEW plugin in a new mod folder and leave every
+/// existing file alone; compact_plugin's second lane is <c>in_place=</c> + <c>acknowledge=</c>, which overwrites the
+/// original.
+/// <para>The record-write tools that DO ride that cleave are <c>housecarl_apply</c> / <c>create</c> / <c>remove</c> /
+/// <c>forward</c>, each declared in its own file. This type is also the shared home of the RENDER helpers they call
+/// (<see cref="Render"/>, <see cref="RenderCreate"/>, <see cref="RenderRemoval"/>, <see cref="RenderForward"/> and
+/// the remedy sentences beside them) — the bulk of what follows, and why the type outlived the six 1.x write tools
+/// deleted at #468.</para>
 /// </summary>
 [McpServerToolType]
 public static class WriteTools
