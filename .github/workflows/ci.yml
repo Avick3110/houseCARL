@@ -92,7 +92,26 @@ jobs:
       # above zero.
       - name: Residue countdown — what is left in the old probe harness
         if: ${{ !cancelled() }}
-        run: dotnet test src/housecarl-mcp-tests --configuration Release --no-build --filter "FullyQualifiedName~HarnessResidueTests" --logger "console;verbosity=detailed"
+        run: dotnet test src/housecarl-mcp-tests --configuration Release --no-build --filter "FullyQualifiedName~HarnessResidueTests" --logger "console;verbosity=detailed" --logger "trx;LogFileName=residue.trx"
+
+      # Same measured hazard as the guard step's floor above, and it bites this step for its own reason: the
+      # whole job here is to PRINT a measurement. Rename or split HarnessResidueTests — a plausible conversion-PR
+      # edit — and this filter matches nothing, `dotnet test` exits 0, and the countdown silently stops being
+      # reported with no signal in the log that a measurement disappeared. The gate itself survives (these are
+      # tier=unit, so the guard step still runs them), so what goes quiet is the report rather than the guard —
+      # but quiet-and-green is precisely the shape the step above rejects, so it gets the same floor, read off
+      # this run's own trx.
+      - name: Residue countdown — the run was not empty (a filter that matches nothing exits 0)
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $trx = Get-ChildItem -Recurse -Filter residue.trx src/housecarl-mcp-tests/TestResults |
+                 Sort-Object LastWriteTime | Select-Object -Last 1
+          if (-not $trx) { throw "No residue.trx was produced - the countdown step did not run to completion." }
+          $c = ([xml](Get-Content $trx.FullName)).TestRun.ResultSummary.Counters
+          "residue.trx: total=$($c.total) executed=$($c.executed) passed=$($c.passed) failed=$($c.failed)"
+          if ([int]$c.executed -eq 0) { throw "The residue countdown selected ZERO tests, so the measurement above was never made. Its filter no longer matches HarnessResidueTests." }
+          if ([int]$c.failed -ne 0) { throw "$($c.failed) residue countdown test(s) failed." }
 
       # freshness-capture-guard runs as its OWN cold process: its deferral arm needs a write slow enough to
       # straddle a fixed ~100ms sleep — only true in a cold process. The warm ci-all runner finishes the write
