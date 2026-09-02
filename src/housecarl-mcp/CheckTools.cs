@@ -30,7 +30,7 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class CheckTools
 {
-    [McpServerTool(Name = "housecarl_check", ReadOnly = true, Title = "Sweep the load order for derived findings"),
+    [McpServerTool(Name = ToolNames.Check, ReadOnly = true, Title = "Sweep the load order for derived findings"),
      Description(
          // ---- what it is, and what selects a family ------------------------------------------------
          "DERIVED-FINDINGS SWEEP over the load order — one call, several finding FAMILIES, selected by findings=. " +
@@ -94,8 +94,8 @@ public static class CheckTools
          "does not check lip-sync or audio content, so 'checks passed' never reads as 'this will play'. NOT HERE: " +
          "the effective merged INFO order — the sequence the game walks, which line MOVED and which plugin moved it, " +
          "the answer to 'why does the wrong line play' — is an ordered sequence rather than a finding and lives on " +
-         "housecarl_records project='info_order'. To CREATE dialogue lines use housecarl_create; to inspect " +
-         "one record use housecarl_read_record. " +
+         ToolNames.Records + " project='info_order'. To CREATE dialogue lines use " + ToolNames.Create + "; to inspect " +
+         "one record use " + ToolNames.ReadRecord + ". " +
          // ---- narrowing, shared, with each family's own cost teaching ------------------------------
          "NARROWING: beyond plugins= it takes a record scope (type= / formids= / editorid_contains=), " +
          "property_contains= (the scripts family — chasing one property name), a findings= filter, counts_only=true " +
@@ -147,7 +147,7 @@ public static class CheckTools
         [Description("Optional. The DIALOGUE family only, and required by it: the topics and quests to validate, as FormIDs ('0F1AC1:Skyrim.esm' — 6 hex digits, a colon, then the defining master's filename). A DIAL validates one topic; a QUST validates EVERY topic that quest owns (plus the quest's own CK-parity subrecords and its .seq, checked once); a DLVW or DLBR runs a record-level CK-parity check. This family is SEEDED, not swept — plugins=/type=/formids=/editorid_contains=/exclude= do not scope it — and findings=['dialogue'] with no seeds is REFUSED on cost, never widened to the whole order. limit= caps how many seeds one call expands.")]
             string[]? seeds = null,
         [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k). The budget is DIVIDED among the families that ran and their parts, not spent in series — a family that renders second does not inherit what the first one left over. Raise it for a quest that owns many topics.")]
-            int max_chars = 0) => Guard.Tool("housecarl_check", () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.Check, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         bool json = Wire.WantsJson(format, out var fmtErr);

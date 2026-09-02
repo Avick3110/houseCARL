@@ -192,7 +192,7 @@ internal static class Artifacts
             }
         }
 
-        var (manifest, err) = writer.Save(path, "housecarl_cross_plugin_query", query, identity, schema, sort,
+        var (manifest, err) = writer.Save(path, ToolNames.CrossPluginQuery, query, identity, schema, sort,
                                           q.Groups is not null ? q.Groups.Count : q.Total, q.Epoch ?? "",
                                           OwnedChildNotes(annotated));
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
@@ -243,7 +243,7 @@ internal static class Artifacts
         // The batch's ONE build (first consulted row). A batch of pure parse-failures never consulted a build and
         // carries "" — such an artifact refuses epoch-checked re-entry against ANY build, which is the honest answer.
         var epoch = outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch ?? "";
-        var (manifest, err) = writer.Save(path, "housecarl_batch_record_detail", query, "formid",
+        var (manifest, err) = writer.Save(path, ToolNames.BatchRecordDetail, query, "formid",
                                           new[] { "formid", "type", "editorid", "winner", "override_depth", "source", "fields" },
                                           "input order", outcomes.Count, epoch, OwnedChildNotes(AnnotatedFields(outcomes)));
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
@@ -257,7 +257,7 @@ internal static class Artifacts
         using var writer = new ResultArtifact.Writer();
         foreach (var r in rows)
             writer.WriteRow((w, _) => JsonWire.WriteResolvedRow(w, r), r.Resolved ? r.Type : null);
-        var (manifest, err) = writer.Save(path, "housecarl_resolve", query, "formid",
+        var (manifest, err) = writer.Save(path, ToolNames.Resolve, query, "formid",
                                           new[] { "formid", "type", "editorid", "name", "winner" },
                                           "input order", rows.Count, epoch);
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
@@ -274,7 +274,7 @@ internal static class Artifacts
         foreach (var row in rows)
             writer.WriteRow((w, ms) => JsonWire.WriteDeltaRow(w, row, ms, int.MaxValue),
                             row.Error is null ? row.Subject?.RecordType : null);
-        var (manifest, err) = writer.Save(path, "housecarl_records", query, "formid",
+        var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
                                           new[] { "formid", "type", "editorid", "subject", "reference", "stack_above?", "note?", "complete", "deltas", "delta_count", "agreed_count" },
                                           "input order", rows.Count, epoch ?? "");
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
@@ -291,7 +291,7 @@ internal static class Artifacts
         foreach (var row in rows)
             writer.WriteRow((w, ms) => JsonWire.WriteTreeRow(w, row, ms, int.MaxValue, LeverNames.Records),
                             row.Error is null ? row.Type : null);   // a records-only artifact: the rows speak the records vocabulary (#439)
-        var (manifest, err) = writer.Save(path, "housecarl_records", query, "formid",
+        var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
                                           new[] { "formid", "type", "editorid", "reference", "touchers", "nodes" },
                                           "input order", rows.Count, epoch ?? "");
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
@@ -307,7 +307,7 @@ internal static class Artifacts
         foreach (var row in rows)
             writer.WriteRow((w, ms) => JsonWire.WriteChainRow(w, row, ms, int.MaxValue),
                             row.Error is null ? row.Type : null);
-        var (manifest, err) = writer.Save(path, "housecarl_records", query, "formid",
+        var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
                                           new[] { "formid", "type", "editorid", "nodes", "cycles?", "truncation?", "template_inheritance?" },
                                           "input order", rows.Count, epoch ?? "");
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
@@ -350,7 +350,7 @@ internal static class Artifacts
                 total++;
             }
         }
-        var (manifest, err) = writer.Save(path, "housecarl_records", query, "formid",
+        var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
                                           new[] { "seed", "formid", "type", "editorid", "winner", "effect_index", "effect_count", "magnitude", "area", "duration" },
                                           "seed order, then carrier scan order", total, epoch ?? "");
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
@@ -366,7 +366,7 @@ internal static class Artifacts
         foreach (var row in rows)
             writer.WriteRow((w, ms) => JsonWire.WriteInfoOrderRow(w, row, ms, int.MaxValue),
                             row.Error is null ? row.Type : null);
-        var (manifest, err) = writer.Save(path, "housecarl_records", query, "formid",
+        var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
                                           new[] { "formid", "type", "editorid", "winner", "contested", "complete", "moves_computed", "baseline_trusted", "contributing", "unread?", "note?", "moved_count", "order" },
                                           "input order", rows.Count, epoch ?? "");
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);

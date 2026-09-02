@@ -263,7 +263,7 @@ public static class NpcAppearanceAssets
                 if (isMissing || bytes is null)
                 {
                     if (readErr is not null)
-                        failures.Add($"facegen {slot} '{oldRel}': the winning copy exists but could not be read — {readErr}. Re-run once the file is free, or carry it with housecarl_place_asset.");
+                        failures.Add($"facegen {slot} '{oldRel}': the winning copy exists but could not be read — {readErr}. Re-run once the file is free, or carry it with {ToolNames.PlaceAsset}.");
                     else
                         missing.Add($"facegen {slot} '{oldRel}' — found neither in the active VFS nor the donor's folder. " +
                                     "Without it the engine regenerates the head at runtime (grey/dark-face risk); verify in-game.");

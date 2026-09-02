@@ -249,7 +249,7 @@ public static class AssetRenameService
             // Can't read P′ back ⇒ can't (re)build its .seq. The compact SUCCEEDED; this is a degraded SEQ pass, surfaced
             // as a named warning (Q3) rather than a silent stale/missing .seq.
             return new SeqRegenOutcome(0, false, null,
-                new[] { $"could not read '{Path.GetFileName(pPrimePath)}' back to (re)build its .seq ({ex.Message}) — if it has start-game-enabled quests, run housecarl_write_seq on the compacted plugin." });
+                new[] { $"could not read '{Path.GetFileName(pPrimePath)}' back to (re)build its .seq ({ex.Message}) — if it has start-game-enabled quests, run {ToolNames.WriteSeq} on the compacted plugin." });
         }
 
         // No SGE quests → no .seq needed (the write_seq no-op). NOTE: returns BEFORE the sourceHadSeq gate, so a source that
@@ -261,7 +261,7 @@ public static class AssetRenameService
             // REFRESH-ONLY: P′ has SGE quests but the source shipped no .seq — do NOT invent one (xEdit-compaction parity).
             // Advise rather than silently write: the quests likely weren't starting even before compaction (Q3, named).
             return new SeqRegenOutcome(built.Quests.Count, false, null,
-                new[] { $"'{Path.GetFileName(pPrimePath)}' has {built.Quests.Count} start-game-enabled quest(s) but no .seq — they likely weren't starting even before compaction; run housecarl_write_seq on the compacted plugin to add one." });
+                new[] { $"'{Path.GetFileName(pPrimePath)}' has {built.Quests.Count} start-game-enabled quest(s) but no .seq — they likely weren't starting even before compaction; run {ToolNames.WriteSeq} on the compacted plugin to add one." });
 
         var dest = Path.Combine(outDir, "SEQ", Path.GetFileNameWithoutExtension(pPrimePath) + ".seq");
         try
@@ -276,7 +276,7 @@ public static class AssetRenameService
         catch (Exception ex)
         {
             return new SeqRegenOutcome(built.Quests.Count, false, null,
-                new[] { $"could not write '{Path.GetFileName(dest)}' ({ex.Message}) — its start-game-enabled quests may not start; run housecarl_write_seq on the compacted plugin." });
+                new[] { $"could not write '{Path.GetFileName(dest)}' ({ex.Message}) — its start-game-enabled quests may not start; run {ToolNames.WriteSeq} on the compacted plugin." });
         }
         return new SeqRegenOutcome(built.Quests.Count, true, dest, Array.Empty<string>());
     }

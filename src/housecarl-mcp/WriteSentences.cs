@@ -255,7 +255,7 @@ internal static class WriteSentences
     [MustState("NOT VERIFIED", "do NOT re-run")]
     internal const string CopyReadBackUnverified =
         "masters: <NOT VERIFIED — the post-write read-back failed>\n" +
-        "the patch WAS written, so do NOT re-run blindly (that mints a duplicate); read it back with housecarl_read_plugin_file.";
+        "the patch WAS written, so do NOT re-run blindly (that mints a duplicate); read it back with " + ToolNames.ReadPluginFile + ".";
 
     /// <summary>What a strip actually costs the caller. The clone keeps the look and loses the source's own
     /// factions/outfits/packages — said plainly, because "standalone" must never quietly mean "different".</summary>
@@ -343,10 +343,10 @@ internal static class WriteSentences
     /// already does — and there the caller picks replace-vs-merge with the grammar that lane already has, rather
     /// than this one inventing a second answer. Same shape as the clone lane's required-link refusal, which names
     /// the target lane instead of guessing.</summary>
-    [MustState("seed_paths takes a record link or a list of record links", "housecarl_apply")]
+    [MustState("seed_paths takes a record link or a list of record links", ToolNames.Apply)]
     internal const string CopySeedShapeRoute =
         " — seed_paths takes a record link or a list of record links, and nothing else. Copying a field whose " +
-        "entries carry links INSIDE them is a field-bundle copy: use housecarl_apply's bundle=/assignments= zip, " +
+        "entries carry links INSIDE them is a field-bundle copy: use " + ToolNames.Apply + "'s bundle=/assignments= zip, " +
         "where op=Merge and op=ReplaceAll are your choice between merging into the target's entries and replacing " +
         "them. Nothing was written.";
 
@@ -456,10 +456,10 @@ internal static class WriteSentences
     /// mods it DOES load, so every path only that mod provides reads back as absent there. A caller following the
     /// route without this sentence reads "absent" as "nothing to place" and silently ships a patch with no assets,
     /// which is the dark-face outcome. Measured on the disabled-donor fixture, not assumed.</para></summary>
-    [MustState("does NOT place them", "housecarl_bulk_place_asset")]
+    [MustState("does NOT place them", ToolNames.BulkPlaceAsset)]
     internal const string CopyAssetPathsHeader =
         "asset paths the copied records reference (this call does NOT place them — check each with " +
-        "housecarl_asset_status, then place what you keep with housecarl_bulk_place_asset; a path only the mod you " +
+        ToolNames.AssetStatus + ", then place what you keep with " + ToolNames.BulkPlaceAsset + "; a path only the mod you " +
         "read FROM provides reads as absent in asset_status if MO2 does not load that mod, and is still placed by " +
         "naming it in source_provider=):";
 
@@ -845,10 +845,10 @@ internal static class WriteSentences
         /// newer than the plugin. validate_dialogue lints the .seq the VFS serves, which is this one only if this
         /// folder wins the SEQ\ conflict — so the sentence says what was done and what it is for, and does not
         /// promise a verdict from a tool that resolves its input differently.</summary>
-        [MustState("has been stamped forward", "contents untouched", "housecarl_validate_dialogue's SEQ staleness check", "no longer reads")]
+        [MustState("has been stamped forward", "contents untouched", ToolNames.ValidateDialogue + "'s SEQ staleness check", "no longer reads")]
         internal const string SeqTimestampRefreshed =
             "its mtime was older than the plugin and has been stamped forward (contents untouched); "
-          + "housecarl_validate_dialogue's SEQ staleness check compares those two mtimes, so this file no longer reads "
+          + ToolNames.ValidateDialogue + "'s SEQ staleness check compares those two mtimes, so this file no longer reads "
           + "as stale — for the copy the load order actually serves, which is this one only if this folder wins the SEQ\\ conflict.";
 
         /// <summary>No start-game-enabled quests: a .seq lists only SGE quests, so none is needed and nothing was
@@ -871,10 +871,10 @@ internal static class WriteSentences
         // The phrase is the ACTION, not the token (PR #337 re-review, residual B). "housecarl_validate_dialogue"
         // alone survives a rewrite to "…confirms the dialogue graph is sound (housecarl_validate_dialogue not
         // required)", which inverts the standing limit into a claim write_seq cannot make.
-        [MustState("does not verify", "use housecarl_validate_dialogue for the dialogue graph")]
+        [MustState("does not verify", "use " + ToolNames.ValidateDialogue + " for the dialogue graph")]
         internal const string SeqStandingLimit =
             "this makes the quest(s) START at game start; it does not verify the quest or its dialogue is otherwise "
-          + "well-formed (use housecarl_validate_dialogue for the dialogue graph).";
+          + "well-formed (use " + ToolNames.ValidateDialogue + " for the dialogue graph).";
 
         /// <summary>What a truncated QUEST list means and what re-running costs. The .seq FILE carries every quest —
         /// only the LIST was cut — so the remedy prices the re-run rather than prescribing it (the wrong-remedy

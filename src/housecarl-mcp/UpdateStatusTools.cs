@@ -14,7 +14,7 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class UpdateStatusTools
 {
-    [McpServerTool(Name = "housecarl_update_status", ReadOnly = true, Title = "MO2's local mod-update cache (no network)"),
+    [McpServerTool(Name = ToolNames.UpdateStatus, ReadOnly = true, Title = "MO2's local mod-update cache (no network)"),
      Description(
          "Report which installed mods have a version DIFFERENT from MO2's cached 'newest' — read from MO2's OWN local " +
          "cache (each mod's meta.ini), with NO network and NO API key. For every Nexus-linked mod it compares the " +
@@ -23,12 +23,12 @@ public static class UpdateStatusTools
          "ignore, and how many were never checked or match. This is the cheap FIRST pass of update triage — it " +
          "narrows a big modlist to the handful worth checking online — but it is only as fresh as MO2's last Nexus check, " +
          "and a 'never checked' mod is NOT 'up to date' (Q3). To verify live, pass the flagged mod ids to " +
-         "housecarl_nexus_check_updates; use housecarl_nexus_mod changelog=true to see what changed. READ-ONLY, works " +
-         "OFFLINE, and modifies/updates NOTHING. Needs a configured MO2 instance (housecarl_set_mo2_instance).")]
+         ToolNames.NexusCheckUpdates + "; use " + ToolNames.NexusMod + " changelog=true to see what changed. READ-ONLY, works " +
+         "OFFLINE, and modifies/updates NOTHING. Needs a configured MO2 instance (" + ToolNames.SetMo2Instance + ").")]
     public static string UpdateStatus(
         LoadOrderService svc,
         [Description("Optional. Max characters before the mod lists are cut with an explicit notice. 0 = the server default (~40k).")]
-            int max_chars = 0) => Guard.Tool("housecarl_update_status", () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.UpdateStatus, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         var data = svc.UpdateCache();
@@ -76,9 +76,9 @@ static class UpdateStatusWire
           .Append("'newest' can be stale or a different version scheme (some installed versions here are actually NEWER than ")
           .Append("the cached value), so the direction is not assured and 'never checked' is NOT 'up to date'. Many Nexus ")
           .Append("pages also host several independently-versioned files, so a cached 'differ' is often a false alarm. To ")
-          .Append("confirm, feed these mods to housecarl_nexus_check_updates using the 'id#fileid' form shown per row (the ")
+          .Append("confirm, feed these mods to " + ToolNames.NexusCheckUpdates + " using the 'id#fileid' form shown per row (the ")
           .Append("'verify:' token) — it checks each installed FILE's live status directly, clearing the multi-file-page ")
-          .Append("false positive; then housecarl_nexus_mod changelog=true to see what changed. (Rows with no fileid can't ")
+          .Append("false positive; then " + ToolNames.NexusMod + " changelog=true to see what changed. (Rows with no fileid can't ")
           .Append("be checked at file level — verify those by hand.)");
         return sb.ToString().TrimEnd('\n');
     }

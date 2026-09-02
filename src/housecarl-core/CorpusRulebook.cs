@@ -519,12 +519,12 @@ public sealed class CorpusRulebook
                    $"write into another's, with neither named by this call — reported as an edit to " +
                    $"'{hopOwner?.Name ?? owner.Name}'. Copy at the CHILD record itself, addressed by its own FormID " +
                    "(read the parent at depth=2 — the field shows it), or carry the whole record across with " +
-                   "housecarl_forward.";
+                   ToolNames.Forward + ".";
         if (SchemaClassifier.IsOwnedChildRecord(leaf, _corpus))
             return $"'{leaf.Name}' on '{owner.Name}' holds an owned child RECORD ({leaf.TypeRef}); CopyFrom copies a " +
                    "FIELD's value, not a record — copying it here would write another plugin's record, with its own " +
                    "FormID and everything under it, in as this parent's child. To carry that record across from " +
-                   "another plugin use housecarl_forward on the CHILD record itself; read the parent at " +
+                   "another plugin use " + ToolNames.Forward + " on the CHILD record itself; read the parent at " +
                    $"depth=2 and the '{leaf.Name}' field shows the child's FormID. Giving a parent a child it does " +
                    "not have is an open gap (#350).";
         // The same recogniser as the other two collection doors; the SENTENCE stays this door's own, because
@@ -533,7 +533,7 @@ public sealed class CorpusRulebook
         if (IsOwnedChildRecordCollection(leaf))
             return $"'{leaf.Name}' on '{owner.Name}' holds owned child records ({leaf.ElementTypeRef}); CopyFrom copies a " +
                    "FIELD's value, not owned child records. To carry the WHOLE record from another plugin use " +
-                   "housecarl_forward; a child record is authored on its own (housecarl_create with parent= in its records= element).";
+                   ToolNames.Forward + "; a child record is authored on its own (" + ToolNames.Create + " with parent= in its records= element).";
         if (leaf.Cardinality == "dict")
             return $"'{leaf.Name}' on '{owner.Name}' is a dict field; CopyFrom transplants scalar / formlink / list / " +
                    "sub-struct fields — a dict isn't transplanted yet. Set its entries individually, or forward the whole record.";
@@ -580,7 +580,7 @@ public sealed class CorpusRulebook
     /// why the parenthetical names it rather than leaving the caller to a second refusal.</summary>
     static string OwnedChildRecordCollectionRefusal(FieldSchema leaf) =>
         $"'{leaf.Name}' holds owned child records ({leaf.ElementTypeRef}); a child record is created on its " +
-        "own (the record axis), not added into a parent's collection by a write verb. Use housecarl_create with " +
+        "own (the record axis), not added into a parent's collection by a write verb. Use " + ToolNames.Create + " with " +
         "parent= the parent's FormID in its records= element (and collection= there when the parent holds more " +
         "than one fitting list) — surfaced here, never accepted and thrown at apply.";
 
@@ -617,7 +617,7 @@ public sealed class CorpusRulebook
         {
             if (siblingEditorIds is null)
                 return $"'{req.Value}' for '{leaf.Name}': a '@editorid' reference names a record being created in the " +
-                       "SAME housecarl_create call — when editing an existing record " +
+                       "SAME " + ToolNames.Create + " call — when editing an existing record " +
                        "there are no same-call creations to point at. Use the target's FormID (a record already " +
                        "written into a houseCARL patch is addressable by FormID with into= that patch).";
             // The singular value must land on a FormLink TARGET — a singular formlink leaf or a formlink-element list.
@@ -654,7 +654,7 @@ public sealed class CorpusRulebook
         {
             if (siblingEditorIds is null)
                 return $"a '@editorid' reference for '{leaf.Name}' names a record being created in the SAME " +
-                       "housecarl_create call — when editing an existing record there " +
+                       ToolNames.Create + " call — when editing an existing record there " +
                        "are no same-call creations to point at. Use the target's FormID (a record already written " +
                        "into a houseCARL patch is addressable by FormID with into= that patch).";
             if (!(req.Verb == "ReplaceAll" && leaf.Cardinality == "list" && leaf.FormLinkTarget is not null))
@@ -1085,7 +1085,7 @@ public sealed class CorpusRulebook
             {
                 if (siblingEditorIds is null)
                     return $"a '@editorid' reference for '{f.Key}' on '{spec.Type}' names a record being created in the " +
-                           "SAME housecarl_create call — when editing an existing record " +
+                           "SAME " + ToolNames.Create + " call — when editing an existing record " +
                            "there are no same-call creations to point at. Use the target's FormID.";
                 if (af.Cardinality != "formlink")
                     return $"Same-call reference '{f.Value}' for '{f.Key}' on '{spec.Type}' is only valid on a FormLink " +

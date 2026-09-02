@@ -15,7 +15,7 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class AssetTools
 {
-    [McpServerTool(Name = "housecarl_asset_status", ReadOnly = true, Title = "Asset status — which mod/BSA wins for a Data-relative path"),
+    [McpServerTool(Name = ToolNames.AssetStatus, ReadOnly = true, Title = "Asset status — which mod/BSA wins for a Data-relative path"),
      Description(
          "Resolve one or more Data-relative asset paths through Mod Organizer 2's virtual file system and report, for " +
          "each, WHICH copy the game actually uses: the winning source, every source that provides it (loose mods, the " +
@@ -36,7 +36,7 @@ public static class AssetTools
                      "in order, results returned in the same order. Paths are relative to the game's Data folder.")]
             string[] asset_paths,
         [Description("Optional. Max characters before the per-path list is cut with an explicit notice. 0 = the server default (~80k).")]
-            int max_chars = 0) => Guard.Tool("housecarl_asset_status", () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.AssetStatus, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (asset_paths is null || asset_paths.Length == 0)

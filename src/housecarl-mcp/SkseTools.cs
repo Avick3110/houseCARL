@@ -18,7 +18,7 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class SkseTools
 {
-    [McpServerTool(Name = "housecarl_skse_inventory", ReadOnly = true, Title = "SKSE plugin layer (DLLs, configs, provider & static metadata)"),
+    [McpServerTool(Name = ToolNames.SkseInventory, ReadOnly = true, Title = "SKSE plugin layer (DLLs, configs, provider & static metadata)"),
      Description(
          "Inventory the SKSE-plugin layer of the ACTIVE load order — the layer houseCARL's record/asset tools are otherwise " +
          "blind to. Covers the FULL depth of Data\\SKSE\\Plugins: the .dll plugins and every .ini/.toml/.json/.yaml config " +
@@ -51,7 +51,7 @@ public static class SkseTools
             "noise). Use it to answer 'what does this unfamiliar DLL touch'.")]
             bool peek = false,
         [Description("Optional. Max characters before lists are cut with an explicit notice. 0 = the server default (~80k).")]
-            int max_chars = 0) => Guard.Tool("housecarl_skse_inventory", () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.SkseInventory, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (SkseInventoryWire.PeekArgError(peek, filter) is { } err) return err;
@@ -59,7 +59,7 @@ public static class SkseTools
         return SkseInventoryWire.Render(data, filter, max_chars > 0 ? max_chars : 80_000);
     });
 
-    [McpServerTool(Name = "housecarl_native_pairing_audit", ReadOnly = true, Title = "Native Papyrus declarations vs the DLLs that implement them (pairing audit)"),
+    [McpServerTool(Name = ToolNames.NativePairingAudit, ReadOnly = true, Title = "Native Papyrus declarations vs the DLLs that implement them (pairing audit)"),
      Description(
          "Cross-check the native Papyrus functions the ACTIVE order's compiled scripts declare against the SKSE DLLs that must " +
          "implement them — the seam where 'a mod's scripts are installed but its DLL is missing, won't load on this game version, " +
@@ -83,14 +83,14 @@ public static class SkseTools
             "load verdicts, conflict chains. Omit for the whole-order audit (findings first, then the accounted-for baseline).")]
             string? filter = null,
         [Description("Optional. Max characters before lists are cut with an explicit notice. 0 = the server default (~80k).")]
-            int max_chars = 0) => Guard.Tool("housecarl_native_pairing_audit", () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.NativePairingAudit, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         var data = svc.NativePairingAudit();
         return NativePairingWire.Render(data, filter, max_chars > 0 ? max_chars : 80_000);
     });
 
-    [McpServerTool(Name = "housecarl_skse_config_audit", ReadOnly = true, Title = "SKSE config references vs the load order (reference-validity audit)"),
+    [McpServerTool(Name = ToolNames.SkseConfigAudit, ReadOnly = true, Title = "SKSE config references vs the load order (reference-validity audit)"),
      Description(
          "Cross-check the form references SKSE-plugin CONFIGS declare against the real records of the ACTIVE load order — so a " +
          "BROKEN reference (a FormID pointing at a record that doesn't exist in a plugin you DO have) is caught by houseCARL " +
@@ -117,7 +117,7 @@ public static class SkseTools
             "audit (diagnostics — broken & inert references — first, then the accounted-for remainder).")]
             string? filter = null,
         [Description("Optional. Max characters before lists are cut with an explicit notice. 0 = the server default (~80k).")]
-            int max_chars = 0) => Guard.Tool("housecarl_skse_config_audit", () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.SkseConfigAudit, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         var data = svc.SkseConfigAudit();

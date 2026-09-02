@@ -65,12 +65,12 @@ internal static class ReadSentences
     /// manifest is line 1 with its rows below, the single-read json object wrote the clause ahead of its own
     /// <c>fields</c> array, and a cap hit inside the text field loop truncated away the very field being pointed
     /// at. Naming the fields is true from any position, in any medium.</para></summary>
-    [MustState("declared per plugin", "conflict_tree=true", "housecarl_read_record", "text mode")]
+    [MustState("declared per plugin", "conflict_tree=true", ToolNames.ReadRecord, "text mode")]
     internal const string NotReadFraming =
         "note: this response annotates field(s) that hold CHILD RECORDS ({0}). Child records are declared per " +
         "plugin — so what one plugin's body carries is not the whole story for that field. This read did not open " +
         "the other plugins' bodies to see what they declare. To get a read that does, and names them: " +
-        "housecarl_read_record or housecarl_batch_record_detail in text mode (the default) with conflict_tree=true " +
+        ToolNames.ReadRecord + " or " + ToolNames.BatchRecordDetail + " in text mode (the default) with conflict_tree=true " +
         "— it is a text-only view, so json, dense and to_file reads refuse it.";
 
     /// <summary>The cheap tier's response-level clause over the fields <paramref name="fields"/> the response
@@ -675,7 +675,7 @@ internal static class ReadSentences
     [MustState("may merely be unscanned")]
     internal const string DialogueReadIncomplete =
         " A BSA failed to read this build, so an \"absent\" voice file or .pex above may merely be unscanned — see " +
-        "housecarl_load_order_status.";
+        ToolNames.LoadOrderStatus + ".";
 
     /// <summary>The dialogue family's completeness assertion when every topic it found is in the response.</summary>
     [MustState("every one of the")]

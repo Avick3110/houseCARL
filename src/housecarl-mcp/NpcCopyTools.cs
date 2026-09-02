@@ -15,7 +15,7 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class NpcCopyTools
 {
-    [McpServerTool(Name = "housecarl_copy_npc_appearance", Title = "Copy an NPC's appearance as a standalone (no donor master)"),
+    [McpServerTool(Name = ToolNames.CopyNpcAppearance, Title = "Copy an NPC's appearance as a standalone (no donor master)"),
      Description(
          "Copy a donor NPC's whole APPEARANCE — headparts (with their texture sets, extra parts and the morph .tri " +
          "references that drive lip-sync), face morph/parts, tint layers, texture lighting, hair color, head texture, " +
@@ -49,7 +49,7 @@ public static class NpcCopyTools
         [Description("Optional. Base name for the NEW patch plugin + mod folder (default: the new_editorid in clone mode, 'houseCARL_NpcCopy' otherwise); auto-suffixed if taken.")]
             string? patch_name = null,
         [Description("Optional. Extend an existing houseCARL patch instead of creating a fresh one — the patch plugin's filename (found even if you renamed its MO2 folder) or the mod-folder name.")]
-            string? into = null) => Guard.Tool("housecarl_copy_npc_appearance", () =>
+            string? into = null) => Guard.Tool(ToolNames.CopyNpcAppearance, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         return Render(svc.CopyNpcAppearance(source_formid, source_plugin, source_mod,
@@ -77,7 +77,7 @@ public static class NpcCopyTools
         {
             sb.AppendLine("masters: <NOT VERIFIED — read-back failed>");
             sb.AppendLine($"!! {o.Warning}");
-            sb.AppendLine("standalone: NOT VERIFIED — confirm with housecarl_read_plugin_file that the donor is absent from the masters before relying on this copy.");
+            sb.AppendLine("standalone: NOT VERIFIED — confirm with " + ToolNames.ReadPluginFile + " that the donor is absent from the masters before relying on this copy.");
         }
         else
         {

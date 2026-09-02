@@ -21,11 +21,11 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class PlaceAssetTools
 {
-    [McpServerTool(Name = "housecarl_place_asset", Title = "Place ONE asset file so a chosen copy can win MO2's VFS"),
+    [McpServerTool(Name = ToolNames.PlaceAsset, Title = "Place ONE asset file so a chosen copy can win MO2's VFS"),
      Description(
          "Place ONE asset file — ANY Data-relative file (a mesh, texture, script, sound, interface, etc.) — into a NEW " +
          "houseCARL-owned MO2 mod folder so a CHOSEN copy can win the virtual file system. The WRITE counterpart to " +
-         "housecarl_asset_status (which reports which copy currently wins). Give the DESTINATION as asset_path (a " +
+         ToolNames.AssetStatus + " (which reports which copy currently wins). Give the DESTINATION as asset_path (a " +
          "Data-relative path); OR, for an NPC's generated FaceGen file, as formid (the NPC's FormID 'XXXXXX:Plugin.esp') " +
          "+ kind ('mesh' = the head .nif, 'tint' = the face .dds), which houseCARL computes the path for. Give the SOURCE " +
          "(the copy to place) as source= a DATA-RELATIVE path resolved through the VFS — with source_provider= naming " +
@@ -39,12 +39,12 @@ public static class PlaceAssetTools
          "several contend and none was named — it will not guess which is correct. The write is crash-atomic; " +
          "originals are never touched. IMPORTANT (and reported back): the placed copy does NOT win on write — you must " +
          "ENABLE the new mod in MO2 and SORT it above the current winner. This tool places ONE file; to place several (or " +
-         "an NPC's mesh AND tint together) use housecarl_bulk_place_asset.")]
+         "an NPC's mesh AND tint together) use " + ToolNames.BulkPlaceAsset + ".")]
     public static string PlaceAsset(
         LoadOrderService svc,
         [Description("Optional. For an NPC's generated FaceGen file: the NPC's FormID 'XXXXXX:Plugin.esp' — houseCARL computes the FaceGen path from it. For any other file, use asset_path instead. Provide this OR asset_path; requires kind=.")]
             string? formid = null,
-        [Description("Optional (with formid). Which FaceGen file: 'mesh' (the head .nif) or 'tint' (the face .dds). REQUIRED when formid is given — this tool places one file. Use housecarl_bulk_place_asset to place both at once.")]
+        [Description("Optional (with formid). Which FaceGen file: 'mesh' (the head .nif) or 'tint' (the face .dds). REQUIRED when formid is given — this tool places one file. Use " + ToolNames.BulkPlaceAsset + " to place both at once.")]
             string? kind = null,
         [Description("Optional. The Data-relative destination path to place to (any file — e.g. 'textures/armor/iron/cuirass_1.dds', 'meshes/...', a script, a sound), instead of formid+kind. Provide this OR formid. A drive-rooted or '..'-escaping path is rejected.")]
             string? asset_path = null,
@@ -56,7 +56,7 @@ public static class PlaceAssetTools
                      + "'X - Textures.bsa' — matched exactly. A bare name ALWAYS means a provider of that name, so a mod whose "
                      + "folder happens to carry the pole's word is still reachable and nothing is reserved out of the name space. "
                      + WriteSentences.PlaceSourceNameReachesUnticked + " "
-                     + "housecarl_asset_status lists the PROVIDER names the active order supplies a path under — mod "
+                     + ToolNames.AssetStatus + " lists the PROVIDER names the active order supplies a path under — mod "
                      + "folders and archive filenames alike — with a kind annotation after them ('SomeMod (loose)', "
                      + "'X - Textures.bsa (BSA)'); pass the name only, without the annotation, and note that a file inside an "
                      + "active mod's archive is listed (and reached) under the ARCHIVE's name, not the mod's — and an "
@@ -71,7 +71,7 @@ public static class PlaceAssetTools
         [Description("Optional. Base name for the NEW houseCARL mod folder the file lands in (default 'houseCARL_Assets'); auto-suffixed if taken.")]
             string? patch_name = null,
         [Description("Optional. Filename of an existing houseCARL patch mod to place into instead of a fresh folder (accumulate across calls). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
-            string? into = null) => Guard.Tool("housecarl_place_asset", () =>
+            string? into = null) => Guard.Tool(ToolNames.PlaceAsset, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         var reqs = MapSpec(formid, kind, asset_path, source, source_provider, allowExpand: false, where: "", out var err);
@@ -79,9 +79,9 @@ public static class PlaceAssetTools
         return PlaceWire.Render(svc.PlaceAssets(reqs!, patch_name, into));
     });
 
-    [McpServerTool(Name = "housecarl_bulk_place_asset", Title = "Place MANY asset files in one houseCARL mod"),
+    [McpServerTool(Name = ToolNames.BulkPlaceAsset, Title = "Place MANY asset files in one houseCARL mod"),
      Description(
-         "Place MANY asset files in ONE houseCARL-owned MO2 mod folder — the batch form of housecarl_place_asset (place " +
+         "Place MANY asset files in ONE houseCARL-owned MO2 mod folder — the batch form of " + ToolNames.PlaceAsset + " (place " +
          "several overrides at once; or, for an NPC, its FaceGen mesh AND tint together). assets is an array of " +
          "{ formid?, kind?, asset_path?, source?, source_provider? }: give EITHER asset_path (any Data-relative path) OR formid (an NPC " +
          "FormID — omit kind to place BOTH the FaceGen mesh and the tint; or set kind='mesh'/'tint' for just one). source " +
@@ -103,7 +103,7 @@ public static class PlaceAssetTools
         [Description("Optional. Base name for the NEW houseCARL mod folder (default 'houseCARL_Assets'); auto-suffixed if taken.")]
             string? patch_name = null,
         [Description("Optional. Filename of an existing houseCARL patch mod to place into instead of a fresh folder. Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
-            string? into = null) => Guard.Tool("housecarl_bulk_place_asset", () =>
+            string? into = null) => Guard.Tool(ToolNames.BulkPlaceAsset, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (assets is null || assets.Length == 0)
@@ -156,7 +156,7 @@ public static class PlaceAssetTools
         // kind omitted → both mesh + tint (bulk only)
         if (!allowExpand)
         {
-            error = $"{where}kind is required with formid (mesh or tint — housecarl_place_asset places ONE file). To place both at once, use housecarl_bulk_place_asset.";
+            error = $"{where}kind is required with formid (mesh or tint — {ToolNames.PlaceAsset} places ONE file). To place both at once, use {ToolNames.BulkPlaceAsset}.";
             return null;
         }
         // Trim quotes for the both-expansion test the same way the service normalizes before it routes — else a quoted

@@ -14,16 +14,16 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class BsaTools
 {
-    [McpServerTool(Name = "housecarl_bsa_list", ReadOnly = true, Title = "List a .bsa archive's contents"),
+    [McpServerTool(Name = ToolNames.BsaList, ReadOnly = true, Title = "List a .bsa archive's contents"),
      Description(
          "List the files inside a Bethesda .bsa archive. Returns the archive format + the contained file paths. " +
          "Read-only — extracts nothing. Reads the archive directly (via Mutagen) — no external tool needed. To read a " +
-         "file's CONTENTS, use housecarl_bsa_extract then read the file.")]
+         "file's CONTENTS, use " + ToolNames.BsaExtract + " then read the file.")]
     public static string BsaList(
         [Description("Full path to the .bsa archive to list.")]
             string archive,
         [Description("Optional. Max characters before the file list is cut with an explicit notice. 0 = the server default (~80k).")]
-            int max_chars = 0) => Guard.Tool("housecarl_bsa_list", () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.BsaList, () =>
     {
         if (string.IsNullOrWhiteSpace(archive)) return "error: no archive given. Pass the full path to the .bsa.";
         try { archive = Path.GetFullPath(archive.Trim().Trim('"')); }
@@ -47,7 +47,7 @@ public static class BsaTools
         return sb.ToString().TrimEnd('\n');
     });
 
-    [McpServerTool(Name = "housecarl_bsa_extract", Title = "Extract a .bsa archive to a folder"),
+    [McpServerTool(Name = ToolNames.BsaExtract, Title = "Extract a .bsa archive to a folder"),
      Description(
          "Extract a Bethesda .bsa archive's contents to a folder so you can read the files. Reads the archive directly " +
          "(via Mutagen — handles compressed archives too) — no external tool needed. Unpacks the WHOLE archive. Pass " +
@@ -58,7 +58,7 @@ public static class BsaTools
         [Description("Full path to the .bsa archive to extract.")]
             string archive,
         [Description("Optional. Folder to unpack into. If omitted, houseCARL creates a NEW mod folder under your mods directory and reports its path.")]
-            string? dest = null) => Guard.Tool("housecarl_bsa_extract", () =>
+            string? dest = null) => Guard.Tool(ToolNames.BsaExtract, () =>
     {
         if (string.IsNullOrWhiteSpace(archive)) return "error: no archive given. Pass the full path to the .bsa.";
         try { archive = Path.GetFullPath(archive.Trim().Trim('"')); }
@@ -95,7 +95,7 @@ public static class BsaTools
         return sb.ToString();
     });
 
-    [McpServerTool(Name = "housecarl_bsa_repack", Title = "Pack a folder into a .bsa archive"),
+    [McpServerTool(Name = ToolNames.BsaRepack, Title = "Pack a folder into a .bsa archive"),
      Description(
          "Pack a folder of loose files into a Bethesda .bsa archive (via BSArch), placed in a NEW reviewable houseCARL mod " +
          "folder under your mods directory (originals untouched; enable it in MO2 to use). format defaults to 'sse' (Skyrim " +
@@ -116,7 +116,7 @@ public static class BsaTools
         [Description("Optional. Base name for the NEW mod folder the .bsa lands in (default 'houseCARL_Archive'); auto-suffixed if taken.")]
             string? patch_name = null,
         [Description("Optional. Filename of an existing houseCARL patch mod to place the .bsa into instead of a fresh folder. Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
-            string? into = null) => Guard.Tool("housecarl_bsa_repack", () =>
+            string? into = null) => Guard.Tool(ToolNames.BsaRepack, () =>
     {
         if (string.IsNullOrWhiteSpace(source_folder)) return "error: no source_folder given.";
         source_folder = Path.GetFullPath(source_folder.Trim().Trim('"'));

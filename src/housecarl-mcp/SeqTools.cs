@@ -28,13 +28,13 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class SeqTools
 {
-    [McpServerTool(Name = "housecarl_write_seq", Title = "Write a start-game-enabled-quest .seq file"),
+    [McpServerTool(Name = ToolNames.WriteSeq, Title = "Write a start-game-enabled-quest .seq file"),
      Description(
          "Write the SEQ file (Data\\SEQ\\<plugin>.seq) a plugin needs for its START-GAME-ENABLED quests to actually run. " +
          "Ticking 'Start Game Enabled' on a quest does NOTHING on its own — without the .seq the quest, and any dialogue or " +
          "change gated on it, silently never starts. Pass source= the plugin: its FILENAME (e.g. 'MyQuestMod.esp' — " +
          "located across your MO2 mod folders, enabled or not, the overwrite folder and game Data) or an ABSOLUTE PATH " +
-         "(e.g. the path housecarl_create reported for a fresh patch, which is not in the load order yet). The response " +
+         "(e.g. the path " + ToolNames.Create + " reported for a fresh patch, which is not in the load order yet). The response " +
          "states WHICH copy it read: with the same filename in several folders the call is refused, naming them, rather " +
          "than picking one. houseCARL reads that plugin's start-game-enabled quests and writes the .seq into a houseCARL " +
          "mod folder you enable in MO2. If the plugin is itself in a houseCARL patch folder, the .seq defaults into THAT " +
@@ -63,7 +63,7 @@ public static class SeqTools
         [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable).")]
             string? format = null,
         [Description("TRANSPORT: character ceiling on the render; past it trailing quest rows are dropped with an explicit notice (never silent). 0 = a safe default kept under the host's per-response limit.")]
-            int max_chars = 0) => Guard.Tool("housecarl_write_seq", () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.WriteSeq, () =>
     {
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;

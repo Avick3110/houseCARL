@@ -238,7 +238,7 @@ public sealed class LoadOrderService : IDisposable
         if (unticked)
             return $"'{fn}' IS installed, but it is UNTICKED in plugins.txt (MO2's right pane), so the game does not " +
                    "load it and houseCARL does not read it. Tick it in MO2 and re-sort — or, to read the file as-is " +
-                   "without loading it, use housecarl_read_plugin_file (a raw, out-of-load-order read).";
+                   "without loading it, use " + ToolNames.ReadPluginFile + " (a raw, out-of-load-order read).";
 
         // Ticked but absent from the index: the file itself couldn't be resolved. Locate it to say which.
         PluginFileHit[] hits;
@@ -268,7 +268,7 @@ public sealed class LoadOrderService : IDisposable
                                                                                       ? "Switch that mod on in MO2, then tick the plugin and sort"
                                                                                       : "MO2 has not registered that folder yet — refresh MO2, then tick the plugin and sort";
         return $"'{fn}' is on disk in {pick.Where}, but MO2's load order does not list it, so it is not active. " +
-               $"{remedy} — or read the file as-is with housecarl_read_plugin_file.";
+               $"{remedy} — or read the file as-is with {ToolNames.ReadPluginFile}.";
     }
 
     /// <summary>Build the asset resolver from the current roots: discover the active BSAs (co-name + Skyrim.ini base
@@ -1177,7 +1177,7 @@ public sealed class LoadOrderService : IDisposable
                 return c != 0 ? c : string.Compare(x.FormKey, y.FormKey, StringComparison.OrdinalIgnoreCase);
             });
             if (broadLines > 0) noOpNotes.Add($"no-op scan: {broadLines} broad (type-wide) line(s) were evaluated only against the explicitly-targeted records, not every record of their type.");
-            if (unresolvedTargets > 0) noOpNotes.Add($"no-op scan: {unresolvedTargets} explicit target(s) did not resolve (the overlay's per-record warnings name them via housecarl_skypatcher_read).");
+            if (unresolvedTargets > 0) noOpNotes.Add($"no-op scan: {unresolvedTargets} explicit target(s) did not resolve (the overlay's per-record warnings name them via {ToolNames.SkypatcherRead}).");
             if (failedReplays > 0) noOpNotes.Add($"no-op scan: {failedReplays} targeted record(s) could not be replayed (not in the order / unpatchable type / copy failure).");
         }
 
@@ -2236,7 +2236,7 @@ public sealed class LoadOrderService : IDisposable
         "houseCARL has no Mod Organizer 2 instance configured yet. Ask the user which MO2 instance folder to use — the " +
         "folder that contains ModOrganizer.ini (for a Wabbajack / portable list, that's the list's install folder). You " +
         "may help locate it, but do NOT silently pick one when more than one MO2 install exists: list the candidates you " +
-        "found and let the user choose. State which folder you're using, then call housecarl_set_mo2_instance with that path.";
+        "found and let the user choose. State which folder you're using, then call " + ToolNames.SetMo2Instance + " with that path.";
 
     /// <summary>Tools call this FIRST: returns the trained prompt (a normal result string the client SEES) when
     /// unconfigured, else null (proceed). Preferred over letting <see cref="Resolver"/> throw — the MCP framework
@@ -5727,12 +5727,12 @@ public sealed class LoadOrderService : IDisposable
             bool one = uncovered.Count == 1;
             return $"the .seq for '{targetName}' no longer lists {(one ? "its start-game-enabled quest" : $"{uncovered.Count} of its start-game-enabled quests")} "
                  + $"at {(one ? "its" : "their")} current on-disk FormID(s) ({names}), so {(one ? "it" : "they")} would silently never start on a fresh save "
-                 + "(a master prune in an in-place write shifts these FormIDs; the .seq may also have been stale before this edit). Regenerate it with housecarl_write_seq.";
+                 + "(a master prune in an in-place write shifts these FormIDs; the .seq may also have been stale before this edit). Regenerate it with " + ToolNames.WriteSeq + ".";
         }
         catch (Exception ex)
         {
             return $"could not check whether '{targetName}'s .seq is still current after this edit ({ex.GetType().Name}) — "
-                 + "if it has start-game-enabled quests, run housecarl_validate_dialogue on the quest to confirm the .seq still lists them.";
+                 + "if it has start-game-enabled quests, run " + ToolNames.ValidateDialogue + " on the quest to confirm the .seq still lists them.";
         }
     }
 
@@ -6448,7 +6448,7 @@ public sealed class LoadOrderService : IDisposable
             catch (Exception ex)
             {
                 seqRegen = new SeqRegenOutcome(0, false, null,
-                    new[] { $"SEQ regenerate skipped ({ex.Message}) — if '{name}' has start-game-enabled quests, run housecarl_write_seq on the compacted plugin." });
+                    new[] { $"SEQ regenerate skipped ({ex.Message}) — if '{name}' has start-game-enabled quests, run {ToolNames.WriteSeq} on the compacted plugin." });
             }
 
             // 8. audit markers (PR #122 review #2): stamp the distinct editedInPlace= breadcrumb into the meta.ini of EVERY
@@ -6640,7 +6640,7 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.MergeOutcome.Fail(
                 $"refused — '{outName}' has the .esl extension, which the game engine force-treats as a LIGHT master regardless " +
                 "of the header flag, but a merge keeps the donors' object ids in the full range (ids above 0xFFF would be misread " +
-                "in game). Merge to a '.esp' instead, then run housecarl_compact_plugin on it to make it light (the tools compose). Nothing was written.");
+                "in game). Merge to a '.esp' instead, then run " + ToolNames.CompactPlugin + " on it to make it light (the tools compose). Nothing was written.");
         if (donorsRaw.Any(d => string.Equals(d, outName, StringComparison.OrdinalIgnoreCase)))
             return WritePatchBuilder.MergeOutcome.Fail($"the output '{outName}' cannot also be a donor — name a NEW plugin file.");
 
@@ -6791,7 +6791,7 @@ public sealed class LoadOrderService : IDisposable
             catch (Exception ex)
             {
                 seqRegen = new SeqRegenOutcome(0, false, null,
-                    new[] { $"SEQ regenerate skipped ({ex.Message}) — if the donors have start-game-enabled quests, run housecarl_write_seq on '{outName}'." });
+                    new[] { $"SEQ regenerate skipped ({ex.Message}) — if the donors have start-game-enabled quests, run {ToolNames.WriteSeq} on '{outName}'." });
             }
 
             // Q3 — surface the one behavior delta the any-donor SEQ gate can introduce: SeqFile.Build lists EVERY SGE
@@ -7072,7 +7072,7 @@ public sealed class LoadOrderService : IDisposable
                 catch (Exception ex)
                 {
                     assets = new NpcAssetOutcome(Array.Empty<CarriedAsset>(), Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(),
-                        new[] { $"asset carry skipped — the asset layer could not be built ({ex.Message}); carry the facegen pair with housecarl_place_asset and verify in-game." }, false, false);
+                        new[] { $"asset carry skipped — the asset layer could not be built ({ex.Message}); carry the facegen pair with {ToolNames.PlaceAsset} and verify in-game." }, false, false);
                 }
                 return outcome with { Assets = assets };
             }
@@ -8539,7 +8539,7 @@ public sealed class LoadOrderService : IDisposable
                 try { rec = ov.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == fk); }
                 catch (Exception ex) { return baseOut with { Mode = "error", Error = $"'{Path.GetFileName(path)}' could not be fully read — a record Mutagen cannot parse before reaching {fk}: {ex.Message}" }; }
                 if (rec is null)
-                    return baseOut with { Mode = "error", Error = $"file '{Path.GetFileName(path)}' does not define or override {fk}. This reads the FILE's OWN records only — it does not resolve across masters or report a load-order winner; use housecarl_read_record for the winner." };
+                    return baseOut with { Mode = "error", Error = $"file '{Path.GetFileName(path)}' does not define or override {fk}. This reads the FILE's OWN records only — it does not resolve across masters or report a load-order winner; use {ToolNames.ReadRecord} for the winner." };
                 var rf = ReadEngine.ReadFields(rec, fields, depth <= 0 ? 1 : depth);
                 if (resolveNames)
                 {

@@ -245,7 +245,9 @@ def main():
     per_file = {}
 
     for path in files:
-        with open(path, "r", encoding="utf-8-sig") as fh:
+        # newline="" -- no translation, so offsets are raw and the sweep can write
+        # the file back byte-for-byte outside the spans it edits (these files are CRLF).
+        with open(path, "r", encoding="utf-8-sig", newline="") as fh:
             text = fh.read()
         literals, comments, masked = lex(text)
         regions = tool_regions(text, masked)

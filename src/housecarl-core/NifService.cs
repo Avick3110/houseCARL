@@ -788,7 +788,7 @@ public static class NifService
                 if (!w.Writable)
                     return ($"this NiflySharp version cannot write {WireName(prop)} on a {bt.Name} — the value is not settable on that "
                           + "block type, so the write would be accepted and change nothing. Refusing (Q3). "
-                          + $"housecarl_nif_inspect sections=shader names what it can and cannot see on this block. Nothing was written.", null, null, null, null, false);
+                          + $"{ToolNames.NifInspect} sections=shader names what it can and cannot see on this block. Nothing was written.", null, null, null, null, false);
                 var components = w.Components;
                 if (nums.Count != components)
                     return ($"{WireName(prop)} on a {bt.Name} takes {components} number{(components == 1 ? "" : "s")}"

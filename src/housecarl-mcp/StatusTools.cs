@@ -15,7 +15,7 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class StatusTools
 {
-    [McpServerTool(Name = "housecarl_load_order_status", ReadOnly = true, Title = "Load-order status (enabled/disabled mods & plugins)"),
+    [McpServerTool(Name = ToolNames.LoadOrderStatus, ReadOnly = true, Title = "Load-order status (enabled/disabled mods & plugins)"),
      Description(
          "Report what houseCARL sees in the active MO2 profile: enabled vs DISABLED mods, active vs INACTIVE plugins, " +
          "the implicit force-loaded masters/CC, how many plugins resolved to real files, and any load-order warnings. " +
@@ -25,7 +25,7 @@ public static class StatusTools
          "case MO2 was mid-write). Pass lookup= a mod folder name (e.g. 'Requiem " +
          "Lite 2') or a plugin filename (e.g. 'Requiem.esp') to ask whether houseCARL sees that one as enabled/disabled " +
          "(mod) or active/inactive/implicit (plugin). Also reports the resolved Papyrus script-log and SKSE crash-log " +
-         "FOLDERS — where to Read logs for triage/diagnosis (auto-detected, or as set via housecarl_set_tool_path). " +
+         "FOLDERS — where to Read logs for triage/diagnosis (auto-detected, or as set via " + ToolNames.SetToolPath + "). " +
          "Does NOT modify anything.")]
     public static string LoadOrderStatus(
         LoadOrderService svc,
@@ -39,7 +39,7 @@ public static class StatusTools
             "both render.")]
             string? profile = null,
         [Description("Optional. Max characters before name lists are cut with an explicit notice. 0 = the server default (~80k).")]
-            int max_chars = 0) => Guard.Tool("housecarl_load_order_status", () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.LoadOrderStatus, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         var data = svc.StatusData();
@@ -139,7 +139,7 @@ static class StatusWire
             {
                 ToolPathSource.Saved        => l.Path + "  (configured)",
                 ToolPathSource.AutoDetected => l.Path + "  (auto-detected)",
-                _                           => $"not set — call housecarl_set_tool_path(tool='{l.Key}', path='<folder>') to point houseCARL at it",
+                _                           => $"not set — call {ToolNames.SetToolPath}(tool='{l.Key}', path='<folder>') to point houseCARL at it",
             }).Append('\n');
         }
     }

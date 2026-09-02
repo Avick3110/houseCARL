@@ -93,7 +93,7 @@ public static class RecordsTools
         public string? severity { get; set; }
     }
 
-    [McpServerTool(Name = "housecarl_records", ReadOnly = true, Title = "Read records (the 2.0 read surface)"),
+    [McpServerTool(Name = ToolNames.Records, ReadOnly = true, Title = "Read records (the 2.0 read surface)"),
      Description(
          "Read Bethesda records from the load order — ONE read surface: which records (SELECT) x whose version " +
          "(SOURCE) x what shape of answer (PROJECT) compose in a single call.\n\n" +
@@ -150,8 +150,8 @@ public static class RecordsTools
          "(line 1 = manifest with the query echo, row schema, and epoch) and the response names the file; to_file= " +
          "forces that disposition to your own path. Every response carries epoch=<hex> — the identity of the index " +
          "build it was answered from.\n\n" +
-         "This tool never writes. Authoring goes through the write tools (housecarl_apply / housecarl_create / " +
-         "housecarl_remove / housecarl_forward).")]
+         "This tool never writes. Authoring goes through the write tools (" + ToolNames.Apply + " / " + ToolNames.Create + " / " +
+         ToolNames.Remove + " / " + ToolNames.Forward + ").")]
     public static string Records(
         LoadOrderService svc,
         [Description("SELECT: records by FormID ('XXXXXX:Plugin.esp'), or [\"@<absolute path>\"] to read the list from a file / spilled artifact. Results return in input order; a bad or absent FormID is a per-item error, never a failed batch.")]
@@ -189,7 +189,7 @@ public static class RecordsTools
         [Description("TRANSPORT: return the accounting block and counts only, no rows — the cheap census.")]
             bool counts_only = false,
         [Description("TRANSPORT: write the COMPLETE result to this ABSOLUTE .jsonl path as an artifact (line 1 = manifest) and render only the manifest inline. Re-enter it later via formids=[\"@<path>\"] or where=[\"formid in @<path>\"] — epoch-checked. The artifact is never a window: offset= is refused with to_file=.")]
-            string? to_file = null) => Guard.Tool("housecarl_records", () =>
+            string? to_file = null) => Guard.Tool(ToolNames.Records, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
 
@@ -503,7 +503,7 @@ public static class RecordsTools
                 var rendered = Render(spill, out var truncated);
                 if (spill is null && truncated)
                 {
-                    var path = ResultsStore.NextPath("housecarl_records", epoch);
+                    var path = ResultsStore.NextPath(ToolNames.Records, epoch);
                     var (s, aerr) = Artifacts.WriteResolve(rows, epoch, path, "ceiling", Echo());
                     if (aerr is not null) ResultsStore.Release(path);
                     rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
@@ -590,7 +590,7 @@ public static class RecordsTools
             var rendered2 = Render2(spill2, out var truncated2);
             if (spill2 is null && truncated2)
             {
-                var path = ResultsStore.NextPath("housecarl_records", epoch2 ?? "none");
+                var path = ResultsStore.NextPath(ToolNames.Records, epoch2 ?? "none");
                 var (s, aerr) = Artifacts.WriteBatch(outcomes, path, "ceiling", Echo(), LeverNames.Records);
                 if (aerr is not null) ResultsStore.Release(path);
                 rendered2 = Render2(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
@@ -678,7 +678,7 @@ public static class RecordsTools
                 var revRendered = RenderRev(revSpill, out var revTrunc);
                 if (revSpill is null && revTrunc)
                 {
-                    var path = ResultsStore.NextPath("housecarl_records", epochR ?? "none");
+                    var path = ResultsStore.NextPath(ToolNames.Records, epochR ?? "none");
                     var (sp, aerr) = Artifacts.WriteEffectChains(results, epochR, path, "ceiling", Echo());
                     if (aerr is not null) ResultsStore.Release(path);
                     revRendered = RenderRev(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
@@ -720,7 +720,7 @@ public static class RecordsTools
                 var rendered = Render(spill, out var truncated);
                 if (spill is null && truncated)
                 {
-                    var path = ResultsStore.NextPath("housecarl_records", wEpoch ?? "none");
+                    var path = ResultsStore.NextPath(ToolNames.Records, wEpoch ?? "none");
                     var (s, aerr) = Artifacts.WriteChain(rows, wEpoch, path, "ceiling", Echo());
                     if (aerr is not null) ResultsStore.Release(path);
                     rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
@@ -821,7 +821,7 @@ public static class RecordsTools
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated)
             {
-                var path = ResultsStore.NextPath("housecarl_records", epoch ?? "none");
+                var path = ResultsStore.NextPath(ToolNames.Records, epoch ?? "none");
                 var (s, aerr) = Artifacts.WriteDelta(rows, epoch, path, "ceiling", echo);
                 if (aerr is not null) ResultsStore.Release(path);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
@@ -864,7 +864,7 @@ public static class RecordsTools
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated)
             {
-                var path = ResultsStore.NextPath("housecarl_records", epoch ?? "none");
+                var path = ResultsStore.NextPath(ToolNames.Records, epoch ?? "none");
                 var (s, aerr) = Artifacts.WriteTree(rows, epoch, path, "ceiling", echo);
                 if (aerr is not null) ResultsStore.Release(path);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
@@ -899,7 +899,7 @@ public static class RecordsTools
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated)
             {
-                var path = ResultsStore.NextPath("housecarl_records", epoch ?? "none");
+                var path = ResultsStore.NextPath(ToolNames.Records, epoch ?? "none");
                 var (s, aerr) = Artifacts.WriteInfoOrder(rows, epoch, path, "ceiling", echo);
                 if (aerr is not null) ResultsStore.Release(path);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
@@ -927,7 +927,7 @@ public static class RecordsTools
             if (srcOverlay || versusSpec?.Kind == LoadOrderService.PoleKind.Overlay)
                 return Wire.Refuse(json, "error: an overlay pole on a SCAN would replay the SkyPatcher INI layer over every match — a per-record replay at scan scale " +
                        "(a scan comparison compares EVERY match, so it is not a bound). Name the records via formids= — the list lane reads and " +
-                       "compares their post-state bodies — or read the whole layer via housecarl_skypatcher_layer.");
+                       "compares their post-state bodies — or read the whole layer via " + ToolNames.SkypatcherLayer + ".");
             bool hasBodyFilter = where is { Length: > 0 } || references is { Length: > 0 };
             bool hasTypes = types is { Length: > 0 };
             bool hasScope = plugins?.names is { Length: > 0 };
@@ -1236,7 +1236,7 @@ public static class RecordsTools
                 var evRendered = RenderEv(evSpill, out var evTrunc);
                 if (evSpill is null && evTrunc)
                 {
-                    var path = ResultsStore.NextPath("housecarl_records", bodyEpoch ?? "none");
+                    var path = ResultsStore.NextPath(ToolNames.Records, bodyEpoch ?? "none");
                     var (s, aerr) = Artifacts.WriteBatch(bodies, path, "ceiling", Echo(), evLevers);
                     if (aerr is not null) ResultsStore.Release(path);
                     evRendered = RenderEv(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
@@ -1266,7 +1266,7 @@ public static class RecordsTools
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated && outcome.Error is null)
             {
-                var path = ResultsStore.NextPath("housecarl_records", outcome.Epoch ?? "none");
+                var path = ResultsStore.NextPath(ToolNames.Records, outcome.Epoch ?? "none");
                 var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, projFields, resolveNames, winnerFields, depth, path, "ceiling", Echo(), LeverNames.Records);
                 if (aerr is not null) ResultsStore.Release(path);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
@@ -1294,7 +1294,7 @@ public static class RecordsTools
             if (versusSpec?.Kind == LoadOrderService.PoleKind.Overlay)
                 return Wire.Refuse(json, "error: an overlay pole on a SCAN would replay the SkyPatcher INI layer over every match — a per-record replay at scan scale " +
                        "(a scan comparison compares EVERY match, so it is not a bound). Name the records via formids= — the list lane reads and " +
-                       "compares their post-state bodies — or read the whole layer via housecarl_skypatcher_layer.", pole.Epoch);
+                       "compares their post-state bodies — or read the whole layer via " + ToolNames.SkypatcherLayer + ".", pole.Epoch);
             if (where_source is not null)
             {
                 // Full-vocabulary validation, mirroring the in-order engine (review F9): an unknown spelling must
@@ -1449,7 +1449,7 @@ public static class RecordsTools
                 var offRendered = RenderOff(offSpill, out var offTrunc);
                 if (offSpill is null && offTrunc)
                 {
-                    var path = ResultsStore.NextPath("housecarl_records", offEpoch ?? "none");
+                    var path = ResultsStore.NextPath(ToolNames.Records, offEpoch ?? "none");
                     var (sp, aerr) = Artifacts.WriteBatch(bodies, path, "ceiling", Echo(), offLevers);
                     if (aerr is not null) ResultsStore.Release(path);
                     offRendered = RenderOff(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
@@ -1478,7 +1478,7 @@ public static class RecordsTools
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated && outcome.Error is null)
             {
-                var path = ResultsStore.NextPath("housecarl_records", outcome.Epoch ?? "none");
+                var path = ResultsStore.NextPath(ToolNames.Records, outcome.Epoch ?? "none");
                 var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, path, "ceiling", Echo(), LeverNames.Records);
                 if (aerr is not null) ResultsStore.Release(path);
                 rendered = Render(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);

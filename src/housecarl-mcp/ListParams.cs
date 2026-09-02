@@ -167,13 +167,13 @@ internal static class ListParams
         // ---- W3 PR 2: housecarl_create's record specs + their field ops -------------------------------------
         // The 1.x batch element spelled its field list `operations` and each op's verb `verb`; both are the same
         // renames the op level took, so they get the same corrections in this shape's own words.
-        ("operations", "CreateRecordSpec", "a record spec's field list is now ops — ops=[{field_path, value}] (the §5.1 name, the same word housecarl_apply takes)"),
+        ("operations", "CreateRecordSpec", "a record spec's field list is now ops — ops=[{field_path, value}] (the §5.1 name, the same word " + ToolNames.Apply + " takes)"),
         ("verb", "CreateFieldOp", "at the OP level the verb member is now op — op=\"Add\". (A nested set inside compose= is unchanged and still takes verb.)"),
         // A create op sets a field on a record that does not exist yet, so three op members are not merely renamed
         // — they have no meaning here at all, and the engine refuses each of them by name too. Say which is which.
         ("formid", "CreateFieldOp", "a create op sets a field on the NEW record, whose FormID is auto-allocated and reported back — there is nothing to name here. The record's own identity is record_type + editorid on the spec"),
-        ("from_plugin", "CreateFieldOp", "copying a field FROM another version needs an existing record — a create has none yet. Set the field with value= / compose=, or create first and copy with housecarl_apply into= the same patch"),
-        ("from_source", "CreateFieldOp", "copying a field FROM another version needs an existing record — a create has none yet. Set the field with value= / compose=, or create first and copy with housecarl_apply into= the same patch"),
-        ("from", "CreateFieldOp", "copying a field FROM another record needs an existing target — a create has none yet. Set the field with value= / compose=, or create first and copy with housecarl_apply into= the same patch"),
+        ("from_plugin", "CreateFieldOp", "copying a field FROM another version needs an existing record — a create has none yet. Set the field with value= / compose=, or create first and copy with " + ToolNames.Apply + " into= the same patch"),
+        ("from_source", "CreateFieldOp", "copying a field FROM another version needs an existing record — a create has none yet. Set the field with value= / compose=, or create first and copy with " + ToolNames.Apply + " into= the same patch"),
+        ("from", "CreateFieldOp", "copying a field FROM another record needs an existing target — a create has none yet. Set the field with value= / compose=, or create first and copy with " + ToolNames.Apply + " into= the same patch"),
     };
 }
