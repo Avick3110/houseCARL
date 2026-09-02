@@ -40,6 +40,7 @@ public static class ClosureWalkProbe
     /// <summary>A throw out of an arm is a FAILURE, not a crash that skips the summary. Without this the guard's
     /// own note — "an arm that throws under sabotage lies about severity" — did not apply to the guard itself: a
     /// sabotage that made the walk throw exited before the tally and read as an infrastructure problem.</summary>
+    [CiProbe("closure-walk-guard")]
     public static int RunGuard(string[] args)
     {
         try { return Body(args); }

@@ -23,6 +23,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class OverriderDetectProbe
 {
+    [CiProbe("overrider-detect-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  COMPACT gap #2 — external-overrider detection guard  ################");

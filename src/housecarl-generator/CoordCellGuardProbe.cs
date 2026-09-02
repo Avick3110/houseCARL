@@ -33,6 +33,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class CoordCellGuardProbe
 {
+    [CiProbe("coord-cell-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — COORDINATE-KEYED cell CREATE (§4-(b))  ################");

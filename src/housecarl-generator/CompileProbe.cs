@@ -17,6 +17,7 @@ internal static class CompileProbe
     // Aaron's known Steam compiler (the CK ships with the vanilla Steam install, not the MO2 game copy). Override via arg.
     const string DefaultCompiler = @"E:\SteamLibrary\steamapps\common\Skyrim Special Edition\Papyrus Compiler\PapyrusCompiler.exe";
 
+    [CiProbe("compile-probe")]
     public static int Run(string[] args)
     {
         Console.WriteLine("================================================================");

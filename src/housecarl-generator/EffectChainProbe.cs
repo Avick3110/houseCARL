@@ -50,6 +50,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class EffectChainProbe
 {
+    [CiProbe("effect-chain-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("effect-chain-guard — resolve a MagicEffect's carriers + magnitudes (housecarl_effect_chain, gap 2026-06-08)");

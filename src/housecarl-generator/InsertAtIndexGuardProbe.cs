@@ -121,6 +121,7 @@ public static class InsertAtIndexGuardProbe
     static uint _next = 0x800;
     static FormKey NextFk() => new(MKey, _next++);
 
+    [CiProbe("insert-at-index-guard")]
     public static int RunGuard(string[] args)
     {
         _pass = _fail = 0;

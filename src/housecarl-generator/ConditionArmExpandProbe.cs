@@ -30,6 +30,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class ConditionArmExpandProbe
 {
+    [CiProbe("condition-arm-expand-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — Conditions[].Data arm expansion at the depth floor (#258)  ################");

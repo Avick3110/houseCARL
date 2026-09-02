@@ -90,6 +90,7 @@ public static class WriteSurfaceGuardProbe
 
     static JsonElement Json(string raw) => JsonDocument.Parse(raw).RootElement.Clone();
 
+    [CiProbe("write-surface-guard")]
     public static int RunGuard(string[] args)
     {
         _pass = _fail = 0;

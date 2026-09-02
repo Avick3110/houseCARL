@@ -38,6 +38,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class FormLinkNullProbe
 {
+    [CiProbe("formlink-null-guard")]
     public static int RunGuard(string[] args)
     {
         // CI-safe corpus: corpus.json is GENERATED, not tracked — on a fresh checkout build it into a UNIQUE temp

@@ -36,6 +36,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class AssetLinkWriteProbe
 {
+    [CiProbe("assetlink-write-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

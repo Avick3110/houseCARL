@@ -35,6 +35,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class BulkCreateGuardProbe
 {
+    [CiProbe("bulk-create-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — create-tool wire (create_record parent/collection + bulk_create)  ################");

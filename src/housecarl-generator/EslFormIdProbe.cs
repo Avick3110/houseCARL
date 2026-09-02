@@ -255,6 +255,7 @@ public static class EslFormIdProbe
     ///               while only the on-disk master index moves, and NO on-disk record carries high byte 0xFE — houseCARL
     ///               stores no absolute index, so it can't mangle.
     /// </summary>
+    [CiProbe("esl-formid-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — ESL / FE-space FormID handling (HCBR-2026-06-15-01 item 5.1)  ################");

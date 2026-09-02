@@ -25,6 +25,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class PatchStemCollisionProbe
 {
+    [CiProbe("patch-stem-collision-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

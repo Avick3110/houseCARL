@@ -44,6 +44,7 @@ public static class SchemaFlattenProbe
         _ => new List<string>(),
     };
 
+    [CiProbe("schema-flatten-guard")]
     public static int RunGuard(string[] args)
     {
         _pass = _fail = 0;

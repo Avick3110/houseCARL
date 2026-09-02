@@ -45,6 +45,7 @@ public static class SnapshotViewProbe
 {
     static int _pass, _fail;
 
+    [CiProbe("snapshot-view-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — snapshot-view capture (one build per logical operation, HCBR-2026-06-11-02)  ################");

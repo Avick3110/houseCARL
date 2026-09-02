@@ -31,6 +31,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class NativePairingProbe
 {
+    [CiProbe("native-pairing-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — native-function pairing audit  ################");

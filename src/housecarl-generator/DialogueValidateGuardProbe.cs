@@ -81,6 +81,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class DialogueValidateGuardProbe
 {
+    [CiProbe("dialogue-validate-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — dialogue-graph validator (nested-dialogue plan §3.6, Layer B unit C2)  ################");

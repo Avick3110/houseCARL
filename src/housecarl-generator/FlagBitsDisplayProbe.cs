@@ -35,6 +35,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class FlagBitsDisplayProbe
 {
+    [CiProbe("flag-bits-display-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — unknown-bits flag decode (#255)  ################");

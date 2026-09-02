@@ -28,6 +28,7 @@ public static class Mo2InstanceProbe
     const string ExpectModsDir      = @"C:\MO2\Instance\mods";
     const string ExpectDataDir      = @"C:\MO2\Instance\Stock Game\Data";
 
+    [CiProbe("mo2instance-probe")]
     public static int RunProbe(string[] args)
     {
         Console.WriteLine("================================================================");

@@ -42,6 +42,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class CopyParserProbe
 {
+    [CiProbe("copy-parser-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  COPY PARSER guard (the wire, not the service)  ################");

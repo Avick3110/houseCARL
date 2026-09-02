@@ -70,6 +70,7 @@ public static class ArmClassificationProbe
     // and why the name-resolution defect it exposes is filed as #424 instead of worked around here.
     const string UnextractableExhibit = "Mutagen.Bethesda.Skyrim.ArmorAddonWeightSliderContainer"; // none by name, 2/2 authorable
 
+    [CiProbe("arm-classification-guard")]
     public static int RunGuard(string[] args)
     {
         var asm = typeof(IArmorGetter).Assembly;

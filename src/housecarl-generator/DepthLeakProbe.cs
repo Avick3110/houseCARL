@@ -33,6 +33,7 @@ public static class DepthLeakProbe
         "TypeHandle", "UnderlyingSystemType", ".BaseType", ".Module",
     };
 
+    [CiProbe("depth-leak-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — depth-walker reflection leak (HCBR-2026-06-08-01)  ################");

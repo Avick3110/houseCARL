@@ -41,6 +41,7 @@ internal static class NifServiceGuardProbe
     // The spike §5 ground-truth mesh ('A makeover for Lucien'). Overridable by arg/env so nothing machine-specific is baked in.
     const string DefaultSmoke = @"E:\Skyrim Modding\ARR 2.0\mods\A makeover for Lucien\meshes\actors\character\FaceGenData\FaceGeom\lucien.esp\00005900.nif";
 
+    [CiProbe("nif-service-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

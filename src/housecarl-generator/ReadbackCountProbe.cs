@@ -29,6 +29,7 @@ public static class ReadbackCountProbe
 {
     static int _pass, _fail;
 
+    [CiProbe("readback-count-guard")]
     public static int RunGuard(string[] args)
     {
         _pass = 0; _fail = 0;

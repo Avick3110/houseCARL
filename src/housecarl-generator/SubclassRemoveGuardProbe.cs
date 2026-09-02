@@ -43,6 +43,7 @@ public static class SubclassRemoveGuardProbe
     const string MasterName = "HcSubRmMaster.esm";
     const string UserName = "HcSubRmUser.esp";
 
+    [CiProbe("subclass-remove-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — subclass-typed remove (HCBR-2026-07-08-01 F3)  ################");

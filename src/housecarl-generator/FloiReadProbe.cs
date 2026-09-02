@@ -24,6 +24,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class FloiReadProbe
 {
+    [CiProbe("floi-read-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — floi form-mode FormKey read (HCBR-2026-06-09-02)  ################");

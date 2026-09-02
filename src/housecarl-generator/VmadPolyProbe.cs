@@ -21,6 +21,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class VmadPolyProbe
 {
+    [CiProbe("vmad-poly-guard")]
     public static int RunGuard(string[] args)
     {
         var f = WriteEngine.ParseFlags(args);

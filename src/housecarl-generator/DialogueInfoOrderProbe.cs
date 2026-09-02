@@ -92,6 +92,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class DialogueInfoOrderProbe
 {
+    [CiProbe("dialogue-info-order-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — effective merged INFO order (#275)  ################");

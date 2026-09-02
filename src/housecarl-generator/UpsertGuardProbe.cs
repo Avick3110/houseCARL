@@ -31,6 +31,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class UpsertGuardProbe
 {
+    [CiProbe("upsert-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — create_record into= upsert + staged write (PR #44)  ################");

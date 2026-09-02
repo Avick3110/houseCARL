@@ -209,6 +209,7 @@ public static class RemapWave2NestedMechProbe
     ///              External's reference to the new weapon key.
     /// Run: dotnet run --project src/housecarl-generator remap-wave2-compact-guard
     /// </summary>
+    [CiProbe("remap-wave2-compact-guard")]
     public static int RunCompactGuard(string[] args)
     {
         Console.WriteLine("################  COMPACT/MERGE WAVE 2 — nested compact end-to-end guard  ################");

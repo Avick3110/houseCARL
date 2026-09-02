@@ -45,6 +45,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class ExtendResolveProbe
 {
+    [CiProbe("extend-resolve-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

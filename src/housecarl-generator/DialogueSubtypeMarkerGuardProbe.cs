@@ -31,6 +31,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class DialogueSubtypeMarkerGuardProbe
 {
+    [CiProbe("dialogue-subtype-marker-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — DialogTopic SNAM subtype marker (#131)  ################");

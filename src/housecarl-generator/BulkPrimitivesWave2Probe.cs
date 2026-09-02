@@ -34,6 +34,7 @@ public static class BulkPrimitivesWave2Probe
 {
     static int _pass, _fail;
 
+    [CiProbe("bulk-primitives-wave2-guard")]
     public static int RunGuard(string[] args)
     {
         _pass = _fail = 0;

@@ -15,6 +15,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class BsaExtractProbe
 {
+    [CiProbe("bsa-extract-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

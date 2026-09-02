@@ -33,6 +33,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class NifInspectBatchGuardProbe
 {
+    [CiProbe("nif-inspect-batch-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

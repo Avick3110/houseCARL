@@ -14,6 +14,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class NexusGraphqlProbe
 {
+    [CiProbe("nexus-graphql-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

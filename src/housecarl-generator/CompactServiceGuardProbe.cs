@@ -37,6 +37,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class CompactServiceGuardProbe
 {
+    [CiProbe("compact-service-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  COMPACT Wave 2 — service-policy guard (housecarl_compact_plugin)  ################");

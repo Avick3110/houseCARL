@@ -73,6 +73,7 @@ public static class CorpusHygieneProbe
     static readonly string[] ModeledRoots = { "Mutagen.Bethesda", "Noggog" };
     static readonly string[] MustHaveFieldsKinds = { "struct", "record", "header" };
 
+    [CiProbe("corpus-hygiene-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — corpus structural hygiene  ################");

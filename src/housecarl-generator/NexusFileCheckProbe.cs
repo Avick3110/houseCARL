@@ -19,6 +19,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class NexusFileCheckProbe
 {
+    [CiProbe("nexus-file-check-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

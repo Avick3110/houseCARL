@@ -66,6 +66,7 @@ public static class InPlaceProbe
     const string HighName = "HcInPlaceHigh.esp";
     const string LocName = "HcInPlaceLoc.esp";
 
+    [CiProbe("inplace-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — in-place write lane, Waves 1 + 1b + 2  ################");

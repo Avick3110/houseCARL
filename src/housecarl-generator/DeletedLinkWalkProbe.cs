@@ -47,6 +47,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class DeletedLinkWalkProbe
 {
+    [CiProbe("deleted-link-walk-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — a DELETED record links to nothing, in check_errors and the compact/merge scan (#279)  ################");

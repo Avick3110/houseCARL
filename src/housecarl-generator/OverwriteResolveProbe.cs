@@ -32,6 +32,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class OverwriteResolveProbe
 {
+    [CiProbe("overwrite-resolve-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

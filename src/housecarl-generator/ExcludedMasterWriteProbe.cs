@@ -45,6 +45,7 @@ public static class ExcludedMasterWriteProbe
     const string CleanName = "HcXClean.esp";
     const string BrokenName = "HcXBroken.esp";
 
+    [CiProbe("excluded-master-guard")]
     public static int RunGuard(string[] args)
     {
         _pass = _fail = 0;

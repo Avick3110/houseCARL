@@ -40,6 +40,7 @@ public static class BulkPrimitivesWave3Probe
         return n;
     }
 
+    [CiProbe("bulk-primitives-wave3-guard")]
     public static int RunGuard(string[] args)
     {
         _pass = _fail = 0;

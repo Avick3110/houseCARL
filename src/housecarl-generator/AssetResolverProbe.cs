@@ -34,6 +34,7 @@ internal static class AssetResolverProbe
 {
     static readonly string DefaultBsarch = Environment.GetEnvironmentVariable("HOUSECARL_BSARCH") ?? "";
 
+    [CiProbe("asset-resolver-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

@@ -198,6 +198,7 @@ public static class RemapWave1Probe
     ///              duplicate) — the honest coverage boundary, never a silent drop (Q3).
     /// Run: dotnet run --project src/housecarl-generator remap-wave1-guard
     /// </summary>
+    [CiProbe("remap-wave1-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  COMPACT/MERGE WAVE 1 — RemapEngine end-to-end guard  ################");

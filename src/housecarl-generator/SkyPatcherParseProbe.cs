@@ -17,6 +17,7 @@ namespace HousecarlGenerator;
 // ======================================================================
 public static class SkyPatcherParseProbe
 {
+    [CiProbe("skypatcher-parse-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("[skypatcher-parse-guard] SkyPatcher structural tokenizer (Wave 0a)");

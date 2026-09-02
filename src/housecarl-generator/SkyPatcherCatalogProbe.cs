@@ -19,6 +19,7 @@ namespace HousecarlGenerator;
 // ======================================================================
 public static class SkyPatcherCatalogProbe
 {
+    [CiProbe("skypatcher-catalog-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("[skypatcher-catalog-guard] SkyPatcher grammar catalog (Wave 0b)");

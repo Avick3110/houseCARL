@@ -30,6 +30,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class ReadPluginFileProbe
 {
+    [CiProbe("read-plugin-file-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

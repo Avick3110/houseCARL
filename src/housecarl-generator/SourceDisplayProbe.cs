@@ -35,6 +35,7 @@ public static class SourceDisplayProbe
 {
     static int _pass, _fail;
 
+    [CiProbe("source-display-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — winner-vs-source display (cross_plugin_query plugins= scope)  ################");

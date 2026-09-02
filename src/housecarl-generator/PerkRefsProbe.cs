@@ -31,6 +31,7 @@ public static class PerkRefsProbe
 {
     const string DefaultSource = @"E:\SteamLibrary\steamapps\common\Skyrim Special Edition\Data\Skyrim.esm";
 
+    [CiProbe("perk-refs-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — references= scan fault isolation (HCBR-2026-06-09-03)  ################");
@@ -126,6 +127,7 @@ public static class PerkRefsProbe
     /// ScanNote — RED before the fix (it threw and was accounted there), GREEN after (excluded before the walk).
     ///
     /// Run: <c>dotnet run --project src/housecarl-generator deleted-record-scan-guard</c></summary>
+    [CiProbe("deleted-record-scan-guard")]
     public static int RunDeletedGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — a DELETED record is excluded from a references= scan, not accounted as unscannable (#276)  ################");

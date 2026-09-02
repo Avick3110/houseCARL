@@ -218,6 +218,7 @@ public static class PkcuProbe
     /// The behavior change is upstream's, not ours: a plugin whose PKCU count disagrees with its inputs is no longer
     /// excluded by the resolver, because nothing throws on it any more. That is a narrower isolation surface, not a
     /// broken one — the fix this guard locks still isolates every shape that does throw.</summary>
+    [CiProbe("pkcu-regression")]
     public static int RunRegression(string[] args)
     {
         Console.WriteLine("== PKCU REGRESSION GUARD (self-contained) ==");

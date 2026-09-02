@@ -34,6 +34,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class WriteMutexProbe
 {
+    [CiProbe("write-mutex-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

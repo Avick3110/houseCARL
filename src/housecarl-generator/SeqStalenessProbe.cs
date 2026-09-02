@@ -30,6 +30,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class SeqStalenessProbe
 {
+    [CiProbe("seq-staleness-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — SEQ staleness/coverage lint (1.3.1 item 7)  ################");

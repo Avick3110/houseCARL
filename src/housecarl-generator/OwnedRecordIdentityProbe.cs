@@ -26,6 +26,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class OwnedRecordIdentityProbe
 {
+    [CiProbe("owned-record-identity-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — depth-2 element identity: owned-record element (#252)  ################");

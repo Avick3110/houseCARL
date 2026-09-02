@@ -84,6 +84,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class ScriptPropertyCheckProbe
 {
+    [CiProbe("script-property-check-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("script-property-check-guard — VMAD script-property binding sweep (housecarl_validate_scripts)");

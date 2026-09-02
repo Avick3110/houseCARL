@@ -34,6 +34,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class ToolBridgeProbe
 {
+    [CiProbe("tool-bridge")]
     public static int Run(string[] args)
     {
         Console.WriteLine("================================================================");
