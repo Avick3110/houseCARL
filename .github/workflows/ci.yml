@@ -66,10 +66,12 @@ jobs:
         if: ${{ !cancelled() }}
         run: dotnet test src/housecarl-mcp-tests --configuration Release --no-build --filter "tier!=bridge" --logger trx
 
-      # The residue countdown (RUN_ORDER amendment 2026-09-02 (7)): how much of the OLD harness is left.
-      # These numbers are not asserted here — HarnessResidueTests derives all three from the source tree
-      # and fails unless they match this file exactly, so a green run above is what makes printing the
-      # committed file equivalent to printing the measurement. W7 is not complete while they are above zero.
+      # The residue countdown (RUN_ORDER amendment 2026-09-02 (7), refined by (8)): how much of the OLD
+      # harness is left. Nothing is asserted here — HarnessResidueTests derives all three from the source
+      # tree, and fails unless probeFiles and ciAllRows match this file exactly, so a green run above is
+      # what makes printing those two equivalent to printing the measurement. probeLines only reports: it
+      # moves on ordinary in-place guard edits, so it is printed, not gated, and a conversion PR still
+      # updates it here. W7 is not complete while they are above zero.
       - name: Residue countdown — what is left in the old probe harness
         if: ${{ !cancelled() }}
         run: type src\housecarl-mcp-tests\harness-residue-baseline.json
