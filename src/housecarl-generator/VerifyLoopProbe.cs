@@ -81,8 +81,8 @@ public static class VerifyLoopProbe
                   miss.Error is not null && miss.Error.Contains("not in the load order", StringComparison.OrdinalIgnoreCase));
             Check("TAXONOMY MISS: the error NEVER claims the plugin 'does not define' the record (the false message that invites duplicate re-writes)",
                   miss.Error is not null && !miss.Error.Contains("does not define", StringComparison.OrdinalIgnoreCase));
-            Check("TAXONOMY MISS: the error points at the pre-enable verify path (full_readback) — actionable, not a dead end",
-                  miss.Error is not null && miss.Error.Contains("full_readback", StringComparison.OrdinalIgnoreCase));
+            Check("TAXONOMY MISS: the error points at the pre-enable verify path (readback) — actionable, not a dead end",
+                  miss.Error is not null && miss.Error.Contains("readback", StringComparison.OrdinalIgnoreCase));
 
             var noDefine = svc.ResolveRead(w2Fk, ovrName, null, conflictTree: false);
             // W2 UPDATE (SPEC §4.2): the true message is now "does not touch {fk}" + the ACTUAL TOUCHERS named

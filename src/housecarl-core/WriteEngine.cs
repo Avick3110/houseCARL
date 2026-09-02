@@ -1932,7 +1932,7 @@ public static class WriteEngine
         var srcVal = srcLeaf.GetValue(srcCur);
         if (srcVal is null)
             throw new ExpectedApplyRejectionException(
-                $"CopyFrom: the source plugin's version has '{string.Join('.', path)}' unset — nothing to copy (use verb=Remove to clear the target).");
+                $"CopyFrom: the source plugin's version has '{string.Join('.', path)}' unset — nothing to copy (use op=Remove to clear the target).");
 
         // --- navigate the TARGET (materialize absent intermediate substructs, exactly like ApplyVerb) to the leaf's owner ---
         object tgtCur = target;

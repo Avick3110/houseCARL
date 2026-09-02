@@ -385,18 +385,18 @@ public static class BulkPrimitivesWave3Probe
 
         // ---- refusals ----
         var noFrom = svc.ApplyEdits(new[] { new BulkOp { Formid = wFid, FieldPath = "BasicStats.Damage", Verb = "CopyFrom" } }, "CfNoFrom", null);
-        Check("refusal: CopyFrom without from_plugin → refused ('requires from_plugin')",
-              !noFrom.Success && noFrom.Error is { } e1 && e1.Contains("requires from_plugin"));
+        Check("refusal: CopyFrom without the source pole → refused ('requires from_source')",
+              !noFrom.Success && noFrom.Error is { } e1 && e1.Contains("requires from_source"));
 
         var strayFrom = svc.ApplyEdits(new[] { new BulkOp { Formid = wFid, FieldPath = "BasicStats.Damage", Verb = "Set", Value = "5", FromPlugin = masterName } }, "CfStray", null);
-        Check("refusal: from_plugin on a non-CopyFrom verb → refused ('only valid with verb=CopyFrom')",
-              !strayFrom.Success && strayFrom.Error is { } e2 && e2.Contains("only valid with verb=CopyFrom"));
+        Check("refusal: the source pole on a non-CopyFrom op → refused ('only valid with op=CopyFrom')",
+              !strayFrom.Success && strayFrom.Error is { } e2 && e2.Contains("only valid with op=CopyFrom"));
 
         // PR #186 review #2: the mapper is case-SENSITIVE like the engine — a mis-cased 'copyfrom' is NOT CopyFrom, so
         // with from_plugin set it fails loud at the mapper (not opaquely at pre-flight with a stray off-order source).
         var miscased = svc.ApplyEdits(new[] { new BulkOp { Formid = wFid, FieldPath = "BasicStats.Damage", Verb = "copyfrom", FromPlugin = masterName } }, "CfCase", null);
-        Check("refusal: mis-cased verb 'copyfrom' + from_plugin → refused at the mapper ('only valid with verb=CopyFrom')",
-              !miscased.Success && miscased.Error is { } eCase && eCase.Contains("only valid with verb=CopyFrom"));
+        Check("refusal: mis-cased op 'copyfrom' + the source pole → refused at the mapper ('only valid with op=CopyFrom')",
+              !miscased.Success && miscased.Error is { } eCase && eCase.Contains("only valid with op=CopyFrom"));
 
         var withVal = svc.ApplyEdits(new[] { new BulkOp { Formid = wFid, FieldPath = "BasicStats.Damage", Verb = "CopyFrom", FromPlugin = masterName, Value = "5" } }, "CfVal", null);
         Check("refusal: CopyFrom + value → refused ('takes no value')",
@@ -839,11 +839,11 @@ public static class BulkPrimitivesWave3Probe
 
         // FINDING 1: the fresh-patch refusal. houseCARL writes patches into an unlisted folder, so this is the refusal
         // a real session hits most, and the explainer now answers it — which is exactly why the "cause stated ⇒ drop
-        // the legacy tail" rule silently took the full_readback verify path away from it. That guidance is a fact about
+        // the legacy tail" rule silently took the readback verify path away from it. That guidance is a fact about
         // the tool, not a guess about the cause, so it must survive whether or not a cause was stated.
         var readFreshPatch = svc.ResolveRead(ulwFk, unlKey.FileName.String, null, false);
-        Check("#271 refusal: a just-written (unlisted) patch keeps the full_readback verify path",
-              readFreshPatch.Error is { } eF && eF.Contains("full_readback=true"));
+        Check("#271 refusal: a just-written (unlisted) patch keeps the readback verify path",
+              readFreshPatch.Error is { } eF && eF.Contains("readback=true"));
         Check("#271 refusal: ...and is told to REFRESH MO2, not to switch on a mod MO2 has never listed",
               readFreshPatch.Error is { } eF2 && eF2.Contains("refresh MO2", StringComparison.OrdinalIgnoreCase)
               && !eF2.Contains("Switch that mod on"));
@@ -851,7 +851,7 @@ public static class BulkPrimitivesWave3Probe
               readFreshPatch.Error is { } eF3 && eF3.Contains($"prior write into '{unlKey.FileName}'"));
         // ...and the unexplained case keeps BOTH halves, so nothing was lost for it either.
         Check("#271 refusal: an unexplained name keeps the posture line AND the verify path",
-              readTypo.Error is { } eT3 && eT3.Contains("does not open disabled") && eT3.Contains("full_readback=true"));
+              readTypo.Error is { } eT3 && eT3.Contains("does not open disabled") && eT3.Contains("readback=true"));
 
         // A SECOND refusal lane. All the arms above ride ResolveRead, and every other site got the same clause with no
         // coverage — which is why a dropped space in merge_plugins' refusal shipped unnoticed (review of PR #274).

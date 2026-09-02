@@ -2328,10 +2328,10 @@ public sealed class LoadOrderService : IDisposable
             // disabled plugins off disk"), which fights the explainer's raw-read pointer. Round 1 dropped the whole
             // paragraph with it — and houseCARL writes its own patches into an UNLISTED mod folder, which the explainer
             // now explains, so the freshly-written-patch case (the commonest reason to hit this refusal at all) lost the
-            // full_readback verify path that is the only way to check a write without touching MO2. The write-verify
+            // readback verify path that is the only way to check a write without touching MO2. The write-verify
             // guidance is a fact about the tool, not a guess about the cause, so it is now unconditional; only the
             // contradicting posture line and the cause-guessing sentence are conditional (review of PR #274, round 2).
-            var verify = $" To verify a write BEFORE enabling, use the write call's own read-back (full_readback=true " +
+            var verify = $" To verify a write BEFORE enabling, use the write call's own read-back (readback=true " +
                          $"returns the whole written record). If a prior write into '{plugin}' reported success, the edits " +
                          "DID land — do not re-issue them (re-running list Adds would duplicate entries).";
             var tail = (cause is not null
@@ -7481,7 +7481,7 @@ public sealed class LoadOrderService : IDisposable
         if (!string.Equals(verb, "CopyFrom", StringComparison.Ordinal))   // match the engine's Ordinal verb compare — a mis-cased verb fails loud uniformly (Unknown verb … Legal: …CopyFrom)
         {
             if (!string.IsNullOrWhiteSpace(op.FromPlugin))
-                error = $"{where}: from_plugin is only valid with verb=CopyFrom (got verb={verb}).";
+                error = $"{where}: from_source is only valid with op=CopyFrom (got op={verb}).";
             return null;
         }
         // The "a copy carries no authored value" rule is independent of whether the POLE was named, so it is
@@ -7501,7 +7501,7 @@ public sealed class LoadOrderService : IDisposable
             // to that record's winner. Without one, the plugin IS the only thing distinguishing a source version
             // from the target's own — required, or the op means nothing.
             if (hasSourceRecord) return null;
-            error = $"{where}: CopyFrom requires from_plugin — the plugin whose version of this record to copy field_path from.";
+            error = $"{where}: CopyFrom requires from_source — the plugin whose version of this record to copy field_path from.";
             return null;
         }
         return op.FromPlugin.Trim();
@@ -7567,7 +7567,7 @@ public sealed class LoadOrderService : IDisposable
             // caller mistake worth naming.
             if (!string.Equals(op.Verb, "ReplaceAll", StringComparison.Ordinal))
             {
-                error = $"{where}: composes=[] is empty — supply one or more element specs (or compose= for one); an empty composes= is only meaningful with verb=ReplaceAll, to CLEAR the list.";
+                error = $"{where}: composes=[] is empty — supply one or more element specs (or compose= for one); an empty composes= is only meaningful with op=ReplaceAll, to CLEAR the list.";
                 return null;
             }
             return new List<StructSpec>();   // ReplaceAll composes=[] → clear the modeled list
