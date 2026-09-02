@@ -25,7 +25,7 @@ noticed rather than derived.
 ## Decision
 
 **Every tool name in shipped code is a reference to a compile-time constant, not a literal.**
-One constant per declared tool, in a single generated class, `HousecarlCore.ToolNames`.
+One constant per declared tool, in a single class, `HousecarlCore.ToolNames`.
 
 Consequences of the shape, each load-bearing:
 
@@ -39,16 +39,18 @@ Consequences of the shape, each load-bearing:
 - **The population is DECLARED, not registered.** A constant exists for every tool whose
   `[McpServerTool(Name = …)]` attribute names it in source. That is deliberately not the set the
   SDK actually scans, which additionally requires `[McpServerToolType]` on the declaring type.
-  One tool is declared and has never been registered; its attribute still spells its name, so it
-  is owed a constant. A completeness check written against the *registered* set would report
-  that constant as spurious.
+  Until #476, `housecarl_check` was declared and had never been registered — the case that showed
+  why: its attribute spelled its name, so it was owed a constant, while the SDK never saw it.
+  After #476 the declared and registered sets coincide at 46, and `ToolNameRegistryTests` holds
+  constants == declared == registered, so a future declaring type left unmarked fails there.
 - **Retired spellings get no constant.** A name that no longer names a tool has no constant
   whose deletion should break anything, and a second hand-kept population is the hazard this
   decision exists to remove. Retired names stay literals in the alias table that redirects them.
-- **The registry is generated, and regeneration is idempotent.** It is emitted from the
-  attributes by script. The script resolves an attribute argument that is already a constant
-  reference back through the registry, so it can be re-run on its own output; it refuses rather
-  than guessing when an argument is neither a literal nor a resolvable constant.
+- **The registry was produced once by script, and is maintained by hand.** `scripts/tool-names/`
+  is the one-shot migration record of how this file and the rewritten call sites were derived.
+  Those scripts are not a maintenance path and are not re-run. A new tool's constant is added BY
+  HAND, one line; the completeness test holds this set against the declared tools and fails until
+  it is.
 
 ## Consequences
 
@@ -85,7 +87,11 @@ in the repository.
 
 **A guard becomes redundant.** A source-scanning check that held every `housecarl_` token in
 caller-facing prose against the set of real tool names loses most of its population, because a
-constant reference cannot name a tool that does not exist. It does not fail; it empties. The one
-property it still carried that constants do not give — catching a name that is *declared but not
-registered* — moves to a completeness check over the registry rather than staying behind in a
-harness that is being retired.
+constant reference cannot name a tool that does not exist. It does not fail; it empties — down to
+the 43 literals in the three deletion-flagged 1.x tool bodies, which are all that still hold up its
+anti-vacuity floor (`carrying > 0`). When the cut deletes those bodies `carrying` reaches 0 and the
+arm goes RED on the cut commit; disposing of it — retiring the arm or re-flooring it — is the cut's,
+and is carried as an open item on the PR that introduced the registry. The one property it still
+carried that constants do not give — catching a name that is *declared but not registered* — moves
+to a completeness check over the registry rather than staying behind in a harness that is being
+retired.
