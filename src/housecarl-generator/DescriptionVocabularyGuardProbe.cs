@@ -2493,17 +2493,20 @@ public static class DescriptionVocabularyGuardProbe
     /// <summary>The names the SDK's assembly scan actually REGISTERS, by its own discovery predicate:
     /// <c>[McpServerToolType]</c> on the declaring TYPE and <c>[McpServerTool]</c> on the method. The predicate has
     /// one home, <see cref="RegisteredTools"/>, because the in-place guard's derived sweep needs the same one and
-    /// the two disagreed while they were written twice (#474 gate, finding 4). The type half is load-bearing:
-    /// <c>CheckTools</c> carries the method attribute and no type attribute, so <c>housecarl_check</c> is declared
-    /// and has never been registered (#470), and a predicate reading the method alone reports it live.</summary>
+    /// the two disagreed while they were written twice (#474 gate, finding 4). The type half is load-bearing, and
+    /// #470 is the case that showed it: <c>CheckTools</c> carried the method attribute and no type attribute, so
+    /// <c>housecarl_check</c> was declared and never registered, and a predicate reading the method alone reported
+    /// it live. It is registered now, so no such tool is left — see <see cref="DeclaredButUnregisteredToolNames"/>.</summary>
     static HashSet<string> RegisteredToolNames() => RegisteredTools.Names();
 
     static readonly Regex ToolToken = new("housecarl_[a-z0-9_]+", RegexOptions.Compiled);
 
     /// <summary>Names a tool method DECLARES but the SDK never registers, because the declaring type is missing
     /// <c>[McpServerToolType]</c>. Derived as (declared − registered), so it empties by construction the moment the
-    /// attribute lands rather than needing an exemption removed by hand. Today it is exactly
-    /// <c>housecarl_check</c> (#470).</summary>
+    /// attribute lands rather than needing an exemption removed by hand. It was exactly <c>housecarl_check</c>
+    /// (#470) until that attribute landed; the set is EMPTY today, which is why the console line below no longer
+    /// prints. An entry reappearing here means a new tool type shipped unmarked and is unreachable by any
+    /// caller.</summary>
     static HashSet<string> DeclaredButUnregisteredToolNames()
     {
         const BindingFlags Flags = BindingFlags.Public | BindingFlags.NonPublic
@@ -2562,8 +2565,9 @@ public static class DescriptionVocabularyGuardProbe
         // Three of those rows name housecarl_check, and three reviewers measured the arm staying green over them.
         //
         // So nothing is exempt by row. The only tolerated unregistered name is one the surface DECLARES but the SDK
-        // does not register — #470's single instance — and that set is derived, reported by name, and empties itself
-        // when the attribute lands. It is held apart from a true dead end rather than folded into the pass: a
+        // does not register — #470 was the single instance, and the set is EMPTY now that its attribute landed,
+        // exactly as "empties itself" promised. The set stays derived and reported by name so the next instance
+        // announces itself. It is held apart from a true dead end rather than folded into the pass: a
         // sentence naming a tool nobody can call is still wrong, it is just wrong for a reason with an issue on it.
         var unpublished = DeclaredButUnregisteredToolNames();
 

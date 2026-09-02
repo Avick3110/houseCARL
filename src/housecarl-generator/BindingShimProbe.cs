@@ -382,8 +382,9 @@ public static class BindingShimProbe
 
             // -- J11 (W2 PR 1): the STRUCTURED params bind over the real wire — records' form-scoped project=
             //    object and the polymorphic source= (a bare string) must reach the tool body (⇒ the config
-            //    prompt), never a binding error. This is the one seam records-guard (which calls the C# method
-            //    directly) cannot cover: the SDK's JSON→POCO deserialization of the published nested schema.
+            //    prompt), never a binding error. This is the one seam the records tests (which call the C# method
+            //    directly, in src/housecarl-mcp-tests since the records-guard conversion) cannot cover: the SDK's
+            //    JSON→POCO deserialization of the published nested schema.
             var j11 = Call(stdin, stdout, 44, "housecarl_records",
                 """{"formids":["0F1AC1:Skyrim.esm"],"source":"winner","project":{"form":"identity"}}""");
             failures += Check("J11 structured bind: records' nested project= object + string source= bind and reach the body",

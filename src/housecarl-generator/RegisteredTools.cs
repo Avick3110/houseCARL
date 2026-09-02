@@ -8,10 +8,15 @@ namespace HousecarlGenerator;
 /// <c>[McpServerToolType]</c> is on the declaring TYPE and <c>[McpServerTool]</c> is on the METHOD — the pair
 /// <c>WithToolsFromAssembly()</c> scans for, and the only derivation any probe may call a tool "registered" by.
 ///
-/// <para>The type half is load-bearing. <c>CheckTools</c> carries the method attribute and no type attribute, so
-/// <c>housecarl_check</c> is declared and has never been registered (#470) — a predicate reading the method alone
-/// reports it live. Two probes wrote that predicate separately and disagreed about it in one PR: the description
-/// vocabulary guard read both attributes, the in-place guard's arm-H sweep read the method alone, so the sweep was
+/// <para>The type half is load-bearing, and #470 is what proved it: <c>CheckTools</c> carried the method attribute
+/// and no type attribute, so <c>housecarl_check</c> was declared and never registered for twelve days while a
+/// predicate reading the method alone reported it live. That tool is registered now — the type attribute landed
+/// with this predicate's own PR — so the set of declared-but-unregistered tools is empty, and it is held empty by a
+/// test rather than by anyone remembering: <c>ToolSurfaceCensusTests</c> fails if a type declaring a tool method
+/// carries no <c>[McpServerToolType]</c>.</para>
+///
+/// <para>Two probes wrote that predicate separately and disagreed about it in one PR: the description vocabulary
+/// guard read both attributes, the in-place guard's arm-H sweep read the method alone, so the sweep was
 /// a superset of the surface it claimed (Aaron's gate review on PR #474, finding 4). Nothing was wrongly swept when
 /// that was found — <c>housecarl_check</c> declares no <c>in_place</c> — so the fix removes a latent hole, not a
 /// live one. One home means the two cannot disagree again.</para></summary>

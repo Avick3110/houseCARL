@@ -334,7 +334,8 @@ public static class ValuePredicateProbe
         // parse refusals — each names itself and refuses the whole call BEFORE any scan (Q3).
         // W2 UPDATE: `in` on a non-formid path is no longer refused — membership generalized to any scalar
         // leaf (the extension the old refusal reserved). The leaf-membership CORRECTNESS arms live in
-        // records-guard; here the old refusal arm flips to "parses clean" so a regression to the refusal fails.
+        // src/housecarl-mcp-tests (they came across when records-guard converted); here the old refusal arm
+        // flips to "parses clean" so a regression to the refusal fails.
         Check("parse: `in` on a non-formid LEAF path parses (W2 generalized membership)",
             FieldPredicateSet.Parse(new[] { "MagicSkill in [Destruction, Restoration]" }).Error is null);
         Check("parse: `not` without `in` refused",

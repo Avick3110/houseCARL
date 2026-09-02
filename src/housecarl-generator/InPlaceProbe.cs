@@ -1278,9 +1278,11 @@ public static class InPlaceProbe
     /// <para>"Registered" is <see cref="RegisteredTools"/>'s predicate, the SDK's own — type attribute AND method
     /// attribute. This used to read the METHOD attribute alone, which is a superset: a tool declaring
     /// <c>in_place</c> on a type missing <c>[McpServerToolType]</c> would be swept and passed under a label reading
-    /// "every in_place-declaring tool" even though the SDK never registers it. No such tool exists today — #470's
-    /// <c>housecarl_check</c> is the one unregistered declaration and it declares no <c>in_place</c>, so the swept
-    /// set is the same six either way. The superset was latent, not live; it is gone by construction now.</para></summary>
+    /// "every in_place-declaring tool" even though the SDK never registers it. No such tool exists today, and none
+    /// existed when this was fixed either: #470's <c>housecarl_check</c> was then the one unregistered declaration
+    /// and it declares no <c>in_place</c>, so the swept set was the same six either way. That tool is registered
+    /// now, so there is no unregistered declaration left at all. The superset was latent, not live; it is gone by
+    /// construction now.</para></summary>
     static List<(string Tool, System.Reflection.MethodInfo Method)> InPlaceDeclaringTools() =>
         RegisteredTools.All().Where(p => p.Method.GetParameters().Any(x => x.Name == "in_place")).ToList();
 }
