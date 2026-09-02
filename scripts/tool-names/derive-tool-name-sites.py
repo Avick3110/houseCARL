@@ -15,6 +15,7 @@ Classes, exactly as the charter names them:
      tables, census lists)
   d  inside a deletion-flagged 1.x tool body -- SKIPPED by rule 10(a)
   e  a name that is not a DECLARED tool at all (a retired spelling)
+  r  inside the registry itself -- where, after the sweep, the name literals live
 
 Non-literal occurrences (comments, identifiers) are counted separately: they
 are not rewritten.
@@ -61,6 +62,10 @@ SOURCE_DIRS = [
     "src/housecarl-core",
     "src/housecarl-mcp-tests",
 ]
+
+# The registry itself (#475).  After the sweep this is the ONE shipped file that
+# still spells a tool name as a literal, outside the two by-rule residues.
+REGISTRY_FILE = "src/housecarl-core/ToolNames.cs"
 
 
 class Span:
@@ -267,8 +272,11 @@ def main():
             in_flagged = any(a <= s <= f_e for (a, f_e) in flagged_regions)
             in_attr = next((nm for (a, b, nm) in attr_ranges if a <= s <= b), None)
 
+            rel = os.path.relpath(path, root).replace("\\", "/")
             if where != "literal":
                 cls = "non-literal"
+            elif rel == REGISTRY_FILE:
+                cls = "r"
             elif in_flagged:
                 cls = "d"
             elif in_attr is not None and name == in_attr:
@@ -314,7 +322,7 @@ def main():
     print(f"distinct names seen : {len(distinct_names)}")
     print(f"undeclared names    : {len(unregistered)} -> {unregistered}")
     print("classes:")
-    for k in ("a", "b", "c", "d", "e", "non-literal"):
+    for k in ("a", "b", "c", "d", "e", "r", "non-literal"):
         print(f"  {k:<11} {by_class.get(k, 0)}")
     rewritable = by_class.get("a", 0) + by_class.get("b", 0) + by_class.get("c", 0)
     print(f"  REWRITABLE (a+b+c) {rewritable}")
@@ -324,10 +332,10 @@ def main():
     rows = []
     for f in files_with:
         fs = [s for s in sites if s["file"] == f]
-        cnt = {k: sum(1 for s in fs if s["class"] == k) for k in ("a", "b", "c", "d", "e", "non-literal")}
+        cnt = {k: sum(1 for s in fs if s["class"] == k) for k in ("a", "b", "c", "d", "e", "r", "non-literal")}
         rows.append((cnt["a"] + cnt["b"] + cnt["c"], f, cnt, len(fs)))
     for rw, f, cnt, total in sorted(rows, key=lambda r: (-r[0], r[1])):
-        print(f"  {rw:>4} rw  (a{cnt['a']} b{cnt['b']} c{cnt['c']} | d{cnt['d']} e{cnt['e']} n{cnt['non-literal']}) "
+        print(f"  {rw:>4} rw  (a{cnt['a']} b{cnt['b']} c{cnt['c']} | d{cnt['d']} e{cnt['e']} r{cnt['r']} n{cnt['non-literal']}) "
               f"tot {total:>4}  {f}")
 
     print()
