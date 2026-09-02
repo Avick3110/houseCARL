@@ -101,6 +101,11 @@ public sealed class ToolSurfaceCensusWireTests
     [Fact]
     public void ToolsListNamesHousecarlCheck_TheWholePointOf470()
     {
-        Assert.Contains(ToolNames.Check, _s.PublishedNames);
+        // The literal is deliberate, and is the one site on the branch that keeps one. Every other
+        // assertion over this name reads ToolNames.Check and so follows a change to the constant's
+        // VALUE; this cell is the rename oracle, and a constant here would move with the thing it
+        // exists to pin. A typo'd rename goes RED here while the reflected set-equality above,
+        // which compares two sets that both moved, stays green.
+        Assert.Contains("housecarl_check", _s.PublishedNames);
     }
 }
