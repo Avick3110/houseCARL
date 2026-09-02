@@ -14,14 +14,17 @@ namespace HousecarlMcpTests;
 /// <c>WithToolsFromAssembly()</c> discovers only marked types. Every count anyone quoted came from the
 /// attributes, so the tool read as shipped for twelve days while no client could call it.
 ///
-/// Neither side is a hand list: the declared side is reflected over the housecarl-mcp assembly, the
-/// published side is `tools/list` off the running server.
+/// Neither side is a hand list: the declared side is reflected over the assembly the server REGISTERS from
+/// — <c>ToolSurface.Assembly</c>, the same property Program.cs passes to <c>WithToolsFromAssembly</c> — and
+/// the published side is `tools/list` off the running server. Naming that assembly by picking a type
+/// expected to live in it was the earlier shape, and it agreed with the registration by coincidence of
+/// layout rather than by construction.
 /// </summary>
 public sealed class ToolSurfaceCensusTests
 {
-    /// <summary>Every method in housecarl-mcp carrying [McpServerTool], with the type that declares it.</summary>
+    /// <summary>Every method on the tool surface carrying [McpServerTool], with the type that declares it.</summary>
     static (Type Type, MethodInfo Method, McpServerToolAttribute Attr)[] DeclaredToolMethods() =>
-        typeof(HousecarlMcp.CheckTools).Assembly
+        HousecarlMcp.ToolSurface.Assembly
             .GetTypes()
             .SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.NonPublic
                                         | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly)
@@ -62,6 +65,95 @@ public sealed class ToolSurfaceCensusTests
             "These tool methods leave [McpServerTool(Name = …)] unset, so their published spelling is the " +
             "SDK's derivation and this census cannot check them: " + string.Join(", ", nameless));
     }
+
+    // ---- the tool surface is ONE assembly ---------------------------------------------------------------
+    //
+    // The server registers from exactly one assembly, so a tool declared in a second one is declared, guarded,
+    // documented and unreachable — #470's shape, one level up. Nothing in the build stops that: it needs a
+    // project reference to the MCP SDK and nothing else.
+    //
+    // It is latent today, because housecarl-core carries no MCP SDK reference and so cannot host a marked
+    // type without a csproj change. A latent arm still has to be shown to fire, so the check is a function
+    // over a population and the fixture arm hands it a population that contains an offender.
+
+    /// <summary>The repo's shipped assemblies: the tool surface plus every houseCARL assembly it references.
+    /// The test project is outside this by construction — it references housecarl-mcp, not the reverse — which
+    /// is why its own fixture tool below cannot make the real arm red.</summary>
+    static Assembly[] ShippedAssemblies()
+    {
+        var repo = RepoProjects.All.Select(p => p.AssemblyName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var seen = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
+        var queue = new Queue<Assembly>();
+        queue.Enqueue(HousecarlMcp.ToolSurface.Assembly);
+
+        while (queue.Count > 0)
+        {
+            var asm = queue.Dequeue();
+            if (!seen.TryAdd(asm.GetName().Name!, asm)) continue;
+            foreach (var r in asm.GetReferencedAssemblies())
+                if (r.Name is { } n && repo.Contains(n) && !seen.ContainsKey(n))
+                    queue.Enqueue(Assembly.Load(r));
+        }
+
+        return seen.Values.OrderBy(a => a.GetName().Name, StringComparer.Ordinal).ToArray();
+    }
+
+    /// <summary>Assemblies in <paramref name="population"/> other than the registered one that declare a tool.</summary>
+    internal static string[] AssembliesDeclaringToolsOutside(IEnumerable<Assembly> population, Assembly registered) =>
+        population
+            .Where(a => a != registered)
+            .SelectMany(a => a.GetTypes()
+                              .SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.NonPublic
+                                                          | BindingFlags.Static | BindingFlags.Instance
+                                                          | BindingFlags.DeclaredOnly))
+                              .Where(m => m.GetCustomAttribute<McpServerToolAttribute>(inherit: false) is not null)
+                              .Select(m => $"{a.GetName().Name}: {m.DeclaringType!.FullName}.{m.Name}"))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(s => s, StringComparer.Ordinal)
+            .ToArray();
+
+    [Fact]
+    [Trait("tier", "unit")]
+    public void OnlyTheAssemblyTheServerRegistersFromDeclaresTools_ASplitSurfaceIsUnreachableCode()
+    {
+        var population = ShippedAssemblies();
+        var registered = HousecarlMcp.ToolSurface.Assembly;
+
+        // Vacuity canary: a population of one is a claim about nothing.
+        Assert.True(population.Length > 1,
+            "The shipped-assembly walk found only " + string.Join(", ", population.Select(a => a.GetName().Name)) +
+            ". With nothing but the tool surface in the population there is no second assembly to check, so " +
+            "this arm would pass over any split. The walk is broken, not the surface.");
+
+        var elsewhere = AssembliesDeclaringToolsOutside(population, registered);
+
+        Assert.True(elsewhere.Length == 0,
+            "These tools are declared outside the assembly the server registers from " +
+            $"({registered.GetName().Name}), so no caller can reach them:\n  " + string.Join("\n  ", elsewhere) +
+            "\nWithToolsFromAssembly scans one assembly. Move the tool onto the surface, or the surface has to " +
+            "become more than one assembly deliberately — which is a decision, not an accident.");
+    }
+
+    /// <summary>A tool declared where the server does not look. Never registered: the server scans
+    /// <c>ToolSurface.Assembly</c>, and nothing references this project.</summary>
+    [McpServerToolType]
+    internal static class SplitSurfaceFixture
+    {
+        [McpServerTool(Name = "housecarl_split_surface_fixture")]
+        internal static string NotAShippedTool() => "fixture";
+    }
+
+    [Fact]
+    [Trait("tier", "unit")]
+    public void TheSplitSurfaceCheckFires_ProvedOnAPopulationThatContainsOne()
+    {
+        var registered = HousecarlMcp.ToolSurface.Assembly;
+        var withOffender = ShippedAssemblies().Append(typeof(SplitSurfaceFixture).Assembly);
+
+        var elsewhere = AssembliesDeclaringToolsOutside(withOffender, registered);
+
+        Assert.Contains(elsewhere, e => e.Contains(nameof(SplitSurfaceFixture), StringComparison.Ordinal));
+    }
 }
 
 /// <summary>The wire half of the census — it needs the running server.</summary>
@@ -74,7 +166,7 @@ public sealed class ToolSurfaceCensusWireTests
     public ToolSurfaceCensusWireTests(ServerFixture s, ITestOutputHelper output) { _s = s; _out = output; }
 
     static string[] DeclaredNames() =>
-        typeof(HousecarlMcp.CheckTools).Assembly
+        HousecarlMcp.ToolSurface.Assembly
             .GetTypes()
             .SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.NonPublic
                                         | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly))
