@@ -205,9 +205,10 @@ public static class DescriptionVocabularyGuardProbe
         { "Set", "Add", "Remove", "SetAtIndex", "InsertAtIndex", "ReplaceAll", "Merge", "CopyFrom" };
 
     /// <summary>The verb a write slot uses when the caller names none — written independently for the same reason
-    /// as the vocabulary above. <see cref="WriteVerbs.AllRecital"/> feeds three shipped descriptions, so ONE edit
-    /// to its <c>(default)</c> marker mis-states the default in all three at once; the const-concat concentrated
-    /// the fact, and a concentrated fact needs a pin.</summary>
+    /// as the vocabulary above. <see cref="WriteVerbs.AllRecital"/> feeds two shipped descriptions (and one
+    /// vestigial <c>BulkOp.verb</c> attribute no caller reads since #468), so ONE edit to its <c>(default)</c>
+    /// marker mis-states the default in both at once; the const-concat concentrated the fact, and a concentrated
+    /// fact needs a pin.</summary>
     const string PublishedDefault = "Set";
 
     /// <summary>The verb that the parenthetical GLUED to <see cref="WriteVerbs.AllRecital"/>'s tail describes.
@@ -215,9 +216,11 @@ public static class DescriptionVocabularyGuardProbe
     /// is <c>AllRecital + " (deep-copy the field at field_path from from_plugin's version — see from_plugin). …"</c>,
     /// so that gloss lands on whichever verb the recital ends with. It reads correctly today by POSITION and
     /// nothing else. Appending a ninth verb — the very edit the const exists to make sufficient — silently moves
-    /// the gloss onto the new verb and strips it off this one, shipping a false claim in the tool schema;
-    /// reordering does the same. Deposited on #386 (2026-08-25) as an acceptance item for this guard, so the
-    /// positional coincidence becomes a checked fact and the gloss can stay where it is.</para></summary>
+    /// the gloss onto the new verb and strips it off this one; reordering does the same. Since #468 that lands in
+    /// no shipped schema — <c>housecarl_bulk_apply</c> is deleted and <c>BulkOp</c> is off every tool's input
+    /// schema — so what the arm pins is a latent hazard against the day <c>BulkOp</c> collapses into
+    /// <c>ApplyOp</c>. Deposited on #386 (2026-08-25) as an acceptance item for this guard, so the positional
+    /// coincidence becomes a checked fact and the gloss can stay where it is.</para></summary>
     const string TailGlossVerb = "CopyFrom";
 
     /// <summary>One declared exemption: <c>Phrase</c> is allowed at any site whose label CONTAINS
@@ -1425,8 +1428,8 @@ public static class DescriptionVocabularyGuardProbe
 
         Check($"INV4-MARK     WriteVerbs.AllRecital marks exactly one verb (default), and it is '{PublishedDefault}'",
             MarkedDefaults(WriteVerbs.AllRecital) is [var only] && only == PublishedDefault,
-            new() { $"AllRecital marks [{string.Join(",", MarkedDefaults(WriteVerbs.AllRecital))}] — the const feeds three shipped "
-                  + "descriptions, so one edit here mis-states the default in all three at once" }, tier: Tier.Construction);
+            new() { $"AllRecital marks [{string.Join(",", MarkedDefaults(WriteVerbs.AllRecital))}] — the const feeds two shipped "
+                  + "descriptions, so one edit here mis-states the default in both at once" }, tier: Tier.Construction);
 
         // Printed BEFORE the arms that read markers, so the coverage a verdict rests on is on screen above it.
         Console.WriteLine($"        default parentheticals on the surface: {defaultParens} — {marks.Count} read as a \"token (default)\" marker, "
@@ -1639,9 +1642,16 @@ public static class DescriptionVocabularyGuardProbe
     /// parenthetical appended directly onto it, and that parenthetical glosses ONE verb — the one the recital
     /// happens to end with. Appending a ninth verb to the const, which is exactly the edit the const exists to
     /// make sufficient at one site instead of three, moves the gloss onto the new verb and strips it off the old
-    /// one; the tool schema then ships a false claim and no other arm sees it, because the recital is still
-    /// complete and every token in it is still a real verb. Reordering does the same. The other two conversion
-    /// sites are position-independent — one appends after a full stop, one reads <c>"op is " + AllRecital + ". "</c>.</para>
+    /// one, and no other arm sees it, because the recital is still complete and every token in it is still a real
+    /// verb. Reordering does the same. The other two conversion sites are position-independent — one appends after
+    /// a full stop, one reads <c>"op is " + AllRecital + ". "</c>.</para>
+    /// <para>Since #468 the one glued site is NOT a shipped schema: <c>housecarl_bulk_apply</c> was the only tool
+    /// binding <c>BulkOp</c> off the wire, and its deletion left the type in
+    /// <c>WireNamesProbe.NonInputWireTypes</c>, so this arm currently pins a description no caller is served. It is
+    /// kept rather than deleted because the collapse of <c>BulkOp</c> into <c>ApplyOp</c> — the follow-up that
+    /// exemption names — carries the glued gloss onto a description that IS shipped. Whether an arm asserting about
+    /// an unshipped description should be re-pointed or deleted is that change's call, and the coverage line below
+    /// prints which descriptions it is speaking about either way.</para>
     /// <para><b>What it does NOT establish.</b> It does not check that the gloss is a TRUE statement about the
     /// verb it lands on — that is authored prose, the residue #337/#330 ruled non-mechanizable, and the guard
     /// catches unknown vocabulary rather than false sentences. What it makes structural is the COUPLING: the
@@ -1682,8 +1692,8 @@ public static class DescriptionVocabularyGuardProbe
             string how = namesInGloss.Count == 1 ? "the verb it names" : $"'{TailGlossVerb}', the verb it is written about";
             if (!string.Equals(tail, subject, StringComparison.Ordinal))
                 problems.Add($"{site.Label}: the parenthetical glued to the recital glosses {how}, but the recital now ends with "
-                           + $"'{tail}'. The gloss has moved onto '{tail}' and off '{subject}', and the tool schema is shipping "
-                           + $"that claim. Gloss: \"{Clip(gloss!, 90)}\"");
+                           + $"'{tail}'. The gloss has moved onto '{tail}' and off '{subject}', so that description is carrying "
+                           + $"the claim. Gloss: \"{Clip(gloss!, 90)}\"");
         }
 
         Console.WriteLine($"        descriptions carrying WriteVerbs.AllRecital: {carrying.Count} — {glued.Count} with a parenthetical glued "

@@ -98,9 +98,11 @@ public static class WriteVerbs
         new[] { "Set", "Add", "Remove", "SetAtIndex", "InsertAtIndex", "ReplaceAll", "Merge", "CopyFrom" };
 
     /// <summary>The same vocabulary as the CALLER-FACING recital a <c>[Description]</c> prints — the pipe-joined
-    /// form, with the defaulting verb marked. Three shipped descriptions concatenate it today rather than typing
-    /// the names out: <c>ApplyTools</c>'s <c>op=</c> method prose, the <c>ApplyOp.op</c> shape declaration, and
-    /// the <c>BulkOp.verb</c> one.
+    /// form, with the defaulting verb marked. TWO shipped descriptions concatenate it today rather than typing the
+    /// names out: <c>ApplyTools</c>'s <c>op=</c> method prose and the <c>ApplyOp.op</c> shape declaration. A third
+    /// concatenation exists in source and reaches no caller — <c>BulkOp.verb</c>'s: <c>housecarl_bulk_apply</c> was
+    /// the only tool that bound <c>BulkOp</c> off the wire, and #468 deleted it, so the type is an internal service
+    /// shape listed in <c>WireNamesProbe.NonInputWireTypes</c> and its attributes are vestigial.
     ///
     /// <para><b>Why a second member, rather than reading <see cref="All"/> there.</b> An attribute argument must be
     /// a compile-time constant, and <see cref="All"/> is a collection built at runtime — so a description literally
@@ -115,20 +117,27 @@ public static class WriteVerbs
     /// drifting turns it red once, on purpose (#386). What is still NOT enforced is that a future description
     /// concatenates this rather than hand-typing the whole set — a site that did would be the #302
     /// edit-every-site regression back again, silently, and a hand-typed complete recital passes every arm. The
-    /// three sites named above are therefore a statement about the code as it stands, not a property anything
+    /// sites named above are therefore a statement about the code as it stands, not a property anything
     /// enforces.</para>
     ///
     /// <para><b>One hazard this const CREATES, and the arm that pins it.</b> <c>BulkOp.verb</c> appends
     /// <c>" (deep-copy the field at field_path from from_plugin's version — see from_plugin)"</c> straight onto
     /// this recital, so that gloss describes whichever verb is LAST here — <c>CopyFrom</c> today, by position and
     /// nothing else. Appending a ninth verb — the very edit this const exists to make sufficient — silently moves
-    /// the gloss onto the new verb and strips it off <c>CopyFrom</c>, shipping a false claim in
-    /// <c>housecarl_bulk_apply</c>'s schema; reordering does the same. The other two sites are position-independent
-    /// (one appends after a full stop, one reads <c>"op is " + AllRecital + ". "</c>).
-    /// <c>description-vocab-guard</c>'s INV4-TAILGLOSS now holds this recital's tail token against the verb that
-    /// gloss is written about, stated independently inside that probe, so the edit turns red instead of shipping
-    /// (#386). That is why the gloss can stay where it is: it was recorded rather than moved because moving it
-    /// changes caller-facing text, and the const's whole warrant was that it changed none.</para>
+    /// the gloss onto the new verb and strips it off <c>CopyFrom</c>; reordering does the same. The two shipped
+    /// sites are position-independent (one appends after a full stop, one reads <c>"op is " + AllRecital + ". "</c>),
+    /// so the mis-gloss can only land on <c>BulkOp.verb</c>.</para>
+    ///
+    /// <para><b>Since #468 that mis-gloss has no SHIPPED consequence.</b> This paragraph used to end "shipping a
+    /// false claim in <c>housecarl_bulk_apply</c>'s schema" — that tool is deleted, and <c>BulkOp</c> left every
+    /// tool's input schema with it, so the one description the hazard can reach is one no caller is served. What is
+    /// left is latent: collapsing <c>BulkOp</c> into <c>ApplyOp</c> (the follow-up <c>NonInputWireTypes</c> names)
+    /// would carry the glued gloss onto a description callers DO read. <c>description-vocab-guard</c>'s
+    /// INV4-TAILGLOSS still holds this recital's tail token against the verb that gloss is written about, stated
+    /// independently inside that probe (#386), and it fails loud if NO description glues a parenthetical any more —
+    /// so whether the arm still has a subject is a reported fact rather than a silent pass. Whether an arm pinning
+    /// an unshipped description should be strengthened or deleted is a question for the collapse, not for this
+    /// summary to answer.</para>
     ///
     /// <para>What that arm does NOT check is whether the gloss is a TRUE statement about the verb it lands on.
     /// That is authored prose, and the guard reads vocabulary rather than truth.</para></summary>
