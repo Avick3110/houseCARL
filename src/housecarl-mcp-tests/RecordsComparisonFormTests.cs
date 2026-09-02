@@ -17,7 +17,6 @@ public sealed class RecordsComparisonFormTests : RecordsTestBase
 
     static RecordsTools.RecordsProject Delta => new() { form = "delta" };
     static RecordsTools.RecordsProject Chain => new() { form = "chain" };
-    static Mutagen.Bethesda.Plugins.FormKey Fk(Mutagen.Bethesda.Plugins.FormKey k) => k;
 
     string DeltaVsPrevious(Mutagen.Bethesda.Plugins.FormKey rec, string subject) =>
         RecordsTools.Records(Svc, formids: new[] { Fid(rec) }, source: Plugin(subject),

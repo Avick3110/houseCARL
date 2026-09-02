@@ -22,7 +22,7 @@ public sealed class HarnessBridgeTests
     public HarnessBridgeTests(ITestOutputHelper output) => _out = output;
 
     [Fact]
-    public void TheOldProbeHarnessPassesToo_CiAllRunFromDotnetTest()
+    public async Task TheOldProbeHarnessPassesToo_CiAllRunFromDotnetTest()
     {
         var dll = Path.Combine(HarnessPaths.RepoRoot, "src", "housecarl-generator", "bin",
                                HarnessPaths.Configuration, "net9.0", "housecarl-generator.dll");
@@ -55,7 +55,22 @@ public sealed class HarnessBridgeTests
             Assert.Fail("ci-all did not finish within 20 minutes and was killed.");
         }
 
-        var output = stdout.Result + stderr.Result;
+        // The pipes can outlive ci-all itself: it spawns housecarl-mcp.exe (the stdio guards), and a
+        // grandchild still holding the inherited handle keeps ReadToEndAsync pending after the parent has
+        // exited. Blocking on .Result there would hang `dotnet test` silently and forever instead of
+        // failing, so the reads are bounded and a timeout degrades to a missing tail, never a hang.
+        string output;
+        try
+        {
+            var both = await Task.WhenAll(stdout, stderr).WaitAsync(TimeSpan.FromMinutes(2));
+            output = both[0] + both[1];
+        }
+        catch (TimeoutException)
+        {
+            output = "(ci-all exited but its output pipes did not close within 2 minutes — a child process " +
+                     "is still holding them, so its last lines are unavailable here.)";
+        }
+
         _out.WriteLine(Tail(output, 40));
 
         Assert.True(p.ExitCode == 0,
