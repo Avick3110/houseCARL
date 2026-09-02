@@ -163,7 +163,10 @@ static void AddMcp(IServiceCollection services, bool stdio)
     // requests regardless. Stdio is inherently a single long-lived session over the pipe.
     if (stdio) mcp.WithStdioServerTransport();
     else mcp.WithHttpTransport(o => o.Stateless = true);
-    mcp.WithToolsFromAssembly();
+    // Named, not implicit: the parameterless overload registers from the CALLING assembly, which is a fact
+    // about where this line sits rather than a statement about where the tools are. ToolSurface.Assembly is
+    // the one home for that, and it is what the censuses reflect (ToolSurfaceCensusTests).
+    mcp.WithToolsFromAssembly(ToolSurface.Assembly);
     // The published-schema layer: the SPEC §5.1 @file union (an array OR "@<path>", which C# cannot express as one
     // type), then inlining every same-document $ref so no published schema is recursive. Published shape only; what
     // the tool ACCEPTS is unchanged (ApplyTools' strict reader). See ToolSchemas.
