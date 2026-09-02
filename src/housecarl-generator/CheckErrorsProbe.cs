@@ -1359,9 +1359,6 @@ public static class CheckErrorsProbe
             && exCase.Reports.All(x => x.Plugin != "Skyrim.esm") && ExcludeLeftOut(exCase.FilterNote) == 1,
             $"success={exCase.Success} err=[{exCase.Error}] scanned={exCase.PluginsScanned} total={exCase.TotalDangling} note=[{exCase.FilterNote}]");
 
-        Check("EXCLUDE-DESCRIPTION-NAMES-EVERY-GROUP: the caller-facing token list is held against SweepExclusion.Tokens, the one place they are enumerated — description-vocab-guard (#386) polices that surface's VOCABULARY, not whether one parameter's prose names a set, so this parameter brings its own",
-            ExcludeDescriptionNamesTokens(out var descDetail), descDetail);
-
         // ---- the accounting's central identity, on a fixture where BOTH causes fired. Every other cell is cut by
         //      one truncator or the other; the live-order default shape is both at once, and it is the shape the
         //      class exists for. Without this, the second cause clause could be dropped outright and stay green.
@@ -1860,10 +1857,6 @@ public static class CheckErrorsProbe
             rowsBad.Count == 0 ? $"never fewer; strictly more at {strictlyMore} of 76 caps, by up to {mostBy} row(s)"
                                : string.Join("; ", rowsBad.Take(3)) + $" ({rowsBad.Count} caps)");
 
-        // ---- #344's exclude= pole, driven end to end through the TOOL surface over a synthetic MO2 instance.
-        //      Every cell above calls the core directly, so nothing held the parameter's journey across two layers.
-        failures += ExcludeWireChecks(Path.Combine(tmpDir, "wire"), Check);
-
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "check-errors-guard: ALL PASS" : $"check-errors-guard: {failures} FAILURE(S)");
         return failures == 0 ? 0 : 1;
@@ -1908,129 +1901,6 @@ public static class CheckErrorsProbe
     /// </summary>
     static string AccountingLine(string text)
         => text.Split('\n').FirstOrDefault(l => l.Contains("[accounting:", StringComparison.Ordinal)) ?? "";
-
-    /// <summary>#344's <c>exclude=</c> pole, driven END TO END through the surface a caller actually reaches:
-    /// <see cref="ReadTools.CheckErrorsTool"/> -> <see cref="LoadOrderService.CheckErrors"/> -> <see cref="ErrorCheck.Run"/>,
-    /// over a SYNTHETIC MO2 instance in temp (the established synth-instance pattern — real ModOrganizer.ini, profile
-    /// and mod folders).
-    ///
-    /// <para><b>Why this exists.</b> Every other exclude= cell in this guard calls <c>ErrorCheck.Run</c> directly with
-    /// an already-resolved exclusion, so the parameter's journey across two layers was covered by nothing: passing
-    /// <c>null</c> in place of <c>exclude</c> at the tool call site, or in place of <c>excluded</c> at the service's
-    /// two <c>ErrorCheck.Run</c> calls, left the whole suite GREEN. The pole that closes #344 was disconnectable
-    /// end-to-end without a single cell noticing — a round-1 finding that survived into round 2 by silence.</para>
-    ///
-    /// <para>Every arm asserts the sweep's own TOTALS, which are fixture-known: this order carries five dangling refs,
-    /// three of them in the base master. An exclusion that does not reach the core returns five.</para></summary>
-    static int ExcludeWireChecks(string root, Action<string, bool, string?> Check)
-    {
-        string instance = Path.Combine(root, "instance");
-        string profiles = Path.Combine(instance, "profiles", "Default");
-        string mods = Path.Combine(instance, "mods");
-        string data = Path.Combine(root, "game", "Data");
-        Directory.CreateDirectory(profiles); Directory.CreateDirectory(mods); Directory.CreateDirectory(data);
-        File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
-            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
-            + Path.Combine(root, "game").Replace(@"\", @"\\") + ")\r\n");
-
-        // Skyrim.esm — a base master BY FILENAME, which is what Mutagen's Implicits set matches on, carrying three
-        // dangling refs of its own. HcCeWireMod.esp masters it and carries two more. Five in the order.
-        string baseModDir = Path.Combine(mods, "VanillaStub");
-        string wireModDir = Path.Combine(mods, "WireMod");
-        Directory.CreateDirectory(baseModDir); Directory.CreateDirectory(wireModDir);
-        var deadFk = FormKey.Factory("0E0E0E:Skyrim.esm");
-        var sky = new SkyrimMod(new ModKey("Skyrim", ModType.Master), SkyrimRelease.SkyrimSE);
-        for (int i = 0; i < 3; i++) { var n = sky.Npcs.AddNew(); n.EditorID = $"HcCeWireVanilla{i}"; n.Race.SetTo(deadFk); }
-        string skyPath = Path.Combine(baseModDir, "Skyrim.esm");
-        sky.BeginWrite.ToPath(skyPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-        using (var skyOv = SkyrimMod.CreateFromBinaryOverlay(skyPath, SkyrimRelease.SkyrimSE))
-        {
-            var mod = new SkyrimMod(new ModKey("HcCeWireMod", ModType.Plugin), SkyrimRelease.SkyrimSE);
-            for (int i = 0; i < 2; i++) { var n = mod.Npcs.AddNew(); n.EditorID = $"HcCeWireMod{i}"; n.Race.SetTo(deadFk); }
-            mod.BeginWrite.ToPath(Path.Combine(wireModDir, "HcCeWireMod.esp")).WithLoadOrder(new ISkyrimModGetter[] { skyOv }).Write();
-        }
-        // Skyrim.esm is in loadorder.txt and ABSENT from plugins.txt — which is exactly what makes it IMPLICIT
-        // (force-loaded). That is the fact LoadOrderService.ImplicitPluginNames() reads, and the `implicit` token's
-        // whole journey runs through it.
-        File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\nSkyrim.esm\r\nHcCeWireMod.esp\r\n");
-        File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*HcCeWireMod.esp\r\n");
-        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+WireMod\r\n+VanillaStub\r\n");
-
-        var store = new UserConfigStore(Path.Combine(root, "houseCARL.user.json"));
-        using var svc = LoadOrderService.WithInstance(instance, 0, store);
-
-        int failures = 0;
-        void Arm(string label, bool ok, string? detail) { Check(label, ok, detail); if (!ok) failures++; }
-
-        // The control. Without it every arm below could pass on a sweep that found nothing at all.
-        var whole = ReadTools.CheckErrorsTool(svc);
-        Arm("EXCLUDE-WIRE-CONTROL: the synthetic instance sweeps both plugins through the tool surface and finds all five dangling refs — the baseline every exclusion below is measured against",
-            whole.Contains("scanned 2 plugins", StringComparison.Ordinal) && whole.Contains("5 dangling ref(s)", StringComparison.Ordinal),
-            First(whole));
-
-        // The pole itself, at the surface a caller reaches. A null at EITHER layer returns the control's numbers.
-        var byName = ReadTools.CheckErrorsTool(svc, exclude: new[] { "Skyrim.esm" });
-        Arm("EXCLUDE-WIRE-NAME-REACHES-THE-SWEEP (#344): exclude= given to the TOOL removes the plugin from the sweep the CORE runs — one plugin scanned, two dangling refs, the excluded plugin's three gone from the totals",
-            byName.Contains("scanned 1 plugin ", StringComparison.Ordinal) && byName.Contains("2 dangling ref(s)", StringComparison.Ordinal)
-            && !byName.Contains("[ERROR] Skyrim.esm", StringComparison.Ordinal),
-            First(byName));
-
-        var byGroup = ReadTools.CheckErrorsTool(svc, exclude: new[] { SweepExclusion.BaseMastersToken });
-        Arm("EXCLUDE-WIRE-BASE-MASTERS-REACHES-THE-SWEEP: the base_masters token survives the same journey and drops the base master — the group is expanded at the service and the expansion is what the core sweeps by",
-            byGroup.Contains("scanned 1 plugin ", StringComparison.Ordinal) && byGroup.Contains("2 dangling ref(s)", StringComparison.Ordinal),
-            First(byGroup));
-
-        // implicit is the one token whose members are read from the MO2 COMPOSITION, at the service layer. Nothing
-        // reached LoadOrderService.ImplicitPluginNames() before this arm.
-        var byImplicit = ReadTools.CheckErrorsTool(svc, exclude: new[] { SweepExclusion.ImplicitToken });
-        Arm("EXCLUDE-WIRE-IMPLICIT-READS-THE-COMPOSITION: the implicit token resolves from the profile's own plugins.txt/loadorder.txt split at the service layer and drops the force-loaded master from the core's sweep",
-            byImplicit.Contains("scanned 1 plugin ", StringComparison.Ordinal) && byImplicit.Contains("2 dangling ref(s)", StringComparison.Ordinal),
-            First(byImplicit));
-
-        // json is a second render over the same service call — the wire must carry there too, or one transport
-        // silently answers a different question.
-        var jsonExcl = ReadTools.CheckErrorsTool(svc, exclude: new[] { "Skyrim.esm" }, format: "json");
-        int jsonScanned = -1, jsonDangling = -1;
-        try
-        {
-            var d = JsonDocument.Parse(jsonExcl).RootElement;
-            jsonScanned = d.GetProperty("scanned_plugins").GetInt32();
-            jsonDangling = d.GetProperty("dangling").GetInt32();
-        }
-        catch { /* reported by the arm */ }
-        Arm("EXCLUDE-WIRE-JSON-AGREES: the json transport of the same excluded sweep reports the same narrowed totals — one exclusion, one sweep, two renders",
-            jsonScanned == 1 && jsonDangling == 2, $"scanned={jsonScanned} dangling={jsonDangling}");
-
-        // The `implicit` group is the only value whose members come from a READ that can fail, and the refusal for
-        // that failure is gated on the caller having asked for that group. Both directions, over a real fault: the
-        // profile's plugins.txt held open exclusively, which is what the gate's own error message is about.
-        string pluginsTxt = Path.Combine(profiles, "plugins.txt");
-        string lockedImplicit, lockedName;
-        using (var hold = new FileStream(pluginsTxt, FileMode.Open, FileAccess.Read, FileShare.None))
-        {
-            lockedImplicit = ReadTools.CheckErrorsTool(svc, exclude: new[] { SweepExclusion.ImplicitToken });
-            lockedName = ReadTools.CheckErrorsTool(svc, exclude: new[] { "Skyrim.esm" });
-        }
-        Arm("EXCLUDE-WIRE-IMPLICIT-READ-FAILURE-REFUSES: when the profile composition cannot be read, the caller who asked for the implicit GROUP is refused and told why — a group defined by a read that did not happen is not a group that is empty",
-            lockedImplicit.Contains("exclude= could not be resolved", StringComparison.Ordinal)
-            && lockedImplicit.Contains(SweepExclusion.ImplicitToken, StringComparison.Ordinal),
-            First(lockedImplicit));
-        Arm("EXCLUDE-WIRE-NAME-UNAFFECTED-BY-THE-COMPOSITION-READ: the same failure does NOT refuse a caller who named a plugin, because that value needs no composition — a refusal naming a group they never wrote is one they cannot act on",
-            lockedName.Contains("scanned 1 plugin ", StringComparison.Ordinal)
-            && lockedName.Contains("2 dangling ref(s)", StringComparison.Ordinal)
-            && !lockedName.Contains("could not be resolved", StringComparison.Ordinal),
-            First(lockedName));
-
-        // Q3 at the surface: a bad value refuses through the tool, not just in the resolver's unit test.
-        var refused = ReadTools.CheckErrorsTool(svc, exclude: new[] { "vanilla" });
-        Arm("EXCLUDE-WIRE-REFUSAL-REACHES-THE-CALLER: an unknown group refuses at the TOOL surface, naming the value and the real token set, rather than sweeping with the exclusion quietly dropped",
-            refused.Contains("'vanilla'", StringComparison.Ordinal)
-            && SweepExclusion.Tokens.All(t => refused.Contains(t, StringComparison.Ordinal))
-            && !refused.Contains("scanned 2 plugins", StringComparison.Ordinal),
-            First(refused));
-
-        return failures;
-    }
 
     /// <summary>The first line of a tool response — enough to read a failure by, without printing a whole sweep.</summary>
     static string First(string response)
@@ -2294,31 +2164,6 @@ public static class CheckErrorsProbe
             }
         detail = bad.Count == 0 ? "every section whole at every cap" : string.Join("; ", bad.Take(4));
         return bad.Count == 0;
-    }
-
-    /// <summary>The exclude= parameter's [Description] must name every token SweepExclusion accepts. A tool
-    /// parameter's prose is a SECOND spelling of an accepted vocabulary, and the guard that does read that surface
-    /// (<c>description-vocab-guard</c>, #386) checks the vocabulary a description USES rather than whether a
-    /// particular one names a particular set — so a token added to the set and not to the description would still
-    /// be undiscoverable, and this arm is what makes it visible.
-    ///
-    /// <para>The converse — a word in the description that is NOT an accepted token — is deliberately not checked:
-    /// the description is prose, and every ordinary word in it would have to be exempted. What protects that
-    /// direction is EXCLUDE-UNKNOWN-GROUP-REFUSES, which proves an unaccepted value refuses by name and lists the
-    /// real set, so a caller who believes a wrong word in the docs is told immediately rather than served
-    /// silently.</para></summary>
-    static bool ExcludeDescriptionNamesTokens(out string detail)
-    {
-        var param = typeof(ReadTools).GetMethod(nameof(ReadTools.CheckErrorsTool))?
-            .GetParameters().FirstOrDefault(x => x.Name == "exclude");
-        if (param is null) { detail = "no exclude= parameter on CheckErrorsTool"; return false; }
-        var text = param.GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
-                        .Cast<System.ComponentModel.DescriptionAttribute>().FirstOrDefault()?.Description;
-        if (text is null) { detail = "exclude= carries no [Description]"; return false; }
-        var missing = SweepExclusion.Tokens.Where(t => !text.Contains(t, StringComparison.Ordinal)).ToList();
-        detail = missing.Count == 0 ? $"names all {SweepExclusion.Tokens.Length} token(s)"
-                                    : "not named in the description: " + string.Join(", ", missing);
-        return missing.Count == 0;
     }
 
     /// <summary>Resolve an exclude= the way the service does, so an arm states the caller's spelling rather than

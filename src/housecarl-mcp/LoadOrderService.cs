@@ -5732,7 +5732,7 @@ public sealed class LoadOrderService : IDisposable
         catch (Exception ex)
         {
             return $"could not check whether '{targetName}'s .seq is still current after this edit ({ex.GetType().Name}) — "
-                 + "if it has start-game-enabled quests, run " + ToolNames.ValidateDialogue + " on the quest to confirm the .seq still lists them.";
+                 + "if it has start-game-enabled quests, run " + ToolNames.Check + " findings=[\"dialogue\"] seeds=[the quest] to confirm the .seq still lists them.";
         }
     }
 

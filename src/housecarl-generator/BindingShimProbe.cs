@@ -522,16 +522,14 @@ public static class BindingShimProbe
         // activates the same five scope aliases its ancestor housecarl_check_errors already carries, on the
         // same declared parameters (formids=, plugins=, type=). Five surplus, nothing missing: the shim now
         // serves a check caller the alias help every other tool's caller already had.
+        // #468 the check half (eyeballed 2026-09-03): 149 -> 144. housecarl_check_errors' five rows go with the tool.
+        //   The five housecarl_check rows directly above are the same five spellings on the successor, landed one
+        //   PR earlier, so no caller loses an alias — the census drop is the ancestor leaving and nothing else.
         "housecarl_check: formid -> formids",
         "housecarl_check: plugin -> plugins",
         "housecarl_check: pluginname -> plugins",
         "housecarl_check: pluginnames -> plugins",
         "housecarl_check: types -> type",
-        "housecarl_check_errors: formid -> formids",
-        "housecarl_check_errors: plugin -> plugins",
-        "housecarl_check_errors: pluginname -> plugins",
-        "housecarl_check_errors: pluginnames -> plugins",
-        "housecarl_check_errors: types -> type",
         "housecarl_compact_plugin: patch -> patch_name",
         "housecarl_compact_plugin: pluginname -> plugin",
         "housecarl_compact_plugin: pluginnames -> plugin",
@@ -632,12 +630,6 @@ public static class BindingShimProbe
         "housecarl_skse_inventory: lookup -> filter",
         "housecarl_skypatcher_layer: lookup -> filter",
         "housecarl_skypatcher_read: formids -> formid",
-        "housecarl_validate_dialogue: formids -> formid",
-        "housecarl_validate_scripts: formid -> formids",
-        "housecarl_validate_scripts: plugin -> plugins",
-        "housecarl_validate_scripts: pluginname -> plugins",
-        "housecarl_validate_scripts: pluginnames -> plugins",
-        "housecarl_validate_scripts: types -> type",
         "housecarl_write_seq: archivename -> patch",
         // #312 gave write_seq the compile lane's output_dir=, so the same two rows activate here — the alias table
         // needed no edit, which is the census's own evidence that the parameter was added as PARITY and not as a

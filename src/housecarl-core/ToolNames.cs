@@ -25,7 +25,6 @@ public static class ToolNames
     public const string BsaRepack = "housecarl_bsa_repack";
     public const string BulkPlaceAsset = "housecarl_bulk_place_asset";
     public const string Check = "housecarl_check";
-    public const string CheckErrors = "housecarl_check_errors";  // deletion-flagged: dies at the 1.x cut
     public const string CompactPlugin = "housecarl_compact_plugin";
     public const string CompileScript = "housecarl_compile_script";
     public const string Copy = "housecarl_copy";
@@ -60,7 +59,5 @@ public static class ToolNames
     public const string SkypatcherLayer = "housecarl_skypatcher_layer";
     public const string SkypatcherRead = "housecarl_skypatcher_read";  // deletion-flagged: dies at the 1.x cut
     public const string UpdateStatus = "housecarl_update_status";
-    public const string ValidateDialogue = "housecarl_validate_dialogue";  // deletion-flagged: dies at the 1.x cut
-    public const string ValidateScripts = "housecarl_validate_scripts";  // deletion-flagged: dies at the 1.x cut
     public const string WriteSeq = "housecarl_write_seq";
 }

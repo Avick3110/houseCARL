@@ -368,7 +368,7 @@ internal static class SeqWriteGuardProbe
                 $"UNCHANGED-DIFFERS a stale destination IS rewritten (the short-circuit compares BYTES, not existence) — unchanged={oDiff.Unchanged}");
 
             // MTIME-REFRESH: the no-op must not leave the file looking STALE to the sibling lint, which reads MTIME
-            // and not content (validate_dialogue's SeqNewerThanPlugin). Without this, the exact loop the feature
+            // and not content (the dialogue family's SeqNewerThanPlugin). Without this, the exact loop the feature
             // exists for — edit in place, regenerate — would leave a permanent "your .seq is older than the plugin"
             // advisory on a byte-perfect file, with two houseCARL tools contradicting each other (review round 1).
             File.SetLastWriteTimeUtc(expectedUserSeq, new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc));
@@ -380,12 +380,13 @@ internal static class SeqWriteGuardProbe
                   && File.ReadAllBytes(expectedUserSeq).Length == 4,
                 $"MTIME-REFRESH a byte-identical but OLDER .seq is stamped forward, not rewritten — unchanged={oStale.Unchanged} touched={oStale.TimestampRefreshed} seq={File.GetLastWriteTimeUtc(expectedUserSeq):O} plugin={pluginStamp:O}");
             // A CONSTRUCTION pin, not a fragment one: the stamp sentence has one source, so this asserts (a) the
-            // source itself still carries the two claims that matter — it names validate_dialogue's check, and it
+            // source itself still carries the two claims that matter — it names the check that reads the two mtimes,
+            // which is the dialogue findings family since the 1.x cut retired housecarl_validate_dialogue, and it
             // BOUNDS the promise to the copy the load order serves (review round 2: the lint reads the .seq the VFS
             // SERVES, which is this file only when this folder wins the SEQ\ conflict) — and (b) the render is
             // reading that source. A fragment check could only ever have pinned one render's spelling of it.
             var renderStale = SeqTools.Render(oStale);
-            Check(WriteSentences.Twins.SeqTimestampRefreshed.Contains("validate_dialogue", StringComparison.Ordinal)
+            Check(WriteSentences.Twins.SeqTimestampRefreshed.Contains(ToolNames.Check + " findings=[\"dialogue\"]", StringComparison.Ordinal)
                   && WriteSentences.Twins.SeqTimestampRefreshed.Contains("the copy the load order actually serves", StringComparison.Ordinal)
                   && renderStale.Contains(WriteSentences.Twins.SeqTimestampRefreshed, StringComparison.Ordinal),
                 $"MTIME-REFRESH-RENDER the stamp is STATED and its scope is bounded — render=[{Trim(renderStale)}]");

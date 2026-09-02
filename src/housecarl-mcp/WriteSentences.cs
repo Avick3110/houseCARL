@@ -842,14 +842,17 @@ internal static class WriteSentences
           + "ordinary regenerate case).";
 
         /// <summary>The timestamp stamp-forward, with the claim kept to what was established: THIS FILE is now
-        /// newer than the plugin. validate_dialogue lints the .seq the VFS serves, which is this one only if this
+        /// newer than the plugin. The dialogue sweep lints the .seq the VFS serves, which is this one only if this
         /// folder wins the SEQ\ conflict — so the sentence says what was done and what it is for, and does not
-        /// promise a verdict from a tool that resolves its input differently.</summary>
-        [MustState("has been stamped forward", "contents untouched", ToolNames.ValidateDialogue + "'s SEQ staleness check", "no longer reads")]
+        /// promise a verdict from a tool that resolves its input differently.
+        /// <para>Named the retired housecarl_validate_dialogue until the 1.x cut; the SEQ staleness check is one of
+        /// that tool's finding classes and rides findings=["dialogue"] on the sweep now.</para></summary>
+        [MustState("has been stamped forward", "contents untouched", ToolNames.Check + " findings=[\"dialogue\"]", "no longer reads")]
         internal const string SeqTimestampRefreshed =
             "its mtime was older than the plugin and has been stamped forward (contents untouched); "
-          + ToolNames.ValidateDialogue + "'s SEQ staleness check compares those two mtimes, so this file no longer reads "
-          + "as stale — for the copy the load order actually serves, which is this one only if this folder wins the SEQ\\ conflict.";
+          + ToolNames.Check + " findings=[\"dialogue\"] compares those two mtimes in its SEQ staleness check, so this file "
+          + "no longer reads as stale — for the copy the load order actually serves, which is this one only if this "
+          + "folder wins the SEQ\\ conflict.";
 
         /// <summary>No start-game-enabled quests: a .seq lists only SGE quests, so none is needed and nothing was
         /// written. Never a silent empty file, never a misleading "done".</summary>
@@ -868,13 +871,13 @@ internal static class WriteSentences
         /// <summary>write_seq's standing limit (Q3): the quests will START, which is not a claim that the quest or
         /// its dialogue is otherwise well-formed. The json copy had dropped the pointer at the tool that does check
         /// that — the half of the sentence that tells the caller what to do next.</summary>
-        // The phrase is the ACTION, not the token (PR #337 re-review, residual B). "housecarl_validate_dialogue"
-        // alone survives a rewrite to "…confirms the dialogue graph is sound (housecarl_validate_dialogue not
-        // required)", which inverts the standing limit into a claim write_seq cannot make.
-        [MustState("does not verify", "use " + ToolNames.ValidateDialogue + " for the dialogue graph")]
+        // The phrase is the ACTION, not the token (PR #337 re-review, residual B). The tool name alone survives a
+        // rewrite to "…confirms the dialogue graph is sound (that check not required)", which inverts the standing
+        // limit into a claim write_seq cannot make.
+        [MustState("does not verify", "use " + ToolNames.Check + " findings=[\"dialogue\"] for the dialogue graph")]
         internal const string SeqStandingLimit =
             "this makes the quest(s) START at game start; it does not verify the quest or its dialogue is otherwise "
-          + "well-formed (use " + ToolNames.ValidateDialogue + " for the dialogue graph).";
+          + "well-formed (use " + ToolNames.Check + " findings=[\"dialogue\"] for the dialogue graph).";
 
         /// <summary>What a truncated QUEST list means and what re-running costs. The .seq FILE carries every quest —
         /// only the LIST was cut — so the remedy prices the re-run rather than prescribing it (the wrong-remedy
