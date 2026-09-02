@@ -31,6 +31,25 @@ public sealed class RecordsTransportTests : IDisposable
                                     { form = "fields", fields = new[] { "BasicStats.Damage" } });
     }
 
+    /// <summary>
+    /// to_file creates the artifact's parent directory. In the linear probe this was covered by accident —
+    /// three arms wrote into results/ before anything created it — and the conversion pre-creates the
+    /// directory everywhere, so the coverage was lost silently. Asserted deliberately here: a change making
+    /// to_file throw or refuse on a missing parent would otherwise ship with the whole suite green.
+    /// </summary>
+    [Fact]
+    public void ToFile_CreatesItsParentDirectory_TheCallerNeedNotMakeItFirst()
+    {
+        var nested = Path.Combine(_w.Root, "no-such-dir", "deeper", "artifact.jsonl");
+        Assert.False(Directory.Exists(Path.GetDirectoryName(nested)));
+
+        var r = RecordsTools.Records(_w.Svc, formids: Ids, to_file: nested,
+                                     project: new RecordsTools.RecordsProject
+                                     { form = "fields", fields = new[] { "BasicStats.Damage" } });
+
+        Assert.True(File.Exists(nested), $"to_file did not create its parent directory. Response: {r}");
+    }
+
     [Fact]
     public void ToFile_TheArtifactIsWrittenAndTheResponseIsManifestOnlyInline()
     {
