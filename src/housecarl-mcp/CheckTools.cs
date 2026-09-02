@@ -27,6 +27,7 @@ namespace HousecarlMcp;
 /// not the third. That is stated in the dialogue section rather than resolved by giving one parameter two meanings,
 /// and an unseeded dialogue call is refused on cost (F1.2) rather than widened to the whole order.</para>
 /// </summary>
+[McpServerToolType]
 public static class CheckTools
 {
     [McpServerTool(Name = "housecarl_check", ReadOnly = true, Title = "Sweep the load order for derived findings"),
