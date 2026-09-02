@@ -259,16 +259,18 @@ def main():
         with open(p, "r", encoding="utf-8-sig", newline="") as fh:
             text = fh.read()
         new_text, records = rewrite_file(p, text, per_file[rel])
-        pending.append((p, new_text))
         mism = [r for r in records if r["rendered_ok"] is False]
+        # Carry the per-file facts with the pending write.  Reading them off the loop
+        # variables below printed the LAST file's name and counts for every line.
+        pending.append((p, new_text, rel, len(per_file[rel]), records, mism))
         bad.extend(mism)
         all_records.extend(records)
 
-    for p, new_text in pending:
+    for p, new_text, rel, n_sites, records, mism in pending:
         with open(p, "w", encoding="utf-8", newline="") as fh:
             fh.write(new_text)
         interp = sum(1 for r in records if r["interpolated"])
-        print(f"  {len(per_file[rel]):>4} site(s) in {len(records):>3} literal(s)"
+        print(f"  {n_sites:>4} site(s) in {len(records):>3} literal(s)"
               f"{f', {interp} interpolated' if interp else '':<18}  {rel}"
               f"{'   *** RENDER MISMATCH ***' if mism else ''}")
 
