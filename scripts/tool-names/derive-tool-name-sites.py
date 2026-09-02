@@ -40,9 +40,17 @@ import sys
 
 NAME_RE = re.compile(r"housecarl_[a-z0-9_]+")
 
-# The eleven deletion-flagged 1.x tools (RUN_ORDER rule 10(a); the read family
-# and the check family named in the registry charter).  Their bodies are not
-# touched by this engagement -- they die at the cut.
+# The eleven deletion-flagged 1.x tools.  Their bodies are not rewritten -- they
+# die at the cut, and editing condemned code is work that dies with it.
+#
+# This is the ONE hand-written population in this script, and it is written by hand
+# because it is a POLICY decision (which tools are condemned) with no source property
+# to derive it from: a flagged tool and a surviving one are spelled identically in
+# C#.  The check below is therefore one-directional -- it catches a name here that is
+# not a declared tool, never a declared tool that should have been here.  A twelfth
+# condemned tool left off this list is silently rewritten instead of skipped; a
+# reprieved tool left on it silently keeps its literals.  If a source-side marker for
+# condemned tools ever exists, derive this from it and delete the list.
 DELETION_FLAGGED = {
     "housecarl_read_record",
     "housecarl_batch_record_detail",
@@ -66,6 +74,30 @@ SOURCE_DIRS = [
 # The registry itself (#475).  After the sweep this is the ONE shipped file that
 # still spells a tool name as a literal, outside the two by-rule residues.
 REGISTRY_FILE = "src/housecarl-core/ToolNames.cs"
+
+# `Const -> "housecarl_x"`, loaded from the registry by load_registry().  Once the
+# sweep has run, most [McpServerTool] Name arguments are `ToolNames.X` rather than a
+# literal, so reading a tool's name means resolving through here.  Empty before the
+# registry exists (the pre-sweep tree), which is why an unresolvable reference is an
+# error rather than a fallback: guessing produced a "declared tool" literally named
+# `ToolNames.Apply`, which classified every real site as an unknown spelling and made
+# `--rewrite` a silent no-op on its own output.
+REGISTRY = {}
+CONST_REF_RE = re.compile(r"^ToolNames\.([A-Za-z0-9_]+)$")
+
+
+def load_registry(root):
+    """Populate REGISTRY from the committed registry file, if it exists yet."""
+    REGISTRY.clear()
+    path = os.path.join(root, REGISTRY_FILE.replace("/", os.sep))
+    if not os.path.exists(path):
+        return REGISTRY
+    with open(path, "r", encoding="utf-8-sig", newline="") as fh:
+        src = fh.read()
+    for m in re.finditer(
+            r"public const string ([A-Za-z0-9_]+)\s*=\s*\"(housecarl_[a-z0-9_]+)\"\s*;", src):
+        REGISTRY[m.group(1)] = m.group(2)
+    return REGISTRY
 
 
 class Span:
@@ -201,7 +233,18 @@ def tool_regions(text, masked):
         nm = re.search(r'Name\s*=\s*"([^"]+)"', text[attr_open:attr_close + 1])
         if not nm:
             nm2 = re.search(r"Name\s*=\s*([A-Za-z_][\w.]*)", text[attr_open:attr_close + 1])
-            name = nm2.group(1) if nm2 else "<unknown>"
+            expr = nm2.group(1) if nm2 else "<unknown>"
+            # After the sweep the argument is `ToolNames.X`; resolve it back to the
+            # spelling.  Never fall through with the expression text as the name --
+            # that is what made this script non-idempotent on its own output.
+            ref = CONST_REF_RE.match(expr)
+            if ref and ref.group(1) in REGISTRY:
+                name = REGISTRY[ref.group(1)]
+            else:
+                raise ValueError(
+                    f"[McpServerTool] Name is `{expr}`, which is neither a literal nor a "
+                    f"resolvable ToolNames constant. Load the registry first "
+                    f"(load_registry(root)) or add the constant; refusing to guess a tool name.")
         else:
             name = nm.group(1)
         brace = masked.find("{", attr_close)
@@ -239,6 +282,7 @@ def main():
     ap.add_argument("--json", help="write the site list here")
     args = ap.parse_args()
     root = os.path.abspath(args.root)
+    load_registry(root)
 
     files = collect(root)
     registered = {}
