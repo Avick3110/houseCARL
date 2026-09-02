@@ -22,8 +22,16 @@ public sealed class ServerFixture : IDisposable
     readonly Process _proc;
     readonly StreamWriter _in;
     readonly StreamReader _out;
+    readonly LinePump _lines;
     readonly string _dataDir;
     int _id = 1;
+    string? _poison;
+
+    /// <summary>
+    /// The per-call deadline. A test that deliberately drives the timeout path shortens it on its OWN
+    /// private fixture — never on the shared one, which is what the poison below exists to protect.
+    /// </summary>
+    internal TimeSpan RpcTimeout { get; set; } = TimeSpan.FromSeconds(60);
 
     /// <summary>The trained prompt an unconfigured server gives once a tool BODY runs.</summary>
     public const string ConfigPrompt = "no Mod Organizer 2 instance configured";
@@ -65,6 +73,7 @@ public sealed class ServerFixture : IDisposable
         _proc.BeginErrorReadLine();
         _in = _proc.StandardInput;
         _out = _proc.StandardOutput;
+        _lines = new LinePump(_out);   // ONE reader on this stream for the fixture's whole life
 
         Rpc("initialize", new
         {
@@ -122,15 +131,23 @@ public sealed class ServerFixture : IDisposable
 
     JsonElement Rpc(string method, object @params)
     {
+        // One timeout poisons the fixture. This server is shared by every stdio test in the run, so a
+        // genuinely hung call is a property of the server, not of the one test that happened to find it —
+        // letting each later test spend its own full deadline turns one cause into seventy identical
+        // timeouts and buries it. Fail fast, and name the call that actually broke.
+        if (_poison is { } first)
+            throw new InvalidOperationException(
+                $"The shared server fixture is poisoned by an earlier timeout — {first} This call was not " +
+                "attempted. Fix the first timeout; every failure after it is downstream of that one.");
+
         int id = Interlocked.Increment(ref _id);
         Send(new { jsonrpc = "2.0", id, method, @params });
 
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(60);
-        while (DateTime.UtcNow < deadline)
+        var deadline = DateTime.UtcNow + RpcTimeout;
+        while (true)
         {
-            var read = Task.Run(_out.ReadLine);
             var remaining = deadline - DateTime.UtcNow;      // ONE shared budget; a per-line wait never extends it
-            if (remaining <= TimeSpan.Zero || !read.Wait(remaining) || read.Result is not { } line) break;
+            if (remaining <= TimeSpan.Zero || !_lines.TryTake(remaining, out var line)) break;
             if (line.Length == 0) continue;
 
             using var doc = JsonDocument.Parse(line);
@@ -141,7 +158,9 @@ public sealed class ServerFixture : IDisposable
                 throw new InvalidOperationException($"JSON-RPC error for {method}: {err.GetRawText()}");
             return doc.RootElement.GetProperty("result").Clone();
         }
-        throw new TimeoutException($"no response to {method} (id {id}) within 60s.");
+
+        _poison ??= $"no response to {method} (id {id}) within {RpcTimeout.TotalSeconds:0.###}s.";
+        throw new TimeoutException(_poison);
     }
 
     void Notify(string method) => Send(new { jsonrpc = "2.0", method });
@@ -155,6 +174,7 @@ public sealed class ServerFixture : IDisposable
     public void Dispose()
     {
         try { if (!_proc.HasExited) _proc.Kill(entireProcessTree: true); } catch { /* already gone */ }
+        _lines.Dispose();   // after the kill: the pump's ReadLine returns once the stream is torn down
         _proc.Dispose();
         try { Directory.Delete(_dataDir, recursive: true); } catch { /* best effort */ }
     }
