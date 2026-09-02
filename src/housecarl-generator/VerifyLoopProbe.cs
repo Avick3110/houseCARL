@@ -36,6 +36,7 @@ public static class VerifyLoopProbe
 {
     static int _pass, _fail;
 
+    [CiProbe("verify-loop-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — verify-loop wave: plugin= miss taxonomy + write-time full read-back (HCBR-2026-06-11-02)  ################");

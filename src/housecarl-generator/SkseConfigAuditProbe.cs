@@ -33,6 +33,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class SkseConfigAuditProbe
 {
+    [CiProbe("skse-config-audit-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — SKSE config-audit reference extractor (tier B, #199)  ################");

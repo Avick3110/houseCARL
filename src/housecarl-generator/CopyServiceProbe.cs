@@ -30,6 +30,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class CopyServiceProbe
 {
+    [CiProbe("copy-service-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  COPY SERVICE guard (closure copy, wired)  ################");

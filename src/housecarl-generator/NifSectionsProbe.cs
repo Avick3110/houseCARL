@@ -27,6 +27,7 @@ public static class NifSectionsProbe
 {
     static int _pass, _fail;
 
+    [CiProbe("nif-sections-guard")]
     public static int RunGuard(string[] args)
     {
         _pass = _fail = 0;

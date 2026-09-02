@@ -282,6 +282,7 @@ public static class DescriptionVocabularyGuardProbe
 
     // ================= entry =================
 
+    [CiProbe("description-vocab-guard")]
     public static int RunGuard(string[] args)
     {
         _pass = _fail = _class1 = _class2 = _harness = 0;

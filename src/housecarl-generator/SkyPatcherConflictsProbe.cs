@@ -24,6 +24,7 @@ namespace HousecarlGenerator;
 // ======================================================================
 public static class SkyPatcherConflictsProbe
 {
+    [CiProbe("skypatcher-conflicts-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("[skypatcher-conflicts-guard] SkyPatcher INI-vs-INI conflict detector (Wave 2)");

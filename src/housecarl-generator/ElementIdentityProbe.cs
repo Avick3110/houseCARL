@@ -24,6 +24,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class ElementIdentityProbe
 {
+    [CiProbe("element-identity-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — depth-2 element identity: lone-FormLink struct (#198)  ################");

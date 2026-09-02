@@ -50,6 +50,7 @@ public static class SkyPatcherOverlayProbe
         public string? EditorIdOf(FormKey record) => Eids.GetValueOrDefault(record);
     }
 
+    [CiProbe("skypatcher-overlay-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("[skypatcher-overlay-guard] SkyPatcher overlay replay (Wave 1)");

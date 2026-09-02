@@ -47,6 +47,7 @@ public static class OwnedChildContentProbe
 {
     static int _pass, _fail;
 
+    [CiProbe("owned-child-content-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  #342 stage 1 — owned-child content annotation  ################");

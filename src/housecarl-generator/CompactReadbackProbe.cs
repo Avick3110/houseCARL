@@ -35,6 +35,7 @@ public static class CompactReadbackProbe
 {
     static int _pass, _fail;
 
+    [CiProbe("compact-readback-guard")]
     public static int RunGuard(string[] args)
     {
         _pass = 0; _fail = 0;

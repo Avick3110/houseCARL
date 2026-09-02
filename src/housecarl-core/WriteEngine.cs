@@ -3386,6 +3386,7 @@ public static class WriteEngine
     //  exact, deduplicated gap to add to TryValueType — derived from Mutagen's own model,
     //  never guessed. Also flags AQ names that fail to resolve. Q3: report, never silent-skip.
     // ======================================================================
+    [CiProbe("coerce-audit")]
     public static int RunCoerceAudit(string[] args)
     {
         var corpusPath = args.Length > 0 ? args[0] : CorpusRulebook.CorpusPath;
@@ -3535,6 +3536,7 @@ public static class WriteEngine
     //  build a valid, assignable instance from a sample string (coerce-audit proves only
     //  RECOGNITION). Diagnoses on failure by dumping the type's ctor surface.
     // ======================================================================
+    [CiProbe("coerce-selftest")]
     public static int RunCoerceSelftest(string[] args)
     {
         var texAsset = typeof(SkyrimMod).Assembly.GetType("Mutagen.Bethesda.Skyrim.Assets.SkyrimTextureAssetType");

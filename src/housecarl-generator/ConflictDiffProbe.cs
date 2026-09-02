@@ -36,6 +36,7 @@ public static class ConflictDiffProbe
 {
     static int _pass, _fail;
 
+    [CiProbe("conflict-diff-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — conflict-tree content diff (HCBR-2026-06-09-01)  ################");

@@ -47,6 +47,7 @@ public static class RemedyVerbsGuardProbe
     static Corpus Corp => _corpus ??= CorpusRulebook.LoadCorpus();
     static Corpus? _corpus;
 
+    [CiProbe("remedy-verbs-guard")]
     public static int RunGuard(string[] args)
     {
         _pass = _fail = 0;

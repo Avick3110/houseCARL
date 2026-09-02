@@ -29,6 +29,7 @@ public static class LocalizedWriteGuardProbe
     static int _fail;
     static void Check(bool c, string label) { Console.WriteLine((c ? "  PASS  " : "  FAIL  ") + label); if (!c) _fail++; }
 
+    [CiProbe("localized-write-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  LOCALIZED WRITE — shape classification, in-place refusal, unclassifiable destinations  ################");

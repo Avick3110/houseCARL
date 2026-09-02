@@ -31,6 +31,7 @@ public static class EmitMatchProbe
     const string Remedy =
         "regenerate and commit the result: dotnet run --project src/housecarl-generator -c Release";
 
+    [CiProbe("emit-match-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("emit-match-guard — committed mutagen-reference shards vs a fresh emit (#351)");

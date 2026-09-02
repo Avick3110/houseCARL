@@ -38,6 +38,7 @@ public static class CodexUmbrellaCoverageProbe
 
     static readonly string UmbrellaPath = Path.Combine("plugin", "codex", "housecarl", "SKILL.md");
 
+    [CiProbe("codex-umbrella-coverage-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — Codex umbrella coverage (tools + skills referenced)  ################");

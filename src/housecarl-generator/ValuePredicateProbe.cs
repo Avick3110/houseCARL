@@ -49,6 +49,7 @@ public static class ValuePredicateProbe
 
     static int _pass, _fail;
 
+    [CiProbe("value-predicate-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — field-value query predicate (cross_plugin_query where=)  ################");

@@ -41,6 +41,7 @@ internal static class AssetStatusProbe
     const string FacegenRel = @"meshes\actors\character\facegendata\facegeom\Dawnguard.esm\0001A51A.nif";   // in FixtureA only
     const string RankRel = @"meshes\rank\only-in-bsas.nif";                                                 // in FixtureA AND FixtureB
 
+    [CiProbe("asset-status-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

@@ -24,6 +24,7 @@ namespace HousecarlGenerator;
 // ======================================================================
 public static class SkyPatcherDiscoveryProbe
 {
+    [CiProbe("skypatcher-discovery-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("[skypatcher-discovery-guard] SkyPatcher INI discovery (Wave 1)");

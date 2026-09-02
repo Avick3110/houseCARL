@@ -41,6 +41,7 @@ public static class BulkQueryPrimitivesProbe
 {
     static int _pass, _fail;
 
+    [CiProbe("bulk-query-primitives-guard")]
     public static int RunGuard(string[] args)
     {
         _pass = _fail = 0;

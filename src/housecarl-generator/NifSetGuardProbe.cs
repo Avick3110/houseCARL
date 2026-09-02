@@ -37,6 +37,7 @@ internal static class NifSetGuardProbe
 {
     const string DefaultSmoke = @"E:\Skyrim Modding\ARR 2.0\mods\A makeover for Lucien\meshes\actors\character\FaceGenData\FaceGeom\lucien.esp\00005900.nif";
 
+    [CiProbe("nif-set-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

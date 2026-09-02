@@ -36,6 +36,7 @@ internal static class ImportOrderProbe
     // Aaron's known Steam compiler (same default as CompileProbe). Override via arg.
     const string DefaultCompiler = @"E:\SteamLibrary\steamapps\common\Skyrim Special Edition\Papyrus Compiler\PapyrusCompiler.exe";
 
+    [CiProbe("import-order-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

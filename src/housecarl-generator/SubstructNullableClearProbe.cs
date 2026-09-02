@@ -34,6 +34,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class SubstructNullableClearProbe
 {
+    [CiProbe("substruct-nullable-clear-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — clear a nullable substruct OR polymorphic field via Remove (S4 Track D)  ################");

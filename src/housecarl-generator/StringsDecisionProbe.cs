@@ -19,6 +19,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class StringsDecisionProbe
 {
+    [CiProbe("strings-decision-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("== strings redirect decision (FolderHasOwnStrings + ComputeDataDir), self-contained ==");

@@ -49,6 +49,7 @@ public static class FloiFieldsProbe
     const string FloiField = "ItemOrList";           // a FormLinkOrIndex<IItemOrListGetter> on the arm
     const string FormVal = "0001F4:Skyrim.esm";      // Iron Sword — a real item; form mode (contains ':')
 
+    [CiProbe("floi-fields-guard")]
     public static int RunGuard(string[] args)
     {
         // CI-safe corpus: corpus.json is GENERATED, not tracked — on a fresh checkout build it into a UNIQUE temp dir

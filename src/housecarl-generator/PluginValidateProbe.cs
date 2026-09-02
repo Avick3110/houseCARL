@@ -42,6 +42,7 @@ public static class PluginValidateProbe
 {
     static int _pass, _fail;
 
+    [CiProbe("plugin-validate-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — plugin packaging validation (SKILL.md frontmatter + manifest)  ################");

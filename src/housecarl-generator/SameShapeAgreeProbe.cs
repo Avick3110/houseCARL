@@ -46,6 +46,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class SameShapeAgreeProbe
 {
+    [CiProbe("sameshape-agree-guard")]
     public static int RunGuard(string[] args)
     {
         // CI-safe: corpus.json is GENERATED, not tracked — on a fresh checkout (the CI runner) build it into a

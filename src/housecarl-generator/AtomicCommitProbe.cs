@@ -29,6 +29,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class AtomicCommitProbe
 {
+    [CiProbe("atomic-commit-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

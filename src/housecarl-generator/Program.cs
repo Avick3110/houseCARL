@@ -15,9 +15,9 @@ using HousecarlGenerator;
 // invocation. See CiAll + dev/plans/CI_OPTIMIZATION_RESEARCH_2026-06-24.md.
 if (args.Length > 0 && args[0] == "ci-all") return CiAll.RunAll(args[1..]);
 
-// Single-probe runs of any CI guard dispatch through CiAll.Probes (the ONE CI source of truth), so a guard can't
-// be runnable locally yet missing from the CI run (the Q3 coverage-gap class). freshness-capture-guard (the cold
-// carve-out) and the manual/exploratory probes below keep their own explicit dispatch.
+// Single-probe runs of any CI guard — roster or standalone — dispatch through the reflected [CiProbe] set, so a
+// guard cannot be runnable locally yet missing from the CI run (the Q3 coverage-gap class). Only the
+// manual/exploratory probes below keep their own explicit dispatch.
 if (args.Length > 0 && CiAll.TryDispatch(args[0], args[1..], out var ciRc)) return ciRc;
 
 // PR 3b acceptance: the old copy_npc_appearance verb vs its 2.0 successor, over constructed MO2 instances.
@@ -44,11 +44,6 @@ if (args.Length > 0 && args[0] == "pkcu-fix-proof") return PkcuProbe.RunFixProof
 
 // Index-build resilience (Nexus bug): real-scale proof — full MO2 order + 1 malformed plugin, only it excluded.
 if (args.Length > 0 && args[0] == "pkcu-scale-proof") return PkcuProbe.RunScaleProof(args[1..]);
-
-// Freshness + write-capture guard (2026-06-12 hunt F5–F8 + PR #51 review note): restored-backup profile/ini
-// changes (older mtimes) are seen; one status line / one multi-op write composes from ONE build; a concurrent
-// read's freshness refresh defers while a write is in flight (never rebuilds under a serialize).
-if (args.Length > 0 && args[0] == "freshness-capture-guard") return FreshnessCaptureProbe.RunGuard(args[1..]);
 
 // Script-property binding sweep (housecarl_validate_scripts): a VMAD property declared in the attached script's .pex
 // (or an ancestor it extends) but left unbound is a silent None — the reported quest-script AddSpell(None) footgun.
@@ -304,11 +299,14 @@ if (args.Length > 0 && !IsDirectoryArgument(args[0]))
     Console.Error.WriteLine($"unknown mode '{args[0]}' — nothing was generated and nothing was written.");
     // TrimStart, then skip an EMPTY suggestion entirely: DidYouMean returns "" when nothing is close, and a blank
     // line above the mode list reads like a truncated message.
-    if (HousecarlCore.PluginNameSuggest.DidYouMean(args[0], CiAll.ProbeNames).TrimStart(' ') is { Length: > 0 } near)
+    var guardVerbs = CiAll.ProbeNames.Concat(CiAll.StandaloneProbeNames)
+                                     .OrderBy(n => n, StringComparer.Ordinal).ToArray();
+    if (HousecarlCore.PluginNameSuggest.DidYouMean(args[0], guardVerbs).TrimStart(' ') is { Length: > 0 } near)
         Console.Error.WriteLine(near);
     Console.Error.WriteLine();
-    Console.Error.WriteLine("CI guards in the registry (`ci-all` runs these; freshness-capture-guard is a CI step of its own):");
-    foreach (var name in CiAll.ProbeNames) Console.Error.WriteLine("  " + name);
+    Console.Error.WriteLine("CI guards (`ci-all` runs the roster; a [standalone] verb is a CI step of its own):");
+    foreach (var name in guardVerbs)
+        Console.Error.WriteLine("  " + name + (CiAll.StandaloneProbeNames.Contains(name) ? "  [standalone]" : ""));
     Console.Error.WriteLine();
     Console.Error.WriteLine("Other modes are the manual/exploratory harnesses declared in src/housecarl-generator/Program.cs");
     Console.Error.WriteLine("(they are not in the suggestion pool above — only the CI registry is).");

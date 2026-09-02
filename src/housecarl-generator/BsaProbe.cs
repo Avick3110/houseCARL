@@ -19,6 +19,7 @@ internal static class BsaProbe
     static readonly string DefaultBsarch = Environment.GetEnvironmentVariable("HOUSECARL_BSARCH") ?? "";
     static readonly string DefaultBsa = Environment.GetEnvironmentVariable("HOUSECARL_TEST_BSA") ?? "";
 
+    [CiProbe("bsa-probe")]
     public static int Run(string[] args)
     {
         Console.WriteLine("================================================================");

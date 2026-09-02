@@ -81,6 +81,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class CheckMergeProbe
 {
+    [CiProbe("check-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("check-guard — the merged derived-findings sweep (housecarl_check)");

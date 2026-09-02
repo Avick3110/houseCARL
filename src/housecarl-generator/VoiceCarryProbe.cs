@@ -34,6 +34,7 @@ public static class VoiceCarryProbe
     const string VoiceType = "FemaleEventoned";
     const int RespNum = 1;
 
+    [CiProbe("voice-carry-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  COMPACT Wave A2 — voice-carry guard (housecarl_compact_plugin)  ################");

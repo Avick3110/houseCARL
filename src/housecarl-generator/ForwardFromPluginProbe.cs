@@ -71,6 +71,7 @@ public static class ForwardFromPluginProbe
     const string ModBName = "HcFwdModB.esp";
     const string OtherName = "HcFwdOther.esp";
 
+    [CiProbe("forward-from-plugin-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("forward-from-plugin-guard — copy a NAMED plugin's version of a record as an override (HCBR-2026-06-21)");

@@ -45,6 +45,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class ArtifactGuardProbe
 {
+    [CiProbe("artifact-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

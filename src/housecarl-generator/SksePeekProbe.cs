@@ -24,6 +24,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class SksePeekProbe
 {
+    [CiProbe("skse-peek-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

@@ -68,6 +68,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class DialogueCkParityGuardProbe
 {
+    [CiProbe("dialogue-ckparity-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — dialogue CK-parity default-populate (S1+S2)  ################");

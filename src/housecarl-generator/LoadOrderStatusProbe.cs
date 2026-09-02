@@ -36,6 +36,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class LoadOrderStatusProbe
 {
+    [CiProbe("loadorder-status-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

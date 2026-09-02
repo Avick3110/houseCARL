@@ -37,6 +37,7 @@ internal static class DecompileGuardProbe
 {
     const string FixtureDir = @"src/housecarl-generator/fixtures/decompile";
 
+    [CiProbe("decompile-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

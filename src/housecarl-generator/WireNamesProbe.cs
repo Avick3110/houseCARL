@@ -109,6 +109,7 @@ public static class WireNamesProbe
         "CreateOp",
     };
 
+    [CiProbe("wire-names-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — spec-object wire names ([JsonPropertyName])  ################");

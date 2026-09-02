@@ -52,6 +52,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class SeqWriteGuardProbe
 {
+    [CiProbe("seq-write-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — SEQ writer (housecarl_write_seq, Layer B unit D)  ################");

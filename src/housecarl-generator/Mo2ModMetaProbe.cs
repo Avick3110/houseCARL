@@ -11,6 +11,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class Mo2ModMetaProbe
 {
+    [CiProbe("mo2-modmeta-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

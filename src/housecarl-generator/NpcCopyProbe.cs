@@ -31,6 +31,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class NpcCopyProbe
 {
+    [CiProbe("copy-npc-appearance-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  STANDALONE-NPC-COPY guard (housecarl_copy_npc_appearance)  ################");

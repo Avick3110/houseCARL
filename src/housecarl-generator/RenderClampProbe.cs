@@ -25,6 +25,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class RenderClampProbe
 {
+    [CiProbe("render-clamp-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

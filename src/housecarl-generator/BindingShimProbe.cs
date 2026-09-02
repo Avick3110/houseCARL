@@ -54,6 +54,7 @@ public static class BindingShimProbe
 
     const string ConfigPrompt = "no Mod Organizer 2 instance configured"; // the unconfigured server's trained prompt = "the tool body ran"
 
+    [CiProbe("binding-shim-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("[binding-shim-guard] tool-argument binding shim (HCBR-2026-06-11-01)");

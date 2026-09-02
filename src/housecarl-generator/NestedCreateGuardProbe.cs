@@ -366,6 +366,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class NestedCreateGuardProbe
 {
+    [CiProbe("nested-create-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — nested-record CREATE (nested/dialogue plan, Layer A)  ################");

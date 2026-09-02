@@ -25,6 +25,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class VmadPropertyReadProbe
 {
+    [CiProbe("vmad-property-read-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — VMAD script-property VALUE read (1.3.1 item 2)  ################");

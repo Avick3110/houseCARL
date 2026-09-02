@@ -43,6 +43,7 @@ internal static class AssetPrefixHintProbe
     const string TexRel = @"textures\actors\canine\wolf.dds";
     const string TexRecordRel = @"actors\canine\wolf.dds";
 
+    [CiProbe("asset-prefix-hint-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

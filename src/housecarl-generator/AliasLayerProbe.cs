@@ -25,6 +25,7 @@ namespace HousecarlGenerator;
 // ======================================================================
 public static class AliasLayerProbe
 {
+    [CiProbe("alias-layer-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("[alias-layer-guard] the §5.3 alias layer (tool-surface-2.0 W0)");

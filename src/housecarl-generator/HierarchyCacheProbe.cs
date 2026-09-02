@@ -19,6 +19,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class HierarchyCacheProbe
 {
+    [CiProbe("hierarchy-cache-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

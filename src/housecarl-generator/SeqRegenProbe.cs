@@ -32,6 +32,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class SeqRegenProbe
 {
+    [CiProbe("seq-regen-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  COMPACT Wave A3 — SEQ-regen guard (housecarl_compact_plugin)  ################");

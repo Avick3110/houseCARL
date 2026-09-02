@@ -191,6 +191,7 @@ public static class RefusalCompletenessGuardProbe
         }
         """;
 
+    [CiProbe("refusal-completeness-guard")]
     public static int RunGuard(string[] args)
     {
         _pass = _fail = 0;

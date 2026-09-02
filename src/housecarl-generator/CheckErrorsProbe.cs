@@ -130,6 +130,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class CheckErrorsProbe
 {
+    [CiProbe("check-errors-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("check-errors-guard — load-order integrity sweep (housecarl_check_errors, audit A1)");

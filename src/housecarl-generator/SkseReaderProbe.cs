@@ -22,6 +22,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class SkseReaderProbe
 {
+    [CiProbe("skse-reader-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

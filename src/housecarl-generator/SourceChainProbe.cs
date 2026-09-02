@@ -38,6 +38,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class SourceChainProbe
 {
+    [CiProbe("source-chain-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  ORDERED SOURCE UNIVERSE guard (SPEC §3.1 amendment)  ################");

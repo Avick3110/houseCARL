@@ -27,6 +27,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class CompileErgonomicsProbe
 {
+    [CiProbe("compile-ergonomics-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

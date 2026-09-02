@@ -161,6 +161,7 @@ public static class WriteLockProbe
     /// RED before the fix (the serialize throws the IOException, Success=false), GREEN after — verified for BOTH the master-set
     /// (revert AllMastersExcept → REMOVE+APPLY red) and the winner-fetch (revert ReleaseOverlay → APPLY red) halves.
     /// </summary>
+    [CiProbe("writelock-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — active-patch write self-lock (Heisen 2026-06-08)  ################");

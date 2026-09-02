@@ -49,6 +49,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class DryRunProbe
 {
+    [CiProbe("dry-run-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

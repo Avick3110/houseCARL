@@ -30,6 +30,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class CreatePluginGuardProbe
 {
+    [CiProbe("create-plugin-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("create-plugin-guard — author an empty, header-only (trigger) plugin (HCBR-2026-06-19-02)");

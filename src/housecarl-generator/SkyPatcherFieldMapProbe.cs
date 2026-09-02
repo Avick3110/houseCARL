@@ -25,6 +25,7 @@ namespace HousecarlGenerator;
 // ======================================================================
 public static class SkyPatcherFieldMapProbe
 {
+    [CiProbe("skypatcher-fieldmap-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("[skypatcher-fieldmap-guard] SkyPatcher op → Mutagen field map (Wave 1)");

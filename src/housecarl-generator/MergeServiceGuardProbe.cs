@@ -57,6 +57,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class MergeServiceGuardProbe
 {
+    [CiProbe("merge-service-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  MERGE Wave A4 — service guard (housecarl_merge_plugins)  ################");

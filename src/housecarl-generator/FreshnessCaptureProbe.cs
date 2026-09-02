@@ -36,9 +36,13 @@ namespace HousecarlGenerator;
 ///      long enough to straddle the read (retried; judged only when the read provably finished mid-write).
 ///
 /// Self-contained: synthetic MO2 instances + synthesized plugins in temp; generates its own corpus. No game data.
+///
+/// Standalone by necessity: in the warm ci-all runner (hot JIT, memoized corpus) the write finishes before the
+/// read can land inside it, so arm 5 holds only in a cold process and CI gives this guard its own step.
 /// </summary>
 internal static class FreshnessCaptureProbe
 {
+    [CiProbe("freshness-capture-guard", Standalone = true)]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

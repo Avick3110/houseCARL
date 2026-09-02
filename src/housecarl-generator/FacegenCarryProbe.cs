@@ -23,6 +23,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class FacegenCarryProbe
 {
+    [CiProbe("facegen-carry-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  COMPACT Wave A1 — facegen-carry guard (housecarl_compact_plugin)  ################");

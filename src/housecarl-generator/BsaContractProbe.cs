@@ -18,6 +18,7 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class BsaContractProbe
 {
+    [CiProbe("bsa-contract-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

@@ -54,6 +54,7 @@ internal static class PlaceAssetProbe
     // A facegen path that EXISTS inside the committed FixtureA.bsa (the dark-face shape) — the extraction + e2e source.
     const string FacegenRel = @"meshes\actors\character\facegendata\facegeom\Dawnguard.esm\0001A51A.nif";
 
+    [CiProbe("place-asset-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");

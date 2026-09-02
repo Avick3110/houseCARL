@@ -227,6 +227,7 @@ public static class FormIdFloorProbe
     ///             copy must PERSIST 0x800 with no allocation happening at all — pinning WritePatch's floor
     ///             independently. Either chokepoint reverted alone goes RED here.
     /// </summary>
+    [CiProbe("formid-floor-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — FormID allocation floor (HCBR-2026-06-09-04)  ################");

@@ -44,6 +44,7 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class CreateGlobalProbe
 {
+    [CiProbe("create-abstract-group-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("################  REGRESSION GUARD — create concrete subtype of an abstract record group (GLOB / GMST, PR-D)  ################");
