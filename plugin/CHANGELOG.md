@@ -13,6 +13,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **`housecarl_check` is callable. It was not before.** The merged derived-findings sweep — the errors,
+  scripts and dialogue families under one `findings=` vocabulary — shipped in the source on 2026-08-21 but
+  was never registered on the MCP surface, so no client could reach it: the tool was declared on its method
+  while the class holding it was not marked as a tool type, and the server registers only marked types.
+  Nothing about the tool itself changed. Check it from your client's tool list: `housecarl_check` is present.
+
 - **Six 1.x write tools are gone: `housecarl_set_field`, `housecarl_bulk_apply`, `housecarl_create_record`,
   `housecarl_bulk_create`, `housecarl_remove_record` and `housecarl_forward_record`.** Their capability is on
   `housecarl_apply` (both field-edit tools), `housecarl_create` (both create tools), `housecarl_remove` and
