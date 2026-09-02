@@ -43,9 +43,12 @@ public sealed class RecordsRefusalGrammarTests : RecordsTestBase
     public void TheSentenceIsTheOneTheCallerNeeds_ItNamesTheRuleItBroke() =>
         Assert.Contains("is not a form", Doc(RefusalJson()).GetProperty("error").GetString()!);
 
+    // StartsWith rather than a [..7] slice: the slice threw ArgumentOutOfRangeException on any sentence
+    // shorter than seven characters, turning a clean assertion failure into an unrelated exception.
     [Fact]
     public void TheJsonSentenceCarriesNoTextLaneErrorPrefix_ThePropertyNameAlreadySaysWhatItIs() =>
-        Assert.DoesNotContain("error: ", Doc(RefusalJson()).GetProperty("error").GetString()![..7]);
+        Assert.False(Doc(RefusalJson()).GetProperty("error").GetString()!.StartsWith("error: ", StringComparison.Ordinal),
+                     "the json lane's error property opens with the text lane's 'error: ' prefix");
 
     [Fact]
     public void TheTextTwinIsStillProseOpeningErrorColon() =>
