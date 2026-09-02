@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Xunit;
@@ -124,22 +125,101 @@ public sealed class HarnessResidueTests
     // two guard verbs, and counting it as harness residue would inflate the countdown with code that is not
     // residue. It gets its own gated measure instead, so it is visible, cannot grow silently, and has to reach
     // zero along with the other two.
+    //
+    // The registry answers "which TYPES host guards". Turning that into "which FILE hosts each" was a fourth
+    // proxy for one revision: it assumed the file is named after the type. Both directions of that assumption
+    // are wrong, and the false-green one is the case this measure exists for — a guard type FooProbe hosted at
+    // src/housecarl-core/FooProbe.cs read as counted because src/housecarl-generator/FooProbe.cs happened to
+    // exist and the comparison was on bare filenames. So the host file is derived from the TYPE now:
+    //
+    //   * cross-assembly is outside BY CONSTRUCTION, with no lookup at all — probeFiles enumerates
+    //     src/housecarl-generator and nothing else, so a type compiled into another project cannot be in it
+    //     whatever it is called. `t.Assembly` settles the WriteEngine case and kills the name collision;
+    //   * otherwise the file is the one that DECLARES the type, found by searching that type's own project
+    //     for the declaration, and compared as a FULL path against probeFiles' full paths.
+    //
+    // Locating a project's source by its assembly name is still a convention, but it is one whose failure is
+    // loud — zero or many declarations throws and names the type — never a silent pass, and the gate above it
+    // does not depend on it at all.
+
+    static Assembly GeneratorAssembly { get; } = typeof(HousecarlGenerator.CiAll).Assembly;
+
+    static bool NotBuildOutput(string p) =>
+        !p.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")
+     && !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}");
+
+    static readonly Regex TypeDeclaration =
+        new(@"\b(?:class|struct|record)\s+(?:(?:class|struct)\s+)?([A-Za-z_][A-Za-z0-9_]*)", RegexOptions.Compiled);
+
+    static readonly Dictionary<string, Dictionary<string, List<string>>> DeclarationIndexes = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Type name → the file(s) declaring it, for one project's source tree. Built once per root.</summary>
+    static Dictionary<string, List<string>> DeclarationIndex(string root)
+    {
+        if (DeclarationIndexes.TryGetValue(root, out var cached)) return cached;
+
+        var map = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var p in Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories).Where(NotBuildOutput))
+            foreach (Match m in TypeDeclaration.Matches(File.ReadAllText(p)))
+            {
+                var name = m.Groups[1].Value;
+                if (!map.TryGetValue(name, out var files)) map[name] = files = new List<string>();
+                if (!files.Contains(p)) files.Add(p);
+            }
+        return DeclarationIndexes[root] = map;
+    }
+
+    /// <summary>Repo-relative, forward-slashed — the spelling a reader can paste into an editor.</summary>
+    static string Rel(string full) => Path.GetRelativePath(HarnessPaths.RepoRoot, full).Replace('\\', '/');
+
+    /// <summary>
+    /// The file that DECLARES <paramref name="t"/>. Exactly one match is required: zero means the declaration
+    /// is somewhere this search cannot see, many means it cannot say which — and a wrong answer here is a
+    /// guard dropping out of the count, so both are loud.
+    /// </summary>
+    static string DeclaringFile(Type t)
+    {
+        var project = t.Assembly.GetName().Name!;
+        var root = Path.Combine(HarnessPaths.RepoRoot, "src", project);
+
+        Assert.True(Directory.Exists(root),
+            $"The ci-all registry guard {t.FullName} is compiled into assembly '{project}', and there is no " +
+            $"'src/{project}' to search for its declaration. The residue count cannot say which file hosts it.");
+
+        DeclarationIndex(root).TryGetValue(t.Name, out var hits);
+        hits ??= new List<string>();
+
+        Assert.True(hits.Count == 1,
+            $"Cannot say which file declares the ci-all registry guard {t.FullName}: found {hits.Count} " +
+            $"declarations of '{t.Name}' under src/{project}" +
+            (hits.Count == 0 ? "." : " — " + string.Join(", ", hits.Select(Rel)) + ".") +
+            " The residue count derives each guard's host file from its declaring type, so an unresolved or " +
+            "ambiguous declaration is the count going quiet rather than a detail.");
+
+        return hits[0];
+    }
 
     static string[] GuardFilesOutsideTheCount()
     {
-        var counted = ProbeFiles().Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var counted = ProbeFiles().ToHashSet(StringComparer.OrdinalIgnoreCase);   // FULL paths, never bare names
         return HousecarlGenerator.CiAll.ProbeTypes
-            .Select(t => t.Name)
-            .Where(n => !counted.Contains(n + ".cs"))
+            .Distinct()
+            .Where(t => t.Assembly != GeneratorAssembly || !counted.Contains(DeclaringFile(t)))
+            .Select(t => $"{t.Name} ({Rel(DeclaringFile(t))})")
             .Distinct(StringComparer.Ordinal)
-            .OrderBy(n => n, StringComparer.Ordinal)
+            .OrderBy(s => s, StringComparer.Ordinal)
             .ToArray();
     }
 
+    static bool IsCompilerGenerated(Type t) =>
+        t == typeof(HousecarlGenerator.CiAll)
+     || t.Name.Contains('<')
+     || t.IsDefined(typeof(CompilerGeneratedAttribute), inherit: false);
+
     /// <summary>
-    /// Every ci-all registry guard resolves to a source file somewhere under src/. This is what stops the
-    /// measure below from going quiet: a guard hosted in a file the search cannot find would drop out of the
-    /// count silently, which is the same failure one level along.
+    /// Every ci-all registry guard resolves to the source file that declares it. This is what stops the
+    /// measure below from going quiet: a guard whose host file cannot be named would drop out of the count
+    /// silently, which is the same failure one level along.
     /// </summary>
     [Fact]
     public void EveryRegistryGuardResolvesToASourceFile_SoNoneCanDropOutOfTheCountUnseen()
@@ -151,16 +231,22 @@ public sealed class HarnessResidueTests
             "CiAll.ProbeTypes is empty, so every residue claim derived from the registry is vacuous. Either the " +
             "registry did not load or its shape changed. Both are this guard's subject, not a reason to pass.");
 
-        var srcRoot = Path.Combine(HarnessPaths.RepoRoot, "src");
-        var unresolved = types.Select(t => t.Name).Distinct(StringComparer.Ordinal)
-            .Where(n => !Directory.EnumerateFiles(srcRoot, n + ".cs", SearchOption.AllDirectories)
-                                  .Any(p => !p.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")
-                                         && !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")))
-            .ToArray();
+        // A row registered as a lambda declares its guard on a compiler-generated closure — or on CiAll itself
+        // — which is not a file anyone can open, and would have the count measuring the registry's own file
+        // instead of the guard's.
+        var synthetic = types.Where(IsCompilerGenerated)
+                             .Select(t => t.FullName ?? t.Name)
+                             .Distinct(StringComparer.Ordinal)
+                             .OrderBy(s => s, StringComparer.Ordinal)
+                             .ToArray();
 
-        Assert.True(unresolved.Length == 0,
-            "These ci-all registry guards have no source file under src/, so the residue measures cannot see " +
-            "where they live: " + string.Join(", ", unresolved));
+        Assert.True(synthetic.Length == 0,
+            "These ci-all rows do not name a type anyone can open: " + string.Join(", ", synthetic) +
+            ". Register a method group, not a lambda — the residue count derives each guard's host FILE from " +
+            "its declaring type, and a lambda's declaring type is the registry rather than the guard.");
+
+        // DeclaringFile is loud on zero or on many, so calling it for every type IS the resolution claim.
+        foreach (var t in types.Distinct()) DeclaringFile(t);
     }
 
     /// <summary>
