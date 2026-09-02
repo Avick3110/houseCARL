@@ -1,4 +1,4 @@
-# ADR 0003 — Tool names are compile-time constants
+# ADR 0004 — Tool names are compile-time constants
 
 **Class:** ARCHIVE (ADR). Immutable once merged; superseded by a later ADR, never edited.
 **Date:** 2026-09-02 · **Status:** accepted · **Issue:** #475

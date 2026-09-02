@@ -13,7 +13,7 @@ namespace HousecarlCore;
 /// and the rewritten call sites were derived. Those scripts are not a maintenance path and are not
 /// re-run. A new tool's constant is added BY HAND, one line; the completeness test holds this set
 /// against the declared tools and fails until it is.
-/// Rationale: <c>docs/decisions/0003-tool-names-are-compile-time-constants.md</c>.</para>
+/// Rationale: <c>docs/decisions/0004-tool-names-are-compile-time-constants.md</c>.</para>
 /// </summary>
 public static class ToolNames
 {

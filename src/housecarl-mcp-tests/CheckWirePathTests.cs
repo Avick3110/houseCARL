@@ -61,7 +61,7 @@ public sealed class CheckWirePathTests
     {
         var declared = CheckToolParameters().Select(p => p.Name!).OrderBy(n => n, StringComparer.Ordinal).ToArray();
 
-        var schema = _s.PublishedTools["housecarl_check"].GetProperty("inputSchema");
+        var schema = _s.PublishedTools[ToolNames.Check].GetProperty("inputSchema");
         var published = schema.GetProperty("properties").EnumerateObject()
                               .Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
 
@@ -86,7 +86,7 @@ public sealed class CheckWirePathTests
     public void EveryPublishedParameterBindsOverTheWireAndReachesTheToolBody(string parameter)
     {
         var p = CheckToolParameters().Single(x => x.Name == parameter);
-        var r = _s.Call("housecarl_check", $$"""{"{{parameter}}": {{SampleValueFor(p.ParameterType)}}}""");
+        var r = _s.Call(ToolNames.Check, $$"""{"{{parameter}}": {{SampleValueFor(p.ParameterType)}}}""");
 
         Assert.False(r.IsError, r.Describe());
         Assert.True(r.BodyRan, r.Describe());
@@ -109,7 +109,7 @@ public sealed class CheckWirePathTests
     [MemberData(nameof(Families))]
     public void AFindingsFamilyBindsOverTheWireAndReachesTheToolBody(string family)
     {
-        var r = _s.Call("housecarl_check", $$"""{"findings":["{{family}}"]}""");
+        var r = _s.Call(ToolNames.Check, $$"""{"findings":["{{family}}"]}""");
 
         Assert.False(r.IsError, r.Describe());
         Assert.Equal(1, r.ContentBlocks);
@@ -120,7 +120,7 @@ public sealed class CheckWirePathTests
     [Fact]
     public void TheDefaultCallWithNoFindingsBindsAndReachesTheToolBody()
     {
-        var r = _s.Call("housecarl_check", "{}");
+        var r = _s.Call(ToolNames.Check, "{}");
 
         Assert.False(r.IsError, r.Describe());
         Assert.Equal("text", r.FirstBlockType);
@@ -139,7 +139,7 @@ public sealed class CheckWirePathTests
     [Fact]
     public void FindingsSentAsABareStringBindsAndReachesTheBody()
     {
-        var r = _s.Call("housecarl_check", """{"findings":"errors"}""");
+        var r = _s.Call(ToolNames.Check, """{"findings":"errors"}""");
 
         Assert.False(r.IsError, r.Describe());
         Assert.True(r.BodyRan, r.Describe());
@@ -150,7 +150,7 @@ public sealed class CheckWirePathTests
     [Fact]
     public void FindingsSentAsAnObjectIsRefusedByTypeAndTheRefusalNamesTheParameterAndBothTypes()
     {
-        var r = _s.Call("housecarl_check", """{"findings":{"a":1}}""");
+        var r = _s.Call(ToolNames.Check, """{"findings":{"a":1}}""");
 
         Assert.True(r.IsError, r.Describe());
         Assert.Contains("findings", r.Text, StringComparison.Ordinal);
@@ -161,7 +161,7 @@ public sealed class CheckWirePathTests
     [Fact]
     public void AnUnknownParameterIsRefusedByNameAndTheRefusalListsWhatTheToolAccepts()
     {
-        var r = _s.Call("housecarl_check", """{"nonexistent_param":"x"}""");
+        var r = _s.Call(ToolNames.Check, """{"nonexistent_param":"x"}""");
 
         Assert.True(r.IsError, r.Describe());
         Assert.Contains("unknown parameter: nonexistent_param", r.Text, StringComparison.Ordinal);
@@ -171,7 +171,7 @@ public sealed class CheckWirePathTests
     [Fact]
     public void AScalarParameterSentAsTheWrongTypeIsRefusedNamingTheTypeItExpects()
     {
-        var r = _s.Call("housecarl_check", """{"max_chars":"not-a-number"}""");
+        var r = _s.Call(ToolNames.Check, """{"max_chars":"not-a-number"}""");
 
         Assert.True(r.IsError, r.Describe());
         Assert.Contains("max_chars", r.Text, StringComparison.Ordinal);
@@ -184,7 +184,7 @@ public sealed class CheckWirePathTests
     [MemberData(nameof(Families))]
     public void ThePublishedFindingsSchemaNamesEveryRegisteredFamily(string family)
     {
-        var findings = _s.PublishedTools["housecarl_check"]
+        var findings = _s.PublishedTools[ToolNames.Check]
                          .GetProperty("inputSchema").GetProperty("properties").GetProperty("findings");
         var description = findings.GetProperty("description").GetString() ?? "";
 
@@ -196,7 +196,7 @@ public sealed class CheckWirePathTests
     [Fact]
     public void TheFindingsParameterIsPublishedAsAnArrayOfStrings_NotCollapsedByASerializerConverter()
     {
-        var findings = _s.PublishedTools["housecarl_check"]
+        var findings = _s.PublishedTools[ToolNames.Check]
                          .GetProperty("inputSchema").GetProperty("properties").GetProperty("findings");
 
         Assert.Contains("array", findings.GetProperty("type").GetRawText(), StringComparison.Ordinal);
