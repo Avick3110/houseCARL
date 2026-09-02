@@ -515,6 +515,16 @@ public static class BindingShimProbe
         "housecarl_bsa_repack: fromfolder -> source_folder",
         "housecarl_bsa_repack: patch -> archive_name",
         "housecarl_bulk_place_asset: patch -> patch_name",
+        // #470 (eyeballed 2026-09-02): 144 -> 149. housecarl_check joins the surface. It was declared and guarded since
+        // 2026-08-21 but never registered, so its schema was invisible to this census — publishing it
+        // activates the same five scope aliases its ancestor housecarl_check_errors already carries, on the
+        // same declared parameters (formids=, plugins=, type=). Five surplus, nothing missing: the shim now
+        // serves a check caller the alias help every other tool's caller already had.
+        "housecarl_check: formid -> formids",
+        "housecarl_check: plugin -> plugins",
+        "housecarl_check: pluginname -> plugins",
+        "housecarl_check: pluginnames -> plugins",
+        "housecarl_check: types -> type",
         "housecarl_check_errors: formid -> formids",
         "housecarl_check_errors: plugin -> plugins",
         "housecarl_check_errors: pluginname -> plugins",
