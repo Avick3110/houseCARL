@@ -276,6 +276,10 @@ internal static class AliasTable
     /// spelling, so a caller working from old docs lands on `records` in one hop instead of a dead end.</summary>
     static readonly (string Old, string Successor)[] RetiredTools =
     {
+        // An `Old` column naming a deletion-flagged constant is the one place where the cut's
+        // compile error means RESTORE THE LITERAL, not delete the site: the redirect has to
+        // outlive the tool it redirects away from. The six already-retired write names below
+        // are literals for exactly that reason.
         (ToolNames.ReadRecord,
          "absorbed into " + ToolNames.Records + ": formids=[\"XXXXXX:Plugin.esp\"] — project={\"form\": \"fields\", \"fields\": […]} for named fields, \"everything\" for the full body; plugin= is source=; conflict_tree=true is project={\"form\": \"tree\"}."),
         (ToolNames.BatchRecordDetail,
