@@ -2481,24 +2481,12 @@ public static class DescriptionVocabularyGuardProbe
     // ================= TOOL NAMES: no caller-facing sentence points at a tool nobody can call =================
 
     /// <summary>The names the SDK's assembly scan actually REGISTERS, by its own discovery predicate:
-    /// <c>[McpServerToolType]</c> on the declaring TYPE and <c>[McpServerTool]</c> on the method. The type half is
-    /// load-bearing and is why this is not the method-attribute-only derivation used elsewhere in the generator —
+    /// <c>[McpServerToolType]</c> on the declaring TYPE and <c>[McpServerTool]</c> on the method. The predicate has
+    /// one home, <see cref="RegisteredTools"/>, because the in-place guard's derived sweep needs the same one and
+    /// the two disagreed while they were written twice (#474 gate, finding 4). The type half is load-bearing:
     /// <c>CheckTools</c> carries the method attribute and no type attribute, so <c>housecarl_check</c> is declared
     /// and has never been registered (#470), and a predicate reading the method alone reports it live.</summary>
-    static HashSet<string> RegisteredToolNames()
-    {
-        const BindingFlags Flags = BindingFlags.Public | BindingFlags.NonPublic
-                                 | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly;
-        var names = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var t in Surface.GetTypes())
-        {
-            if (t.GetCustomAttribute<ModelContextProtocol.Server.McpServerToolTypeAttribute>(inherit: false) is null) continue;
-            foreach (var m in t.GetMethods(Flags))
-                if (m.GetCustomAttribute<ModelContextProtocol.Server.McpServerToolAttribute>(inherit: false)?.Name is { Length: > 0 } n)
-                    names.Add(n);
-        }
-        return names;
-    }
+    static HashSet<string> RegisteredToolNames() => RegisteredTools.Names();
 
     static readonly Regex ToolToken = new("housecarl_[a-z0-9_]+", RegexOptions.Compiled);
 

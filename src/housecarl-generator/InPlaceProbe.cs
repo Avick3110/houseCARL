@@ -1271,27 +1271,16 @@ public static class InPlaceProbe
 
     static string Trim(string? s) => (s ?? "(null)").Replace("\r", " ").Replace("\n", " ").Trim();
 
-    /// <summary>Every REGISTERED tool declaring an <c>in_place</c> parameter, reflected off the shipped
-    /// <c>[McpServerTool]</c> attributes — the in-place surface as it actually is, not as a list here says it is
-    /// (CLAUDE.md §5 #11). Arm H sweeps whatever this returns, so a new write tool is covered by existing and a
-    /// deleted one leaves no stale row behind. An empty result is a BROKEN GUARD, and arm H says so rather than
-    /// reporting a clean sweep of nothing.</summary>
-    static List<(string Tool, System.Reflection.MethodInfo Method)> InPlaceDeclaringTools()
-    {
-        var found = new List<(string, System.Reflection.MethodInfo)>();
-        const System.Reflection.BindingFlags Flags =
-            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic
-            | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Instance
-            | System.Reflection.BindingFlags.DeclaredOnly;
-        foreach (var t in typeof(WriteTools).Assembly.GetTypes())
-            foreach (var m in t.GetMethods(Flags))
-            {
-                var a = System.Reflection.CustomAttributeExtensions
-                    .GetCustomAttribute<ModelContextProtocol.Server.McpServerToolAttribute>(m, inherit: false);
-                if (a?.Name is { Length: > 0 } name && m.GetParameters().Any(p => p.Name == "in_place"))
-                    found.Add((name, m));
-            }
-        found.Sort((x, y) => string.CompareOrdinal(x.Item1, y.Item1));
-        return found;
-    }
+    /// <summary>Every REGISTERED tool declaring an <c>in_place</c> parameter — the in-place surface as it actually
+    /// is, not as a list here says it is (CLAUDE.md §5 #11). Arm H sweeps whatever this returns, so a new write tool
+    /// is covered by existing and a deleted one leaves no stale row behind. An empty result is a BROKEN GUARD, and
+    /// arm H says so rather than reporting a clean sweep of nothing.
+    /// <para>"Registered" is <see cref="RegisteredTools"/>'s predicate, the SDK's own — type attribute AND method
+    /// attribute. This used to read the METHOD attribute alone, which is a superset: a tool declaring
+    /// <c>in_place</c> on a type missing <c>[McpServerToolType]</c> would be swept and passed under a label reading
+    /// "every in_place-declaring tool" even though the SDK never registers it. No such tool exists today — #470's
+    /// <c>housecarl_check</c> is the one unregistered declaration and it declares no <c>in_place</c>, so the swept
+    /// set is the same six either way. The superset was latent, not live; it is gone by construction now.</para></summary>
+    static List<(string Tool, System.Reflection.MethodInfo Method)> InPlaceDeclaringTools() =>
+        RegisteredTools.All().Where(p => p.Method.GetParameters().Any(x => x.Name == "in_place")).ToList();
 }
