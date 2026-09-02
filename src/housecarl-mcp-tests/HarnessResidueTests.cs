@@ -73,6 +73,7 @@ public sealed class HarnessResidueTests
         public int ProbeFiles { get; set; } = -1;
         public int ProbeLines { get; set; } = -1;
         public int CiAllRows { get; set; } = -1;
+        public int GuardFilesOutsideTheCount { get; set; } = -1;
     }
 
     // ---- the countdown ---------------------------------------------------------------------------------
@@ -107,41 +108,85 @@ public sealed class HarnessResidueTests
             "countdown and becomes headroom.");
     }
 
-    /// <summary>
-    /// The countdown counts files by the `*Probe*.cs` name convention, and a convention is a hand-list wearing
-    /// a glob: a guard added as `NewGuard.cs` would run in the old harness while the countdown reported it
-    /// unchanged. So the population is checked against the surface it claims — every guard ENTRY POINT the
-    /// compiled generator actually exposes must live in a file the counter counts.
-    ///
-    /// Derived from the assembly, not listed here. Six files under src/housecarl-generator do expose a `Run`
-    /// verb without matching the glob (WriteOracle, WriteCensus, CopyDifferentialHarness, SkyPatcherHarness,
-    /// LocalizedShapeSweep, ClassParentsEmitter) — those are manual/exploratory verbs, not CI guards, and
-    /// none of them is a ci-all registry row. `RunGuard` is the CI guard shape, and that is what this pins.
-    /// </summary>
-    [Fact]
-    public void EveryGuardEntryPointLivesInAFileTheCountdownCounts_OtherwiseResidueIsInvisibleToIt()
+    // ---- the guards ci-all runs from files the countdown does NOT count ---------------------------------
+    //
+    // probeFiles counts the harness's own files by the `*Probe*.cs` convention, and that convention is not the
+    // whole of what ci-all runs. Two earlier shapes of this check asked the wrong question: first the glob was
+    // trusted on its own, then a companion arm derived "guard" as a method named RunGuard — and NINE of the 132
+    // registry rows dispatch something else (ToolBridgeProbe.Run, CompileProbe.Run, BsaProbe.Run,
+    // PkcuProbe.RunRegression, PerkRefsProbe.RunDeletedGuard, Mo2InstanceProbe.RunProbe,
+    // RemapWave2NestedMechProbe.RunCompactGuard, and WriteEngine's two coerce verbs). WriteEngine is the live
+    // one: it is in src/housecarl-core, so probeFiles cannot see it at any level of naming discipline, and the
+    // countdown could reach zero — W7's closing condition — with ci-all still running two guards out of it.
+    //
+    // So the question is asked of the registry itself, which is the only honest answer to "what does ci-all
+    // run". Those files are NOT folded into probeFiles: WriteEngine.cs is 4,000 lines of product code hosting
+    // two guard verbs, and counting it as harness residue would inflate the countdown with code that is not
+    // residue. It gets its own gated measure instead, so it is visible, cannot grow silently, and has to reach
+    // zero along with the other two.
+
+    static string[] GuardFilesOutsideTheCount()
     {
-        var guardTypes = typeof(HousecarlGenerator.CiAll).Assembly
-            .GetTypes()
-            .Where(t => t.GetMethod("RunGuard", BindingFlags.Public | BindingFlags.Static) is not null)
+        var counted = ProbeFiles().Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return HousecarlGenerator.CiAll.ProbeTypes
             .Select(t => t.Name)
+            .Where(n => !counted.Contains(n + ".cs"))
             .Distinct(StringComparer.Ordinal)
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToArray();
+    }
 
-        // Vacuity canary: reflection that stops matching would otherwise leave this green over an empty set.
-        Assert.True(guardTypes.Length > 0,
-            "No types exposing a static RunGuard entry point were found in the generator assembly. Either the " +
-            "guard entry-point shape was renamed without updating this test, or the assembly did not load. " +
-            "Both are this guard's subject, not a reason for it to pass.");
+    /// <summary>
+    /// Every ci-all registry guard resolves to a source file somewhere under src/. This is what stops the
+    /// measure below from going quiet: a guard hosted in a file the search cannot find would drop out of the
+    /// count silently, which is the same failure one level along.
+    /// </summary>
+    [Fact]
+    public void EveryRegistryGuardResolvesToASourceFile_SoNoneCanDropOutOfTheCountUnseen()
+    {
+        var types = HousecarlGenerator.CiAll.ProbeTypes;
 
-        var counted = ProbeFiles().Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var invisible = guardTypes.Where(n => !counted.Contains(n + ".cs")).ToArray();
+        // Vacuity canary: an empty registry would satisfy every claim below it.
+        Assert.True(types.Count > 0,
+            "CiAll.ProbeTypes is empty, so every residue claim derived from the registry is vacuous. Either the " +
+            "registry did not load or its shape changed. Both are this guard's subject, not a reason to pass.");
 
-        Assert.True(invisible.Length == 0,
-            "These types expose a guard entry point but do not live in a file the residue countdown counts, so " +
-            "the old harness can hold them while probeFiles reports it shrinking: " + string.Join(", ", invisible) +
-            $". Either name the file to match the counted population, or widen the derivation in {nameof(ProbeFiles)}.");
+        var srcRoot = Path.Combine(HarnessPaths.RepoRoot, "src");
+        var unresolved = types.Select(t => t.Name).Distinct(StringComparer.Ordinal)
+            .Where(n => !Directory.EnumerateFiles(srcRoot, n + ".cs", SearchOption.AllDirectories)
+                                  .Any(p => !p.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")
+                                         && !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")))
+            .ToArray();
+
+        Assert.True(unresolved.Length == 0,
+            "These ci-all registry guards have no source file under src/, so the residue measures cannot see " +
+            "where they live: " + string.Join(", ", unresolved));
+    }
+
+    /// <summary>
+    /// The gated count of registry guards living outside the counted probe files, and WHICH they are. Exact
+    /// equality in both directions, like the other two gated measures: a new one is growth, and retiring one
+    /// without recording it turns the countdown into headroom.
+    /// </summary>
+    [Fact]
+    public void GuardsHostedOutsideTheCountedFilesMatchTheirBaseline_TheyCloseW7Too()
+    {
+        var outside = GuardFilesOutsideTheCount();
+        var committed = Committed().GuardFilesOutsideTheCount;
+
+        _out.WriteLine($"registry guards outside the counted probe files: {outside.Length} " +
+                       $"(baseline {committed}) — {string.Join(", ", outside)}");
+
+        Assert.False(outside.Length > committed,
+            $"A ci-all guard now lives outside the files the countdown counts: {string.Join(", ", outside)} " +
+            $"({outside.Length}, baseline {committed}). A new guard belongs in src/housecarl-mcp-tests, not in " +
+            $"the old harness — and least of all in a file the countdown cannot see. If this is deliberate and " +
+            $"ruled, raise the number in '{BaselinePath}' in the same commit and say why there.");
+
+        Assert.False(outside.Length < committed,
+            $"A guard left the old harness and the countdown does not know: {string.Join(", ", outside)} " +
+            $"({outside.Length}, baseline {committed}). Lower it in '{BaselinePath}' in this PR — a baseline " +
+            "above the real figure stops being a countdown and becomes headroom.");
     }
 
     // ---- one-way conversion ----------------------------------------------------------------------------

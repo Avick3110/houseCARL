@@ -453,6 +453,13 @@ public static class CiAll
     /// once — the refusal path reads it twice and nothing mutates the registry.</summary>
     public static IReadOnlyList<string> ProbeNames { get; } = Probes.Select(p => p.Name).ToArray();
 
+    /// <summary>The TYPE hosting each registry guard's entry point, off the dispatch delegates themselves. Read by
+    /// the residue countdown to derive which files still hold a CI guard — the registry is the only honest answer to
+    /// "what does ci-all run", and a name convention is not: nine rows dispatch something other than RunGuard, and
+    /// two of them (WriteEngine's coerce verbs) do not live in this project at all.</summary>
+    public static IReadOnlyList<Type> ProbeTypes { get; } =
+        Probes.Select(p => p.Run.Method.DeclaringType!).Distinct().ToArray();
+
     /// <summary>Dispatch a single CI guard by name through the registry — the ONE place a CI probe is listed, so
     /// Program.cs routes local single-probe runs here instead of keeping a parallel if-chain that could silently
     /// drift out of sync with the CI set (a guard runnable locally but missing from CI — the Q3 coverage-gap
