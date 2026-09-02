@@ -64,18 +64,35 @@ jobs:
       # for no extra signal.
       - name: Tests — the 2.0 guard project (dotnet test)
         if: ${{ !cancelled() }}
-        run: dotnet test src/housecarl-mcp-tests --configuration Release --no-build --filter "tier!=bridge" --logger trx
+        run: dotnet test src/housecarl-mcp-tests --configuration Release --no-build --filter "tier!=bridge" --logger "trx;LogFileName=guards.trx"
+
+      # `dotnet test` exits 0 when its filter matches NOTHING — measured. So a filter edit (a new tier, a typo,
+      # a test mistagged `bridge`) can take every guard out of CI and leave the step green with no signal. This
+      # reads the run's own trx and fails on an empty or failing run, which is also what makes the --logger flag
+      # above load-bearing rather than an artifact nobody opens. The floor is derived from the run, not a pinned
+      # number: it says "something ran and nothing failed", and the count is printed so a collapse is visible.
+      - name: Tests — the run was not empty (a filter that matches nothing exits 0)
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $trx = Get-ChildItem -Recurse -Filter guards.trx src/housecarl-mcp-tests/TestResults |
+                 Sort-Object LastWriteTime | Select-Object -Last 1
+          if (-not $trx) { throw "No guards.trx was produced - the test step did not run to completion." }
+          $c = ([xml](Get-Content $trx.FullName)).TestRun.ResultSummary.Counters
+          "guards.trx: total=$($c.total) executed=$($c.executed) passed=$($c.passed) failed=$($c.failed)"
+          if ([int]$c.executed -eq 0) { throw "The guard suite selected ZERO tests. The filter excludes everything it should not." }
+          if ([int]$c.failed -ne 0) { throw "$($c.failed) guard test(s) failed." }
 
       # The residue countdown (RUN_ORDER amendment 2026-09-02 (7), refined by (8)): how much of the OLD
-      # harness is left. Nothing is asserted here — HarnessResidueTests derives all three from the source
-      # tree, and fails unless probeFiles and ciAllRows match this file exactly, so a green run above is
-      # what makes printing those two equivalent to printing the measurement. probeLines only reports: it
-      # moves on ordinary in-place guard edits, so it is printed, not gated, and a conversion PR still
-      # updates it here. W7 is not complete while they are above zero.
+      # harness is left. This prints the MEASUREMENT, not the committed baseline file. Printing the file was
+      # the first shape, and it was only honest for the two gated numbers: probeLines is deliberately
+      # ungated, so a legal in-place guard edit moves it and CI would have gone on printing the stale figure
+      # as though it had been measured. Re-running the derivation costs about a second and cannot drift,
+      # which a second copy of the derivation written in yaml would. W7 is not complete while these are
+      # above zero.
       - name: Residue countdown — what is left in the old probe harness
         if: ${{ !cancelled() }}
-        run: type src\housecarl-mcp-tests\harness-residue-baseline.json
-        shell: cmd
+        run: dotnet test src/housecarl-mcp-tests --configuration Release --no-build --filter "FullyQualifiedName~HarnessResidueTests" --logger "console;verbosity=detailed"
 
       # freshness-capture-guard runs as its OWN cold process: its deferral arm needs a write slow enough to
       # straddle a fixed ~100ms sleep — only true in a cold process. The warm ci-all runner finishes the write
