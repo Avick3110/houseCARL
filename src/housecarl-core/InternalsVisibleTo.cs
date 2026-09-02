@@ -7,3 +7,6 @@ using System.Runtime.CompilerServices;
 // oracle green across the §8.2 split WITHOUT widening this product core's PUBLIC surface to ~15
 // test-only helpers. Standard product-lib + proof-assembly idiom. (MCP-server step §8.2, 2026-06-01.)
 [assembly: InternalsVisibleTo("housecarl-generator")]
+
+// The xUnit test project (W7) drives the same service/tool seams the probe harness did.
+[assembly: InternalsVisibleTo("housecarl-mcp-tests")]

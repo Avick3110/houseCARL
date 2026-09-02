@@ -169,14 +169,6 @@ public static class CiAll
         // formats, and @file re-entry yields the identity column epoch-checked against the consuming call's own
         // capture — a stale artifact refuses loud naming both epochs, with no override switch by design.
         ("artifact-guard", ArtifactGuardProbe.RunGuard),
-        // The 2.0 S1 read surface, COMPLETE (tool-surface 2.0 W2, SPEC §2.2/§3/§4/§6.1): the W2
-        // where-grammar terms (startswith · editorid · winner provenance · generalized membership · the ->
-        // link step) against brute-force oracles, the housecarl_records dispatch over all nine PROJECT forms
-        // (identity/summary/fields/everything/aggregate on the list + scan lanes; delta/tree/chain/info_order
-        // in section 6), the §4.2 pole grammar (arm always stated, untouched refusals naming the touchers,
-        // neither-place refusals naming both places, previous_provider's four pins, the SkyPatcher overlay),
-        // the §3 walk construct, form-scoping refusals by name, and the to_file/@artifact re-entry epoch check.
-        ("records-guard", RecordsGuardProbe.RunGuard),
         ("verify-loop-guard", VerifyLoopProbe.RunGuard),
         ("vmad-poly-guard", VmadPolyProbe.RunGuard),
         ("poly-field-descend-guard", PolyFieldDescendProbe.RunGuard),

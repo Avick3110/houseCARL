@@ -5,3 +5,6 @@ using System.Runtime.CompilerServices;
 // logged at PR #23: the winner-vs-source guard could only reach the core's RecordsIn, not the service loop).
 // Declaring the harness a friend keeps the guard on the REAL product path without widening the public surface.
 [assembly: InternalsVisibleTo("housecarl-generator")]
+
+// The xUnit test project (W7) drives the same service/tool seams the probe harness did.
+[assembly: InternalsVisibleTo("housecarl-mcp-tests")]
