@@ -55,11 +55,23 @@ Consequences of the shape, each load-bearing:
 **What this buys.** Deleting a tool means deleting its constant, and the compiler then names the
 surviving sites that still refer to it. The deletion checklist becomes a build-error list.
 
-**The checklist is iterative, not one-shot.** C# binds declarations — attribute arguments, const
-initializers — before method bodies, and stops when the first phase has already failed. Deleting
-a constant with 35 references reports 5 sites on the first build; the rest surface on later
-passes. Build, fix what is named, build again, until green. A short first error list is not
-"that was all of them".
+**The checklist is iterative, not one-shot.** Two separate things shorten the first error list,
+and the second hides more than the first.
+
+Within a project, C# binds declarations — attribute arguments, const initializers — before method
+bodies and stops once the first phase has failed, so body-level references surface only on a later
+pass. Deleting a constant with 34 references across 8 files reported 10 diagnostics in 5 files
+on the first build.
+
+Across projects, a failed build skips everything downstream of it. The registry lives in the core
+project and the tool surface depends on it, so a constant deleted in core fails core and the tool
+project is never compiled at all — every site there is invisible until core is green again.
+Measured: deleting one constant with 11 references across 6 files in both projects reported
+diagnostics in exactly one file — its single core-project reference; the five tool-project files
+appeared only once core built again.
+
+Build, fix what is named, build again, until green. A short first error list is not "that was all
+of them", and an error list confined to one project is not evidence that the other is clean.
 
 **Nothing a caller sees changed** when the constants were introduced. The names are identical, so
 `tools/list` is byte-identical before and after, and the compiled string literals fold back to
