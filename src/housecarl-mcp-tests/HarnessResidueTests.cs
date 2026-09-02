@@ -12,6 +12,13 @@ namespace HousecarlMcpTests;
 /// Both subjects are DERIVED from the source tree every run. Nothing here is a maintained list of what
 /// is left: the old harness is measured where it lives, and the only checked-in number is the baseline
 /// the measurement is compared against.
+///
+/// TWO of the three measures gate. probeFiles and ciAllRows move only when a family actually leaves the
+/// old harness, so exact equality in both directions is a countdown. probeLines moves in both directions
+/// on ordinary in-place guard edits, which the two-harness rule explicitly requires ("if you are editing
+/// one, edit it where it already lives") — gating it would punish the correct act. It is derived and
+/// printed beside the gated pair, and it stays in the baseline file as information a conversion PR still
+/// updates (Aaron, 2026-09-02, RUN_ORDER amendment 2026-09-02 (8)).
 /// </summary>
 [Trait("tier", "unit")]
 public sealed class HarnessResidueTests
@@ -29,6 +36,7 @@ public sealed class HarnessResidueTests
     //              a probe cannot hide in a subfolder).
     // probeLines — the total line count of those same files (File.ReadAllLines().Length: a last line with
     //              no trailing newline still counts, which is why this may differ by a few from `wc -l`).
+    //              REPORT-ONLY: derived and printed, never asserted. See the class summary.
     // ciAllRows  — the ("name", XProbe.RunGuard) rows in CiAll.cs, i.e. what `ci-all` will actually run.
     //              Cross-check available on any run: ci-all's own summary prints "N/N passed" and N is this.
 
@@ -73,7 +81,6 @@ public sealed class HarnessResidueTests
 
     [Theory]
     [InlineData("probeFiles")]
-    [InlineData("probeLines")]
     [InlineData("ciAllRows")]
     public void TheOldHarnessResidueMatchesItsCommittedBaseline_AndTheOnlyLegalDirectionIsDown(string measure)
     {
@@ -81,12 +88,12 @@ public sealed class HarnessResidueTests
         var (actual, committed) = measure switch
         {
             "probeFiles" => (ProbeFiles().Length, b.ProbeFiles),
-            "probeLines" => (ProbeLines(), b.ProbeLines),
             "ciAllRows" => (CiAllRows(), b.CiAllRows),
             _ => throw new ArgumentOutOfRangeException(nameof(measure), measure, null),
         };
 
-        _out.WriteLine($"residue {measure}: {actual} (baseline {committed})");
+        _out.WriteLine($"residue {measure}: {actual} (baseline {committed})" +
+                       $"  ·  probeLines {ProbeLines()} (baseline {b.ProbeLines}, report-only)");
 
         // Two directions, two sentences, because they are two different mistakes.
         Assert.False(actual > committed,
