@@ -83,7 +83,7 @@ jobs:
           if ([int]$c.executed -eq 0) { throw "The guard suite selected ZERO tests. The filter excludes everything it should not." }
           if ([int]$c.failed -ne 0) { throw "$($c.failed) guard test(s) failed." }
 
-      # The residue countdown (RUN_ORDER amendment 2026-09-02 (7), refined by (8)): how much of the OLD
+      # The residue countdown (ADR 0003, docs/decisions/): how much of the OLD
       # harness is left. This prints the MEASUREMENT, not the committed baseline file. Printing the file was
       # the first shape, and it was only honest for the two gated numbers: probeLines is deliberately
       # ungated, so a legal in-place guard edit moves it and CI would have gone on printing the stale figure

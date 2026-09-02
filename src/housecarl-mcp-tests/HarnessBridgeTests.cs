@@ -5,7 +5,7 @@ using Xunit.Abstractions;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The bridge (RUN_ORDER amendment 2026-09-02 (7), residue item (i)): one test that runs the OLD harness,
+/// The bridge (ADR 0003, docs/decisions/): one test that runs the OLD harness,
 /// so `dotnet test` is the single entry point for the whole guard estate during the two-harness window.
 ///
 /// It shells the built generator's `ci-all` and fails on a non-zero exit. The bridge shrinks on its own as
