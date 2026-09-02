@@ -3,6 +3,24 @@
 **Class:** ARCHIVE (ADR). Immutable once merged; superseded by a later ADR, never edited.
 **Date:** 2026-09-02 · **Status:** accepted · **Issue:** #470
 
+> **Amended 2026-09-03 by #478 — what is true of the tree that PR ships on.** Three descriptions
+> below have expired. The decision has not: each is that decision applied to the last two hand-kept
+> pieces of it.
+>
+> - **Four numbers gate, not three** — the probe-file key set, each file's `ci-all` row count, the
+>   guard files outside that set, and the standalone CI steps. A guard given its own `ci.yml` step,
+>   hosted in a file already counted, moves none of the other three, so the countdown could reach
+>   zero with CI still running it. The line total is still derived and printed, not asserted; it is
+>   now the fifth number, not the fourth.
+> - **The baseline is a per-file map, not a set of totals.** The totals derive from it. A conversion
+>   PR deletes its own key instead of lowering numbers every other conversion PR also lowers, so two
+>   conversions of different families merge cleanly.
+> - **There is no registry row to remove.** The `ci-all` roster is reflected off a `[CiProbe]`
+>   attribute on each guard's entry point, so deleting a probe file deletes its row. The Context's
+>   "walks a registry of about 130 rows" and the Decision's "the registry's dispatch delegates are
+>   the only honest answer to what CI runs" describe the shape this ADR's own principle has since
+>   been applied to; the attribute is that answer now.
+
 ## Context
 
 houseCARL's regression guards have always lived in a bespoke harness: ~155 `*Probe*.cs` files in
