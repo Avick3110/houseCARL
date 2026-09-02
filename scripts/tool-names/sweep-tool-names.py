@@ -202,7 +202,7 @@ def main():
     files = derive.collect(root)
     parsed, declared = {}, set()
     for p in files:
-        with open(p, "r", encoding="utf-8-sig") as fh:
+        with open(p, "r", encoding="utf-8-sig", newline="") as fh:
             t = fh.read()
         lits, coms, masked = derive.lex(t)
         regions = derive.tool_regions(t, masked)
@@ -240,7 +240,7 @@ def main():
     all_records, bad = [], []
     for rel in sorted(per_file):
         p = os.path.join(root, rel)
-        with open(p, "r", encoding="utf-8-sig") as fh:
+        with open(p, "r", encoding="utf-8-sig", newline="") as fh:
             text = fh.read()
         new_text, records = rewrite_file(p, text, per_file[rel], declared)
         with open(p, "w", encoding="utf-8", newline="") as fh:

@@ -90,3 +90,4 @@ houseCARL.user.json
 ## the repo root; a swallowed delete failure must not litter the tree as untracked noise).
 .compile-probe-gen/
 .import-order-probe-gen/
+__pycache__/

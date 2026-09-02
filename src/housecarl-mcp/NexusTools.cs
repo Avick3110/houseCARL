@@ -17,7 +17,7 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class NexusTools
 {
-    [McpServerTool(Name = "housecarl_nexus_search", ReadOnly = true, Title = "Search Nexus Mods"),
+    [McpServerTool(Name = ToolNames.NexusSearch, ReadOnly = true, Title = "Search Nexus Mods"),
      Description(
          "Search Nexus Mods for Skyrim Special Edition mods by name/keywords, WITHOUT opening a browser — houseCARL " +
          "queries the Nexus catalog directly and returns a ranked list. Each hit gives the mod name, Nexus mod id, " +
@@ -27,7 +27,7 @@ public static class NexusTools
          "local load-order tools are unaffected if offline. Does NOT download or install anything: to install a result, " +
          "open its page and use Nexus's 'Mod Manager Download' button as usual — houseCARL reads Nexus, your mod manager " +
          "does the download. For full details (requirements and the newest MAIN file — the accurate latest version) of " +
-         "one result, pass its id to housecarl_nexus_mod.")]
+         "one result, pass its id to " + ToolNames.NexusMod + ".")]
     public static Task<string> NexusSearch(
         NexusClient nexus,
         [Description("Words to search for in mod names, e.g. 'archery overhaul' or 'true storms'. Matched as a wildcard against Skyrim SE mod names.")]
@@ -38,7 +38,7 @@ public static class NexusTools
             string sort = "endorsements",
         [Description("Optional. Max results to return (default 10, max 50).")]
             int limit = 10,
-        CancellationToken ct = default) => Guard.Tool("housecarl_nexus_search", async () =>
+        CancellationToken ct = default) => Guard.Tool(ToolNames.NexusSearch, async () =>
     {
         if (string.IsNullOrWhiteSpace(query))
             return "error: no search term. Pass query= some words to look for in mod names (e.g. 'archery overhaul').";
@@ -54,7 +54,7 @@ public static class NexusTools
         return Render.Search(query.Trim(), category, sort, result!);
     }, ct);
 
-    [McpServerTool(Name = "housecarl_nexus_mod", ReadOnly = true, Title = "Look up a Nexus mod"),
+    [McpServerTool(Name = ToolNames.NexusMod, ReadOnly = true, Title = "Look up a Nexus mod"),
      Description(
          "Look up ONE Skyrim Special Edition mod on Nexus by its numeric mod id (e.g. 12604) OR a pasted mod URL — " +
          "without opening a browser. Returns the mod's name, version, author, status, endorsement/download counts, " +
@@ -71,7 +71,7 @@ public static class NexusTools
          "installing' delta. A mod whose author wrote no changelog is reported UNKNOWN, never 'no changes', so a silent " +
          "gap is never read as 'safe'. " +
          "READ-ONLY and needs an internet connection (local tools unaffected offline). Does NOT download or install — " +
-         "use your mod manager's 'Mod Manager Download' for that. To find a mod by name first, use housecarl_nexus_search.")]
+         "use your mod manager's 'Mod Manager Download' for that. To find a mod by name first, use " + ToolNames.NexusSearch + ".")]
     public static Task<string> NexusMod(
         NexusClient nexus,
         [Description("The mod to look up: a numeric Nexus mod id (e.g. 12604) or a full mod URL (e.g. https://www.nexusmods.com/skyrimspecialedition/mods/12604).")]
@@ -97,7 +97,7 @@ public static class NexusTools
             "delta. Matching is by upload DATE (robust), so if this exact version string isn't found among the files, the " +
             "tool says so and shows the full changelog rather than guessing (Q3). Ignored unless changelog=true.")]
             string? since = null,
-        CancellationToken ct = default) => Guard.Tool("housecarl_nexus_mod", async () =>
+        CancellationToken ct = default) => Guard.Tool(ToolNames.NexusMod, async () =>
     {
         var (modId, parseError) = ResolveModId(mod);
         if (parseError is not null) return "error: " + parseError;
@@ -107,11 +107,11 @@ public static class NexusTools
         return Render.Mod(detail!, description, files, changelog, since);
     }, ct);
 
-    [McpServerTool(Name = "housecarl_nexus_graphql", ReadOnly = true, Title = "Run a raw Nexus GraphQL query"),
+    [McpServerTool(Name = ToolNames.NexusGraphql, ReadOnly = true, Title = "Run a raw Nexus GraphQL query"),
      Description(
          "The COMPLETENESS BACKSTOP behind houseCARL's curated Nexus tools: run a RAW read-only query against the Nexus " +
          "Mods public v2 GraphQL API (keyless), so any field the opinionated tools don't surface yet is never invisible. " +
-         "PREFER housecarl_nexus_search / housecarl_nexus_mod / housecarl_nexus_check_updates for the common lookups — " +
+         "PREFER " + ToolNames.NexusSearch + " / " + ToolNames.NexusMod + " / " + ToolNames.NexusCheckUpdates + " for the common lookups — " +
          "they render results with houseCARL's honest semantics (newest-file-vs-header version, changelog UNKNOWN-not-" +
          "empty, manager-only flags) that a raw dump loses. Reach for THIS only for a field or query they don't cover — " +
          "e.g. a mod's page tags, or other Mod/File metadata. Pass a GraphQL query string (and optional variables as a " +
@@ -127,7 +127,7 @@ public static class NexusTools
         [Description("Optional. GraphQL variables as a JSON OBJECT string, e.g. '{\"modId\":\"51614\"}'. Omit when the " +
             "query inlines its arguments.")]
             string? variables = null,
-        CancellationToken ct = default) => Guard.Tool("housecarl_nexus_graphql", async () =>
+        CancellationToken ct = default) => Guard.Tool(ToolNames.NexusGraphql, async () =>
     {
         JsonElement? vars = null;
         if (!string.IsNullOrWhiteSpace(variables))
@@ -142,13 +142,13 @@ public static class NexusTools
         return Render.Graphql(data);
     }, ct);
 
-    [McpServerTool(Name = "housecarl_nexus_check_updates", ReadOnly = true, Title = "Batch-check Nexus mods for updates (file-level)"),
+    [McpServerTool(Name = ToolNames.NexusCheckUpdates, ReadOnly = true, Title = "Batch-check Nexus mods for updates (file-level)"),
      Description(
          "Check MANY Skyrim Special Edition mods for updates in ONE call — at the FILE level, without a browser or an API " +
          "key. The accurate question is 'is the exact FILE I installed still current?', NOT 'does my version match the " +
          "page's newest main' — a Nexus page hosts many independently-versioned files (patch hubs, ENB pages, Xtudo " +
          "mega-packs), so comparing your file to the page's single newest main is confidently WRONG for those. Pass each " +
-         "mod as 'id#fileid' — the fileid MO2 recorded for what you installed, which housecarl_update_status prints per " +
+         "mod as 'id#fileid' — the fileid MO2 recorded for what you installed, which " + ToolNames.UpdateStatus + " prints per " +
          "row as a 'verify:' token (several files installed from one page → 'id#fileid1#fileid2'). houseCARL resolves each " +
          "installed file to its live status and reports per mod: CURRENT (your file is still a live file on the page), " +
          "OUTDATED (your file was RETIRED to OLD_VERSION/ARCHIVED — it names the newest same-name file to grab), FILE-GONE " +
@@ -156,19 +156,19 @@ public static class NexusTools
          "If you pass only 'id=version' with NO fileid (a FOMOD/manual install), it degrades LOUDLY to a best-effort " +
          "'no-fileid' note — never a confident verdict, because the mod-level compare lies for multi-file pages. Batched " +
          "(dozens of mods per call). READ-ONLY, needs an internet connection (local tools work offline). Does NOT download " +
-         "or update anything — it is a REPORT. Build the list cheaply with housecarl_update_status (reads MO2's own local " +
-         "cache, no network, and prints each mod's fileid), then housecarl_nexus_mod changelog=true on anything OUTDATED " +
+         "or update anything — it is a REPORT. Build the list cheaply with " + ToolNames.UpdateStatus + " (reads MO2's own local " +
+         "cache, no network, and prints each mod's fileid), then " + ToolNames.NexusMod + " changelog=true on anything OUTDATED " +
          "to see what actually changed.")]
     public static Task<string> NexusCheckUpdates(
         NexusClient nexus,
         [Description("The mods to check — one entry per mod, separated by commas or newlines. Preferred (FILE-LEVEL) form: " +
-            "'id#fileid', the mod id then '#' then the Nexus file id MO2 recorded for what you installed (housecarl_update_status " +
+            "'id#fileid', the mod id then '#' then the Nexus file id MO2 recorded for what you installed (" + ToolNames.UpdateStatus + " " +
             "prints this as the 'verify:' token); if you installed several files from one page, add more with '#': " +
             "'126608#533265, 99786#585300#585301'. Without a fileid you can pass 'id=version' (or 'id version') for a LOUD " +
             "best-effort no-fileid note, or a bare 'id' for its latest version only — e.g. '12604=6.9, 3863'. The " +
             "intra-fileid separator is '#', because ',' separates entries. Non-numeric junk is skipped and listed back to you.")]
             string mods,
-        CancellationToken ct = default) => Guard.Tool("housecarl_nexus_check_updates", async () =>
+        CancellationToken ct = default) => Guard.Tool(ToolNames.NexusCheckUpdates, async () =>
     {
         var (pairs, bad) = ParseUpdatePairs(mods);
         if (pairs.Count == 0)
@@ -221,7 +221,7 @@ public static class NexusTools
         return (pairs, bad);
     }
 
-    [McpServerTool(Name = "housecarl_nexus_identify", ReadOnly = true, Title = "Identify a file on Nexus by MD5"),
+    [McpServerTool(Name = ToolNames.NexusIdentify, ReadOnly = true, Title = "Identify a file on Nexus by MD5"),
      Description(
          "Identify which Nexus mod (and which uploaded file) a file came from, by its MD5 hash — without a browser or an " +
          "API key. Give one or more 32-char MD5 hashes; houseCARL returns, per hash, the matching mod (name + id) and the " +
@@ -235,7 +235,7 @@ public static class NexusTools
         [Description("One or more MD5 hashes (32 hex characters each), separated by commas, spaces, or newlines. " +
             "Case-insensitive. Non-hash junk is skipped and listed back to you.")]
             string md5,
-        CancellationToken ct = default) => Guard.Tool("housecarl_nexus_identify", async () =>
+        CancellationToken ct = default) => Guard.Tool(ToolNames.NexusIdentify, async () =>
     {
         var (hashes, bad) = ParseHashes(md5);
         if (hashes.Count == 0)
@@ -368,7 +368,7 @@ static class Render
             sb.Append("\n  ").Append(ModUrlBase).Append(h.ModId);
         }
         sb.Append("\n\n(To install one: open its page and use Nexus's \"Mod Manager Download\" — houseCARL reads Nexus, ")
-          .Append("your mod manager does the download. Pass an id to housecarl_nexus_mod for requirements + latest version.)");
+          .Append("your mod manager does the download. Pass an id to " + ToolNames.NexusMod + " for requirements + latest version.)");
         return sb.ToString();
     }
 

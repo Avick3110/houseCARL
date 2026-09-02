@@ -19,7 +19,7 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class CopyTools
 {
-    [McpServerTool(Name = "housecarl_copy", Title = "Copy a record's link closure into a patch"),
+    [McpServerTool(Name = ToolNames.Copy, Title = "Copy a record's link closure into a patch"),
      Description(
          "Copy a record together with the records it DEPENDS ON — its link closure — out of one plugin universe " +
          "and into a houseCARL patch, under NEW FormIDs, so the result no longer masters the plugin you copied " +
@@ -36,7 +36,7 @@ public static class CopyTools
          "LINK or a LIST OF RECORD LINKS, judged on the field's DECLARED type — so a field the source happens to " +
          "carry none of is still that shape. A path that is not a field, or whose entries are structures rather " +
          "than links (Factions, Perks, Items), is REFUSED BY NAME rather than quietly seeding nothing: for those " +
-         "use housecarl_apply's bundle=/assignments= zip, where op=Merge and op=ReplaceAll are your choice of " +
+         "use " + ToolNames.Apply + "'s bundle=/assignments= zip, where op=Merge and op=ReplaceAll are your choice of " +
          "merging into the target's entries or replacing them. A seed the source leaves UNSET or EMPTY clears the " +
          "target's, and says so — the result is the source's look, not a mixture of both. " +
          "exclude_types= names record types the walk must not enter, each as 'Type:stop' (prune it, keep the link) " +
@@ -89,7 +89,7 @@ public static class CopyTools
         [Description("Optional. Base name for the NEW patch plugin + mod folder; auto-suffixed if taken.")]
             string? patch = null,
         [Description("Optional. Extend an existing houseCARL patch instead of creating one — its plugin filename.")]
-            string? into = null) => Guard.Tool("housecarl_copy", () =>
+            string? into = null) => Guard.Tool(ToolNames.Copy, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
 

@@ -989,7 +989,7 @@ public static class WriteEngine
             }
         reason = $"'{typeName}' has no top-level group, so it can't be created on its own — it's a nested/placed record " +
                  "(a placed object/NPC, a dialogue line, navmesh or terrain) that needs a parent. Create it WITH its parent: " +
-                 "in this record's housecarl_create records= element pass parent= (the parent record's FormID, or the editorid of a " +
+                 "in this record's " + ToolNames.Create + " records= element pass parent= (the parent record's FormID, or the editorid of a " +
                  "record declared EARLIER in the same records= array) and, if the parent holds more than one child-collection, " +
                  "collection= there too. That same array is how a parent AND its children go in ONE call (a dialogue topic + its " +
                  "lines, a cell + its placed refs): declare the parent first, then the children whose parent= names its editorid. " +
@@ -1078,12 +1078,12 @@ public static class WriteEngine
                     throw new InvalidOperationException(
                         $"create refused: this patch already carries an OVERRIDE of {foreign.FormKey} whose editorid is '{editorId}' — " +
                         $"re-creating over an override would blank the original plugin's record. Pick a different editorid for the new record, " +
-                        "or edit the override's fields with housecarl_apply.");
+                        "or edit the override's fields with " + ToolNames.Apply + ".");
                 if (matches.Count > 1)
                     throw new InvalidOperationException(
                         $"create refused: this patch carries {matches.Count} records with editorid '{editorId}' " +
                         $"({string.Join(", ", matches.Select(m => m.FormKey))}) — duplicate residue from re-running creates on a pre-fix houseCARL. " +
-                        "External references may point at either copy, so which survives is your call: remove the extra(s) with housecarl_remove, then re-run.");
+                        "External references may point at either copy, so which survives is your call: remove the extra(s) with " + ToolNames.Remove + ", then re-run.");
                 var existing = matches[0];
                 if (!CanCreateType(typeName, out var reason)) throw new InvalidOperationException(reason);
                 var formKey = existing.FormKey;

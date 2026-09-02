@@ -62,7 +62,7 @@ public static class CompileTools
         public IReadOnlyList<string> Referenced { get; } = ReferencedProviders ?? Array.Empty<string>();
     }
 
-    [McpServerTool(Name = "housecarl_compile_script", Title = "Compile a Papyrus script (.psc → .pex)"),
+    [McpServerTool(Name = ToolNames.CompileScript, Title = "Compile a Papyrus script (.psc → .pex)"),
      Description(
          "Compile a Papyrus script (.psc) to .pex using the Creation Kit's PapyrusCompiler.exe, landing the .pex in a NEW " +
          "houseCARL patch-mod folder you review and enable in MO2 (originals untouched) — or pass output_dir= to land it in a " +
@@ -100,7 +100,7 @@ public static class CompileTools
         [Description("Optional. Filename of an existing houseCARL patch mod to add the .pex into instead of creating a fresh folder (accumulate compiled scripts). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null,
         [Description("Optional. Land the .pex in a folder of YOUR choosing instead of a fresh houseCARL patch folder — pass the mod-folder ROOT; houseCARL appends Scripts\\ (and won't double it if you already point at a ...\\Scripts folder). When set, patch_name=/into= are ignored. Scripts load from exactly <mods>\\<YourMod>\\Scripts, the MO2 overwrite folder, or <Data>\\Scripts — anywhere else (including a NESTED path under a mod) the .pex still compiles but you're warned it won't deploy automatically.")]
-            string? output_dir = null) => Guard.Tool("housecarl_compile_script", () =>
+            string? output_dir = null) => Guard.Tool(ToolNames.CompileScript, () =>
     {
         // 1) MO2 must be configured — the .pex lands under the instance's mods folder.
         if (svc.ConfigPromptOrNull() is { } cfgPrompt) return cfgPrompt;
@@ -543,7 +543,7 @@ public static class CompileTools
                       plan.Referenced.Count + " this script REFERENCES BY NAME (listed below). So the missing dependency " +
                       "is most likely one the source never names outright, or one that is not installed as an enabled mod, " +
                       "or one shipping its sources inside a BSA (the CK compiler cannot read archives — extract them first, " +
-                      "e.g. with housecarl_bsa_extract), or one keeping them in a SUBFOLDER of a listed dir. Pass that folder " +
+                      "e.g. with " + ToolNames.BsaExtract + "), or one keeping them in a SUBFOLDER of a listed dir. Pass that folder " +
                       "via import_dirs= (and save_import_set= to keep it for next time).");
             }
 

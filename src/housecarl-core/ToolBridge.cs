@@ -108,7 +108,7 @@ public static class ToolBridge
         return
             $"houseCARL needs {info.Display} for {info.Need}, but no path is set yet.{lookedNote} " +
             $"Ask the user for the {(info.IsDirectory ? "folder" : "full path to the .exe")}, then call " +
-            $"housecarl_set_tool_path(tool='{info.Key}', path='<the path they give>'). " +
+            $"{ToolNames.SetToolPath}(tool='{info.Key}', path='<the path they give>'). " +
             $"If they don't have it: {info.WhereToGet}. " +
             "Do NOT guess the path, invent one, or skip the step — the operation cannot run without it, and a wrong path " +
             "is refused loud.";

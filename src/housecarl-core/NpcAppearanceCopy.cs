@@ -468,7 +468,7 @@ public static class NpcAppearanceCopy
                 {
                     targetOverride = patchMod.Npcs.FirstOrDefault(n => n.FormKey == targetFk)
                         ?? throw new InvalidOperationException(
-                            $"{targetFk} names this patch, but '{patchFileName}' defines no such NPC. Create the NPC first (housecarl_create) or pass an active NPC's formid.");
+                            $"{targetFk} names this patch, but '{patchFileName}' defines no such NPC. Create the NPC first ({ToolNames.Create}) or pass an active NPC's formid.");
                 }
                 else if (targetActiveBody is not null)
                 {
@@ -537,7 +537,7 @@ public static class NpcAppearanceCopy
             {
                 warning = $"the patch WAS written, but the post-write read-back failed ({ex.Message}) — the masters list " +
                           "could not be verified this call. Do NOT re-run blindly (that would mint a duplicate patch); " +
-                          "inspect the plugin with housecarl_read_plugin_file.";
+                          "inspect the plugin with " + ToolNames.ReadPluginFile + ".";
             }
 
             return new NpcCopyOutcome(

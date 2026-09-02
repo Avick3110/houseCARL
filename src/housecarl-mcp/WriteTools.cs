@@ -26,20 +26,20 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class WriteTools
 {
-    [McpServerTool(Name = "housecarl_create_plugin", Title = "Create an empty header-only (trigger) plugin"),
+    [McpServerTool(Name = ToolNames.CreatePlugin, Title = "Create an empty header-only (trigger) plugin"),
      Description(
          "Create an EMPTY, HEADER-ONLY plugin — a valid TES4 header with ZERO records and no masters, in a NEW mod " +
          "folder (originals untouched). Its only job is to EXIST so its basename resolves: the artifact that SKSE configs " +
          "binding by plugin basename need (e.g. a CraftingCategories-style trigger that must ship 'Foo.esp' so 'Foo.json' " +
          "loads), a placeholder ESL for FormID reservation, a dummy plugin for another mod to list as a master, or any " +
-         "'I just need plugin Foo to be present' case. UNLIKE housecarl_create, it authors NO record — so it adds no conflict-tree footprint " +
+         "'I just need plugin Foo to be present' case. UNLIKE " + ToolNames.Create + ", it authors NO record — so it adds no conflict-tree footprint " +
          "(no filler override needed to make the plugin non-empty). plugin_name is used EXACTLY (the basename is " +
          "load-bearing — houseCARL will NOT auto-suffix it): if a plugin of that name is already active in the load order, " +
          "or a houseCARL folder of that name already exists, it REFUSES loud rather than rename or overwrite (Q3). Pass " +
          "esl=true for the lightest trigger (a header-only light plugin consumes no consequential load-order slot; with " +
          "zero records the ESL FormID-range rule is trivially satisfied). author/description are optional TES4 header " +
          "text. Returns the plugin path + mod folder — enable + sort it in MO2 to use it. To author actual records, use " +
-         "housecarl_create instead.")]
+         ToolNames.Create + " instead.")]
     public static string CreatePlugin(
         LoadOrderService svc,
         [Description("The EXACT plugin name (with or without a trailing .esp/.esm/.esl; e.g. 'Authoria - CraftingCategories'). Used VERBATIM as the basename — houseCARL will not auto-suffix it, because a trigger plugin's whole job is that its basename matches the config bound to it. The written file is '<name>.esp'.")]
@@ -49,7 +49,7 @@ public static class WriteTools
         [Description("Optional. Author text for the TES4 header (the CNAM field). Purely informational.")]
             string? author = null,
         [Description("Optional. Description text for the TES4 header (the SNAM field). Purely informational.")]
-            string? description = null) => Guard.Tool("housecarl_create_plugin", () =>
+            string? description = null) => Guard.Tool(ToolNames.CreatePlugin, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (string.IsNullOrWhiteSpace(plugin_name))
@@ -57,7 +57,7 @@ public static class WriteTools
         return RenderCreatePlugin(svc.CreatePlugin(plugin_name, esl, author, description));
     });
 
-    [McpServerTool(Name = "housecarl_compact_plugin", Title = "Compact / ESL-renumber a plugin's FormIDs"),
+    [McpServerTool(Name = ToolNames.CompactPlugin, Title = "Compact / ESL-renumber a plugin's FormIDs"),
      Description(
          "COMPACT a plugin's FormIDs — the data-layer twin of xEdit's \"Compact FormIDs for ESL\". Renumbers EVERY record " +
          "the plugin DEFINES (its originating records — flat AND nested: cells, placed references, dialogue lines, navmesh, " +
@@ -100,7 +100,7 @@ public static class WriteTools
         [Description("Optional, default false. Confirms the in-place trade-off when in_place=true OR repoint_externals=true (your original file(s) get rewritten, no backup). The FIRST such call without it returns a CONFIRM prompt listing exactly what will be overwritten — re-call with acknowledge=true to proceed.")]
             bool acknowledge = false,
         [Description("Optional. Base name for the NEW mod folder (new-file lane only; auto-suffixed if taken). Ignored with in_place=true. The PLUGIN inside ALWAYS keeps the source's exact basename so external masters still resolve.")]
-            string? patch_name = null) => Guard.Tool("housecarl_compact_plugin", () =>
+            string? patch_name = null) => Guard.Tool(ToolNames.CompactPlugin, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (string.IsNullOrWhiteSpace(plugin))
@@ -108,7 +108,7 @@ public static class WriteTools
         return RenderCompact(svc.CompactPlugin(plugin, esl, in_place, repoint_externals, acknowledge, patch_name));
     });
 
-    [McpServerTool(Name = "housecarl_merge_plugins", Title = "Merge plugins into one new plugin"),
+    [McpServerTool(Name = ToolNames.MergePlugins, Title = "Merge plugins into one new plugin"),
      Description(
          "MERGE one or more ACTIVE plugins into ONE NEW plugin — a RECORDS operation (the zMerge/'Merge Plugins' job): the " +
          "donors' records combine under a new filename; the donor FILES and their mods are NEVER touched (new-file lane only, " +
@@ -132,11 +132,11 @@ public static class WriteTools
          "pane) but KEEP the donor MOD FOLDERS enabled (left pane) — merge carries only the FormID-keyed files the rename " +
          "breaks (facegen/voice/seq); every other donor asset (meshes, textures, scripts, BSA contents) is still referenced " +
          "BY PATH from the merged records and loads from the donor folders. Caveat: a donor .bsa stops auto-loading once its " +
-         "same-named plugin is inactive — extract it into the mod folder (housecarl_bsa_extract) or load it via a same-named " +
-         "dummy plugin (housecarl_create_plugin). Existing SAVES that depend on the donors will NOT survive (the records now " +
+         "same-named plugin is inactive — extract it into the mod folder (" + ToolNames.BsaExtract + ") or load it via a same-named " +
+         "dummy plugin (" + ToolNames.CreatePlugin + "). Existing SAVES that depend on the donors will NOT survive (the records now " +
          "live under a different plugin name, and any id that had to be renumbered moved with it) — best for a new game. " +
          "A donor's HEADER does not come along: light (ESL) status, master status, and Author/Description are dropped, and " +
-         "the report names each one it actually dropped. Want it light/ESL? Run housecarl_compact_plugin on the merged " +
+         "the report names each one it actually dropped. Want it light/ESL? Run " + ToolNames.CompactPlugin + " on the merged " +
          "plugin afterward (the tools compose) — but it renumbers object ids from 0x800 upward, so ids the merge kept move.")]
     public static string MergePlugins(
         LoadOrderService svc,
@@ -145,7 +145,7 @@ public static class WriteTools
         [Description("The NEW merged plugin's filename to create (e.g. 'MyMerge.esp') — must NOT already exist in the load order. The donors keep their names and files untouched.")]
             string output,
         [Description("Optional. Base name for the NEW mod folder (auto-suffixed if taken). Defaults to '<output> merged' — or '<output> renamed' for a single donor, since that folder name is what you will see in MO2 from then on.")]
-            string? patch_name = null) => Guard.Tool("housecarl_merge_plugins", () =>
+            string? patch_name = null) => Guard.Tool(ToolNames.MergePlugins, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         return RenderMerge(svc.MergePlugins(plugins, output, patch_name));
@@ -197,7 +197,7 @@ public static class WriteTools
         // edited line and every other line in the topic.
         if (o.Ops.Any(op => string.Equals(op.RecordType, VoiceCheck.InfoCatalogName, StringComparison.Ordinal)))
             sb.Append("note: this edit touched a dialogue line (INFO). Voice (.fuz) and result-script coverage are checked on CREATE, not on edits — ")
-              .Append("run housecarl_validate_dialogue on the topic (or its owning quest) to audit voice + result-script coverage and the topic graph over the edited line and every other line in the topic.\n");
+              .Append("run " + ToolNames.ValidateDialogue + " on the topic (or its owning quest) to audit voice + result-script coverage and the topic graph over the edited line and every other line in the topic.\n");
         // The touched-record verify (forced ON for in-place — the model-C floor substitute — and opt-in for the new-file
         // lane) renders COMPACT by default and the full field-by-field dump only on full_readback=true (HCBR-2026-06-28-01):
         // the deep dump of N records with large list fields blew past the host token cap and spilled to a file, reading as
@@ -291,7 +291,7 @@ public static class WriteTools
             ? "full preview — the ENTIRE record(s) as they WOULD be written, read from the in-memory would-be content (nothing is on disk):\n"
             : "full read-back — the ENTIRE record(s) as written, re-read from the patch file on disk " +
               "(the written file's content, NOT load-order truth; the patch wins nothing until enabled + sorted in MO2):\n");
-        string hint = dryRun ? "; raise max_chars" : "; raise max_chars, or enable the patch in MO2 and use housecarl_read_record";
+        string hint = dryRun ? "; raise max_chars" : "; raise max_chars, or enable the patch in MO2 and use " + ToolNames.ReadRecord;
         for (int i = 0; i < rb.Count; i++)
         {
             if (sb.Length >= cap)
@@ -729,8 +729,8 @@ public static class WriteTools
         sb.Append("the swap: deactivate the donor PLUGINS (right pane) — their files are untouched — but KEEP the donor mod ")
           .Append("folders enabled (left pane): the merged records still load the donors' meshes/textures/scripts by path; ")
           .Append("only facegen/voice/seq were carried. If a donor ships a .bsa, it stops auto-loading once its plugin is ")
-          .Append("deactivated — extract it into the mod folder (housecarl_bsa_extract) or load it via a same-named dummy ")
-          .Append("plugin (housecarl_create_plugin).\n");
+          .Append("deactivated — extract it into the mod folder (" + ToolNames.BsaExtract + ") or load it via a same-named dummy ")
+          .Append("plugin (" + ToolNames.CreatePlugin + ").\n");
 
         int overrides = o.RecordsCopied - o.RecordsRenumbered;
         sb.Append(o.RecordsRenumbered).Append(o.RecordsRenumbered == 1 ? " originating record" : " originating records")
@@ -815,7 +815,7 @@ public static class WriteTools
             if (light.Count > 10) sb.Append(" (+").Append(light.Count - 10).Append(" more)");
             sb.Append(" carried the LIGHT (ESL) status; ")
               .Append(o.OutputName).Append(" does NOT — it is written as a full plugin and takes a full load-order slot. ")
-              .Append("To make it light again run housecarl_compact_plugin on '").Append(o.OutputName)
+              .Append("To make it light again run " + ToolNames.CompactPlugin + " on '").Append(o.OutputName)
               .Append("' (its esl defaults true) — but that renumbers object ids from 0x800 upward, so the ids listed as ")
               .Append("kept above will move.\n");
         }
@@ -848,7 +848,7 @@ public static class WriteTools
         // leave the caller's last reading of it the one without the cost. With no light note there is no other
         // pointer, so the tail stays.
         if (!lightNoteShown)
-            sb.Append(" Want it light? Run housecarl_compact_plugin on '").Append(o.OutputName).Append("' (the tools compose).");
+            sb.Append(" Want it light? Run " + ToolNames.CompactPlugin + " on '").Append(o.OutputName).Append("' (the tools compose).");
         return sb.ToString();
     }
 
@@ -924,7 +924,7 @@ public static class WriteTools
             var c = o.Created[ci];
             listed++;
             sb.Append("  ").Append(c.RecordType).Append(' ').Append(c.FormKey).Append("  ").Append(c.EditorId);
-            if (c.ReplacedExisting) sb.Append("  [REPLACED: this patch already defined this editorid — re-created fresh at the same FormID; prior contents, including any housecarl_apply edits since, were discarded]");
+            if (c.ReplacedExisting) sb.Append("  [REPLACED: this patch already defined this editorid — re-created fresh at the same FormID; prior contents, including any " + ToolNames.Apply + " edits since, were discarded]");
             sb.Append('\n');
             // #300 — a nested create had to override its parent in to host the child, and WHOSE version it copied is a
             // choice the caller never made and cannot see in the record afterwards. One line, only when there was one.
@@ -993,7 +993,7 @@ public static class WriteTools
         => dryRun || extended
             ? "raise max_chars to see the rest"
             : inPlace
-                ? $"to see the rest, read the rows back with housecarl_records source=\"{file}\" formids=[the ids you passed] — re-issuing would re-serialize your ORIGINAL file a second time just to widen this render"
+                ? $"to see the rest, read the rows back with {ToolNames.Records} source=\"{file}\" formids=[the ids you passed] — re-issuing would re-serialize your ORIGINAL file a second time just to widen this render"
                 : $"to see the rest, raise max_chars AND pass into=\"{file}\" — a bare re-issue on the default patch= lane writes a SECOND {duplicateNoun}";
 
     /// <summary>The <c>apply</c> lane's wording of <see cref="WriteAgainRemedy"/> (PR #311 review 6, declared as an
@@ -1020,8 +1020,8 @@ public static class WriteTools
         // the whole one. (Unreachable-empty — a successful create has at least one created record — but a bare
         // source= call is the refused shape, so the clause is not silently dropped either.)
         return types.Count > 0
-            ? $"housecarl_records source=\"{file}\" types=[{string.Join(", ", types.Select(t => $"\"{t}\""))}]"
-            : $"housecarl_records source=\"{file}\" types=[<the record types you created>]";
+            ? $"{ToolNames.Records} source=\"{file}\" types=[{string.Join(", ", types.Select(t => $"\"{t}\""))}]"
+            : $"{ToolNames.Records} source=\"{file}\" types=[<the record types you created>]";
     }
 
     /// <summary>Render the Layer B unit B voice-coverage report (a dialogue-line create). The enforced Q3 teeth against a
@@ -1214,7 +1214,7 @@ public sealed record BulkOp
     [JsonPropertyName("composes"), Description("Build MANY modeled list elements in ONE op — the batch sibling of compose (each entry the same {type, fields?, ctor_args?, sets?} shape). With verb=Add, APPENDS each element in order (e.g. 10 leveled-list entries, a whole block of condition rows in one op instead of ten Adds). With verb=ReplaceAll, CLEARS the list then appends each — the way to replace a whole modeled list (conditions, effects, entries); pass composes=[] with ReplaceAll to CLEAR the list to empty (the modeled twin of values=[]). LIST elements only; mutually exclusive with compose/value/values. All-or-nothing: a bad element refuses the whole call with per-element (composes[i]) reasons.")]
     public StructInput[]? Composes { get; init; }
 
-    [JsonPropertyName("from_plugin"), Description("For verb=\"CopyFrom\" ONLY: the plugin whose version of THIS record to deep-copy the field at field_path from — an ACTIVE plugin, OR a plugin FILE on disk that isn't in the load order (e.g. a disabled OLD patch you want to re-assert a field from). CopyFrom takes no value/values/entries/compose/composes — the source IS from_plugin's version of the field. Honors forward-then-edit precedence: into= a patch that already carries the record copies onto the patch's own version. Copies a WHOLE field's value (scalar, formlink, modeled list, sub-struct); it can't copy owned child records (forward the whole record with housecarl_forward instead).")]
+    [JsonPropertyName("from_plugin"), Description("For verb=\"CopyFrom\" ONLY: the plugin whose version of THIS record to deep-copy the field at field_path from — an ACTIVE plugin, OR a plugin FILE on disk that isn't in the load order (e.g. a disabled OLD patch you want to re-assert a field from). CopyFrom takes no value/values/entries/compose/composes — the source IS from_plugin's version of the field. Honors forward-then-edit precedence: into= a patch that already carries the record copies onto the patch's own version. Copies a WHOLE field's value (scalar, formlink, modeled list, sub-struct); it can't copy owned child records (forward the whole record with " + ToolNames.Forward + " instead).")]
     public string? FromPlugin { get; init; }
 }
 
@@ -1229,7 +1229,7 @@ public sealed record CreateOp
     [JsonPropertyName("editorid"), Description("REQUIRED. The EditorID the new record is referenced by. A nested child's parent= can name this editorid (a same-call sibling parent).")]
     public string? Editorid { get; init; }
 
-    [JsonPropertyName("operations"), Description("Optional. The new record's fields, same shape as housecarl_apply ops but with NO formid (and no from_plugin — there is no other version to copy from yet): {field_path, verb?, value?, key?, values?, entries?, compose?, composes?}.")]
+    [JsonPropertyName("operations"), Description("Optional. The new record's fields, same shape as " + ToolNames.Apply + " ops but with NO formid (and no from_plugin — there is no other version to copy from yet): {field_path, verb?, value?, key?, values?, entries?, compose?, composes?}.")]
     public BulkOp[]? Operations { get; init; }
 
     [JsonPropertyName("parent"), Description("Optional. For a NESTED record: the parent it nests under — an EXISTING parent's FormID 'XXXXXX:Plugin.esp', OR the editorid of a record declared EARLIER in this same records array (a same-call sibling). Omit for a flat top-level record.")]

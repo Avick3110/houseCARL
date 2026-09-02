@@ -222,14 +222,14 @@ public static class DialogueCkParity
             gaps.Add(new CkParityGap("DNAM",
                 $"every CK-authored DialogView carries the DNAM byte subrecord (0x{ViewDnamHex}); a bare DLVW (with "
                 + "BNAM-less topics) crashes the Creation Kit's Dialogue Views editor (FlowchartX64 null-deref — the "
-                + "game itself tolerates it). houseCARL's create tools auto-fill it — housecarl_apply ops=[{formid:'"
+                + "game itself tolerates it). houseCARL's create tools auto-fill it — " + ToolNames.Apply + " ops=[{formid:'"
                 + view.FormKey + "', field_path:'DNAM', value:'" + ViewDnamHex + "'}] to populate it."));
 
         if (!HasEnam(view))
             gaps.Add(new CkParityGap("ENAM",
                 $"every CK-authored DialogView carries the ENAM byte subrecord (0x{ViewEnamHex}), pairing with DNAM "
                 + "for Creation Kit Dialogue Views parity; a bare DLVW crashes the CK's Dialogue Views editor (the "
-                + "game itself tolerates it). houseCARL's create tools auto-fill it — housecarl_apply ops=[{formid:'"
+                + "game itself tolerates it). houseCARL's create tools auto-fill it — " + ToolNames.Apply + " ops=[{formid:'"
                 + view.FormKey + "', field_path:'ENAM', value:'" + ViewEnamHex + "'}] to populate it."));
 
         return gaps;

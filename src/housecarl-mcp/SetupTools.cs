@@ -18,7 +18,7 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class SetupTools
 {
-    [McpServerTool(Name = "housecarl_set_mo2_instance", Title = "Tell houseCARL where Mod Organizer 2 is"),
+    [McpServerTool(Name = ToolNames.SetMo2Instance, Title = "Tell houseCARL where Mod Organizer 2 is"),
      Description(
          "Point houseCARL at your Mod Organizer 2 instance folder — the folder that contains ModOrganizer.ini (for a " +
          "Wabbajack / portable modlist, that's the list's install folder). houseCARL reads ModOrganizer.ini to derive the " +
@@ -31,7 +31,7 @@ public static class SetupTools
     public static string SetMo2Instance(
         LoadOrderService svc,
         [Description("Full path to the MO2 instance folder — the one containing ModOrganizer.ini (e.g. a Wabbajack list's install folder).")]
-            string path) => Guard.Tool("housecarl_set_mo2_instance", () =>
+            string path) => Guard.Tool(ToolNames.SetMo2Instance, () =>
     {
         if (string.IsNullOrWhiteSpace(path))
             return "error: no path given. Pass the full path to your MO2 instance folder (the one containing ModOrganizer.ini).";
@@ -44,7 +44,7 @@ public static class SetupTools
         return Render(paths, persisted, persistError, persistNote);
     });
 
-    [McpServerTool(Name = "housecarl_set_tool_path", Title = "Tell houseCARL where an external tool is"),
+    [McpServerTool(Name = ToolNames.SetToolPath, Title = "Tell houseCARL where an external tool is"),
      Description(
          "Give houseCARL the path to an external tool it drives: 'papyrus_compiler' (the Creation Kit's " +
          "PapyrusCompiler.exe, for compiling .psc scripts to .pex), 'bsarch' (BSArch.exe, for .bsa archive " +
@@ -60,7 +60,7 @@ public static class SetupTools
         [Description("Which tool: 'papyrus_compiler' (CK PapyrusCompiler.exe), 'bsarch' (BSArch.exe), 'papyrus_logs' (script-log folder), or 'crash_logs' (SKSE crash-log folder).")]
             string tool,
         [Description("Full path to the tool: the .exe FILE for papyrus_compiler/bsarch, or the log DIRECTORY for papyrus_logs/crash_logs.")]
-            string path) => Guard.Tool("housecarl_set_tool_path", () =>
+            string path) => Guard.Tool(ToolNames.SetToolPath, () =>
     {
         if (string.IsNullOrWhiteSpace(tool))
             return "error: no tool named. Pass tool= one of: " + ToolBridge.WireKeys + ".";

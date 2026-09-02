@@ -19,7 +19,7 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class SkyPatcherTools
 {
-    [McpServerTool(Name = "housecarl_skypatcher_layer", ReadOnly = true, Title = "SkyPatcher layer (INIs, apply order, conflicts)"),
+    [McpServerTool(Name = ToolNames.SkypatcherLayer, ReadOnly = true, Title = "SkyPatcher layer (INIs, apply order, conflicts)"),
      Description(
          "Inventory the SkyPatcher distributor layer of the ACTIVE load order — the runtime record edits the record " +
          "tools are otherwise blind to. Scans Data\\SKSE\\Plugins\\SkyPatcher exactly as the DLL reads it: every " +
@@ -35,14 +35,14 @@ public static class SkyPatcherTools
          "Entries whose applicability " +
          "also hangs on other filters are flagged conditional rather than guessed. Pass filter= a type folder, mod, " +
          "or filename substring to expand matching files to their patch lines. For ONE record's computed " +
-         "post-SkyPatcher state use housecarl_skypatcher_read. Read-only.")]
+         "post-SkyPatcher state use " + ToolNames.SkypatcherRead + ". Read-only.")]
     public static string SkyPatcherLayer(
         LoadOrderService svc,
         [Description("Optional. A type-folder (e.g. 'weapon'), providing-mod, or INI filename substring (case-insensitive). " +
             "Expands the matching files to their individual patch lines. Omit for the whole-layer overview.")]
             string? filter = null,
         [Description("Optional. Max characters before lists are cut with an explicit notice. 0 = the server default (~80k).")]
-            int max_chars = 0) => Guard.Tool("housecarl_skypatcher_layer", () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.SkypatcherLayer, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         var data = svc.SkyPatcherLayer();
@@ -239,7 +239,7 @@ static class SkyPatcherWire
             sb.Append("[!] ").Append(note).Append('\n');
         }
         AppendCaveats(sb, d.ReadIncomplete, d.AssetWarnings);
-        sb.Append("\n→ housecarl_skypatcher_read '<FormID>' for one record's computed post-SkyPatcher state; filter='<folder/mod/file>' to expand files to their lines.");
+        sb.Append("\n→ " + ToolNames.SkypatcherRead + " '<FormID>' for one record's computed post-SkyPatcher state; filter='<folder/mod/file>' to expand files to their lines.");
         return sb.ToString().TrimEnd('\n');
     }
 

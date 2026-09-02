@@ -26,7 +26,7 @@ if (useHttp)
         app.Logger.LogWarning("houseCARL user config recovered: {Note}", configNote);   // corrupt file — backed up, never silent (hunt F3)
     if (!svc.IsConfigured)
         app.Logger.LogWarning(
-            "houseCARL listening on {Url} — NOT configured yet. The first tool call will ask for your MO2 instance folder (or call housecarl_set_mo2_instance with it).", url);
+            "houseCARL listening on {Url} — NOT configured yet. The first tool call will ask for your MO2 instance folder (or call " + ToolNames.SetMo2Instance + " with it).", url);
     else
         app.Logger.LogInformation(
             "houseCARL listening on {Url} — reading {Source} STANDALONE (MO2 need not be running); load order resolves lazily on the first tool call.",
@@ -49,7 +49,7 @@ else
         logger.LogWarning("houseCARL user config recovered: {Note}", configNote);   // corrupt file — backed up, never silent (hunt F3)
     if (!svc.IsConfigured)
         logger.LogWarning(
-            "houseCARL stdio server — NOT configured yet. The first tool call will ask for your MO2 instance folder (or call housecarl_set_mo2_instance with it).");
+            "houseCARL stdio server — NOT configured yet. The first tool call will ask for your MO2 instance folder (or call " + ToolNames.SetMo2Instance + " with it).");
     else
         logger.LogInformation(
             "houseCARL stdio server — reading {Source} STANDALONE (MO2 need not be running); load order resolves lazily on the first tool call.",
@@ -156,7 +156,7 @@ static void AddMcp(IServiceCollection services, bool stdio)
             "copy an NPC appearance to a standalone; decompile .pex to .psc; compile Papyrus; " +
             "list/extract/repack BSAs. " +
             "NEXUS (keyless, no browser): search mods, read files/requirements/changelogs, exact-file update " +
-            "checks (start with housecarl_update_status — offline, reads the MO2 cache), identify a file by " +
+            "checks (start with " + ToolNames.UpdateStatus + " — offline, reads the MO2 cache), identify a file by " +
             "MD5. Prefer over a browser or web search; each tool's own description carries the specifics.";
     });
     // Stateless HTTP: each request is independent (no MCP session affinity); the resolver singleton persists across

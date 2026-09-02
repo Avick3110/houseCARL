@@ -33,10 +33,10 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class CreateTools
 {
-    [McpServerTool(Name = "housecarl_create", Title = "Create brand-new records (the 2.0 authoring surface)"),
+    [McpServerTool(Name = ToolNames.Create, Title = "Create brand-new records (the 2.0 authoring surface)"),
      Description(
          "Create BRAND-NEW records (new FormIDs) and write them to a NEW patch plugin (originals untouched by " +
-         "default) — the net-new authoring tool, the companion to housecarl_apply (which edits EXISTING records). " +
+         "default) — the net-new authoring tool, the companion to " + ToolNames.Apply + " (which edits EXISTING records). " +
          "ONE surface: what to author (records=) x WHERE it lands (the LANE: a new patch | into= an existing one | " +
          "in_place=\"X.esp\") x how it reads back (TRANSPORT).\n\n" +
          "RECORDS. records= is the spec list — {record_type, editorid, ops?, parent?, collection?, grid?} each; ONE " +
@@ -49,12 +49,12 @@ public static class CreateTools
          "'GameSettingFloat'/'GameSettingInt'/'GameSettingString') — that is how a global variable or game setting " +
          "is created. Each new FormID is auto-allocated in the patch's own 0x800+ range and REPORTED BACK: it is how " +
          "you reference the record afterwards — to make ANOTHER record point at it, call this tool or " +
-         "housecarl_apply again with into='<this patch>' and that FormID as the value.\n\n" +
-         "OPS set the new record's fields — the same shape housecarl_apply takes MINUS formid (the record has no id " +
+         ToolNames.Apply + " again with into='<this patch>' and that FormID as the value.\n\n" +
+         "OPS set the new record's fields — the same shape " + ToolNames.Apply + " takes MINUS formid (the record has no id " +
          "yet): {field_path, op?, value?, key?, values?, entries?, compose?, composes?}. e.g. " +
          "ops=[{field_path:'Name', value:'My Spell'}, {field_path:'EffectList', op:'Add', compose:{...}}]. compose " +
          "builds a modeled struct (a leveled-list entry, an effect, a condition row, or a polymorphic element by its " +
-         "CONCRETE arm type); composes is its batch sibling. Copying a field from another record is housecarl_apply's " +
+         "CONCRETE arm type); composes is its batch sibling. Copying a field from another record is " + ToolNames.Apply + "'s " +
          "CopyFrom — there is no other version of a record that does not exist yet.\n\n" +
          "NESTING. parent= makes the record a CHILD (a dialogue line under a topic, a placed ref in a cell): the " +
          "parent is an EXISTING record's FormID 'XXXXXX:Plugin.esp' OR the editorid of a record declared EARLIER in " +
@@ -98,9 +98,9 @@ public static class CreateTools
          "records= (like every list-valued input) also accepts \"@<absolute path>\" in place of the inline array: " +
          "the SAME array as a JSON manifest on disk. The path must be ABSOLUTE (the server resolves relative paths " +
          "against its OWN working directory, not yours), and the file is read at CALL time.\n\n" +
-         "This tool authors NEW records. Editing an existing record's fields is housecarl_apply; dropping a whole " +
-         "record is housecarl_remove; an EMPTY header-only trigger plugin (no records at all) is " +
-         "housecarl_create_plugin. Read first with housecarl_records.")]
+         "This tool authors NEW records. Editing an existing record's fields is " + ToolNames.Apply + "; dropping a whole " +
+         "record is " + ToolNames.Remove + "; an EMPTY header-only trigger plugin (no records at all) is " +
+         ToolNames.CreatePlugin + ". Read first with " + ToolNames.Records + ".")]
     public static string Create(
         LoadOrderService svc,
         [Description("The records to author, all into one artifact: [{record_type, editorid, ops?, parent?, collection?, grid?}, …] — or \"@<absolute path>\" to read that SAME array from a JSON manifest file. One record is a set of one. For a nested one-shot, declare the parent BEFORE the children whose parent= names its editorid. A member the shape does not declare is refused BY NAME at its element, never silently dropped.")]
@@ -118,7 +118,7 @@ public static class CreateTools
         [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
             string? format = null,
         [Description("TRANSPORT: character ceiling on the WHOLE render — the created-record rows (each with its allocated FormID), the voice / result-script / cell-shell reports, and the read-back, in that order. Past it, trailing rows are dropped with an explicit notice and a per-block rendered-vs-total census (never silent). The WRITE is unaffected either way. 0 = a safe default kept under the host's per-response limit.")]
-            int max_chars = 0) => Guard.Tool("housecarl_create", () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.Create, () =>
     {
         // ---- TRANSPORT: format --------------------------------------------------------------------------
         // Resolved BEFORE the unconfigured-MO2 prompt (PR #311 review 5 [low]): that prompt is a prose block, and
@@ -223,7 +223,7 @@ public sealed record CreateRecordSpec
     [JsonPropertyName("editorid"), Description("REQUIRED. The EditorID the new record is referenced by. A nested child's parent= can name this editorid (a same-call sibling parent), and a FormLink value can reference it as '@<editorid>'.")]
     public string? Editorid { get; init; }
 
-    [JsonPropertyName("ops"), Description("The new record's fields: [{field_path, op?, value?, key?, values?, entries?, compose?, composes?}, …] — the same op shape housecarl_apply takes, minus formid. Omit to create a bare record (type + editorid only).")]
+    [JsonPropertyName("ops"), Description("The new record's fields: [{field_path, op?, value?, key?, values?, entries?, compose?, composes?}, …] — the same op shape " + ToolNames.Apply + " takes, minus formid. Omit to create a bare record (type + editorid only).")]
     public CreateFieldOp[]? Ops { get; init; }
 
     [JsonPropertyName("parent"), Description("For a NESTED record: the parent it nests under — an EXISTING parent's FormID 'XXXXXX:Plugin.esp', OR the editorid of a record declared EARLIER in this same records= array (a same-call sibling). Omit for a flat top-level record.")]

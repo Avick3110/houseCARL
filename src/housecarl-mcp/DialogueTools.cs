@@ -428,14 +428,14 @@ internal static class DialogueWire
             sb.Append("  SEQ: [?] this start-game-enabled quest's .seq coverage couldn't be confirmed — its defining plugin ")
               .Append(s.DefiningPlugin).Append(" has no listing/fresh .seq, but the WINNING override ").Append(s.WinnerPlugin)
               .Append(" is the record the game reads and may itself be what sets Start-Game-Enabled (which would need ITS own .seq). ")
-              .Append("Run housecarl_write_seq against whichever plugin sets the flag.\n");
+              .Append("Run " + ToolNames.WriteSeq + " against whichever plugin sets the flag.\n");
         else if (!s.SeqExists)
             sb.Append("  SEQ: [!] this quest is Start-Game-Enabled but NO .seq for ").Append(s.DefiningPlugin)
-              .Append(" lists it — on a fresh save the quest stays DORMANT and its dialogue never shows. Run housecarl_write_seq plugin=")
+              .Append(" lists it — on a fresh save the quest stays DORMANT and its dialogue never shows. Run " + ToolNames.WriteSeq + " plugin=")
               .Append(s.DefiningPlugin).Append(".\n");
         else if (s.SeqContainsQuest == false)
             sb.Append("  SEQ: [!] ").Append(s.DefiningPlugin).Append(".seq exists but does NOT list this quest (").Append(fid)
-              .Append(") — it stays dormant on a fresh save. Regenerate with housecarl_write_seq.\n");
+              .Append(") — it stays dormant on a fresh save. Regenerate with " + ToolNames.WriteSeq + ".\n");
         else // s.SeqNewerThanPlugin == false — the .seq DOES list the quest, it's just older by mtime
             // mtime alone can't tell WHY the plugin changed, so this is ADVISORY, not a confident "regenerate":
             // a genuinely stale .seq (a master added/removed, an ESL compaction) is the real failure mode, but a
@@ -443,7 +443,7 @@ internal static class DialogueWire
             // contradict that note with a hard [!] (Q3 — the mtime is a hint, not proof of staleness).
             sb.Append("  SEQ: [?] ").Append(s.DefiningPlugin).Append(".seq lists this quest (").Append(fid)
               .Append(") but is OLDER than ").Append(s.DefiningPlugin)
-              .Append(" — if your last change altered which quests are start-game-enabled or the master list (a master added/removed, an ESL compaction), regenerate with housecarl_write_seq; if it was a dialogue- or condition-only edit, the .seq is still correct (an older mtime alone does not mean stale).\n");
+              .Append(" — if your last change altered which quests are start-game-enabled or the master list (a master added/removed, an ESL compaction), regenerate with " + ToolNames.WriteSeq + "; if it was a dialogue- or condition-only edit, the .seq is still correct (an older mtime alone does not mean stale).\n");
         sb.Append("  SEQ note: a .seq is needed only when WHICH quests are start-game-enabled changes (a new SGE quest, or a quest " +
                   "alias/topic that depends on one) — NOT for a dialogue-only or condition-only edit; those never need a regen.\n");
     }
@@ -464,7 +464,7 @@ internal static class DialogueWire
         //  exist — the reader DOES distinguish a present-but-zero PNAM from an absent one. See
         //  DialogueInfoOrder.PnamZeroIsDistinguishable for the mis-measurement that produced it.)
         if (readIncomplete)
-            sb.Append("  • a BSA failed to read this build, so an \"absent\" voice/.pex above may merely be unscanned — see housecarl_load_order_status.\n");
+            sb.Append("  • a BSA failed to read this build, so an \"absent\" voice/.pex above may merely be unscanned — see " + ToolNames.LoadOrderStatus + ".\n");
     }
 
     static string Edid(string? e) => string.IsNullOrEmpty(e) ? "<none>" : e;

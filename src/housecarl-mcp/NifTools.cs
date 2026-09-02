@@ -29,7 +29,7 @@ public static class NifTools
         "known: " + string.Join(", ", KnownSections) + ", all — no 'textures' section; " +
         "embedded texture-set slot paths are under 'shapes' (detail) and 'paths'";
 
-    [McpServerTool(Name = "housecarl_nif_inspect", ReadOnly = true, Title = "Inspect the data values inside one or many Skyrim meshes (.nif)"),
+    [McpServerTool(Name = ToolNames.NifInspect, ReadOnly = true, Title = "Inspect the data values inside one or many Skyrim meshes (.nif)"),
      Description(
          "Read the DATA VALUES inside one or many Skyrim meshes (.nif) at the data layer, beneath NifSkope. Resolve each " +
          "Data-relative path in mesh_paths through Mod Organizer 2's virtual file system to the copy the game actually uses " +
@@ -48,7 +48,7 @@ public static class NifTools
          "shapes / bones / textures / partitions / alpha does this mesh have', 'does this mesh glow / use soft lighting / " +
          "subsurface skin / env-mapping', to read a facegen mesh's baked shape names " +
          "and tint path, to check a skeleton's bone names, or to see a dark-face mesh's flags/alpha/partitions — the " +
-         "asset-INTERNAL companion to housecarl_asset_status (which mod wins) once you know the winning file. Pass " +
+         "asset-INTERNAL companion to " + ToolNames.AssetStatus + " (which mod wins) once you know the winning file. Pass " +
          "mesh_paths = one or more paths (asset_status parity — a whole facegen sweep's flagged subset is ONE call, one " +
          "load-order resolution for the batch); results return in input order, and a failing path is reported LOUD on THAT " +
          "path without aborting the rest. Output is a " +
@@ -79,7 +79,7 @@ public static class NifTools
                      "in the batch. Empty = the winner.")]
             string mod = "",
         [Description("Optional. Max characters before the output is cut with an explicit notice. 0 = the server default (~80k).")]
-            int max_chars = 0) => Guard.Tool("housecarl_nif_inspect", () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.NifInspect, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (mesh_paths is null || mesh_paths.Length == 0)
@@ -125,7 +125,7 @@ public static class NifTools
               $"({KnownSectionsHint}). Pass one or more known sections, or omit sections= for the summary only."
             : null;
 
-    [McpServerTool(Name = "housecarl_nif_set", Title = "Write a whitelisted data value into a Skyrim mesh (.nif)"),
+    [McpServerTool(Name = ToolNames.NifSet, Title = "Write a whitelisted data value into a Skyrim mesh (.nif)"),
      Description(
          "Write ONE whitelisted DATA VALUE into a Skyrim SE mesh (.nif) at the data layer, beneath NifSkope — then VERIFY " +
          "the edit before anything lands. Resolve the Data-relative mesh_path through Mod Organizer 2's VFS to the winning " +
@@ -139,7 +139,7 @@ public static class NifTools
          "pass shader_value + value: glossiness, specular_strength, specular_color, emissive_color, emissive_multiple, " +
          "alpha; the plastic-looking armour or over-bright glow fix. NOT set_alpha — that is the separate NiAlphaProperty). " +
          "target= is the shape or node NAME the op edits " +
-         "(from housecarl_nif_inspect). By DEFAULT the verified mesh is written into a NEW houseCARL MO2 mod folder at the " +
+         "(from " + ToolNames.NifInspect + "). By DEFAULT the verified mesh is written into a NEW houseCARL MO2 mod folder at the " +
          "same path (originals untouched) — enable it and sort it ABOVE the current winner so the edit wins; a BSA-packed " +
          "source becomes a loose winning override this way. in_place=true instead OVERWRITES the winning LOOSE file where " +
          "it sits (opt-in; rides the per-file consent handshake, needs acknowledge=true, NO backup). Only edits " +
@@ -154,7 +154,7 @@ public static class NifTools
         // shipped op invisible in the tool schema, and the caller concludes houseCARL cannot do the thing.
         [Description("The write op — one of: " + OpList + ".")]
             string op,
-        [Description("The NAME of the shape or node the op edits (the current name; from housecarl_nif_inspect). For a rename this is the OLD name.")]
+        [Description("The NAME of the shape or node the op edits (the current name; from " + ToolNames.NifInspect + "). For a rename this is the OLD name.")]
             string target,
         [Description("rename_shape / rename_node: the new name.")] string new_name = "",
         [Description("set_flags: the NiAVObject flags value — hex ('0x800000E') or decimal.")] string flags = "",
@@ -176,12 +176,12 @@ public static class NifTools
         [Description("Optional, default false. IN-PLACE LANE (opt-in): OVERWRITE the winning LOOSE file where it sits instead of writing a new folder — NO backup. Requires acknowledge=true (see below). OMIT (the default) to write a new winning override and leave the original untouched.")]
             bool in_place = false,
         [Description("Optional, default false. Confirms the one-time in-place trade-off for this file — needed only on the FIRST in-place edit of a given mesh, and not again once one has LANDED — a call that is refused records nothing, so it may be needed again. Waives the consent to overwrite your original ONLY; it NEVER skips the mesh verification.")]
-            bool acknowledge = false) => Guard.Tool("housecarl_nif_set", () =>
+            bool acknowledge = false) => Guard.Tool(ToolNames.NifSet, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (string.IsNullOrWhiteSpace(mesh_path)) return "error: mesh_path is empty. Pass a Data-relative mesh path.";
         if (string.IsNullOrWhiteSpace(op)) return "error: op is empty. Pass one of: " + OpList + ".";
-        if (string.IsNullOrWhiteSpace(target)) return "error: target is empty. Pass the shape/node NAME the op edits (from housecarl_nif_inspect).";
+        if (string.IsNullOrWhiteSpace(target)) return "error: target is empty. Pass the shape/node NAME the op edits (from " + ToolNames.NifInspect + ").";
 
         var (built, buildErr) = BuildOp(op.Trim(), target.Trim(), new_name, flags, scale, body_part_id, partition_index, alpha_flags, alpha_threshold, texture_slot, path, shader_value, value);
         if (buildErr is not null) return "error: " + buildErr;

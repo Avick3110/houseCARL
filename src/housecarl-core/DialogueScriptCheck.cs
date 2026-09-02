@@ -201,7 +201,7 @@ public static class DialogueScriptCheck
             findings.Add(new ScriptBindingFinding(info.FormKey, topicEdid, ScriptBindingStatus.ScriptNotCompiled,
                 distinct, missing, av.ReadIncomplete,
                 $"result script bound ({string.Join(", ", distinct)}) but the compiled .pex is missing on disk — " +
-                "it runs NOTHING until compiled (housecarl_compile_script).") { HasFragment = hasFragment });
+                "it runs NOTHING until compiled (" + ToolNames.CompileScript + ").") { HasFragment = hasFragment });
     }
 
     /// <summary>True if <paramref name="info"/> carries a REAL result-script FRAGMENT — a ScriptFragments Begin/End

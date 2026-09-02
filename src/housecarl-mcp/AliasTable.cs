@@ -52,7 +52,7 @@ internal static class AliasTable
         // SynonymGroups tolerated every pairing — plugin= bound on create_plugin's plugin_name, and
         // plugin_name= on the bare-plugin tools; dropping those edges was a live regression, restored here).
         new("plugin",  new[] { "source", "plugins", "pluginname", "pluginnames" },
-            ExceptTools: new[] { ("housecarl_place_asset", "source") }),
+            ExceptTools: new[] { (ToolNames.PlaceAsset, "source") }),
         // `source` last here for the same reason it is last on `pluginname` (PR #311 review 3 [low]): W3 PR 2 took
         // `plugin` off write_seq, and these two rows' only candidates were the three 1.x plugin spellings — so
         // BOTH dead-ended on the one tool whose pole they were reaching for, while `plugin=`, `plugin_name=`,
@@ -60,7 +60,7 @@ internal static class AliasTable
         // exist is a different failure from a row going dormant because the tool declares the word itself, and it
         // is the one worth catching.
         new("plugins", new[] { "plugin", "pluginname", "pluginnames", "source" },
-            ExceptTools: new[] { ("housecarl_place_asset", "source") }),
+            ExceptTools: new[] { (ToolNames.PlaceAsset, "source") }),
         // §5.3 — create_plugin's plugin_name → patch; today's guess-miss → plugins (#221 J3) or the bare-plugin
         // tools. `source` joins the list, and `patch` is suppressed on write_seq (PR #311 review [low]): once
         // write_seq declared source= AND patch=, the most likely 1.x spelling for THE PLUGIN on that tool became
@@ -73,14 +73,14 @@ internal static class AliasTable
         // fallback for a tool that has no scope word at all. Which is exactly write_seq, once `patch` is
         // suppressed there.
         new("pluginname",  new[] { "patch", "plugins", "plugin", "pluginnames", "source" },
-            ExceptTools: new[] { ("housecarl_write_seq", "patch"), ("housecarl_place_asset", "source") }),
+            ExceptTools: new[] { (ToolNames.WriteSeq, "patch"), (ToolNames.PlaceAsset, "source") }),
         new("pluginnames", new[] { "plugins", "plugin", "pluginname", "source" },
-            ExceptTools: new[] { ("housecarl_place_asset", "source") }),
+            ExceptTools: new[] { (ToolNames.PlaceAsset, "source") }),
         // Reverse: the new pole spelling on not-yet-renamed tools (read tools' plugin=, the NIF tools'
         // mod=). nexus_mod excepted (census catch): its mod= is a Nexus mod ID, not the S2/S3 provider
         // disambiguator — S8 is chartered untouched (§6.4), so nothing renames onto it.
         new("source", new[] { "plugin", "mod" },
-            ExceptTools: new[] { ("housecarl_nexus_mod", "mod") }),
+            ExceptTools: new[] { (ToolNames.NexusMod, "mod") }),
 
         // §5.3 — type/types (SELECT is set-valued types; record_type stays a create operand — distinct
         // normalization, no entry needed).
@@ -148,9 +148,9 @@ internal static class AliasTable
         // file-path operand, not the version pole — final review finding 1: place_asset is the ONLY
         // tool declaring bare source today, so an unexcepted row is live exactly where it's wrong).
         new("fromplugin", new[] { "source" },
-            ExceptTools: new[] { ("housecarl_place_asset", "source") }),
+            ExceptTools: new[] { (ToolNames.PlaceAsset, "source") }),
         new("mod", new[] { "source" },
-            ExceptTools: new[] { ("housecarl_place_asset", "source") }),
+            ExceptTools: new[] { (ToolNames.PlaceAsset, "source") }),
 
         // §5.3 — set-valued file SELECT per substrate: paths. Forward rows dormant until W4; the
         // reverse row lets paths= bind on today's per-tool spellings (disjoint — schema-gating picks).
@@ -276,39 +276,39 @@ internal static class AliasTable
     /// spelling, so a caller working from old docs lands on `records` in one hop instead of a dead end.</summary>
     static readonly (string Old, string Successor)[] RetiredTools =
     {
-        ("housecarl_read_record",
-         "absorbed into housecarl_records: formids=[\"XXXXXX:Plugin.esp\"] — project={\"form\": \"fields\", \"fields\": […]} for named fields, \"everything\" for the full body; plugin= is source=; conflict_tree=true is project={\"form\": \"tree\"}."),
-        ("housecarl_batch_record_detail",
-         "absorbed into housecarl_records: the same formids= list with a project= form (summary | fields | everything); plugin= is source=; to_file=/@file re-entry unchanged."),
-        ("housecarl_resolve",
-         "absorbed into housecarl_records: formids=[…] with project={\"form\": \"identity\"} — the labeling form."),
-        ("housecarl_cross_plugin_query",
-         "absorbed into housecarl_records: the same scan terms, set-valued — type= is types=, editorid_contains= is where=[\"editorid contains …\"], group_by= is project={\"form\": \"aggregate\", \"group_by\": …}, fields= lives inside project={\"form\": \"fields\"}."),
-        ("housecarl_read_plugin_file",
-         "absorbed into housecarl_records: source=\"X.esp\" reads that plugin WHEREVER it lives (active or on disk out of the order — the response states which); types=/where= scan the file's records; formids= reads specific ones."),
-        ("housecarl_diff_record",
-         "absorbed into housecarl_records: project={\"form\": \"delta\"} — source= is the subject (was plugin_a), versus= the reference (was plugin_b; structured poles carry the mod disambiguator), project.fields narrows the comparison."),
-        ("housecarl_effect_chain",
-         "absorbed into housecarl_records: project={\"form\": \"chain\"} with walk={\"direction\": \"reverse\"} and the MGEF in formids= (types= still narrows the carrier types)."),
-        ("housecarl_skypatcher_read",
-         "absorbed into housecarl_records: source={\"overlay\": \"skypatcher\", \"state\": \"post\"} reads the post-INI body; pre-vs-post is project={\"form\": \"delta\"} with the two overlay poles."),
+        (ToolNames.ReadRecord,
+         "absorbed into " + ToolNames.Records + ": formids=[\"XXXXXX:Plugin.esp\"] — project={\"form\": \"fields\", \"fields\": […]} for named fields, \"everything\" for the full body; plugin= is source=; conflict_tree=true is project={\"form\": \"tree\"}."),
+        (ToolNames.BatchRecordDetail,
+         "absorbed into " + ToolNames.Records + ": the same formids= list with a project= form (summary | fields | everything); plugin= is source=; to_file=/@file re-entry unchanged."),
+        (ToolNames.Resolve,
+         "absorbed into " + ToolNames.Records + ": formids=[…] with project={\"form\": \"identity\"} — the labeling form."),
+        (ToolNames.CrossPluginQuery,
+         "absorbed into " + ToolNames.Records + ": the same scan terms, set-valued — type= is types=, editorid_contains= is where=[\"editorid contains …\"], group_by= is project={\"form\": \"aggregate\", \"group_by\": …}, fields= lives inside project={\"form\": \"fields\"}."),
+        (ToolNames.ReadPluginFile,
+         "absorbed into " + ToolNames.Records + ": source=\"X.esp\" reads that plugin WHEREVER it lives (active or on disk out of the order — the response states which); types=/where= scan the file's records; formids= reads specific ones."),
+        (ToolNames.DiffRecord,
+         "absorbed into " + ToolNames.Records + ": project={\"form\": \"delta\"} — source= is the subject (was plugin_a), versus= the reference (was plugin_b; structured poles carry the mod disambiguator), project.fields narrows the comparison."),
+        (ToolNames.EffectChain,
+         "absorbed into " + ToolNames.Records + ": project={\"form\": \"chain\"} with walk={\"direction\": \"reverse\"} and the MGEF in formids= (types= still narrows the carrier types)."),
+        (ToolNames.SkypatcherRead,
+         "absorbed into " + ToolNames.Records + ": source={\"overlay\": \"skypatcher\", \"state\": \"post\"} reads the post-INI body; pre-vs-post is project={\"form\": \"delta\"} with the two overlay poles."),
 
         // W3 — the write side. Both field-edit tools became housecarl_apply; the LANE and vocabulary changes
         // (§5.1/§5.2) are named here too, because a caller arriving from old docs has the old PARAMETER habits
         // as well as the old tool name, and the one-hop redirect is worth more than a bare "use apply".
         ("housecarl_set_field",
-         "absorbed into housecarl_apply: one op is a set of one — ops=[{formid, field_path, value}] (verb= is op=). patch_name= is patch=, full_readback= is readback=, and the target=+in_place=true pair is in_place=\"X.esp\" (the file being overwritten)."),
+         "absorbed into " + ToolNames.Apply + ": one op is a set of one — ops=[{formid, field_path, value}] (verb= is op=). patch_name= is patch=, full_readback= is readback=, and the target=+in_place=true pair is in_place=\"X.esp\" (the file being overwritten)."),
         ("housecarl_bulk_apply",
-         "absorbed into housecarl_apply: operations= is ops= (verb= is op=), and from_file= is the @file convention — ops=\"@<absolute path>\". patch_name= is patch=, full_readback= is readback=, target=+in_place=true is in_place=\"X.esp\". Copying a field bundle BETWEEN records is bundle= + assignments=."),
+         "absorbed into " + ToolNames.Apply + ": operations= is ops= (verb= is op=), and from_file= is the @file convention — ops=\"@<absolute path>\". patch_name= is patch=, full_readback= is readback=, target=+in_place=true is in_place=\"X.esp\". Copying a field bundle BETWEEN records is bundle= + assignments=."),
 
         // W3 PR 2 — the rest of the write side. Same posture: the redirect carries the PARAMETER migration too,
         // since a caller arriving from old docs has both habits.
         ("housecarl_create_record",
-         "absorbed into housecarl_create: one record is a set of one — records=[{record_type, editorid, ops}] (operations= is ops=, verb= is op=). record_type/editorid/parent/collection/grid are members of the record, not top-level arguments. patch_name= is patch=, full_readback= is readback=, and the target=+in_place=true pair is in_place=\"X.esp\" (the file being written into)."),
+         "absorbed into " + ToolNames.Create + ": one record is a set of one — records=[{record_type, editorid, ops}] (operations= is ops=, verb= is op=). record_type/editorid/parent/collection/grid are members of the record, not top-level arguments. patch_name= is patch=, full_readback= is readback=, and the target=+in_place=true pair is in_place=\"X.esp\" (the file being written into)."),
         ("housecarl_bulk_create",
-         "absorbed into housecarl_create: records= is unchanged in shape except operations= is ops= (verb= is op=), and it also accepts \"@<absolute path>\". The nested one-shot is unchanged: declare a parent BEFORE the children whose parent= names its editorid, and '@editorid' still references a same-call sibling. patch_name= is patch=, full_readback= is readback=, target=+in_place=true is in_place=\"X.esp\"."),
+         "absorbed into " + ToolNames.Create + ": records= is unchanged in shape except operations= is ops= (verb= is op=), and it also accepts \"@<absolute path>\". The nested one-shot is unchanged: declare a parent BEFORE the children whose parent= names its editorid, and '@editorid' still references a same-call sibling. patch_name= is patch=, full_readback= is readback=, target=+in_place=true is in_place=\"X.esp\"."),
         ("housecarl_remove_record",
-         "absorbed into housecarl_remove: formids= is SET-VALUED — drop many records in one re-serialize (one is a set of one). The houseCARL-patch lane is into=\"MyPatch.esp\" (removal edits an artifact that EXISTS; patch= names a NEW one everywhere else on the surface), and the target=+in_place=true pair is in_place=\"X.esp\"."),
+         "absorbed into " + ToolNames.Remove + ": formids= is SET-VALUED — drop many records in one re-serialize (one is a set of one). The houseCARL-patch lane is into=\"MyPatch.esp\" (removal edits an artifact that EXISTS; patch= names a NEW one everywhere else on the surface), and the target=+in_place=true pair is in_place=\"X.esp\"."),
         // 4b — the derived-findings sweep. ALL THREE ancestors stay REGISTERED through the build waves (the W2/W3
         // precedent), so these rows are dormant by construction: a registered name resolves and never reaches the
         // retired-name check. They activate at the 2.0.0 clean cut, and nothing in a response mentions them until
@@ -321,16 +321,16 @@ internal static class AliasTable
         // housecarl_records project={"form": "info_order"} at the SPEC §6.1 F1 split and ships there today. So the
         // successor teaching is TWO destinations, and a row naming only the sweep would send the caller who wants
         // "why does the wrong line play" to a surface that deliberately does not answer it.
-        ("housecarl_check_errors",
-         "absorbed into housecarl_check: the same sweep is findings=[\"errors\"], which is also the DEFAULT when findings= is omitted. type=/formids=/editorid_contains=/exclude=/counts_only=/limit=/max_chars=/format= are unchanged; the response is sectioned per family and states which families it did not run."),
-        ("housecarl_validate_scripts",
-         "absorbed into housecarl_check: findings=[\"scripts\"] (or a class inside it — 'unbound_object', 'unbound_scalar', 'unbound', 'bound_null'). property_contains= and the record scope are unchanged, exclude= now scopes this family too, and the record listing is under the max_chars bound it was not under before."),
+        (ToolNames.CheckErrors,
+         "absorbed into " + ToolNames.Check + ": the same sweep is findings=[\"errors\"], which is also the DEFAULT when findings= is omitted. type=/formids=/editorid_contains=/exclude=/counts_only=/limit=/max_chars=/format= are unchanged; the response is sectioned per family and states which families it did not run."),
+        (ToolNames.ValidateScripts,
+         "absorbed into " + ToolNames.Check + ": findings=[\"scripts\"] (or a class inside it — 'unbound_object', 'unbound_scalar', 'unbound', 'bound_null'). property_contains= and the record scope are unchanged, exclude= now scopes this family too, and the record listing is under the max_chars bound it was not under before."),
 
-        ("housecarl_validate_dialogue",
-         "split in two. The findings are housecarl_check findings=[\"dialogue\"] with seeds= taking the same DIAL / QUST / DLVW / DLBR FormIDs — graph and branch wiring, LinkTo and previous-link targets, .fuz files, result scripts, CK-parity subrecords, malformed conditions and the .seq check — and limit= caps how many SEEDS one call expands. The effective merged INFO order is housecarl_records project={\"form\": \"info_order\"} with the DIAL in formids=: it is an ordered sequence rather than a finding, and the sweep's dialogue boundary says so."),
+        (ToolNames.ValidateDialogue,
+         "split in two. The findings are " + ToolNames.Check + " findings=[\"dialogue\"] with seeds= taking the same DIAL / QUST / DLVW / DLBR FormIDs — graph and branch wiring, LinkTo and previous-link targets, .fuz files, result scripts, CK-parity subrecords, malformed conditions and the .seq check — and limit= caps how many SEEDS one call expands. The effective merged INFO order is " + ToolNames.Records + " project={\"form\": \"info_order\"} with the DIAL in formids=: it is an ordered sequence rather than a finding, and the sweep's dialogue boundary says so."),
 
         ("housecarl_forward_record",
-         "absorbed into housecarl_forward: from_plugin= is source= (an ACTIVE plugin — whose version to copy). patch_name= is patch=, full_readback= is readback=, and the target=+in_place=true pair is in_place=\"X.esp\". formids=, dry_run= and the into= replace-on-collision semantics are unchanged."),
+         "absorbed into " + ToolNames.Forward + ": from_plugin= is source= (an ACTIVE plugin — whose version to copy). patch_name= is patch=, full_readback= is readback=, and the target=+in_place=true pair is in_place=\"X.esp\". formids=, dry_run= and the into= replace-on-collision semantics are unchanged."),
     };
 
     /// <summary>The retired-name rows, for the guard that holds them against the surface they redirect INTO — the

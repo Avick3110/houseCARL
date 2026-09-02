@@ -234,7 +234,7 @@ public static class WriteVerbs
     /// name and a remedy that named one would be sending the caller down a path that refuses.</summary>
     public static string HowToPlace(CollectionShape shape) =>
         shape.Element == ElementPlacement.OwnedRecord
-            ? "its elements are owned child RECORDS, which are created on the record axis — use housecarl_create "
+            ? "its elements are owned child RECORDS, which are created on the record axis — use " + ToolNames.Create + " "
               + "with parent= the parent's FormID in its records= element, not a write verb"
             : Sentence(On(shape).Where(u => u.Places));
 

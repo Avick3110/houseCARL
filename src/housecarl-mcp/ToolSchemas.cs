@@ -47,9 +47,9 @@ internal static class ToolSchemas
     /// <c>wire-names-guard</c> reads it to find each spec object's carrying parameter (#341).</para></summary>
     internal static readonly FileListParam[] FileListParams =
     {
-        new("housecarl_apply", "ops", typeof(ApplyOp[])),
-        new("housecarl_apply", "assignments", typeof(Assignment[])),
-        new("housecarl_create", "records", typeof(CreateRecordSpec[])),
+        new(ToolNames.Apply, "ops", typeof(ApplyOp[])),
+        new(ToolNames.Apply, "assignments", typeof(Assignment[])),
+        new(ToolNames.Create, "records", typeof(CreateRecordSpec[])),
     };
 
     /// <summary>How many times one pointer may be inlined along a single nesting chain before

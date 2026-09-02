@@ -25,16 +25,16 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class ForwardTools
 {
-    [McpServerTool(Name = "housecarl_forward", Title = "Forward a plugin's version of records as an override"),
+    [McpServerTool(Name = ToolNames.Forward, Title = "Forward a plugin's version of records as an override"),
      Description(
          "Forward a SPECIFIC plugin's version of one-or-more records as an override — xEdit's \"copy as override " +
-         "into\", the INVERSE of housecarl_apply. apply edits the load-order WINNER; this copies source='s whole " +
+         "into\", the INVERSE of " + ToolNames.Apply + ". apply edits the load-order WINNER; this copies source='s whole " +
          "record VERBATIM, so SOURCE's version (not the winner) becomes the patch's content. ONE surface: what to " +
          "copy (formids=) x WHOSE version (source=) x WHERE it lands (the LANE) x how it reads back (TRANSPORT).\n\n" +
          "WHAT IT IS FOR: RE-ASSERT an earlier mod's version over a later override (a late total-overhaul " +
          "re-architected a record an earlier list patch had balanced — forward the earlier plugin's version back on " +
          "top), or REVERT a record to vanilla (name a master — Skyrim.esm/Update.esm/… — as source). This copies the " +
-         "record WHOLE: it does NOT edit fields (that's housecarl_apply) and needs no field pre-flight, because a " +
+         "record WHOLE: it does NOT edit fields (that's " + ToolNames.Apply + ") and needs no field pre-flight, because a " +
          "complete source record is legal by construction.\n\n" +
          "formids= is set-valued — one or more 'XXXXXX:Plugin.esp', ALL copied from the SAME source; call again with " +
          "into= to forward from a different source into the same patch. It also accepts [\"@<absolute path>\"].\n\n" +
@@ -51,7 +51,7 @@ public static class ForwardTools
          "in_place='<plugin filename>' forwards INTO an existing plugin's OWN file (incl. one houseCARL didn't " +
          "author) — same replace-on-collision semantics, your ORIGINAL rewritten, no houseCARL backup or undo, and " +
          "the same acknowledge= consent as the sibling write tools.\n\n" +
-         "THE STALE-WINNER BYPASS RECIPE (pinned): forward from the source you want, then housecarl_apply into= the " +
+         "THE STALE-WINNER BYPASS RECIPE (pinned): forward from the source you want, then " + ToolNames.Apply + " into= the " +
          "same patch — the ops edit the patch's FORWARDED copy and never re-resolve the (stale) load-order winner, " +
          "so you build on the forwarded body directly.\n\n" +
          "ALL-OR-NOTHING (Q3): the whole call is refused with a named reason and NOTHING is written if source is " +
@@ -91,7 +91,7 @@ public static class ForwardTools
         [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
             string? format = null,
         [Description("TRANSPORT: character ceiling on the WHOLE render — the forwarded-record rows (each naming its source and the winner it out-ranks) and then the read-back. Past it, trailing rows are dropped with an explicit notice (never silent); the WRITE is unaffected. 0 = a safe default kept under the host's per-response limit.")]
-            int max_chars = 0) => Guard.Tool("housecarl_forward", () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.Forward, () =>
     {
         // format first, so the unconfigured-MO2 prompt answers a json caller as a DOCUMENT (PR #311 review 5 [low]).
         bool json = Wire.WantsJson(format, out var ferr);

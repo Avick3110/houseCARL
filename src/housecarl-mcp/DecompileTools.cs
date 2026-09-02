@@ -19,11 +19,11 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class DecompileTools
 {
-    [McpServerTool(Name = "housecarl_decompile_script", Title = "Decompile a compiled Papyrus script (.pex → .psc)"),
+    [McpServerTool(Name = ToolNames.DecompileScript, Title = "Decompile a compiled Papyrus script (.pex → .psc)"),
      Description(
          "Decompile a compiled Papyrus script (.pex) back to source (.psc), landing the .psc in a NEW houseCARL " +
          "patch-mod folder you review (originals untouched; an existing .psc is never overwritten). Pass pex= the full " +
-         "path to the .pex — for a script inside a BSA, extract it first with housecarl_bsa_extract and pass the " +
+         "path to the .pex — for a script inside a BSA, extract it first with " + ToolNames.BsaExtract + " and pass the " +
          "extracted path. Names, types, properties, states, events and docstrings survive; control flow is " +
          "reconstructed and proven (98.80% of provable scripts recompile to identical bytecode). KNOWN LOSSES every " +
          "decompiler shares, baked into the PEX format itself: parameter DEFAULTS don't exist in .pex (callers baked " +
@@ -37,12 +37,12 @@ public static class DecompileTools
          "output folder; no compiler or external tool required.")]
     public static string DecompileScript(
         LoadOrderService svc,
-        [Description("Full path to the .pex compiled script to decompile. For a script inside a BSA, run housecarl_bsa_extract first and pass the extracted path.")]
+        [Description("Full path to the .pex compiled script to decompile. For a script inside a BSA, run " + ToolNames.BsaExtract + " first and pass the extracted path.")]
             string pex,
         [Description("Optional. Base name for the NEW patch-mod folder the .psc lands in (default 'houseCARL_Scripts'); auto-suffixed if taken.")]
             string? patch_name = null,
-        [Description("Optional. Filename of an existing houseCARL patch mod to add the .psc into instead of creating a fresh folder (accumulate sources; pairs with housecarl_compile_script's into=). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
-            string? into = null) => Guard.Tool("housecarl_decompile_script", () =>
+        [Description("Optional. Filename of an existing houseCARL patch mod to add the .psc into instead of creating a fresh folder (accumulate sources; pairs with " + ToolNames.CompileScript + "'s into=). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
+            string? into = null) => Guard.Tool(ToolNames.DecompileScript, () =>
     {
         // 1) MO2 must be configured — the .psc lands under the instance's mods folder.
         if (svc.ConfigPromptOrNull() is { } cfgPrompt) return cfgPrompt;
@@ -52,7 +52,7 @@ public static class DecompileTools
             return "error: no pex given. Pass pex= the full path to the .pex file to decompile.";
         pex = pex.Trim().Trim('"');
         if (!File.Exists(pex))
-            return $"error: no such file: '{pex}'. Pass the full path to the .pex (for a BSA member, housecarl_bsa_extract it first).";
+            return $"error: no such file: '{pex}'. Pass the full path to the .pex (for a BSA member, {ToolNames.BsaExtract} it first).";
         if (!pex.EndsWith(".pex", StringComparison.OrdinalIgnoreCase))
             return $"error: '{Path.GetFileName(pex)}' is not a .pex compiled script.";
         pex = Path.GetFullPath(pex);
@@ -120,7 +120,7 @@ public static class DecompileTools
         if (hierarchyNote is not null)
             outSb.Append("\nnote: ").Append(hierarchyNote).Append(" (cosmetic: some implicit casts may render explicitly; the source stays correct).");
         outSb.Append("\nknown format losses (every decompiler): parameter defaults are baked at call sites; comments/layout are gone (docstrings survive).");
-        outSb.Append("\nthe .psc is in a houseCARL patch-mod folder — review it, edit it, and recompile with housecarl_compile_script (into= the same patch).");
+        outSb.Append("\nthe .psc is in a houseCARL patch-mod folder — review it, edit it, and recompile with " + ToolNames.CompileScript + " (into= the same patch).");
         return outSb.ToString();
     });
 

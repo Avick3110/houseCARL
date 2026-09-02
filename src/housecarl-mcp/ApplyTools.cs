@@ -35,7 +35,7 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class ApplyTools
 {
-    [McpServerTool(Name = "housecarl_apply", Title = "Edit record fields (the 2.0 write surface)"),
+    [McpServerTool(Name = ToolNames.Apply, Title = "Edit record fields (the 2.0 write surface)"),
      Description(
          "Edit fields on one or many records and write the result to a NEW patch plugin (originals untouched by " +
          "default). ONE surface: what to change (ops=, or the bundle=/assignments= copy zip) x WHERE it lands (the " +
@@ -70,7 +70,7 @@ public static class ApplyTools
          "to from_source's version of the record being edited); with from= and no from_source= the source is that " +
          "record's load-order winner. Cross-record pairs must be the SAME record type — refused by name otherwise. " +
          "CopyFrom copies a WHOLE field (scalar, formlink, modeled list, sub-struct); it cannot copy owned child " +
-         "records (forward the whole record with housecarl_forward instead).\n\n" +
+         "records (forward the whole record with " + ToolNames.Forward + " instead).\n\n" +
          "THE COPY ZIP (bundle= x assignments=). To copy the SAME set of fields from one record to another — many " +
          "pairs in one call — name the paths once and pair them explicitly: bundle=[\"BasicStats.Damage\"," +
          "\"Keywords\"], assignments=[{target:'AAA:Mod.esp', from:'BBB:Other.esp'}, {target:..., from:..., " +
@@ -82,7 +82,7 @@ public static class ApplyTools
          "is never overwritten). into='<an existing patch's filename>' EXTENDS that patch instead — the way to " +
          "accumulate across calls and sessions. PRECEDENCE with into= (pinned): a FormKey the patch ALREADY CARRIES " +
          "is edited AS-IS in the patch; only a FormKey it does NOT yet carry copies the load-order winner in first. " +
-         "So housecarl_forward from a source + apply into= the same patch is THE recipe to build on a " +
+         "So " + ToolNames.Forward + " from a source + apply into= the same patch is THE recipe to build on a " +
          "specific plugin's version while a stale winner sits above it. in_place='<plugin filename>' is the opt-in " +
          "THIRD lane: houseCARL rewrites your ORIGINAL file (incl. a mod it didn't author) — no new patch, and NO " +
          "houseCARL backup or undo (keep your own). It re-lays-out the whole plugin the way xEdit/CK do on save, " +
@@ -109,9 +109,9 @@ public static class ApplyTools
          "re-run the same manifest to recover an interrupted write (overrides are idempotent). The path must be " +
          "ABSOLUTE (the server resolves relative paths against its OWN working directory, not yours), and the file " +
          "is read at CALL time, so re-dry-run it after editing.\n\n" +
-         "This tool edits EXISTING records' fields. New records are housecarl_create; dropping whole records is " +
-         "housecarl_remove; copying a whole record verbatim is housecarl_forward. Read first with " +
-         "housecarl_records.")]
+         "This tool edits EXISTING records' fields. New records are " + ToolNames.Create + "; dropping whole records is " +
+         ToolNames.Remove + "; copying a whole record verbatim is " + ToolNames.Forward + ". Read first with " +
+         ToolNames.Records + ".")]
     public static string Apply(
         LoadOrderService svc,
         [Description("The edits, all into one artifact: [{formid, field_path, op?, value?, values?, key?, entries?, compose?, composes?, from?, from_source?}, …] — or \"@<absolute path>\" to read that SAME array from a JSON manifest file. One op is a set of one. An op member the shape does not declare is refused BY NAME at its element, never silently dropped.")]
@@ -135,7 +135,7 @@ public static class ApplyTools
         [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
             string? format = null,
         [Description("TRANSPORT: character ceiling on the WHOLE render — in format=\"json\" the applied-op rows as well as the read-back; in text, the read-back. Past it, trailing rows are dropped with an explicit notice (never silent); the WRITE is unaffected. 0 = a safe default kept under the host's per-response limit; raise it to widen a readback=true dump.")]
-            int max_chars = 0) => Guard.Tool("housecarl_apply", () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.Apply, () =>
     {
         // ---- TRANSPORT: format --------------------------------------------------------------------------
         // Ahead of the unconfigured-MO2 prompt (PR #311 review 5 [low]): that prompt is prose, and a json caller

@@ -24,10 +24,10 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class RemoveTools
 {
-    [McpServerTool(Name = "housecarl_remove", Title = "Remove whole records (the 2.0 removal surface)"),
+    [McpServerTool(Name = ToolNames.Remove, Title = "Remove whole records (the 2.0 removal surface)"),
      Description(
          "Remove WHOLE records — a literal drop-from-plugin, NOT a flag-as-deleted stub. The counterpart to " +
-         "housecarl_apply: where apply ADDS an override into a patch, this drops one OUT of it. ONE surface: what to " +
+         ToolNames.Apply + ": where apply ADDS an override into a patch, this drops one OUT of it. ONE surface: what to " +
          "drop (formids=) x WHERE from (the LANE: into= a houseCARL patch | in_place=\"X.esp\") x how it reads back " +
          "(TRANSPORT).\n\n" +
          "WHAT CAN BE REMOVED. Only a record the named file ITSELF carries — one houseCARL created, or an override " +
@@ -39,7 +39,7 @@ public static class RemoveTools
          "(Q3): if ANY target isn't carried, the whole call is refused with per-record reasons and NOTHING is " +
          "written. It also accepts [\"@<absolute path>\"] — the same list from a file, one FormID per line.\n\n" +
          "LANE — where the removal happens. into='<a houseCARL patch's filename>' drops the records from that patch " +
-         "(the same name you pass to housecarl_apply's into=); it must be a patch houseCARL created. " +
+         "(the same name you pass to " + ToolNames.Apply + "'s into=); it must be a patch houseCARL created. " +
          "in_place='<plugin filename>' is the opt-in lane for ANY existing active plugin, including one houseCARL " +
          "didn't author: your ORIGINAL file is rewritten — no houseCARL backup or undo (keep your own). The FIRST " +
          "in-place write to a given plugin returns a confirmation prompt (re-call with acknowledge=true); " +
@@ -50,7 +50,7 @@ public static class RemoveTools
          "how many records remain (0 = the file is an inert shell). Every response carries epoch=<hex> — the " +
          "identity of the index build this removal's master context came from.\n\n" +
          "To remove a list ENTRY (a keyword, an item, a leveled-list line) rather than a whole record, use " +
-         "housecarl_apply with op='Remove' instead. Read first with housecarl_records.")]
+         ToolNames.Apply + " with op='Remove' instead. Read first with " + ToolNames.Records + ".")]
     public static string Remove(
         LoadOrderService svc,
         [Description("The record(s) to drop, each 'XXXXXX:Plugin.esp' (6 hex digits, the defining master's filename) — set-valued, so many records drop in ONE re-serialize. Also accepts [\"@<absolute path>\"] to read the same list from a file.")]
@@ -64,7 +64,7 @@ public static class RemoveTools
         [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
             string? format = null,
         [Description("TRANSPORT: character ceiling on the render; past it trailing rows are dropped with an explicit notice (never silent). 0 = a safe default kept under the host's per-response limit.")]
-            int max_chars = 0) => Guard.Tool("housecarl_remove", () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.Remove, () =>
     {
         // format first, so the unconfigured-MO2 prompt answers a json caller as a DOCUMENT (PR #311 review 5 [low]).
         bool json = Wire.WantsJson(format, out var ferr);
