@@ -989,10 +989,12 @@ public static class WriteEngine
             }
         reason = $"'{typeName}' has no top-level group, so it can't be created on its own — it's a nested/placed record " +
                  "(a placed object/NPC, a dialogue line, navmesh or terrain) that needs a parent. Create it WITH its parent: " +
-                 "pass parent= (the parent record's FormID, or the editorid of a record created EARLIER in the same call) and, " +
-                 "if the parent holds more than one child-collection, collection= — or use housecarl_create to make a parent " +
-                 "and its children (a dialogue topic + its lines, a cell + its placed refs) in ONE call. (A CELL is coordinate-keyed: " +
-                 "create an EXTERIOR cell with parent=<Worldspace FormID> + grid=<X,Y>, or an INTERIOR cell with no parent.) If instead it's a subtype " +
+                 "in this record's housecarl_create records= element pass parent= (the parent record's FormID, or the editorid of a " +
+                 "record declared EARLIER in the same records= array) and, if the parent holds more than one child-collection, " +
+                 "collection= there too. That same array is how a parent AND its children go in ONE call (a dialogue topic + its " +
+                 "lines, a cell + its placed refs): declare the parent first, then the children whose parent= names its editorid. " +
+                 "(A CELL is coordinate-keyed: an EXTERIOR cell is parent=<Worldspace FormID> + grid=<X,Y> in its element, an " +
+                 "INTERIOR cell has neither.) If instead it's a subtype " +
                  "of an abstract group (like Global → GlobalFloat), create the concrete subtype. Flat top-level records — keywords, " +
                  "spells, perks, magic effects, factions, armor, weapons, leveled lists, … — create fine.";
         return false;

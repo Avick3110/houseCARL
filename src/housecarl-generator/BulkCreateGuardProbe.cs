@@ -127,10 +127,21 @@ internal static class BulkCreateGuardProbe
             // ---- GUIDANCE: a nested create with no parent guides to parent= / housecarl_create ----
             {
                 var o = svc.CreateRecords("DialogResponses", "HcBcNoParent", Array.Empty<BulkOp>(), "HcBcGuidance", null);
+                // The remedy must give the SPELLING as well as the name (#468 round 1, driven on the wire): the
+                // sentence used to say "pass parent= … collection=" at the top level, which was housecarl_create_record's
+                // shape and is nobody's now — housecarl_create declares only records/patch/into/in_place/acknowledge/
+                // readback/format/max_chars, so a caller who followed this refusal literally was refused a SECOND
+                // time ("unknown parameters: parent"). Three pins, each an independently-written second spelling of
+                // what makes the sentence true: the successor at a WHOLE-identifier boundary (housecarl_create ⊂
+                // housecarl_create_record, so Contains passed over the unrepaired text), the records= element that
+                // parent= actually lives in, and the absence of the old circular branch that offered the caller the
+                // very tool they were already inside.
                 bool guided = !o.Success && o.Error is not null
                     && o.Error.Contains("parent", StringComparison.OrdinalIgnoreCase)
-                    && o.Error.Contains("housecarl_create", StringComparison.OrdinalIgnoreCase);
-                Check(guided, $"GUIDANCE nested-with-no-parent refused + guides to parent=/housecarl_create — guided={guided} err=[{o.Error}]");
+                    && ToolNameMatch.ReferencedAtBoundary(o.Error, "housecarl_create")
+                    && o.Error.Contains("records= element", StringComparison.Ordinal)
+                    && !o.Error.Contains("or use housecarl_create", StringComparison.Ordinal);
+                Check(guided, $"GUIDANCE nested-with-no-parent refused + guides to parent= INSIDE the records= element of housecarl_create — guided={guided} err=[{o.Error}]");
             }
 
             // ---- EXTERIOR-WIRE: create_record Cell with parent=<worldspace> + grid= → exterior cell + shell report ----

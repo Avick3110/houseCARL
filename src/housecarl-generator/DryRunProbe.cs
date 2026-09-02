@@ -318,8 +318,14 @@ internal static class DryRunProbe
                 var emptyInline = ApplyTools.Apply(svc, ops: Json("[]"));
                 Check(emptyInline.StartsWith("error:") && emptyInline.Contains("empty"),
                     $"an explicit empty INLINE array keeps its existing refusal  [{Snip(emptyInline)}]");
+                // NAMED is asserted, not just refused (#468 round 1): a bare StartsWith("error:") cannot tell this
+                // refusal from the outcome it exists to exclude — a blank @path silently reinterpreted as "no ops
+                // supplied" produces the no-ops refusal, which also starts with "error:". Two reviewers measured
+                // that: one made ReadAtFile tolerate a blank spelling, the other replaced the refusal text outright,
+                // and this arm stayed green both times. It now pins the parameter name and the "names no file"
+                // claim — the two things that make the message named rather than generic.
                 var blank = ApplyTools.Apply(svc, ops: AtPath("   "));
-                Check(blank.StartsWith("error:"),
+                Check(blank.StartsWith("error:") && blank.Contains("ops:") && blank.Contains("names no file"),
                     $"a blank @path refuses NAMED, never silently reinterpreted as absent  [{Snip(blank)}]");
                 var rel = ApplyTools.Apply(svc, ops: Json("\"@ops.json\""));
                 Check(rel.StartsWith("error:") && rel.Contains("ABSOLUTE"), $"a relative path refuses  [{Snip(rel)}]");

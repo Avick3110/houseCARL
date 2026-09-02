@@ -174,21 +174,12 @@ public static class CodexUmbrellaCoverageProbe
     /// that mentions only `bulk-record-jobs`). The identifier alphabet includes <c>-</c>, because skill slugs are
     /// kebab-case: without it the hyphen in `bulk-record-jobs` would read as a word boundary and re-open exactly
     /// that hole.</summary>
-    static bool ReferencedAtBoundary(string text, string name)
-    {
-        for (int i = text.IndexOf(name, StringComparison.Ordinal); i >= 0;
-             i = text.IndexOf(name, i + 1, StringComparison.Ordinal))
-        {
-            if (i > 0 && IsNamePart(text[i - 1])) continue;
-            int after = i + name.Length;
-            if (after >= text.Length || !IsNamePart(text[after])) return true;
-        }
-        return false;
-    }
-
-    /// <summary>The identifier alphabet these names are written in: tool names are snake_case, skill slugs are
-    /// kebab-case, so a letter, digit, <c>_</c> or <c>-</c> continues a name rather than ending it.</summary>
-    static bool IsNamePart(char c) => char.IsLetterOrDigit(c) || c == '_' || c == '-';
+    /// <para>The implementation moved to <see cref="ToolNameMatch"/> at the #468 demolition catch-up, unchanged:
+    /// the same collision it was written for turned out to hold OTHER guards green (the binding shim's
+    /// retired-name arm, and four repointed remedy assertions), so every consumer now shares one matcher — and
+    /// GUARD-SELF above, which derives the colliding pairs from the real name set, vouches for all of them
+    /// rather than for this file's private copy.</para>
+    static bool ReferencedAtBoundary(string text, string name) => ToolNameMatch.ReferencedAtBoundary(text, name);
 
     static void Check(string label, bool ok, List<string> detail, bool redArm = false)
     {

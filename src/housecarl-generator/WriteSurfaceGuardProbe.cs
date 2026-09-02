@@ -1617,10 +1617,19 @@ public static class WriteSurfaceGuardProbe
         // …and CopyFrom names the remedy that was MEASURED to work for this shape, not the one the list twin can
         // honestly offer: housecarl_forward carries a LAND and a worldspace's top cell; create with parent= is refused
         // for a singular child ("that parent models no child-collection that holds it"), so it must not appear here.
+        //
+        // BOTH halves match on the WHOLE identifier (#468 round 1, measured on each): the positive
+        // Contains("housecarl_forward") was satisfied by the 1.x name housecarl_forward_record, so it passed
+        // whether or not the sentence had been repaired; and the negative had been narrowed to the exact phrase
+        // "housecarl_create with parent=", which a reviewer slipped by appending "Or author it with
+        // housecarl_create parent=<the parent FormID>" to the refusal — the very regression this arm names. The
+        // negative is now the claim itself: the singular arm must not name housecarl_create AT ALL, since
+        // create with parent= is measured-refused for a singular child and the collection twin is the only door
+        // that may offer it.
         var copyMsg = Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "CopyFrom" })!;
-        Check("…and CopyFrom's refusal names housecarl_forward (measured) and NOT create with parent= (measured refused)",
-            copyMsg.Contains("housecarl_forward", StringComparison.Ordinal)
-            && !copyMsg.Contains("housecarl_create with parent=", StringComparison.Ordinal), copyMsg);
+        Check("…and CopyFrom's refusal names housecarl_forward (measured) and NOT housecarl_create (measured refused for a singular child)",
+            ToolNameMatch.ReferencedAtBoundary(copyMsg, "housecarl_forward")
+            && !ToolNameMatch.ReferencedAtBoundary(copyMsg, "housecarl_create"), copyMsg);
 
         // --- THE REFUSALS, RENDERED. All three arms of RestoreChildGroup are user-facing sentences that no arm had
         //     ever produced (round-1 review [low]) — and this file's own standing lesson is that a message shipped

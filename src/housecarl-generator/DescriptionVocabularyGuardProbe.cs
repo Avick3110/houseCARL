@@ -1878,6 +1878,26 @@ public static class DescriptionVocabularyGuardProbe
         var (v2, _, _) = Scan(companioned, new[] { new Sentence("RED synthetic site", $"Confirms the {companioned.Phrase} trade-off.") }, none, null);
         Check($"RED-COMPANION    a synthetic \"{companioned.Phrase}\" with NO correction clause is reported", v2.Count == 1, v2, redArm: true);
 
+        // TOOLNAME's own drivers. Both name sets are supplied here rather than reflected, so these arms prove the
+        // SCAN can fail and can tell a dead end from #470's declared-but-unregistered case — independent of whatever
+        // the live surface happens to register today.
+        var liveNames = new HashSet<string>(StringComparer.Ordinal) { "housecarl_apply" };
+        var unpubNames = new HashSet<string>(StringComparer.Ordinal) { "housecarl_notyet" };
+        var (tnDead, tnUnpub, _, _, _) = ScanToolNames(
+            new[] { new Sentence("RED synthetic site", "Edit the field with housecarl_long_gone instead.") }, liveNames, unpubNames);
+        Check("RED-TOOLNAME     a synthetic sentence naming a tool nobody registers is reported",
+            tnDead.Count == 1 && tnUnpub.Count == 0, tnDead, redArm: true);
+
+        var (tnDead2, tnUnpub2, _, _, _) = ScanToolNames(
+            new[] { new Sentence("RED synthetic site", "Sweep it with housecarl_notyet when it lands.") }, liveNames, unpubNames);
+        Check("RED-TOOLNAME-UNPUB a synthetic naming a DECLARED-but-unregistered tool is held apart, not counted a dead end",
+            tnDead2.Count == 0 && tnUnpub2.Count == 1, tnUnpub2, redArm: true);
+
+        var (tnDead3, tnUnpub3, _, _, _) = ScanToolNames(
+            new[] { new Sentence("RED synthetic site", "Edit the field with housecarl_apply instead.") }, liveNames, unpubNames);
+        Check("RED-TOOLNAME-LIVE  the same scan over a sentence naming a REGISTERED tool reports nothing (the arm is not a rubber stamp)",
+            tnDead3.Count == 0 && tnUnpub3.Count == 0, tnDead3, redArm: true);
+
         var (v3, _, _) = Scan(companioned, new[] { new Sentence("RED synthetic site",
             $"Confirms the {companioned.Phrase} trade-off — {companioned.Companions[0]}.") }, none, null);
         Check("GREEN-COMPANION  the same synthetic sentence WITH the correction clause is not reported", v3.Count == 0,
@@ -2487,18 +2507,32 @@ public static class DescriptionVocabularyGuardProbe
     /// call something no longer on the surface, in five files no survey had listed. So the check is derived on both
     /// sides — the literals from the two-reader net above, the live names from the SDK's own predicate — rather
     /// than from a list of what someone remembered to look at.</summary>
-    static void ToolNameArm(List<Sentence> sentences)
+    /// <summary>Names a tool method DECLARES but the SDK never registers, because the declaring type is missing
+    /// <c>[McpServerToolType]</c>. Derived as (declared − registered), so it empties by construction the moment the
+    /// attribute lands rather than needing an exemption removed by hand. Today it is exactly
+    /// <c>housecarl_check</c> (#470).</summary>
+    static HashSet<string> DeclaredButUnregisteredToolNames()
     {
-        Console.WriteLine("── TOOL NAMES: every housecarl_ token a caller-facing sentence carries names a REGISTERED tool ──");
-        var registered = RegisteredToolNames();
-        // The one legitimate home for an unregistered name is the retired-name redirect table, whose rows exist to
-        // answer an old name with its successor. Derived from the table itself, BOTH halves of every row, so adding
-        // or dropping a row moves this exemption with it — and nothing else is exempt.
-        var retiredRows = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var (old, successor) in AliasTable.AllRetiredTools) { retiredRows.Add(old); retiredRows.Add(successor); }
+        const BindingFlags Flags = BindingFlags.Public | BindingFlags.NonPublic
+                                 | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+        var declared = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var t in Surface.GetTypes())
+            foreach (var m in t.GetMethods(Flags))
+                if (m.GetCustomAttribute<ModelContextProtocol.Server.McpServerToolAttribute>(inherit: false)?.Name is { Length: > 0 } n)
+                    declared.Add(n);
+        declared.ExceptWith(RegisteredToolNames());
+        return declared;
+    }
 
+    /// <summary>The TOOLNAME scan, factored out of its arm so <see cref="RedArms"/> can drive it with synthetic
+    /// sentences — every other checker in this file ships that proof and this one shipped without it (#468 round 1).
+    /// Pure: no reflection, no console, both name sets passed in.</summary>
+    static (List<string> Violations, List<string> Unpublished, int Prose, int Carrying, int Tokens) ScanToolNames(
+        IEnumerable<Sentence> sentences, ISet<string> registered, ISet<string> unpublished)
+    {
         var violations = new List<string>();
-        int prose = 0, carrying = 0, tokens = 0, exempt = 0;
+        var unpublishedRefs = new List<string>();
+        int prose = 0, carrying = 0, tokens = 0;
         foreach (var s in sentences)
         {
             // PROSE only. A bare "housecarl_check" literal is the tool's own DECLARATION (the attribute's Name), not
@@ -2508,18 +2542,43 @@ public static class DescriptionVocabularyGuardProbe
             var hits = ToolToken.Matches(s.Text);
             if (hits.Count == 0) continue;
             carrying++;
-            if (retiredRows.Contains(s.Text)) { exempt++; continue; }
             foreach (Match h in hits)
             {
                 tokens++;
-                if (!registered.Contains(h.Value))
-                    violations.Add($"{s.Label}: names '{h.Value}', which no registered tool answers to");
+                if (registered.Contains(h.Value)) continue;
+                if (unpublished.Contains(h.Value)) unpublishedRefs.Add($"{s.Label}: names '{h.Value}'");
+                else violations.Add($"{s.Label}: names '{h.Value}', which no registered tool answers to");
             }
         }
+        return (violations, unpublishedRefs, prose, carrying, tokens);
+    }
+
+    static void ToolNameArm(List<Sentence> sentences)
+    {
+        Console.WriteLine("── TOOL NAMES: every housecarl_ token a caller-facing sentence carries names a REGISTERED tool ──");
+        var registered = RegisteredToolNames();
+        // #468 round 1: the first form of this arm exempted whole retired-name ROWS — both the old name and the
+        // successor TEACHING. That was backwards. The old-name half was already dead code (a bare tool name carries
+        // no whitespace, so the prose filter below drops it), while the successor half skipped the 17 sentences whose
+        // entire purpose is naming a call that works — the one population where a dead name costs a caller most.
+        // Three of those rows name housecarl_check, and three reviewers measured the arm staying green over them.
+        //
+        // So nothing is exempt by row. The only tolerated unregistered name is one the surface DECLARES but the SDK
+        // does not register — #470's single instance — and that set is derived, reported by name, and empties itself
+        // when the attribute lands. It is held apart from a true dead end rather than folded into the pass: a
+        // sentence naming a tool nobody can call is still wrong, it is just wrong for a reason with an issue on it.
+        var unpublished = DeclaredButUnregisteredToolNames();
+
+        var (violations, unpublishedRefs, prose, carrying, tokens) = ScanToolNames(sentences, registered, unpublished);
         Console.WriteLine($"        coverage: {prose} prose literal(s) read, {carrying} carrying a housecarl_ token, {tokens} token(s) "
-                        + $"held against {registered.Count} registered name(s); {exempt} retired-name row(s) exempt.");
+                        + $"held against {registered.Count} registered name(s); no sentence is exempt.");
         Console.WriteLine("        the claim reaches housecarl_-prefixed tokens ONLY. A BARE retired name (\"the old set_field call\") is "
-                        + "outside it, deliberately: bare-word matching would read ordinary vocabulary as tool names.");
+                        + "outside it, deliberately: bare-word matching would read ordinary vocabulary as tool names. Shipped MARKDOWN "
+                        + "(the bundled skills, the Codex router) is outside it too — this net reads C# literals only.");
+        if (unpublished.Count > 0)
+            Console.WriteLine($"        DECLARED BUT UNREGISTERED (#470): [{string.Join(", ", unpublished.OrderBy(x => x, StringComparer.Ordinal))}] "
+                            + $"— {unpublishedRefs.Count} sentence reference(s) held against that, not counted as dead ends: "
+                            + $"[{string.Join("; ", unpublishedRefs)}]");
         // An empty sweep is a broken guard, not a clean surface: both populations must be non-empty to claim anything.
         Check("TOOLNAME      every housecarl_ token in a caller-facing sentence names a REGISTERED tool",
             violations.Count == 0 && registered.Count > 0 && carrying > 0, violations, tier: Tier.BestEffort);

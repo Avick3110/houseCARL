@@ -1,3 +1,4 @@
+using System.Reflection;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
@@ -220,6 +221,32 @@ internal static class DialogueCkParityGuardProbe
                 int after = DialogueCkParity.MissingViewDefaults(view).Count;
                 Check(flaggedBoth && after == 0,
                     $"DLVW-GAP-PROBE bare DialogView → DNAM+ENAM gaps (before={before.Count}), none after fill (after={after}) — check/fill share one predicate");
+
+                // ---- DLVW-GAP-REMEDY: the remedy these gaps print is a WHOLE housecarl_apply op element, so it
+                //      must carry every member that tool's op REQUIRES. A remedy is only a remedy if a caller who
+                //      follows it is not refused (CorpusRulebook's own rule); #468 round 1 found this one handing
+                //      out ops=[{field_path, value}] with no formid, which the engine refuses outright.
+                //
+                //      The required set is DERIVED from the shipped surface, not listed here: housecarl_apply's
+                //      ops= parameter publishes its element shape as "{formid, field_path, op?, value?, …}", and
+                //      the members written WITHOUT a trailing '?' are the required ones. So if the tool's own
+                //      spelling changes, this arm follows it instead of going quietly stale.
+                var opsDesc = typeof(ApplyTools).GetMethod("Apply")!.GetParameters()
+                    .First(p => p.Name == "ops")
+                    .GetCustomAttribute<System.ComponentModel.DescriptionAttribute>()!.Description;
+                var shape = System.Text.RegularExpressions.Regex.Match(opsDesc, @"\{([^}]*)\}").Groups[1].Value;
+                var required = shape.Split(',').Select(t => t.Trim())
+                    .Where(t => t.Length > 0 && !t.EndsWith("?", StringComparison.Ordinal)).ToList();
+                var remedies = before.Where(g => g.Detail.Contains("ops=[{", StringComparison.Ordinal)).ToList();
+                var missing = (from g in remedies
+                               from m in required
+                               where !g.Detail.Contains(m + ":", StringComparison.Ordinal)
+                               select $"{g.Subrecord} omits '{m}'").ToList();
+                // Both populations non-empty or the arm proves nothing: no remedies swept, or no required members
+                // parsed out of the published shape, is a broken guard rather than a clean surface.
+                Check(remedies.Count == 2 && required.Count > 0 && missing.Count == 0,
+                    $"DLVW-GAP-REMEDY every ops= remedy carries all {required.Count} REQUIRED op member(s) [{string.Join(", ", required)}] "
+                    + $"— swept {remedies.Count}, missing=[{string.Join("; ", missing)}]");
             }
 
             // ---- DLBR-GAP-PROBE: the same tie for the DialogBranch — a bare DLBR reports exactly the TNAM gap,

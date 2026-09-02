@@ -248,7 +248,9 @@ public static class InsertAtIndexGuardProbe
         });
         Check("GATE-REJ-RECORDELEM — an insert into a list of owned child RECORDS redirects to the record axis, not accepted-then-thrown",
             recElem is not null && recElem.Contains("owned child records", StringComparison.Ordinal)
-                && recElem.Contains("housecarl_create", StringComparison.Ordinal),
+                // WHOLE identifier (#468 round 1): housecarl_create ⊂ housecarl_create_record, so Contains passed
+                // over an unrepaired 1.x sentence.
+                && ToolNameMatch.ReferencedAtBoundary(recElem, "housecarl_create"),
             recElem ?? "(accepted)");
 
         var composes = Rules.Validate(new WriteRequest
