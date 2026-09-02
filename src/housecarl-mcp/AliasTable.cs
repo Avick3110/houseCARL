@@ -265,10 +265,14 @@ internal static class AliasTable
     // ---- retired tool NAMES (W2 PR 2 — the tool-NAME lane, on top of the parameter layer) -----------
 
     /// <summary>The 8 read tools `housecarl_records` absorbs, each mapped to its successor call shape.
-    /// The lane is DORMANT BY CONSTRUCTION while these tools stay registered (they do, through the build
-    /// waves — CHARTER_PHASE4 §3.4a): the SDK resolves a registered name before the shim's filter runs, so
-    /// this table answers only a call naming a tool the server does NOT have — which today is nothing, and
-    /// at retirement is exactly these. It turns the SDK's generic unknown-tool error into the successor
+    /// The lane is dormant PER ROW, not wholesale (CHARTER_PHASE4 §3.4a): the SDK resolves a registered name
+    /// before the shim's filter runs, so this table answers only a call naming a tool the server does NOT
+    /// have. That was nothing at all until the demolition catch-up (#468), which unregistered the six 1.x
+    /// WRITE tools — those rows are LIVE now, and are the only thing standing between a caller on pre-2.0
+    /// docs and a dead end. The eight read rows and the three check rows stay dormant while their tools are
+    /// still registered, and go live at their own retirement. BindingShimProbe arm D3 drives every live row
+    /// over the wire and treats an empty sweep as a broken guard, so how many are live is MEASURED there
+    /// rather than asserted here. It turns the SDK's generic unknown-tool error into the successor
     /// spelling, so a caller working from old docs lands on `records` in one hop instead of a dead end.</summary>
     static readonly (string Old, string Successor)[] RetiredTools =
     {

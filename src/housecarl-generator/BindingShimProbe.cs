@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using HousecarlMcp;
 
 namespace HousecarlGenerator;
@@ -41,6 +42,10 @@ public static class BindingShimProbe
     const string GenericError = "An error occurred invoking";          // the SDK's opaque text (measured live, HCBR-2026-06-11-01)
 
     /// <summary>One-line clamp of a server response, for an arm's failure detail.</summary>
+    /// <summary>The housecarl_ tool names a retired row's successor teaching promises. Read off the ROW,
+    /// not off a hand-list: a row that gains a destination gains it here too.</summary>
+    static readonly Regex ToolToken = new("housecarl_[a-z0-9_]+", RegexOptions.Compiled);
+
     static string Flatten(string text)
     {
         var one = text.Replace('\r', ' ').Replace('\n', ' ').Trim();
@@ -170,7 +175,7 @@ public static class BindingShimProbe
             //    complete. Delete a tool and forget its row and this arm sweeps the rows it has, reports a clean
             //    sweep, and the caller gets a bare "Unknown tool". Closing that needs an oracle for "what the last
             //    shipped release published" (the 1.9 tools/list, captured as a frozen fixture), which is guard
-            //    GROWTH rather than a fold: #<COMPLETENESS-ISSUE> carries it, routed with #470, whose PR already
+            //    GROWTH rather than a fold: #472 carries it, routed with #470, whose PR already
             //    moves the census oracle to tools/list.
             {
                 var registered = new HashSet<string>(StringComparer.Ordinal);
@@ -178,40 +183,56 @@ public static class BindingShimProbe
                     if (t.GetProperty("name").GetString() is { Length: > 0 } rn) registered.Add(rn);
 
                 var retiredAndGone = AliasTable.AllRetiredTools
-                    .Select(r => r.Old).Where(old => !registered.Contains(old))
-                    .OrderBy(x => x, StringComparer.Ordinal).ToList();
+                    .Where(r => !registered.Contains(r.Old))
+                    .OrderBy(r => r.Old, StringComparer.Ordinal).ToList();
 
                 var deadEnds = new List<string>();
                 int id = 900;
-                foreach (var old in retiredAndGone)
+                foreach (var (old, successor) in retiredAndGone)
                 {
                     var r = Call(stdin, stdout, id++, old, "{}");
-                    // The redirect must name a successor that EXISTS, not merely fail politely: a caller who gets
-                    // "unknown tool" learns nothing, and one sent to a tool that is itself gone learns worse than
-                    // nothing. Checked against the REGISTERED set rather than a phrase, because the rows are not
-                    // one shape — an absorbed tool reads "absorbed into housecarl_X", while housecarl_validate_dialogue
-                    // was SPLIT and names two successors. Asserting a phrase tests the house style; asserting a live
-                    // tool name tests the migration.
+                    // The redirect must send the caller to THIS ROW'S successor, and that successor must exist. Two
+                    // earlier forms of this check were proxies for that property and both were measured false:
                     //
-                    // WHOLE-IDENTIFIER match, not Contains (#468 round 1, measured): the response ECHOES the name it
-                    // is refusing — "housecarl_create_record is not on this surface — …" — and the 2.0 successors are
-                    // PREFIXES of three of the names they absorbed (create ⊂ create_record, remove ⊂ remove_record,
-                    // forward ⊂ forward_record). A Contains test of that response is therefore satisfied by the echo
-                    // alone for half this arm's subjects: two reviewers independently replaced a successor teaching
-                    // with text naming no tool at all and this arm still passed.
-                    bool named = !r.text.Contains(GenericError)
-                              && registered.Any(reg => ToolNameMatch.ReferencedAtBoundary(r.text, reg));
-                    if (!named) deadEnds.Add($"{old} -> {Flatten(r.text)}");
+                    //   Contains(reg) over the registered set — satisfied by the response's ECHO of the name it is
+                    //   refusing ("housecarl_create_record is not on this surface — …"), because the 2.0 successors
+                    //   are PREFIXES of three of the names they absorbed (create ⊂ create_record, and the same for
+                    //   remove/forward). Two round-1 reviewers gutted a successor teaching and this arm still passed.
+                    //
+                    //   ReferencedAtBoundary(reg) over the registered set — closes the echo, but still accepts ANY
+                    //   registered name, never consulting the row's own Successor. A round-2 reviewer pointed
+                    //   housecarl_set_field's row at housecarl_records — sending a caller holding 1.x WRITE docs to a
+                    //   read-only tool — and this arm still passed.
+                    //
+                    // So the subject is the row's OWN teaching, and the claim is ALL of what it names, not any:
+                    // housecarl_validate_dialogue was SPLIT and names two successors, and "at least one registered"
+                    // would let that row pass on housecarl_records alone while still sending the caller who wants
+                    // "why does the wrong line play" to a dead housecarl_check — precisely what that row's comment
+                    // says a one-destination row would do wrong. Requiring all of them also makes this arm the
+                    // tripwire for #470's sequencing: unregister the check family before check is published and the
+                    // row goes RED naming itself, which is the correct answer rather than a false alarm.
+                    var promises = ToolToken.Matches(successor).Select(m => m.Value)
+                        .Where(t => t != old).Distinct(StringComparer.Ordinal).ToList();
+                    var unregistered = promises.Where(t => !registered.Contains(t)).ToList();
+                    var unspoken = promises.Where(t => !ToolNameMatch.ReferencedAtBoundary(r.text, t)).ToList();
+                    if (r.text.Contains(GenericError))
+                        deadEnds.Add($"{old} -> generic SDK error, no redirect: {Flatten(r.text)}");
+                    else if (promises.Count == 0)
+                        deadEnds.Add($"{old} -> its row names no successor tool at all: {Flatten(r.text)}");
+                    else if (unregistered.Count > 0)
+                        deadEnds.Add($"{old} -> names [{string.Join(", ", unregistered)}], which no registered tool answers to");
+                    else if (unspoken.Count > 0)
+                        deadEnds.Add($"{old} -> its row promises [{string.Join(", ", unspoken)}] but the RESPONSE does not name them: {Flatten(r.text)}");
                 }
 
                 // A zero-length sweep is a BROKEN GUARD, not a clean one: it means either the table emptied or
                 // every retired name is somehow still registered, and both deserve to be loud.
                 failures += Check(
-                    "D3 retired-name redirect: every UNREGISTERED retired tool answers with its successor call shape",
+                    "D3 retired-name redirect: every UNREGISTERED retired tool answers naming EVERY successor its own row promises, each REGISTERED",
                     retiredAndGone.Count > 0 && deadEnds.Count == 0,
                     retiredAndGone.Count == 0
                         ? "no retired name is unregistered — nothing was swept, which is a broken guard rather than a clean surface"
-                        : $"swept {retiredAndGone.Count} against {registered.Count} registered: {string.Join(", ", retiredAndGone)}"
+                        : $"swept {retiredAndGone.Count} against {registered.Count} registered: {string.Join(", ", retiredAndGone.Select(r => r.Old))}"
                           + (deadEnds.Count == 0 ? "" : $" | DEAD ENDS: {string.Join("; ", deadEnds)}"));
             }
 

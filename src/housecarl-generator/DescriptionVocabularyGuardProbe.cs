@@ -2571,7 +2571,8 @@ public static class DescriptionVocabularyGuardProbe
 
         var (violations, unpublishedRefs, prose, carrying, tokens) = ScanToolNames(sentences, registered, unpublished);
         Console.WriteLine($"        coverage: {prose} prose literal(s) read, {carrying} carrying a housecarl_ token, {tokens} token(s) "
-                        + $"held against {registered.Count} registered name(s); no sentence is exempt.");
+                        + $"held against {registered.Count} registered name(s); no sentence is exempt BY ROW, and "
+                        + $"{unpublishedRefs.Count} reference(s) are held apart as the declared-but-unregistered case below.");
         Console.WriteLine("        the claim reaches housecarl_-prefixed tokens ONLY. A BARE retired name (\"the old set_field call\") is "
                         + "outside it, deliberately: bare-word matching would read ordinary vocabulary as tool names. Shipped MARKDOWN "
                         + "(the bundled skills, the Codex router) is outside it too — this net reads C# literals only.");
