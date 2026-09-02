@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Xunit;
@@ -37,7 +38,10 @@ public sealed class HarnessResidueTests
     // probeLines — the total line count of those same files (File.ReadAllLines().Length: a last line with
     //              no trailing newline still counts, which is why this may differ by a few from `wc -l`).
     //              REPORT-ONLY: derived and printed, never asserted. See the class summary.
-    // ciAllRows  — the ("name", XProbe.RunGuard) rows in CiAll.cs, i.e. what `ci-all` will actually run.
+    // ciAllRows  — CiAll.ProbeNames.Count: the registry `ci-all` dispatches, read off the compiled generator
+    //              rather than off the text of CiAll.cs. A regex over the source was the first shape and it
+    //              was short by whatever it did not match — a row carrying a trailing comment counted as
+    //              zero while ci-all ran it, so the old harness could gain a guard with the countdown green.
     //              Cross-check available on any run: ci-all's own summary prints "N/N passed" and N is this.
 
     static string[] ProbeFiles() =>
@@ -50,13 +54,7 @@ public sealed class HarnessResidueTests
 
     static int ProbeLines() => ProbeFiles().Sum(f => File.ReadAllLines(f).Length);
 
-    static int CiAllRows() =>
-        Regex.Matches(
-            File.ReadAllText(Path.Combine(HarnessPaths.RepoRoot, "src", "housecarl-generator", "CiAll.cs")),
-            // [ \t\r]* before the anchor, not [ \t]*: the file is checked out CRLF on Windows and a regex
-            // that forgets the \r counts zero rows while looking perfectly correct.
-            @"^[ \t]*\(""[a-z0-9-]+"",[ \t]*[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\),?[ \t\r]*$",
-            RegexOptions.Multiline).Count;
+    static int CiAllRows() => HousecarlGenerator.CiAll.ProbeNames.Count;
 
     static Baseline Committed()
     {
@@ -107,6 +105,43 @@ public sealed class HarnessResidueTests
             $"You removed residue and the countdown does not know: {measure} is {actual}, baseline {committed}. " +
             $"Lower it in '{BaselinePath}' in this PR. A baseline left above the real figure stops being a " +
             "countdown and becomes headroom.");
+    }
+
+    /// <summary>
+    /// The countdown counts files by the `*Probe*.cs` name convention, and a convention is a hand-list wearing
+    /// a glob: a guard added as `NewGuard.cs` would run in the old harness while the countdown reported it
+    /// unchanged. So the population is checked against the surface it claims — every guard ENTRY POINT the
+    /// compiled generator actually exposes must live in a file the counter counts.
+    ///
+    /// Derived from the assembly, not listed here. Six files under src/housecarl-generator do expose a `Run`
+    /// verb without matching the glob (WriteOracle, WriteCensus, CopyDifferentialHarness, SkyPatcherHarness,
+    /// LocalizedShapeSweep, ClassParentsEmitter) — those are manual/exploratory verbs, not CI guards, and
+    /// none of them is a ci-all registry row. `RunGuard` is the CI guard shape, and that is what this pins.
+    /// </summary>
+    [Fact]
+    public void EveryGuardEntryPointLivesInAFileTheCountdownCounts_OtherwiseResidueIsInvisibleToIt()
+    {
+        var guardTypes = typeof(HousecarlGenerator.CiAll).Assembly
+            .GetTypes()
+            .Where(t => t.GetMethod("RunGuard", BindingFlags.Public | BindingFlags.Static) is not null)
+            .Select(t => t.Name)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .ToArray();
+
+        // Vacuity canary: reflection that stops matching would otherwise leave this green over an empty set.
+        Assert.True(guardTypes.Length > 0,
+            "No types exposing a static RunGuard entry point were found in the generator assembly. Either the " +
+            "guard entry-point shape was renamed without updating this test, or the assembly did not load. " +
+            "Both are this guard's subject, not a reason for it to pass.");
+
+        var counted = ProbeFiles().Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var invisible = guardTypes.Where(n => !counted.Contains(n + ".cs")).ToArray();
+
+        Assert.True(invisible.Length == 0,
+            "These types expose a guard entry point but do not live in a file the residue countdown counts, so " +
+            "the old harness can hold them while probeFiles reports it shrinking: " + string.Join(", ", invisible) +
+            $". Either name the file to match the counted population, or widen the derivation in {nameof(ProbeFiles)}.");
     }
 
     // ---- one-way conversion ----------------------------------------------------------------------------
