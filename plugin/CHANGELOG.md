@@ -19,8 +19,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
   field, counting them for a SINGULAR one, e.g. Cell.Landscape), and states in its own words when none do. It
   reads the provider bodies the tree already fetched, so it adds no fetch. The default read
   is unchanged: it still says other plugins touch the record and their declarations were not read, and its note
-  points here. The bound is the field set, which is the record type's own child-bearing set (the same set the
-  default read's note names). Check it: run the tree form on a cell and read the block above the diff.
+  points here. The bound is the field set: the record type's own child-bearing set (reflection over the type),
+  not the narrower set the default read's own note is restricted to — the block covers every child-bearing
+  field of the type, sole-provider records included, where the default read's note has nothing to say at all.
+  Check it: run the tree form on a cell and read the block above the diff.
 
 - **`housecarl_check` is callable. It was not before.** The merged derived-findings sweep — the errors,
   scripts and dialogue families under one `findings=` vocabulary — shipped in the source on 2026-08-21 but

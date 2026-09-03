@@ -1230,7 +1230,8 @@ static class Wire
         // the response's epoch stamp name the same build. The unpinned fallback exists only for a hand-built
         // outcome (guards).
         // The prefetched-tree parameter this took is gone with #342's precise tier, which was the one lane that
-        // had already materialised the tree and passed it in (deleted at the 1.x cut — gap #485).
+        // had already materialised the tree and passed it in — restored elsewhere by #485 on
+        // records project={"form":"tree"}, not on this lane's conflict_tree=true (see AppendRecordBlock below).
         var tree = o.Pin is { } p ? svc.ResolveTreePinned(p, o.FormKey, fields)
                                   : svc.ResolveTree(o.FormKey, fields);   // materialised (no live overlay) — Option B
         if (tree is null || tree.Nodes.Count <= 1) return;

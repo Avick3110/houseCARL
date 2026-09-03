@@ -301,7 +301,7 @@ internal static class Artifacts
             writer.WriteRow((w, ms) => JsonWire.WriteTreeRow(w, row, ms, int.MaxValue, LeverNames.Records),
                             row.Error is null ? row.Type : null);   // a records-only artifact: the rows speak the records vocabulary (#439)
         var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
-                                          new[] { "formid", "type", "editorid", "reference", "touchers", "child_declarers", "nodes" },
+                                          new[] { "formid", "type", "editorid", "reference", "touchers", "child_declarers?", "nodes" },
                                           "input order", rows.Count, epoch ?? "", PreciseChildNotes(rows));
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
     }
