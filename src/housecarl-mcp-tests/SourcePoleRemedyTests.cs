@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Reflection;
 using HousecarlCore;
 using HousecarlMcp;
 using Xunit;
@@ -87,6 +89,64 @@ public sealed class SourcePoleRemedyTests : RecordsTestBase
 
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
         Assert.Contains("missing master", r);
+    }
+
+    // ---- the sentences themselves, pinned to the call their arms drive ------------------------------
+    //
+    // The arms above prove the CALL works. They do not, on their own, prove the SENTENCE still names it:
+    // measured by sabotage, dropping the select term back out of three of these sentences left both gates
+    // green. These three pins close that, each against the shipped text rather than a copy of it. The
+    // general form — every prose site that names a call, held against whether that call is refused — is
+    // #483's chartered work, not this PR's.
+
+    static readonly string[] SelectTerms =
+        { "formids=", "types=", "plugins=", "where=", "references=", "conflicts_only=" };
+
+    /// <summary>`housecarl_skypatcher_layer`'s PUBLISHED description, read off the same attribute the SDK
+    /// builds the schema from. Where it tells a caller to reach for `housecarl_records` with a source pole it
+    /// must also name a selection.</summary>
+    [Fact]
+    public void TheSkyPatcherToolDescriptionNamesASelectionBesideItsSourcePole()
+    {
+        var m = typeof(SkyPatcherTools).GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Single(x => x.GetCustomAttribute<ModelContextProtocol.Server.McpServerToolAttribute>() is { } a
+                      && a.Name == ToolNames.SkypatcherLayer);
+        var desc = m.GetCustomAttribute<DescriptionAttribute>()!.Description;
+
+        Assert.Contains(ToolNames.Records + " ", desc);
+        var at = desc.IndexOf(ToolNames.Records, StringComparison.Ordinal);
+        var sentence = desc.Substring(at, Math.Min(220, desc.Length - at));
+        Assert.Contains("source=", sentence);
+        Assert.Contains(SelectTerms, t => sentence.Contains(t, StringComparison.Ordinal));
+    }
+
+    /// <summary>Both plugin-absence advisories, RENDERED by the shipped method rather than read from source.
+    /// Each names `housecarl_records` with a source pole; each must name a selection with it.</summary>
+    [Theory]
+    [InlineData("unticked")]
+    [InlineData("on disk, not listed")]
+    public void EachPluginAbsenceAdvisoryNamesASelectionBesideItsSourcePole(string _)
+    {
+        var m = typeof(LoadOrderService).GetMethod("ExplainPluginAbsence",
+                    BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var text = (string?)m.Invoke(Svc, new object[] { W.OldName });
+
+        Assert.NotNull(text);
+        if (!text!.Contains(ToolNames.Records, StringComparison.Ordinal)) return;   // this world took the other branch
+        Assert.Contains("source=", text);
+        Assert.Contains(SelectTerms, t => text.Contains(t, StringComparison.Ordinal));
+    }
+
+    /// <summary>The copy tool's standalone line, against the shipped source. It is rendered inside a write
+    /// path this test project has no fixture for, so the pin is on the text: the promise it used to make must
+    /// stay gone, and the bound it states must stay stated.</summary>
+    [Fact]
+    public void TheCopyToolsStandaloneLineStatesTheBoundAndPromisesNothing()
+    {
+        var src = File.ReadAllText(Path.Combine(HarnessPaths.RepoRoot, "src", "housecarl-mcp", "NpcCopyTools.cs"));
+
+        Assert.Contains("no houseCARL tool can list a plugin's masters", src);
+        Assert.DoesNotContain("that the donor is absent from the masters", src);
     }
 
     [Fact]
