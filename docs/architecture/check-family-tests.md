@@ -31,7 +31,9 @@ the RENDERER does with a given result may be DTO-driven, and must be whenever th
 world cannot be made to emit without engineering the failure itself.
 
 The shapes that force the DTO lane today — the population, derived from every `Result(...)` call in
-`CheckErrorsFamilyTests` and `ScriptsFamilyTests` (8 sites), each named in the test that uses it:
+`CheckErrorsFamilyTests` and `ScriptsFamilyTests` (8 sites) plus the one place a result is hand-shaped
+without going through `Result(...)` — `FactS13`'s `listing with { ExcludedPlugins = … }`, 9 sites in all —
+each named in the test that uses it:
 
 | shape | why the live world cannot make it |
 |---|---|
