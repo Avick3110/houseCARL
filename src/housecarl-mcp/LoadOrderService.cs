@@ -2559,10 +2559,36 @@ public sealed class LoadOrderService : IDisposable
         using var session = p.Resolver.OpenSession();
         var tree = p.View.ResolveTree(session, fk);
         if (tree is null) return null;
+
+        // The PRECISE owned-child tier (#342, restored on this lane by #485): which providers actually DECLARE
+        // child records for each child-bearing field. It adds no record fetch of its own — that is the whole
+        // point. The bodies are already open here for the diff read below, so the question is asked of each one
+        // in hand; a version that fetched its own bodies was measured and rejected (the cheap tier's comment).
+        // The field set is the type's own, from OwnedChildContent — never a hand list — narrowed to what the
+        // caller asked to read, so the tier annotates what the response actually shows.
+        var owning = tree.Nodes.Count > 0 ? OwnedChildContent.Fields(tree.Nodes[0].Record) : null;
+        var wanted = owning is null || owning.Count == 0
+            ? new List<string>()
+            : owning.Keys.Where(f => fields is null || fields.Contains(f, StringComparer.Ordinal))
+                    .OrderBy(f => f, StringComparer.Ordinal).ToList();
+        var declaring = wanted.ToDictionary(f => f, _ => new List<string>(), StringComparer.Ordinal);
+        var unreadable = wanted.ToDictionary(f => f, _ => new List<string>(), StringComparer.Ordinal);
+
         var nodes = new List<ConflictNodeView>(tree.Nodes.Count);
         foreach (var n in tree.Nodes)
+        {
             nodes.Add(new ConflictNodeView(n.Plugin, ReadEngine.ReadFields(n.Record, fields, ConflictDiffDepth)));   // materialise while open
-        return new ConflictTreeView(nodes);
+            foreach (var f in wanted)
+            {
+                // NULL is "I could not look", never "declares nothing" (#308's rule one level down): a body
+                // dropped in silence would render as "nobody declares content here".
+                var d = OwnedChildContent.DeclaresChild(n.Record, f);
+                if (d == true) declaring[f].Add(n.Plugin);
+                else if (d is null) unreadable[f].Add(n.Plugin);
+            }
+        }
+        return new ConflictTreeView(nodes,
+            wanted.Select(f => new ChildDeclarers(f, owning![f], declaring[f], unreadable[f])).ToList());
     }
 
     /// <summary>The best-effort display Name of a record body — reflection-generic via Mutagen's <c>INamedGetter</c>
@@ -3474,10 +3500,16 @@ public sealed class LoadOrderService : IDisposable
                                        IReadOnlyList<string> Deltas, int AgreedCount, bool Complete, string? Error);
 
     /// <summary>One record's §4.1 PROJECT=tree: every provider in priority order (winner LAST — the load order's
-    /// own reading direction), each diffed against the reference pole. Error non-null ⇒ per-item refusal.</summary>
+    /// own reading direction), each diffed against the reference pole. Error non-null ⇒ per-item refusal.
+    ///
+    /// <para><see cref="ChildDeclarers"/> is the precise owned-child answer for this record (#485), read off the
+    /// same provider bodies the deltas came from; empty for a record whose type owns no child records, and for
+    /// every error row. It is a REQUIRED constructor parameter rather than a defaulted one so a new row site
+    /// cannot ship the tier silently empty.</para></summary>
     public sealed record TreeRow(string Formid, string? Type, string? EditorId,
                                  IReadOnlyList<string> Touchers, string? ReferencePlugin,
-                                 IReadOnlyList<TreeNodeDelta> Nodes, string? Error);
+                                 IReadOnlyList<TreeNodeDelta> Nodes, string? Error,
+                                 IReadOnlyList<ChildDeclarers> ChildDeclarers);
 
     /// <summary>The §4.1 PROJECT=tree batch: per record, the full provider stack (touching list, winner last) with
     /// each provider diffed against the reference pole — default winner (today's conflict_tree, now a PROJECT
@@ -3522,21 +3554,21 @@ public sealed class LoadOrderService : IDisposable
         var rows = new List<TreeRow>(formids.Count);
         foreach (var (raw, fkOpt, parseError) in parsedT)
         {
-            if (parseError is not null) { rows.Add(new TreeRow(raw?.Trim() ?? "", null, null, Array.Empty<string>(), null, Array.Empty<TreeNodeDelta>(), parseError)); continue; }
+            if (parseError is not null) { rows.Add(new TreeRow(raw?.Trim() ?? "", null, null, Array.Empty<string>(), null, Array.Empty<TreeNodeDelta>(), parseError, Array.Empty<ChildDeclarers>())); continue; }
             var fk = fkOpt!.Value;
 
             var touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
             if (touchers.Count == 0)
             {
                 rows.Add(new TreeRow(fk.ToString(), null, null, Array.Empty<string>(), null, Array.Empty<TreeNodeDelta>(),
-                                     $"{fk} is not present in the active order — no plugin touches it."));
+                                     $"{fk} is not present in the active order — no plugin touches it.", Array.Empty<ChildDeclarers>()));
                 continue;
             }
             var tree = ResolveTreePinned(new ViewPin(resolver, view), fk, fields);
             if (tree is null || tree.Nodes.Count == 0)
             {
                 rows.Add(new TreeRow(fk.ToString(), null, null, touchers, null, Array.Empty<TreeNodeDelta>(),
-                                     $"the provider bodies of {fk} could not be read."));
+                                     $"the provider bodies of {fk} could not be read.", Array.Empty<ChildDeclarers>()));
                 continue;
             }
 
@@ -3552,7 +3584,8 @@ public sealed class LoadOrderService : IDisposable
                 if (r.Error is not null)
                 {
                     rows.Add(new TreeRow(fk.ToString(), tree.Winner.Record.Type, tree.Winner.Record.EditorId,
-                                         touchers, null, Array.Empty<TreeNodeDelta>(), "versus: " + r.Error));
+                                         touchers, null, Array.Empty<TreeNodeDelta>(), "versus: " + r.Error,
+                                         Array.Empty<ChildDeclarers>()));
                     continue;
                 }
                 refFields = r.Fields; refPlugin = r.Pole!.Plugin;
@@ -3573,7 +3606,7 @@ public sealed class LoadOrderService : IDisposable
                 nodes.Add(new TreeNodeDelta(node.Plugin, isWinner, false, d.Deltas, d.AgreedCount, d.Complete, null));
             }
             rows.Add(new TreeRow(fk.ToString(), tree.Winner.Record.Type, tree.Winner.Record.EditorId,
-                                 touchers, refPlugin, nodes, null));
+                                 touchers, refPlugin, nodes, null, tree.ChildDeclarers));
         }
         return rows;
     }
@@ -9081,10 +9114,19 @@ public sealed record PluginFileOutcome
 /// <summary>The MATERIALISED conflict tree the render layer consumes — each touching plugin's name + the fields read
 /// off its own body, in priority order (winner last). Built by <see cref="LoadOrderService.ResolveTree"/> with the
 /// per-call session already disposed, so it carries NO live overlay (Option B — the renderer never holds a handle).</summary>
-public sealed record ConflictTreeView(IReadOnlyList<ConflictNodeView> Nodes)
+public sealed record ConflictTreeView(IReadOnlyList<ConflictNodeView> Nodes,
+                                      IReadOnlyList<ChildDeclarers> ChildDeclarers)
 {
     public ConflictNodeView Winner => Nodes[^1];
 }
+
+/// <summary>The precise owned-child answer for ONE child-bearing field of ONE record (#342, restored by #485):
+/// which of the record's providers declare child records there, and which could not be read.
+///
+/// <para><see cref="Declaring"/> empty with <see cref="Unreadable"/> empty is the answer the cheap tier can never
+/// give — nobody declares anything here — and it is rendered as a sentence, never as an omitted line.</para></summary>
+public sealed record ChildDeclarers(string Field, OwnedChildShape Shape,
+                                    IReadOnlyList<string> Declaring, IReadOnlyList<string> Unreadable);
 
 /// <summary>One node of a <see cref="ConflictTreeView"/>: the plugin name + that plugin's record fields (already read).</summary>
 public sealed record ConflictNodeView(string Plugin, RecordFields Record);

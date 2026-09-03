@@ -13,15 +13,23 @@ namespace HousecarlMcp;
 /// write sentences have: the CONTENT net (<see cref="MustStateAttribute"/> — the phrases whose loss changes what
 /// the caller is told, declared beside the sentence) and a REACH net in the probe that owns the feature.</para>
 ///
-/// <para><b>One tier, because the precise one had no caller.</b> Naming WHICH other plugins declare children means
-/// reading their bodies, and the resolver fetches a body by enumerating a whole overlay — measured on a real load
-/// order at 588 ms for one Dawnstar cell read and 2.5 s for a worldspace, with an unbounded artifact job never
-/// finishing. So the precise answer was ever stated only by the lane that had ALREADY fetched those bodies
-/// (<c>read_record conflict_tree=true</c>), and that lane was deleted at the 1.x cut: no 2.0 surface sets the flag,
-/// so the tier's sentences went with it (gap #485 carries the loss and the candidate shapes). What every read
-/// states is the cheaper fact the index alone settles: how many other plugins touch the record, and that their
-/// declarations were not read. The precise question is answered in a different shape by
-/// <c>records project={"form":"tree"}</c>, which the cheap clause's own remedy names.</para>
+/// <para><b>Two tiers, because the cheap question and the precise one cost differently.</b> Naming WHICH plugins
+/// declare children means reading their bodies, and the resolver fetches a body by enumerating a whole overlay —
+/// measured on a real load order at 588 ms for one Dawnstar cell read and 2.5 s for a worldspace, with an
+/// unbounded artifact job never finishing. So the precise answer is stated only by the lane that has ALREADY
+/// fetched those bodies, and every other read states the cheaper fact the index alone settles: how many other
+/// plugins touch the record, and that their declarations were not read.</para>
+///
+/// <para><b>Which lane that is, and why it changed.</b> Until the 1.x cut it was <c>read_record
+/// conflict_tree=true</c>; no 2.0 surface sets that flag, so the tier had no caller and was deleted with its
+/// sentences (gap #485). It is restored here on <c>records project={"form":"tree"}</c> — the 2.0 form that
+/// fetches every provider body anyway, which is exactly the condition the cost argument above turns on, and the
+/// lane the cheap tier's own remedy already sends the caller to.</para>
+///
+/// <para><b>Two shapes, because one sentence was false for two of its own fields.</b> A COLLECTION child field is
+/// assembled additively; a SINGULAR one (Cell.Landscape, Worldspace.TopCell) is one record several plugins
+/// OVERRIDE. "Assembled from every plugin that declares any" is true of the first and false of the second — see
+/// <see cref="OwnedChildShape"/>. <see cref="DeclarersLead"/> states both, once per record.</para>
 ///
 /// <para><b>The response/field split.</b> The invariant half is a fact about the response, not about one field,
 /// so it is stated ONCE per response. Carried per field it cost 288 chars per annotated field per record, ~275 of
@@ -50,8 +58,8 @@ internal static class ReadSentences
     ///
     /// <para><b>The remedy names the tool AND the format, because a bare parameter name is not runnable from most
     /// of the surfaces that receive this sentence.</b> The clause ships from every lane that renders record fields.
-    /// <c>housecarl_records</c> has no <c>conflict_tree</c> parameter at all (and its
-    /// <c>project={"form":"tree"}</c> carries no declarer names either); <c>format=json</c> and <c>format=dense</c>
+    /// <c>housecarl_records</c> has no <c>conflict_tree</c> parameter at all (its
+    /// <c>project={"form":"tree"}</c> is where the declarer names live now — gap #485); <c>format=json</c> and <c>format=dense</c>
     /// refuse <c>conflict_tree=true</c> as a text-only diff view; so does <c>to_file=</c>, which means every
     /// artifact manifest carries this clause to a caller who cannot use a bare "pass conflict_tree=true" without a
     /// refusal. Naming the two tools and the text mode is what makes the sentence executable from where it is
@@ -78,6 +86,72 @@ internal static class ReadSentences
 
     /// <summary>The cheap tier's per-field line: the count the index knows, and the honest limit.</summary>
     internal static string NotReadNote(int others) => $"{others} {NotRead}";
+
+    // ---- the precise tier: WHICH providers declare, off bodies the tree has already fetched ----------
+
+    /// <summary>The per-field label for a COLLECTION child. A pure label: on its own it asserts nothing a caller
+    /// acts on — the claim is the plugin names it introduces, and what those names MEAN is stated once by
+    /// <see cref="DeclarersLead"/>.
+    ///
+    /// <para><b>No leading "also".</b> "also declared by" asserts that some other body declares content TOO, which
+    /// is false in exactly the case this feature exists for: a winner carrying 0 references beside a base carrying
+    /// 201. "declared by" is true whether or not any particular body declares, so it is true in both
+    /// directions.</para></summary>
+    [NoClaims("a label; the claim is the plugin names it introduces, and their meaning is DeclarersLead")]
+    internal const string DeclaredBy = "declared by";
+
+    /// <summary>The per-field label for a SINGULAR child: a COUNT, deliberately not a name list. Landscape and
+    /// TopCell are overridden by hundreds of plugins on a real order ("+483 more" is noise, not information), and
+    /// which one wins is the load-order question the tree's own provider list answers directly.</summary>
+    [NoClaims("a label; the claim is DeclarersLead's, and the count is evidence rather than an assertion")]
+    internal const string CarriedBy = "carried by";
+
+    /// <summary>The Q3 half: a provider whose body or field could not be read. Stated, never dropped — an
+    /// unreadable body silently missing from the list would read as "nobody declares", which is the same wrong
+    /// answer this annotation exists to prevent, one level down.</summary>
+    [MustState("could NOT be read")]
+    internal const string CouldNotRead = "could NOT be read";
+
+    /// <summary>The half no cheap tier can ever state: nobody declares anything here.
+    ///
+    /// <para><b>It claims only over the bodies that were READ</b>, because that is all the walk knows. A provider
+    /// whose field answered "I could not look" is counted by <see cref="CouldNotRead"/> beside this sentence, and
+    /// a flat "no provider declares" would silently absorb it — the #308 rule at the sentence layer.</para>
+    ///
+    /// <para><b>A sentence, not silence.</b> The tier this restores said nothing at all in this case, which a
+    /// caller cannot tell apart from the tier never having run. Gap #485's whole point is that answer, so the
+    /// answer is stated.</para></summary>
+    [MustState("none of the provider bodies read", "declares child records")]
+    internal const string NoDeclarers = "none of the provider bodies read declares child records in this field";
+
+    /// <summary>The block's one framing line, stating what the per-field lines below it MEAN — once per record,
+    /// not once per field. Both shapes are named here rather than spelled out on every line: a cell carries four
+    /// child-bearing fields, and carrying ~180 chars of shape framing on each of them is the per-field bloat the
+    /// cheap tier's own response/field split exists to avoid.</summary>
+    [MustState("declared per plugin", "assembled by the game", "override")]
+    internal const string DeclarersLead =
+        "child records — declared per plugin, read off the provider bodies this tree already fetched. A MANY-child " +
+        "field (\"" + DeclaredBy + " …\") is assembled by the game from every plugin that declares any; a ONE-child " +
+        "field (\"" + CarriedBy + " N\") is ONE record those providers override, resolved by load order:";
+
+    /// <summary>How many declaring plugins a COLLECTION field names before it summarises the rest. Three names is
+    /// enough to go look at; the rest are a count, because this rides EVERY child-bearing field of every row.</summary>
+    internal const int DeclarerNameCap = 3;
+
+    /// <summary>The precise tier's per-field line, in the voice of the field's SHAPE. Always returns a sentence:
+    /// the empty answer is <see cref="NoDeclarers"/>, never null and never an omitted line.</summary>
+    internal static string DeclarersNote(OwnedChildShape shape, IReadOnlyList<string> declaring, IReadOnlyList<string> unreadable)
+    {
+        string head = declaring.Count == 0 ? NoDeclarers
+            : shape == OwnedChildShape.Singular
+                ? $"{CarriedBy} {declaring.Count} provider(s)"
+                : $"{DeclaredBy} {string.Join(", ", declaring.Take(DeclarerNameCap))}"
+                  + (declaring.Count > DeclarerNameCap ? $" (+{declaring.Count - DeclarerNameCap} more)" : "");
+        return unreadable.Count == 0 ? head
+            : head + $"; {unreadable.Count} provider(s) {CouldNotRead} "
+              + $"({string.Join(", ", unreadable.Take(DeclarerNameCap))}"
+              + (unreadable.Count > DeclarerNameCap ? ", …" : "") + ")";
+    }
 
     /// <summary>The field names a response-level clause is ABOUT — derived from what the response annotated, never
     /// a prose list.

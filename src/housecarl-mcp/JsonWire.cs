@@ -693,6 +693,23 @@ static class JsonWire
         WriteNullable(w, "editorid", row.EditorId);
         WriteNullable(w, "reference", row.ReferencePlugin);
         WriteStringArray(w, "touchers", row.Touchers);   // priority order, winner LAST
+        // The precise owned-child answer (#485) — the same per-field decision the text lane renders, from the
+        // same TreeRow, so json and the spilled artifact carry it without a second composition to drift from.
+        if (row.ChildDeclarers.Count > 0)
+        {
+            w.WriteStartArray("child_declarers");
+            foreach (var cd in row.ChildDeclarers)
+            {
+                w.WriteStartObject();
+                w.WriteString("field", cd.Field);
+                w.WriteString("shape", cd.Shape.ToString());
+                WriteStringArray(w, "declaring", cd.Declaring);
+                WriteStringArray(w, "unreadable", cd.Unreadable);
+                w.WriteString("note", ReadSentences.DeclarersNote(cd.Shape, cd.Declaring, cd.Unreadable));
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+        }
         w.WriteStartArray("nodes");
         foreach (var n in row.Nodes)
         {

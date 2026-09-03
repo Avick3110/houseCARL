@@ -44,7 +44,7 @@ public static class RecordsTools
     /// them (SPEC §2.2: form-scoped and structured — the flat spelling for an illegal pairing does not exist).</summary>
     public sealed class RecordsProject
     {
-        [Description("The form: 'identity' (FormID -> type/editorid/name/winner — the labeling form; needs formids=) | 'summary' (identity plus winner/override-depth header facts — the default) | 'fields' (named field values; takes fields= and depth=) | 'everything' (the full record body; takes depth=) | 'aggregate' (a counted table; takes group_by=) | 'delta' (subject vs reference, differences only — source= is the subject, versus= the reference; takes fields= to narrow) | 'tree' (every provider of each record in priority order, winner last, each diffed against the reference pole — default the winner; takes fields=) | 'info_order' (DIAL topics only: the effective MERGED INFO sequence across every touching plugin — the order the game walks, with MOVED annotations; the 'why does the wrong line play' diagnostic). The 'chain' traversal form is refused by NAME until it lands.")]
+        [Description("The form: 'identity' (FormID -> type/editorid/name/winner — the labeling form; needs formids=) | 'summary' (identity plus winner/override-depth header facts — the default) | 'fields' (named field values; takes fields= and depth=) | 'everything' (the full record body; takes depth=) | 'aggregate' (a counted table; takes group_by=) | 'delta' (subject vs reference, differences only — source= is the subject, versus= the reference; takes fields= to narrow) | 'tree' (every provider of each record in priority order, winner last, each diffed against the reference pole — default the winner; takes fields=. On a record type that OWNS child records — a cell's placed references, a topic's INFO lines, a worldspace's cells — it also states which providers DECLARE children in each such field, and says so when none of them do) | 'info_order' (DIAL topics only: the effective MERGED INFO sequence across every touching plugin — the order the game walks, with MOVED annotations; the 'why does the wrong line play' diagnostic). The 'chain' traversal form is refused by NAME until it lands.")]
         public string? form { get; set; }
 
         [Description("fields form only: dotted field paths to read, e.g. [\"BasicStats.Damage\", \"Keywords\", \"Effects\"]. Index a list/dict element with BRACKETS ('Effects[0].Data.Magnitude').")]
@@ -1668,6 +1668,7 @@ public static class RecordsTools
             for (int i = 0; i < row.Touchers.Count; i++)
                 sb.Append("    ").Append(i + 1).Append(". ").Append(row.Touchers[i])
                   .Append(i == row.Touchers.Count - 1 ? "  (winner)" : "").Append('\n');
+            AppendChildDeclarers(sb, row);
             if (row.Nodes.Count <= 1) { rendered++; continue; }   // a sole provider has nothing to diff against
             sb.Append("  diff (field deltas vs ").Append(row.ReferencePlugin)
               .Append("; identical fields omitted; list contents compared by content, element reorders flagged):\n");
@@ -1694,6 +1695,26 @@ public static class RecordsTools
         }
         if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
         return sb.ToString().TrimEnd('\n');
+    }
+
+    /// <summary>The tree's precise owned-child block (#485): for each child-bearing field of the record's own
+    /// type, WHICH providers declare child records there — and the sentence the cheap tier can never say, that
+    /// none of them do.
+    ///
+    /// <para><b>Above the diff, not inside it.</b> The diff renders DIFFERENCES; a provider whose content in a
+    /// child-bearing field equals the reference's is omitted from it, so its declaration is invisible there. This
+    /// block is a statement about declarations, so it sits with the provider list it is about rather than in a
+    /// view that would silently drop half of its subjects.</para>
+    ///
+    /// <para><b>It is emitted for every row whose type owns children</b>, sole-toucher rows included — the block
+    /// is not a diff and does not need two providers to be true.</para></summary>
+    static void AppendChildDeclarers(StringBuilder sb, LoadOrderService.TreeRow row)
+    {
+        if (row.ChildDeclarers.Count == 0) return;
+        sb.Append("  ").Append(ReadSentences.DeclarersLead).Append('\n');
+        foreach (var cd in row.ChildDeclarers)
+            sb.Append("    ").Append(cd.Field).Append(": ")
+              .Append(ReadSentences.DeclarersNote(cd.Shape, cd.Declaring, cd.Unreadable)).Append('\n');
     }
 
     /// <summary>The chain form's text render: per seed the reached nodes in BFS order with provenance (what
