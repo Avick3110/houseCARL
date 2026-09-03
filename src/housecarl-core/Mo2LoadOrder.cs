@@ -345,4 +345,28 @@ public static class Mo2LoadOrder
         foreach (var dir in UnlistedModFolders(comp, modsDir)) if (Has(dir)) return true;   // pre-refresh houseCARL patches — pays only on a miss above
         return Has(dataDir);
     }
+
+    /// <summary>Split declared masters that are NOT satisfied by the active order into the two cases whose REMEDIES
+    /// differ: <c>NotInstalled</c> — no copy anywhere in the install, so the answer is INSTALL it; and
+    /// <c>InstalledButInactive</c> — a copy is there but the order does not load it (it sits in a disabled mod, or
+    /// the plugin is unticked), so the answer is ENABLE it. The discriminant is exactly
+    /// <see cref="PluginFileExists"/>, and this is the ONE home for the split: <c>read_plugin_file</c>'s master
+    /// advisory and <c>housecarl_check</c>'s missing-master remedy both call it, so the two surfaces cannot come to
+    /// different conclusions about the same master (PR #148's false negative was a copy in a disabled mod counted as
+    /// satisfied — the warning was suppressed exactly where it applied).
+    /// <para>Every name handed in lands in exactly one of the two lists, in the order given: the caller decides what
+    /// "unsatisfied" means against its own notion of the active order, and this decides only which of the two
+    /// remedies each one wants.</para></summary>
+    public static (IReadOnlyList<string> NotInstalled, IReadOnlyList<string> InstalledButInactive) SplitUnsatisfiedMasters(
+        Mo2Composition comp, string modsDir, string dataDir, string overwriteDir, IEnumerable<string> unsatisfied)
+    {
+        var notInstalled = new List<string>();
+        var inactive = new List<string>();
+        foreach (var m in unsatisfied)
+        {
+            if (PluginFileExists(comp, modsDir, dataDir, overwriteDir, m)) inactive.Add(m);
+            else notInstalled.Add(m);
+        }
+        return (notInstalled, inactive);
+    }
 }

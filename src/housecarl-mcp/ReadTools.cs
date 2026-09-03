@@ -583,7 +583,21 @@ static class Wire
         var fixedPart = new StringBuilder("\n[ERROR] ").Append(p.Plugin).Append('\n');
         if (p.ScanError is not null)
             fixedPart.Append("  scan error: ").Append(p.ScanError).Append('\n');
-        if (p.MissingMasters.Count > 0)
+        // The two shortfalls are named apart because their REMEDIES differ, and a caller told "install/enable it"
+        // has to go find out which (PR #148's distinction, carried onto the surface that still reports the finding).
+        // Null means the split was not made — say what was said before rather than assert the uninstalled case.
+        if (p.MissingMasters.Count > 0 && p.InstalledButInactiveMasters is { } inactive)
+        {
+            var notInstalled = p.MissingMasters.Where(m => !inactive.Contains(m, StringComparer.OrdinalIgnoreCase)).ToList();
+            if (notInstalled.Count > 0)
+                fixedPart.Append("  missing master(s) NOT installed anywhere in the MO2 install: ").Append(string.Join(", ", notInstalled))
+                         .Append("   [install them — this plugin's refs into them dangle until you do]\n");
+            if (inactive.Count > 0)
+                fixedPart.Append("  missing master(s) installed but NOT ACTIVE in the load order (in a disabled mod, or unchecked): ")
+                         .Append(string.Join(", ", inactive))
+                         .Append("   [enable them — this plugin's refs into them dangle until you do]\n");
+        }
+        else if (p.MissingMasters.Count > 0)
             fixedPart.Append("  missing master(s): ").Append(string.Join(", ", p.MissingMasters))
                      .Append("   [declared as a dependency but not present in the active order — install/enable it, or this plugin's refs into it dangle]\n");
         if (p.UnscannableRecords > 0)

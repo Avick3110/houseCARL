@@ -565,14 +565,21 @@ public sealed record DanglingRef(FormKey Source, string SourceType, string? Sour
 
 /// <summary>Every error found in one plugin: its dangling references (capped across the sweep), the masters it declares
 /// that are not present in the active order, the count + samples of records that could not be scanned, and — if the
-/// plugin's own enumeration faulted — a <paramref name="ScanError"/>.</summary>
+/// plugin's own enumeration faulted — a <paramref name="ScanError"/>.
+/// <para><paramref name="InstalledButInactiveMasters"/> is the subset of <paramref name="MissingMasters"/> whose file
+/// IS somewhere in the MO2 install — a copy in a disabled mod, or an unticked plugin — so its remedy is ENABLE where
+/// the rest want INSTALL. The sweep itself cannot tell the two apart (it knows the active order, not the install), so
+/// the split is filled in by the layer that reads the MO2 composition. <b>null means NOT CLASSIFIED</b>, never "none
+/// of them" — a render that reads null must state the union remedy rather than claim every master is uninstalled
+/// (the same null-is-not-empty rule <paramref name="ErrorCheckResult.Histogram"/> carries).</para></summary>
 public sealed record PluginErrors(
     string Plugin,
     IReadOnlyList<DanglingRef> Dangling,
     IReadOnlyList<string> MissingMasters,
     int UnscannableRecords,
     IReadOnlyList<string> UnscannableSamples,
-    string? ScanError);
+    string? ScanError,
+    IReadOnlyList<string>? InstalledButInactiveMasters = null);
 
 /// <summary>The result of <see cref="ErrorCheck.Run"/>: the per-plugin reports (only plugins WITH findings; clean
 /// plugins are counted in <paramref name="PluginsScanned"/> but omitted), the sweep totals, whether the dangling list
