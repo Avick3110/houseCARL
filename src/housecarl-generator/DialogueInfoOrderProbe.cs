@@ -15,7 +15,9 @@ namespace HousecarlGenerator;
 ///
 /// Self-contained: synthesizes ON DISK a 3-plugin order (master &lt; mid &lt; last) reproducing the reported
 /// HirelingQuestTopic1 shape, then drives the REAL product path — <see cref="DialogueValidate.Run"/> →
-/// <see cref="DialogueInfoOrder.Compute"/> → <see cref="DialogueWire.Render"/> — and asserts:
+/// <see cref="DialogueInfoOrder.Compute"/> → <see cref="DialogueWire.AppendInfoOrderView"/> — and asserts
+/// (the whole-report <c>DialogueWire.Render</c> this chain used to end in was deleted with #486's render halves;
+/// the arms marked MOVED below went to <c>DialogueFamilyTests</c> with it):
 ///
 ///   MERGE-FILE-ORDER — a topic only ONE plugin touches: the effective order IS that plugin's list, Contested=false.
 ///   NO-FALSE-MOVE    — …and it reports ZERO moved lines (the no-false-positive lock for REORDER-TO-TAIL: a guard
@@ -33,7 +35,7 @@ namespace HousecarlGenerator;
 ///   PNAM-SELF        — an INFO whose PNAM names its OWN record degrades to a placement AND says so on the note.
 ///                      RED before the PR #293 review fix: that shape drove a negative-length list insert, throwing
 ///                      ArgumentOutOfRangeException out of a path whose contract is that it never throws.
-///   RENDER-NO-FALSE-CAVEAT — the footer does NOT carry the retracted PNAM-zero blind-spot caveat. It shipped for
+///   RENDER-NO-FALSE-CAVEAT [MOVED → DialogueFamilyTests.FactD2] — the footer does NOT carry the retracted PNAM-zero blind-spot caveat. It shipped for
 ///                      four review rounds describing a limitation that does not exist; this pins the retraction so
 ///                      the false caveat cannot drift back in.
 ///   DELETED-KEPT     — a deleted INFO still occupies its slot in the order (it is shown flagged, never silently
@@ -44,7 +46,7 @@ namespace HousecarlGenerator;
 ///                      Mutagen's writer (which emits no subrecord for a null link) measured the WRITER and made
 ///                      this arm assert a non-existent limitation for four rounds — caught only by running the
 ///                      shipped build against the real load order. A round-trip test measures the round trip.
-///   RENDER-MODEL-PIN — the rendered report states the CORRECTED model and does NOT contain the falsified claim
+///   RENDER-MODEL-PIN [MOVED → DialogueFamilyTests.FactD1] — the rendered report states the CORRECTED model and does NOT contain the falsified claim
 ///                      ("dropped in game"). Pins the prose against a regression to the pre-#275 wording.
 ///   UNREAD-PARTIAL / UNREAD-TOTAL / UNREAD-RENDER / UNREAD-BASELINE — the silent-contributor-drop fix, which
 ///                      shipped with ZERO arms in its own commit (PR #293 third pass). A plugin the index says
@@ -55,12 +57,12 @@ namespace HousecarlGenerator;
 ///                      analysis is SKIPPED when the DEFINING plugin is the unread one, since the baseline would
 ///                      otherwise silently become a later plugin's list. UNREAD-BASELINE carries a control arm —
 ///                      asserting "no moves" on input where nothing moves anyway passed with the guard deleted.
-///   UNREAD-WIRED     — the same fix END TO END through DialogueValidate.Run, with a plugin made genuinely
+///   UNREAD-WIRED [MOVED → DialogueFamilyTests.FactD3] — the same fix END TO END through DialogueValidate.Run, with a plugin made genuinely
 ///                      unreadable by an exclusive lock (what MO2/xEdit holding a file does). The four arms above
 ///                      call Compute directly, which is precisely why they all passed while the production wiring
 ///                      was absent (PR #293 fourth pass): a guard that never drives the shipped path cannot catch
 ///                      an unwired one. Drop the argument at the call site and THIS arm goes red.
-///   DEFINER-LOCK-LOUD / WINNER-LOCK-LOUD — the REACHABILITY facts the defensive branches rest on, measured
+///   DEFINER-LOCK-LOUD / WINNER-LOCK-LOUD [MOVED → DialogueFamilyTests.FactD4a/.FactD4b] — the REACHABILITY facts the defensive branches rest on, measured
 ///                      rather than assumed. A plugin can only override a record by declaring the definer as a
 ///                      master, so an unreadable definer breaks opening its overrides too; and the winner body is
 ///                      fetched through GetRecord, which throws. Both therefore surface as a named CheckError

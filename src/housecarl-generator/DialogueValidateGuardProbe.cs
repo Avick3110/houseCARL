@@ -42,10 +42,10 @@ namespace HousecarlGenerator;
 ///   QUST-CKPARITY-GAP— a QUEST input whose quest lacks ANAM and has a Flags-less objective → InputIssues warns BOTH,
 ///                  ONCE at quest level (never per topic) — the shared MissingQuestDefaults probe end-to-end.
 ///   QUST-CKPARITY-OK — a CK-parity-complete quest (ApplyQuestDefaults-filled) reports NO input issues — no-false-positive lock.
-///   RENDER-SCOPE-PIN — the hand-written "CK-parity: OK" prose in DialogueWire names EVERY subrecord the check
-///                  actually covers. The checked set is DERIVED from Missing*Defaults on a bare record (never
-///                  hand-listed here), so adding a subrecord to a check fails this arm until the OK line names it
-///                  — the render-level anti-drift tie (PR #155 review finding 5; AssetStatusProbe render-pin pattern).
+///   RENDER-SCOPE-PIN [MOVED → DialogueFamilyTests.FactV1] — the "CK-parity: OK" prose names EVERY subrecord
+///                  the check actually covers, with the checked set DERIVED from Missing*Defaults on a bare
+///                  record (never hand-listed). It drove the deleted whole-report DialogueWire.Render, so #486
+///                  moved it to the merged check surface; the derivation moved with it.
 ///   NO-QUEST     — a topic with DialogTopic.Quest unset warns 'Quest' — the unowned-topic teeth.
 ///   BAD-BRANCH   — DialogTopic.Branch pointing at a non-DLBR is a PROBLEM naming 'Branch'.
 ///   VOICE-WIRED  — a voiced line with no .fuz surfaces as a SILENT VoiceLine IN THE VALIDATOR (reused VoiceCheck).
@@ -781,11 +781,8 @@ public static class DialogueValidateGuardProbe
 
     static string InputIssues(DialogueValidationReport r) => Issues(r.InputIssues);
 
-    /// <summary>The 4-char subrecord signatures (DNAM/ENAM/TNAM/ANAM/FNAM/…) a gap list names — the authoritative
-    /// checked-set for the RENDER-SCOPE-PIN arm, derived from Missing*Defaults' own output (by construction,
-    /// never hand-listed in the probe).</summary>
-    static string[] GapSigs(IReadOnlyList<CkParityGap> gaps) =>
-        gaps.SelectMany(g => Regex.Matches(g.Subrecord, @"\b[A-Z]{4}\b").Select(m => m.Value)).Distinct().ToArray();
+    // GapSigs — the 4-char subrecord signatures a gap list names — went with RENDER-SCOPE-PIN (#486). The
+    // derivation now lives in DialogueFamilyTests.FactV1, which is the arm that reads it.
 
     /// <summary>Does a reject-guidance string name ALL FOUR accepted input kinds (DIAL, QUST, DLVW, DLBR)? Pins the
     /// error guidance against input-kind drift — a fifth kind added without updating the reject strings fails here.</summary>

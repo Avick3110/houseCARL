@@ -77,7 +77,7 @@ public sealed class DialogueWorld : IDisposable
         Info = info;
 
         // CK-parity-complete seeds — the no-false-positive lock for V1 (a real authored view/branch/quest never
-        // says NOT CHECKED — sorry, never renders as a gap).
+        // renders as a gap).
         var view = master.DialogViews.AddNew(); view.EditorID = "HcDvViewOk";
         DialogueCkParity.ApplyViewDefaults(view); ViewOk = view.FormKey;
         var branch = master.DialogBranches.AddNew(); branch.EditorID = "HcDvBranchOk";

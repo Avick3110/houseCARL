@@ -291,17 +291,14 @@ internal sealed class CheckAccounting
     /// non-null. Reserved unconditionally, that lane held ~154 chars of worst-case accounting plus its wrap for a
     /// sentence it is structurally unable to write: dead body budget in exactly the lane #392 is about, where every
     /// held char is a histogram row the caller does not see. Measured on a 74/180-row fixture at
-    /// <c>max_chars=1200</c>, the response came back 315 chars under its own cap with both axes at zero rows.</para></summary>
-    internal int TextReserve => TextAccountingReserve + TextBoundaryReserve;
-    int? _textReserve;
-
-    /// <summary>The accounting LINE's own room, without the boundary's. Separate because a merged response has one
-    /// boundary block and one accounting PER FAMILY: summing whole TextReserves would reserve the boundary once per
-    /// family, and room held for a sentence written once is a subtraction from the answer.</summary>
+    /// <c>max_chars=1200</c>, the response came back 315 chars under its own cap with both axes at zero rows.</para>
+    ///
+    /// <para>The <c>TextReserve</c> that summed this with the boundary's room went with the 1.x single-family
+    /// renderers (#486): a merged response has one boundary block and one accounting PER FAMILY, so the two are
+    /// only ever reserved apart, and summing them per family reserved the boundary once per family — room held for
+    /// a sentence written once, which is a subtraction from the answer.</para></summary>
     internal int TextAccountingReserve => _textReserve ??= CanStateAccounting ? Compose(Worst(escaped: false)).Length + TextWrap : 0;
-
-    /// <summary>The room this lane's boundary needs, label and wrap included.</summary>
-    internal int TextBoundaryReserve => _boundary.Length + ReadSentences.SweepBoundaryLabel.Length + TextWrap;
+    int? _textReserve;
 
     /// <summary>Can this lane write an accounting line at ALL? Literally <see cref="TextLine"/>'s own test, asked
     /// of the WORST case instead of the real one — so it is true wherever any rendering of this lane could produce
@@ -313,15 +310,13 @@ internal sealed class CheckAccounting
                                || Has(SweepSubject.DialogueTopics)
                                || Missing(Worst(escaped: false));
 
-    /// <summary>The json lane's own reserve. Measured by SERIALIZING the worst case, not by estimating it off the
-    /// text line: the two encodings differ in escaping and syntax, and a reserve that is an estimate is a reserve
-    /// that is occasionally wrong in the direction that matters.</summary>
-    internal int JsonReserve => JsonAccountingReserve + JsonGlue;
-
-    /// <summary>This lane's accounting + boundary, in json bytes, WITHOUT the entry slack. Separate for the same
-    /// reason <see cref="TextAccountingReserve"/> is: a merged document holds one accounting per family but only
-    /// ever lands ONE unit over its budget, because the body stops the moment a unit crosses — so the slack is the
-    /// response's, not each family's.</summary>
+    /// <summary>This lane's accounting + boundary, in json bytes, WITHOUT the entry slack. Measured by SERIALIZING
+    /// the worst case, not by estimating it off the text line: the two encodings differ in escaping and syntax,
+    /// and a reserve that is an estimate is a reserve that is occasionally wrong in the direction that matters.
+    /// Separate from the entry slack for the same reason <see cref="TextAccountingReserve"/> is: a merged document
+    /// holds one accounting per family but only ever lands ONE unit over its budget, because the body stops the
+    /// moment a unit crosses — so the slack is the response's, not each family's. (The <c>JsonReserve</c> that
+    /// added the glue to this went with the 1.x single-family renderers, #486.)</summary>
     internal int JsonAccountingReserve => _jsonReserve ??= MeasureJson(Worst(escaped: true));
     int? _jsonReserve;
 
@@ -888,7 +883,4 @@ internal sealed class CheckAccounting
 
     static int Digits(int n) => n <= 0 ? 1 : n.ToString().Length;
 
-    /// <summary>The chars the body may occupy. Never negative — a cap too small for the accounting yields a body
-    /// budget of zero and the notice above, not a negative bound that every emission test passes.</summary>
-    internal int BodyBudget(int reserve) => Math.Max(0, _cap - reserve);
 }
