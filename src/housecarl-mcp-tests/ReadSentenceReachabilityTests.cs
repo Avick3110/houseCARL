@@ -40,6 +40,17 @@ namespace HousecarlMcpTests;
 /// from the specific file the pair names. A member with two render sites therefore has two arms proving one
 /// thing twice. The population is still keyed per site so that a NEW site forces a decision rather than
 /// riding an existing member's arm.</para>
+///
+/// <para><b>Second known limit: "it cannot be neither" is true of PAIRS, not of members.</b> The composer
+/// lend above is one hop — it reads the composer's own body. A sentence whose only path to a response runs
+/// through a PRIVATE helper that a composer calls therefore produces no pair at all, so it has no theory
+/// case, no countdown entry, and nothing here goes red if it is emptied; neither the stale-key check nor the
+/// committed population size can see it, because both are about pairs. Two members are outside the net
+/// today: <c>SweepScriptPropLabelFormat</c>, reached only through the private <c>ReadSentences.ScriptPropLabel</c>,
+/// and <c>SweepFixedPartLead</c>, which is only concatenated into two sentences that do have sites. Their
+/// wording is still pinned by <see cref="ReadSentenceWordingTests"/>; it is reachability they lack. Widening
+/// the lend to follow private helpers would add pairs and is a change to the countdown, so it is named here
+/// rather than done quietly.</para>
 /// </summary>
 [Trait("tier", "integration")]
 public sealed class ReadSentenceReachabilityTests : IClassFixture<OwnedChildFixture>

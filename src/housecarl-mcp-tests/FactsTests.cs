@@ -301,6 +301,27 @@ public sealed class FactsTests : RecordsTestBase
         Assert.ThrowsAny<Exception>(() => Facts.States(unrelated + " . ", "{0}.{1}"));
     }
 
+    /// <summary>
+    /// The threshold is about a CONTIGUOUS run, not about how many non-space characters a segment holds.
+    /// Counting them admits scattered punctuation and single letters as an identity, which is the vacuous arm
+    /// <see cref="Facts.IdentifiableRun"/> exists to refuse, and it is the shape the countdown records as
+    /// unreachable-by-identity.
+    /// </summary>
+    [Fact]
+    public void LongestRunIsAContiguousRun_NotACountOfTheNonSpaceCharacters()
+    {
+        var scattered = "a b c d e f g h i j";   // ten non-space characters, no run longer than one
+        Assert.Equal(1, Facts.LongestRun(scattered));
+        Assert.False(Facts.Identifiable(scattered));
+
+        var contiguous = "x " + new string('y', Facts.IdentifiableRun);
+        Assert.Equal(Facts.IdentifiableRun, Facts.LongestRun(contiguous));
+        Assert.True(Facts.Identifiable(contiguous));
+
+        // A hole splits the sentence, so a run is measured within a segment and never across one.
+        Assert.Equal(1, Facts.LongestRun("a{0}b"));
+    }
+
     // ---- driving ---------------------------------------------------------------------------------------
 
     string Json() =>
