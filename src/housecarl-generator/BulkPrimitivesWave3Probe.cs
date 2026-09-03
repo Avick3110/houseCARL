@@ -451,7 +451,7 @@ public static class BulkPrimitivesWave3Probe
         var w = m.Weapons.AddNew(); w.EditorID = "DfW"; w.Name = "Base"; w.BasicStats = new WeaponBasicStats { Damage = 10 };
         w.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>> { new FormLink<IKeywordGetter>(dkw1), new FormLink<IKeywordGetter>(dkw2) };
         var wFk = w.FormKey;
-        var w2 = m.Weapons.AddNew(); w2.EditorID = "DfW2"; w2.BasicStats = new WeaponBasicStats { Damage = 5 }; var w2Fk = w2.FormKey;  // master-only
+        var w2 = m.Weapons.AddNew(); w2.EditorID = "DfW2"; w2.BasicStats = new WeaponBasicStats { Damage = 5 };  // master-only
         m.BeginWrite.ToPath(masterPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
         var r = new SkyrimMod(rKey, SkyrimRelease.SkyrimSE);
@@ -557,8 +557,7 @@ public static class BulkPrimitivesWave3Probe
         svc.Stats();
 
         string wFid = $"{wFk.ID:X6}:{wFk.ModKey.FileName}";
-        string w2Fid = $"{w2Fk.ID:X6}:{w2Fk.ModKey.FileName}";
-        string masterName = mKey.FileName.String, replName = rKey.FileName.String;
+        string replName = rKey.FileName.String;
 
         // #486: LoadOrderService.DiffRecord (the deleted 1.x pairwise-diff service) is gone; every arm above this
         // point that called it (active-vs-active B1, off-order-vs-active B2, active-by-path B3 — all already
