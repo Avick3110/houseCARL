@@ -210,7 +210,7 @@ public sealed class ToolSurfaceCensusTests
     /// <c>typeof(ThatType).Assembly</c> in that project would otherwise be reported, with a remedy that would
     /// change what the expression means. Where the name is NOT declared locally there is no other type it
     /// could be, which is why the set stays whole — narrowing it to the tool types instead would have stopped
-    /// catching four of the eight spellings this branch repointed, <c>typeof(ApplyOp)</c> and
+    /// catching four of the six spellings this branch repointed, <c>typeof(ApplyOp)</c> and
     /// <c>typeof(ToolSchemas)</c> among them.</para>
     /// </summary>
     static bool NamesASurfaceType(string named, (HashSet<string> Simple, string[] Full) surface,
@@ -298,11 +298,11 @@ public sealed class ToolSurfaceCensusTests
         Path.GetRelativePath(HarnessPaths.RepoRoot, full).Replace('\\', '/');
 
     /// <summary>
-    /// The eight sites this branch repointed, with the spelling each carried before it was.
+    /// The six sites this branch repointed, with the spelling each carried before it was.
     ///
     /// <para>A historical fixture, not a population: it is the record of what actually occurred in this tree,
     /// and the only way to hold a change to the READING against the offenders the reading is for. Two of the
-    /// eight are one row when reported — same file, same name — which is why the assertion is over the eight
+    /// six are one row when reported — same file, same name — which is why the assertion is over the six
     /// sites rather than over a row count. The names are stored, not the expressions: this file is scanned
     /// like any other, and a literal <c>typeof(X).Assembly</c> here would be an offender in it.</para>
     /// </summary>
@@ -310,13 +310,14 @@ public sealed class ToolSurfaceCensusTests
     {
         ("src/housecarl-generator/RegisteredTools.cs",                 "WriteTools"),
         ("src/housecarl-mcp-tests/ToolNameRegistryTests.cs",           "HousecarlMcp.CheckTools"),
-        ("src/housecarl-generator/CodexUmbrellaCoverageProbe.cs",      "ReadTools"),
-        ("src/housecarl-generator/BulkPrimitivesWave3Probe.cs",        "HousecarlMcp.ReadTools"),
         ("src/housecarl-generator/DescriptionVocabularyGuardProbe.cs", "ApplyOp"),
         ("src/housecarl-generator/WireNamesProbe.cs",                  "ApplyOp"),
         ("src/housecarl-generator/WireNamesProbe.cs",                  "ApplyOp"),
         ("src/housecarl-generator/PreFlattenSurface.cs",               "ToolSchemas"),
     };
+
+    // 2026-09-03: two rows naming `ReadTools` removed at the cut (#468) — the type is deleted, so nothing can
+    // collide with its name; the six remaining rows keep the claim.
 
     /// <summary>
     /// Every spelling the repointing removed is still read as naming the tool surface.
