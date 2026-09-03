@@ -42,7 +42,9 @@ public static class CiAll
     /// references every houseCARL project, so the closure is the whole population. It is not taken on trust:
     /// CiProbeRosterTests derives the same population from the repo's project list and holds the two equal.
     /// </remarks>
-    public static IReadOnlyList<Assembly> GuardAssemblies { get; } = DiscoverAssemblies();
+    public static IReadOnlyList<Assembly> GuardAssemblies => _guardAssemblies ??= DiscoverAssemblies();
+
+    static Assembly[]? _guardAssemblies;
 
     static Assembly[] DiscoverAssemblies()
     {
@@ -66,14 +68,34 @@ public static class CiAll
         return seen.Values.OrderBy(a => a.GetName().Name, StringComparer.Ordinal).ToArray();
     }
 
-    /// <summary>Every attributed guard, roster and standalone alike, ordered by name.</summary>
-    static readonly Entry[] All = Discover();
+    /// <summary>
+    /// Every attributed guard, roster and standalone alike, ordered by name.
+    ///
+    /// <para>A cached method rather than a static field on purpose. <see cref="Discover"/> has two written
+    /// refusals — a wrong entry-point signature, and two guards claiming one verb — and a refusal thrown out
+    /// of a static field initializer arrives as a TypeInitializationException that the CLR then caches against
+    /// the type for the life of the process. In the xUnit host that turned one sentence naming both clashing
+    /// hosts into eight failures reading "The type initializer for 'HousecarlGenerator.CiAll' threw an
+    /// exception", with the sentence buried in an inner exception. From here the refusal arrives as itself, in
+    /// the caller that asked. Every member below is cached the same way for the same reason.</para>
+    /// </summary>
+    static Entry[] All() => _all ??= Discover();
 
-    static Entry[] Discover()
+    static Entry[]? _all;
+
+    static Entry[] Discover() => Discover(GuardAssemblies);
+
+    /// <summary>
+    /// The roster <paramref name="assemblies"/> would produce, refusals and all. The real derivation is
+    /// <see cref="Discover()"/> over <see cref="GuardAssemblies"/> — this overload only lets an arm hand the
+    /// same scan a fixture population, which is the only way to reach a refusal that the repo, by being green,
+    /// never triggers.
+    /// </summary>
+    static Entry[] Discover(IReadOnlyList<Assembly> assemblies)
     {
         var found = new List<Entry>();
 
-        foreach (var asm in GuardAssemblies)
+        foreach (var asm in assemblies)
             foreach (var type in asm.GetTypes())
                 foreach (var method in type.GetMethods(Members))
                 {
@@ -108,28 +130,47 @@ public static class CiAll
         return found.OrderBy(e => e.Name, StringComparer.Ordinal).ToArray();
     }
 
-    static Entry[] Roster => All.Where(e => !e.Standalone).ToArray();
+    static Entry[] Roster => All().Where(e => !e.Standalone).ToArray();
+
+    /// <summary>
+    /// The roster <paramref name="assemblies"/> would enrol: each verb, its host type, and whether CI runs it
+    /// as its own step. The fixture seam for the two refusals in <see cref="Discover(IReadOnlyList{Assembly})"/>,
+    /// which a green repo never triggers by itself. The shipped population is never this — it is
+    /// <see cref="GuardAssemblies"/>, and nothing here changes how that is derived.
+    /// </summary>
+    public static IReadOnlyList<(string Name, Type Host, bool Standalone)> RosterIn(IReadOnlyList<Assembly> assemblies) =>
+        Discover(assemblies).Select(e => (e.Name, e.Host, e.Standalone)).ToArray();
 
     /// <summary>Each roster verb with the type hosting its entry point. The residue countdown reads this to
     /// count rows PER FILE, which is what lets a conversion PR delete its own baseline key instead of editing
     /// a shared total.</summary>
-    public static IReadOnlyList<(string Name, Type Host)> ProbeHosts { get; } =
-        All.Where(e => !e.Standalone).Select(e => (e.Name, e.Host)).ToArray();
+    public static IReadOnlyList<(string Name, Type Host)> ProbeHosts =>
+        _probeHosts ??= All().Where(e => !e.Standalone).Select(e => (e.Name, e.Host)).ToArray();
+
+    static (string Name, Type Host)[]? _probeHosts;
 
     /// <summary>The same for the guards CI runs as their own workflow step instead of inside <c>ci-all</c>.</summary>
-    public static IReadOnlyList<(string Name, Type Host)> StandaloneProbeHosts { get; } =
-        All.Where(e => e.Standalone).Select(e => (e.Name, e.Host)).ToArray();
+    public static IReadOnlyList<(string Name, Type Host)> StandaloneProbeHosts =>
+        _standaloneProbeHosts ??= All().Where(e => e.Standalone).Select(e => (e.Name, e.Host)).ToArray();
+
+    static (string Name, Type Host)[]? _standaloneProbeHosts;
 
     /// <summary>Every CI probe's name, for the unknown-mode refusal's list and did-you-mean (Program.cs), and
     /// for the residue countdown's row count. Sorted by name — the order <c>ci-all</c> runs them in.</summary>
-    public static IReadOnlyList<string> ProbeNames { get; } = ProbeHosts.Select(p => p.Name).ToArray();
+    public static IReadOnlyList<string> ProbeNames => _probeNames ??= ProbeHosts.Select(p => p.Name).ToArray();
+
+    static string[]? _probeNames;
 
     /// <summary>The guards CI runs as their own workflow step instead of inside <c>ci-all</c>.</summary>
-    public static IReadOnlyList<string> StandaloneProbeNames { get; } =
-        StandaloneProbeHosts.Select(p => p.Name).ToArray();
+    public static IReadOnlyList<string> StandaloneProbeNames =>
+        _standaloneProbeNames ??= StandaloneProbeHosts.Select(p => p.Name).ToArray();
+
+    static string[]? _standaloneProbeNames;
 
     /// <summary>Every type hosting a CI guard of either kind.</summary>
-    public static IReadOnlyList<Type> GuardTypes { get; } = All.Select(e => e.Host).Distinct().ToArray();
+    public static IReadOnlyList<Type> GuardTypes => _guardTypes ??= All().Select(e => e.Host).Distinct().ToArray();
+
+    static Type[]? _guardTypes;
 
     /// <summary>
     /// Dispatch a single CI guard by name — roster or standalone. Program.cs routes local single-probe runs
@@ -138,7 +179,7 @@ public static class CiAll
     /// </summary>
     public static bool TryDispatch(string name, string[] args, out int rc)
     {
-        foreach (var e in All)
+        foreach (var e in All())
             if (e.Name == name) { rc = e.Run(args); return true; }
         rc = 0;
         return false;
