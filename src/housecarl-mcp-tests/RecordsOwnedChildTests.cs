@@ -701,6 +701,75 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.DoesNotContain("spilled:", r);
     }
 
+    // ---- the block's own TAIL, not just its per-line checks (round-1 review-A MEDIUM2 / review-B L5-L7) ------
+    //
+    // AppendChildDeclarers checked cap BEFORE each field line and never after the last one, so the LAST line
+    // pushing sb.Length past cap went unnoticed on a sole-provider row (nothing downstream to catch it — the diff
+    // loop never runs). Measured on CellC (4-line block, full text 889 chars): a StringBuilder holding exactly
+    // cap-or-more AFTER the final line (before TrimEnd('\n') removes one char) is the boundary, at max_chars=890;
+    // 891 is the first cap the same content fits inside with room to spare.
+
+    [Fact]
+    public void ATextRowsDeclarersBlockTailAloneCanTripMaxChars_AndTheResponseIsMarkedTruncated() =>
+        Assert.Contains("spilled: complete result", Tree(_w.CellC, maxChars: 890));
+
+    [Fact]
+    public void ARowWhoseDeclarersBlockFitsExactlyAtTheTailIsNotMarkedTruncated() =>
+        Assert.DoesNotContain("spilled:", Tree(_w.CellC, maxChars: 891));
+
+    /// <summary>When the block IS cut on a multi-provider row, the row stops there — it used to fall through into
+    /// an unconditional "diff (field deltas…):" header for a section the cap already forbade, and the FIRST diff
+    /// node then printed a SECOND, redundant cut notice (review-B L5). Measured on CellF (3 touchers): at every cap
+    /// that cuts the declarers block, no diff header and no second "[nodes cut" notice follow it.</summary>
+    [Fact]
+    public void ACutDeclarersBlockEndsTheRow_NoEmptyDiffHeaderAndNoSecondCutNotice()
+    {
+        var r = Tree(_w.CellF, maxChars: 600);
+        Assert.Contains("[child declarers cut", r);
+        Assert.DoesNotContain("diff (field deltas", r);
+        Assert.DoesNotContain("[nodes cut", r);
+    }
+
+    /// <summary>The lead is invariant framing text, not per-record content, so a multi-row response states it once
+    /// — matching json's `child_declarers_note` and the artifact's manifest note, which never repeated it per row
+    /// (round-1 review-A MEDIUM1 / review-B M1). Both CellA and CellF carry declarers, so a per-row repeat would
+    /// show two occurrences; the fix shows one.</summary>
+    [Fact]
+    public void TheLeadIsStatedOnceAcrossMultipleRowsInText_NotPerRow()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { OwnedChildWorld.Fid(_w.CellA), OwnedChildWorld.Fid(_w.CellF) },
+                                     project: new RecordsTools.RecordsProject { form = "tree" });
+        Assert.Equal(1, Occurrences(r, ReadSentences.DeclarersLead));
+        // …and each row still gets ITS OWN field lines under that one lead.
+        Assert.Contains($"Temporary: {ReadSentences.DeclaredBy} {_w.BaseName}", r);
+        Assert.Contains($"Temporary: {ReadSentences.DeclaredBy} {_w.BaseName}, {_w.MidName}", r);
+    }
+
+    // ---- json's response-level lead respects cap too, not just the row-level array (review-A MEDIUM2 / review-B L7) ----
+    //
+    // child_declarers_note used to be written unconditionally after `truncated` was already computed — a
+    // Utf8JsonWriter cannot un-write it once appended, so the cap has to be checked (via DeclarersLeadReserve,
+    // JsonWire's own measured cost for the property) BEFORE deciding to write it, not after. Measured on CellC's
+    // json tree (full 1956 chars): 1930 is the last cap that drops the note and spills; 1932 is the first that
+    // keeps it.
+
+    [Fact]
+    public void Json_TheResponseLevelLeadIsDroppedRatherThanOverrunningCap_AndTruncatedIsSet()
+    {
+        using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 1930));
+        Assert.False(doc.RootElement.TryGetProperty("child_declarers_note", out _));
+        Assert.True(doc.RootElement.GetProperty("truncated").GetBoolean());
+        Assert.True(doc.RootElement.TryGetProperty("spilled", out _));
+    }
+
+    [Fact]
+    public void Json_TheResponseLevelLeadRidesWhenItFitsWithRoomToSpare()
+    {
+        using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 1932));
+        Assert.Equal(ReadSentences.DeclarersLead, doc.RootElement.GetProperty("child_declarers_note").GetString());
+        Assert.False(doc.RootElement.GetProperty("truncated").GetBoolean());
+    }
+
     // ---- the precise tier's lead reaches json and the artifact too, not just text (review-A M3) ----
 
     [Fact]
