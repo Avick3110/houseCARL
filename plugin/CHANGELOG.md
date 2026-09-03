@@ -1617,7 +1617,16 @@ offset, paging meant slicing by `editorid_contains`. Now:
   code accepted the pairing and dropped it. A call that used to come back as the depth-1 document now comes back
   as a refusal naming the depth you passed, and pointing at `format="text"` or `"json"` for expansion. Check it by
   asking for `format="dense"` with `project={"form":"fields","fields":[…],"depth":2}`: at depth 1 the same call is
-  served unchanged, and the same depth in `"text"` is served, so the refusal is about the transport.
+  served unchanged, and the same depth in `"text"` is served, so the refusal is about the transport. The refusal is
+  the SCAN lane's: a `formids=` read refuses dense outright, and that sentence is the complete answer there — firing
+  the depth one first would tell you to drop `project.depth` and land you on a second refusal.
+
+- **Two headers stop naming a tool that is gone.** The scan's text render opened `cross_plugin_query: N matches` and
+  now opens `scan:`; the chain form's render opened `effect_chain for …` and now opens `chain for …`. The chain
+  form's three refusals — not a MagicEffect, no such record, a type that is not effect-bearing — said `effect_chain`
+  too, and one of them told you to reach for `cross_plugin_query references=`, a call you can no longer make; they
+  name the chain form and `housecarl_records references=[…]` (bounded with `types=` or `plugins=`) now. The
+  unscannable-record note that said "Inspect one with read_record" names `housecarl_records formids=[…]`.
 
 ## 1.9.0 — 2026-07-17
 
