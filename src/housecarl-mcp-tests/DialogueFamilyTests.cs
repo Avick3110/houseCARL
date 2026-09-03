@@ -198,7 +198,9 @@ public sealed class DialogueFamilyTests
     /// <summary>ONE seed's own block: the head line containing <paramref name="marker"/> and the indented findings
     /// under it, stopping at the NEXT seed's head — or at the family's accounting or boundary, whichever comes first.
     ///
-    /// <para>It terminated on the next BLANK line until round 2. The seed heads are contiguous
+    /// <para>It terminated on the next BLANK line until round 2, and carried that clause as a residual until
+    /// Aaron's gate; the predicate above now names the same one terminator this paragraph does. The seed heads are
+    /// contiguous
     /// (<c>ReadSentences.DialogueSeedHead</c> ends in one newline and the next head follows it directly), so the
     /// first blank line in a three-seed response comes AFTER the third seed: every block spanned every seed below
     /// it, and an assertion that a seed states its own verdict was satisfied by a sibling's. Measured — deleting
@@ -219,8 +221,7 @@ public sealed class DialogueFamilyTests
         int end = Array.FindIndex(lines, start + 1,
             l => l.StartsWith("seed ", StringComparison.Ordinal)
                  || l.StartsWith("[accounting:", StringComparison.Ordinal)
-                 || l.StartsWith("boundary (", StringComparison.Ordinal)
-                 || l.Trim().Length == 0);
+                 || l.StartsWith("boundary (", StringComparison.Ordinal));
         return string.Join("\n", lines[start..(end < 0 ? lines.Length : end)]);
     }
 
