@@ -264,21 +264,12 @@ public sealed class ReadSentenceReachabilityTests : IClassFixture<OwnedChildFixt
             $"\nDelete each key from '{UnreachedPath}' — the arm covers it now.");
     }
 
-    /// <summary>
-    /// The least a sentence must carry to be findable by its own words. Below it, an identity arm is
-    /// vacuous: <c>SweepClose</c> is "]", and <c>SweepFamilySectionHead</c>'s only literal runs are a
-    /// bracket and a space — every response contains those, so the arm would pass over a surface that had
-    /// stopped emitting the sentence entirely.
-    /// </summary>
-    const int IdentifiableRun = 8;
+    // The identifiability threshold and its two helpers live in Facts — the helper that REFUSES an
+    // unidentifiable constant is the same rule this population sorts on, and one home is the point.
 
-    static int LongestRun(string sentence) =>
-        System.Text.RegularExpressions.Regex.Split(sentence, @"\{\d+\}")
-              .Select(seg => seg.Replace("{{", "{").Replace("}}", "}").Count(c => !char.IsWhiteSpace(c)))
-              .DefaultIfEmpty(0)
-              .Max();
+    static int LongestRun(string sentence) => Facts.LongestRun(sentence);
 
-    static bool Identifiable(string sentence) => LongestRun(sentence) >= IdentifiableRun;
+    static bool Identifiable(string sentence) => Facts.Identifiable(sentence);
 
     // ---- the harvest -----------------------------------------------------------------------------------
     //

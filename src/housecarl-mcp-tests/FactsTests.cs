@@ -261,6 +261,41 @@ public sealed class FactsTests : RecordsTestBase
         Facts.States(TextOf(AllWeaponIds) + composed + TextOf(AllWeaponIds), ReadSentences.SweepSections);
     }
 
+    /// <summary>
+    /// Every catalogue sentence whose longest literal run is under the threshold — DERIVED, so a short
+    /// sentence added tomorrow is in this arm the day it lands rather than when someone remembers. Each one
+    /// PASSED over unrelated text while the emptiness check was the whole guard: an arm that cannot fail,
+    /// arriving through the very disposition the prose guard recommends.
+    /// </summary>
+    [Fact]
+    public void States_EverySentenceItCannotIdentify_IsRefused_NotAssertedVacuously()
+    {
+        var unrelated = TextOf(AllWeaponIds);
+
+        var unidentifiable = SentenceCatalogue.Members(typeof(ReadSentences))
+            .Where(m => m.Kind == SentenceCatalogue.Shape.Value)
+            .Select(m => (m.Name, Text: SentenceCatalogue.Value(typeof(ReadSentences), m.Name) as string))
+            .Where(x => x.Text is not null && !Facts.Identifiable(x.Text))
+            .ToArray();
+
+        var passed = new List<string>();
+        foreach (var (name, text) in unidentifiable)
+        {
+            try { Facts.States(unrelated, text!); passed.Add($"{name} ({Facts.LongestRun(text!)} run)"); }
+            catch (Exception) { /* refused, which is the claim */ }
+        }
+
+        Assert.True(passed.Count == 0,
+            "Facts.States asserted these sentences over text that has nothing to do with them:\n  " +
+            string.Join("\n  ", passed) +
+            $"\nA run under {Facts.IdentifiableRun} non-space characters is not an identity, and an arm over " +
+            "one passes on almost any response.");
+
+        // The arm is never vacuous: a sentence gutted to punctuation is refused whether or not the catalogue
+        // currently carries a short member.
+        Assert.ThrowsAny<Exception>(() => Facts.States(unrelated, "{0}.{1}"));
+    }
+
     // ---- driving ---------------------------------------------------------------------------------------
 
     string Json() =>
