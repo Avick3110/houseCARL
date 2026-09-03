@@ -4,10 +4,10 @@
 Pinned by `ScriptsWorldTests` and `HeldOpenTests` in the same project.
 
 Two pieces of machinery the test project did not have before #486 PR 1, each in its own file, plus the
-tests that prove the machinery is what it claims to be. They exist because #486 PR 2 rewrites 197 old
-assertion sites as 147 arms, and 28 of those are script-property arms that need a `.pex` fixture while
-three are dialogue arms that need a held file. Nothing under `src/housecarl-mcp`, `src/housecarl-core`
-or `src/housecarl-generator` is involved.
+tests that prove the machinery is what it claims to be. They exist because #486 PR 2 rewrites 200 old
+assertion sites (204 compiler complaints, some lines carrying two) as 60 xUnit facts, and 14 of those are
+script-property arms that need a `.pex` fixture while three are dialogue arms that need a held file.
+Nothing under `src/housecarl-mcp`, `src/housecarl-core` or `src/housecarl-generator` is involved.
 
 ## `PexWriter` — ported, not referenced
 
@@ -36,7 +36,7 @@ would then read off `VariableType` and render as `Bool Property MyFlag = 1 Auto`
 fixture would assert product behaviour against a `.pex` shape the game never produces and stay green while
 claiming to model a defaulted Bool. So the writer **refuses** a non-`Int` declared type with an initializer,
 `ArgumentException` naming the property, the type and the value: the parameter name `initInt` was the only
-thing carrying the restriction, and #486 PR 2 spells 28 script-property arms against this machinery. Both
+thing carrying the restriction, and #486 PR 2 spells 14 script-property arms against this machinery. Both
 branches are pinned — `TheWriterRefusesABakedInitializerOnANonIntScalar` and
 `TheWriterStillBakesAnIntScalarInitializerAndItRoundTrips`.
 
@@ -116,7 +116,8 @@ findings=["scripts"]` while `ScriptPropertyCheckProbe.cs` still guarded the same
 probe arm (PEX-ROUNDTRIP) was re-homed here. No family was converted then, so no `Converted-from:` marker
 was owed and the mechanical guard — which is decidable only on that marker — had nothing to check.
 
-**#486 PR 2 closed it**, in commit `601510d`: `ScriptPropertyCheckProbe.cs` is deleted,
+**#486 PR 2 closed it**, in the commit that landed the epoch and scripts family facts and retired two probes:
+`ScriptPropertyCheckProbe.cs` is deleted,
 `ScriptsFamilyTests.cs` carries the `Converted-from: ScriptPropertyCheckProbe` marker, and the file's
 `harness-residue-baseline.json` key is gone. The scripts family now lives in one harness.
 
