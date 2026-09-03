@@ -181,11 +181,11 @@ internal static class EpochGuardProbe
                 // cross_plugin_query — outcome stamp + all three renders + the Fail path
                 var q = svc.CrossQuery("WEAP", null, null, false, null, null, 500);
                 Check(q.Epoch == current, "cross_plugin_query outcome stamps the scanned build");
-                Check(Wire.RenderCrossQuery(svc, q, null, false, 0).Contains($"epoch={current}"), "…text render carries epoch=<hex> in the header");
+                Check(Wire.RenderCrossQuery(svc, q, null, 0).Contains($"epoch={current}"), "…text render carries epoch=<hex> in the header");
                 Check(JsonWire.RenderCrossQuery(svc, q, null, 0, false, false).Contains($"\"epoch\": \"{current}\""), "…json render carries the epoch field");
                 Check(JsonWire.RenderCrossQueryDense(svc, q, null, 0, false, false).Contains($"\"epoch\": \"{current}\""), "…dense render carries it too");
                 var g = svc.CrossQuery("WEAP", null, null, false, null, null, 500, groupBy: "winner");
-                Check(g.Epoch == current && Wire.RenderCrossQuery(svc, g, null, false, 0).Contains($"epoch={current}"),
+                Check(g.Epoch == current && Wire.RenderCrossQuery(svc, g, null, 0).Contains($"epoch={current}"),
                       "…group_by count table carries it (aggregations page too)");
                 Check(svc.CrossQuery((string?)null, null, null, false, null, null, 500).Epoch is null,
                       "…a REFUSED query (no filter) stays unstamped — a refusal that consulted no build invents none");
@@ -197,7 +197,7 @@ internal static class EpochGuardProbe
                 Check(batch[2].Epoch is null, "…the malformed-formid row (no view consulted) carries none");
                 Check(batch[3].Error is not null && batch[3].Epoch == current,
                       "…the absent-record REFUSAL is stamped ('not present' is an answer about a build)");
-                Check(Wire.RenderBatch(svc, batch, null, false, 0).Contains($"epoch={current}"), "…text header carries it once, response-level");
+                Check(Wire.RenderBatch(batch, 0).Contains($"epoch={current}"), "…text header carries it once, response-level");
                 Check(JsonWire.RenderBatch(batch, 0).Contains($"\"epoch\": \"{current}\""), "…json carries it once, response-level");
 
                 // single read — text tail + json top-level
@@ -212,11 +212,7 @@ internal static class EpochGuardProbe
                 Check(Wire.RenderResolve(rows, 0, resolveEpoch).Contains($"epoch={current}"), "…text render carries it");
                 Check(JsonWire.RenderResolve(rows, 0, resolveEpoch).Contains($"\"epoch\": \"{current}\""), "…json render carries it");
 
-                // diff / effect_chain / sweeps
-                var d = svc.DiffRecord(Fid(weapons[0]), masterName, ovName, null);
-                Check(d.Error is null && d.Epoch == current, "diff_record stamps the ONE build both poles resolved against");
-                Check(Wire.RenderDiffRecord(d, 0).Contains($"epoch={current}"), "…text render carries it");
-                Check(JsonWire.RenderDiffRecord(d, 0).Contains($"\"epoch\": \"{current}\""), "…json render carries it");
+                // effect_chain / sweeps (the pairwise-diff arms went with LoadOrderService.DiffRecord, #486)
                 var ec = svc.ResolveEffectChain(mgef.FormKey, null, 500);
                 Check(ec.Error is null && ec.Epoch == current && Wire.RenderEffectChain(ec, 0).Contains($"epoch={current}"),
                       "effect_chain stamps + renders it");
@@ -243,15 +239,6 @@ internal static class EpochGuardProbe
                 Check(Wire.RenderEffectChain(ecMiss, 0).Contains($"epoch={current}"), "…and rendered");
                 Check(svc.ResolveEffectChain(mgef.FormKey, new[] { "WEAP" }, 500).Epoch is null,
                       "…its PRE-capture type-narrow refusal stays null");
-                var dMiss = svc.DiffRecord(Fid(weapons[0]), masterName, "Nope.esp", null);
-                Check(dMiss.Error is not null && dMiss.Epoch == current, "diff_record's unresolvable-pole refusal is stamped");
-                Check(Wire.RenderDiffRecord(dMiss, 0).Contains($"epoch={current}"), "…and rendered");
-                // Third-round finding 2: a refusal's poles/inputs were never resolved — the coverage bool is a
-                // success-path assertion and must NOT ride refusal documents (it claimed true on null poles).
-                Check(!JsonWire.RenderDiffRecord(dMiss, 0).Contains("epoch_covers_all_inputs"),
-                      "…its json refusal carries the bare stamp, NO coverage claim");
-                Check(svc.DiffRecord("notaformid", masterName, ovName, null).Epoch is null,
-                      "…its PRE-capture bad-FormID refusal stays null");
                 var ceMiss = svc.CheckErrors(new[] { "Nope.esp" }, 1000);
                 Check(ceMiss.Error is not null && ceMiss.Epoch == current, "check_errors' locate refusal is stamped");
                 Check(Wire.RenderCheckErrors(ceMiss, 0).Contains($"epoch={current}"), "…and rendered");
@@ -278,14 +265,6 @@ internal static class EpochGuardProbe
                 // ---- PR #305 fold: off-order coverage is QUALIFIED, never overclaimed (finding 3) ----
                 Console.WriteLine();
                 Console.WriteLine("--- 3c (PR #305 fold): an off-order input qualifies the stamp — the fingerprint covers the index only ---");
-                var dOld = svc.DiffRecord(Fid(weapons[0]), masterName, oldName, null);
-                Check(dOld.Error is null && dOld.Epoch == current && !dOld.B!.InOrder,
-                      "an off-order diff pole resolves (10 vs 15) and still stamps the INDEX build");
-                Check(Wire.RenderDiffRecord(dOld, 0).Contains("(active-order inputs only"),
-                      "…and the text stamp is QUALIFIED — the off-order file's content is outside the fingerprint");
-                var dInOrder = svc.DiffRecord(Fid(weapons[0]), masterName, ovName, null);
-                Check(!Wire.RenderDiffRecord(dInOrder, 0).Contains("(active-order inputs only"),
-                      "…while an all-active diff carries NO qualifier (control)");
                 var ceOld = svc.CheckErrors(new[] { oldName }, 1000);
                 Check(ceOld.Error is null && ceOld.Epoch == current && ceOld.OffOrderScanned is { Count: > 0 },
                       "an off-order sweep resolves and still stamps the INDEX build");
@@ -295,10 +274,6 @@ internal static class EpochGuardProbe
                       "…while the all-indexed sweep carries NO qualifier (control)");
                 // Re-review finding 4: the coverage fact rides the JSON as DATA, not prose — the machine consumer
                 // comparing epochs is the one that needs it.
-                Check(JsonWire.RenderDiffRecord(dOld, 0).Contains("\"epoch_covers_all_inputs\": false"),
-                      "diff json carries epoch_covers_all_inputs=false for the off-order pole");
-                Check(JsonWire.RenderDiffRecord(dInOrder, 0).Contains("\"epoch_covers_all_inputs\": true"),
-                      "…and true for the all-active control");
                 Check(JsonWire.RenderCheckErrors(ceOld, 0).Contains("\"epoch_covers_all_inputs\": false"),
                       "check_errors json: false when off-order files were swept");
                 Check(JsonWire.RenderCheckErrors(ce, 0).Contains("\"epoch_covers_all_inputs\": true"),

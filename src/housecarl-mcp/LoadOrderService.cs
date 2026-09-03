@@ -980,47 +980,6 @@ public sealed class LoadOrderService : IDisposable
     /// Named per the Housecarl* scratch-mod convention (<c>HousecarlWriteProof</c> is the sibling).</summary>
     static readonly ModKey SkyPatcherScratchKey = new("HousecarlSkyPatcherScratch", ModType.Plugin);
 
-    /// <summary>
-    /// Compute one record's true post-SkyPatcher state: discover the loose SkyPatcher INI layer
-    /// (<see cref="SkyPatcherDiscovery"/>), replay each applicable type folder's ordered line union onto a
-    /// MUTABLE COPY of the record's load-order winner (<see cref="SkyPatcherOverlay"/> — CLEAN/COLLECTION
-    /// resolved, HARD rendered as flagged directives, every gap loud), and return what applied. ONE record
-    /// capture + ONE asset capture pin the whole call (the SkseInventory discipline). A record whose type
-    /// SkyPatcher doesn't patch, or that no INI touches, is a NAMED outcome — never an empty guess (Q3).
-    /// Where a record is fed from two folders (RACE ← race/ + raceHook/), folders apply in field-map
-    /// order — a DECLARED assumption (Wave-1 empirical item; the DLL's cross-patcher order is undocumented).
-    /// </summary>
-    public SkyPatcherPostStateData SkyPatcherPostState(FormKey fk)
-    {
-        // EPOCH: deliberately NOT stamped (PR #305 third round, named not silent) — this lane answers off the
-        // captured index PLUS the SkyPatcher INI layer, whose files are outside the fingerprint; a bare index
-        // epoch would overclaim exactly the way the off-order diff pole did. The S6 `layer` wave (W5) owns its
-        // epoch treatment, which needs an INI-layer term to be honest.
-        var resolver = Resolver;
-        var view = resolver.Capture();
-        AssetResolver.AssetView assets;
-        IReadOnlyList<string> assetWarnings;
-        string profileName;
-        lock (_gate)
-        {
-            assets = Assets.Capture();
-            assetWarnings = _assetWarnings;
-            profileName = _profileName;
-        }
-
-        var fieldMap = SkyPatcherFieldMap.Load();
-        var catalog = SkyPatcherCatalog.Load();
-        using var session = resolver.OpenSession();
-        var scan = SkyPatcherDiscovery.Scan(assets, catalog, view.ContainsPlugin, _skyPatcherParseCache);
-        var scratch = new SkyrimMod(SkyPatcherScratchKey, SkyrimRelease.SkyrimSE);
-        var formResolver = new SkyPatcherServiceResolver(this, view, session);
-
-        var r = ReplaySkyPatcher(view, session, scan, catalog, fieldMap, scratch, formResolver, fk, linesCache: null);
-        if (r.Error is not null) return SkyPatcherPostStateData.Fail(fk, r.Error);
-        return new SkyPatcherPostStateData(null, fk, r.EditorId, r.TypeName, r.WinnerPlugin,
-            r.Folders, scan.Notes, scan.ReadIncomplete || assets.ReadIncomplete, assetWarnings, profileName);
-    }
-
     /// <summary>The per-record SkyPatcher replay core, shared by the post-state read and the layer
     /// no-op (true-ITM) scan: resolve the winner, materialize a mutable scratch copy, apply every
     /// type folder's ordered lines in field-map order. Error = the named reason the record can't be
@@ -1101,8 +1060,8 @@ public sealed class LoadOrderService : IDisposable
     /// </summary>
     public SkyPatcherLayerData SkyPatcherLayer()
     {
-        // EPOCH: deliberately NOT stamped — same posture and reason as SkyPatcherPostState above (the INI layer is
-        // outside the index fingerprint; the S6 wave owns an honest, layer-aware stamp).
+        // EPOCH: deliberately NOT stamped — the INI layer is outside the index fingerprint, so a bare index epoch
+        // would overclaim; the S6 wave owns an honest, layer-aware stamp.
         var view = Resolver.Capture();
         AssetResolver.AssetView assets;
         IReadOnlyList<string> assetWarnings;
@@ -2675,95 +2634,6 @@ public sealed class LoadOrderService : IDisposable
 
     // ---- pairwise record diff (housecarl_diff_record — P8c) --------------------------------------------
 
-    /// <summary>P8c — field-level diff between TWO named plugins' versions of ONE record (housecarl_diff_record). Each
-    /// pole resolves ACTIVE-order (<see cref="LoadOrderResolver.IndexView.GetRecord"/>) OR OFF-ORDER (a plugin file on
-    /// disk not in the load order — the report's case diffs a DISABLED old patch against the mod that supersedes it, via
-    /// the shared <see cref="LocatePluginFileOnDisk"/>). Both sides are deep-read (<see cref="ConflictDiffDepth"/>) with
-    /// the SAME fields= so line sets correspond, then compared by <see cref="FieldsDiff.Compare"/> — the SAME
-    /// content-keyed (list reorders flagged), truncation-honest engine the conflict tree uses, with plugin_b as the
-    /// reference label. A bad
-    /// FormID, an unresolvable pole, or a plugin that doesn't define the record is a NAMED refusal (Q3).</summary>
-    public DiffRecordOutcome DiffRecord(string formid, string pluginA, string pluginB, IReadOnlyList<string>? fields,
-                                        string? modA = null, string? modB = null)
-    {
-        var fidLabel = formid?.Trim() ?? "";
-        if (string.IsNullOrWhiteSpace(pluginA) || string.IsNullOrWhiteSpace(pluginB))
-            return DiffRecordOutcome.Fail(fidLabel, "diff_record needs BOTH plugin_a and plugin_b — the two plugins whose versions of the record to compare.");
-        FormKey fk;
-        try { fk = FormKey.Factory(fidLabel); }
-        catch (Exception ex) { return DiffRecordOutcome.Fail(fidLabel, $"bad FormID '{formid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
-
-        var resolver = Resolver;
-        var view = resolver.Capture();
-        using var session = resolver.OpenSession();
-
-        // Post-capture refusals are STAMPED (PR #305 review): an unresolvable pole is an answer about THIS build
-        // (membership, exclusion, on-disk locate against its composition). Pre-capture refusals above carry none.
-        var a = ResolveDiffPole(view, session, fk, pluginA.Trim(), modA, fields);
-        if (a.Error is not null) return DiffRecordOutcome.Fail(fidLabel, $"plugin_a: {a.Error}") with { Epoch = view.Epoch };
-        var b = ResolveDiffPole(view, session, fk, pluginB.Trim(), modB, fields);
-        if (b.Error is not null) return DiffRecordOutcome.Fail(fidLabel, $"plugin_b: {b.Error}") with { Epoch = view.Epoch };
-
-        // Label the reference side with what the pole RESOLVED to, not the raw argument — a pole addressed by path
-        // renders its plugin name in the header, and delta lines quoting the path back would read as a second,
-        // different plugin.
-        var diff = FieldsDiff.Compare(a.Fields!, b.Fields!, referenceLabel: b.Pole!.Plugin);
-        return new DiffRecordOutcome(fidLabel, a.Pole!, b.Pole!, diff, null) { Epoch = view.Epoch };
-    }
-
-    /// <summary>Resolve ONE diff pole: the named plugin's version of <paramref name="fk"/> + its deep-read fields. An
-    /// ACTIVE-order plugin reads through the captured view; a plugin NOT in the order is looked up on disk (the shared
-    /// <see cref="LocatePluginFileOnDisk"/> + <see cref="LoadOrderResolver.OpenOverlay"/>, materialised then DISPOSED —
-    /// the RecordFields is a value snapshot, so no handle is held). A named error (never a silent miss) if the plugin
-    /// isn't found, is excluded, or doesn't define/override the record.</summary>
-    (RecordFields? Fields, DiffPole? Pole, string? Error) ResolveDiffPole(
-        LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, FormKey fk,
-        string plugin, string? mod, IReadOnlyList<string>? fields)
-    {
-        // A pole may be addressed by PATH. Routing on the name table alone can't recognise the active plugin that
-        // way — a path never matches a filename key, so the live, load-order-winning copy fell through to the
-        // off-order branch and got stamped OUT-OF-LOAD-ORDER (#269). Resolve a path that IS the file the order
-        // loads back to its plugin NAME first; everything else still takes the off-order lane below.
-        if (LooksLikePath(plugin) && ActiveNameForPath(view, plugin) is { } activeName) plugin = activeName;
-
-        if (view.ContainsPlugin(plugin))
-        {
-            if (view.ExcludedPlugins.TryGetValue(plugin, out var why))
-                return (null, null, $"'{plugin}' was excluded from this session ({why}) — its records aren't resolvable.");
-            var body = view.GetRecord(session, plugin, fk);
-            if (body is null)
-                return (null, null, $"'{plugin}' is in the load order but does NOT define or override {fk} — it has no version to diff.");
-            return (ReadEngine.ReadFields(body, fields, ConflictDiffDepth),
-                    new DiffPole(plugin, "active order", true, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID), null);
-        }
-
-        // OFF-ORDER: a plugin file on disk that isn't in the active order (the shared locate — cheap, no index build).
-        string modsDir, dataDir, overwriteDir, profileDir;
-        try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
-        catch (Exception ex) { return (null, null, $"'{plugin}' is not in the load order and the MO2 roots couldn't be derived to find it on disk: {ex.Message}"); }
-        var comp = Mo2LoadOrder.ReadComposition(profileDir);
-        var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, plugin, mod);
-        if (loc.Error is not null) return (null, null, $"'{plugin}' is not in the load order and {loc.Error}");
-        if (loc.Ambiguous is not null) return (null, null, $"'{plugin}' matches several mod folders on disk — pass an exact path to disambiguate.");
-        ISkyrimModGetter ov;
-        try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
-        catch (Exception ex) { return (null, null, $"could not open '{loc.Path}' as a Skyrim plugin: {ex.Message}"); }
-        try
-        {
-            IMajorRecordGetter? rec;
-            try { rec = ov.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == fk); }
-            catch (Exception ex) { return (null, null, $"file '{plugin}' could not be read ({ex.Message})."); }
-            if (rec is null)
-                return (null, null, $"file '{plugin}' (OUT-OF-LOAD-ORDER, {loc.Where}) does not define or override {fk} — no version to diff.");
-            return (ReadEngine.ReadFields(rec, fields, ConflictDiffDepth),   // materialised here → the overlay can close
-                    // "disabled" was the wrong word twice over: a MOD is disabled, a PLUGIN is inactive — and the one
-                    // word covered four causes with four different remedies. Name the cause the locate already knows.
-                    new DiffPole(plugin, $"OUT-OF-LOAD-ORDER ({loc.Where}{(loc.WhyNotActive is { } why ? $"; NOT active — {why}" : "")})", false,
-                                 RecordNaming.StripOverlay(rec.GetType().Name), rec.EditorID), null);
-        }
-        finally { (ov as IDisposable)?.Dispose(); }
-    }
-
     /// <summary>If <paramref name="path"/> is the EXACT file the active order loads for its filename, the plugin name
     /// the order knows it by; else null. The full-path compare is the whole point: a backup that shares the filename
     /// is a different file and must keep reading as off-order (that same-name/different-file pair is the ordinary
@@ -2788,23 +2658,6 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>One side of a housecarl_diff_record comparison: the plugin named, WHERE its version was found (active
     /// order, or OUT-OF-LOAD-ORDER on disk), whether it's in the active order, and the record identity it carries.</summary>
     public sealed record DiffPole(string Plugin, string Where, bool InOrder, string? RecordType, string? EditorId);
-
-    /// <summary>The outcome of a housecarl_diff_record call. <see cref="Error"/> non-null ⇒ refused (a bad FormID, an
-    /// unresolvable pole, or a plugin that doesn't define the record) with no diff. Otherwise <see cref="Diff"/> is the
-    /// field-level delta of <see cref="A"/> vs <see cref="B"/> (B the reference side), truncation-honest via Complete.</summary>
-    public sealed record DiffRecordOutcome(string Formid, DiffPole? A, DiffPole? B, FieldsDiff.Result? Diff, string? Error)
-    {
-        /// <summary>The captured INDEX build this call resolved against (SPEC §2.1.1 epoch fingerprint) — one build
-        /// for the whole call (§4.1), stamped on success and on every post-capture refusal; null only on the
-        /// pre-capture refusals (bad FormID / missing pole name). COVERAGE (PR #305 review): the fingerprint
-        /// describes the ACTIVE ORDER only. An OUT-OF-LOAD-ORDER pole's file is located on disk outside the index,
-        /// so its content is NOT under this fingerprint — an edit to that file changes the deltas without changing
-        /// the epoch. The per-pole <see cref="DiffPole.InOrder"/>/<see cref="DiffPole.Where"/> carry which pole
-        /// that is, and the renders qualify the stamp when one applies.</summary>
-        public string? Epoch { get; init; }
-
-        public static DiffRecordOutcome Fail(string formid, string error) => new(formid, null, null, null, error);
-    }
 
     // ---- batch (Q4.9) -----------------------------------------------------------------------------------
 
@@ -9421,26 +9274,6 @@ public sealed record SkyPatcherLayerData(
 public sealed record SkyPatcherNoOpWrite(
     string Subfolder, string FormKey, string? EditorId, string FieldPath,
     string File, int Line, string Op, string Value, string Already);
-
-/// <summary>The data behind the SkyPatcher post-state read (Wave 1): the record's identity + winner, one
-/// <see cref="SkyPatcherFolderOutcome"/> per type folder that can patch it (RACE gets two — race/ + raceHook/),
-/// the layer-level discovery notes, and the build's Q3 caveats. A not-in-order / not-patchable input is a
-/// NAMED <see cref="Error"/> (Q3), never an empty result.</summary>
-public sealed record SkyPatcherPostStateData(
-    string? Error,
-    Mutagen.Bethesda.Plugins.FormKey FormKey,
-    string? EditorId,
-    string RecordTypeName,
-    string WinnerPlugin,
-    IReadOnlyList<SkyPatcherFolderOutcome> Folders,
-    IReadOnlyList<string> LayerNotes,
-    bool ReadIncomplete,
-    IReadOnlyList<string> AssetWarnings,
-    string ProfileName)
-{
-    public static SkyPatcherPostStateData Fail(Mutagen.Bethesda.Plugins.FormKey fk, string error)
-        => new(error, fk, null, "", "", Array.Empty<SkyPatcherFolderOutcome>(), Array.Empty<string>(), false, Array.Empty<string>(), "");
-}
 
 /// <summary>One SkyPatcher type folder's replay outcome for the record. <see cref="Result"/> is null when the
 /// active order ships no (interpretable) INIs for the folder — a named nothing, not an empty guess.

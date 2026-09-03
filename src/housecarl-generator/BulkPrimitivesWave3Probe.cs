@@ -690,16 +690,10 @@ public static class BulkPrimitivesWave3Probe
         Check("#271 why: the three ACTIVE lanes carry NO cause (null), so nothing contradicts the live file",
               rpfPath.WhyNotActive is null && rpfData.WhyNotActive is null && rpfModServing.WhyNotActive is null);
 
-        // The RENDERED header, end to end — the banner's old parenthetical ("the game does not load this file") was
-        // false for exactly this call, where the file passed IS the live plugin (#269/#271 item 3), and the
-        // "[mod 'X' (enabled); NOT active]" pairing named a folder and a file in one breath without saying which was
-        // which (item 4). Assert on the rendered string, since the wording IS the deliverable here.
-        var renderLive = Wire.RenderPluginFile(rpfPath, 8000);
-        Check("#271 banner: the stamp describes the READ, never claiming the game does not load the file",
-              renderLive.Contains("OUT-OF-LOAD-ORDER") && renderLive.Contains("not resolved through the load order")
-              && !renderLive.Contains("the game does not load this file"));
-        Check("#271 render: a live file addressed by path says so positively — #269's symptom, inverted",
-              renderLive.Contains("the game loads this file"));
+        // The RENDERED header — the "[mod 'X' (enabled); NOT active]" pairing named a folder and a file in one
+        // breath without saying which was which (#271 item 4). Assert on the rendered string, since the wording IS
+        // the deliverable here. (The banner arms above it, and the json why_not_active pair below, went with
+        // housecarl_read_plugin_file's renderers at #486 — no 2.0 surface emits that banner or those keys.)
         var renderUnticked = Wire.RenderPluginFile(rpfUntickedByName, 8000);
         Check("#271 render: the mod-vs-plugin pairing is disambiguated in words, and carries the cause",
               renderUnticked.Contains("mod 'DiffUnticked' (enabled)")
@@ -713,7 +707,6 @@ public static class BulkPrimitivesWave3Probe
         Console.WriteLine("DBG bymod=[" + (svc.ReadPluginFile(dKey.FileName.String, wFid, null, "DiffDonor", null, 1, null, 10).WhyNotActive ?? "<null>") + "]");
         Console.WriteLine("DBG bypath=[" + (rpfDecoy.WhyNotActive ?? "<null>") + "]");
         Console.WriteLine("DBG archive=[" + (rpfArchive.WhyNotActive ?? "<null>") + "]");
-        Console.WriteLine("DBG json=[" + JsonWire.RenderPluginFile(rpfUntickedByName, 8000) + "]");
         // ALL THREE address forms, not the one that was reported. Round 1 flagged this duplication, the fix was tested
         // by comparing the two labels for equality, and that test silently failed in the mod= lane — whose Where names
         // the mod but omits its state — so the identical defect survived a round of review in an unarmed lane. Each
@@ -746,12 +739,6 @@ public static class BulkPrimitivesWave3Probe
               rpfDisabledByName.WhyNotActive is { } wDis && wDis.Contains("switched OFF") && wDis.Contains("switch it on")
               && rpfUnlisted.Error is null && rpfUnlisted.WhyNotActive is { } wUn
               && wUn.Contains("not registered") && !wUn.Contains("switch it on"));
-        // The JSON lane carries the cause too — advertised in the changelog, previously unarmed.
-        var jsonUnticked = JsonWire.RenderPluginFile(rpfUntickedByName, 8000);
-        var jsonLive = JsonWire.RenderPluginFile(rpfPath, 8000);
-        Check("#271 json: why_not_active rides beside enabled, and is explicitly null when the game loads the file",
-              jsonUnticked.Contains("\"why_not_active\"") && jsonUnticked.Contains("UNTICKED")
-              && jsonLive.Contains("\"why_not_active\": null"));
 
         // ---- #271 item 2: the REFUSAL sweep. A tool that reads THROUGH the load order still refuses on an unticked
         //      plugin (correctly — Q3: a plugin the game does not load must never masquerade as load-order truth), but

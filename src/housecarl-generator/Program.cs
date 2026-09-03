@@ -28,9 +28,8 @@ if (args.Length > 0 && args[0] == "copy-differential") return CopyDifferentialHa
 // Maintenance diagnostic: re-verify the mutable-collection whitelist on a Mutagen bump.
 if (args.Length > 0 && args[0] == "vocab") return Probe.RunVocab();
 
-// SkyPatcher Wave-1 CRUX harness: one record's computed post-SkyPatcher state off a LIVE MO2 instance —
-// the artifact the empirical gate verifies against xEdit + in-game (plan §7 Wave 1).
-if (args.Length > 0 && args[0] == "skypatcher-post-state") return SkyPatcherHarness.Run(args[1..]);
+// (The per-record `skypatcher-post-state` verb went with LoadOrderService.SkyPatcherPostState at #486 —
+//  the service member had no shipped caller after the 1.x cut. The layer verb below is unaffected.)
 
 // SkyPatcher Wave-2 harness: the whole-layer scan + INI-vs-INI conflict report off a LIVE MO2 instance,
 // rendered exactly as housecarl_skypatcher_layer returns it (the Wave-2 empirical artifact).
