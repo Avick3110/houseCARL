@@ -577,17 +577,30 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
                         DeclarersBlock(Tree(_w.CellF)));
 
     /// <summary>The whole block for the two-declarer cell, in one assertion: two collection fields naming both
-    /// lower plugins, and two fields nobody declares stating so. A tier that emitted only the positives, or only
-    /// the fields it had something to say about, fails here rather than passing on a substring.</summary>
+    /// lower plugins, and two fields nobody declares stating so — Landscape in its own SINGULAR voice (a count,
+    /// never the collection negative's plural "declares child record**s**", round-1 review-B L4), NavigationMeshes
+    /// in the collection one. A tier that emitted only the positives, or only the fields it had something to say
+    /// about, fails here rather than passing on a substring.</summary>
     [Fact]
     public void ThePreciseTierStatesEveryChildBearingFieldOfTheType_PositiveAndNegativeAlike() =>
         Assert.Equal(new[]
         {
-            $"Landscape: {ReadSentences.NoDeclarers}",
+            $"Landscape: {ReadSentences.CarriedBy} 0 provider(s)",
             $"NavigationMeshes: {ReadSentences.NoDeclarers}",
             $"Persistent: {ReadSentences.DeclaredBy} {_w.BaseName}, {_w.MidName}",
             $"Temporary: {ReadSentences.DeclaredBy} {_w.BaseName}, {_w.MidName}",
         }, DeclarersBlock(Tree(_w.CellF)));
+
+    /// <summary>The SINGULAR negative, on its own: a count of zero, never the collection voice's plural claim
+    /// (round-1 review-B L4 — "Saying 'not the merged total' about a singular child is simply false" applies
+    /// just as hard to the empty answer as to the positive one).</summary>
+    [Fact]
+    public void ASingularFieldNobodyCarriesIsCountedZero_NeverTheCollectionVoice()
+    {
+        var line = DeclarersBlock(Tree(_w.CellF)).Single(l => l.StartsWith("Landscape: ", StringComparison.Ordinal));
+        Assert.Equal($"Landscape: {ReadSentences.CarriedBy} 0 provider(s)", line);
+        Assert.DoesNotContain("child records", line);
+    }
 
     /// <summary>The NEGATIVE on its own, and the claim is that it is a SENTENCE. The tier this restores said
     /// nothing at all here, which a caller cannot tell apart from the tier not having run.</summary>
@@ -705,17 +718,18 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     //
     // AppendChildDeclarers checked cap BEFORE each field line and never after the last one, so the LAST line
     // pushing sb.Length past cap went unnoticed on a sole-provider row (nothing downstream to catch it — the diff
-    // loop never runs). Measured on CellC (4-line block, full text 889 chars): a StringBuilder holding exactly
-    // cap-or-more AFTER the final line (before TrimEnd('\n') removes one char) is the boundary, at max_chars=890;
-    // 891 is the first cap the same content fits inside with room to spare.
+    // loop never runs). Measured on CellC (4-line block, full text 844 chars — the SINGULAR Landscape line reads
+    // "carried by 0 provider(s)" now, round-1 review-B L4): a StringBuilder holding exactly cap-or-more AFTER the
+    // final line (before TrimEnd('\n') removes one char) is the boundary, at max_chars=845; 846 is the first cap
+    // the same content fits inside with room to spare.
 
     [Fact]
     public void ATextRowsDeclarersBlockTailAloneCanTripMaxChars_AndTheResponseIsMarkedTruncated() =>
-        Assert.Contains("spilled: complete result", Tree(_w.CellC, maxChars: 890));
+        Assert.Contains("spilled: complete result", Tree(_w.CellC, maxChars: 845));
 
     [Fact]
     public void ARowWhoseDeclarersBlockFitsExactlyAtTheTailIsNotMarkedTruncated() =>
-        Assert.DoesNotContain("spilled:", Tree(_w.CellC, maxChars: 891));
+        Assert.DoesNotContain("spilled:", Tree(_w.CellC, maxChars: 846));
 
     /// <summary>When the block IS cut on a multi-provider row, the row stops there — it used to fall through into
     /// an unconditional "diff (field deltas…):" header for a section the cap already forbade, and the FIRST diff
@@ -750,13 +764,13 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     // child_declarers_note used to be written unconditionally after `truncated` was already computed — a
     // Utf8JsonWriter cannot un-write it once appended, so the cap has to be checked (via DeclarersLeadReserve,
     // JsonWire's own measured cost for the property) BEFORE deciding to write it, not after. Measured on CellC's
-    // json tree (full 1956 chars): 1930 is the last cap that drops the note and spills; 1932 is the first that
+    // json tree (full 1911 chars): 1884 is the last cap that drops the note and spills; 1886 is the first that
     // keeps it.
 
     [Fact]
     public void Json_TheResponseLevelLeadIsDroppedRatherThanOverrunningCap_AndTruncatedIsSet()
     {
-        using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 1930));
+        using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 1884));
         Assert.False(doc.RootElement.TryGetProperty("child_declarers_note", out _));
         Assert.True(doc.RootElement.GetProperty("truncated").GetBoolean());
         Assert.True(doc.RootElement.TryGetProperty("spilled", out _));
@@ -765,7 +779,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     [Fact]
     public void Json_TheResponseLevelLeadRidesWhenItFitsWithRoomToSpare()
     {
-        using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 1932));
+        using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 1886));
         Assert.Equal(ReadSentences.DeclarersLead, doc.RootElement.GetProperty("child_declarers_note").GetString());
         Assert.False(doc.RootElement.GetProperty("truncated").GetBoolean());
     }
@@ -786,14 +800,17 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.False(doc.RootElement.TryGetProperty("child_declarers_note", out _));
     }
 
+    /// <summary>Marked optional ("child_declarers?"), like every other column most rows don't carry
+    /// ("matches?", "note?", "cycles?" …) — a record type that owns no children writes a tree row with no such
+    /// key at all (round-1 review: both reviewers independently, seeded-A LOW4 / gate-B L1).</summary>
     [Fact]
-    public void Artifact_ThePreciseTiersRowSchemaNamesTheChildDeclarersColumn()
+    public void Artifact_ThePreciseTiersRowSchemaNamesTheChildDeclarersColumnAsOptional()
     {
         var art = _w.Scratch("tree-schema.jsonl");
         Tree(_w.CellF, toFile: art);
         using var doc = JsonDocument.Parse(File.ReadAllLines(art)[0]);
         Assert.Contains(doc.RootElement.GetProperty("row_schema").EnumerateArray().Select(e => e.GetString()),
-                        s => s == "child_declarers");
+                        s => s == "child_declarers?");
     }
 
     [Fact]

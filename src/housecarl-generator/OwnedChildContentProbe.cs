@@ -295,9 +295,12 @@ public static class OwnedChildContentProbe
     /// the annotation stops naming it because the ORDER changed, not because a read failed silently. That is the
     /// load-order layer's existing, named behaviour and the arms below pin it rather than pretending otherwise.
     /// The residual hazard the unknown-arm exists for — a plugin that opens at header level but faults while its
-    /// child group is walked — is not reachable from outside the process, so it is pinned at its two ends: the
-    /// unit answer (null, never false) and the sentence that names it, restored with the precise tier (#485) and
-    /// checked in the SENTENCE block above.</para></summary>
+    /// child group is walked — is not reachable from outside the process. What IS pinned: the unit answer (null,
+    /// never false) directly, and the composed sentence at the SENTENCE block above (fed hand-built lists, since
+    /// the fixture cannot honestly produce an unreadable body). The wiring between the two —
+    /// <c>ResolveTreePinned</c>'s own classification of a real unreadable body into <c>ChildDeclarers.Unreadable</c>
+    /// — is not independently driven by an arm (round-1 review-B L3: an earlier version of this comment called
+    /// the hazard "pinned at its two ends", which overstated this middle as covered).</para></summary>
     static void CheckUnreadable(string root, string mods, string baseDir, ModKey baseKey, ModKey topKey, FormKey cellA)
     {
         var inst2 = Path.Combine(root, "unreadable");

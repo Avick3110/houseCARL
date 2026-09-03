@@ -46,7 +46,7 @@ internal static class ReadSentences
     /// <para><b>The remedy names the tool AND the format, because a bare parameter name is not runnable from most
     /// of the surfaces that receive this sentence.</b> The clause ships from every lane that renders record fields.
     /// <c>housecarl_records</c> has no <c>conflict_tree</c> parameter at all (its
-    /// <c>project={"form":"tree"}</c> is where the declarer names live now — gap #485); <c>format=json</c> and <c>format=dense</c>
+    /// <c>project={"form":"tree"}</c> is where the declarer names live now, #485); <c>format=json</c> and <c>format=dense</c>
     /// refuse <c>conflict_tree=true</c> as a text-only diff view; so does <c>to_file=</c>, which means every
     /// artifact manifest carries this clause to a caller who cannot use a bare "pass conflict_tree=true" without a
     /// refusal. Naming the two tools and the text mode is what makes the sentence executable from where it is
@@ -113,14 +113,18 @@ internal static class ReadSentences
     internal const int DeclarerNameCap = 3;
 
     /// <summary>The precise tier's per-field line, in the voice of the field's SHAPE. Always returns a sentence:
-    /// the empty answer is <see cref="NoDeclarers"/>, never null and never an omitted line.</summary>
+    /// the empty answer is <see cref="NoDeclarers"/> for a COLLECTION field (never null, never an omitted line);
+    /// a SINGULAR field's empty answer stays in ITS OWN voice — "carried by 0 provider(s)" — rather than
+    /// borrowing the collection negative's "declares child record**s**" plural, which is the shape's own claim
+    /// (a singular child is not a set of them) said falsely (round-1 review-B L4).</summary>
     internal static string DeclarersNote(OwnedChildShape shape, IReadOnlyList<string> declaring, IReadOnlyList<string> unreadable)
     {
-        string head = declaring.Count == 0 ? NoDeclarers
-            : shape == OwnedChildShape.Singular
-                ? $"{CarriedBy} {declaring.Count} provider(s)"
+        string head = shape == OwnedChildShape.Singular
+            ? $"{CarriedBy} {declaring.Count} provider(s)"
+            : declaring.Count == 0 ? NoDeclarers
                 : $"{DeclaredBy} {string.Join(", ", declaring.Take(DeclarerNameCap))}"
-                  + (declaring.Count > DeclarerNameCap ? $" (+{declaring.Count - DeclarerNameCap} more)" : "");
+                  + (declaring.Count > DeclarerNameCap
+                      ? $" (+{declaring.Count - DeclarerNameCap} more) — format=json for the full list" : "");
         return unreadable.Count == 0 ? head
             : head + $"; {unreadable.Count} provider(s) {CouldNotRead} "
               + $"({string.Join(", ", unreadable.Take(DeclarerNameCap))}"
