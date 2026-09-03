@@ -57,12 +57,23 @@ Four consequences of the shape, each load-bearing:
   shipped code where deleting a tool's constant means restoring its spelling rather than removing the
   site.
 
-- **Guards on a deleted tool die with the tool; behaviour that survives gets a fresh test in the same
-  change.** A guard whose subject is a deleted tool's response is not evidence about anything once the
-  tool is gone, and repointing it at the successor was tried and rejected: it preserves the old
-  guard's shape, which is what the guard rewrite (ADR 0003) exists to leave behind. So the arms are
-  deleted, and each one whose behaviour the successor still carries is written fresh as a test against
-  that successor, in the same change — never left as a promise for later.
+- **Guards on a deleted tool die with the tool; behaviour that survives gets a fresh test.** A guard
+  whose subject is a deleted tool's response is not evidence about anything once the tool is gone, and
+  repointing it at the successor was tried and rejected: it preserves the old guard's shape, which is
+  what the guard rewrite (ADR 0003) exists to leave behind. So the arms are deleted, and each one whose
+  behaviour the successor still carries is written fresh as a test against that successor.
+
+  **Not always in the same change, and this ADR's own change is the counter-example — measured
+  2026-09-03.** A tool has two halves: the entry point on the wire, and the render and service members
+  behind it. Deleting the wire half orphans the other, and the old harness goes on driving it. Here the
+  eleven tools and their tool-layer probes are gone; **eight render and service members survive with no
+  shipped caller, and 197 old-harness assertions still drive them.** Classified against the compiler's
+  list of those sites: 21 die with the tool, 11 are diagnostic-only, and 165 — **84%** — assert an engine
+  or shared-machinery fact a surviving tool still carries, so they owe 147 fresh arms. Writing them needs
+  a Papyrus fixture and a file-lock harness the test project does not have. The second half's deletion and
+  the arms it owes are therefore chartered to #486 as the next two changes — fixtures first, then the
+  deletion — rather than folded into this one. The rule holds; what the measurement corrected is the
+  claim that one change is always enough to satisfy it.
 
 ## Consequences
 
@@ -83,7 +94,13 @@ Four consequences of the shape, each load-bearing:
   people cloning the repository before 2.0.0. The reference counts are recorded on the change that
   deletes each family so that wave inherits a measurement rather than a survey.
 
-- **The old guard harness shrinks by whole files, and only where the file's whole subject went.** A file
-  that also guards engine behaviour keeps that half; its residue entry stays, and only its tool-layer
-  block is removed. The countdown that measures the harness's remaining size (ADR 0003) is what makes
-  that shrink visible, and it moves in this change by exactly the files that left.
+- **The old guard harness shrinks by whole files, and only where the file's whole subject went** — and a
+  file whose subject is split shrinks in two steps, not one. A file that also guards engine behaviour
+  keeps that half and its residue entry. On this change, the eight harness files enumerated on #486 also
+  keep their **tool-layer** blocks: those blocks compile against the surviving render and service members,
+  and they go when those do. The countdown that measures the harness's remaining size (ADR 0003) is what
+  makes both states visible: it moves in this change by exactly the files that left, and it carries the
+  seven probe files among the eight that stayed — by name, with their line counts — so the arrears sit in the
+  checked-in baseline as a number rather than as something a later session has to remember. (The eighth,
+  `SkyPatcherHarness.cs`, is not a `*Probe*.cs` and so is not a countdown key; it holds one site and no
+  arms.)
