@@ -22,10 +22,10 @@ The fastest reports to act on include:
 - **Update the changelog.** A user-facing change (new or changed tool behaviour, a bug fix users would notice) adds a line to the `## Unreleased` section of `plugin/CHANGELOG.md` in the **same PR** — so release notes accrue as work lands instead of being reconstructed at the cut. `plugin.json` stays untouched until an actual release.
 - **CI must be green** — the `build + probes` check is required to merge. First-time contributors' CI runs wait for maintainer approval; that's a GitHub safety default, not distrust.
 - **Linear history** — we merge by rebase only. Keep your branch rebased on current `main`.
-- **Bring proof.** A fix should come with a probe/guard that fails before the change and passes after — new guards go in the `src/housecarl-mcp-tests` test project (`dotnet test`) — see `PublishedSchemaShapeTests` there for the pattern. CI-safe checks must run on a fresh checkout without game data; anything that needs real plugins runs locally, with its results documented in the PR.
-- **Stay generic.** houseCARL's cornerstones are coverage and composition by construction: record-type support comes from reflection over Mutagen's model, never per-type hand-wiring, and bulk capability composes from a small guarded primitive set, never a one-off job-shaped verb. A change that special-cases one record type — or hard-codes one job's domain knowledge into a tool — will be asked to generalize (domain knowledge belongs in skills as data).
+- **Bring a test.** A fix comes with a test in `src/housecarl-mcp-tests` that fails before the change and passes after; see `standards/TESTING.md`. Anything that needs real game data runs locally, with what you ran and saw noted in the PR.
+- **Stay generic.** Record-type support is generated from Mutagen's model, never hand-written per type, and bulk work composes from a small set of generic verbs, never a one-off tool for one job. A change that special-cases one record type, or hard-codes one job's domain knowledge into a tool, will be asked to generalize (domain knowledge belongs in skills as data).
 - **Fail loud.** No silent failure and no silently degraded mode: an unsupported path returns a named error saying what was checked and what to try next — never a wrong answer or a bare miss.
-- **Naming** — MCP tools are `housecarl_<snake_case>`; see `standards/HOUSECARL_NAMING.md`.
+- **Naming** — MCP tools are `housecarl_<snake_case>`; see `standards/NAMING.md`.
 
 ## License
 

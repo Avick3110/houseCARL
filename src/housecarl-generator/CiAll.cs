@@ -22,8 +22,6 @@ namespace HousecarlGenerator;
 /// and each probe runs in its own try/catch, so a probe that throws fails only itself. Everything else is
 /// per-probe already — Guid-unique temp dirs and explicit-path UserConfigStores — and the class-parents and
 /// decompile caches are per-LoadOrderService-instance, not process statics.</para>
-///
-/// <para>Rationale: <c>docs/decisions/0003-guards-move-to-a-standard-test-project.md</c>.</para>
 /// </summary>
 public static class CiAll
 {

@@ -1,142 +1,57 @@
-# houseCARL — project foundation & operating rules
+# houseCARL
 
-*houseCARL is the reflection-driven Mutagen rebuild of Housecarl. This file is the first thing every session reads.*
+houseCARL is an MCP server that gives Claude direct, data-layer access to a Skyrim Special Edition load order through a live Mod Organizer 2 instance: every plugin record, every Papyrus script, every asset path, the runtime layers, and the modlist state. The modder works in plain English in Claude Code; Claude does the mechanical work and writes results into a new plugin the modder reviews and enables. Editing an existing plugin in place is an opt-in with per-plugin consent.
 
-> **Public-repo note.** This is houseCARL's internal operating manual — the working contract between the
-> maintainer and the AI sessions that build it. It references a `dev/` working corpus (PRFAQ, plans,
-> session handoffs) that is kept **private and is not part of the public repository**, so links into
-> `dev/` below will not resolve in a clone. To *use* houseCARL, start with [README.md](README.md).
+It is one C# process built on Mutagen. Users start at [README.md](README.md). This file is for whoever is changing the code.
 
----
+> `dev/` is a private working corpus (product PRFAQ, tool-surface spec, backlog, decisions). It is gitignored, so links into it do not resolve in a clone.
 
-## 1. What houseCARL is
+## Design
 
-houseCARL gives Claude comprehensive, direct access to the Skyrim Special Edition modding workspace — every plugin record across the load order, every Papyrus script, every runtime and crash log, every asset path, and the live Mod Organizer 2 modlist state — at the **data layer**, beneath the human-interface tools (xEdit, CK, Synthesis). The modder works in plain English inside Claude Code; Claude does the mechanical work and, by default, writes results into a *new* plugin the modder reviews and enables in MO2 (originals untouched in the default lane; an opt-in in-place lane — explicit flag + per-plugin consent — edits an existing plugin directly when the modder asks). **Comprehensive access is the load-bearing capability** — conflict resolution, patch authoring, mod creation, Papyrus triage, mod auditing, and crash diagnosis all emerge from access quality, not from features built one at a time. Full product framing lives in the PRFAQ corpus (`dev/PRFAQ/`).
+- **Record coverage is generated, never hand-written.** A build-time generator walks Mutagen's record interfaces and emits the schema and validation data. The set of record types houseCARL handles is the set Mutagen models. Do not add a per-record-type schema or write mapping by hand. Where Mutagen lags xEdit, say so loudly; never paper over it.
+- **One grammar, closed under composition.** Every operation, single or bulk, is one call composed from a small set of orthogonal axes: select a set of records (one is a set of one), project what to read, apply one of a few generic write verbs. There is no verb per job and no single/bulk tool pair. A new need lands as a value on an existing axis; if it truly cannot, add one general primitive, never a job-shaped tool. The surface contract is `dev/projects/tool-surface-2.0/SPEC.md`; look the verb set up there rather than reciting it. Domain knowledge (field bundles, forbidden prefixes) lives in skills as data.
+- **Errors are one plain sentence: what went wrong and what to try.** A tool never returns a silently wrong answer or a silently degraded mode. When it cannot do the thing, it says so.
+- **Reads are lazy, freshness is cheap.** Records parse on access from a binary overlay; nothing holds the load order in memory or keeps plugin file handles open at rest; a change on disk is picked up by an mtime check. One process, no daemon, no live tracking of MO2.
 
-Mechanically, houseCARL is a single C# process running an MCP server, with Mutagen — the Bethesda-format library — kept warm in memory for both reading and writing. It is **reflection-driven**: a build-time generator walks Mutagen's record interfaces and emits the schema + validation data automatically, so the set of record types houseCARL understands *is* the set Mutagen models — by construction, not by hand. Reads use Mutagen's binary overlay (lazy — records parse on access; the load order isn't held fully in memory); writes use a small, bounded set of generic op verbs through that same reflection layer — deliberately NOT enumerated here: the verb set's one home is the tool-surface SPEC (`dev/projects/tool-surface-2.0/SPEC.md`, private corpus), and the shipped tool descriptions state it for everyone else. Look the vocabulary up before using or documenting a verb; never recite it from memory or this file. Freshness comes from cheap mtime re-checks, not a process that live-tracks MO2.
+A design question that these four do not settle goes to the PRFAQ (`dev/PRFAQ/`, the problem statement and press release first) and then to Aaron. If something blocks you, say so before working around it.
 
-houseCARL is a fresh start — no shared git history with the project formerly at `Housecarl/` (now `Housecarl [Legacy]/`, dormant but readable). Two failures drove the rebuild:
+## How to work
 
-- **Coverage was hand-wired and never finished** — a schema and a write-translation per record type (134 schemas; 202 write-maps, 60 still placeholders). §3.
-- **The old build ran a persistent daemon** that held full parsed state hot and deeply live-tracked MO2 — which exploded RAM usage and bred constant complexity working around MO2's file locking.
+1. **Branch first.** `main` is read-only. Work in a worktree at `.claude/worktrees/<name>` on branch `claude/<name>`. Check `git branch --show-current` before the first edit.
+2. **Build and test.**
+   ```
+   dotnet build housecarl.sln -c Release
+   dotnet test src/housecarl-mcp-tests -c Release --no-build --filter "tier!=bridge"
+   dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll ci-all
+   ```
+   Tests drive the built server. How to write one: [standards/TESTING.md](standards/TESTING.md).
+3. **Commit small.** One change per commit, plain imperative subject under 72 characters.
+4. **Open the PR.** A paragraph saying what changed and why, `Closes #N` for the issue, and a line under `## Unreleased` in `plugin/CHANGELOG.md` if a user would notice the change. Run one review pass (`/code-review`) and fix what is real. Aaron reviews and merges on his word with `gh pr merge <N> --rebase --delete-branch`; then remove the worktree.
+5. **Write plainly.** Comments are one line saying what. Commit messages, PR bodies, and issues use ordinary words: bug, test, review, fix. No project jargon, no lore.
 
-houseCARL answers both: reflection makes coverage complete by construction, and a single process with lazy overlay + mtime freshness replaces the hot daemon — no hot parsed state and no plugin file handles held at rest, so MO2 / xEdit can move or delete plugins freely.
+## Where things live
 
----
+| Path | What |
+|---|---|
+| `src/housecarl-mcp/` | The MCP server and tool surface |
+| `src/housecarl-core/` | Load-order, record, asset, and write engine |
+| `src/housecarl-generator/` | Build-time schema generator; also the probe runner (`ci-all`) |
+| `src/housecarl-mcp-tests/` | xUnit tests against the built server |
+| `src/housecarl-setup/` | Installer |
+| `plugin/` | The shipped Claude Code plugin: skills, changelog |
+| `.claude/skills/` | Skill sources (`/housecarl:<name>`) |
+| `docs/` | Architecture notes and design decisions |
+| `standards/` | Testing and naming, one page each |
+| `dev/projects/tool-surface-2.0/` | The tool-surface charter and spec (private) |
+| `dev/BACKLOG.md` | What is next, in order (private) |
+| `dev/DECISIONS.md` | Aaron's rulings, one line each (private) |
 
-## 2. Read in this order
+MCP tools are named `housecarl_<snake_case>`. The brand string "houseCARL" appears once in code, in the server's name. Everything else: [standards/NAMING.md](standards/NAMING.md).
 
-This file is **how we operate** (stable). The latest session handoff is **where we are** (tactical). The PRFAQ corpus is **why** (foundational reference). Keep them in their lanes — don't pad this file with tactical state as insurance against a skipped handoff; that's how a CLAUDE.md bloats.
+## Don't
 
-A session picking up work reads:
-
-1. **This file** — how houseCARL works and how we operate.
-2. **The latest handoff** in `dev/session-handoffs/` — what the last session did and what to pick up. The most important transition read; start here for "where are we."
-3. **The PRFAQ corpus** (`dev/PRFAQ/`) — read once when new to the project, then consult on demand (it's ~60k tokens — not a per-session read). Product: P1 + P2. Direction: P7 + rebuild plan v1. Proof: spike findings (code at `dev/references/spike/`). Deeper, on demand: FAQs (P3/P4), Housecarl-HEAD eval (P5), pivot doc (§5's source).
-
-**Standing follow-ups go to GitHub Issues too.** The separate backlog convention was retired 2026-08-22 (`dev/BACKLOG.md` survives only as a stub recording the migration — its open items became issues #401–#419). A small, dev-noticed follow-up — tool ergonomics, a doc gap, a papercut spotted mid-session but not done inline — is filed as an issue like everything else (the lane below), not parked in a doc; chartered work still lives in `dev/plans/` or `dev/projects/`.
-
-**The bug/gap lane is GitHub Issues.** Tool bugs and capability gaps — live-session or dev-noticed, from Aaron or anyone — are filed as issues on this repo (forms provided: *Bug report*, *Gap / capability request*; the `[Bug]`/`[GAP]`/`[NOTE]`/`[Docs]` title conventions carry on); a fix PR carries a **closing keyword** (`Fixes #N` / `Closes #N`) in its description so the issue auto-closes on merge, and references `#N`. Bugs in the authoria-requiem *skill pack* go to that repo's Issues instead. (The old local report store was retired 2026-07-15 — its live reports were migrated verbatim as issues #195–#201; `HCBR-<date>-<n>` ids in older docs are historical pointers into that store's archive.) **External reports** (an `.md` report handed to Aaron via Discord or similar) don't get pasted straight into an issue: triage first (valid? reproducible? duplicate of an open issue?), **scrub** — a third party's report carries *their* machine paths, usernames, and load-order details they never agreed to publish — then file it largely verbatim via the matching form/title convention with a provenance line (name the reporter only with their OK), and hand back the issue `#N` for the reply. **Self-review findings are fix-or-drop, not filed** (Aaron, 2026-08-11: *"things either get fixed or they don't. If any genuinely need a fix they wouldn't be lows or nits."*) — a low or nit found reviewing your own branch is fixed on the branch or dropped, never parked as an issue. The lane is for confirmed defects **outside the branch under review**: #324 — data loss in a code path nobody was touching, discovered while reviewing PR #323 — is the shape that belongs here.
-
-**Sub-project sessions.** Some work runs as a self-contained sub-project under `dev/projects/<name>/` (its own tracking, walled off from the main gap/bug/release lane — see `dev/projects/README.md`). If a session is for one, the user will name it ("the follower skill", "the `<name>` project"); then read `dev/projects/<name>/STATUS.md` **instead of** the latest `dev/session-handoffs/` handoff (item 2), and stay in that lane. Absent that, boot normally — the default is unchanged.
-
-**Advisor sessions.** `dev/advisor/` is a project-wide judgment lane (created 2026-08-12): fresh Fable-class sessions that render recommendations on escalations, review the reviews, and translate for Aaron — advisory only, Aaron decides, and the session never builds or holds a worktree — it spawns the build, review, and fold sessions that do, drafting each kickoff from a ratified sequence without a per-kickoff review (Aaron-go 2026-09-02). Every session the advisor spawns — build, review, fold, reviewer, helper — runs on Opus or lower; Fable is for the advisor lanes Aaron creates himself at top level (Aaron, 2026-09-02). If a session is named as one ("advisor session", "the judgment seat"), boot per `dev/advisor/README.md` instead of items 2–3. When an advisor session is alive (`ListAgents` shows one), build sessions **default to messaging it directly** for advisor-lane traffic — escalation framing, review-of-output at branch-green, within-charter questions (Aaron-go 2026-09-01, the default flipped the same day after first use; the lane README's direct-channel section carries the guardrails) — but everything on the Aaron-go list still goes to Aaron whoever is alive, nothing a direct exchange settles is ever `ruled` on the exchange's own authority, and relay through Aaron is the path whenever no advisor is alive. A session the advisor *spawned* is the exception to that default: it cannot message anyone mid-flow, so it escalates by ending its turn with the framed question and is resumed with the ruling, and its reviewers write their results to a file under `dev/session-handoffs/<lane>-scratch/` and return one line.
-
-The cornerstones (§3) and revalidation protocol (§4) are restated in this file, so you operate correctly from CLAUDE.md alone — the corpus is the authority you re-read when the protocol sends you there, not a tax every session pays.
-
----
-
-## 3. Cornerstones — by construction, not by hand
-
-The PRFAQ's load-bearing claim is **comprehensive access** (§1). For records, that means **every record type Mutagen models is readable and writable — by construction, not by hand.**
-
-This is the reason for the rebuild. Both prior builds hand-wired coverage: a schema per record type, a write-translation per record type (134 schemas; 202 write-mappings, 60 of them still placeholders). That wiring gap meant "comprehensive write access" was always one more hand-port from done. The reflection-driven generator closes it structurally — coverage *is* Mutagen's coverage, and Mutagen's delta vs xEdit is a known upstream surface we fail loud about, never silently around.
-
-**Full coverage is not a scope choice.** If a stumbling block ever frames it as "smaller scope for v1" or "just the common record types," that's a cornerstone violation, not a pragmatic trim — invoke the protocol (§4). Per-record-type hand-mapping does **not** come back.
-
-**Second cornerstone — composition by construction** (elevated 2026-07-22). For *operations*, the same principle: bulk capability is the **closure** of a small, bounded, individually-guarded set of composition primitives — never a verb per job. A proposed bespoke verb is a **bug report against the primitive set**: when a bulk gap appears, add the missing primitive (or file the gap), not the verb. Domain knowledge — field bundles, forbidden prefixes, analogue mappings — lives in **skills as data**; the tool surface stays generic (the one exception: thin, typed, probe-pinned interpreters of *engine* semantics, the `effect_chain` posture). If a stumbling block frames a one-off verb as "quicker for v1," that's a cornerstone violation — invoke §4. Doctrine: `dev/PRFAQ/PRFAQ_COMPOSITION_LAYER_2026-07-22.md`; primitive set + closure proof: `dev/plans/LAYER3_COMPOSITION_PRIMITIVES_BUILD_PLAN_2026-07-22.md`.
-
-**Third cornerstone — by construction, everywhere** (elevated 2026-09-03). The two above are the same rule at two sites, and the rule is project-wide, not per site: when a class of defect is caught by something that runs after the fact — a guard, a review round, a sabotage sweep, a reviewer's eye — and it recurs, the fix is to make the wrong shape unwritable, not to strengthen the check. The type refuses it; the population is derived from the surface it claims; the fact has one home. A proposed detector for a recurring class is a **bug report against the construction**, exactly as a proposed bespoke verb is a bug report against the primitive set. The standing instances are record coverage (first cornerstone), composition (second), the refusal type (#440 option B), derived guard populations (#478, #483), and structure-keyed tests (#492). If a stumbling block frames "add a guard for it" or "the rounds will catch it" as the fix for a class seen twice, that's a cornerstone violation — invoke §4. Aaron, 2026-09-03: "we keep finding this style of issue and deciding on the by construction fix so don't keep hitting them… I want to make sure that this by construction approach is obeyed across the whole project and not per site."
-
----
-
-## 4. PRFAQ revalidation protocol
-
-Aaron-named, and the single most important behavior in this file:
-
-> "At all times we have to validate against the PRFAQ as we discover stumbling blocks. I am tired of getting 2 weeks into dev and claude pushing through and finding a work around that compromises everything."
-
-When you hit a stumbling block, the default is **not** "find a workaround that unblocks." It is:
-
-1. **STOP.** Don't reach for a workaround.
-2. **Name which PRFAQ assumption the block challenges** — cite the Q-number, claim, or section.
-3. **Re-read that section** — don't reason from memory.
-4. **Surface to Aaron** with one of three framings:
-
-| Outcome | Framing | What you do |
-|---|---|---|
-| (a) PRFAQ holds, clean solution exists | "§X assumes Y. The block resolves via Z, which respects Y because…" | Proceed with Z after surfacing |
-| (b) PRFAQ assumption wrong, goal stands | "§X assumed Y. Reality says Y is false. Revising to Y′ preserves the goal. Aaron-go on the revision?" | Wait for Aaron-go on the revision |
-| (c) PRFAQ wrong AND no revision preserves the goal | "§X assumed Y. Y is false AND no revision preserves the original goal. This is an architecture decision." | Wait for Aaron's architectural decision |
-
-**Never:** take (a) when it's really (b) or (c); quietly change behavior so a PRFAQ claim becomes false; or normalize a compromise as "good enough" without Aaron-go. The protocol costs minutes per block; silent workarounds cost the whole project — which is why this rebuild exists.
-
----
-
-## 5. Operating principles
-
-Carried from the retrospective pivot (full doc in the corpus). How a session behaves:
-
-1. **Empirical-first** — nothing locks without Aaron's empirical confirmation. A plan reviewed is not a thing proven.
-2. **Candor is cheap** — surface doubt (about a decision, a doc, the direction itself) without Aaron-go ceremony. Honest opinion is a first-class deliverable, not something you wait to be asked for.
-3. **Guardrails are tools, not sacred** — locks, conventions, and this file itself are revisable when reality contradicts them. Propose the revisit; Aaron decides.
-4. **Anti-bloat** — orientation surface stays small. A session shouldn't burn its budget on stale narrative. Prune aggressively; archive, don't accrete. Corollary — **plain register**: handoffs, STATUS, and commit messages say what changed and why in ordinary sentences; no capitalized lore, no allusions that need the corpus to decode. These documents are agent-to-agent — the reader pays tokens to parse them, and a message that needs the archive to understand is bloat wearing a style. (Added 2026-08-11: the 2.0-wave corpus drifted into a register later sessions imitated and escalated; a process dive needed its own subagents just to decode recent commit messages.)
-5. **Lanes — Aaron architects and picks the execution method; conductor proposes and drafts** — Aaron owns capability scope, trade-offs, architecture, *and* how we approach the work (sequencing, parallel-vs-serial, session shape, which method). Conductor proposes execution options with a clear recommendation, then handles the mechanical drafting, decomposition, and ordering once Aaron picks. Surface method choices for Aaron; don't silently pick them — but don't over-gate either: once he's chosen, or when a call is plainly mechanical, proceed decisively. Honest opinion stays first-class — recommend, don't just lay out a menu.
-6. **Explicit uncertainty over performed certainty** — "here's what I think, why, what I don't know, and how we'd find out" beats a tidy option matrix implying false confidence.
-7. **Q3 — no silent failure** — never a silent wrong answer, never a silently degraded mode. If a tool is compromised or you can't do the thing, say so plainly with what you checked and what to try next. A tool is **complete** only when it is published on the MCP surface *and* driven by a test off the built server: green guards over a tool no caller can reach are the same silent failure one layer up (`check` was merged 2026-08-22 and not published until 2026-09-02, #470).
-8. **Atomic, focused commits** — one logical change per commit.
-9. **No silent workarounds** — §4 generalized to any decision that trades away something that was supposed to hold, PRFAQ or not.
-10. **Worktree & merge discipline — start every change in a worktree; land on `main` only on Aaron's go.** Before any change that will commit, check your branch (`git branch --show-current`) and state it up front; if you're on `main`, create a worktree (`.claude/worktrees/<name>/`, branch `claude/<name>`) FIRST — solo sessions included, not just parallel ones. The main repo folder stays on `main`, read-only except for landing reviewed branches into. Commit freely on the worktree branch — local and reversible. Landing on `main` — via **pre-PR review rounds (#11)** → push → open PR (closing-keyword-linked to its issue, §2; a user-facing change also lands an `## Unreleased` line in `plugin/CHANGELOG.md` in the same PR, and a PR that makes an architectural decision lands its ADR in `docs/decisions/` in the same PR — `standards/HOUSECARL_DOC_HYGIENE.md` §8) → **Aaron's own independent review**, posted to the PR → fold its findings → **Aaron's explicit go each time** → **`gh pr merge <PR#> --rebase --delete-branch`** → remove the worktree, delete the local branch → confirm the linked issue closed — is a separate, outward-facing act, never automatic. **`main` is branch-protected: land through the PR, never by hand.** A local `git merge --ff-only` + `git push origin main` is rejected (a hook says so, and protection would reject it regardless) — `--rebase` keeps history linear, which is all the old "FF merge" wording was asking for. `--delete-branch` cannot delete the local branch while its worktree still holds it, so remove the worktree first (or delete the branch after); the remote branch is deleted either way. The same gate covers any commit that edits this operating manual or other self-governing config: surface it, don't self-commit.
-
-11. **Pre-PR review rounds — the branch is reviewed before the PR opens, with fresh independent agents, bounded by a convergence rule.** Before pushing a code branch: spawn independent review agents over the branch diff, fold what survives triage, then spawn a **new** round. The rounds are conducted by a fresh session, not the branch's author, and the folds Aaron's gate directs on the open PR go to a fresh fold session; a build session ends at branch-green with its decision record. Stopping is governed by these rules, in order:
-    - **Stop when a round returns only low findings.** The original terminator, still valid.
-    - **Stop when the same failure CLASS recurs in two consecutive rounds.** A recurring class is a design signal, not a fix queue: invoke §4 and take the feature or seam generating it to Aaron rather than folding the third instance. The third instance is an escalation trigger, not a fix freeze — once the escalation is ruled and the seam addressed, a leftover instance is fixed, with its arm (Aaron-go 2026-09-02). Severity is not this signal (#323's rounds 2/3/4/8 were one class, four folds, while rounds 5–10 returned no highs and the feature was still broken).
-    - **Hard cap: three rounds.** Whatever is open after three goes to Aaron's review with the findings listed, not into round four.
-    - **No new rounds after directed folds.** Fresh eyes are for *before* the PR opens. A reviewed, measured fold on a PR that has had its rounds plus an independent review does not reopen the loop.
-
-    **Scope:** code branches. A docs-only or manual-only PR doesn't need rounds — say so rather than performing them.
-
-    **Conduct lives in `standards/HOUSECARL_REVIEW_ROUNDS.md`** — who conducts the rounds and the directed folds, how reviewers are spawned, isolated, and prompted, how findings are triaged, and what a fold must ship. Read it before pushing a code branch; none of it is restated here.
-
----
-
-## 6. Naming
-
-All names follow `standards/HOUSECARL_NAMING.md`. Load-bearing rule: MCP tools are `housecarl_<snake_case>` — the `housecarl_` prefix **carries forward** from the prior build (brand continuity; locked 2026-05-27), even though the project is now houseCARL. The brand string "houseCARL" lives in exactly one place in code (the MCP server's name/config), not scattered through it.
-
----
-
-## 7. Skills
-
-houseCARL's skills live at `.claude/skills/<slug>/` and ship bundled in the plugin (namespaced `/housecarl:<name>`). The current set is **14 skills**; what each one is for lives in its own `SKILL.md` frontmatter, which the session already loads as the skill listing. Three of them are community-contributed by **DrHeisen** (`papyrus-optimization`, `oar-authoring`, `tool-output-awareness`).
-
-The `modlist-authoring` cluster (`skill-authoring`, `modlist-authoring`, `knowledge-file-authoring`) was **removed when packaging moved to a plugin** — it was built on the retired "unpack houseCARL into the user's workspace and author content alongside it" model. In the plugin the shipped skill set is curated by us and read-only to users; anyone extending their *own* project uses Claude Code's native skill authoring. The authoring *methodology* survives in `standards/HOUSECARL_SKILL_AUTHORING.md` for building houseCARL's own skills.
-
-Tool-surface skills (`esp-patching`, `mod-dissection`, `bsa-archives`, `crash-diagnostics`, …) are **not** imported — they get rewritten against the new tool surface once it ships. A skill pointing at tools that don't exist yet is worse than no skill. (`crash-diagnostics` is methodology-rich but its body is built around specific tools — empirically tool-coupled — so it waits with this set.)
-
-**Building houseCARL itself:** use the builder skills rather than hand-rolling — the Anthropic `skill-creator` for new skills, paired with the `standards/HOUSECARL_SKILL_AUTHORING.md` methodology and `standards/HOUSECARL_NAMING.md`; the Anthropic `mcp-builder` skill for MCP-server work. (mcp-builder targets Python/Node — for our C# server it's useful for MCP *design* guidance, not code scaffolding; confirm at the MCP-server wave.)
-
----
-
-## 8. What NOT to do
-
-- **Don't reconstruct context from prior sessions.** Assume nothing; read the docs (§2). Memory supplements, it doesn't substitute.
-- **Don't work on `main`.** Every change that will commit starts in a worktree (`.claude/worktrees/<name>/`); the main repo folder is read-only except for landing reviewed branches (§5 #10). Check your branch at the start — booting onto `main` and editing there is the recurring drift this rule exists to stop.
-- **Don't treat coverage as a subset.** §3. Tempted to ship "the common record types"? Stop and read §4.
-- **Don't ship a bespoke bulk verb.** §3, second cornerstone. A job-shaped verb ("audit X", "copy the Y frame") is a bug report against the composition-primitive set — add the primitive or file the gap. Tempted because it's quicker? Stop and read §4.
-- **Don't add a detector for a recurring class.** §3, third cornerstone. A guard, a sweep, or a review instruction for a shape that has been caught twice is the hand-wired-coverage failure one layer up — make the shape unwritable, or file the construction as a gap.
-- **Don't append a new domain to a large existing file.** A new subsystem or tool family's service logic lands as its own file/service; a facade may keep a thin delegating member, but the logic gets its own home. The rule exists because by mid-2026 `LoadOrderService.cs` had absorbed nine-plus domains without anything ever asking "does this belong in this file?" — code landed where the last thing went.
-- **Don't silently work around a block.** §4. Surfacing costs minutes; the alternative is why we rebuilt.
-- **Don't edit the foundation corpus (`dev/PRFAQ/`) or other ARCHIVE docs.** Immutable record of why decisions were made. New docs supersede; old ones stay as written (typo-fix excepted). Doc classes (LIVING vs ARCHIVE) are defined in `standards/HOUSECARL_DOC_HYGIENE.md`.
-- **Don't re-import the legacy lock-down.** The old repo's heavy guardrails are part of what we left behind. New guardrails earn their place from real need.
-- **Don't "improve" the legacy repo.** `Housecarl [Legacy]/` is frozen reference — read it, don't touch it.
+- Don't work on `main`.
+- Don't hand-write coverage for a record type, or add a tool for one job.
+- Don't add a guard, sweep, or process rule to catch a mistake. Fix the mistake; if it recurs, fix the code that allows it.
+- Don't work around a block silently. Say what blocks you.
+- Don't edit `dev/PRFAQ/` or `Housecarl [Legacy]/`. Both are frozen reference.

@@ -1,0 +1,28 @@
+name: Feature request
+description: Something you needed houseCARL to do and it could not
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: What you were trying to do
+      description: The job, in modding terms.
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you tried
+      description: >-
+        The tool calls you made and what each returned. Scrub local machine paths and usernames
+        before posting.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: ideal
+    attributes:
+      label: What would have worked
+      description: A parameter, a filter, a value. How often you expect to hit this.
+    validations:
+      required: false

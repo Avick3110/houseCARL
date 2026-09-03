@@ -72,7 +72,5 @@ own doc and issue #353 for the behaviour that makes this necessary.
 
 - `docs/architecture/test-project-fixtures.md` — the Papyrus `.pex` writer and the file-lock harness these
   tests are built on.
-- `docs/decisions/0003-guards-move-to-a-standard-test-project.md` — why these families moved out of the probe
-  harness at all, and the one-way-conversion rule.
 - `docs/decisions/0005-the-1x-tools-are-deleted-not-deprecated.md` — "guards on a deleted tool die with the
   tool; behaviour that survives gets a fresh test", the rule #486 PR 2 discharges.
