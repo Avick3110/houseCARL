@@ -25,7 +25,8 @@ namespace HousecarlMcpTests;
 /// requires. <c>CheckErrorsProbe.cs</c> is deleted in the same commit that lands the last fact below.</para>
 /// </summary>
 [Trait("tier", "integration")]
-public sealed class CheckErrorsFamilyTests : IClassFixture<CheckErrorsWorldFixture>
+[Collection("check-errors")]
+public sealed class CheckErrorsFamilyTests
 {
     readonly CheckErrorsWorld W;
     public CheckErrorsFamilyTests(CheckErrorsWorldFixture f) => W = f.W;
