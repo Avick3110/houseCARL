@@ -2419,13 +2419,9 @@ public sealed class LoadOrderService : IDisposable
     /// <c>Skyrim.esm</c>'s own body carries 201. A caller auditing "what is in this cell" through the winner got a
     /// silent wrong answer, which is the Q3 class.</para>
     ///
-    /// <para><b>Why this tier claims so little.</b> Naming WHICH plugins declare children requires their bodies,
-    /// and <see cref="LoadOrderResolver.GetRecord"/> fetches one by enumerating a whole overlay. Doing that per
-    /// toucher was built, measured on a real load order, and withdrawn: 27 ms → 588 ms for one Dawnstar cell,
-    /// 21 ms → 1.3 s for Tamriel, 6.3 s → 126 s for a 200-cell query, and an artifact job that never finished.
-    /// So this tier states only what the index settles for free. The precise tier states which plugins actually
-    /// declare, restored by #485 on <c>records project={"form":"tree"}</c>, which already reads every provider
-    /// body for its diff: `docs/architecture/records-owned-child-declarers.md`.</para>
+    /// <para><b>Why this tier claims so little.</b> Naming WHICH plugins declare children requires their bodies —
+    /// cost measured, history, and the precise tier's own home:
+    /// `docs/architecture/records-owned-child-declarers.md`.</para>
     ///
     /// <para><b>What this tier does not do.</b> Union anything. The read that answers "what is actually live in this
     /// parent" — every child at its own winner, minus the deleted and initially-disabled — is separate design work;
@@ -2459,12 +2455,10 @@ public sealed class LoadOrderService : IDisposable
         var touching = view.TouchingPlugins(fk);
         if (touching is null || touching.Count <= 1) return rf;   // sole toucher: its own body IS the whole story
 
-        // INDEX ONLY — no body is opened here. Naming WHICH plugins declare children means fetching their bodies,
-        // and the resolver fetches one by enumerating a whole overlay: measured on a real load order, doing that
-        // per toucher took one Dawnstar cell read from 27 ms to 588 ms, a worldspace read to 2.5 s, and an
-        // unbounded artifact job past ten minutes. So the default read states only what the index settles for
-        // free — that other plugins touch this record and this read did not look at what they declare — and the
-        // conflict-tree lane, which has already paid for every body, states which ones do.
+        // INDEX ONLY — no body is opened here (cost measured, `docs/architecture/records-owned-child-declarers.md`).
+        // The default read states only what the index settles for free — that other plugins touch this record and
+        // this read did not look at what they declare — and the conflict-tree lane, which has already paid for
+        // every body, states which ones do.
         var note = ReadSentences.NotReadNote(touching.Count - 1);
         var rebuilt = new List<FieldValue>(rf.Fields);
         // The ANNOTATED paths and their shapes travel with the outcome, because the render decides its
@@ -2561,9 +2555,8 @@ public sealed class LoadOrderService : IDisposable
 
         // The PRECISE owned-child tier (#342, restored by #485): which providers declare children per
         // child-bearing field, asked of bodies already open for the diff below — no extra fetch. Field set is
-        // OwnedChildContent.Fields(body), narrowed to the top-level field NAMES the caller requested — not the
-        // paths the response emitted, so a bracketed path like "Temporary[0]" narrows this to nothing. Rationale
-        // and cost measurements: `docs/architecture/records-owned-child-declarers.md`.
+        // OwnedChildContent.Fields(body). Rationale, narrowing rules and cost measurements:
+        // `docs/architecture/records-owned-child-declarers.md`.
         var owning = tree.Nodes.Count > 0 ? OwnedChildContent.Fields(tree.Nodes[0].Record) : null;
         var wanted = owning is null || owning.Count == 0
             ? new List<string>()
