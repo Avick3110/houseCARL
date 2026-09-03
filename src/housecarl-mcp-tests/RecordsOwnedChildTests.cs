@@ -989,6 +989,68 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.DoesNotContain("format=json", field.GetProperty("note").GetString());
     }
 
+    // ---- …and the UNREADABLE half of the same sentence elides the same way, so it gets the same remedy -------
+    //
+    // DeclarersNote drops unreadable names past DeclarerNameCap behind a bare ", …", on a field of EITHER shape.
+    // The remedy used to be appended only for a COLLECTION field's `declaring` overflow, so the structurally
+    // identical elision one clause later in the same sentence had no pointer at all — and a SINGULAR field
+    // (Cell.Landscape) could never get one, because the Collection guard never fires there.
+
+    static LoadOrderService.TreeRow UnreadableRow(OwnedChildShape shape, int declaring, int unreadable) => new(
+        "000001:Test.esm", "Cell", "TestCell",
+        new[] { "A.esp", "B.esp", "C.esp", "D.esp", "E.esp" }, "E.esp",
+        new[] { new LoadOrderService.TreeNodeDelta("E.esp", true, true, Array.Empty<string>(), 0, true, null) },
+        null,
+        new[] { new ChildDeclarers("Landscape", shape,
+                                   Names("D", declaring), Names("U", unreadable)) });
+
+    static string[] Names(string prefix, int n) =>
+        Enumerable.Range(1, n).Select(i => $"{prefix}{i}.esp").ToArray();
+
+    static string RenderRow(LoadOrderService.TreeRow row)
+    {
+        var sb = new StringBuilder();
+        bool leadWritten = false;
+        RecordsTools.AppendChildDeclarers(sb, row, cap: 100_000, ref leadWritten, out _);
+        return sb.ToString();
+    }
+
+    /// <summary>A SINGULAR field — where the Collection guard never fires at all — whose unreadable list overflows
+    /// still points the text reader at the medium carrying the elided names.</summary>
+    [Fact]
+    public void TheOverflowRemedyAlsoNamesFormatJsonForAnUnreadableOverflow_SingularShape()
+    {
+        var r = RenderRow(UnreadableRow(OwnedChildShape.Singular, declaring: 0, unreadable: 5));
+        Assert.Contains(", …)", r);                                            // names were elided…
+        Assert.Equal(1, Occurrences(r, ReadSentences.DeclarersOverflowRemedy)); // …and exactly one pointer follows.
+    }
+
+    /// <summary>Both clauses overflowing is still ONE remedy on the line — the pointer is the same pointer, and
+    /// naming it twice would read as two different answers.</summary>
+    [Fact]
+    public void BothOverflowsOnOneLineStillCarryASingleRemedy()
+    {
+        var r = RenderRow(UnreadableRow(OwnedChildShape.Collection, declaring: 5, unreadable: 5));
+        Assert.Contains("(+2 more)", r);                                       // the declaring half elided…
+        Assert.Contains(", …)", r);                                            // …and the unreadable half too,
+        Assert.Equal(1, Occurrences(r, ReadSentences.DeclarersOverflowRemedy)); // …with one pointer, not two.
+    }
+
+    /// <summary>json's twin: the same row carries every unreadable name in its own array and no remedy text, so
+    /// the pointer the text lane appends is always followable and never duplicated into the medium it names.</summary>
+    [Fact]
+    public void Json_TheUnreadableOverflowIsNeverCapped_AndCarriesNoRemedyText()
+    {
+        var row = UnreadableRow(OwnedChildShape.Collection, declaring: 5, unreadable: 5);
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms))
+            JsonWire.WriteTreeRow(w, row, ms, cap: 100_000);
+        using var doc = JsonDocument.Parse(ms.ToArray());
+        var field = doc.RootElement.GetProperty("child_declarers").EnumerateArray().Single();
+        Assert.Equal(Names("U", 5), field.GetProperty("unreadable").EnumerateArray().Select(x => x.GetString()));
+        Assert.DoesNotContain("format=json", field.GetProperty("note").GetString());
+    }
+
     // ---- json's response-level lead respects cap too, not just the row-level array --------------------------
     //
     // child_declarers_note used to be written unconditionally after `truncated` was already computed — a
