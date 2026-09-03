@@ -2457,8 +2457,9 @@ public sealed class LoadOrderService : IDisposable
 
         // INDEX ONLY — no body is opened here (cost measured, `docs/architecture/records-owned-child-declarers.md`).
         // The default read states only what the index settles for free — that other plugins touch this record and
-        // this read did not look at what they declare — and the conflict-tree lane, which has already paid for
-        // every body, states which ones do.
+        // this read did not look at what they declare — and `records project={"form":"tree"}`, which has already
+        // paid for every body, states which ones do (round-2 review-B LOW5: this comment used to say
+        // "conflict-tree lane", the lane AppendChildDeclarers has no caller on — the render halves #486 owns).
         var note = ReadSentences.NotReadNote(touching.Count - 1);
         var rebuilt = new List<FieldValue>(rf.Fields);
         // The ANNOTATED paths and their shapes travel with the outcome, because the render decides its

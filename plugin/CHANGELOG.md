@@ -1612,10 +1612,9 @@ offset, paging meant slicing by `editorid_contains`. Now:
   Check it from your client's tool list: the eleven names are absent, and `housecarl_records` and
   `housecarl_check` are present.
 
-  One thing does not carry across: `housecarl_read_record conflict_tree=true` named which plugins declare
-  child records in a CELL's, DIAL's or WRLD's child-bearing field, and `housecarl_records` does not — it
-  states that other plugins touch the record and that this read did not open their bodies, and
-  `project={"form": "tree"}` shows you each touching plugin's own content in that field instead (#485).
+  One thing did not carry across at first: `housecarl_read_record conflict_tree=true` named which plugins
+  declare child records in a CELL's, DIAL's or WRLD's child-bearing field. `housecarl_records` restores it —
+  see the `project={"form": "tree"}` entry above, in this same section (#485).
 
   What does carry across is the master advisory the deleted `housecarl_read_plugin_file` printed:
   `housecarl_check findings=["missing_masters"]` now names, per unsatisfied master, whether it is not
