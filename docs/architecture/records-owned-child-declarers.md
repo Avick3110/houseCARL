@@ -65,10 +65,13 @@ artifact rather than a silent overrun.
 
 The lead itself (`DeclarersLead`) is invariant framing text, so it is stated at most once per response on
 every transport, and it is **reserved** rather than written and regretted — text checks its length against
-the remaining budget before writing it, json measures its encoded cost (`JsonWire.DeclarersLeadReserve`)
-because a `Utf8JsonWriter` cannot un-write a property once appended, and the cheap tier reserves its own
-clause the same way (`ReadSentences.ClauseReserve`). Content lines still overshoot the cap by at most one
-line, which is the whole lane's existing tolerance; invariant framing does not.
+the remaining budget before writing it, and the cheap tier reserves its own clause the same way
+(`ReadSentences.ClauseReserve`). json reserves it because a `Utf8JsonWriter` cannot un-write a property once
+appended, and the reserve there is every byte that still lands after the check, not just the sentence's own:
+its encoded cost (`JsonWire.DeclarersLeadReserve`), the `truncated` boolean written between the check and the
+note (`TruncatedPropertyReserve`), and the root close (`Framing.RootClose`). All three are measured off the
+writer, never hand-counted. Content lines still overshoot the cap by at most one line, which is the whole
+lane's existing tolerance; invariant framing does not.
 
 A cut notice claims only what was cut. The text block's tail is reachable only when every declarer line was
 written, so it says nothing about the declarers: it ends the row, and the caller — which knows whether the

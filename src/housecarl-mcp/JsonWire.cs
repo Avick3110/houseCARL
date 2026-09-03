@@ -785,9 +785,14 @@ static class JsonWire
             w.WriteEndArray();
             w.WriteNumber("rendered", rendered);
             // The framing line is stated once per response, and its reserve MUST be checked before `truncated`
-            // is written: a Utf8JsonWriter cannot un-write a property once appended.
+            // is written: a Utf8JsonWriter cannot un-write a property once appended. The reserve is therefore every
+            // byte that still lands after this point — `truncated` itself, which is written BETWEEN this check and
+            // the note, and the root close, which the chain form's own cap checks already add (Size + RootClose)
+            // and this one did not. Measured, all three; reserving only the note left the framing landing past cap
+            // by the width of the other two.
             w.Flush();
-            bool leadOverCap = anyDeclarers && ms.Length + DeclarersLeadReserve >= cap;
+            bool leadOverCap = anyDeclarers
+                && ms.Length + TruncatedPropertyReserve + DeclarersLeadReserve + Framing.RootClose >= cap;
             if (leadOverCap) rowsTruncated = true;
             w.WriteBoolean("truncated", rowsTruncated);
             truncated = rowsTruncated;
@@ -1619,9 +1624,21 @@ static class JsonWire
     /// the writer's own punctuation rather than hand-counted. Reserved by <see cref="RenderTree"/>.
     /// Written into an object that already has a property, so the measurement pays the same separator the real
     /// write does.</summary>
-    static readonly int DeclarersLeadReserve = MeasureDeclarersLeadReserve();
+    static readonly int DeclarersLeadReserve =
+        MeasureRootProperty(w => w.WriteString("child_declarers_note", ReadSentences.DeclarersLead));
 
-    static int MeasureDeclarersLeadReserve()
+    /// <summary>What the <c>truncated</c> boolean costs the document, measured the same way. <see cref="RenderTree"/>
+    /// writes it BETWEEN the reserve check and <c>child_declarers_note</c>, so its bytes are part of what the note
+    /// has to fit behind — checking only <see cref="DeclarersLeadReserve"/> left the framing landing past the cap
+    /// by this property's own width. Measured against <c>false</c>, the WIDER of the two spellings, so the reserve
+    /// is never short.</summary>
+    static readonly int TruncatedPropertyReserve = MeasureRootProperty(w => w.WriteBoolean("truncated", false));
+
+    /// <summary>One property's cost in the root object, from the writer itself rather than a hand count — the
+    /// measurement both reserves above share, so a reserve cannot drift from the write it stands for. Written into
+    /// an object that already has a property, because the real writes do, so the measurement pays the same
+    /// separator.</summary>
+    static int MeasureRootProperty(Action<Utf8JsonWriter> write)
     {
         using var ms = new MemoryStream();
         int before, after;
@@ -1630,7 +1647,7 @@ static class JsonWire
             w.WriteStartObject();
             w.WriteString("x", "");
             before = Size(w, ms);
-            w.WriteString("child_declarers_note", ReadSentences.DeclarersLead);
+            write(w);
             after = Size(w, ms);
             w.WriteEndObject();
         }

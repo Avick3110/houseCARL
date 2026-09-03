@@ -1054,16 +1054,18 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     // ---- json's response-level lead respects cap too, not just the row-level array --------------------------
     //
     // child_declarers_note used to be written unconditionally after `truncated` was already computed — a
-    // Utf8JsonWriter cannot un-write it once appended, so the cap has to be checked (via DeclarersLeadReserve,
-    // JsonWire's own measured cost for the property) BEFORE deciding to write it, not after. Measured on CellC's
-    // json tree (full 1911 chars): the true boundary is 1885 (the last cap that drops the note and spills) / 1886
-    // (the first that keeps it) — the two caps this pair actually asserts, 1884 and 1886, both sit on the correct
-    // side of it; 1884 is not itself the boundary.
+    // Utf8JsonWriter cannot un-write it once appended, so the cap has to be checked BEFORE deciding to write it,
+    // not after, and against every byte that still lands afterwards: the note's own cost (DeclarersLeadReserve),
+    // the `truncated` boolean written between the check and the note (TruncatedPropertyReserve), and the root
+    // close (Framing.RootClose). Reserving only the first left the framing landing past cap by the width of the
+    // other two. Re-measured on CellC's json tree (full 1911 chars) against the current reserve: 1911 is the last
+    // cap that drops the note and spills, 1912 the first that keeps it — and at 1912 the document is 1911 chars,
+    // inside the cap rather than one line past it.
 
     [Fact]
     public void Json_TheResponseLevelLeadIsDroppedRatherThanOverrunningCap_AndTruncatedIsSet()
     {
-        using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 1884));
+        using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 1911));
         Assert.False(doc.RootElement.TryGetProperty("child_declarers_note", out _));
         Assert.True(doc.RootElement.GetProperty("truncated").GetBoolean());
         Assert.True(doc.RootElement.TryGetProperty("spilled", out _));
@@ -1072,9 +1074,35 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     [Fact]
     public void Json_TheResponseLevelLeadRidesWhenItFitsWithRoomToSpare()
     {
-        using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 1886));
+        using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 1912));
         Assert.Equal(ReadSentences.DeclarersLead, doc.RootElement.GetProperty("child_declarers_note").GetString());
         Assert.False(doc.RootElement.GetProperty("truncated").GetBoolean());
+    }
+
+    /// <summary>The invariant the two pinned caps above are single samples of, asserted as a PROPERTY over a band
+    /// of caps rather than a third hand-pinned number: wherever the response-level framing sentence is present,
+    /// the document it rides in is within the caller's max_chars. That is the claim the architecture note makes
+    /// for invariant framing ("Content lines still overshoot the cap by at most one line … invariant framing does
+    /// not"), and a reserve short by any term falsifies it in a narrow window a pinned pair can step straight
+    /// over — which is exactly what the `truncated` property's own ~21 bytes did.</summary>
+    [Fact]
+    public void Json_WhereverTheResponseLevelLeadIsPresent_TheDocumentIsWithinCap()
+    {
+        int seenWith = 0, seenWithout = 0;
+        for (int cap = 1871; cap <= 1952; cap++)      // the measured boundary (1911/1912) +/- 40
+        {
+            var r = Tree(_w.CellC, format: "json", maxChars: cap);
+            using var doc = JsonDocument.Parse(r);
+            if (doc.RootElement.TryGetProperty("child_declarers_note", out _))
+            {
+                seenWith++;
+                Assert.True(r.Length <= cap,
+                            $"max_chars={cap}: the framing sentence rode a {r.Length}-char document");
+            }
+            else seenWithout++;
+        }
+        // The band has to straddle the boundary, or the property is vacuous on one side of it.
+        Assert.True(seenWith > 0 && seenWithout > 0, $"band did not straddle: with={seenWith} without={seenWithout}");
     }
 
     // ---- the precise tier's lead reaches json and the artifact too, not just text ---------------------------
