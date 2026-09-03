@@ -508,9 +508,9 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     // than by the wording — a sentence naming a lane nobody drives is how the clause came to name two deleted
     // tools in the first place. One test per promise the sentence makes.
 
-    string Tree(FormKey fk, string? format = null, string? toFile = null) =>
+    string Tree(FormKey fk, string? format = null, string? toFile = null, int maxChars = 0) =>
         RecordsTools.Records(Svc, formids: new[] { OwnedChildWorld.Fid(fk) }, format: format, to_file: toFile,
-                             project: new RecordsTools.RecordsProject { form = "tree" });
+                             max_chars: maxChars, project: new RecordsTools.RecordsProject { form = "tree" });
 
     [Fact]
     public void TheRemedyIsServedOnTheSameFormidsTheAnnotatedReadUsed()
@@ -667,6 +667,88 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         var t = Tree(_w.CellF).Replace("\r\n", "\n");
         Assert.True(t.IndexOf(ReadSentences.DeclarersLead, StringComparison.Ordinal)
                     < t.IndexOf("diff (field deltas", StringComparison.Ordinal));
+    }
+
+    // ---- the declarers block respects max_chars like every other row content (review-A H1) --------
+    //
+    // AppendChildDeclarers/WriteTreeRow used to append the whole block with no cap check of their own. A
+    // sole-provider row (CellC: nothing to diff, so nothing else in the row loop would ever notice the overrun)
+    // measurably returned 889 chars against a 200-char max_chars with truncated=false — the ClauseReserve class
+    // of bug (ReadSentences.cs's own docstring on that const), which means the auto-spill that exists to make an
+    // over-cap answer complete never fires.
+
+    [Fact]
+    public void ATextRowsDeclarersBlockAloneCanTripMaxChars_AndTheResponseIsMarkedTruncated()
+    {
+        // CellC is a SOLE-toucher row: row.Nodes.Count <= 1, so the diff loop (which has its own cap check) never
+        // runs — before the fix this was the one path with NO cap check between the block and the end of the row.
+        var r = Tree(_w.CellC, maxChars: 200);
+        Assert.Contains("spilled: complete result", r);
+    }
+
+    [Fact]
+    public void Json_ATextRowsDeclarersBlockAloneCanTripMaxChars_AndTheResponseIsMarkedTruncated()
+    {
+        // 400: past the envelope + row header + declarers block (so WriteTreeRow's own cap check fires and cuts
+        // it mid-row, writing an inline "[child declarers cut …]" note), short of the whole row (889 chars
+        // uncapped) — the shape that used to leave the RESPONSE-level truncated flag false while the row's own
+        // content already says it was cut.
+        using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 400));
+        Assert.True(doc.RootElement.GetProperty("truncated").GetBoolean());
+        Assert.True(doc.RootElement.TryGetProperty("spilled", out _));
+    }
+
+    [Fact]
+    public void ARowWithRoomForItsDeclarersBlockIsNotMarkedTruncatedByIt()
+    {
+        // The control: the same sole-provider shape, but a cap generous enough that nothing spills — proves the
+        // fix's cap check does not fire on every row, only an over-cap one.
+        var r = Tree(_w.CellC, maxChars: 4000);
+        Assert.DoesNotContain("spilled:", r);
+    }
+
+    // ---- the precise tier's lead reaches json and the artifact too, not just text (review-A M3) ----
+
+    [Fact]
+    public void Json_ThePreciseTiersLeadRidesTheResponseToo_OnceNotPerRow()
+    {
+        using var doc = JsonDocument.Parse(Tree(_w.CellF, format: "json"));
+        Assert.Equal(ReadSentences.DeclarersLead, doc.RootElement.GetProperty("child_declarers_note").GetString());
+    }
+
+    [Fact]
+    public void Json_ARecordTypeThatOwnsNoChildrenCarriesNoLead()
+    {
+        using var doc = JsonDocument.Parse(Tree(_w.Weapon, format: "json"));
+        Assert.False(doc.RootElement.TryGetProperty("child_declarers_note", out _));
+    }
+
+    [Fact]
+    public void Artifact_ThePreciseTiersRowSchemaNamesTheChildDeclarersColumn()
+    {
+        var art = _w.Scratch("tree-schema.jsonl");
+        Tree(_w.CellF, toFile: art);
+        using var doc = JsonDocument.Parse(File.ReadAllLines(art)[0]);
+        Assert.Contains(doc.RootElement.GetProperty("row_schema").EnumerateArray().Select(e => e.GetString()),
+                        s => s == "child_declarers");
+    }
+
+    [Fact]
+    public void Artifact_ThePreciseTiersLeadRidesTheManifestNotes()
+    {
+        var art = _w.Scratch("tree-notes.jsonl");
+        Tree(_w.CellF, toFile: art);
+        using var doc = JsonDocument.Parse(File.ReadAllLines(art)[0]);
+        Assert.Equal(ReadSentences.DeclarersLead, doc.RootElement.GetProperty("notes")[0].GetString());
+    }
+
+    [Fact]
+    public void Artifact_ARecordTypeThatOwnsNoChildrenCarriesNoNotes()
+    {
+        var art = _w.Scratch("tree-no-notes.jsonl");
+        Tree(_w.Weapon, toFile: art);
+        using var doc = JsonDocument.Parse(File.ReadAllLines(art)[0]);
+        Assert.False(doc.RootElement.TryGetProperty("notes", out _));
     }
 
     /// <summary>The tree's owned-child block: the lines under its lead, trimmed — so an arm about what the block

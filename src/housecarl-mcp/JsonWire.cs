@@ -671,7 +671,10 @@ static class JsonWire
     /// <summary>One §4.1 tree row — the provider stack with per-node deltas against the row's reference pole.
     /// Shared by the json render and the artifact writer: THIS is what makes trees spillable (PR #306
     /// fold-decision 1 — the 1.x conflict_tree had no row form; the tree FORM does).</summary>
-    internal static void WriteTreeRow(Utf8JsonWriter w, LoadOrderService.TreeRow row, MemoryStream ms, int cap,
+    /// <returns>true if any part of the row (child declarers or nodes) hit <paramref name="cap"/> and was cut short —
+    /// the caller must fold this into the response's own <c>truncated</c> flag, since a row-internal cut is
+    /// otherwise invisible above this method.</returns>
+    internal static bool WriteTreeRow(Utf8JsonWriter w, LoadOrderService.TreeRow row, MemoryStream ms, int cap,
                                       LeverNames? levers = null)
     {
         // This row's notice was hand-written in the records spelling because the tree form is a 2.0 form. A literal
@@ -680,6 +683,7 @@ static class JsonWire
         // Artifacts.WriteTree for the spilled rows) — the Legacy default below is unreached, and is kept only so
         // this row obeys the same "default is 1.x" rule as every other seam rather than becoming the exception.
         var lv = levers ?? LeverNames.Legacy;
+        bool truncated = false;
         w.WriteStartObject();
         w.WriteString("formid", row.Formid);
         if (row.Error is not null)
@@ -687,7 +691,7 @@ static class JsonWire
             w.WriteString("error", row.Error);
             if (row.Touchers.Count > 0) WriteStringArray(w, "touchers", row.Touchers);
             w.WriteEndObject();
-            return;
+            return false;
         }
         WriteNullable(w, "type", row.Type);
         WriteNullable(w, "editorid", row.EditorId);
@@ -700,6 +704,15 @@ static class JsonWire
             w.WriteStartArray("child_declarers");
             foreach (var cd in row.ChildDeclarers)
             {
+                w.Flush();
+                if (ms.Length >= cap)
+                {
+                    w.WriteStartObject();
+                    w.WriteString("note", $"[child declarers cut at max_chars — raise max_chars or narrow with {lv.Fields}]");
+                    w.WriteEndObject();
+                    truncated = true;
+                    break;
+                }
                 w.WriteStartObject();
                 w.WriteString("field", cd.Field);
                 w.WriteString("shape", cd.Shape.ToString());
@@ -719,6 +732,7 @@ static class JsonWire
                 w.WriteStartObject();
                 w.WriteString("note", $"[nodes truncated at max_chars — raise max_chars or narrow with {lv.Fields}]");
                 w.WriteEndObject();
+                truncated = true;
                 break;
             }
             w.WriteStartObject();
@@ -736,6 +750,7 @@ static class JsonWire
         }
         w.WriteEndArray();
         w.WriteEndObject();
+        return truncated;
     }
 
     /// <summary>records form=tree: <c>{…envelope, count, contested, errors, epoch, rows:[…]}</c> — the committed
@@ -757,19 +772,24 @@ static class JsonWire
             foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);   // complete-list census (review F8)
             WriteNullable(w, "epoch", epoch);
             w.WriteStartArray("rows");
-            int rendered = 0; bool rowsTruncated = false;
+            int rendered = 0; bool rowsTruncated = false; bool anyDeclarers = false;
             foreach (var row in rows)
             {
                 if (manifestOnly) break;
                 w.Flush();
                 if (ms.Length >= cap) { rowsTruncated = true; break; }
-                WriteTreeRow(w, row, ms, cap, levers);
+                if (WriteTreeRow(w, row, ms, cap, levers)) rowsTruncated = true;
+                if (row.ChildDeclarers.Count > 0) anyDeclarers = true;
                 rendered++;
             }
             w.WriteEndArray();
             w.WriteNumber("rendered", rendered);
             w.WriteBoolean("truncated", rowsTruncated);
             truncated = rowsTruncated;
+            // The precise tier's one framing line (ReadSentences.DeclarersLead), stated ONCE over the whole
+            // response rather than duplicated into every row — the response/field split #342 already established,
+            // carried to this tier's own lead.
+            if (anyDeclarers) w.WriteString("child_declarers_note", ReadSentences.DeclarersLead);
             if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
             w.WriteEndObject();
         }
