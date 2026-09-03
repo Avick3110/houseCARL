@@ -31,14 +31,8 @@ public static class BulkPrimitivesWave3Probe
         if (ok) _pass++; else _fail++;
     }
 
-    /// <summary>Non-overlapping occurrences of <paramref name="needle"/> — a rendered label appearing TWICE is a real
-    /// output defect that a Contains() check reads as a pass.</summary>
-    static int CountOf(string haystack, string needle)
-    {
-        int n = 0, i = 0;
-        while ((i = haystack.IndexOf(needle, i, StringComparison.Ordinal)) >= 0) { n++; i += needle.Length; }
-        return n;
-    }
+    // The CountOf helper this file carried went with B12/B13's rendered-banner arms (#486): the counting it existed
+    // for now runs in RecordsOffOrderPathTests against the live off-order label. RecordsTestBase has its own.
 
     [CiProbe("bulk-primitives-wave3-guard")]
     public static int RunGuard(string[] args)
@@ -572,7 +566,7 @@ public static class BulkPrimitivesWave3Probe
         // project=delta — plus the two NOT-yet-covered off-order-label facts, a disabled mod addressed by path
         // (B4) and a same-named backup outside every install root (B5)) moves onto that same surface.
         // RecordsOffOrderPathTests.FactB4_ADisabledModsPluginAddressedByPathStaysOffOrderAndNamesTheCause and
-        // .FactB5_ASameNamedBackupOutsideTheInstallStaysOffOrder carry B4/B5, driven on RecordsWorld's own
+        // .FactB5_ASameNamedCopyOutsideEveryInstallRootStaysOffOrder carry B4/B5, driven on RecordsWorld's own
         // OldFile (already a disabled-mod path) plus a scratch copy outside the install for B5.
 
         // The same computed provenance through read_plugin_file: the enabled plugin's file, addressed by path, is
@@ -666,14 +660,17 @@ public static class BulkPrimitivesWave3Probe
         Console.WriteLine("DBG bymod=[" + (svc.ReadPluginFile(dKey.FileName.String, wFid, null, "DiffDonor", null, 1, null, 10).WhyNotActive ?? "<null>") + "]");
         Console.WriteLine("DBG bypath=[" + (rpfDecoy.WhyNotActive ?? "<null>") + "]");
         Console.WriteLine("DBG archive=[" + (rpfArchive.WhyNotActive ?? "<null>") + "]");
-        // ALL THREE address forms, not the one that was reported. Round 1 flagged this duplication, the fix was tested
-        // by comparing the two labels for equality, and that test silently failed in the mod= lane — whose Where names
-        // the mod but omits its state — so the identical defect survived a round of review in an unarmed lane. Each
-        // lane is now armed for the SAME cause: the mod name must appear exactly once in every rendered form.
+        // B12 (the providing mod named EXACTLY ONCE in the composed label, all three address forms) and B13 (the
+        // remedy stated exactly once) were counting arms over the RENDERED read_plugin_file banner, and the banner
+        // is deleted — so the counting has nowhere to run HERE. The defect class is not dead with it: the live
+        // carrier is housecarl_records, which composes its off-order label from the same located Where plus
+        // WhyNotActive, and the counting moved there —
+        // RecordsOffOrderPathTests.FactB4_ADisabledModsPluginAddressedByPathStaysOffOrderAndNamesTheCause counts
+        // the mod name and the remedy inside ONE composed label. What is left below is the DTO half these arms also
+        // fed, which never called the deleted renderer: WhyNotActive NAMES the cause, and the two layer-off causes
+        // never render alike. The mod= address lane keeps no arm of its own on this branch — its only consumer was
+        // the banner (this is a real narrowing, stated rather than hidden).
         var rpfDisabledByName = svc.ReadPluginFile(dKey.FileName.String, wFid, null, null, null, 1, null, 10);
-        var rpfDisabledByMod = svc.ReadPluginFile(dKey.FileName.String, wFid, null, "DiffDonor", null, 1, null, 10);
-        // The RENDERED forms (Wire.RenderPluginFile) die with the banner — see the note above. The DTO-level
-        // WhyNotActive checks these fed are unaffected and continue below.
         // ...while the PATH lane, whose Where identifies nothing, must STILL name the mod — suppressing it everywhere
         // would lose the only mention of which mod provides the file.
         Check("#271 render: the same copy BY PATH still names the mod, since its Where cannot",
