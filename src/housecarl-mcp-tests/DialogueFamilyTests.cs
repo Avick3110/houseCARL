@@ -57,7 +57,9 @@ public sealed class DialogueFamilyTests
 
         Served(r, "effective INFO order", "merged across 3 plugins that touch this topic",
                   "plays the FIRST line whose conditions pass");
-        Assert.Contains($"MOVED from #1", r);
+        // The whole composed row, anchored to the record that moved: "MOVED from #1" on its own is a fragment any
+        // row could carry, and this fixture has eight of them.
+        Assert.Contains($"#8  {Fid(W.MovedLine)}  MOVED from #1  placed by {DialogueWorld.LastName}", r);
         Assert.DoesNotContain("dropped in game", r);
     }
 
@@ -108,9 +110,17 @@ public sealed class DialogueFamilyTests
         var text = Wire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: result), 20000);
 
         Assert.NotNull(result.Error);
-        Assert.Contains("the check did not finish", text);
-        Assert.Contains("IOException", text);
-        Assert.Contains(DialogueWorld.MasterName, text);
+        // Read PAST the seed. The sweep composes the refusal as "{seed}: {refusal}." and the seed is
+        // "<id>:HcDvMaster.esp" because the topic is DEFINED in the master — so a whole-response
+        // Contains(MasterName) is satisfied by the seed's own echo whichever plugin actually failed, and holding
+        // LastPath instead left it green (pre-green review 1b, finding 2). The refusal itself has to name the
+        // locked plugin, and only the locked one.
+        var refusal = AfterSeed(text, Fid(w.Topic));
+        Assert.Contains("the check did not finish", refusal);
+        Assert.Contains("IOException", refusal);
+        Assert.Contains(DialogueWorld.MasterName, refusal);
+        Assert.DoesNotContain(DialogueWorld.LastName, refusal);
+        Assert.DoesNotContain(DialogueWorld.MidName, refusal);
     }
 
     // ---- fact D4 (b) ------------------------------------------------------------------------------------
@@ -128,9 +138,13 @@ public sealed class DialogueFamilyTests
         var text = Wire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: result), 20000);
 
         Assert.NotNull(result.Error);
-        Assert.Contains("the check did not finish", text);
-        Assert.Contains("IOException", text);
-        Assert.Contains(DialogueWorld.LastName, text);
+        // Read past the seed for the same reason as D4a, though here the seed names a DIFFERENT plugin from the
+        // locked one — the same shape gets the same treatment so the two facts stay comparable.
+        var refusal = AfterSeed(text, Fid(w.Topic));
+        Assert.Contains("the check did not finish", refusal);
+        Assert.Contains("IOException", refusal);
+        Assert.Contains(DialogueWorld.LastName, refusal);
+        Assert.DoesNotContain(DialogueWorld.MidName, refusal);
     }
 
     // ---- fact V1 --------------------------------------------------------------------------------------
@@ -169,6 +183,16 @@ public sealed class DialogueFamilyTests
         var byQuestLine = LineAfter(r, "quest (QUST)");
         Assert.Contains("quest CK-parity: OK", byQuestLine);
         foreach (var sig in pinQuest) Assert.Contains(sig, byQuestLine);
+    }
+
+    /// <summary>Everything AFTER the seed prefix the sweep echoes — the composed refusal itself. The sweep writes
+    /// "{seed}: {refusal}.", and the seed is "&lt;id&gt;:&lt;definer&gt;", so a plugin name found anywhere in the
+    /// whole response may be the seed's own echo rather than the failure's subject.</summary>
+    static string AfterSeed(string text, string seed)
+    {
+        int i = text.IndexOf(seed + ":", StringComparison.Ordinal);
+        Assert.True(i >= 0, $"no seed '{seed}' in the response: {text}");
+        return text[(i + seed.Length + 1)..];
     }
 
     /// <summary>The block of text starting at the line containing <paramref name="marker"/>, running to the

@@ -304,7 +304,11 @@ public sealed class CheckErrorsFamilyTests : IClassFixture<CheckErrorsWorldFixtu
         // The phase-order sentence is about the LISTING BUDGET specifically (acct.OmittedByBudget), not about a
         // response cut by max_chars — a limit= cut is what crowds baseline findings behind the rest.
         var limitCapped = Text(Svc.CheckErrors(null, 1, findings: null), 20000);
-        Assert.Contains("the listing budget (limit=) is spent on every other plugin BEFORE those", limitCapped);
+        // The WHOLE composed sentence, not its opening clause: the half that states the consequence is the half a
+        // caller reads, and a fragment ending at "BEFORE those" is green over any rewording of the rest.
+        Assert.Contains("the listing budget (limit=) is spent on every other plugin BEFORE those, so baseline " +
+                         "findings cannot crowd the rest out of the list; the sections below stay in load order.",
+                         limitCapped);
 
         var uncapped = Text(Svc.CheckErrors(null, 1000, findings: null), 20000);
         Assert.DoesNotContain("spent on every other plugin BEFORE those", uncapped);
@@ -428,7 +432,7 @@ public sealed class CheckErrorsFamilyTests : IClassFixture<CheckErrorsWorldFixtu
             var text = Text(r, cap);
             Assert.True(text.Length > cap, $"expected an overrun at cap={cap}");
             Assert.Contains("longer than the max_chars=" + cap + " it was given", text);
-            Assert.Contains("raise it to at least ", text);
+            Assert.Contains("does not fit in that many chars, so raise it to at least ", text);
         }
     }
 
@@ -466,8 +470,16 @@ public sealed class CheckErrorsFamilyTests : IClassFixture<CheckErrorsWorldFixtu
 
         Assert.Contains("[ERROR] " + W.PatchName, text);
         Assert.Contains("missing master(s) NOT installed anywhere in the MO2 install: " + W.GoneName, text);
-        // The section rendered whole even though this plugin's OWN dangling entry got none of the budget.
-        Assert.DoesNotContain(W.PatchName + "\n  dangling reference(s)", text);
+        // The section rendered whole even though this plugin's OWN dangling entry got none of the budget — read
+        // SECTION-SCOPED. The old spelling searched the whole response for the plugin name immediately followed by
+        // the dangling header, a span the composer never emits at ANY budget (the missing-master line always sits
+        // between them), so it passed identically at limit=1000 and never exercised the zero-entry-budget case.
+        Assert.DoesNotContain("dangling reference(s)", PluginSection(text, W.PatchName));
+
+        // The control that gives the absence its meaning: with budget to spare the SAME section DOES carry its
+        // dangling listing, so what is missing above is this plugin's entries and not a fixture that never had any.
+        var ample = Text(Svc.CheckErrors(null, 1000, findings: null), 20000);
+        Assert.Contains("dangling reference(s)", PluginSection(ample, W.PatchName));
     }
 
     // ---- fact 27 ------------------------------------------------------------------------------------------

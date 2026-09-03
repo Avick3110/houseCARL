@@ -278,12 +278,20 @@ public sealed class ScriptsFamilyTests
         var excludedFat = Result(countsOnly: true, excludedPlugins:
             Enumerable.Range(0, 3).ToDictionary(i => $"HcSpBroken{i}.esp", i => new string('r', 300)));
 
-        // Searched, not a fixed number: which cap admits the response but not a single roster row is a fact
+        // Searched, not a fixed number: which cap admits the accounting but not a single roster row is a fact
         // about the fixture's own size, not a literal that survives an unrelated wording change elsewhere in
-        // the same response.
-        var cut = Text(excludedFat, 200);
-        Assert.Contains("0 of 3 plugin(s) that could not be parsed are named above.", cut);
-        Assert.Contains("Raise max_chars= to fit more of what was found.", cut);
+        // the same response. (The comment said this before; the code held a hardcoded 200 — pre-green review 1a,
+        // finding 3. S12 below walks the band the same way for the PARTIAL split.)
+        string? cut = null;
+        for (int cap = 100; cap <= 3000 && cut is null; cap += 10)
+        {
+            var t = Text(excludedFat, cap);
+            if (Enumerable.Range(0, 3).Any(i => t.Contains($"HcSpBroken{i}.esp: "))) continue;
+            if (t.Contains("plugin(s) that could not be parsed are named above.")) cut = t;
+        }
+        Assert.True(cut is not null, "no cap in 100..3000 admitted the roster accounting while naming no row");
+        Assert.Contains("0 of 3 plugin(s) that could not be parsed are named above.", cut!);
+        Assert.Contains("Raise max_chars= to fit more of what was found.", cut!);
 
         var whole = Text(excludedFat, 0);
         Assert.Contains("HcSpBroken0.esp: ", whole);
