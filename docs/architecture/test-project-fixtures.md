@@ -92,6 +92,15 @@ never a fragment: the phrase "declared but NOT bound" is emitted by both the obj
 branch, so a fragment of it is satisfied by the wrong finding. Where a structured result carries the same
 fact, the service arm asserts that and the wire arm keeps one text line for reachability.
 
+A whole line is still not a whole anchor. Two records in this world carry the object-branch line for
+`MySpell`: the footgun, and the alias quest, whose alias script is the same `HcSpChild` and binds nothing —
+and because `MySpell`'s declaring script equals its attached script, `ComposeScriptRecordUnit` omits the
+`[declared in …]` clause for both, so the two lines are byte-identical. The wire arm therefore asserts the
+footgun's `[UNBOUND]` record header **immediately followed by** that line, as one composed span: the header
+carries the FormKey, the EditorID and the plugin, which no other record can produce. Measured: with the
+footgun's `VirtualMachineAdapter` dropped from the fixture the line-only assertion stayed green off the
+quest; the anchored one goes red.
+
 One wire-path smoke test drives `housecarl_set_mo2_instance` then `housecarl_check findings=["scripts"]`
 off the built server, to prove the fixture is reachable through the live surface PR 2's arms will use. It
 spins its **own** server process: the shared `ServerFixture` is deliberately unconfigured and every stdio
