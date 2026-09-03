@@ -161,10 +161,11 @@ public sealed class ScriptsWorldTests
         // The unverifiable attribution, spelled the way the sweep composes it — names the .pex it looked for.
         Assert.Contains($@"'Scripts\{ScriptsWorld.MissingScript}.pex' is not on disk", r.Text, StringComparison.Ordinal);
 
-        // A finding only a RESOLVED child .pex can produce: the declaration has to have been read for the
-        // property to be known unbound at all.
-        Assert.Contains($"{ScriptsWorld.ObjectProperty} (Spell) on script {ScriptsWorld.ChildScript}",
-                        r.Text, StringComparison.Ordinal);
-        Assert.Contains("declared but NOT bound", r.Text, StringComparison.Ordinal);
+        // The WHOLE object-branch line, spelled from fixture-known values. The scalar branch emits the same
+        // "declared but NOT bound" phrase, so a fragment of it is satisfied by MyChance; only this line is.
+        Assert.Contains(
+            $"{ScriptsWorld.ObjectProperty} (Spell) on script {ScriptsWorld.ChildScript}"
+            + " — declared but NOT bound → None at runtime (HIGH: object/form type — the silent no-op)",
+            r.Text, StringComparison.Ordinal);
     }
 }
