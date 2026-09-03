@@ -716,14 +716,13 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.DoesNotContain("spilled:", r);
     }
 
-    // ---- the block's own TAIL, not just its per-line checks (round-1 review-A MEDIUM2 / review-B L5-L7) ------
+    // ---- the block's own TAIL, not just its per-line checks -------------------------------------------------
     //
-    // AppendChildDeclarers checked cap BEFORE each field line and never after the last one, so the LAST line
-    // pushing sb.Length past cap went unnoticed on a sole-provider row (nothing downstream to catch it — the diff
-    // loop never runs). Measured on CellC (4-line block, full text 844 chars — the SINGULAR Landscape line reads
-    // "carried by 0 provider(s)" now, round-1 review-B L4): a StringBuilder holding exactly cap-or-more AFTER the
-    // final line (before TrimEnd('\n') removes one char) is the boundary, at max_chars=845; 846 is the first cap
-    // the same content fits inside with room to spare.
+    // The per-field checks run BEFORE each line and never after the last one, so the LAST line pushing sb.Length
+    // past cap goes unnoticed on a sole-provider row — nothing downstream catches it, because the diff loop never
+    // runs. Measured on CellC (4-line block, full text 844 chars, its SINGULAR Landscape line reading "carried by
+    // 0 provider(s)"): a StringBuilder holding cap-or-more AFTER the final line (before TrimEnd('\n') removes one
+    // char) is the boundary, at max_chars=845; 846 is the first cap the same content fits inside.
 
     [Fact]
     public void ATextRowsDeclarersBlockTailAloneCanTripMaxChars_AndTheResponseIsMarkedTruncated() =>
@@ -744,6 +743,70 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.Contains("[child declarers cut", r);
         Assert.DoesNotContain("diff (field deltas", r);
         Assert.DoesNotContain("[nodes cut", r);
+    }
+
+    // ---- what the tail cut notice CLAIMS, not just that the tail check exists ------------------------------
+    //
+    // The tail is reachable only when the field loop ran to completion, so at the tail nothing in the block was
+    // ever cut. A "[child declarers cut …]" notice there is false in every case it can fire, and its remedy
+    // (project.fields=) points at narrowing a block that is already complete. What the row loses at the tail is
+    // its DIFF — or, on a sole-provider row, nothing at all. Measured windows on the current render: CellC
+    // (sole provider) 806-845, CellF (3 touchers) 812-864.
+
+    [Fact]
+    public void ASoleProviderRowWhoseCompleteBlockEndsPastTheCapClaimsNothingWasCut()
+    {
+        var r = Tree(_w.CellC, maxChars: 845);
+        Assert.Contains("Temporary: ", r);              // the block ran to completion…
+        Assert.Contains("NavigationMeshes: ", r);
+        Assert.DoesNotContain("[child declarers cut", r);   // …so nothing may say it was cut,
+        Assert.DoesNotContain("[nodes cut", r);             // and a sole provider loses no diff either.
+        Assert.Contains("spilled: complete result", r);
+    }
+
+    [Fact]
+    public void AMultiProviderRowWhoseCompleteBlockEndsPastTheCapNamesTheDiffItLost()
+    {
+        var r = Tree(_w.CellF, maxChars: 830);
+        Assert.Contains("Temporary: ", r);
+        Assert.Contains("NavigationMeshes: ", r);
+        Assert.DoesNotContain("[child declarers cut", r);
+        Assert.Contains("[nodes cut at max_chars=830", r);   // what actually went
+        Assert.DoesNotContain("diff (field deltas", r);      // and no header over a section that never rendered
+    }
+
+    /// <summary>The other side: when declarer lines really ARE dropped, the notice still says so. 660 cuts CellF's
+    /// block after its first field line (Landscape), leaving the other three unwritten.</summary>
+    [Fact]
+    public void ABlockCutMidWayStillSaysTheDeclarersWereCut()
+    {
+        var r = Tree(_w.CellF, maxChars: 660);
+        Assert.Contains("[child declarers cut at max_chars=660", r);
+        Assert.Contains("Landscape: ", r);
+        Assert.DoesNotContain("NavigationMeshes: ", r);
+        Assert.DoesNotContain("[nodes cut", r);
+    }
+
+    // ---- the framing line is RESERVED against max_chars, not written and regretted -------------------------
+    //
+    // The block's framing line is invariant text of a known length, so checking only sb.Length < cap before it
+    // writes its whole length past the cap with nothing able to take it back — json reserves the identical
+    // sentence (JsonWire's DeclarersLeadReserve) and the cheap tier reserves its own clause (ClauseReserve).
+    // Measured on CellC: the block starts at 294 chars, so 587 is the last cap the framing does not fit in and
+    // 588 the first that it does.
+
+    [Fact]
+    public void TheFramingLineIsReservedAgainstMaxChars_NotWrittenPastIt()
+    {
+        var r = Tree(_w.CellC, maxChars: 587);
+        Assert.DoesNotContain(ReadSentences.DeclarersLead, r);
+        Assert.Contains("[child declarers cut at max_chars=587", r);
+    }
+
+    [Fact]
+    public void TheFramingLineRidesAtTheFirstCapItFitsInside()
+    {
+        Assert.Contains(ReadSentences.DeclarersLead, Tree(_w.CellC, maxChars: 588));
     }
 
     /// <summary>The lead is invariant framing text, not per-record content, so a multi-row response states it once
@@ -870,7 +933,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     {
         var sb = new StringBuilder();
         bool leadWritten = false;
-        RecordsTools.AppendChildDeclarers(sb, FiveDeclarerRow(), cap: 100_000, ref leadWritten);
+        RecordsTools.AppendChildDeclarers(sb, FiveDeclarerRow(), cap: 100_000, ref leadWritten, out _);
         Assert.Contains(
             $"Persistent: {ReadSentences.DeclaredBy} A.esp, B.esp, C.esp (+2 more){ReadSentences.DeclarersOverflowRemedy}",
             sb.ToString());
