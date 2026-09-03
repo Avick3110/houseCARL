@@ -48,6 +48,32 @@ public sealed class RecordsScanRefusalRepairTests : IDisposable
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
     }
 
+    /// <summary>The LIST lane's arm. The dense+depth refusal above ends "or drop project.depth for the dense
+    /// summary cells" — a remedy that is only followable in the scan lane, because a <c>formids=</c> read
+    /// refuses dense outright. Fired in the list lane it would hand the caller a second refusal, so it is
+    /// gated to the scan lane and the list lane answers with its own complete sentence.</summary>
+    [Fact]
+    public void DenseWithADepthInTheFormidsLane_GetsTheListLanesOwnRefusal_NotTheDepthOne()
+    {
+        var r = RecordsTools.Records(_w.Svc, formids: new[] { RecordsWorld.Fid(_w.Weapons[0]) },
+                                     format: "dense", project: FieldsAt(2));
+
+        Assert.StartsWith("error:", r);
+        Assert.Contains("the scan lane's columnar form", r);
+        Assert.DoesNotContain("drop project.depth", r);
+    }
+
+    /// <summary>And the remedy that sentence DOES name is followable: the same read in text is served. Without
+    /// this the list lane's refusal could name a transport that is also refused.</summary>
+    [Fact]
+    public void TheRemedyTheListLanesDenseRefusalNames_IsServed()
+    {
+        var r = RecordsTools.Records(_w.Svc, formids: new[] { RecordsWorld.Fid(_w.Weapons[0]) },
+                                     format: "text", project: FieldsAt(2));
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
+    }
+
     /// <summary>Depth 2 in text is served, so the refusal above is about the TRANSPORT and not about depth.</summary>
     [Fact]
     public void TheSameDepthInTextIsServed_SoTheRefusalIsAboutTheTransport()

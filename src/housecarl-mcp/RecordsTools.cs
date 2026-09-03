@@ -350,6 +350,9 @@ public static class RecordsTools
             return Wire.Refuse(json, "error: the reverse MGEF walk takes formids= (the effects) and optionally types= (narrowing the carrier types) — the general bounded reverse over other scan terms is the references= spelling.");
         if (reverseWalk && !hasFormids)
             return Wire.Refuse(json, "error: the reverse walk needs its seeds — pass formids= (the MGEF(s) whose carriers to trace).");
+        // The lane, decided ONCE and read wherever a sentence's remedy depends on which lane will run. The
+        // dispatch below reads this same value, so a refusal cannot disagree with the lane it is refusing for.
+        bool scanLane = hasScan && !reverseWalk;
         // dense is DEFINED as positional columnar cells 1:1 with the requested field paths (the tool description's
         // own rule) — the forms with no fixed column set refuse by name rather than quietly switching transport
         // (re-review: everything fell back to text, aggregate to the json table, neither saying so).
@@ -361,7 +364,10 @@ public static class RecordsTools
         // dense; nothing enforced it, so an explicit project.depth was accepted and dropped and the caller got the
         // depth-1 document back with no notice. The 1.x scan tool refused it by name, and that refusal died with
         // the tool it lived in (#468), which is what turned a named refusal into a silent one.
-        if (dense && project?.depth is { } denseDepth && denseDepth > 1)
+        // Scan lane only. In the LIST lane dense is refused outright below ("a formids= read renders text or
+        // json"), and that sentence is the complete answer there — firing this one first would tell a caller to
+        // "drop project.depth", which lands them on that second refusal. The remedy has to be followable.
+        if (scanLane && dense && project?.depth is { } denseDepth && denseDepth > 1)
             return Wire.Refuse(json, $"error: format='dense' renders positional columnar cells 1:1 with the requested {LeverNames.Records.Fields} paths, and project.depth={denseDepth} emits extra sub-paths that have no column — use format='text' or 'json' for depth expansion, or drop project.depth for the dense summary cells.");
         if (dense && comparisonForm)
             return Wire.Refuse(json, $"error: format='dense' renders positional columnar cells 1:1 with requested field paths, and the '{form}' form's rows are variable-length delta lists with no fixed column set — use format='text' or 'json'.");
@@ -433,7 +439,7 @@ public static class RecordsTools
             return w;
         }
 
-        return hasScan && !reverseWalk
+        return scanLane
             ? ScanLane()          // incl. formids×scan: the identity set rides the scan as an intersection
             : ListLane();
 
@@ -1795,7 +1801,7 @@ public static class RecordsTools
     }
 
     /// <summary>The info_order form's text render: per topic its identity, then the SAME merged-order body
-    /// housecarl_validate_dialogue renders (shared via <see cref="DialogueWire.AppendInfoOrderView"/> — the §6.1
+    /// the retired housecarl_validate_dialogue rendered (shared via <see cref="DialogueWire.AppendInfoOrderView"/> — the §6.1
     /// split carried the MOVED annotations and the MovesComputed×Complete / BaselineTrusted honesty gates across
     /// intact, one render, no drift).</summary>
     static string RenderRecordsInfoOrder(IReadOnlyList<LoadOrderService.InfoOrderRow> rows, int total, int contested,
