@@ -147,8 +147,19 @@ public sealed class ToolSurfaceCensusTests
     static readonly Regex TypeofAssembly =
         new(@"typeof\(\s*([A-Za-z_][A-Za-z0-9_.]*)\s*\)\s*\.\s*Assembly", RegexOptions.Compiled);
 
-    /// <summary>Every type the tool-surface assembly declares, by simple name and by full name — the names a
-    /// `typeof(…).Assembly` expression could use to mean "the tool surface".</summary>
+    /// <summary>
+    /// The names a `typeof(…).Assembly` expression could use to mean "the tool surface": every type the
+    /// surface assembly declares by FULL name, and — unqualified — only the types that could plausibly be
+    /// meant by it.
+    ///
+    /// <para>A bare name is matched against the tool types the server discovers, plus <c>ToolSurface</c>
+    /// itself. The expression is a sentence about which assembly the tools live in, and an internal helper's
+    /// name is not that sentence. The full ~180-name set made every simple name in this assembly a match, so
+    /// the first type in housecarl-core or housecarl-generator to share a name with any of them would have
+    /// made every <c>typeof(ThatType).Assembly</c> in that project an offender, with a failure telling the
+    /// author to read <c>ToolSurface.Assembly</c> instead — which would change what their expression means.
+    /// A qualified name needs no such narrowing: it is already held against a real full name.</para>
+    /// </summary>
     static (HashSet<string> Simple, string[] Full) SurfaceTypeNames()
     {
         var types = HousecarlMcp.ToolSurface.Assembly.GetTypes()
@@ -156,9 +167,14 @@ public sealed class ToolSurfaceCensusTests
                      && !t.Name.Contains('`', StringComparison.Ordinal))
             .ToArray();
 
-        return (types.Select(t => t.Name).ToHashSet(StringComparer.Ordinal),
+        return (types.Where(CouldBeMeantByABareName).Select(t => t.Name).ToHashSet(StringComparer.Ordinal),
                 types.Select(t => t.FullName ?? t.Name).ToArray());
     }
+
+    /// <summary>A type whose bare name a reader would take to mean the tool surface itself.</summary>
+    static bool CouldBeMeantByABareName(Type t) =>
+        t.GetCustomAttribute<McpServerToolTypeAttribute>(inherit: false) is not null
+        || t == typeof(HousecarlMcp.ToolSurface);
 
     /// <summary>
     /// Whether a `typeof(<paramref name="named"/>)` expression names a type on the tool surface.
@@ -172,6 +188,15 @@ public sealed class ToolSurfaceCensusTests
         named.Contains('.', StringComparison.Ordinal)
             ? surface.Full.Any(f => f == named || f.EndsWith("." + named, StringComparison.Ordinal))
             : surface.Simple.Contains(named);
+
+    /// <summary>The type names in <paramref name="source"/> that a `typeof(…).Assembly` expression uses to
+    /// mean the tool surface. One home for the reading, so an arm measures what the scan measures.</summary>
+    static string[] SurfaceNamingExpressions(string source, (HashSet<string> Simple, string[] Full) surface) =>
+        TypeofAssembly.Matches(source)
+            .Select(m => m.Groups[1].Value)
+            .Where(named => NamesASurfaceType(named, surface))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
 
     [Fact]
     [Trait("tier", "unit")]
@@ -194,14 +219,7 @@ public sealed class ToolSurfaceCensusTests
         Assert.True(files.Length > 0,
             "No .cs files were found under the repo's projects, so this scan is vacuous.");
 
-        var offenders = files
-            .SelectMany(f => TypeofAssembly.Matches(File.ReadAllText(f))
-                .Select(m => (File: f, Named: m.Groups[1].Value))
-                .Where(x => NamesASurfaceType(x.Named, surfaceTypes))
-                .Select(x => $"{Rel(x.File)}: typeof({x.Named}).Assembly"))
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(s => s, StringComparer.Ordinal)
-            .ToArray();
+        var offenders = OffendersAmong(files, surfaceTypes);
 
         Assert.True(offenders.Length == 0,
             $"These name the tool surface by picking a type that happens to live in it ({files.Length} files " +
@@ -211,12 +229,48 @@ public sealed class ToolSurfaceCensusTests
             "expression agrees with that only while the type stays put.");
     }
 
+    /// <summary>Every site in <paramref name="files"/> naming the tool surface by picking a type, as
+    /// repo-relative "file: expression" rows.</summary>
+    static string[] OffendersAmong(IEnumerable<string> files, (HashSet<string> Simple, string[] Full) surface) =>
+        files
+            .SelectMany(f => SurfaceNamingExpressions(File.ReadAllText(f), surface)
+                                 .Select(named => $"{Rel(f)}: typeof({named}).Assembly"))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(s => s, StringComparer.Ordinal)
+            .ToArray();
+
     static bool NotBuildOutput(string p) =>
         !p.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
      && !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
 
     static string Rel(string full) =>
         Path.GetRelativePath(HarnessPaths.RepoRoot, full).Replace('\\', '/');
+
+    /// <summary>
+    /// The bare-name branch reads the names that could mean the surface, and no others.
+    ///
+    /// <para>Both cells are derived off the surface assembly rather than named here: the helper is a type the
+    /// server does not discover, the tool type is one it does. Each goes through the same reading the file
+    /// scan uses, as the text a file would carry.</para>
+    /// </summary>
+    [Fact]
+    [Trait("tier", "unit")]
+    public void ABareNameIsReadAsTheSurfaceOnlyWhenItCouldMeanIt_AnInternalHelpersNameIsNotThatSentence()
+    {
+        var surface = SurfaceTypeNames();
+        var declared = HousecarlMcp.ToolSurface.Assembly.GetTypes()
+            .Where(t => !t.Name.Contains('<', StringComparison.Ordinal)
+                     && !t.Name.Contains('`', StringComparison.Ordinal))
+            .ToArray();
+
+        var helper = declared.First(t => !surface.Simple.Contains(t.Name));
+        var toolType = declared.First(t => t.GetCustomAttribute<McpServerToolTypeAttribute>(inherit: false) is not null);
+
+        Assert.Empty(SurfaceNamingExpressions($"var a = typeof({helper.Name}).Assembly;", surface));
+
+        Assert.Equal(new[] { toolType.Name },
+                     SurfaceNamingExpressions($"var a = typeof({toolType.Name}).Assembly;", surface));
+    }
 
     /// <summary>A tool declared where the server does not look. Never registered: the server scans
     /// <c>ToolSurface.Assembly</c>, and nothing references this project.</summary>
