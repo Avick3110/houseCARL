@@ -46,7 +46,7 @@ The cornerstones (§3) and revalidation protocol (§4) are restated in this file
 
 ---
 
-## 3. Cornerstones — coverage and composition, by construction
+## 3. Cornerstones — by construction, not by hand
 
 The PRFAQ's load-bearing claim is **comprehensive access** (§1). For records, that means **every record type Mutagen models is readable and writable — by construction, not by hand.**
 
