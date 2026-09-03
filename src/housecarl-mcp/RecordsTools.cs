@@ -357,6 +357,12 @@ public static class RecordsTools
             return Wire.Refuse(json, "error: format='dense' renders positional columnar cells 1:1 with requested field paths, and the 'everything' form has no fixed column set — use format='text' or 'json', or name the paths via form='fields'.");
         if (dense && form == "aggregate")
             return Wire.Refuse(json, "error: format='dense' is the per-row columnar transport, and the 'aggregate' form is a count table — its json render IS the compact form; use format='json'.");
+        // The same rule at the DEPTH knob. This tool's own description says depth expansion is inexpressible in
+        // dense; nothing enforced it, so an explicit project.depth was accepted and dropped and the caller got the
+        // depth-1 document back with no notice. The 1.x scan tool refused it by name, and that refusal died with
+        // the tool it lived in (#468), which is what turned a named refusal into a silent one.
+        if (dense && project?.depth is { } denseDepth && denseDepth > 1)
+            return Wire.Refuse(json, $"error: format='dense' renders positional columnar cells 1:1 with the requested {LeverNames.Records.Fields} paths, and project.depth={denseDepth} emits extra sub-paths that have no column — use format='text' or 'json' for depth expansion, or drop project.depth for the dense summary cells.");
         if (dense && comparisonForm)
             return Wire.Refuse(json, $"error: format='dense' renders positional columnar cells 1:1 with requested field paths, and the '{form}' form's rows are variable-length delta lists with no fixed column set — use format='text' or 'json'.");
         if (dense && form == "info_order")
