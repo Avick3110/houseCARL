@@ -3970,7 +3970,7 @@ public sealed class LoadOrderService : IDisposable
         // A formid set is itself a bound: the scan touches at most those keys, so a body filter over one needs no
         // types=/plugins= (the W2 formids×scan composition).
         if (bodyFilter && !hasType && !hasPlugins && !hasFormidSet)
-            return CrossQueryOutcome.Fail("editorid_contains/references/where is a body scan and must be combined with type= or plugins= to bound it (conflicts_only= alone is not enough — an unbounded body scan over the whole order is refused). A global reverse-reference index is a future capability.");
+            return CrossQueryOutcome.Fail("where=/references= is a body scan and must be combined with types=, plugins=, or a formids= set to bound it (conflicts_only= alone is not enough — an unbounded body scan over the whole order is refused). A global reverse-reference index is a future capability.");
 
         // defined_in= keeps only records DEFINED in the scoped plugins (origin FormKey), the catalogue-scope semantics
         // distinct from plugins='everything this plugin TOUCHES'. It needs a plugins= scope to mean anything — refused
@@ -4336,7 +4336,7 @@ public sealed class LoadOrderService : IDisposable
               + "(Mutagen could not parse their content, or — under where_source=winner — a winner body the index named did not re-resolve on fetch; another plugin's copy of the same FormKey can still match): "
               + string.Join("; ", unscannableSamples)
               + (unscannable > unscannableSamples.Count ? $"; and {unscannable - unscannableSamples.Count} more" : "")
-              + ". Inspect one with read_record (per-field fault isolation applies).";
+              + $". Inspect one with {ToolNames.Records} formids=[the FormID] (per-field fault isolation applies).";
         // group_by= aggregation isn't limit-capped (cheap), so Capped is a match-line concern only.
         var groupRows = groups?.Select(kv => new GroupCount(kv.Key, kv.Value))
                               .OrderByDescending(g => g.Count).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
@@ -4552,7 +4552,7 @@ public sealed class LoadOrderService : IDisposable
                 {
                     if (!EffectChain.CarrierTypes.Contains(t))
                         return EffectChainResult.Fail(
-                            $"type '{ts}' is not effect-bearing — effect_chain scans only Spell/ObjectEffect/Ingestible/Scroll/Ingredient " +
+                            $"type '{ts}' is not effect-bearing — the chain form scans only Spell/ObjectEffect/Ingestible/Scroll/Ingredient " +
                             "(SPEL/ENCH/ALCH/SCRL/INGR), the records that carry an Effects list. Drop it or pass one of those.");
                     if (!picked.Contains(t)) picked.Add(t);
                 }

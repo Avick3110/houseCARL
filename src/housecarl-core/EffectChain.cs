@@ -94,7 +94,7 @@ public static class EffectChain
         var w = view.ResolveWinner(mgef);
         if (w is null)
             return FailStamped(
-                $"no record with FormID {mgef} in the load order. effect_chain needs a MagicEffect (MGEF) the active order defines.");
+                $"no record with FormID {mgef} in the load order. The chain form needs a MagicEffect (MGEF) the active order defines.");
         string mgefEid;
         using (var session = resolver.OpenSession())
         {
@@ -104,8 +104,9 @@ public static class EffectChain
                     $"winner '{w.Value.WinnerPlugin}' did not yield {mgef} on fetch — cannot confirm it is a MagicEffect.");
             if (mbody is not IMagicEffectGetter mr)
                 return FailStamped(
-                    $"{mgef} resolves to a {RecordNaming.StripOverlay(mbody.GetType().Name)}, not a MagicEffect — effect_chain " +
-                    "needs an MGEF. (To find what references an arbitrary record, use cross_plugin_query references=.)");
+                    $"{mgef} resolves to a {RecordNaming.StripOverlay(mbody.GetType().Name)}, not a MagicEffect — the chain form " +
+                    $"needs an MGEF. (To find what references an arbitrary record, use {ToolNames.Records} references=[the FormID] " +
+                    "with types= or plugins= to bound the scan.)");
             mgefEid = mr.EditorID ?? "<none>";
         }
 
@@ -147,7 +148,7 @@ public static class EffectChain
             : $"note: {unscannable} record instance(s) could not be scanned (Mutagen could not parse their content) and were skipped: "
               + string.Join("; ", samples)
               + (unscannable > samples.Count ? $"; and {unscannable - samples.Count} more" : "")
-              + ". Inspect one with read_record (per-field fault isolation applies).";
+              + $". Inspect one with {ToolNames.Records} formids=[the FormID] (per-field fault isolation applies).";
 
         return new EffectChainResult(mgef, mgefEid, rows, total, total > rows.Count, null, scanNote, view.Epoch);
     }
