@@ -13,10 +13,10 @@ unrelated reason (occlusion, lighting) carries none and deletes none, so reading
 the game fills — the #342 bug.
 
 Naming WHICH plugins declare requires reading their bodies. Doing that per toucher on every read was built,
-measured on a real load order, and withdrawn: 27ms -> 588ms for one Dawnstar cell, 6.3s -> 126s for a 200-cell
-query, and an unbounded artifact job that never finished. So the DEFAULT read states only the cheap fact the
-index gives for free (`ReadSentences.NotRead` and friends): other plugins touch the record, their declarations
-were not read.
+measured on a real load order, and withdrawn: 27ms -> 588ms for one Dawnstar cell, 21ms -> 1.3s for Tamriel, a
+worldspace read to 2.5s, 6.3s -> 126s for a 200-cell query, and an unbounded artifact job that never finished. So
+the DEFAULT read states only the cheap fact the index gives for free (`ReadSentences.NotRead` and friends): other
+plugins touch the record, their declarations were not read.
 
 `records project={"form":"tree"}` already opens every provider's body to build its diff, so it states the
 precise fact there at no extra cost: which plugins actually declare (`ReadSentences.DeclaredBy` / `CarriedBy` /
@@ -57,6 +57,11 @@ No extra record fetch: the tier asks its question of each body already open for 
 field NAMES the caller's own `fields=` requested, not the paths the response actually emitted; a bracketed
 path (`fields=["Temporary[0]"]`) narrows the block away entirely, matching the cheap tier's own narrowing.
 
-Both text and json check `max_chars` as they append the block, the same as every other row content — a row
-whose declarers block alone exceeds the cap is cut and the response's own `truncated` flag is set, which
-triggers the standard auto-spill to a JSONL artifact rather than a silent overrun.
+Both text and json check `max_chars` at every point the block can grow the response, including the two
+tails round 1's review caught uncovered: the block's own last line (text has no diff loop to notice it on a
+sole-provider row) and json's response-level `child_declarers_note`, written after `truncated` is already
+computed and reserved for (`JsonWire.DeclarersLeadReserve`, since a `Utf8JsonWriter` cannot un-write a
+property once appended). Either half hitting the cap sets the response's own `truncated` flag, which
+triggers the standard auto-spill to a JSONL artifact rather than a silent overrun. The lead itself
+(`DeclarersLead`) is invariant framing text, so it is stated at most once per response on every transport —
+text tracks whether it has written it yet, matching json's and the artifact's own once-per-response note.
