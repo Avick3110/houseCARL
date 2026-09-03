@@ -45,11 +45,6 @@ if (args.Length > 0 && args[0] == "pkcu-fix-proof") return PkcuProbe.RunFixProof
 // Index-build resilience (Nexus bug): real-scale proof — full MO2 order + 1 malformed plugin, only it excluded.
 if (args.Length > 0 && args[0] == "pkcu-scale-proof") return PkcuProbe.RunScaleProof(args[1..]);
 
-// Script-property binding sweep (housecarl_validate_scripts): a VMAD property declared in the attached script's .pex
-// (or an ancestor it extends) but left unbound is a silent None — the reported quest-script AddSpell(None) footgun.
-if (args.Length > 0 && args[0] == "script-property-check-guard") return ScriptPropertyCheckProbe.RunGuard(args[1..]);
-if (args.Length > 0 && args[0] == "check-guard") return CheckMergeProbe.RunGuard(args[1..]);
-
 // Decompiler baseline hierarchy: emit vanilla-class-parents.json from the CK vanilla sources' own
 // ScriptName-extends headers (committed asset — vanilla sources don't exist on CI; regenerate on game updates).
 if (args.Length > 0 && args[0] == "class-parents") return ClassParentsEmitter.Run(args[1..]);
@@ -61,7 +56,6 @@ if (args.Length > 0 && args[0] == "strings-resolve-probe") return StringsResolve
 if (args.Length > 0 && args[0] == "repoint-strings-probe") return RepointStringsProbe.Run(args[1..]);
 if (args.Length > 0 && args[0] == "localized-write-probe") return LocalizedWriteProbe.Run(args[1..]);
 if (args.Length > 0 && args[0] == "localized-shape-sweep") return LocalizedShapeSweep.Run(args[1..]);
-if (args.Length > 0 && args[0] == "localized-write-guard") return LocalizedWriteGuardProbe.RunGuard(args[1..]);
 
 // EXPLORATORY (F1): the disabled-mod asset source lane's two binding kickoff measurements.
 if (args.Length > 0 && args[0] == "f1-measure") return F1MeasureProbe.Run(args[1..]);
@@ -114,7 +108,7 @@ if (args.Length > 0 && args[0] == "header-probe") return Wave5Probe.RunHeaderPro
 // Wave 5 scout: the PEX read->write round-trip GATE (project_pex_prefer_source_policy) — the wave-5 unknown.
 if (args.Length > 0 && args[0] == "pex-probe") return Wave5Probe.RunPexProbe(args[1..]);
 
-// NOTE: coerce-audit + coerce-selftest are now CI guards in CiAll.Probes (the ONE CI source of truth, dispatched
+// NOTE: coerce-audit + coerce-selftest are now CI guards carrying [CiProbe] (the ONE CI source of truth, dispatched
 // for single runs via CiAll.TryDispatch at the top of this file) — no separate dispatch here, by design.
 
 // Step 7 write-surface census: corpus-derived reachability map of every writable leaf (the completeness scoreboard).
@@ -161,10 +155,6 @@ if (args.Length > 0 && args[0] == "remove-create-probe") return RemoveCreateProb
 
 // Capability arc scout #2 (remove-record): whole-record removal via mod.Remove(FormKey) — flat + nested + not-found semantics.
 if (args.Length > 0 && args[0] == "remove-record-probe") return RemoveRecordProbe.RunProbe(args[1..]);
-
-// HCBR-2026-07-08-01 F3: subclass-typed Remove (GlobalShort/GameSetting*) silently no-ops — flat-group-T routing +
-// pre-serialize absence verify, RED-proven for both remove lanes.
-if (args.Length > 0 && args[0] == "subclass-remove-guard") return SubclassRemoveGuardProbe.RunGuard(args[1..]);
 
 // Capability arc remove-record proof: drive WritePatchBuilder.RemoveRecords (the core housecarl_remove_record calls) vs a real, large load order.
 if (args.Length > 0 && args[0] == "remove-proof") return RemoveProof.RunRemoveProof(args[1..]);
@@ -241,7 +231,7 @@ if (args.Length > 0 && args[0] == "roundtrip-probe") return RoundTripProbe.RunPr
 // which Mutagen affordance compact must use to renumber a record into the ESL range. Run before building RemapEngine.
 if (args.Length > 0 && args[0] == "remap-wave1-mech") return RemapWave1Probe.RunMechanism(args[1..]);
 
-// COMPACT/MERGE Wave 1 GATE (self-contained, CI-able) lives in the CiAll.Probes registry as `remap-wave1-guard` —
+// COMPACT/MERGE Wave 1 GATE (self-contained, CI-able) is a [CiProbe] guard, `remap-wave1-guard` —
 // it dispatches through CiAll.TryDispatch above (the ONE CI source of truth), so it is NOT listed here.
 
 // COMPACT/MERGE Wave 1 real-data run (MANUAL): ESL-compact a real plugin to a NEW P′ for Aaron to xEdit-verify, and
@@ -257,18 +247,15 @@ if (args.Length > 0 && args[0] == "remap-wave2-nested-mech") return RemapWave2Ne
 // MO2 instance and print the render + timing (the CI skse-reader-guard pins the decode; this proves the full inventory).
 if (args.Length > 0 && args[0] == "skse-inventory-real") return SkseInventoryProbe.RunReal(args[1..]);
 
-// SKSE tier D (static peek, #199): the CI guard for the import walk / string extraction / Debug-CRT verdict / render.
-// The real-data side needs no harness of its own — skse-inventory-real --peek --filter <dll> drives the live peek.
-if (args.Length > 0 && args[0] == "skse-peek-guard") return SksePeekProbe.RunGuard(args[1..]);
+// SKSE tier D (static peek, #199) needs no manual harness of its own — skse-inventory-real --peek --filter <dll>
+// drives the live peek.
 
-// SKSE config audit (tier B, #199) reference-extractor + verdict CI guard, and the manual real-data harness (the live gate:
-// runs the whole audit against a live MO2 instance and prints the audit + timing).
-if (args.Length > 0 && args[0] == "skse-config-audit-guard") return SkseConfigAuditProbe.RunGuard(args[1..]);
+// SKSE config audit (tier B, #199) MANUAL real-data harness (the live gate: runs the whole audit against a live
+// MO2 instance and prints the audit + timing).
 if (args.Length > 0 && args[0] == "skse-config-audit-real") return SkseConfigAuditProbe.RunReal(args[1..]);
 
-// Native-function pairing audit: the CI guard (pure extractor + classification + ladder + renderer arms) and the
-// manual real-data harness (the live gate: the whole audit against a live MO2 instance, render + timing).
-if (args.Length > 0 && args[0] == "native-pairing-guard") return NativePairingProbe.RunGuard(args[1..]);
+// Native-function pairing audit MANUAL real-data harness (the live gate: the whole audit against a live MO2
+// instance, render + timing).
 if (args.Length > 0 && args[0] == "native-pairing-real") return NativePairingProbe.RunReal(args[1..]);
 
 // PR 4 kickoff (`check`'s response layer): MANUAL real-data measurement of the two #361 lanes and the response

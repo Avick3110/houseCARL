@@ -268,7 +268,7 @@ public static class ArmClassificationProbe
         // The same policy as EmitMatchProbe.RunGuard, deliberately spelled the same way so the two read as one
         // policy: when the emit throws, the capture IS the diagnosis, and a bare try/finally discards it with
         // everything the generator printed up to the failure. This guard sits BEFORE emit-match-guard in
-        // CiAll.Probes, so on a bump that makes BuildCorpus throw it is the first probe to hit it — and CiAll
+        // the reflected roster, so on a bump that makes BuildCorpus throw it is the first probe to hit it — and CiAll
         // reports the exception alone, which would leave the banner, per-kind counts, spotlights and any
         // anomalies already accumulated unrecoverable.
         catch
