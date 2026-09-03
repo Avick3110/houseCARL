@@ -2061,9 +2061,15 @@ public static class CheckMergeProbe
     ///
     /// <para><b>Honest only for an <c>Int</c>.</b> The baked-initializer branch writes
     /// <c>VariableType.Integer</c> while stamping the backing variable's <c>TypeName</c> from the caller's
-    /// declared type, so <c>AutoScalar("MyFlag", "Bool", 1)</c> produces a lie. Both call sites here pass
-    /// <c>"Int"</c>. The same caveat is recorded for the test project's copy in
-    /// <c>docs/architecture/test-project-fixtures.md</c>.</para></summary>
+    /// declared type, so <c>AutoScalar("MyFlag", "Bool", 1)</c> produces a lie.
+    /// The test project's copy does NOT merely record this — <c>PexWriter.Auto</c> REFUSES a
+    /// non-<c>Int</c> declared type carrying an initializer, with an <c>ArgumentException</c> naming the property,
+    /// the type and the value, pinned in both directions by
+    /// <c>ScriptsWorldTests.TheWriterRefusesABakedInitializerOnANonIntScalar</c> and its round-trip twin;
+    /// <c>docs/architecture/test-project-fixtures.md</c> spends a paragraph on why refusing beats documenting.
+    /// This copy is not hardened to match, deliberately: the refusal is a conditional, the generator has no unit
+    /// harness to arm both of its branches from, and an unarmed conditional is what the review-rounds standard
+    /// says not to add. Both call sites here pass <c>"Int"</c>, and this file retires with its own conversion.</para></summary>
     internal static Decl AutoScalar(string name, string typeName, int? initInt) => Auto(name, typeName, initInt);
 
     /// <summary>Write a single-object .pex with the given Auto properties + backing variables to <paramref name="path"/>.</summary>
