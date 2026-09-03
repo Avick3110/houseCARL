@@ -8505,8 +8505,15 @@ public sealed class LoadOrderService : IDisposable
             //                "won't load" warning exactly when it applies.
             // "Active" is read from the PROFILE (plugins.txt actives + the force-loaded implicit masters) — the same
             // active-order notion housecarl_check's errors family uses — NOT mere on-disk presence, so the two agree.
+            // BOTH halves have to hold for a master to be satisfied, and a profile can assert the first with the
+            // second false: a stale tick in plugins.txt after the mod folder was deleted outside MO2 names a plugin
+            // as active that the install does not provide. Testing only the active half filtered that name out
+            // before the splitter ever looked for a file, so it landed in NEITHER list and the "won't load without
+            // them" warning went silent exactly where it applied (Q3). The check surface reaches the same answer by
+            // a different route — its active order is the BUILT one, which drops a listed name nothing provides.
             var unsatisfied = masters.Where(m => !(comp.ActivePluginNames.Contains(m)
-                                                   || comp.ImplicitPluginNames.Any(x => x.Equals(m, StringComparison.OrdinalIgnoreCase))));
+                                                   || comp.ImplicitPluginNames.Any(x => x.Equals(m, StringComparison.OrdinalIgnoreCase)))
+                                                 || !Mo2LoadOrder.PluginFileExists(comp, modsDir, dataDir, overwriteDir, m));
             // The split itself lives in ONE home (Mo2LoadOrder.SplitUnsatisfiedMasters), shared with the check
             // surface's missing-master remedy — so "install it" vs "enable it" cannot be decided two ways.
             var (missing, inactive) = Mo2LoadOrder.SplitUnsatisfiedMasters(comp, modsDir, dataDir, overwriteDir, unsatisfied);
