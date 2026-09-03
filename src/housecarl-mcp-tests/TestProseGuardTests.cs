@@ -11,29 +11,47 @@ namespace HousecarlMcpTests;
 /// <summary>
 /// THE PROSE GUARD — a fact test may not assert a fragment of prose the product composed (#492).
 ///
-/// <para><b>The class it closes.</b> An assertion over rendered text stays green when the thing it names is
+/// <para><b>The class it is about.</b> An assertion over rendered text stays green when the thing it names is
 /// broken: the span cannot occur by fixture construction, so a negative is vacuous; only a prefix is pinned,
 /// so a tail sabotage survives; a second render branch or a second RECORD emits the same line, so the arm is
-/// satisfied by something it is not about. The interim discipline — whole composed lines anchored to the
-/// record, sabotage per branch, the fold-population sweep — is enforced by eye and by review rounds, and the
-/// rounds kept finding the class. Under CLAUDE.md §3's third cornerstone that is the signal to make the
-/// shape unwritable rather than to strengthen the check.</para>
+/// satisfied by something it is not about. This guard counts the sites of that shape per file against a
+/// committed baseline: the number may fall, and it cannot rise without a deliberate, argued edit to the
+/// baseline in the same commit.</para>
 ///
-/// <para><b>Every population here is DERIVED.</b> The assertion sites come from a Roslyn parse of the test
-/// sources; the wire vocabulary is every JSON property name the product writes; the fixture values are read
-/// off the fixture files' own initialisers; the fixture symbols are the types those files declare plus the
-/// fields holding them. Nothing is a list in this file — a hand-listed population is short by exactly what
-/// nobody thought of, and the guard stays green over the gap.</para>
+/// <para><b>What the guard covers.</b> One shape. A call to one of the eight string-assertion forms listed
+/// below, on a receiver spelled <c>Assert</c> or any qualification of it (<c>Xunit.Assert</c>), whose
+/// EXPECTED argument — argument 0 — either carries a string literal directly (including the literal segments
+/// of an interpolated string) or is an identifier naming a <c>const string</c> declared in the same file
+/// whose value carries whitespace. That constant lookup is one hop, by name, off the syntax. The
+/// classification of those sites is then driven by derived populations — the JSON property names the product
+/// writes, the values the fixture files declare, the fixture types and the fields holding them, the
+/// product's name registries — so none of that goes stale as the sources move.</para>
+///
+/// <para><b>What it does not see.</b> A sentence reached any other way is outside this walk. A value held in
+/// a <c>static readonly</c> field, or in a non-<c>const</c> local, is not resolved. A sentence passed in as a
+/// helper's parameter and asserted inside the helper is not traced back to its caller. A literal in the
+/// SUBJECT rather than the expected value — <c>Assert.True(text.Contains("…"))</c> — is not a site, because
+/// <c>True</c> is not one of the eight forms. Any assertion carrying a lambda is skipped outright, since
+/// xUnit's collection forms ask a different question. A bare <c>Contains(…)</c> under
+/// <c>using static Xunit.Assert</c> has no receiver to match and is invisible.</para>
+///
+/// <para><b>Why that is accepted.</b> Every instance of this class the project has actually hit was the
+/// direct-literal shape, written by a fold session reaching for the nearest assertion. Nobody is evading the
+/// guard; the gate is a countdown over the shape people write, not a proof that the shape cannot be written.
+/// If an evasion does appear, the answer is a test over the derived corpus rather than more pattern here, and
+/// that is one commit away.</para>
 ///
 /// <para><b>Parse only.</b> <c>CSharpSyntaxTree.ParseText</c>, no workspace, no compilation, no semantic
 /// model, so this needs no MSBuild and runs in well under a second. The rule is a syntactic question about
-/// literals and argument positions, and a syntax tree answers it exactly.</para>
+/// literals and argument positions, and a syntax tree answers it exactly — at the cost of the resolution
+/// limits above.</para>
 ///
-/// <para><b>The exemption is not a list and not a bare marker.</b> A class marked
-/// <see cref="SentenceCatalogueAttribute"/> is exempt from the prose rule and subject to a STRICTER one:
-/// every assertion's subject must be a catalogue expression, never a tool response. A fact test's subject is
-/// a tool response by definition, so the marker cannot be sprayed onto one — the marker's own rule fails it.
-/// </para>
+/// <para><b>The marker.</b> <see cref="SentenceCatalogueAttribute"/> does NOT exempt a class from the count
+/// above: a marked class's assertion sites are classified and counted like every other file's. What it adds
+/// is the separate rule in <c>EveryAssertionInAMarkedClassHasACatalogueSubject…</c> below, and that rule
+/// fires only where the subject resolves to an expression rooted at a name the product declares (other than
+/// a <c>*Sentences</c> catalogue). A subject rooted at a local the one-hop resolution cannot follow is passed
+/// over.</para>
 /// </summary>
 [Trait("tier", "unit")]
 public sealed class TestProseGuardTests
@@ -517,11 +535,16 @@ public sealed class TestProseGuardTests
     // ---- the marker's own rule -------------------------------------------------------------------------
 
     /// <summary>
-    /// What makes <see cref="SentenceCatalogueAttribute"/> unsprayable. Inside a marked class every
-    /// assertion's SUBJECT must be a catalogue expression — a sentence catalogue member, or something the
-    /// test project itself computed. A subject rooted at any other product type is a tool response, and a
-    /// fact test's subject is a tool response by definition, so putting the marker on a fact test fails HERE
-    /// instead of buying the class silence.
+    /// The rule <see cref="SentenceCatalogueAttribute"/> adds. Inside a marked class, an assertion whose
+    /// SUBJECT resolves to an expression rooted at a name the product declares — other than a
+    /// <c>*Sentences</c> catalogue — fails here, because that subject is a tool response and a test about a
+    /// tool response is a fact test wherever the attribute is written.
+    ///
+    /// <para>Two limits, stated rather than implied. The marker buys no exemption from the prose count, so
+    /// this arm is an addition and not a trade. And it fires only on a PRODUCT-TYPE-ROOTED subject: a subject
+    /// rooted at a local that <c>Resolve</c>'s single hop cannot follow to a product-rooted expression is
+    /// passed over, so this arm catches the marker sprayed onto a fact test written the ordinary way, not
+    /// every possible way one could be written.</para>
     /// </summary>
     [Fact]
     public void EveryAssertionInAMarkedClassHasACatalogueSubject_TheMarkerCannotBeSprayedOnAFactTest()
@@ -563,15 +586,14 @@ public sealed class TestProseGuardTests
         }
 
         Assert.True(marked > 0,
-            "No class carries [SentenceCatalogue], so this rule is vacuous. The marker exists to swap the prose " +
-            "rule for a stricter one; a project with no marked class has either lost the catalogue tests or " +
-            "renamed the attribute, and both are this arm's subject.");
+            "No class carries [SentenceCatalogue], so this rule is vacuous. A project with no marked class has " +
+            "either lost the catalogue tests or renamed the attribute, and both are this arm's subject.");
 
         Assert.True(offenders.Count == 0,
             "[SentenceCatalogue] classes assert over a TOOL RESPONSE:\n  " + string.Join("\n  ", offenders) +
-            "\nThe marker exempts a class from the prose rule because its subject is the catalogue itself. A " +
-            "test whose subject is a response is a FACT test wherever the attribute is written, and it belongs " +
-            "in a fact-test class asserting structure keyed by the record it is about.");
+            "\nThe marker says a class is about the catalogue's own members. A test whose subject is a " +
+            "response is a FACT test wherever the attribute is written, and it belongs in a fact-test class " +
+            "asserting structure keyed by the record it is about.");
     }
 
     /// <summary>One hop of local resolution: a subject that is a local holding a tool response is that

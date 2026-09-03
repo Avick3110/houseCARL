@@ -9,13 +9,15 @@ namespace HousecarlMcpTests;
 /// Marks a class as a SENTENCE-CATALOGUE test — one that is about the catalogue's own members rather than
 /// about a tool response.
 ///
-/// <para>The marker is hand-applied and it buys nothing on its own. It exempts the class from
-/// <see cref="TestProseGuardTests"/>' prose rule and imposes a STRICTER one in its place: inside a marked
-/// class every assertion's SUBJECT must be a catalogue member expression or a call to one of its composers,
-/// never a tool response. A fact test's subject is a tool response by definition, so a fact test cannot hide
-/// inside a marked class — the marker's own rule fails it. That is what makes the exemption unsprayable:
-/// it swaps one rule for a stricter one, and the class it opens is a class in which a fact test does not
-/// compile as a fact test.</para>
+/// <para>The marker is hand-applied, and it buys no exemption. A marked class's assertions are still
+/// classified and counted by <see cref="TestProseGuardTests"/>' prose rule exactly like any other file's.
+/// What the marker adds is one further arm there: inside a marked class, an assertion whose SUBJECT resolves
+/// to an expression rooted at a name the product declares — other than a <c>*Sentences</c> catalogue — fails,
+/// because that subject is a tool response and the class claims not to be about one.</para>
+///
+/// <para>That arm reads the subject syntactically, with a single hop of local resolution, so it fires on a
+/// product-type-rooted subject and passes over a subject rooted at a local it cannot follow. It is a check on
+/// the ordinary shape, not a proof that a fact test cannot be written inside a marked class.</para>
 /// </summary>
 [AttributeUsage(AttributeTargets.Class)]
 public sealed class SentenceCatalogueAttribute : Attribute { }
