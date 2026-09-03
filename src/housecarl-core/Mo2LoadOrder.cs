@@ -349,22 +349,42 @@ public static class Mo2LoadOrder
     /// <summary>Split declared masters that are NOT satisfied by the active order into the two cases whose REMEDIES
     /// differ: <c>NotInstalled</c> — no copy anywhere in the install, so the answer is INSTALL it; and
     /// <c>InstalledButInactive</c> — a copy is there but the order does not load it (it sits in a disabled mod, or
-    /// the plugin is unticked), so the answer is ENABLE it. The discriminant is exactly
-    /// <see cref="PluginFileExists"/>, and this is the ONE home for the split: <c>read_plugin_file</c>'s master
-    /// advisory and <c>housecarl_check</c>'s missing-master remedy both call it, so the two surfaces cannot come to
-    /// different conclusions about the same master (PR #148's false negative was a copy in a disabled mod counted as
-    /// satisfied — the warning was suppressed exactly where it applied).
+    /// the plugin is unticked), so the answer is ENABLE it. This is the ONE home for the split:
+    /// <c>read_plugin_file</c>'s master advisory and <c>housecarl_check</c>'s missing-master remedy both call it, so
+    /// the two surfaces cannot come to different conclusions about the same master (PR #148's false negative was a
+    /// copy in a disabled mod counted as satisfied — the warning was suppressed exactly where it applied).
     /// <para>Every name handed in lands in exactly one of the two lists, in the order given: the caller decides what
     /// "unsatisfied" means against its own notion of the active order, and this decides only which of the two
-    /// remedies each one wants.</para></summary>
+    /// remedies each one wants.</para>
+    /// <para>The discriminant is presence in <see cref="AllPluginFileNames"/>, which walks <c>CandidateFolders</c> —
+    /// the same folder sequence <see cref="PluginFileExists"/> stats one name at a time. There is no second folder
+    /// walk here and there is not to be one: "installed" has to mean the same places for the split as it does for a
+    /// locate, or the remedy names a file the locate cannot find.</para>
+    /// <para>This overload pays ONE walk per call regardless of how many names it is handed. The overload below is
+    /// for a caller with several separate splits to make over one install — it walks nothing at all, so the cost of
+    /// a whole-order sweep stops scaling with how many plugins report the same shortfall.</para></summary>
     public static (IReadOnlyList<string> NotInstalled, IReadOnlyList<string> InstalledButInactive) SplitUnsatisfiedMasters(
         Mo2Composition comp, string modsDir, string dataDir, string overwriteDir, IEnumerable<string> unsatisfied)
+        => SplitUnsatisfiedMasters(AllPluginFileNames(comp, modsDir, dataDir, overwriteDir), unsatisfied);
+
+    /// <summary>The split against an install's plugin-name set the caller already has — for a sweep making the same
+    /// split for many plugins over ONE install, where re-deriving the set per report is the whole cost.
+    /// <paramref name="installedPluginFiles"/> is what <see cref="AllPluginFileNames"/> returns; drawing it from
+    /// anywhere else would let "installed" mean a different set of folders here than at a locate.
+    /// <para>The case-insensitive comparison is built HERE rather than assumed of the collection handed in: a set
+    /// carrying an ordinal comparer would answer "not installed" for a name differing only in case, and a wrong
+    /// remedy delivered confidently is the failure this split exists to prevent (Q3). It is one pass over names
+    /// already in memory — no filesystem work, whatever the caller passes.</para></summary>
+    public static (IReadOnlyList<string> NotInstalled, IReadOnlyList<string> InstalledButInactive) SplitUnsatisfiedMasters(
+        IReadOnlyCollection<string> installedPluginFiles, IEnumerable<string> unsatisfied)
     {
+        var installed = new HashSet<string>(installedPluginFiles, StringComparer.OrdinalIgnoreCase);
         var notInstalled = new List<string>();
         var inactive = new List<string>();
         foreach (var m in unsatisfied)
         {
-            if (PluginFileExists(comp, modsDir, dataDir, overwriteDir, m)) inactive.Add(m);
+            // Same normalization PluginFileExists applies before it stats — a blank name is installed nowhere.
+            if (installed.Contains(Path.GetFileName(m?.Trim() ?? ""))) inactive.Add(m);
             else notInstalled.Add(m);
         }
         return (notInstalled, inactive);

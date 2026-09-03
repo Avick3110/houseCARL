@@ -4617,7 +4617,17 @@ public sealed class LoadOrderService : IDisposable
         try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
         catch { return r; }
         Mo2Composition comp;
-        try { comp = Mo2LoadOrder.ReadComposition(profileDir); }
+        IReadOnlyCollection<string> installed;
+        try
+        {
+            comp = Mo2LoadOrder.ReadComposition(profileDir);
+            // The install's plugin-name set, read ONCE for the whole sweep. Per report it was one whole-install
+            // folder walk PER NAME, and the walk's expensive path is the common one: a master that is not installed
+            // short-circuits nowhere, so it pays the enabled mods, the disabled mods, the unlisted-folder listing
+            // and Data before returning false — then the next plugin declaring the same name paid it all again.
+            // The answer never depended on which report asked, so neither does the read.
+            installed = Mo2LoadOrder.AllPluginFileNames(comp, modsDir, dataDir, overwriteDir);
+        }
         catch { return r; }
 
         var classified = new List<PluginErrors>(r.Reports.Count);
@@ -4625,7 +4635,7 @@ public sealed class LoadOrderService : IDisposable
             classified.Add(p.MissingMasters.Count == 0
                 ? p with { InstalledButInactiveMasters = Array.Empty<string>() }
                 : p with { InstalledButInactiveMasters =
-                               Mo2LoadOrder.SplitUnsatisfiedMasters(comp, modsDir, dataDir, overwriteDir, p.MissingMasters).InstalledButInactive });
+                               Mo2LoadOrder.SplitUnsatisfiedMasters(installed, p.MissingMasters).InstalledButInactive });
         return r with { Reports = classified };
     }
 
@@ -8511,12 +8521,16 @@ public sealed class LoadOrderService : IDisposable
             // before the splitter ever looked for a file, so it landed in NEITHER list and the "won't load without
             // them" warning went silent exactly where it applied (Q3). The check surface reaches the same answer by
             // a different route — its active order is the BUILT one, which drops a listed name nothing provides.
+            // The install's plugin-name set, read ONCE — and read once for BOTH halves below, so the existence
+            // question the filter asks and the one the split answers cannot be put to two different installs.
+            var installed = new HashSet<string>(
+                Mo2LoadOrder.AllPluginFileNames(comp, modsDir, dataDir, overwriteDir), StringComparer.OrdinalIgnoreCase);
             var unsatisfied = masters.Where(m => !(comp.ActivePluginNames.Contains(m)
                                                    || comp.ImplicitPluginNames.Any(x => x.Equals(m, StringComparison.OrdinalIgnoreCase)))
-                                                 || !Mo2LoadOrder.PluginFileExists(comp, modsDir, dataDir, overwriteDir, m));
+                                                 || !installed.Contains(m));
             // The split itself lives in ONE home (Mo2LoadOrder.SplitUnsatisfiedMasters), shared with the check
             // surface's missing-master remedy — so "install it" vs "enable it" cannot be decided two ways.
-            var (missing, inactive) = Mo2LoadOrder.SplitUnsatisfiedMasters(comp, modsDir, dataDir, overwriteDir, unsatisfied);
+            var (missing, inactive) = Mo2LoadOrder.SplitUnsatisfiedMasters(installed, unsatisfied);
             var baseOut = new PluginFileOutcome
             {
                 Requested = plugin, FilePath = path, Where = where, Enabled = enabled, WhyNotActive = whyNotActive,
