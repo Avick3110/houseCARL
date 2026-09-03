@@ -84,6 +84,35 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class ScriptPropertyCheckProbe
 {
+    // ---- #282 json-parity helpers, relocated from CheckErrorsProbe (#486 phase 2) ----------------------------
+    // Parse the emitted document, so a malformed render fails the guard rather than passing a substring match.
+    // Owned here now that CheckErrorsProbe.cs is deleted; this file converts in its own commit (phase 3).
+    internal static bool JsonMatches(string json, string prop, int expected)
+    {
+        try { return JsonDocument.Parse(json).RootElement.TryGetProperty(prop, out var v) && v.GetInt32() == expected; }
+        catch { return false; }
+    }
+
+    internal static bool JsonNull(string json, string prop)
+    {
+        try
+        {
+            return JsonDocument.Parse(json).RootElement.TryGetProperty(prop, out var v)
+                && v.ValueKind == JsonValueKind.Null;
+        }
+        catch { return false; }
+    }
+
+    internal static bool JsonHasHistogram(string json, string prop)
+    {
+        try
+        {
+            return JsonDocument.Parse(json).RootElement.TryGetProperty(prop, out var h)
+                && h.TryGetProperty("rows", out var rows) && rows.GetArrayLength() > 0;
+        }
+        catch { return false; }
+    }
+
     [CiProbe("script-property-check-guard")]
     public static int RunGuard(string[] args)
     {
@@ -316,9 +345,9 @@ public static class ScriptPropertyCheckProbe
             objText.Contains("object only — unbound_scalar NOT CHECKED", StringComparison.Ordinal)
             && objText.Contains("bound-but-null NOT CHECKED", StringComparison.Ordinal)
             && !objText.Contains("0 bound-but-null", StringComparison.Ordinal)
-            && CheckErrorsProbe.JsonNull(objJson, "unbound_scalar")
-            && CheckErrorsProbe.JsonNull(objJson, "bound_but_null")
-            && CheckErrorsProbe.JsonMatches(objJson, "unbound_object", objectsOnly.TotalUnboundObject),
+            && JsonNull(objJson, "unbound_scalar")
+            && JsonNull(objJson, "bound_but_null")
+            && JsonMatches(objJson, "unbound_object", objectsOnly.TotalUnboundObject),
             $"header=[{objText.Split('\n').Skip(1).FirstOrDefault()}]");
 
         var nullOnly = ScriptPropertyCheck.Run(resolver, assets, null, 1000, null, null, ScriptFindingClass.BoundNull);
@@ -327,8 +356,8 @@ public static class ScriptPropertyCheckProbe
         Check("CLASS-NOT-CHECKED-TOTAL: findings=[bound_null] renders 'unbound NOT CHECKED' and nulls unbound in json — the HIGH class nobody looked for never reads as 0",
             nullText.Contains("unbound NOT CHECKED", StringComparison.Ordinal)
             && !nullText.Contains("0 unbound", StringComparison.Ordinal)
-            && CheckErrorsProbe.JsonNull(nullJson, "unbound")
-            && CheckErrorsProbe.JsonNull(nullJson, "unbound_object")
+            && JsonNull(nullJson, "unbound")
+            && JsonNull(nullJson, "unbound_object")
             && nullOnly.TotalNullObject == 1,
             $"header=[{nullText.Split('\n').Skip(1).FirstOrDefault()}]");
 
@@ -368,9 +397,9 @@ public static class ScriptPropertyCheckProbe
             res.Histogram is null && !res.CountsOnly, $"histo={(res.Histogram is null ? "null" : res.Histogram.Count.ToString())}");
 
         Check("JSON-PARITY: format=json parses and reports the same unbound total in both the listing and counts_only modes (D2 — one result, two renders)",
-            CheckErrorsProbe.JsonMatches(JsonWire.RenderScriptCheck(res, 0), "unbound", res.TotalUnbound)
-            && CheckErrorsProbe.JsonMatches(JsonWire.RenderScriptCheck(counts, 0), "unbound", res.TotalUnbound)
-            && CheckErrorsProbe.JsonHasHistogram(JsonWire.RenderScriptCheck(counts, 0), "unbound_by_property"),
+            JsonMatches(JsonWire.RenderScriptCheck(res, 0), "unbound", res.TotalUnbound)
+            && JsonMatches(JsonWire.RenderScriptCheck(counts, 0), "unbound", res.TotalUnbound)
+            && JsonHasHistogram(JsonWire.RenderScriptCheck(counts, 0), "unbound_by_property"),
             "see the two json renders");
 
         // #288 RE-REVIEW finding 1: the round-1 histogram gate landed on check_errors and not on its twin here. With
@@ -440,7 +469,7 @@ public static class ScriptPropertyCheckProbe
             // records-with-scripts stays the FULL count — the number the claim used to misrepresent
             && byProp.RecordsWithScripts == res.RecordsWithScripts
             && byProp.TotalUnverifiable == res.TotalUnverifiable
-            && CheckErrorsProbe.JsonMatches(JsonWire.RenderScriptCheck(byProp, 0), "records_with_scripts", res.RecordsWithScripts),
+            && JsonMatches(JsonWire.RenderScriptCheck(byProp, 0), "records_with_scripts", res.RecordsWithScripts),
             $"header=[{propHeader}]");
 
         Check("PROP-FILTER-IN-JSON: the property filter rides as DATA (property_contains), so a consumer can read which counts it narrowed",
