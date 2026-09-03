@@ -45,10 +45,16 @@ public sealed class RemedyHarvest
         Enum.GetNames<Wire.QueryFormat>().Select(n => n.ToLowerInvariant()).Append(ArtifactLane).ToArray();
 
     /// <summary>
-    /// HOW ONE LANE IS HARVESTED — the one home for the discriminant. json is a document and is walked for
-    /// its strings; the artifact lane's rows are read off the file the call spilled; everything else is a
-    /// text render and is read line by line. A consumer that spelled this switch itself would drift from the
-    /// lane list beside it, which is how the tree form's lanes came to be two of four.
+    /// HOW ONE LANE IS HARVESTED — the one home for the discriminant. The artifact lane's rows are read off
+    /// the file the call spilled. Every other lane is decided by the RESPONSE rather than by the lane's name:
+    /// a response that parses as a JSON document is walked for its strings, and one that does not is read
+    /// line by line.
+    ///
+    /// <para>Asking the response is what keeps this from drifting. <c>dense</c> is named like a text lane and
+    /// is a JSON render (<c>JsonWire.RenderCrossQueryDense</c>), so a discriminant keyed on the name
+    /// <c>"json"</c> narrows dense from every string in the document to only the lines already matching
+    /// <see cref="RemedyLine"/> — a strict narrowing, which goes green either way. A format the product gains
+    /// is harvested for what it is on the day it lands.</para>
     /// </summary>
     public static List<string> HarvestLane(string lane, string response, string? artifactPath)
     {
@@ -60,9 +66,16 @@ public sealed class RemedyHarvest
             return HarvestArtifact(artifactPath);
         }
 
-        return lane == "json"
+        return IsDocument(response)
             ? HarvestAllStrings(response)
             : response.Split('\n').Where(l => RemedyLine.IsMatch(l)).ToList();
+    }
+
+    /// <summary>Whether a response is a JSON render — asked of the response, never of the lane's name.</summary>
+    public static bool IsDocument(string response)
+    {
+        try { using var _ = JsonDocument.Parse(response); return true; }
+        catch (JsonException) { return false; }
     }
 
     public IReadOnlyList<(string Lane, string Label, string Text)> Sentences { get; }

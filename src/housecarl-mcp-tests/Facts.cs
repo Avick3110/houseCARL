@@ -260,12 +260,25 @@ static class Facts
     /// </summary>
     public const int IdentifiableRun = 8;
 
-    /// <summary>The longest run of non-space characters between a sentence's format holes.</summary>
+    /// <summary>The longest CONTIGUOUS run of non-space characters between a sentence's format holes. A count
+    /// of the non-space characters in a segment is not the same predicate: scattered single letters totalling
+    /// eight identify nothing, and admitting them is the vacuous arm this threshold exists to refuse.</summary>
     public static int LongestRun(string sentence) =>
         FormatHole.Split(sentence)
-                  .Select(seg => seg.Replace("{{", "{").Replace("}}", "}").Count(c => !char.IsWhiteSpace(c)))
+                  .Select(seg => UnbrokenRun(seg.Replace("{{", "{").Replace("}}", "}")))
                   .DefaultIfEmpty(0)
                   .Max();
+
+    static int UnbrokenRun(string segment)
+    {
+        int longest = 0, run = 0;
+        foreach (var c in segment)
+        {
+            if (char.IsWhiteSpace(c)) run = 0;
+            else if (++run > longest) longest = run;
+        }
+        return longest;
+    }
 
     /// <summary>Whether a sentence can be asserted by identity at all.</summary>
     public static bool Identifiable(string sentence) => LongestRun(sentence) >= IdentifiableRun;
