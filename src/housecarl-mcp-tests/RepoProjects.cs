@@ -14,8 +14,12 @@ static class RepoProjects
     static readonly Regex AssemblyNameElement =
         new(@"<AssemblyName>\s*([^<\s]+)\s*</AssemblyName>", RegexOptions.Compiled);
 
-    /// <summary>Every project under src/: its assembly name and the directory holding its csproj.</summary>
-    public static IReadOnlyList<(string AssemblyName, string Directory)> All { get; } = Discover();
+    /// <summary>Every project under src/: its assembly name and the directory holding its csproj. Cached on
+    /// first read rather than in a field initializer, for the reason <see cref="AllAssemblies"/> gives — the
+    /// refusal in <see cref="Discover"/> would otherwise arrive wrapped, and poison the class for the run.</summary>
+    public static IReadOnlyList<(string AssemblyName, string Directory)> All => _projects ??= Discover();
+
+    static (string AssemblyName, string Directory)[]? _projects;
 
     static (string, string)[] Discover()
     {
