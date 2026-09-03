@@ -15,8 +15,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 - **`housecarl_records project={"form": "tree"}` states which plugins declare child records.** For a record
   whose type owns children — a cell's placed references, a topic's INFO lines, a worldspace's cells — the tree
-  now names, per child-bearing field, the providers that declare content there, and states in its own words when
-  none of them do. It reads the provider bodies the tree already fetched, so it adds no fetch. The default read
+  now states, per child-bearing field, which providers declare content there (naming them for a COLLECTION
+  field, counting them for a SINGULAR one, e.g. Cell.Landscape), and states in its own words when none do. It
+  reads the provider bodies the tree already fetched, so it adds no fetch. The default read
   is unchanged: it still says other plugins touch the record and their declarations were not read, and its note
   points here. The bound is the field set, which is the record type's own child-bearing set (the same set the
   default read's note names). Check it: run the tree form on a cell and read the block above the diff.
