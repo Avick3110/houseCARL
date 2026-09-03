@@ -399,24 +399,10 @@ public static class DialogueInfoOrderProbe
                 : $"placement={e.Placement} index={e.Index} (writer emitted no PNAM subrecord)");
         }
 
-        // ---------- RENDER-MODEL-PIN + the retracted PNAM-zero caveat ----------
-        {
-            string r = DialogueWire.Render(DialogueValidate.Run(resolver, assets, tOrder.FormKey), 0);
-            bool statesModel = r.Contains("effective INFO order", StringComparison.Ordinal)
-                               && r.Contains("MOVED from #", StringComparison.Ordinal);
-            bool dropsFalseClaim = !r.Contains("dropped in game", StringComparison.Ordinal);
-            all &= Pass("RENDER-MODEL-PIN", statesModel && dropsFalseClaim,
-                $"statesOrder={statesModel} falseClaimGone={dropsFalseClaim}");
-
-            // The retracted caveat must NOT reappear. It described a blind spot that does not exist (the reader
-            // distinguishes a present-but-zero PNAM), and it shipped for four review rounds — so pin its absence.
-            string rSolo = DialogueWire.Render(DialogueValidate.Run(resolver, assets, tSolo.FormKey), 0);
-            bool caveat = !r.Contains("I am first", StringComparison.Ordinal)
-                          && !rSolo.Contains("I am first", StringComparison.Ordinal)
-                          && !r.Contains("placed LAST where the game places it FIRST", StringComparison.Ordinal);
-            all &= Pass("RENDER-NO-FALSE-CAVEAT", caveat,
-                $"falseCaveatAbsent={caveat}");
-        }
+        // ---------- RENDER-MODEL-PIN + the retracted PNAM-zero caveat: MOVED to xunit ----------
+        // DialogueWire.Render (the deleted 1.x whole-report renderer) is gone; both facts move onto the LIVE
+        // surface that renders a topic's info-order today — housecarl_records project=info_order — as
+        // DialogueFamilyTests.FactD1_TheShippedRenderStatesTheMergeModel and .FactD2_TheRetractedCaveatStaysAbsent.
 
         // ---------- UNREAD-* : the silent-contributor-drop fix, pinned directly ----------
         // Compute is a pure static, so the degraded states need no fixture plumbing — synthesise the inputs.
@@ -474,104 +460,14 @@ public static class DialogueInfoOrderProbe
                 $"control moved={control.Moved.Count}, suspect-baseline moved={shifted.Moved.Count}, note={(shifted.Note is null ? "<none>" : "says skipped")}");
         }
 
-        // ---------- UNREAD-WIRED: the same fix, END TO END through the production path ----------
-        // Every UNREAD-* arm above calls Compute directly, which is exactly why they could all pass while the
-        // wiring in DialogueValidate was absent (PR #293 fourth pass — the fix existed in the callee and the
-        // renderer and was unreachable in the shipped path). This arm goes through DialogueValidate.Run and makes
-        // a plugin genuinely unreadable the way production does it: an exclusive lock, i.e. MO2 or xEdit holding
-        // the file — the scenario this project's no-handles-at-rest design explicitly invites.
-        // MID is the one locked, deliberately: tOrder's WINNER is `last`, and locking that would fail the winner
-        // fetch and surface as a CheckError instead of exercising the partial-drop path.
-        {
-            FileStream? hold = null;
-            try { hold = new FileStream(midPath, FileMode.Open, FileAccess.Read, FileShare.None); }
-            catch (Exception ex)
-            {
-                all &= Pass("UNREAD-WIRED", false, $"could not lock {midName} to simulate the drop: {ex.GetType().Name}");
-            }
-
-            if (hold is not null)
-            {
-                using (hold)
-                {
-                    var rep = DialogueValidate.Run(resolver, assets, tOrder.FormKey);
-                    var io = rep.Topics.Count == 1 ? rep.Topics[0].InfoOrder : null;
-                    string rendered = DialogueWire.Render(rep, 0);
-
-                    bool ok = io is not null && !io.Complete
-                              && io.UnreadContributors.Contains(midName, StringComparer.OrdinalIgnoreCase)
-                              && io.ContributingPlugins.Count == 2
-                              && rendered.Contains("INCOMPLETE", StringComparison.Ordinal)
-                              && rendered.Contains(midName, StringComparison.OrdinalIgnoreCase);
-                    all &= Pass("UNREAD-WIRED", ok, io is null
-                        ? $"no order view (checkError={rep.CheckError ?? "<none>"})"
-                        : $"complete={io.Complete} unread=[{string.Join(",", io.UnreadContributors)}] contributing={io.ContributingPlugins.Count} banner={rendered.Contains("INCOMPLETE", StringComparison.Ordinal)}");
-                }
-            }
-        }
-
-        // ---------- DEFINER-LOCK-LOUD: an unreadable DEFINER is loud too, for a structural reason ----------
-        // MEASURED, not assumed (PR #293 fourth pass). A plugin can only override a record by declaring the
-        // defining plugin as a master, so opening the override REQUIRES the definer — lock the definer and the
-        // winner fetch itself throws, surfacing a named CheckError before any order code runs. That is why the
-        // shifted-baseline state is defence in depth rather than a live silent path, and why its suppression
-        // logic is covered synthetically (UNREAD-BASELINE) rather than end-to-end: there is no end to drive it
-        // from. This arm pins the STRUCTURAL guarantee — if a future change makes the winner fetch swallow that
-        // failure, the silent path opens and this arm goes red instead of the report going quiet.
-        {
-            FileStream? hold = null;
-            try { hold = new FileStream(mPath, FileMode.Open, FileAccess.Read, FileShare.None); }
-            catch (Exception ex)
-            {
-                all &= Pass("DEFINER-LOCK-LOUD", false, $"could not lock {masterName}: {ex.GetType().Name}");
-            }
-
-            if (hold is not null)
-                using (hold)
-                {
-                    var rep = DialogueValidate.Run(resolver, assets, tOrder.FormKey);
-                    string rendered = DialogueWire.Render(rep, 0);
-                    // Asserted on the MECHANISM, not on "loud somehow". The defence-in-depth argument rests on
-                    // the fetch THROWING before any order code runs; also accepting the INCOMPLETE render would
-                    // keep this green if the fetch started swallowing its failure — which is the regression the
-                    // arm exists to catch, so the looser form could not fail on what it claims to pin.
-                    bool loud = rep.CheckError is not null;
-                    bool saysSo = rendered.Contains("could NOT complete", StringComparison.Ordinal);
-                    all &= Pass("DEFINER-LOCK-LOUD", loud && saysSo,
-                        $"checkError={(rep.CheckError is null ? "<none>" : "set")} rendersLoud={saysSo}");
-                }
-        }
-
-        // ---------- WINNER-LOCK-LOUD: the TOTAL-drop case is already loud, by a different mechanism ----------
-        // Establishes the reachability fact the unconditional view-build rests on, rather than asserting it.
-        // A total drop needs EVERY touching plugin unreadable — including the winner — and the winner body is
-        // fetched through GetRecord, which THROWS rather than swallowing. So that case surfaces as a named
-        // CheckError before the order code is reached. The unconditional build is defence in depth, not the fix
-        // for a live silent path; this arm pins the mechanism that actually covers it, so a future change that
-        // makes the winner fetch swallow errors fails HERE rather than going quiet.
-        {
-            FileStream? hold = null;
-            try { hold = new FileStream(lastPath, FileMode.Open, FileAccess.Read, FileShare.None); }
-            catch (Exception ex)
-            {
-                all &= Pass("WINNER-LOCK-LOUD", false, $"could not lock {lastName}: {ex.GetType().Name}");
-            }
-
-            if (hold is not null)
-                using (hold)
-                {
-                    var rep = DialogueValidate.Run(resolver, assets, tOrder.FormKey);
-                    string rendered = DialogueWire.Render(rep, 0);
-                    // Either a named CheckError, or an explicitly incomplete order — never a clean-looking pass.
-                    // Same tightening as DEFINER-LOCK-LOUD. Accepting rep.Error here would have accepted the very
-                    // branch a swallowing GetRecord takes (body is null -> ForError), so the arm could not fail
-                    // on the mechanism it names.
-                    bool loud = rep.CheckError is not null;
-                    bool saysSo = rendered.Contains("could NOT complete", StringComparison.Ordinal);
-                    all &= Pass("WINNER-LOCK-LOUD", loud && saysSo,
-                        $"checkError={(rep.CheckError is null ? "<none>" : "set")} topics={rep.Topics.Count} rendersLoud={saysSo}");
-                }
-        }
+        // ---------- UNREAD-WIRED / DEFINER-LOCK-LOUD / WINNER-LOCK-LOUD: MOVED to xunit ----------
+        // All three drove DialogueWire.Render (the deleted 1.x whole-report renderer) on a HELD file — MO2/xEdit
+        // holding a plugin exclusively, this project's own no-handles-at-rest scenario. They move onto a
+        // dedicated DialogueWorld the test constructs itself (never the shared one — a held file is unreadable
+        // to anything else in the process): DialogueFamilyTests.FactD3_UnreadWired,
+        // .FactD4a_DefinerLockIsLoud, .FactD4b_WinnerLockIsLoud, using the ported HeldOpen harness and
+        // asserting on CheckError / the merged "the check did not finish — {CheckError}" sentence
+        // (DialogueSweep.cs:57-59) rather than the retired "could NOT complete" wording.
 
         // ---------- RENDER-BIG-TOPIC: over the row cap with nothing moved must not print an EMPTY list ----------
         // Found by running the shipped build over a real quest: a 37-line topic with 0 moved rendered the
@@ -740,15 +636,12 @@ public static class DialogueInfoOrderProbe
     /// claim, the INCOMPLETE banner) rather than a re-implementation of it.</summary>
     static string RenderOrderOnly(InfoOrderView io, bool asQuest = false)
     {
-        var topic = new TopicValidation(
-            FormKey.Factory("000FFF:hcInfoMaster.esp"), "HcIoSynthetic", "readable.esp",
-            io.Order.Count, 0, 0, 0, "Topic", "Custom", "CUST",
-            Array.Empty<DialogueIssue>(), Array.Empty<VoiceLine>(),
-            Array.Empty<VoiceUndetermined>(), Array.Empty<ScriptBindingFinding>())
-            { InfoOrder = io };
-        var report = new DialogueValidationReport(
-            topic.Topic, asQuest ? "quest" : "topic", topic.TopicEditorId, topic.WinnerPlugin, new[] { topic });
-        return DialogueWire.Render(report, 0);
+        // #486: DialogueWire.Render (the deleted 1.x whole-report renderer) is gone; the INFO-order BLOCK it
+        // wrapped survives as DialogueWire.AppendInfoOrderView, called directly here rather than through a
+        // synthetic TopicValidation/DialogueValidationReport shell.
+        var sb = new System.Text.StringBuilder();
+        DialogueWire.AppendInfoOrderView(sb, io, "", 8000, indent: asQuest);
+        return sb.ToString();
     }
 
     /// <summary>Zero the 4 data bytes of every 4-byte PNAM subrecord in a plugin, in place. Produces the

@@ -566,53 +566,14 @@ public static class BulkPrimitivesWave3Probe
         string w2Fid = $"{w2Fk.ID:X6}:{w2Fk.ModKey.FileName}";
         string masterName = mKey.FileName.String, replName = rKey.FileName.String;
 
-        // ACTIVE vs ACTIVE — master's W (10/Base/2 kw) vs the replacer's (99/Winner/1 kw)
-        var dAvB = svc.DiffRecord(wFid, masterName, replName, null);
-        Check("diff master vs repl: succeeds with differences", dAvB.Error is null && dAvB.Diff!.Deltas.Count > 0);
-        Check("diff: Damage delta shows master's 10 with the replacer's value labeled by its filename (99)",
-              dAvB.Error is null && dAvB.Diff!.Deltas.Any(x => x.Contains("BasicStats.Damage=10") && x.Contains(replName) && x.Contains("99")));
-        Check("diff: both poles report active order", dAvB.Error is null && dAvB.A!.InOrder && dAvB.B!.InOrder);
-
-        // OFF-ORDER pole vs active — the disabled DiffDonor (77) vs the replacer (99)
-        var dOff = svc.DiffRecord(wFid, "DiffDonor.esp", replName, new[] { "BasicStats.Damage" });
-        Check("diff OFF-ORDER (disabled DiffDonor) vs repl: 77 vs 99, pole a OUT-OF-LOAD-ORDER",
-              dOff.Error is null && !dOff.A!.InOrder && dOff.A.Where.Contains("OUT-OF-LOAD-ORDER")
-              && dOff.Diff!.Deltas.Any(x => x.Contains("77") && x.Contains("99")));
-
-        // BY PATH (#269) — provenance is COMPUTED from the file, not assumed from how it was addressed.
-        // COVERAGE NOTE (Q3 — name the gap rather than imply completeness): the path-to-active routing also has to
-        // NOT capture a plugin EXCLUDED from the index (Mutagen can't parse it) — reading its file directly is the
-        // escape hatch, so it must stay on the off-order lane. That branch is uncovered HERE — not because a
-        // malformed plugin is expensive to synthesize (it isn't), but because arming it means putting an
-        // index-excluded plugin into THIS fixture's active order, which perturbs every other arm above that reads
-        // through the same view. It is a plain ExcludedPlugins lookup on the same OrdinalIgnoreCase table the armed
-        // checks use; if it earns a test it wants its own fixture, modelled on pkcu-regression's malformed plugin
-        // (forward-from-plugin-guard leaves the same branch unarmed and records the same lookup rationale).
-        // (a) the ACTIVE plugin's own file, passed as a path: it IS what the order loads → active pole, never
-        //     "OUT-OF-LOAD-ORDER … disabled". (b) the same-named archive backup: a different file → still off-order.
-        var dPathActive = svc.DiffRecord(wFid, "DiffDonor.esp", replPath, new[] { "BasicStats.Damage" });
-        Check("diff: the ACTIVE plugin passed BY PATH reports the active order (not OUT-OF-LOAD-ORDER/disabled)",
-              dPathActive.Error is null && dPathActive.B!.InOrder && dPathActive.B.Where == "active order");
-        Check("diff: an active-by-path pole resolves back to its PLUGIN NAME, and still diffs (77 vs 99)",
-              dPathActive.Error is null && dPathActive.B!.Plugin == replName
-              && dPathActive.Diff!.Deltas.Any(x => x.Contains("77") && x.Contains("99")));
-
-        // (c) a DISABLED mod's copy, addressed by path: INSIDE an install root, but its mod is off. The flag has to
-        //     come from the located copy — "is it under a root at all" would call this one enabled.
-        var dPathDisabled = svc.DiffRecord(wFid, donorPath, replName, new[] { "BasicStats.Damage" });
-        Check("diff: a DISABLED mod's plugin addressed BY PATH stays OUT-OF-LOAD-ORDER and NOT active",
-              dPathDisabled.Error is null && !dPathDisabled.A!.InOrder
-              && dPathDisabled.A.Where.Contains("OUT-OF-LOAD-ORDER") && dPathDisabled.A.Where.Contains("NOT active"));
-        // #271: the pole must state the CAUSE, not just the state. "disabled" was one word for four situations with
-        // four different remedies — and the wrong word for a plugin (a MOD is disabled; a PLUGIN is inactive).
-        Check("diff: the off-order pole NAMES the cause — the DISABLED mod folder that provides the copy",
-              dPathDisabled.Error is null && dPathDisabled.A!.Where.Contains("DiffDonor")
-              && dPathDisabled.A.Where.Contains("switched OFF"));
-
-        var dPathArchive = svc.DiffRecord(wFid, archivePath, replPath, new[] { "BasicStats.Damage" });
-        Check("diff: a same-named backup OUTSIDE the install stays OUT-OF-LOAD-ORDER (55 vs 99) — name never decides",
-              dPathArchive.Error is null && !dPathArchive.A!.InOrder && dPathArchive.A.Where.Contains("OUT-OF-LOAD-ORDER")
-              && dPathArchive.Diff!.Deltas.Any(x => x.Contains("55") && x.Contains("99")));
+        // #486: LoadOrderService.DiffRecord (the deleted 1.x pairwise-diff service) is gone; every arm above this
+        // point that called it (active-vs-active B1, off-order-vs-active B2, active-by-path B3 — all already
+        // covered by RecordsComparisonFormTests/RecordsScanLaneTests/RecordsListLaneTests through housecarl_records
+        // project=delta — plus the two NOT-yet-covered off-order-label facts, a disabled mod addressed by path
+        // (B4) and a same-named backup outside every install root (B5)) moves onto that same surface.
+        // RecordsOffOrderPathTests.FactB4_ADisabledModsPluginAddressedByPathStaysOffOrderAndNamesTheCause and
+        // .FactB5_ASameNamedBackupOutsideTheInstallStaysOffOrder carry B4/B5, driven on RecordsWorld's own
+        // OldFile (already a disabled-mod path) plus a scratch copy outside the install for B5.
 
         // The same computed provenance through read_plugin_file: the enabled plugin's file, addressed by path, is
         // NOT flagged inactive (the second consumer of the shared locate's enabled flag — #269).
@@ -691,14 +652,12 @@ public static class BulkPrimitivesWave3Probe
               rpfPath.WhyNotActive is null && rpfData.WhyNotActive is null && rpfModServing.WhyNotActive is null);
 
         // The RENDERED header — the "[mod 'X' (enabled); NOT active]" pairing named a folder and a file in one
-        // breath without saying which was which (#271 item 4). Assert on the rendered string, since the wording IS
-        // the deliverable here. (The banner arms above it, and the json why_not_active pair below, went with
-        // housecarl_read_plugin_file's renderers at #486 — no 2.0 surface emits that banner or those keys.)
-        var renderUnticked = Wire.RenderPluginFile(rpfUntickedByName, 8000);
-        Check("#271 render: the mod-vs-plugin pairing is disambiguated in words, and carries the cause",
-              renderUnticked.Contains("mod 'DiffUnticked' (enabled)")
-              && renderUnticked.Contains("the game does NOT load this file")
-              && renderUnticked.Contains("UNTICKED in plugins.txt"));
+        // breath without saying which was which (#271 item 4) — DIES here (a): Wire.RenderPluginFile is one of
+        // #486's eight deleted render-halves members, and LoadOrderService.ReadPluginFile — whose DTO it rendered
+        // — has zero shipped callers of its own (phase-1 record §2; carried to the PR body as an open item for
+        // Aaron: delete ReadPluginFile too, or give it a 2.0 caller). No live surface renders this banner today,
+        // so the wording fact has nowhere to be tested from. The DTO-level half of the same fact — WhyNotActive
+        // NAMES the cause — is unaffected and still asserted below (line ~692 onward), untouched by this deletion.
         // The FILENAME lane's Where is the located hit's OWN label, so a LayerOff cause that restates the layer says
         // the same thing twice in one sentence — output strictly worse than the "NOT active" it replaced. The path-lane
         // arms above cannot catch it: their Where is the constant "direct path", where the restatement is the only way
@@ -713,14 +672,8 @@ public static class BulkPrimitivesWave3Probe
         // lane is now armed for the SAME cause: the mod name must appear exactly once in every rendered form.
         var rpfDisabledByName = svc.ReadPluginFile(dKey.FileName.String, wFid, null, null, null, 1, null, 10);
         var rpfDisabledByMod = svc.ReadPluginFile(dKey.FileName.String, wFid, null, "DiffDonor", null, 1, null, 10);
-        var renderDisabledByName = Wire.RenderPluginFile(rpfDisabledByName, 8000);
-        var renderDisabledByMod = Wire.RenderPluginFile(rpfDisabledByMod, 8000);
-        Check("#271 render: a disabled-mod copy BY FILENAME names its mod exactly once",
-              rpfDisabledByName.Error is null && CountOf(renderDisabledByName, "mod 'DiffDonor'") == 1
-              && renderDisabledByName.Contains("the game does NOT load this file"));
-        Check("#271 render: BY MOD= too — the lane whose label omits the state, where the equality test failed",
-              rpfDisabledByMod.Error is null && CountOf(renderDisabledByMod, "mod 'DiffDonor'") == 1
-              && renderDisabledByMod.Contains("the game does NOT load this file"));
+        // The RENDERED forms (Wire.RenderPluginFile) die with the banner — see the note above. The DTO-level
+        // WhyNotActive checks these fed are unaffected and continue below.
         // ...while the PATH lane, whose Where identifies nothing, must STILL name the mod — suppressing it everywhere
         // would lose the only mention of which mod provides the file.
         Check("#271 render: the same copy BY PATH still names the mod, since its Where cannot",
@@ -731,10 +684,9 @@ public static class BulkPrimitivesWave3Probe
         string ulwFid = $"{ulwFk.ID:X6}:{ulwFk.ModKey.FileName}";
         var rpfUnlisted = svc.ReadPluginFile(unlKey.FileName.String, ulwFid, null, null, null, 1, null, 10);
         // The layer LABEL must not carry a remedy of its own, or the rendered line instructs twice — the same
-        // duplication class, one step milder. Only the cause line explains (live-check finding, #274).
-        Check("#271 render: an UNLISTED layer's label identifies only; the remedy is stated exactly once",
-              rpfUnlisted.Error is null && Wire.RenderPluginFile(rpfUnlisted, 4000) is { } rUnl
-              && CountOf(rUnl, "refresh MO2") == 1 && rUnl.Contains("(UNLISTED)"));
+        // duplication class, one step milder. Only the cause line explains (live-check finding, #274). The
+        // RENDERED form dies with Wire.RenderPluginFile (see the note above); WhyNotActive's DTO-level half
+        // continues below.
         Check("#271 why: a DISABLED mod says switch it on; an UNLISTED folder says refresh — never swapped",
               rpfDisabledByName.WhyNotActive is { } wDis && wDis.Contains("switched OFF") && wDis.Contains("switch it on")
               && rpfUnlisted.Error is null && rpfUnlisted.WhyNotActive is { } wUn
@@ -856,21 +808,15 @@ public static class BulkPrimitivesWave3Probe
               mergeUnticked.Error is { } eM2 && eM2.Contains("records and conflict position from the ACTIVE order")
               && !eM2.Contains("conflictposition"));
 
-        // IDENTICAL — same plugin on both sides
-        var dSame = svc.DiffRecord(wFid, replName, replName, null);
-        Check("diff same plugin both sides → identical (0 deltas, complete)", dSame.Error is null && dSame.Diff!.Deltas.Count == 0 && dSame.Diff.Complete);
-
-        // fields= narrows the comparison
-        var dNarrow = svc.DiffRecord(wFid, masterName, replName, new[] { "BasicStats.Damage" });
-        Check("diff fields=[BasicStats.Damage] → exactly the Damage delta",
-              dNarrow.Error is null && dNarrow.Diff!.Deltas.Count == 1 && dNarrow.Diff.Deltas[0].Contains("BasicStats.Damage"));
-
-        // refusals
-        Check("refusal: bad formid", svc.DiffRecord("not-a-formid", masterName, replName, null).Error is { } de1 && de1.Contains("bad FormID"));
-        Check("refusal: plugin_a not found on disk or in order", svc.DiffRecord(wFid, "Nope.esp", replName, null).Error is { } de2 && de2.Contains("plugin_a") && de2.Contains("not in the load order"));
-        Check("refusal: a plugin doesn't define the record (W2 master-only, via repl)",
-              svc.DiffRecord(w2Fid, masterName, replName, null).Error is { } de3 && de3.Contains("plugin_b") && de3.Contains("does NOT define or override"));
-
+        // IDENTICAL (both poles resolving to the same provider), fields=-narrowing, and the three refusals
+        // (bad formid, plugin not found, a plugin that does not define the record) all called the deleted
+        // LoadOrderService.DiffRecord. The first and the two named-plugin refusals are already covered on
+        // housecarl_records project=delta (RecordsComparisonFormTests.BothPolesResolvingToOneProviderIsSaid_NeverSilent,
+        // RecordsBulkSelectTests' identity-form bad-formid equivalent, RecordsListLaneTests' touchers-named
+        // refusal, RecordsComparisonFormTests.DeltaP4_...RefusesNamingTheActualTouchers). fields= narrowing a
+        // delta to exactly the named path (B7) is NOT yet covered and moves to
+        // RecordsOffOrderPathTests.FactB7_FieldsNarrowsADeltaToExactlyTheNamedPath.
+        //
         // The two TOOL-layer render arms that stood here drove housecarl_diff_record, which the 1.x cut
         // deleted. The delta form's text and json renders are tested against housecarl_records in
         // src/housecarl-mcp-tests. Every cell above calls the service directly and is untouched.
