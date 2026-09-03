@@ -3,6 +3,7 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
 using HousecarlMcp;
+using Xunit;
 
 namespace HousecarlMcpTests;
 
@@ -124,9 +125,14 @@ public sealed class CheckErrorsWorld : IDisposable
     }
 }
 
-/// <summary>The world, built once for the class. Every arm over it is read-only.</summary>
+/// <summary>The world, built once for the whole <c>check-errors</c> collection. Every arm over it is read-only, and
+/// two test classes share it — a class fixture would build the four Mutagen plugin writes and the index once per
+/// class, which is twice.</summary>
 public sealed class CheckErrorsWorldFixture : IDisposable
 {
     public CheckErrorsWorld W { get; } = new();
     public void Dispose() => W.Dispose();
 }
+
+[CollectionDefinition("check-errors")]
+public sealed class CheckErrorsCollection : ICollectionFixture<CheckErrorsWorldFixture> { }

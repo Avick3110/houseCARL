@@ -7,7 +7,8 @@ namespace HousecarlMcpTests;
 /// every fact test that takes a total from it.
 /// </summary>
 [Trait("tier", "integration")]
-public sealed class CheckErrorsWorldTests : IClassFixture<CheckErrorsWorldFixture>
+[Collection("check-errors")]
+public sealed class CheckErrorsWorldTests
 {
     readonly CheckErrorsWorld W;
     public CheckErrorsWorldTests(CheckErrorsWorldFixture f) => W = f.W;
