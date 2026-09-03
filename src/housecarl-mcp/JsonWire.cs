@@ -35,6 +35,15 @@ static class JsonWire
         if (v is null) w.WriteNull(name); else w.WriteString(name, v);
     }
 
+    /// <summary>The array twin of <see cref="WriteNullable"/>, for a member whose null carries meaning: null says
+    /// the value was NOT COMPUTED, an empty array says it was computed and came back empty. Writing <c>[]</c> for
+    /// both is the null-is-not-empty rule broken at the wire, where the consumer has nothing left to tell them
+    /// apart — the same rule the DTOs state for <c>Histogram</c> and <c>DanglingBySource</c>.</summary>
+    static void WriteNullableStringArray(Utf8JsonWriter w, string name, IReadOnlyList<string>? items)
+    {
+        if (items is null) w.WriteNull(name); else WriteStringArray(w, name, items);
+    }
+
     /// <summary>The ONE way a json DOCUMENT declares itself a refusal: <c>ok:false</c> followed by the message.
     /// Every whole-call refusal on the read surface writes its discriminant through here, so the shape cannot be
     /// stated one way in one renderer and another way in the next (#403 — the discriminant was absent entirely
@@ -1459,6 +1468,11 @@ static class JsonWire
         w.WriteString("plugin", p.Plugin);
         WriteNullable(w, "scan_error", p.ScanError);
         WriteStringArray(w, "missing_masters", p.MissingMasters);
+        // The install-vs-enable split, as DATA — the text lane prints it as two remedy sentences, and a json
+        // caller reading the union list alone could not pick the remedy that would work. It is the SUBSET of the
+        // array above, so no count and no list moves; null where the split was not made (the DTO's rule), which
+        // is the same answer the text lane gives by falling back to its union sentence.
+        WriteNullableStringArray(w, "installed_but_inactive_masters", p.InstalledButInactiveMasters);
         // The unscannable fields sit before the dangling array so that once the ENTRY loop breaks
         // mid-plugin, all that follows is three fixed closing brackets.
         w.WriteNumber("unscannable_records", p.UnscannableRecords);
