@@ -157,11 +157,14 @@ public sealed class ScriptsWorldTests
         // The unverifiable attribution, spelled the way the sweep composes it — names the .pex it looked for.
         Assert.Contains($@"'Scripts\{ScriptsWorld.MissingScript}.pex' is not on disk", r.Text, StringComparison.Ordinal);
 
-        // The WHOLE object-branch line, spelled from fixture-known values. The scalar branch emits the same
-        // "declared but NOT bound" phrase, so a fragment of it is satisfied by MyChance; only this line is.
+        // The WHOLE object-branch line, spelled from fixture-known values, UNDER THE FOOTGUN'S OWN RECORD
+        // HEADER. The line alone has two carriers in this world — the alias quest declares MySpell through the
+        // same script and binds nothing, so it renders the identical line — and the header is the only thing
+        // that says which record produced it. One composed span, so the two must be adjacent.
         Assert.Contains(
-            $"{ScriptsWorld.ObjectProperty} (Spell) on script {ScriptsWorld.ChildScript}"
-            + " — declared but NOT bound → None at runtime (HIGH: object/form type — the silent no-op)",
+            $"[UNBOUND] {_w.Footgun} (Weapon '{ScriptsWorld.FootgunEditorId}') in {_w.PluginName}\n"
+            + $"  ! {ScriptsWorld.ObjectProperty} (Spell) on script {ScriptsWorld.ChildScript}"
+            + " — declared but NOT bound → None at runtime (HIGH: object/form type — the silent no-op)\n",
             r.Text, StringComparison.Ordinal);
     }
 }
