@@ -68,21 +68,6 @@ internal static class ScriptsFixtures
         JsonDocument.Parse(json).RootElement.GetProperty("families")
                     .GetProperty(SweepFamilySelection.Token(SweepFamily.Scripts));
 
-    /// <summary>The scripts family's SECTION of a text response — its head down to the next family's head or the
-    /// boundary block.</summary>
-    internal static string ScriptsSection(string response)
-    {
-        var lines = response.Split('\n');
-        int start = Array.FindIndex(lines, l => l.StartsWith("[scripts] ", StringComparison.Ordinal));
-        Assert.True(start >= 0, "no scripts-family section in the response: " + Head(response));
-        int end = Array.FindIndex(lines, start + 1,
-            l => (l.StartsWith("[", StringComparison.Ordinal) && l.Contains("] ") && !l.StartsWith("[UNBOUND]", StringComparison.Ordinal)
-                  && !l.StartsWith("[CHECK]", StringComparison.Ordinal) && !l.StartsWith("[SCAN ERROR]", StringComparison.Ordinal)
-                  && !l.StartsWith("[accounting:", StringComparison.Ordinal))
-                 || l.StartsWith("boundary (", StringComparison.Ordinal));
-        return string.Join("\n", lines[start..(end < 0 ? lines.Length : end)]);
-    }
-
     internal static string Head(string response)
     {
         var lines = response.Split('\n');

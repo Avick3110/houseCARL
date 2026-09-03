@@ -76,20 +76,6 @@ internal static class CheckErrorsFixtures
         JsonDocument.Parse(json).RootElement.GetProperty("families")
                     .GetProperty(SweepFamilySelection.Token(SweepFamily.Errors));
 
-    /// <summary>The errors family's SECTION of a text response — its head down to the next family's head or the
-    /// boundary block. Read per family: a whole-response search takes whichever family came first.</summary>
-    internal static string ErrorsSection(string response)
-    {
-        var lines = response.Split('\n');
-        int start = Array.FindIndex(lines, l => l.StartsWith("[errors] ", StringComparison.Ordinal));
-        Assert.True(start >= 0, "no errors-family section in the response: " + Head(response));
-        int end = Array.FindIndex(lines, start + 1,
-            l => (l.StartsWith("[", StringComparison.Ordinal) && l.Contains("] ") && !l.StartsWith("[ERROR]", StringComparison.Ordinal)
-                  && !l.StartsWith("[accounting:", StringComparison.Ordinal) && !l.StartsWith("[UNREAD]", StringComparison.Ordinal))
-                 || l.StartsWith("boundary (", StringComparison.Ordinal));
-        return string.Join("\n", lines[start..(end < 0 ? lines.Length : end)]);
-    }
-
     /// <summary>ONE plugin's own <c>[ERROR]</c> section — its header line plus the indented body lines that belong
     /// to it, stopping at the first line that is not one of them. Read section-scoped, because a whole-response
     /// search for a span composed ACROSS two of a section's lines cannot distinguish "the renderer stopped
@@ -105,22 +91,6 @@ internal static class CheckErrorsFixtures
         while (end < lines.Length && lines[end].StartsWith("  ", StringComparison.Ordinal)) end++;
         return string.Join("\n", lines[start..end]);
     }
-
-    /// <summary>The errors family's accounting line, or null where that lane writes none.</summary>
-    internal static string? AccountingLine(string response) =>
-        ErrorsSection(response).Split('\n').Select(l => l.Trim())
-                    .FirstOrDefault(l => l.StartsWith("[accounting:", StringComparison.Ordinal));
-
-    /// <summary>The errors family's accounting line, or a failure naming the section that carried none.</summary>
-    internal static string Accounting(string response) =>
-        AccountingLine(response) ?? throw new InvalidOperationException(
-            "the errors section carries no accounting line: " + ErrorsSection(response));
-
-    /// <summary>The errors family's head line — where the sweep states what it swept and what it found.</summary>
-    internal static string HeadLine(string response) =>
-        ErrorsSection(response).Split('\n').Select(l => l.Trim())
-                    .FirstOrDefault(l => l.StartsWith("scanned ", StringComparison.Ordinal))
-        ?? throw new InvalidOperationException("no errors head line: " + Head(response));
 
     /// <summary>The dangling entry lines a text response actually emitted.</summary>
     internal static string[] EntryLines(string response) =>
