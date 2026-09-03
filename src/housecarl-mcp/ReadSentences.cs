@@ -524,8 +524,9 @@ internal static class ReadSentences
         "errors family has an off-order lane. Its findings for that file are absent, not clean.";
 
     /// <summary>The merged response's boundary label. Each family states its OWN boundary — the two claim different
-    /// things — so the label names which family's claim follows it. The single-family tools keep
-    /// <see cref="SweepBoundaryLabel"/>, whose response has only one.</summary>
+    /// things — so the label names which family's claim follows it. That is why it is parameterised: the deleted
+    /// single-family renderers had one boundary per response and carried an unparameterised twin, deleted with the
+    /// last reader of it.</summary>
     [NoClaims("a label; the claim it introduces is the named family's own boundary")]
     internal const string SweepBoundaryLabelFor = "boundary ({0}): ";
 
@@ -537,10 +538,6 @@ internal static class ReadSentences
     /// the title that family's ancestor tool used for a whole response.</summary>
     [NoClaims("a section label; the claims below it are the family's own")]
     internal const string SweepFamilySectionHead = "[{0}] {1}";
-
-    /// <summary>The text transport's label for the claim above.</summary>
-    [NoClaims("a label; the claim it introduces is SweepBoundary")]
-    internal const string SweepBoundaryLabel = "boundary: ";
 
     // ---- the dialogue family (SPEC §6.1, classes 1-7) ------------------------------------------------
 
