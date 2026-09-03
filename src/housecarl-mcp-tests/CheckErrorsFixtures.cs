@@ -90,6 +90,22 @@ internal static class CheckErrorsFixtures
         return string.Join("\n", lines[start..(end < 0 ? lines.Length : end)]);
     }
 
+    /// <summary>ONE plugin's own <c>[ERROR]</c> section — its header line plus the indented body lines that belong
+    /// to it, stopping at the first line that is not one of them. Read section-scoped, because a whole-response
+    /// search for a span composed ACROSS two of a section's lines cannot distinguish "the renderer stopped
+    /// emitting this" from "the renderer never emits those two lines adjacent" — the second is what a
+    /// <c>DoesNotContain(plugin + "\n  dangling reference(s)")</c> was actually asserting, and it could not fail
+    /// (pre-green review 1a, finding 1: the missing-master line always sits between the two).</summary>
+    internal static string PluginSection(string response, string plugin)
+    {
+        var lines = response.Split('\n');
+        int start = Array.FindIndex(lines, l => l.StartsWith("[ERROR] " + plugin, StringComparison.Ordinal));
+        Assert.True(start >= 0, $"no [ERROR] section for {plugin}: " + Head(response));
+        int end = start + 1;
+        while (end < lines.Length && lines[end].StartsWith("  ", StringComparison.Ordinal)) end++;
+        return string.Join("\n", lines[start..end]);
+    }
+
     /// <summary>The errors family's accounting line, or null where that lane writes none.</summary>
     internal static string? AccountingLine(string response) =>
         ErrorsSection(response).Split('\n').Select(l => l.Trim())

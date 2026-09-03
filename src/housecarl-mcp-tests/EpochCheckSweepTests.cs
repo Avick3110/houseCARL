@@ -93,10 +93,18 @@ public sealed class EpochCheckSweepTests
         var locateDoc = JsonDocument.Parse(locateJson).RootElement;
         Assert.False(locateDoc.GetProperty("ok").GetBoolean());
         Assert.Equal(current, locateDoc.GetProperty("epoch").GetString());
-        Assert.False(locateDoc.TryGetProperty("epoch_covers_all_inputs", out _));
+        // Read over the WHOLE document, not its root: the key's one writer is inside the family object, so a root
+        // TryGetProperty is false whatever the refusal path does and could never have failed. A refusal that grew
+        // a coverage claim anywhere reddens this (pre-green review 1b, finding 4). FactE8 is the proven-positive
+        // counterpart — it reads the key back off the success path.
+        Assert.DoesNotContain("epoch_covers_all_inputs", locateJson);
 
         var excluded = Svc.CheckErrors(new[] { EpochWorld.BadName }, 1000);
-        Assert.Contains("excluded", excluded.Error);
+        // The whole composed refusal, anchored to the plugin it names, rather than the bare word "excluded" — the
+        // word alone survives any rewriting of the sentence around it and is emitted by other refusals too.
+        Assert.Contains($"plugin '{EpochWorld.BadName}' was excluded from this session because it could not be " +
+                         "parsed", excluded.Error);
+        Assert.Contains("fix or remove it upstream; it cannot be checked.", excluded.Error);
         Assert.Equal(current, excluded.Epoch);
         var excludedText = Wire.RenderCheck(new CheckSweep(Sel("errors"), Errors: excluded), 20000);
         Assert.Contains($"epoch={current}", excludedText);
@@ -120,10 +128,15 @@ public sealed class EpochCheckSweepTests
         var offOrder = Svc.CheckErrors(new[] { EpochWorld.OldName }, 1000);
         Assert.True(offOrder.Error is null && offOrder.OffOrderScanned is { Count: > 0 });
         var offOrderText = Wire.RenderCheck(new CheckSweep(Sel("errors"), Errors: offOrder), 20000);
-        Assert.Contains("(indexed plugins only", offOrderText);
+        // The WHOLE qualifier. A 22-character prefix of a 72-character sentence leaves the half that says what the
+        // qualifier MEANS unpinned — the tail could be replaced wholesale and this stayed green (pre-green review
+        // 1a, finding 2).
+        Assert.Contains("(indexed plugins only — off-order file content is outside the fingerprint)", offOrderText);
 
         var allIndexed = Svc.CheckErrors(null, 1000);
         var allIndexedText = Wire.RenderCheck(new CheckSweep(Sel("errors"), Errors: allIndexed), 20000);
+        // The negative stays on the SHORT needle deliberately — a negative is strongest with the least text, and a
+        // long one would pass over a qualifier that came back reworded.
         Assert.DoesNotContain("(indexed plugins only", allIndexedText);
     }
 

@@ -22,6 +22,13 @@ namespace HousecarlMcpTests;
 /// unreadable to anything else in the process, so sharing it would make every other test's readability depend
 /// on scheduling (the same rule <c>ScriptsWorld</c>'s own doc states, and why <c>HeldOpenTests</c> builds its
 /// own one-plugin world instead of locking the shared one).</para>
+///
+/// <para><b>A lock test must force the index build FIRST</b> — call <c>Svc.Stats()</c> on a fresh world before
+/// taking the hold. Measured on this fixture: locking a plugin before the first real query makes the index build
+/// SILENTLY EXCLUDE it, which changes the topic's winner instead of surfacing a read failure, so the lock facts
+/// would quietly assert something else. The silent exclusion itself is the product-level concern in issue #353,
+/// not a property of this fixture; the <c>Stats()</c> call is how these tests stay out of its way, and deleting
+/// it changes what the three lock tests measure without failing anything.</para>
 /// </summary>
 public sealed class DialogueWorld : IDisposable
 {

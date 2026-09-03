@@ -35,9 +35,21 @@ public sealed class RecordsOffOrderPathTests : RecordsTestBase
         var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[1]) },
             source: PathPole(W.OldFile), versus: Plugin(W.MasterName), project: Delta);
 
-        Served(r, "OUT-OF-LOAD-ORDER", "direct path", "NOT active");
-        Assert.Contains("it is provided by mod 'OldMod', which is switched OFF in MO2", r);
-        Assert.Contains("switch it on", r);
+        // The WHOLE composed label in one span — the address form, the not-active state, the cause and the remedy
+        // are one sentence, and separate fragments of it leave any of the four free to be reworded around them.
+        const string label = "OUT-OF-LOAD-ORDER (direct path; NOT active — it is provided by mod 'OldMod', " +
+                             "which is switched OFF in MO2 — switch it on, then re-sort)";
+        Served(r, label);
+
+        // B12/B13's surviving carrier. The old arms counted the mod name and the remedy inside the deleted
+        // read_plugin_file banner; this label is composed the same way (the located Where plus WhyNotActive), so
+        // the #271 defect — the providing mod named twice in one breath, the remedy stated twice — is still
+        // reachable and is armed here rather than dying with the banner. Counted within ONE label (the record's
+        // own subject line): the same label is emitted twice per response by design, in the header and per record.
+        // Counted in the QUOTED form, because the echoed path carries the mod's folder name and that is not a naming.
+        var subject = Assert.Single(r.Split('\n'), l => l.TrimStart().StartsWith("subject:", StringComparison.Ordinal));
+        Assert.Equal(1, CountOf(subject, "'OldMod'"));
+        Assert.Equal(1, CountOf(subject, "switch it on"));
     }
 
     // ---- fact B5 --------------------------------------------------------------------------------------
@@ -54,8 +66,9 @@ public sealed class RecordsOffOrderPathTests : RecordsTestBase
         var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[1]) },
             source: PathPole(outside), versus: Plugin(W.MasterName), project: Delta);
 
-        Served(r, "OUT-OF-LOAD-ORDER", "direct path", "NOT active");
-        Assert.Contains("no MO2 layer was found providing this exact path", r);
+        // The whole composed label again, for the same reason as B4 — and it is the WHOLE label that carries this
+        // fact: the cause names the absence of a providing layer where B4's names a switched-off mod.
+        Served(r, "OUT-OF-LOAD-ORDER (direct path; NOT active — no MO2 layer was found providing this exact path)");
         Assert.DoesNotContain("switched OFF", r);
         // The record's own content still reads correctly off the copy — the filename never decided provenance.
         Assert.Contains("BasicStats.Damage=55", r);
@@ -67,10 +80,23 @@ public sealed class RecordsOffOrderPathTests : RecordsTestBase
     [Fact]
     public void FactB7_FieldsNarrowsADeltaToExactlyTheNamedPath()
     {
-        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, source: Plugin(W.MasterName),
-            versus: Plugin(W.OverrideName), project: new RecordsTools.RecordsProject { form = "delta", fields = new[] { "BasicStats.Damage" } });
+        string Delta(params string[] fields) => RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) },
+            source: Plugin(W.MasterName), versus: Plugin(W.OverrideName),
+            project: new RecordsTools.RecordsProject { form = "delta", fields = fields.Length == 0 ? null : fields });
 
-        Served(r, "1 difference", "BasicStats.Damage=10");
-        Assert.Equal(1, CountOf(r, "BasicStats."));
+        // The whole composed count line, not the "1 difference" fragment — that fragment is a substring of
+        // "11 differences" and would read a wider delta as this one.
+        var named = Delta("BasicStats.Damage");
+        Served(named, $"1 difference — each line: {W.MasterName}'s value (reference = {W.OverrideName}):",
+                      "BasicStats.Damage=10");
+        Assert.Equal(1, CountOf(named, "BasicStats."));
+
+        // The control that makes the narrowing mean something. This pair differs in exactly ONE field, so a
+        // fields= naming the Damage path alone is byte-identical to the un-narrowed delta and the assertions above
+        // pass with fields= deleted (pre-green review 1b, finding 1). Naming a DIFFERENT path is the discriminating
+        // call: it must report NO difference, and it reports the Damage delta the moment fields= stops narrowing.
+        var elsewhere = Delta("EditorID");
+        Assert.Contains("identical across the fields read", elsewhere);
+        Assert.DoesNotContain("BasicStats.Damage", elsewhere);
     }
 }
