@@ -2423,10 +2423,9 @@ public sealed class LoadOrderService : IDisposable
     /// and <see cref="LoadOrderResolver.GetRecord"/> fetches one by enumerating a whole overlay. Doing that per
     /// toucher was built, measured on a real load order, and withdrawn: 27 ms → 588 ms for one Dawnstar cell,
     /// 21 ms → 1.3 s for Tamriel, 6.3 s → 126 s for a 200-cell query, and an artifact job that never finished.
-    /// So this tier states only what the index settles for free. The precise tier that named the declaring plugins
-    /// off the conflict tree's own bodies was deleted at the 1.x cut — it fired only for <c>read_record</c>'s
-    /// <c>conflict_tree=true</c>, which no 2.0 surface sets; <c>records project={"form":"tree"}</c> answers the
-    /// same question by showing each touching plugin's own content (gap #485).</para>
+    /// So this tier states only what the index settles for free. The precise tier states which plugins actually
+    /// declare, restored by #485 on <c>records project={"form":"tree"}</c>, which already reads every provider
+    /// body for its diff: `docs/architecture/records-owned-child-declarers.md`.</para>
     ///
     /// <para><b>What this tier does not do.</b> Union anything. The read that answers "what is actually live in this
     /// parent" — every child at its own winner, minus the deleted and initially-disabled — is separate design work;
@@ -2560,12 +2559,11 @@ public sealed class LoadOrderService : IDisposable
         var tree = p.View.ResolveTree(session, fk);
         if (tree is null) return null;
 
-        // The PRECISE owned-child tier (#342, restored on this lane by #485): which providers actually DECLARE
-        // child records for each child-bearing field. It adds no record fetch of its own — that is the whole
-        // point. The bodies are already open here for the diff read below, so the question is asked of each one
-        // in hand; a version that fetched its own bodies was measured and rejected (the cheap tier's comment).
-        // The field set is the type's own, from OwnedChildContent — never a hand list — narrowed to what the
-        // caller asked to read, so the tier annotates what the response actually shows.
+        // The PRECISE owned-child tier (#342, restored by #485): which providers declare children per
+        // child-bearing field, asked of bodies already open for the diff below — no extra fetch. Field set is
+        // OwnedChildContent.Fields(body), narrowed to the top-level field NAMES the caller requested — not the
+        // paths the response emitted, so a bracketed path like "Temporary[0]" narrows this to nothing. Rationale
+        // and cost measurements: `docs/architecture/records-owned-child-declarers.md`.
         var owning = tree.Nodes.Count > 0 ? OwnedChildContent.Fields(tree.Nodes[0].Record) : null;
         var wanted = owning is null || owning.Count == 0
             ? new List<string>()
