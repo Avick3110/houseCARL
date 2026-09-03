@@ -202,7 +202,11 @@ static class Facts
         Assert.True(catalogueConstant is not null,
             "Facts.States was handed a null sentence. Pass the catalogue constant itself.");
 
+        // A string.Format TEMPLATE doubles every literal brace, so the segments between its holes are not
+        // what the render emits until the doubling is undone. Without this, NotReadFraming's own
+        // project={{"form": "tree"}} could never be found in a response that carries it.
         var segments = FormatHole.Split(catalogueConstant!)
+                                 .Select(s => s.Replace("{{", "{").Replace("}}", "}"))
                                  .Where(s => s.Length > 0)
                                  .ToArray();
 
