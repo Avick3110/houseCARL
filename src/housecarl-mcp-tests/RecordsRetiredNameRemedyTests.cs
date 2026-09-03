@@ -51,6 +51,8 @@ public sealed class RecordsRetiredNameRemedyTests : IDisposable
         }
     }
 
+    static string Head(string s) => s.Split('\n')[0];
+
     static void AssertNamesNoRetiredTool(string rendered)
     {
         foreach (var spelling in DecidableSpellings())
@@ -103,6 +105,39 @@ public sealed class RecordsRetiredNameRemedyTests : IDisposable
 
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
         Assert.Contains("0 error(s)", r);      // served, so the header this arm is about is the subject
+        AssertNamesNoRetiredTool(r);
+    }
+
+    // ---- the SCAN lane's headers, over every transport the tool declares ----------------------------
+
+    /// <summary>The transports, derived from the tool's own format vocabulary rather than typed out, so a
+    /// transport added later gets a cell without an edit here.</summary>
+    public static IEnumerable<object[]> Transports() =>
+        Enum.GetNames<Wire.QueryFormat>().Select(n => new object[] { n.ToLowerInvariant() });
+
+    /// <summary>The scan lane's text header opened <c>cross_plugin_query: N matches</c> — the highest-traffic
+    /// render on the surviving surface, and the branch renamed it to <c>scan:</c> with nothing holding it.
+    /// Sabotaging it back left the whole suite and ci-all green. Held here over every declared transport, through
+    /// the same derived retired-name oracle the chain header uses.</summary>
+    [Theory]
+    [MemberData(nameof(Transports))]
+    public void AServedScanRenderNamesNoRetiredTool(string format)
+    {
+        var r = RecordsTools.Records(_w.Svc, types: new[] { "WEAP" }, format: format,
+                                     project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "EditorID" } });
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + Head(r));
+        AssertNamesNoRetiredTool(r);
+    }
+
+    /// <summary>The group_by twin of the same header, which is a second call site.</summary>
+    [Fact]
+    public void AServedAggregateScanRenderNamesNoRetiredTool()
+    {
+        var r = RecordsTools.Records(_w.Svc, types: new[] { "WEAP" },
+                                     project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" });
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + Head(r));
         AssertNamesNoRetiredTool(r);
     }
 

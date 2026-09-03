@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+using HousecarlCore;
 using System.Text.Json;
 using HousecarlMcp;
 using Xunit;
@@ -42,8 +44,10 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
 
     /// <summary>The manifest's provenance stamp. It records WHICH TOOL wrote the artifact and is read back
     /// into a live re-entry refusal ("artifact '…' (from X) …"), so a stamp naming a deleted tool is a dead
-    /// name in a sentence a caller reads. Both writers were shared with 1.x tools the cut deleted; records is
-    /// their only caller now, and nothing asserted the stamp until this arm.</summary>
+    /// name in a sentence a caller reads. THREE of the writers were shared with 1.x tools the cut deleted —
+    /// the scan writer, the batch writer and the identity writer — and nothing asserted any stamp until these
+    /// arms. The population is derived below rather than counted by hand, which is how the batch writer was
+    /// missed the first time.</summary>
     [Fact]
     public void ToFile_TheManifestStampsTheToolThatActuallyWroteIt_Scan()
     {
@@ -63,6 +67,50 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
                              project: new RecordsTools.RecordsProject { form = "identity" }, to_file: art);
 
         Assert.Equal(ToolNames.Records, ManifestOf(art).Tool);
+    }
+
+    /// <summary>The stamp population, DERIVED from the writer's own source rather than from a list: every
+    /// <c>writer.Save(path, …)</c> call site in <c>Artifacts.cs</c> must pass the <c>ToolNames</c> constant, not
+    /// a literal. A new writer added tomorrow is in the population without an edit here, and a literal spelling
+    /// anywhere — dead name or live one — is RED.</summary>
+    [Fact]
+    public void EveryArtifactWritersProvenanceStampInterpolatesTheToolNameConstant()
+    {
+        var src = File.ReadAllText(Path.Combine(HarnessPaths.RepoRoot, "src", "housecarl-mcp", "Artifacts.cs"));
+        var sites = Regex.Matches(src, @"writer\.Save\(path,\s*([^,]+),");
+
+        Assert.True(sites.Count >= 8, $"only {sites.Count} writer.Save sites found — the scan went vacuous");
+        foreach (Match m in sites)
+            Assert.Equal("ToolNames.Records", m.Groups[1].Value.Trim());
+    }
+
+    /// <summary>And driven: for every form the tool declares — the list read out of the tool's OWN refusal, so
+    /// it cannot drift from the surface — a <c>to_file=</c> call that is served must stamp the constant. Forms
+    /// that refuse <c>to_file=</c> are skipped and counted, never silently passed.</summary>
+    [Fact]
+    public void EveryFormThatSpillsToAFile_StampsTheToolThatWroteIt()
+    {
+        var refusal = RecordsTools.Records(Svc, types: new[] { "SPEL" },
+                                           project: new RecordsTools.RecordsProject { form = "not-a-form" });
+        var forms = Regex.Match(refusal, @"use ([a-z_ |]+)\.").Groups[1].Value
+                         .Split('|').Select(f => f.Trim()).Where(f => f.Length > 0).ToList();
+        Assert.True(forms.Count >= 8, "the tool's form vocabulary did not parse: " + refusal);
+
+        int stamped = 0;
+        foreach (var form in forms)
+        {
+            var art = Art("provenance-" + form + ".jsonl");
+            var project = new RecordsTools.RecordsProject { form = form };
+            if (form == "fields") project.fields = new[] { "EditorID" };
+            if (form == "aggregate") project.group_by = "type";
+            var r = form is "delta" or "tree" or "chain" or "info_order"
+                ? "skip"
+                : RecordsTools.Records(Svc, types: new[] { "SPEL" }, project: project, to_file: art);
+            if (r == "skip" || r.StartsWith("error:", StringComparison.Ordinal) || !File.Exists(art)) continue;
+            Assert.Equal(ToolNames.Records, ManifestOf(art).Tool);
+            stamped++;
+        }
+        Assert.True(stamped >= 3, $"only {stamped} forms produced an artifact — the arm went vacuous");
     }
 
     [Fact]
