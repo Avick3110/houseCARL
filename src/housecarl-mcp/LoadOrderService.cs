@@ -2423,10 +2423,12 @@ public sealed class LoadOrderService : IDisposable
     /// and <see cref="LoadOrderResolver.GetRecord"/> fetches one by enumerating a whole overlay. Doing that per
     /// toucher was built, measured on a real load order, and withdrawn: 27 ms → 588 ms for one Dawnstar cell,
     /// 21 ms → 1.3 s for Tamriel, 6.3 s → 126 s for a 200-cell query, and an artifact job that never finished.
-    /// So this tier states only what the index settles for free, and <see cref="ResolveTreeFill"/> — the lane that
-    /// has already paid for every body — states which plugins actually declare.</para>
+    /// So this tier states only what the index settles for free. The precise tier that named the declaring plugins
+    /// off the conflict tree's own bodies was deleted at the 1.x cut — it fired only for <c>read_record</c>'s
+    /// <c>conflict_tree=true</c>, which no 2.0 surface sets; <c>records project={"form":"tree"}</c> answers the
+    /// same question by showing each touching plugin's own content (gap #485).</para>
     ///
-    /// <para><b>What neither tier does.</b> Union anything. The read that answers "what is actually live in this
+    /// <para><b>What this tier does not do.</b> Union anything. The read that answers "what is actually live in this
     /// parent" — every child at its own winner, minus the deleted and initially-disabled — is separate design work;
     /// naive concatenation would multi-count the children overlapping overrides both declare.</para>
     ///
@@ -2479,56 +2481,6 @@ public sealed class LoadOrderService : IDisposable
         }
         annotated = map;
         return rf with { Fields = rebuilt };
-    }
-
-    /// <summary>The PRECISE tier (#342): which other plugins actually declare child records for each annotated
-    /// field, computed off the bodies the conflict tree HAS ALREADY FETCHED.
-    ///
-    /// <para>This adds no record fetch of its own — that is the whole point. <see cref="ResolveTreeFill"/> walks
-    /// <c>tree.Nodes</c>, which <see cref="LoadOrderResolver.ResolveTree"/> materialised, and asks each body a
-    /// question it can answer in hand. A version that fetched its own bodies was measured and rejected (see the
-    /// cheap tier's comment).</para></summary>
-    public sealed record ChildDeclarers(OwnedChildShape Shape, IReadOnlyList<string> Declaring, IReadOnlyList<string> Unreadable);
-
-    /// <summary>A conflict-tree fill plus the per-field declarer answer read off the SAME bodies.</summary>
-    internal sealed record TreeFill(ConflictTreeView View, IReadOnlyDictionary<string, ChildDeclarers> ByField);
-
-    /// <summary>Fill the conflict tree AND, from the same nodes, answer which other plugins declare child records
-    /// for each of <paramref name="renderedPaths"/> that owns any. One session, one fetch per touching plugin —
-    /// the tree's own — serving both the diff view and the annotation.</summary>
-    internal TreeFill? ResolveTreeFill(ViewPin p, FormKey fk, IReadOnlyList<string>? fields,
-                                       string? sourcePlugin, IReadOnlyList<string> renderedPaths)
-    {
-        using var session = p.Resolver.OpenSession();
-        var tree = p.View.ResolveTree(session, fk);
-        if (tree is null) return null;
-
-        var owning = tree.Nodes.Count > 0 ? OwnedChildContent.Fields(tree.Nodes[0].Record) : null;
-        var wanted = owning is null || owning.Count == 0
-            ? new List<string>()
-            : renderedPaths.Where(owning.ContainsKey).Distinct(StringComparer.Ordinal).ToList();
-        var declaring = wanted.ToDictionary(f => f, _ => new List<string>(), StringComparer.Ordinal);
-        var unreadable = wanted.ToDictionary(f => f, _ => new List<string>(), StringComparer.Ordinal);
-
-        var nodes = new List<ConflictNodeView>(tree.Nodes.Count);
-        foreach (var n in tree.Nodes)
-        {
-            nodes.Add(new ConflictNodeView(n.Plugin, ReadEngine.ReadFields(n.Record, fields, ConflictDiffDepth)));   // materialise while open
-            if (wanted.Count == 0 || string.Equals(n.Plugin, sourcePlugin, StringComparison.OrdinalIgnoreCase)) continue;
-            foreach (var f in wanted)
-            {
-                // NULL is "I could not look", never "declares nothing" (#308's rule one level down): a body dropped
-                // in silence would render as "nobody else declares content here".
-                var d = OwnedChildContent.DeclaresChild(n.Record, f);
-                if (d == true) declaring[f].Add(n.Plugin);
-                else if (d is null) unreadable[f].Add(n.Plugin);
-            }
-        }
-
-        var byField = new Dictionary<string, ChildDeclarers>(StringComparer.Ordinal);
-        foreach (var f in wanted)
-            byField[f] = new ChildDeclarers(owning![f], declaring[f], unreadable[f]);
-        return new TreeFill(new ConflictTreeView(nodes), byField);
     }
 
     /// <summary>How deep the conflict diff reads each touching body. The diff must compare CONTENT, not the

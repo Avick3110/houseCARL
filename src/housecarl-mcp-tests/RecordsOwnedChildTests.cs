@@ -208,11 +208,11 @@ public sealed class OwnedChildFixture : IDisposable
 /// reports an empty collection the game fills.
 ///
 /// <para>The arms come from the tool-layer half of <c>OwnedChildContentProbe</c> — the ones whose subject was a
-/// value returned by <c>read_record</c> / <c>batch_record_detail</c>. Only the CHEAP tier is here. The probe's
-/// PRECISE tier rode <c>conflict_tree=true</c>, a lever the records surface does not have and whose renderer it
-/// never asks for the annotation, so those arms have no 2.0 expression; the probe's engine-level arms
-/// (<c>OwnedChildContent.DeclaresChild</c> / <c>ShapeOf</c> / <c>Fields</c>, <c>ReadSentences.DeclarersNote</c>)
-/// survive the cut untouched and stay where they are.</para>
+/// value returned by <c>read_record</c> / <c>batch_record_detail</c>. Only the CHEAP tier is here, and only the
+/// cheap tier still exists: the PRECISE tier rode <c>conflict_tree=true</c>, a lever the records surface does not
+/// have and whose renderer never asked for the annotation, so it was deleted at the cut along with its sentences
+/// and its arms (gap #485). The probe's engine-level arms (<c>OwnedChildContent.DeclaresChild</c> /
+/// <c>ShapeOf</c> / <c>Fields</c>) survive the cut untouched and stay where they are.</para>
 /// </summary>
 [Trait("tier", "integration")]
 public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
@@ -258,8 +258,10 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     public void TheCheapTierClaimsNothingAboutWhoDeclares_NoDeclarerNamingOnTheDefaultLane()
     {
         var r = Read(_w.CellA);
-        Assert.DoesNotContain(ReadSentences.DeclaredBy, r);
-        Assert.DoesNotContain(ReadSentences.CarriedBy, r);
+        // The literals, not the consts: the precise tier that owned them was deleted at the cut (gap #485), so
+        // there is no shared source left to read them from — and the claim is about the WORDS not appearing.
+        Assert.DoesNotContain("declared by", r);
+        Assert.DoesNotContain("carried by", r);
     }
 
     /// <summary>The grid is the record type's OWN child-bearing set, so a Mutagen bump that grows it grows this
@@ -385,7 +387,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     {
         var r = Read(_w.CellA, new RecordsTools.RecordsProject { form = "fields", fields = PaddedCellFields }, maxChars: 1400);
         Assert.Contains("max_chars=1400", r);
-        Assert.DoesNotContain("max_chars=" + (1400 - ReadSentences.ClauseReserve(true, false, false)), r);
+        Assert.DoesNotContain("max_chars=" + (1400 - ReadSentences.ClauseReserve(true)), r);
     }
 
     // ---- json ------------------------------------------------------------------------------------

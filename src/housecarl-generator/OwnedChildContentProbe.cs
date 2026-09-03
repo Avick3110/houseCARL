@@ -252,22 +252,10 @@ public static class OwnedChildContentProbe
             var sentenceBad = SentenceViolations();
             Check("SENTENCE: every ReadSentences const decides ([MustState] phrases or [NoClaims] with a reason) and states them",
                 sentenceBad.Count == 0, string.Join(" | ", sentenceBad));
-            var composed = ReadSentences.DeclarersNote(OwnedChildShape.Collection,
-                new[] { "A.esp", "B.esp", "C.esp", "D.esp" }, new[] { "E.esp" });
-            Check("SENTENCE: the COLLECTION note is built from the consts the net covers, and caps its names",
-                composed is not null
-                && composed.Contains(ReadSentences.DeclaredBy, StringComparison.Ordinal)
-                && composed.Contains(ReadSentences.CouldNotRead, StringComparison.Ordinal)
-                && composed.Contains("(+1 more)", StringComparison.Ordinal)
-                && !composed.Contains("D.esp", StringComparison.Ordinal), composed ?? "(null)");
-            var singular = ReadSentences.DeclarersNote(OwnedChildShape.Singular,
-                new[] { "A.esp", "B.esp", "C.esp", "D.esp" }, Array.Empty<string>());
-            Check("SENTENCE: the SINGULAR note counts and never floods names — 484 declarers of a TopCell is noise",
-                singular is not null
-                && singular.Contains($"{ReadSentences.CarriedBy} 4 other plugin(s)", StringComparison.Ordinal)
-                && !singular.Contains("A.esp", StringComparison.Ordinal), singular ?? "(null)");
-            Check("SENTENCE: nothing to say → null, so the caller has ONE place to decide",
-                ReadSentences.DeclarersNote(OwnedChildShape.Collection, Array.Empty<string>(), Array.Empty<string>()) is null);
+            // Three arms over ReadSentences.DeclarersNote stood here — the COLLECTION note's name cap, the SINGULAR
+            // note's count, and the null answer. They died with the precise tier's sentences (gap #485). The
+            // SENTENCE net above is unaffected: it derives its subjects from ReadSentences' own consts, so it
+            // shrank by exactly the consts that went.
 
             Console.WriteLine();
             Console.WriteLine($"=== owned-child-content-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
@@ -287,8 +275,9 @@ public static class OwnedChildContentProbe
     /// the annotation stops naming it because the ORDER changed, not because a read failed silently. That is the
     /// load-order layer's existing, named behaviour and the arms below pin it rather than pretending otherwise.
     /// The residual hazard the unknown-arm exists for — a plugin that opens at header level but faults while its
-    /// child group is walked — is not reachable from outside the process, so it is pinned at its two ends: the
-    /// unit answer (null, never false) and the sentence that names it.</para></summary>
+    /// child group is walked — is not reachable from outside the process, so it is pinned at the one end that
+    /// survives: the unit answer (null, never false). The sentence that named the unreadable plugin belonged to
+    /// the precise tier and went with it (gap #485).</para></summary>
     static void CheckUnreadable(string root, string mods, string baseDir, ModKey baseKey, ModKey topKey, FormKey cellA)
     {
         var inst2 = Path.Combine(root, "unreadable");
