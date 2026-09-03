@@ -26,6 +26,17 @@ The writer has one branch worth naming: an Auto scalar may carry a baked initial
 variable. The product reads that (`ScriptPropertyCheck`: a scalar with an initializer is not reported
 unbound), so the branch is what makes the fixture's `MyDefaulted` mean anything.
 
+That branch writes `VariableType.Integer` while stamping the backing variable's `TypeName` from the caller's
+declared type, so it is only honest for an `Int`. `AutoScalar("MyFlag", "Bool", 1)` would produce
+`TypeName = "Bool"` over `VariableType = Integer` — a pairing no Papyrus compiler emits, which the product
+would then read off `VariableType` and render as `Bool Property MyFlag = 1 Auto`. An arm built on that
+fixture would assert product behaviour against a `.pex` shape the game never produces and stay green while
+claiming to model a defaulted Bool. So the writer **refuses** a non-`Int` declared type with an initializer,
+`ArgumentException` naming the property, the type and the value: the parameter name `initInt` was the only
+thing carrying the restriction, and #486 PR 2 spells 28 script-property arms against this machinery. Both
+branches are pinned — `TheWriterRefusesABakedInitializerOnANonIntScalar` and
+`TheWriterStillBakesAnIntScalarInitializerAndItRoundTrips`.
+
 ## `ScriptsWorld` — the probe's records, re-homed as an MO2 instance
 
 The five records the probe plants are carried over with the same EditorIDs, VMAD shapes and property

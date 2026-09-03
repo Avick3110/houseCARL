@@ -34,6 +34,47 @@ public sealed class ScriptsWorldTests
         Assert.True(prop.Flags.HasFlag(PropertyFlags.AutoVar));
     }
 
+    /// <summary>The writer bakes an Integer initializer whatever the declared type says, so a non-Int scalar
+    /// with one is refused rather than written as a pairing no Papyrus compiler emits.</summary>
+    [Fact]
+    [Trait("tier", "integration")]
+    public void TheWriterRefusesABakedInitializerOnANonIntScalar()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => PexWriter.AutoScalar("MyFlag", "Bool", 1));
+
+        Assert.Contains(
+            "a baked initializer was given for 'MyFlag', declared 'Bool', with value 1: this writer only bakes "
+            + "Integer initializers, because an Int scalar with a baked default is the only declared-type/"
+            + "initializer pairing this fixture models. Writing it would pair VariableType.Integer with TypeName "
+            + "'Bool' — a shape no Papyrus compiler emits.",
+            ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>The refusal's other branch: the pairing the fixture DOES model still writes, and still reads
+    /// back as a baked Integer — which is what makes <c>MyDefaulted</c> mean anything.</summary>
+    [Fact]
+    [Trait("tier", "integration")]
+    public void TheWriterStillBakesAnIntScalarInitializerAndItRoundTrips()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "hc-pexwriter-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var path = Path.Combine(dir, "HcPwProbe.pex");
+            PexWriter.WritePex(path, "HcPwProbe", parent: null,
+                PexWriter.AutoScalar(ScriptsWorld.ScalarProperty, "Int", ScriptsWorld.DefaultedValue));
+
+            var obj = Assert.Single(PexFile.CreateFromFile(path, GameCategory.Skyrim).Objects);
+            var backing = Assert.Single(obj.Variables,
+                v => string.Equals(v.Name, $"::{ScriptsWorld.ScalarProperty}_var", StringComparison.OrdinalIgnoreCase));
+
+            Assert.Equal("Int", backing.TypeName, ignoreCase: true);
+            Assert.Equal(VariableType.Integer, backing.VariableData!.VariableType);
+            Assert.Equal(ScriptsWorld.DefaultedValue, backing.VariableData.IntValue);
+        }
+        finally { try { Directory.Delete(dir, true); } catch { /* temp cleanup best-effort */ } }
+    }
+
     /// <summary>The script-bearing population is exactly the four VMAD-carrying records. The script-free
     /// weapon is the teeth: same plugin, must not be counted.</summary>
     [Fact]

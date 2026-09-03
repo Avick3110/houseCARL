@@ -16,6 +16,16 @@ public static class PexWriter
 
     static Decl Auto(string name, string typeName, int? initInt)
     {
+        // The initializer branch writes VariableType.Integer under the caller's declared TypeName, so only an
+        // Int scalar can carry one. Why it refuses instead of documenting: docs/architecture/test-project-fixtures.md.
+        if (initInt is int bad && !string.Equals(typeName, "Int", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException(
+                $"a baked initializer was given for '{name}', declared '{typeName}', with value {bad}: this writer "
+                + "only bakes Integer initializers, because an Int scalar with a baked default is the only "
+                + "declared-type/initializer pairing this fixture models. Writing it would pair VariableType.Integer "
+                + $"with TypeName '{typeName}' — a shape no Papyrus compiler emits.",
+                nameof(typeName));
+
         var prop = new PexObjectProperty
         {
             Name = name,
