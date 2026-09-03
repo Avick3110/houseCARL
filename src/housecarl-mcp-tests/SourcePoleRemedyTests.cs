@@ -120,21 +120,27 @@ public sealed class SourcePoleRemedyTests : RecordsTestBase
         Assert.Contains(SelectTerms, t => sentence.Contains(t, StringComparison.Ordinal));
     }
 
-    /// <summary>Both plugin-absence advisories, RENDERED by the shipped method rather than read from source.
-    /// Each names `housecarl_records` with a source pole; each must name a selection with it.</summary>
-    [Theory]
-    [InlineData("unticked")]
-    [InlineData("on disk, not listed")]
-    public void EachPluginAbsenceAdvisoryNamesASelectionBesideItsSourcePole(string _)
+    /// <summary>The on-disk-but-not-listed advisory, RENDERED by the shipped method rather than read from
+    /// source. It names `housecarl_records` with a source pole, so it must name a selection with it.
+    ///
+    /// <para>The arm asserts it reached the records-naming branch rather than skipping when it does not — an
+    /// early return here is the arm-that-cannot-fail shape, and it was one: the first version of this pin
+    /// skipped silently and stayed green while the sentence was sabotaged.</para>
+    ///
+    /// <para>The sibling UNTICKED-in-plugins.txt advisory (the "IS installed, but UNTICKED" branch) is the same
+    /// sentence shape and is NOT pinned here: this world has no installed-but-unticked plugin, and inventing
+    /// one would be a fixture change rather than a pin. Stated rather than implied.</para></summary>
+    [Fact]
+    public void TheOnDiskNotListedAdvisoryNamesASelectionBesideItsSourcePole()
     {
         var m = typeof(LoadOrderService).GetMethod("ExplainPluginAbsence",
                     BindingFlags.NonPublic | BindingFlags.Instance)!;
         var text = (string?)m.Invoke(Svc, new object[] { W.OldName });
 
         Assert.NotNull(text);
-        if (!text!.Contains(ToolNames.Records, StringComparison.Ordinal)) return;   // this world took the other branch
-        Assert.Contains("source=", text);
-        Assert.Contains(SelectTerms, t => text.Contains(t, StringComparison.Ordinal));
+        Assert.Contains(ToolNames.Records, text!);   // never a silent skip
+        Assert.Contains("source=", text!);
+        Assert.Contains(SelectTerms, t => text!.Contains(t, StringComparison.Ordinal));
     }
 
     /// <summary>The copy tool's standalone line, against the shipped source. It is rendered inside a write
