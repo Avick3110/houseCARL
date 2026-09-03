@@ -22,10 +22,7 @@ public sealed class HeldOpen : IDisposable
 {
     readonly FileStream _stream;
 
-    /// <summary>The file being held.</summary>
-    public string Path { get; }
-
-    HeldOpen(string path, FileStream stream) { Path = path; _stream = stream; }
+    HeldOpen(FileStream stream) => _stream = stream;
 
     /// <summary>Take an exclusive hold on <paramref name="path"/>. Throws — naming the path and the reason —
     /// if the hold cannot be taken, including when the path does not exist.</summary>
@@ -33,7 +30,7 @@ public sealed class HeldOpen : IDisposable
     {
         try
         {
-            return new HeldOpen(path, new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None));
+            return new HeldOpen(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None));
         }
         catch (Exception ex)
         {

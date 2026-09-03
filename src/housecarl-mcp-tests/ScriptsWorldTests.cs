@@ -14,9 +14,17 @@ namespace HousecarlMcpTests;
 /// incremented before any .pex is opened, so a world whose planted <c>.pex</c> files were never found would
 /// still report four script-bearing records — with every declaration silently unverifiable. Counting alone
 /// therefore cannot tell a resolved fixture from a missing one; the declarations have to be observed.</para>
+///
+/// <para><b>ADR 0003 rule 2 — the scripts family is briefly in both harnesses.</b> These arms drive
+/// <c>ValidateScripts</c> and <c>housecarl_check findings=["scripts"]</c>, so a product regression in
+/// loose-layer resolution or ancestor walking turns them red — while <c>ScriptPropertyCheckProbe.cs</c>
+/// still guards the same family. No <c>Converted-from:</c> marker is carried and none is owed: nothing
+/// here converts a probe. The mechanical guard is decidable only on that marker, and the literal rule is
+/// already documented RED at birth during the ruled sequence (<c>HarnessResidueTests.cs</c>, the one-way
+/// conversion section). The overlap closes when #486's PR 2 deletes the probe, adds the marker and drops
+/// its baseline key; it is stated on this PR for Aaron's gate rather than worked around here.</para>
 /// </summary>
 [Collection("scripts")]
-[Trait("tier", "integration")]
 public sealed class ScriptsWorldTests
 {
     readonly ScriptsWorld _w;
@@ -28,6 +36,7 @@ public sealed class ScriptsWorldTests
     /// fixture rests on this — a .pex the product cannot read makes every declaration unverifiable.
     /// </summary>
     [Fact]
+    [Trait("tier", "integration")]
     public void ThePlantedChildPexReadsBackWithItsAutoPropertyAndItsParentClass()
     {
         var back = PexFile.CreateFromFile(
@@ -47,6 +56,7 @@ public sealed class ScriptsWorldTests
     /// records. The script-free weapon is the teeth: it is in the same plugin and must not be counted.
     /// </summary>
     [Fact]
+    [Trait("tier", "integration")]
     public void TheServiceSweepsTheInstanceAndExactlyTheVmadCarryingRecordsAreScriptBearing()
     {
         var res = _w.Svc.ValidateScripts(null, 1000);
@@ -68,14 +78,37 @@ public sealed class ScriptsWorldTests
     /// The child's own declaration and the ancestor's are asserted separately: the child proves the mod's
     /// <c>Scripts\</c> folder is on the asset path at all, and the inherited one proves the extends chain
     /// was walked to a SECOND file, which a world with only one resolvable .pex could not produce.
+    ///
+    /// <para>The two finding SETS are pinned whole, not sampled. <c>Assert.Single(collection, predicate)</c>
+    /// states that one element matches — it says nothing about the rest, so an EXTRA finding passes unseen,
+    /// and the two fixture properties whose whole point is that they produce NO finding would be guarded by
+    /// nothing: <c>MyDefaulted</c>, which rests on <see cref="PexWriter"/>'s baked-initializer branch (the
+    /// product suppresses an unbound scalar exactly when the backing variable carries an initializer), and
+    /// <c>MyAliasBound</c>, which rests on <see cref="ScriptsWorld"/> binding through a quest alias (Alias
+    /// >= 0 with a null Object is BOUND, not bound-but-null). Both are absences, and only a set comparison
+    /// can assert an absence.</para>
     /// </summary>
     [Fact]
+    [Trait("tier", "integration")]
     public void BothPlantedPexFilesResolveThroughTheLooseLayer_SoTheDeclarationsAreRealNotUnverifiable()
     {
         var res = _w.Svc.ValidateScripts(null, 1000);
         var foot = Assert.Single(res.Reports, r => r.Record == _w.Footgun);
 
         Assert.Empty(foot.Unverifiable);   // nothing about this record's script was left unread
+
+        // The unbound set EXACTLY: the two the footgun leaves unbound plus the ancestor's. MyDefaulted is
+        // absent because its backing variable carries a baked initializer; MyBoundSpell, MyNullSpell and
+        // MyAliasBound are absent because the VMAD binds them.
+        Assert.Equal(
+            new[] { ScriptsWorld.InheritedProperty, ScriptsWorld.ScalarProperty, ScriptsWorld.ObjectProperty }
+                .OrderBy(x => x, StringComparer.Ordinal).ToArray(),
+            foot.Unbound.Select(u => u.PropertyName).OrderBy(x => x, StringComparer.Ordinal).ToArray());
+
+        // The bound-but-null set EXACTLY: the null-form binding, and NOT the alias binding.
+        Assert.Equal(
+            new[] { ScriptsWorld.NullProperty },
+            foot.NullObjects.Select(n => n.PropertyName).ToArray());
 
         var own = Assert.Single(foot.Unbound,
             u => string.Equals(u.PropertyName, ScriptsWorld.ObjectProperty, StringComparison.Ordinal));

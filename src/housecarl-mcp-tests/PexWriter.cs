@@ -53,7 +53,9 @@ public static class PexWriter
     /// <summary>Write a single-object .pex with the given Auto properties + backing variables to
     /// <paramref name="path"/> via Mutagen's native Pex writer. The object carries a non-null DocString, an
     /// empty auto-state, and the empty '' state — the minimal byte-valid shell a real Skyrim .pex has. That
-    /// it round-trips is asserted, not assumed: see <c>ScriptsWorldTests</c>'s PEX-ROUNDTRIP arm.</summary>
+    /// it round-trips is asserted, not assumed: see
+    /// <c>ScriptsWorldTests.ThePlantedChildPexReadsBackWithItsAutoPropertyAndItsParentClass</c> (the probe's
+    /// PEX-ROUNDTRIP arm, re-homed).</summary>
     public static void WritePex(string path, string name, string? parent, params Decl[] decls)
     {
         var obj = new PexObject { Name = name, ParentClassName = parent ?? "", DocString = "", AutoStateName = "" };
