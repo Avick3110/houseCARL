@@ -195,7 +195,7 @@ Namespaced under `/housecarl:` in Claude (and reachable via `$housecarl` in Code
   goes stale the next time the tool runs. (DrHeisen.)
 - **`biped-slot-reference`** — turn a biped slot (a number like 52, a vanilla name like Body, or a community
   label like SOS / pelvis) into the `FirstPersonFlags` bit to query on, so finding every armor on an equip
-  slot — multi-slot pieces an exact match misses included — is one `cross_plugin_query ... has` lookup
+  slot — multi-slot pieces an exact match misses included — is one `housecarl_records` scan with a `where=` bit test
   instead of power-of-two mental math.
 - **`skse-plugin-authoring`** — author, build, or audit a native **SKSE plugin DLL** (C++ on CommonLibSSE-NG:
   the layer beneath every SPID / KID / SkyPatcher distributor, framework, and crash logger) — scaffold the
@@ -205,7 +205,7 @@ Namespaced under `/housecarl:` in Claude (and reachable via `$housecarl` in Code
   its runtime claims still await an in-game validation pass.
 - **`bulk-record-jobs`** — plan a "many records → one structured deliverable" job (a catalogue, a link or
   recipe graph, a conflict survey, a patch rebuild, a fan-out extraction) onto the bulk primitives — scoped
-  queries, `group_by`, `housecarl_resolve`, `housecarl_diff_record`, batch writes — instead of per-record
+  queries, `project={"form": "aggregate"}`, `housecarl_records`' identity and delta forms, batch writes — instead of per-record
   loops, with the game-generic Creation-Kit conventions those jobs need and one canonical deliverable schema
   so a fleet of subagents doesn't invent a different output shape each. Game-generic only — a specific mod's
   own conventions stay in that mod's skill.

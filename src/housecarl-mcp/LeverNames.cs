@@ -12,9 +12,10 @@ namespace HousecarlMcp;
 /// <c>project.depth=</c> (#439, the #343 class).
 ///
 /// This carries the caller's spelling INTO the renderer. It changes WHO is named a lever, never which
-/// levers a family offers: the divergences between remedy families are correct and stay (housecarl_resolve
-/// has no fields=, housecarl_effect_chain has no offset=, and their leaner sentences are right — audited
-/// on #439, settled decision #10). The one place the SET changes is a lever the calling tool does not
+/// levers a family offers: the divergences between remedy families are correct and stay (the 1.x identity
+/// read had no fields=, the 1.x effect-chain read had no offset=, and their leaner sentences were right —
+/// audited on #439, settled decision #10; both tools went at the 1.x cut and the forms live on
+/// housecarl_records). The one place the SET changes is a lever the calling tool does not
 /// have at all: see <see cref="SlimScan"/>, where the 1.x phrase names conflict_tree and the records
 /// phrase cannot, because that tool has no such parameter in any spelling.
 ///

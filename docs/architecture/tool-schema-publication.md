@@ -1,7 +1,7 @@
 # Tool schema publication
 
 **Class:** LIVING. Subsystem: `src/housecarl-mcp/ToolSchemas.cs`, registered from `Program.cs`.
-Pinned by `binding-shim-guard`'s SCHEMA arms (the real published surface) and
+Pinned by `PublishedSchemaShapeTests` in `src/housecarl-mcp-tests` (the real published surface) and
 `schema-flatten-guard` (the flattening mechanism, over synthetic documents for the shapes the
 real surface cannot produce, and over the real pre-flatten surface for the emission grammar and
 the strict reader).

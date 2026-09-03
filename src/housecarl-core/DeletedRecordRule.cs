@@ -6,10 +6,12 @@ namespace HousecarlCore;
 /// The ONE place the "a DELETED record has no live body" rule lives, so the scans that read a record's content can't
 /// drift apart on it (#279). Three walk Mutagen's <see cref="IFormLinkContainerGetter.EnumerateFormLinks"/> over every
 /// record in an order, and all three must treat a deleted record the same way:
-///   • <c>cross_plugin_query</c>'s references= scan (<c>LoadOrderService.CrossQuery</c>) — #276, the first site.
-///   • <see cref="ErrorCheck"/>'s dangling-ref sweep (housecarl_check_errors), active AND off-order passes.
+///   • the scan's references= arm (<c>LoadOrderService.CrossQuery</c>) — #276, the first site; it was
+///     housecarl_cross_plugin_query then and rides housecarl_records now.
+///   • <see cref="ErrorCheck"/>'s dangling-ref sweep (housecarl_check findings=["errors"]), active AND
+///     off-order passes.
 ///   • <see cref="RemapEngine.IdentifyExternalReferencers"/>'s compact/merge dependency scan.
-/// <c>cross_plugin_query</c>'s where= arm is guarded alongside its references= arm, but it is NOT one of the link
+/// The scan's where= arm is guarded alongside its references= arm, but it is NOT one of the link
 /// walks: it reads a field leaf (<c>FieldPredicateSet.Matches</c> → <c>ReadEngine.ReadLeaf</c>), which already
 /// catches its own read faults and answers "(unreadable: …)". It is here on the SEMANTIC ground below only — a
 /// deleted record has no live field to test — never the crash ground.
