@@ -1677,8 +1677,12 @@ public static class RecordsTools
                 // complete block merely ended past cap lost nothing, and reporting it truncated is the same
                 // falsity the tail notice used to carry, moved into a different sentence.
                 if (declarersCut || row.Nodes.Count > 1) truncated = true;
-                // What such a row loses is its DIFF, so that is what the notice names.
-                if (!declarersCut && row.Nodes.Count > 1) AppendCutNotice(sb, "nodes", cap);
+                // What such a row loses is its DIFF, and it loses it whether the declarer lines were also dropped
+                // or not — the caller knows row.Nodes.Count > 1 in both branches, so suppressing the notice on the
+                // cut branch left the diff loss unnamed for no reason. Each notice claims ONE thing
+                // (AppendCutNotice's own contract), so a cut multi-provider row carries BOTH: the declarers it
+                // dropped, and the diff it never reached.
+                if (row.Nodes.Count > 1) AppendCutNotice(sb, "nodes", cap);
                 rendered++; continue;
             }
             if (row.Nodes.Count <= 1) { rendered++; continue; }   // a sole provider has nothing to diff against

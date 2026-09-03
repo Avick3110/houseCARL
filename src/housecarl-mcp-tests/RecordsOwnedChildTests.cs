@@ -738,16 +738,16 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.DoesNotContain("spilled:", Tree(_w.CellC, maxChars: 846));
 
     /// <summary>When the block IS cut on a multi-provider row, the row stops there — it used to fall through into
-    /// an unconditional "diff (field deltas…):" header for a section the cap already forbade, and the FIRST diff
-    /// node then printed a SECOND, redundant cut notice. Measured on CellF (3 touchers): at every cap
-    /// that cuts the declarers block, no diff header and no second "[nodes cut" notice follow it.</summary>
+    /// an unconditional "diff (field deltas…):" header for a section the cap already forbade. Measured on CellF
+    /// (3 touchers): at every cap that cuts the declarers block, no diff header follows it. The row DOES carry
+    /// the "[nodes cut" notice — the diff it never reached is a real loss, and each notice claims one thing.</summary>
     [Fact]
-    public void ACutDeclarersBlockEndsTheRow_NoEmptyDiffHeaderAndNoSecondCutNotice()
+    public void ACutDeclarersBlockEndsTheRow_NoEmptyDiffHeaderOverASectionThatNeverRendered()
     {
         var r = Tree(_w.CellF, maxChars: 600);
         Assert.Contains("[child declarers cut", r);
         Assert.DoesNotContain("diff (field deltas", r);
-        Assert.DoesNotContain("[nodes cut", r);
+        Assert.Contains("[nodes cut at max_chars=600", r);
     }
 
     // ---- what the tail cut notice CLAIMS, not just that the tail check exists ------------------------------
@@ -783,7 +783,9 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     }
 
     /// <summary>The other side: when declarer lines really ARE dropped, the notice still says so. 660 cuts CellF's
-    /// block after its first field line (Landscape), leaving the other three unwritten.</summary>
+    /// block after its first field line (Landscape), leaving the other three unwritten. A multi-provider row that
+    /// stops there loses its DIFF as well, so it names BOTH — the declarers it dropped and the nodes it never
+    /// reached. Each notice claims one thing; neither claims the other's loss.</summary>
     [Fact]
     public void ABlockCutMidWayStillSaysTheDeclarersWereCut()
     {
@@ -791,7 +793,34 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.Contains("[child declarers cut at max_chars=660", r);
         Assert.Contains("Landscape: ", r);
         Assert.DoesNotContain("NavigationMeshes: ", r);
-        Assert.DoesNotContain("[nodes cut", r);
+        Assert.Contains("[nodes cut at max_chars=660", r);
+    }
+
+    /// <summary>The SOLE-provider control for the same cut branch: CellC at 700 drops declarer lines (its block
+    /// runs 588-805 before completing), so the declarers notice fires — and there is no diff to lose, so the
+    /// nodes notice must NOT. This arm stays green whether or not the `!declarersCut` guard is there; it is what
+    /// pins the notice to the row's actual loss rather than to the branch it came back through.</summary>
+    [Fact]
+    public void ASoleProviderRowCutMidBlockSaysTheDeclarersWereCutAndNamesNoDiff()
+    {
+        var r = Tree(_w.CellC, maxChars: 700);
+        Assert.Contains("[child declarers cut at max_chars=700", r);
+        Assert.Contains("NavigationMeshes: ", r);        // the block got two of its four field lines out…
+        Assert.DoesNotContain("Temporary: ", r);         // …and was cut before the rest,
+        Assert.DoesNotContain("[nodes cut", r);          // with no diff to lose.
+    }
+
+    /// <summary>The block's OTHER early return — the framing reserve, which returns before a single declarer line
+    /// is written — comes back through the same caller line, so a multi-provider row refused the framing carries
+    /// both notices too. Measured on CellF the way 587 was measured on CellC: 625 is the last cap that refuses the
+    /// framing line, 626 the first it fits inside.</summary>
+    [Fact]
+    public void TheFramingReserveBranchOnAMultiProviderRowNamesBothTheDeclarersAndTheDiff()
+    {
+        var r = Tree(_w.CellF, maxChars: 625);
+        Assert.DoesNotContain(ReadSentences.DeclarersLead, r);        // not one declarer line was written…
+        Assert.Contains("[child declarers cut at max_chars=625", r);  // …which the block says,
+        Assert.Contains("[nodes cut at max_chars=625", r);            // …and the diff loss the caller says.
     }
 
     // ---- the framing line is RESERVED against max_chars, not written and regretted -------------------------
