@@ -206,6 +206,11 @@ public sealed class CheckErrorsFamilyTests : IClassFixture<CheckErrorsWorldFixtu
         var text = Text(r, 400);
         Assert.Contains("[accounting: 0 of the 6 dangling ref(s) found by this sweep appear above. 6 did not fit " +
                          "this response (max_chars=400). 0 of 3 plugin section(s) were rendered.", text);
+        // Positive control for EntryLines, whose only consumer is the Assert.Empty below. Without it, rewording
+        // the dangling-entry render (dropping "any", say) makes the helper return an empty array for EVERY
+        // response, and the emptiness assertion passes for every possible render including one that emits all
+        // six. Six is the accounting line's own number, one line up.
+        Assert.Equal(6, EntryLines(Text(r, 0)).Length);
         Assert.Empty(EntryLines(text));
         Assert.DoesNotContain("Raise limit=", text);
         Assert.Contains("Raise max_chars= to fit more of what was found.", text);
