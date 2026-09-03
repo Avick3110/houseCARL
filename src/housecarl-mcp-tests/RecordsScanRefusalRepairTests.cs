@@ -104,25 +104,56 @@ public sealed class RecordsScanRefusalRepairTests : IDisposable
         return names;
     }
 
-    /// <summary>Under-specified calls, each of which this tool answers with a refusal that tells the caller which
-    /// parameter to reach for. One theory row each, so a RED names the call that produced the bad sentence.</summary>
-    public static IEnumerable<object[]> UnderSpecifiedCalls() => new[]
+    /// <summary>The subject set, DERIVED from the tool's own declared surface rather than typed out.
+    ///
+    /// <para>One row per declared parameter of <c>housecarl_records</c>, each supplying a plausible value for that
+    /// parameter and nothing else, plus one row supplying nothing at all. A call that comes back served is skipped
+    /// by the arm and counted; a call that is refused has its sentence held against the declared set. So a
+    /// parameter added to the tool tomorrow gets a row here without an edit, which is the property a hand-typed
+    /// list cannot have — CLAUDE.md §5 #11's derived-subject-set rule.</para>
+    ///
+    /// <para>What this population still does not reach, stated rather than implied: refusals that need a
+    /// COMBINATION of parameters to fire. The arm prints its own coverage (how many rows refused) so the reach is
+    /// a number a reader can see, not an assumption.</para></summary>
+    public static IEnumerable<object[]> UnderSpecifiedCalls()
     {
-        new object[] { "nothing selected" },
-        new object[] { "a body predicate with no bounding scope" },
-        new object[] { "a reverse-reference scan with no bounding scope" },
-        new object[] { "an aggregate form with no group key" },
-    };
+        yield return new object[] { "<nothing>" };
+        foreach (var p in ToolParameterNames()) yield return new object[] { p };
+    }
 
+    /// <summary>The declared parameter names, off the same reflected method the declared-spelling set uses — the
+    /// two halves of this arm cannot drift apart because they read the same source.</summary>
+    static IEnumerable<string> ToolParameterNames() =>
+        ToolMethod().GetParameters()
+                    .Select(p => p.Name!)
+                    .Where(n => n != "svc")
+                    .OrderBy(n => n, StringComparer.Ordinal);
+
+    static MethodInfo ToolMethod() =>
+        typeof(RecordsTools).GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Single(x => x.GetCustomAttribute<ModelContextProtocol.Server.McpServerToolAttribute>() is { } a
+                      && a.Name == ToolNames.Records);
+
+    /// <summary>A plausible lone value for one declared parameter. Unknown parameter types fall through to the
+    /// bare call, which is a refusal too — never a silent skip.</summary>
     string Refuse(string which) => which switch
     {
-        "nothing selected" => RecordsTools.Records(_w.Svc),
-        "a body predicate with no bounding scope" =>
-            RecordsTools.Records(_w.Svc, where: new[] { "editorid contains Hc" }),
-        "a reverse-reference scan with no bounding scope" =>
-            RecordsTools.Records(_w.Svc, references: new[] { "000800:HcRecMaster.esm" }),
-        _ => RecordsTools.Records(_w.Svc, types: new[] { "WEAP" },
-                                  project: new RecordsTools.RecordsProject { form = "aggregate" }),
+        "<nothing>"          => RecordsTools.Records(_w.Svc),
+        "formids"            => RecordsTools.Records(_w.Svc, formids: Array.Empty<string>()),
+        "types"              => RecordsTools.Records(_w.Svc, types: Array.Empty<string>()),
+        "where"              => RecordsTools.Records(_w.Svc, where: new[] { "editorid contains Hc" }),
+        "references"         => RecordsTools.Records(_w.Svc, references: new[] { "000800:HcRecMaster.esm" }),
+        "project"            => RecordsTools.Records(_w.Svc, types: new[] { "WEAP" },
+                                    project: new RecordsTools.RecordsProject { form = "aggregate" }),
+        "walk"               => RecordsTools.Records(_w.Svc,
+                                    project: new RecordsTools.RecordsProject { form = "chain" },
+                                    walk: new RecordsTools.RecordsWalk { direction = "reverse" }),
+        "format"             => RecordsTools.Records(_w.Svc, format: "dense"),
+        "versus"             => RecordsTools.Records(_w.Svc, types: new[] { "WEAP" },
+                                    project: new RecordsTools.RecordsProject { form = "delta" }),
+        "offset"             => RecordsTools.Records(_w.Svc, offset: -1),
+        "to_file"            => RecordsTools.Records(_w.Svc, to_file: "relative.jsonl"),
+        _                    => RecordsTools.Records(_w.Svc),
     };
 
     /// <summary>
@@ -137,12 +168,24 @@ public sealed class RecordsScanRefusalRepairTests : IDisposable
     /// produce. The declared set is reflected off the tool method and the members of its structured parameters,
     /// so a rename moves the subject rather than needing an edit here.</para>
     /// </summary>
+    /// <summary>The arm's own coverage, as a number. A derived population that stops refusing anything is a
+    /// vacuous arm passing quietly — this fails if fewer rows refuse than the shapes known to refuse today.</summary>
+    [Fact]
+    public void TheDerivedPopulationActuallyReachesRefusals()
+    {
+        var rows = UnderSpecifiedCalls().Select(r => (string)r[0]).ToList();
+        var refused = rows.Count(w => Refuse(w).StartsWith("error:", StringComparison.Ordinal));
+
+        Assert.True(rows.Count >= 10, $"only {rows.Count} declared parameters produced rows");
+        Assert.True(refused >= 6, $"only {refused} of {rows.Count} rows refused — the population went vacuous");
+    }
+
     [Theory]
     [MemberData(nameof(UnderSpecifiedCalls))]
     public void AnUnderSpecifiedCallsRefusalNamesOnlyParametersThisToolDeclares(string which)
     {
         var r = Refuse(which);
-        Assert.StartsWith("error:", r);
+        if (!r.StartsWith("error:", StringComparison.Ordinal)) return;   // served: nothing to hold, and no silence
 
         var declared = DeclaredParameters();
         var named = Regex.Matches(r, @"\b([a-z][a-z0-9_]*)=")

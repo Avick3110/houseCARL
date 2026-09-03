@@ -178,9 +178,14 @@ public sealed class AliasActivationTests
     }
 
     /// <summary>
-    /// The vacuity canary, and the number a reviewer reads. Both sweeps above are quantified over a derived
-    /// population; an empty one would report a clean surface while measuring nothing. The counts are printed
-    /// rather than pinned — pinning them would be the eyeballed literal by another name.
+    /// The vacuity canary, the number a reviewer reads, AND the direction a derived population cannot see on
+    /// its own.
+    ///
+    /// <para>The population comes from the alias table, so a row that stops firing takes its own subject away
+    /// with it: mistype a live candidate and the activation and its cell vanish together, silently. That is one
+    /// of the two classes the retired literal caught, and it is the reason the counts are now PINNED as well as
+    /// printed. A count is not the eyeballed 144-row literal — it is one number per sweep, it moves only when
+    /// the surface or the table moves, and the printed listing beside it says which row changed.</para>
     /// </summary>
     [Fact]
     public void BothActivationSweepsHaveSubjects()
@@ -197,5 +202,10 @@ public sealed class AliasActivationTests
 
         Assert.NotEmpty(renames);
         Assert.NotEmpty(hints);
+
+        // The dormant-row direction. Measured on this surface at the 1.x cut; a change here is either a real
+        // surface change (update the number, and the listing above names the row) or a row that went dead.
+        Assert.Equal(91, renames.Length);
+        Assert.Equal(23, hints.Length);
     }
 }
