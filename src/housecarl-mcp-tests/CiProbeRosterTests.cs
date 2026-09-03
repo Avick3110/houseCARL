@@ -31,7 +31,7 @@ public sealed class CiProbeRosterTests
     {
         var found = new List<(string, string, string, bool)>();
 
-        foreach (var asm in RepoProjects.AllAssemblies)
+        foreach (var asm in RepoProjects.AllAssemblies())
         {
             var assemblyName = asm.GetName().Name!;
 
