@@ -147,19 +147,8 @@ public sealed class ToolSurfaceCensusTests
     static readonly Regex TypeofAssembly =
         new(@"typeof\(\s*([A-Za-z_][A-Za-z0-9_.]*)\s*\)\s*\.\s*Assembly", RegexOptions.Compiled);
 
-    /// <summary>
-    /// The names a `typeof(…).Assembly` expression could use to mean "the tool surface": every type the
-    /// surface assembly declares by FULL name, and — unqualified — only the types that could plausibly be
-    /// meant by it.
-    ///
-    /// <para>A bare name is matched against the tool types the server discovers, plus <c>ToolSurface</c>
-    /// itself. The expression is a sentence about which assembly the tools live in, and an internal helper's
-    /// name is not that sentence. The full ~180-name set made every simple name in this assembly a match, so
-    /// the first type in housecarl-core or housecarl-generator to share a name with any of them would have
-    /// made every <c>typeof(ThatType).Assembly</c> in that project an offender, with a failure telling the
-    /// author to read <c>ToolSurface.Assembly</c> instead — which would change what their expression means.
-    /// A qualified name needs no such narrowing: it is already held against a real full name.</para>
-    /// </summary>
+    /// <summary>Every type the tool-surface assembly declares, by simple name and by full name — the names a
+    /// `typeof(…).Assembly` expression could use to mean "the tool surface".</summary>
     static (HashSet<string> Simple, string[] Full) SurfaceTypeNames()
     {
         var types = HousecarlMcp.ToolSurface.Assembly.GetTypes()
@@ -167,36 +156,83 @@ public sealed class ToolSurfaceCensusTests
                      && !t.Name.Contains('`', StringComparison.Ordinal))
             .ToArray();
 
-        return (types.Where(CouldBeMeantByABareName).Select(t => t.Name).ToHashSet(StringComparer.Ordinal),
+        return (types.Select(t => t.Name).ToHashSet(StringComparer.Ordinal),
                 types.Select(t => t.FullName ?? t.Name).ToArray());
     }
 
-    /// <summary>A type whose bare name a reader would take to mean the tool surface itself.</summary>
-    static bool CouldBeMeantByABareName(Type t) =>
-        t.GetCustomAttribute<McpServerToolTypeAttribute>(inherit: false) is not null
-        || t == typeof(HousecarlMcp.ToolSurface);
+    /// <summary>Every simple type name a project declares, keyed by the project's directory. Off each
+    /// project's BUILT assembly, so it is what the compiler produced — no regex over source, no list.</summary>
+    static Dictionary<string, HashSet<string>> DeclaredNamesByProject() =>
+        _declaredNamesByProject ??= RepoProjects.All.ToDictionary(
+            p => p.Directory,
+            p => RepoProjects.BuiltAssembly(p.AssemblyName, p.Directory)
+                             .GetTypes().Select(t => t.Name).ToHashSet(StringComparer.Ordinal),
+            StringComparer.OrdinalIgnoreCase);
+
+    static Dictionary<string, HashSet<string>>? _declaredNamesByProject;
+
+    static readonly HashSet<string> NoLocalNames = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The names declared by the project the scanned file lives in — the names a bare `typeof(X)` in that file
+    /// could be about other than the tool surface.
+    ///
+    /// <para>Empty for a file in the tool-surface project itself: a surface type's name there is not an
+    /// ambiguity to resolve, it IS the surface, and the discarded spelling is exactly as discarded in that
+    /// project as in any other. Empty too for a file under no project, which the scan does not produce.</para>
+    /// </summary>
+    static HashSet<string> NamesDeclaredWhereTheFileLives(string file)
+    {
+        var owner = RepoProjects.All
+            .Where(p => file.StartsWith(p.Directory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(p => p.Directory.Length)     // nested projects: the innermost owns the file
+            .Cast<(string AssemblyName, string Directory)?>()
+            .FirstOrDefault();
+
+        if (owner is not { } project) return NoLocalNames;
+
+        return string.Equals(project.AssemblyName, HousecarlMcp.ToolSurface.Assembly.GetName().Name,
+                             StringComparison.OrdinalIgnoreCase)
+            ? NoLocalNames
+            : DeclaredNamesByProject()[project.Directory];
+    }
 
     /// <summary>
     /// Whether a `typeof(<paramref name="named"/>)` expression names a type on the tool surface.
     ///
-    /// <para>A bare name matches on the simple name. A qualified one has to be consistent with a real surface
-    /// type's full name, because a simple name is not unique across assemblies —
-    /// <c>typeof(HousecarlSetup.Program).Assembly</c> names a different project's <c>Program</c>, and matching
-    /// on the last segment alone reported it as an offender.</para>
+    /// <para>A qualified name has to be consistent with a real surface type's full name, because a simple name
+    /// is not unique across assemblies — <c>typeof(HousecarlSetup.Program).Assembly</c> names a different
+    /// project's <c>Program</c>, and matching on the last segment alone reported it as an offender.</para>
+    ///
+    /// <para>A bare name matches every surface type's simple name, MINUS the names the file's own project
+    /// declares (<paramref name="declaredWhereItLives"/>). That subtraction is the whole collision fix: the
+    /// day housecarl-core or housecarl-generator gains a type sharing a name with one in housecarl-mcp, every
+    /// <c>typeof(ThatType).Assembly</c> in that project would otherwise be reported, with a remedy that would
+    /// change what the expression means. Where the name is NOT declared locally there is no other type it
+    /// could be, which is why the set stays whole — narrowing it to the tool types instead would have stopped
+    /// catching four of the eight spellings this branch repointed, <c>typeof(ApplyOp)</c> and
+    /// <c>typeof(ToolSchemas)</c> among them.</para>
     /// </summary>
-    static bool NamesASurfaceType(string named, (HashSet<string> Simple, string[] Full) surface) =>
+    static bool NamesASurfaceType(string named, (HashSet<string> Simple, string[] Full) surface,
+                                  HashSet<string> declaredWhereItLives) =>
         named.Contains('.', StringComparison.Ordinal)
             ? surface.Full.Any(f => f == named || f.EndsWith("." + named, StringComparison.Ordinal))
-            : surface.Simple.Contains(named);
+            : surface.Simple.Contains(named) && !declaredWhereItLives.Contains(named);
 
     /// <summary>The type names in <paramref name="source"/> that a `typeof(…).Assembly` expression uses to
-    /// mean the tool surface. One home for the reading, so an arm measures what the scan measures.</summary>
-    static string[] SurfaceNamingExpressions(string source, (HashSet<string> Simple, string[] Full) surface) =>
-        TypeofAssembly.Matches(source)
+    /// mean the tool surface, read as if the source were the file at <paramref name="file"/>. One home for the
+    /// reading, so an arm measures what the scan measures.</summary>
+    static string[] SurfaceNamingExpressionsIn(string file, string source,
+                                               (HashSet<string> Simple, string[] Full) surface)
+    {
+        var local = NamesDeclaredWhereTheFileLives(file);
+
+        return TypeofAssembly.Matches(source)
             .Select(m => m.Groups[1].Value)
-            .Where(named => NamesASurfaceType(named, surface))
+            .Where(named => NamesASurfaceType(named, surface, local))
             .Distinct(StringComparer.Ordinal)
             .ToArray();
+    }
 
     [Fact]
     [Trait("tier", "unit")]
@@ -248,7 +284,7 @@ public sealed class ToolSurfaceCensusTests
     /// repo-relative "file: expression" rows.</summary>
     static string[] OffendersAmong(IEnumerable<string> files, (HashSet<string> Simple, string[] Full) surface) =>
         files
-            .SelectMany(f => SurfaceNamingExpressions(File.ReadAllText(f), surface)
+            .SelectMany(f => SurfaceNamingExpressionsIn(f, File.ReadAllText(f), surface)
                                  .Select(named => $"{Rel(f)}: typeof({named}).Assembly"))
             .Distinct(StringComparer.Ordinal)
             .OrderBy(s => s, StringComparer.Ordinal)
@@ -262,29 +298,100 @@ public sealed class ToolSurfaceCensusTests
         Path.GetRelativePath(HarnessPaths.RepoRoot, full).Replace('\\', '/');
 
     /// <summary>
-    /// The bare-name branch reads the names that could mean the surface, and no others.
+    /// The eight sites this branch repointed, with the spelling each carried before it was.
     ///
-    /// <para>Both cells are derived off the surface assembly rather than named here: the helper is a type the
-    /// server does not discover, the tool type is one it does. Each goes through the same reading the file
-    /// scan uses, as the text a file would carry.</para>
+    /// <para>A historical fixture, not a population: it is the record of what actually occurred in this tree,
+    /// and the only way to hold a change to the READING against the offenders the reading is for. Two of the
+    /// eight are one row when reported — same file, same name — which is why the assertion is over the eight
+    /// sites rather than over a row count. The names are stored, not the expressions: this file is scanned
+    /// like any other, and a literal <c>typeof(X).Assembly</c> here would be an offender in it.</para>
+    /// </summary>
+    static readonly (string File, string TypeName)[] TheRepointedSites =
+    {
+        ("src/housecarl-generator/RegisteredTools.cs",                 "WriteTools"),
+        ("src/housecarl-mcp-tests/ToolNameRegistryTests.cs",           "HousecarlMcp.CheckTools"),
+        ("src/housecarl-generator/CodexUmbrellaCoverageProbe.cs",      "ReadTools"),
+        ("src/housecarl-generator/BulkPrimitivesWave3Probe.cs",        "HousecarlMcp.ReadTools"),
+        ("src/housecarl-generator/DescriptionVocabularyGuardProbe.cs", "ApplyOp"),
+        ("src/housecarl-generator/WireNamesProbe.cs",                  "ApplyOp"),
+        ("src/housecarl-generator/WireNamesProbe.cs",                  "ApplyOp"),
+        ("src/housecarl-generator/PreFlattenSurface.cs",               "ToolSchemas"),
+    };
+
+    /// <summary>
+    /// Every spelling the repointing removed is still read as naming the tool surface.
+    ///
+    /// <para>This is what stops a fix to the false-positive side from being paid for in teeth. Narrowing the
+    /// bare-name set to the tool types the server discovers would have gone green everywhere while quietly
+    /// losing four of these — the three <c>typeof(ApplyOp)</c> sites and PreFlattenSurface's
+    /// <c>typeof(ToolSchemas)</c>, which was a second WithToolsFromAssembly call site.</para>
     /// </summary>
     [Fact]
     [Trait("tier", "unit")]
-    public void ABareNameIsReadAsTheSurfaceOnlyWhenItCouldMeanIt_AnInternalHelpersNameIsNotThatSentence()
+    public void EverySpellingThisBranchRepointedIsStillCaught_TheCollisionFixCostsNoTeeth()
     {
         var surface = SurfaceTypeNames();
-        var declared = HousecarlMcp.ToolSurface.Assembly.GetTypes()
-            .Where(t => !t.Name.Contains('<', StringComparison.Ordinal)
-                     && !t.Name.Contains('`', StringComparison.Ordinal))
+
+        var caught = TheRepointedSites
+            .Where(s => SurfaceNamingExpressionsIn(
+                            Path.Combine(HarnessPaths.RepoRoot, s.File.Replace('/', Path.DirectorySeparatorChar)),
+                            $"var a = typeof({s.TypeName}).Assembly;", surface).Length == 1)
             .ToArray();
 
-        var helper = declared.First(t => !surface.Simple.Contains(t.Name));
-        var toolType = declared.First(t => t.GetCustomAttribute<McpServerToolTypeAttribute>(inherit: false) is not null);
+        var missed = TheRepointedSites.Except(caught).Select(s => $"{s.File}: {s.TypeName}")
+                                      .OrderBy(s => s, StringComparer.Ordinal).ToArray();
 
-        Assert.Empty(SurfaceNamingExpressions($"var a = typeof({helper.Name}).Assembly;", surface));
+        Assert.True(caught.Length == TheRepointedSites.Length,
+            $"The reading catches {caught.Length} of the {TheRepointedSites.Length} spellings this branch " +
+            "repointed. These are no longer reported:\n  " + string.Join("\n  ", missed) +
+            "\nEach one occurred in this tree and was a real offender, so a reading that passes over it has " +
+            "lost teeth, whatever else it fixed.");
+    }
 
-        Assert.Equal(new[] { toolType.Name },
-                     SurfaceNamingExpressions($"var a = typeof({toolType.Name}).Assembly;", surface));
+    /// <summary>
+    /// The bare-name branch skips a name only where the file's own project declares it — and reports the same
+    /// spelling in a project that does not.
+    ///
+    /// <para>Both cells are derived: the colliding name is one the tool surface and some other project both
+    /// declare, off their built assemblies, and the second cell reuses that same name in a project that does
+    /// not declare it. Neither touches disk — the reading takes the path a file would have.</para>
+    /// </summary>
+    [Fact]
+    [Trait("tier", "unit")]
+    public void ABareNameIsSkippedOnlyWhereTheFilesOwnProjectDeclaresIt_NoNuisanceRedNoLostTeeth()
+    {
+        var surface = SurfaceTypeNames();
+        var surfaceAssembly = HousecarlMcp.ToolSurface.Assembly.GetName().Name!;
+
+        var others = RepoProjects.All
+            .Where(p => !string.Equals(p.AssemblyName, surfaceAssembly, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(p => p.AssemblyName, StringComparer.Ordinal)
+            .ToArray();
+
+        // A name the tool surface shares with another project, AND a third project that does not declare it —
+        // so the same spelling can be read in both places and only one of them skipped.
+        var pick = others
+            .SelectMany(p => DeclaredNamesByProject()[p.Directory]
+                                 .Where(n => surface.Simple.Contains(n))
+                                 .OrderBy(n => n, StringComparer.Ordinal)
+                                 .Select(n => (Colliding: p, Name: n)))
+            .Select(x => (x.Colliding, x.Name,
+                          Clean: others.FirstOrDefault(p => !DeclaredNamesByProject()[p.Directory].Contains(x.Name))))
+            .FirstOrDefault(x => x.Clean.Directory is not null);
+
+        Assert.True(pick.Name is not null,
+            "No simple name is declared both by the tool surface and by another project that a third project " +
+            "leaves undeclared, so neither cell below would prove anything. The derivation is broken, or the " +
+            "repo has changed shape — either way this arm is not measuring what it claims.");
+
+        var expression = $"var a = typeof({pick.Name}).Assembly;";
+
+        Assert.Empty(SurfaceNamingExpressionsIn(Path.Combine(pick.Colliding.Directory, "SomeFile.cs"),
+                                                expression, surface));
+
+        Assert.Equal(new[] { pick.Name },
+                     SurfaceNamingExpressionsIn(Path.Combine(pick.Clean.Directory, "SomeFile.cs"),
+                                                expression, surface));
     }
 
     /// <summary>
