@@ -10,14 +10,15 @@ namespace HousecarlGenerator;
 //  AliasTable, the SPEC §5.3 old → new dictionary.
 //
 //  WHY UNIT-LEVEL (synthetic schemas, internals via InternalsVisibleTo), where
-//  BindingShimProbe drives the real exe: most §5.3 rows are DORMANT on today's
+//  the stdio arms drive the real exe: most §5.3 rows are DORMANT on today's
 //  surface by design — a rename fires only when a build wave has landed the new
 //  canonical name in a tool's schema. The behaviours this guard pins (plugin= →
 //  source= priority, the in_place naming correction, dissolution hints) have no
 //  live tool to fire on until W2/W3 land — exactly why they must be proven
 //  against synthetic 2.0-shaped schemas NOW, so each wave lands on a mechanism
-//  already known to catch its callers. BindingShimProbe stays the end-to-end
-//  regression proof that today's surface is byte-identical (its J1–J5 arms).
+//  already known to catch its callers. The end-to-end proof that today's surface
+//  binds byte-identically moved to src/housecarl-mcp-tests at the 1.x cut, when
+//  BindingShimProbe converted whole.
 //
 //  Retirement note: AliasTable is build scaffolding, deleted at 2.0.0 (clean
 //  cut, CHARTER_PHASE4 §3.4a). This guard's table-driven arms retire with it;

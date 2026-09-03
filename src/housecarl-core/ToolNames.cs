@@ -19,7 +19,6 @@ public static class ToolNames
 {
     public const string Apply = "housecarl_apply";
     public const string AssetStatus = "housecarl_asset_status";
-    public const string BatchRecordDetail = "housecarl_batch_record_detail";  // deletion-flagged: dies at the 1.x cut
     public const string BsaExtract = "housecarl_bsa_extract";
     public const string BsaList = "housecarl_bsa_list";
     public const string BsaRepack = "housecarl_bsa_repack";
@@ -31,10 +30,7 @@ public static class ToolNames
     public const string CopyNpcAppearance = "housecarl_copy_npc_appearance";
     public const string Create = "housecarl_create";
     public const string CreatePlugin = "housecarl_create_plugin";
-    public const string CrossPluginQuery = "housecarl_cross_plugin_query";  // deletion-flagged: dies at the 1.x cut
     public const string DecompileScript = "housecarl_decompile_script";
-    public const string DiffRecord = "housecarl_diff_record";  // deletion-flagged: dies at the 1.x cut
-    public const string EffectChain = "housecarl_effect_chain";  // deletion-flagged: dies at the 1.x cut
     public const string Forward = "housecarl_forward";
     public const string LoadOrderStatus = "housecarl_load_order_status";
     public const string MergePlugins = "housecarl_merge_plugins";
@@ -47,17 +43,13 @@ public static class ToolNames
     public const string NifInspect = "housecarl_nif_inspect";
     public const string NifSet = "housecarl_nif_set";
     public const string PlaceAsset = "housecarl_place_asset";
-    public const string ReadPluginFile = "housecarl_read_plugin_file";  // deletion-flagged: dies at the 1.x cut
-    public const string ReadRecord = "housecarl_read_record";  // deletion-flagged: dies at the 1.x cut
     public const string Records = "housecarl_records";
     public const string Remove = "housecarl_remove";
-    public const string Resolve = "housecarl_resolve";  // deletion-flagged: dies at the 1.x cut
     public const string SetMo2Instance = "housecarl_set_mo2_instance";
     public const string SetToolPath = "housecarl_set_tool_path";
     public const string SkseConfigAudit = "housecarl_skse_config_audit";
     public const string SkseInventory = "housecarl_skse_inventory";
     public const string SkypatcherLayer = "housecarl_skypatcher_layer";
-    public const string SkypatcherRead = "housecarl_skypatcher_read";  // deletion-flagged: dies at the 1.x cut
     public const string UpdateStatus = "housecarl_update_status";
     public const string WriteSeq = "housecarl_write_seq";
 }

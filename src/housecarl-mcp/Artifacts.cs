@@ -192,7 +192,8 @@ internal static class Artifacts
             }
         }
 
-        var (manifest, err) = writer.Save(path, ToolNames.CrossPluginQuery, query, identity, schema, sort,
+        // Provenance: records is this writer's only caller after the cut (see WriteResolve).
+        var (manifest, err) = writer.Save(path, ToolNames.Records, query, identity, schema, sort,
                                           q.Groups is not null ? q.Groups.Count : q.Total, q.Epoch ?? "",
                                           OwnedChildNotes(annotated));
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
@@ -243,7 +244,8 @@ internal static class Artifacts
         // The batch's ONE build (first consulted row). A batch of pure parse-failures never consulted a build and
         // carries "" — such an artifact refuses epoch-checked re-entry against ANY build, which is the honest answer.
         var epoch = outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch ?? "";
-        var (manifest, err) = writer.Save(path, ToolNames.BatchRecordDetail, query, "formid",
+        // Same provenance point as WriteResolve below: records is this writer's only caller after the cut.
+        var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
                                           new[] { "formid", "type", "editorid", "winner", "override_depth", "source", "fields" },
                                           "input order", outcomes.Count, epoch, OwnedChildNotes(AnnotatedFields(outcomes)));
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
@@ -257,7 +259,11 @@ internal static class Artifacts
         using var writer = new ResultArtifact.Writer();
         foreach (var r in rows)
             writer.WriteRow((w, _) => JsonWire.WriteResolvedRow(w, r), r.Resolved ? r.Type : null);
-        var (manifest, err) = writer.Save(path, ToolNames.Resolve, query, "formid",
+        // The manifest records WHICH TOOL wrote the artifact, and it is read back as provenance in a
+        // re-entry refusal. This writer was shared between the 1.x identity tool and housecarl_records;
+        // the cut leaves records as its only caller, so a stamp naming the retired tool would put a
+        // dead name in a live refusal.
+        var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
                                           new[] { "formid", "type", "editorid", "name", "winner" },
                                           "input order", rows.Count, epoch);
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);

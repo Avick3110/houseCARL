@@ -291,7 +291,7 @@ public static class WriteTools
             ? "full preview — the ENTIRE record(s) as they WOULD be written, read from the in-memory would-be content (nothing is on disk):\n"
             : "full read-back — the ENTIRE record(s) as written, re-read from the patch file on disk " +
               "(the written file's content, NOT load-order truth; the patch wins nothing until enabled + sorted in MO2):\n");
-        string hint = dryRun ? "; raise max_chars" : "; raise max_chars, or enable the patch in MO2 and use " + ToolNames.ReadRecord;
+        string hint = dryRun ? "; raise max_chars" : "; raise max_chars, or enable the patch in MO2 and use " + ToolNames.Records;
         for (int i = 0; i < rb.Count; i++)
         {
             if (sb.Length >= cap)

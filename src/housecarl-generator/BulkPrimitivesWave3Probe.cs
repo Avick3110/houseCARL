@@ -761,8 +761,11 @@ public static class BulkPrimitivesWave3Probe
         Check("#271 refusal: read_record on an UNTICKED plugin explains it is installed-but-unticked, not 'not found'",
               readUnticked.Error is { } eU && eU.Contains("not in the load order") && eU.Contains("UNTICKED")
               && eU.Contains("plugins.txt"));
+        // The escape hatch was housecarl_read_plugin_file until the 1.x cut deleted it; the same read is the
+        // named-plugin SOURCE pole on housecarl_records. Pinned through the constant, so the arm follows a rename
+        // of the tool rather than a spelling somebody remembered to update here.
         Check("#271 refusal: and points at the raw-read escape hatch rather than leaving a dead end",
-              readUnticked.Error is { } eU2 && eU2.Contains("housecarl_read_plugin_file"));
+              readUnticked.Error is { } eU2 && eU2.Contains(ToolNames.Records) && eU2.Contains("source="));
         var readDisabledMod = svc.ResolveRead(wFk, dKey.FileName.String, null, false);
         Check("#271 refusal: a plugin whose MOD is switched off says so — a different cause, a different remedy",
               readDisabledMod.Error is { } eD && eD.Contains("DiffDonor") && eD.Contains("not active"));
@@ -881,14 +884,8 @@ public static class BulkPrimitivesWave3Probe
         Check("refusal: a plugin doesn't define the record (W2 master-only, via repl)",
               svc.DiffRecord(w2Fid, masterName, replName, null).Error is { } de3 && de3.Contains("plugin_b") && de3.Contains("does NOT define or override"));
 
-        // render via the TOOL layer (text + json)
-        var textR = ReadTools.DiffRecord(svc, wFid, masterName, replName, fields: null, format: "text", mod_a: null, mod_b: null, max_chars: 0);
-        Check("render(text): header + Damage delta + reference label",
-              textR.Contains("diff " + wFid) && textR.Contains("BasicStats.Damage=10") && textR.Contains(replName));
-        var jsonR = ReadTools.DiffRecord(svc, wFid, masterName, replName, fields: null, format: "json", mod_a: null, mod_b: null, max_chars: 0);
-        bool jsonOk = false;
-        try { using var doc = System.Text.Json.JsonDocument.Parse(jsonR); jsonOk = doc.RootElement.TryGetProperty("deltas", out _) && doc.RootElement.TryGetProperty("complete", out _); }
-        catch { }
-        Check("render(json): valid JSON carrying deltas + complete", jsonOk);
+        // The two TOOL-layer render arms that stood here drove housecarl_diff_record, which the 1.x cut
+        // deleted. The delta form's text and json renders are tested against housecarl_records in
+        // src/housecarl-mcp-tests. Every cell above calls the service directly and is untouched.
     }
 }

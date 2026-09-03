@@ -11,10 +11,10 @@ namespace HousecarlMcp;
 /// dev/plans/SKYPATCHER_DISTRIBUTOR_TOOL_PLAN_2026-07-08.md — reader-only scope, locked 2026-07-09).
 /// Read-only. The record tools answer what the PLUGINS say; these answer what the SkyPatcher INI layer
 /// DOES to those records at load: <c>housecarl_skypatcher_layer</c> is the whole-layer inventory +
-/// INI-vs-INI conflict report, <c>housecarl_skypatcher_read</c> is one record's TRUE post-SkyPatcher
-/// state (the ordered, stateful replay). Authoring stays with the skypatcher-authoring skill; these
-/// readers are its verifier (a typo'd op classifies Unknown loud; the computed post-state confirms an
-/// authored INI does what was intended).
+/// INI-vs-INI conflict report. One record's TRUE post-SkyPatcher state — the ordered, stateful replay —
+/// had its own tool until the 1.x cut; it is the overlay SOURCE pole on <c>housecarl_records</c> now.
+/// Authoring stays with the skypatcher-authoring skill; this reader is its verifier (a typo'd op
+/// classifies Unknown loud; the computed post-state confirms an authored INI does what was intended).
 /// </summary>
 [McpServerToolType]
 public static class SkyPatcherTools
@@ -35,7 +35,8 @@ public static class SkyPatcherTools
          "Entries whose applicability " +
          "also hangs on other filters are flagged conditional rather than guessed. Pass filter= a type folder, mod, " +
          "or filename substring to expand matching files to their patch lines. For ONE record's computed " +
-         "post-SkyPatcher state use " + ToolNames.SkypatcherRead + ". Read-only.")]
+         "post-SkyPatcher state use " + ToolNames.Records + " source={\"overlay\": \"skypatcher\", \"state\": \"post\"}. " +
+         "Read-only.")]
     public static string SkyPatcherLayer(
         LoadOrderService svc,
         [Description("Optional. A type-folder (e.g. 'weapon'), providing-mod, or INI filename substring (case-insensitive). " +
@@ -47,33 +48,6 @@ public static class SkyPatcherTools
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         var data = svc.SkyPatcherLayer();
         return SkyPatcherWire.RenderLayer(data, filter?.Trim(), max_chars > 0 ? max_chars : 80_000);
-    });
-
-    [McpServerTool(Name = "housecarl_skypatcher_read", ReadOnly = true, Title = "A record's true post-SkyPatcher state"),
-     Description(
-         "Compute one record's TRUE state after the SkyPatcher layer applies — the answer neither the plugins nor " +
-         "xEdit show. Replays every applicable loose INI's lines in the DLL's apply order (filename sort) onto the " +
-         "record's load-order winner: same-field sets overwrite, …Mult/…ToAdd run on the RUNNING value, collection " +
-         "add/remove accumulate, and the full filter surface is evaluated (primary/keyword/enum/flag/slot/override-" +
-         "aware; the player matches only a lone bare primary). Returns each applied op as field: before → after with " +
-         "its file:line provenance. TIERED HONESTY: ops with no static resolution (runtime math, non-deterministic " +
-         "visual styles, copy-from-form) are returned as flagged DIRECTIVES — never a silently-wrong value — and " +
-         "every unknown key, unevaluable filter, or unresolvable form is a named warning. A record type SkyPatcher " +
-         "can't patch, or that no INI touches, is a named outcome. A FormID is 'XXXXXX:Plugin.esp'. For the " +
-         "whole-layer inventory + conflicts use housecarl_skypatcher_layer. Read-only.")]
-    public static string SkyPatcherRead(
-        LoadOrderService svc,
-        [Description("The record's FormID as 'XXXXXX:Plugin.esp' — 6 hex digits, a colon, then the defining master's filename. Example: '012EB7:Skyrim.esm'.")]
-            string formid,
-        [Description("Optional. Max characters before lists are cut with an explicit notice. 0 = the server default (~80k).")]
-            int max_chars = 0) => Guard.Tool("housecarl_skypatcher_read", () =>
-    {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        FormKey fk;
-        try { fk = FormKey.Factory(formid.Trim()); }
-        catch (Exception ex) { return $"error: bad FormID '{formid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '012EB7:Skyrim.esm'."; }
-        var data = svc.SkyPatcherPostState(fk);
-        return SkyPatcherWire.RenderPostState(data, max_chars > 0 ? max_chars : 80_000);
     });
 }
 
@@ -239,73 +213,7 @@ static class SkyPatcherWire
             sb.Append("[!] ").Append(note).Append('\n');
         }
         AppendCaveats(sb, d.ReadIncomplete, d.AssetWarnings);
-        sb.Append("\n→ " + ToolNames.SkypatcherRead + " '<FormID>' for one record's computed post-SkyPatcher state; filter='<folder/mod/file>' to expand files to their lines.");
-        return sb.ToString().TrimEnd('\n');
-    }
-
-    // ---- housecarl_skypatcher_read -------------------------------------------------------------------
-
-    public static string RenderPostState(SkyPatcherPostStateData d, int cap)
-    {
-        if (d.Error is not null) return $"error: {d.Error}";
-
-        var sb = new StringBuilder();
-        sb.Append("post-SkyPatcher state — ").Append(d.RecordTypeName).Append(' ').Append(d.FormKey)
-          .Append(d.EditorId is null ? "" : $" ({d.EditorId})")
-          .Append("  [winner ").Append(d.WinnerPlugin).Append(", profile '").Append(d.ProfileName).Append("']\n");
-
-        int touched = d.Folders.Sum(f => (f.Result?.Applied.Count ?? 0) + (f.Result?.Directives.Count ?? 0));
-        if (touched == 0 && d.Folders.All(f => f.Result is null || f.Result.LinesMatched == 0))
-            sb.Append("\nno SkyPatcher line in the active order touches this record — its plugin-resolved values ARE its in-game values (as far as this layer goes).\n");
-
-        foreach (var f in d.Folders)
-        {
-            if (sb.Length >= cap) { sb.Append("... [cut at max_chars]\n"); break; }
-            sb.Append("\nfolder '").Append(f.Subfolder).Append("': ").Append(f.IniCount).Append(" applied INI(s), ")
-              .Append(f.LineCount).Append(" line(s) replayed");
-            if (!f.Enabled) { sb.Append("  [!] toggled OFF in SkyPatcher.ini — the DLL skips this folder\n"); continue; }
-            if (f.Result is null) { sb.Append("  (no INIs for this folder)\n"); continue; }
-            var r = f.Result;
-            sb.Append(" — ").Append(r.LinesMatched).Append(" matched this record");
-            if (r.LinesSkippedUnresolvedFilter > 0) sb.Append(", ").Append(r.LinesSkippedUnresolvedFilter).Append(" skipped UNRESOLVED");
-            sb.Append('\n');
-
-            if (r.Applied.Count > 0)
-            {
-                sb.Append("  APPLIED (").Append(r.Applied.Count).Append(") — file:line  op=value  →  field: before → after\n");
-                foreach (var a in r.Applied)
-                {
-                    if (sb.Length >= cap) { sb.Append("  ... [cut at max_chars]\n"); break; }
-                    sb.Append("    ").Append(Path.GetFileName(a.File)).Append(':').Append(a.LineNumber)
-                      .Append("  ").Append(a.Op).Append('=').Append(a.RawValue)
-                      .Append("  →  ").Append(a.FieldPath).Append(": ").Append(a.Before ?? "-").Append(" → ").Append(a.After ?? "-");
-                    if (a.Note is not null) sb.Append("   [").Append(a.Note).Append(']');
-                    sb.Append('\n');
-                }
-            }
-            if (r.Directives.Count > 0)
-            {
-                sb.Append("  NOT RESOLVED — directives (").Append(r.Directives.Count).Append("), no static answer exists (tiered honesty):\n");
-                foreach (var dr in r.Directives)
-                {
-                    if (sb.Length >= cap) { sb.Append("  ... [cut at max_chars]\n"); break; }
-                    sb.Append("    ").Append(Path.GetFileName(dr.File)).Append(':').Append(dr.LineNumber)
-                      .Append("  ").Append(dr.Op).Append('=').Append(dr.RawValue).Append("   [").Append(dr.Reason).Append("]\n");
-                }
-            }
-            foreach (var w in r.Warnings)
-            {
-                if (sb.Length >= cap) break;
-                sb.Append("  [!] ").Append(w).Append('\n');
-            }
-        }
-
-        foreach (var note in d.LayerNotes)
-        {
-            if (sb.Length >= cap) break;
-            sb.Append("[!] ").Append(note).Append('\n');
-        }
-        AppendCaveats(sb, d.ReadIncomplete, d.AssetWarnings);
+        sb.Append("\n→ " + ToolNames.Records + " formids=['<FormID>'] source={\"overlay\": \"skypatcher\", \"state\": \"post\"} for one record's computed post-SkyPatcher state; filter='<folder/mod/file>' to expand files to their lines.");
         return sb.ToString().TrimEnd('\n');
     }
 

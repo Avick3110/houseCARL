@@ -58,14 +58,10 @@ public static class ExcludedMasterWriteProbe
         {
             using var fx = Fixture.Build(Path.Combine(root, "fx"));
 
-            // ---- The premise, asserted rather than assumed: the broken plugin IS excluded, and READS are unharmed. ----
-            var asBroken = ReadTools.ReadRecord(fx.Svc, formid: fx.SubjectFid, plugin: BrokenName);
-            Check("the truncated plugin is EXCLUDED from the index, refused BY NAME with the reason (the read side handles this)",
-                asBroken.StartsWith("error:") && asBroken.Contains("exclud", StringComparison.OrdinalIgnoreCase), asBroken);
-
-            var read = ReadTools.ReadRecord(fx.Svc, formid: fx.SubjectFid);
-            Check("reads are unaffected: the clean override still resolves as the winner",
-                !read.StartsWith("error:") && read.Contains($"winner={CleanName}", StringComparison.OrdinalIgnoreCase), read);
+            // The two READ arms that stood here - the truncated plugin is refused BY NAME, and the clean
+            // override still resolves as the winner - drove housecarl_read_record, which the 1.x cut deleted.
+            // They are tests against housecarl_records in src/housecarl-mcp-tests now. What this guard is for,
+            // below, is the WRITE side of #314 and is untouched.
 
             // ---- THE BUG: writes that have NOTHING to do with the broken plugin. ----
             var fwd = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: MasterName, patch: "X314Fwd");

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
@@ -9,31 +8,33 @@ using HousecarlMcp;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// REGRESSION GUARD (standing CI instrument, self-contained) for bulk-primitives WAVE 1 — the three type-agnostic
-/// additions to <c>housecarl_cross_plugin_query</c> (PLAN.md P1/P2/P4):
-///   • P1 <c>defined_in=</c> — narrow a plugins= scope from 'records this plugin TOUCHES' (definitions AND overrides)
+/// REGRESSION GUARD (standing CI instrument, self-contained) for bulk-primitives WAVE 1 — the type-agnostic scan
+/// primitives at the SERVICE layer (PLAN.md P1/P2/P4):
+///   • P1 <c>definedIn</c> — narrow a plugins= scope from 'records this plugin TOUCHES' (definitions AND overrides)
 ///     to 'records DEFINED in this plugin' (origin FormKey), the catalogue-scope semantics; refused loud without plugins=.
-///   • P2 list-valued <c>references=</c> — OR over many targets in ONE scan (was one scan per target), each match
-///     recording WHICH target(s) it hit (matches=…) so a multi-target reverse lookup can be un-merged.
-///   • P4 <c>group_by=</c> winner|type|defined_in — a count table over ALL matches (not limit-capped) instead of lines.
-///   • #223 <c>offset=</c> pagination (windows tile the enumeration exactly; refusals for negative / group_by) and
-///     <c>format=dense</c> (the columnar render: columns once + positional rows, cross-checked against the plain
-///     summaries and the known winner field values, and materially smaller than format=json for the same query).
-///   • #231 <c>depth=</c> — expand list/dict contents of fields= paths per match (read_record's semantics, applied
-///     to the scan; text+json, resolve_names composes); refused loud without fields= and under format=dense
-///     (positional cells), whose container cells hint the text/json hop instead of a blind knob.
-///   • #233 <c>where_source=winner</c> — the body filters (where=/references=/editorid_contains=) decide the MATCH on
+///   • P2 list-valued <c>references</c> — OR over many targets in ONE scan (was one scan per target), each match
+///     recording WHICH target(s) it hit (MatchedTargets) so a multi-target reverse lookup can be un-merged.
+///   • P4 <c>groupBy</c> winner|type|defined_in — a count table over ALL matches (not limit-capped) instead of lines,
+///     with case-folded keys (#248) so two spellings of one plugin never split into two rows.
+///   • #223 <c>offset</c> pagination — windows tile each collect path's enumeration exactly (no gap, no overlap,
+///     same order), an offset past the end is an honest empty window, and negative / under-group_by refuse loud.
+///   • #233 <c>whereSource=winner</c> — the body filters (where/references/editoridContains) decide the MATCH on
 ///     the live load-order WINNER, not the scoped body (the 259-vs-82 post-patch-audit split); de-dups per FK, composes
-///     with defined_in=, decoupled from winner_fields= (DISPLAY); refused loud on an unknown value / no body filter,
-///     redundant-but-noted under a type=-only scope.
+///     with definedIn, and retargets EVERY body filter (editoridContains proves the widening beyond where=);
+///     refused loud on an unknown value / no body filter, redundant-but-noted under a type=-only scope.
 ///
 /// Synthesizes a 2-plugin order ON DISK (a master + a replacer that OVERRIDES one weapon and DEFINES new ones, with
 /// keyword links so references= has something to reverse) and drives the REAL service-layer scan
-/// (<see cref="LoadOrderService.CrossQuery"/> via the ForGuard seam) + the tool-layer guard
-/// (<see cref="ReadTools.CrossPluginQuery"/>). Asserts each primitive's contract AND both loud refusals
-/// (defined_in without plugins=; group_by with fields=/conflict_tree). group_by counts are cross-checked against a
-/// hand tally of the same scope's per-match summaries. Self-contained: a corpus is generated in-process if none is
-/// configured (in ci-all the runner pre-sets it), so type= resolution works standalone too.
+/// (<see cref="LoadOrderService.CrossQuery"/> via the ForGuard seam). Asserts each primitive's contract and the
+/// engine's loud refusals (defined_in without plugins=; group_by=type without a body-bearing scope; an unknown
+/// group_by key; a negative offset; offset under group_by; an unknown where_source; where_source=winner with no
+/// body filter). group_by counts are cross-checked against a hand tally of the same scope's per-match summaries.
+/// Self-contained: a corpus is generated in-process if none is configured (in ci-all the runner pre-sets it), so
+/// type= resolution works standalone too.
+///
+/// This file's TOOL-LAYER blocks were removed when the eight 1.x read tools were deleted; the surviving claims are
+/// tests against <c>housecarl_records</c> in <c>src/housecarl-mcp-tests/RecordsScanProjectionTests.cs</c>. Each
+/// removed block leaves a comment in its place saying what stood there.
 ///
 /// Run: <c>dotnet run --project src/housecarl-generator bulk-query-primitives-guard</c>
 /// </summary>
@@ -229,40 +230,14 @@ public static class BulkQueryPrimitivesProbe
                       byDef248.Groups is { Count: 1 } && string.Equals(byDef248.Groups[0].Key, cfMasterName, StringComparison.OrdinalIgnoreCase));
             }
 
-            // ================= tool-layer refusal — group_by cannot combine with fields=/conflict_tree= =================
-            Console.WriteLine();
-            Console.WriteLine("── tool-layer guard: group_by= vs fields=/conflict_tree= ──");
-            var sFields = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: "winner",
-                fields: new[] { "BasicStats.Damage" }, conflict_tree: false, limit: 500, max_chars: 0);
-            Check("group_by + fields= is REFUSED loud at the tool layer",
-                  sFields.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && sFields.Contains("group_by", StringComparison.OrdinalIgnoreCase));
-            var sTree = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: "winner",
-                fields: null, conflict_tree: true, limit: 500, max_chars: 0);
-            Check("group_by + conflict_tree=true is REFUSED loud at the tool layer",
-                  sTree.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && sTree.Contains("group_by", StringComparison.OrdinalIgnoreCase));
-
-            // A positive tool-layer render sanity check: group_by=winner renders a count table (not per-match lines).
-            var sGroup = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: "winner",
-                fields: null, conflict_tree: false, limit: 500, max_chars: 0);
-            Check("group_by=winner renders a 'grouped by winner' count table",
-                  sGroup.Contains("grouped by winner") && sGroup.Contains($"{replName} = 2"));
-
-            // Group-table max_chars truncation: a tiny cap clips the ROW list but the header total stays EXACT (Q3).
-            var sGroupClip = ReadTools.CrossPluginQuery(svc, type: null, references: null, editorid_contains: null,
-                conflicts_only: false, plugins: new[] { masterName, replName }, defined_in: false, where: null,
-                group_by: "type", fields: null, conflict_tree: false, limit: 500, max_chars: 60);
-            Check("group_by table truncates the ROW list under max_chars but keeps the exact total (Q3)",
-                  sGroupClip.Contains("7 matches across 3 groups") && sGroupClip.Contains("before hitting max_chars=") && sGroupClip.Contains("the total above is exact"));
-
-            // Detail-mode (fields=) multi-target references= still renders the per-match matches= un-merge line.
-            var sDetail = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: new[] { $"{kaFk}", $"{kbFk}" },
-                editorid_contains: null, conflicts_only: false, plugins: null, defined_in: false, where: null,
-                group_by: null, fields: new[] { "BasicStats.Damage" }, conflict_tree: false, limit: 500, max_chars: 0);
-            Check("detail-mode (fields=) multi-target references= renders the matches= line (W3 → both targets)",
-                  sDetail.Contains("matches=") && sDetail.Contains($"matches={kaFk}, {kbFk}"));
+            // ================= the cross_plugin_query TOOL-LAYER block =================
+            // It stood here: the group_by-vs-fields=/conflict_tree refusals, the rendered count table, its
+            // max_chars row clipping (the row LIST clips, the header total stays exact), and the per-match
+            // matches= un-merge line. The tool is gone. The two refusals have no spelling on housecarl_records —
+            // group_by lives inside project.form='aggregate' and fields inside the 'fields' form, so one call
+            // cannot carry both, and the form-scoping rule that replaced them is asserted in
+            // src/housecarl-mcp-tests/RecordsScanLaneTests.cs. The count table, the clipping and the un-merge
+            // line are tests in src/housecarl-mcp-tests/RecordsScanProjectionTests.cs.
 
             // ================= #223 — offset= pagination + format=dense =================
             Console.WriteLine();
@@ -293,53 +268,11 @@ public static class BulkQueryPrimitivesProbe
             Check("offset + group_by is REFUSED loud (never silently ignored)",
                   offGroup.Error is not null && offGroup.Error.Contains("group_by", StringComparison.OrdinalIgnoreCase));
 
-            // Text render names the window and the NEXT offset while paging.
-            var sPage = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
-                fields: null, conflict_tree: false, limit: 1, offset: 1, max_chars: 0);
-            Check("text render: 'showing matches 2–2' + 'continue with offset=2'",
-                  sPage.Contains("showing matches 2–2") && sPage.Contains("continue with offset=2"));
-
-            // format=dense summary rows: columnar shape, values cross-checked against the known records.
-            var sDense = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
-                fields: null, conflict_tree: false, limit: 500, max_chars: 0, format: "dense");
-            using (var doc = JsonDocument.Parse(sDense))
-            {
-                var root = doc.RootElement;
-                var cols = root.GetProperty("columns").EnumerateArray().Select(c => c.GetString()).ToArray();
-                Check("dense summary: columns = [formid,type,editorid,winner,override_depth]",
-                      cols.SequenceEqual(new[] { "formid", "type", "editorid", "winner", "override_depth" }));
-                var rows = root.GetProperty("rows").EnumerateArray().ToList();
-                Check("dense summary: 3 positional rows of 5 cells, rendered=3, not truncated",
-                      rows.Count == 3 && rows.All(r => r.ValueKind == JsonValueKind.Array && r.GetArrayLength() == 5)
-                      && root.GetProperty("rendered").GetInt32() == 3 && !root.GetProperty("truncated").GetBoolean());
-                var w1row = rows.FirstOrDefault(r => r[0].GetString() == w1Fk.ToString());
-                Check("dense summary: W1's row shows type=Weapon, winner=Repl (the override wins)",
-                      w1row.ValueKind == JsonValueKind.Array && w1row[1].GetString() == "Weapon" && w1row[3].GetString() == replName);
-            }
-
-            // format=dense detail rows (fields=): [formid, editorid, value…]; winner values under type= scope; and
-            // the whole point — materially smaller than format=json for the SAME query.
-            var sDenseF = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
-                fields: new[] { "BasicStats.Damage" }, conflict_tree: false, limit: 500, max_chars: 0, format: "dense");
-            var sJsonF = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
-                fields: new[] { "BasicStats.Damage" }, conflict_tree: false, limit: 500, max_chars: 0, format: "json");
-            using (var doc = JsonDocument.Parse(sDenseF))
-            {
-                var root = doc.RootElement;
-                var cols = root.GetProperty("columns").EnumerateArray().Select(c => c.GetString()).ToArray();
-                Check("dense detail: columns = [formid,editorid,BasicStats.Damage]",
-                      cols.SequenceEqual(new[] { "formid", "editorid", "BasicStats.Damage" }));
-                var vals = root.GetProperty("rows").EnumerateArray().ToDictionary(r => r[0].GetString()!, r => r[2].GetString());
-                Check("dense detail: damage cells carry the WINNER values (W1=15 override, W2=20, W3=30)",
-                      vals.GetValueOrDefault(w1Fk.ToString()) == "15" && vals.GetValueOrDefault(w2Fk.ToString()) == "20"
-                      && vals.GetValueOrDefault(w3Fk.ToString()) == "30");
-            }
-            Check($"dense detail is materially smaller than json for the same query ({sDenseF.Length} vs {sJsonF.Length} chars)",
-                  sDenseF.Length < sJsonF.Length);
+            // The paging TEXT render arm stood here (the window it rendered, and the next offset to continue
+            // from), and after it the whole format=dense block: the summary and detail column sets, the
+            // positional row shape, the winner values in the cells, and dense being materially smaller than
+            // json for the same query. Both renders belong to housecarl_records now — the claims are tests in
+            // src/housecarl-mcp-tests/RecordsScanProjectionTests.cs.
 
             // Tiling on the OTHER two collect paths (PR #239 review: type= never fires the de-dup, and conflicts_only
             // collects in its own branch — a branch-confined offset regression must not pass the guard).
@@ -360,31 +293,11 @@ public static class BulkQueryPrimitivesProbe
             Check("conflicts_only offset: window 0 = the 1 contested record; offset=1 = honest empty window, not capped",
                   fullC.Total == 1 && winC0.Keys.SequenceEqual(fullC.Keys) && winC1.Keys.Count == 0 && winC1.Total == 1 && !winC1.Capped);
 
-            // total==0 with offset>0: the header must blame the FILTER, not the paging (PR #239 review).
-            var sNoMatch = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: "zzz-no-such-record",
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
-                fields: null, conflict_tree: false, limit: 500, offset: 5, max_chars: 0);
-            Check("text render: total==0 + offset>0 says 'NO records match at any offset' (not 'lower offset=')",
-                  sNoMatch.Contains("NO records match at any offset") && !sNoMatch.Contains("lower offset="));
-
-            // Dense under a plugins= scope carries the per-row SOURCE provenance (PR #239 review, MEDIUM): the row's
-            // values are the scoped plugin's OWN body — W1 reads master's damage 10 (not the winner's 15), and the
-            // source cell names master so that value can never read as live truth unattributed.
-            var sDenseScoped = ReadTools.CrossPluginQuery(svc, type: null, references: null, editorid_contains: null,
-                conflicts_only: false, plugins: new[] { masterName, replName }, defined_in: false, where: null, group_by: null,
-                fields: new[] { "BasicStats.Damage" }, conflict_tree: false, limit: 500, max_chars: 0, format: "dense");
-            using (var doc = JsonDocument.Parse(sDenseScoped))
-            {
-                var root = doc.RootElement;
-                var cols = root.GetProperty("columns").EnumerateArray().Select(c => c.GetString()).ToArray();
-                Check("dense scoped detail: columns gain 'source' = [formid,editorid,BasicStats.Damage,source]",
-                      cols.SequenceEqual(new[] { "formid", "editorid", "BasicStats.Damage", "source" }));
-                var w1row = root.GetProperty("rows").EnumerateArray().FirstOrDefault(r => r[0].GetString() == w1Fk.ToString());
-                Check("dense scoped detail: W1's row = master's OWN damage 10 WITH source=master (provenance in-row)",
-                      w1row.ValueKind == JsonValueKind.Array && w1row[2].GetString() == "10" && w1row[3].GetString() == masterName);
-                Check("dense scoped detail: the P5 scoped-vs-winner note still rides in-band",
-                      root.TryGetProperty("notes", out var notes) && notes.EnumerateArray().Any(n => (n.GetString() ?? "").Contains("winner_fields=true")));
-            }
+            // The zero-match-with-an-offset header arm stood here (blame the filter, not the paging), and after
+            // it the scoped-dense arms: the added source column, the scoped body's own value beside the plugin
+            // that produced it, and the P5 scoped-vs-winner note riding in-band. Tests in
+            // src/housecarl-mcp-tests/RecordsScanProjectionTests.cs — where the note names
+            // fields_source="winner", which is how housecarl_records spells that lever.
 
             // ================= #233 — where_source=winner (predicate decides on the LIVE winner, not the scoped body) =================
             // The bug in miniature: W1 is DEFINED in master (Damage 10) and OVERRIDDEN by repl (Damage 15). A plugins=
@@ -429,37 +342,10 @@ public static class BulkQueryPrimitivesProbe
             Check("where_source=winner WITHOUT a body filter REFUSED (nothing to retarget)",
                   wsNoFilter.Error is not null && wsNoFilter.Error.Contains("body filter"));
 
-            // DISPLAY decoupling (the reason where_source is its own param, not an overload of winner_fields): match on the
-            // winner, but SHOW the scoped origin. W1 matches on winner=15 yet the rendered cell is master's OWN 10.
-            var wsDecouple = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: new[] { masterName }, defined_in: false, where: new[] { "BasicStats.Damage = 15" },
-                group_by: null, fields: new[] { "BasicStats.Damage" }, conflict_tree: false, winner_fields: false,
-                where_source: "winner", limit: 500, max_chars: 0, format: "dense");
-            using (var doc = JsonDocument.Parse(wsDecouple))
-            {
-                var root = doc.RootElement;
-                var rows = root.GetProperty("rows");
-                var w1row = rows.EnumerateArray().FirstOrDefault(r => r[0].GetString() == w1Fk.ToString());
-                Check("#233 decouple: matched W1 on winner=15 but DISPLAYS the scoped master body (damage 10, source=master)",
-                      rows.GetArrayLength() == 1 && w1row.ValueKind == JsonValueKind.Array
-                      && w1row[2].GetString() == "10" && w1row[3].GetString() == masterName);
-                Check("#233 decouple: the note says the MATCH was on the WINNER while values are the SCOPED body (no D2 drift)",
-                      root.TryGetProperty("notes", out var notes) && notes.EnumerateArray().Any(n => { var s = n.GetString() ?? ""; return s.Contains("where_source=winner") && s.Contains("SCOPED"); }));
-            }
-            // ...and winner_fields=true shows the winner on both axes.
-            var wsBothWinner = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: new[] { masterName }, defined_in: false, where: new[] { "BasicStats.Damage = 15" },
-                group_by: null, fields: new[] { "BasicStats.Damage" }, conflict_tree: false, winner_fields: true,
-                where_source: "winner", limit: 500, max_chars: 0, format: "dense");
-            using (var doc = JsonDocument.Parse(wsBothWinner))
-            {
-                var root = doc.RootElement;
-                var w1row = root.GetProperty("rows").EnumerateArray().FirstOrDefault(r => r[0].GetString() == w1Fk.ToString());
-                Check("#233 winner_fields=true: match AND display are both the winner — W1 shows damage 15",
-                      w1row.ValueKind == JsonValueKind.Array && w1row[2].GetString() == "15");
-                Check("#233 winner_fields=true: the note says match AND values are the winner",
-                      root.TryGetProperty("notes", out var notes) && notes.EnumerateArray().Any(n => { var s = n.GetString() ?? ""; return s.Contains("where_source=winner") && s.Contains("winner_fields=true"); }));
-            }
+            // The DISPLAY-decoupling arms stood here — matching on the winner while showing the scoped body,
+            // then moving display to the winner too, each with its own in-band note. Why where_source= is its
+            // own parameter rather than an overload of the display pole is unchanged; the arms are tests in
+            // src/housecarl-mcp-tests/RecordsScanProjectionTests.cs.
 
             // where_source=winner retargets ALL body filters, not just where= (the widened scope): editorid_contains=
             // rides the SAME filterBody as where=/references=. W1's WINNER editorid ('hcbpSword1Winner') differs from
@@ -473,111 +359,27 @@ public static class BulkQueryPrimitivesProbe
                   ecWinner.Total == 1 && ecWinner.Keys.Count == 1 && ecWinner.Keys[0] == w1Fk && ecWinner.WhereWinner);
             Console.WriteLine();
 
-            // dense + offset compose: the in-band offset field + the windowed rows.
-            var sDenseOff = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
-                fields: null, conflict_tree: false, limit: 1, offset: 1, max_chars: 0, format: "dense");
-            using (var doc = JsonDocument.Parse(sDenseOff))
-                Check("dense + offset=1 limit=1: offset in-band, 1 row, capped=true",
-                      doc.RootElement.GetProperty("offset").GetInt32() == 1
-                      && doc.RootElement.GetProperty("rows").GetArrayLength() == 1
-                      && doc.RootElement.GetProperty("capped").GetBoolean());
-
-            // dense + group_by renders the SAME count table as json (documented on format= — not a refusal).
-            var sDenseGroup = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: "winner",
-                fields: null, conflict_tree: false, limit: 500, max_chars: 0, format: "dense");
-            Check("dense + group_by renders the json count table (groups in-band, no refusal)",
-                  !sDenseGroup.StartsWith("error", StringComparison.OrdinalIgnoreCase) && sDenseGroup.Contains("\"groups\""));
-
-            // dense + conflict_tree refused (text-only view); an unknown format names all three (Q3).
-            var sDenseTree = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
-                fields: null, conflict_tree: true, limit: 500, max_chars: 0, format: "dense");
-            Check("dense + conflict_tree=true is REFUSED loud",
-                  sDenseTree.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && sDenseTree.Contains("dense", StringComparison.OrdinalIgnoreCase));
-            var sBadFmt = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
-                fields: null, conflict_tree: false, limit: 500, max_chars: 0, format: "csv");
-            Check("format=csv is REFUSED naming text/json/dense",
-                  sBadFmt.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && sBadFmt.Contains("dense", StringComparison.OrdinalIgnoreCase));
+            // dense composed with offset, with group_by, with conflict_tree, and the unknown-format refusal
+            // stood here. Three survive as tests in src/housecarl-mcp-tests/RecordsScanProjectionTests.cs: the
+            // offset carried in-band, the columnar transport refusing the tree form, and the format refusal
+            // naming every transport the parser accepts — derived from the parser's own enum rather than a
+            // hand-typed trio. dense + group_by does NOT: housecarl_records refuses the columnar transport on
+            // the aggregate form by name, which is the opposite of what that arm claimed.
 
             // ================= #231 — depth= expands fields= containers per match =================
-            Console.WriteLine();
-            Console.WriteLine("── #231: depth= expands list/dict contents in the scan; refusals keep summary/dense honest ──");
-
-            // Default depth=1: a container renders the count + the GENERIC 'pass depth=2' hint — the old
-            // "cross_plugin_query has no depth=; expand via batch_record_detail" redirect must be GONE.
-            var sD1 = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
-                fields: new[] { "Keywords" }, conflict_tree: false, limit: 500, max_chars: 0);
-            Check("depth default (1): Keywords renders as a count with the generic 'pass depth=2 to expand' hint",
-                  sD1.Contains("pass depth=2 to expand") && !sD1.Contains("has no depth="));
-
-            // depth=2 (text): elements expand across ALL matches — W1 (1 keyword) and W3 (2 keywords) each show
-            // exactly their OWN indices, with none of the out-of-bounds noise the hand-written bracket paths caused.
-            var sD2 = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
-                fields: new[] { "Keywords" }, depth: 2, conflict_tree: false, limit: 500, max_chars: 0);
-            Check("depth=2 text: expanded elements appear (Keywords[0] everywhere, Keywords[1] on W3) with NO out-of-bounds noise",
-                  sD2.Contains("Keywords[0]") && sD2.Contains("Keywords[1]") && !sD2.Contains("out of bounds", StringComparison.OrdinalIgnoreCase));
-            Check("depth=2 text: the expanded leaf carries its round-trip FormKey token", sD2.Contains(kaFk.ToString()));
-
-            // resolve_names composes with the expansion — the #231 use case ('Effects with identities in one scan').
-            var sD2n = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
-                fields: new[] { "Keywords" }, depth: 2, conflict_tree: false, resolve_names: true, limit: 500, max_chars: 0);
-            Check("depth=2 + resolve_names: expanded elements annotate → their target's editorid", sD2n.Contains("→ hcbpKwA"));
-
-            // json parity: depth=2 emits the SAME expanded paths in the json document's field objects.
-            var sD2j = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
-                fields: new[] { "Keywords" }, depth: 2, conflict_tree: false, limit: 500, max_chars: 0, format: "json");
-            using (var doc = JsonDocument.Parse(sD2j))
-            {
-                bool found = doc.RootElement.GetProperty("matches").EnumerateArray().Any(m =>
-                    m.TryGetProperty("fields", out var fs) && fs.EnumerateArray().Any(f => f.GetProperty("path").GetString() == "Keywords[0]"));
-                Check("depth=2 json: matches carry the expanded field paths (Keywords[0])", found);
-            }
-
-            // refusals (Q3): depth>1 without fields= (summary lines have nothing to expand); depth>1 under
-            // format=dense (positional cells align 1:1 with the requested paths).
-            var sDNoF = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
-                fields: null, depth: 2, conflict_tree: false, limit: 500, max_chars: 0);
-            Check("depth=2 WITHOUT fields= is REFUSED loud (never silently ignored)",
-                  sDNoF.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && sDNoF.Contains("fields=", StringComparison.OrdinalIgnoreCase));
-
-            // conflict_tree=true without fields= is a WHOLE-RECORD dump (PR #244 review, MEDIUM): its containers
-            // hint 'pass depth=2', so that exact call must WORK — read_record's no-fields depth semantics.
-            var sDTree = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
-                fields: null, depth: 2, conflict_tree: true, limit: 500, max_chars: 0);
-            Check("depth=2 + conflict_tree (no fields=) WORKS — the whole-record dump expands (its own hint led here)",
-                  !sDTree.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && sDTree.Contains("Keywords[0]"));
-
-            // depth under group_by gets its OWN refusal (PR #244 review, LOW): the old fields-refusal advised
-            // 'pass fields=' — a dead end group_by itself refuses. The message must name group_by, not that trap.
-            var sDGroup = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: "winner",
-                fields: null, depth: 2, conflict_tree: false, limit: 500, max_chars: 0);
-            Check("depth=2 + group_by is REFUSED naming group_by's count table (never the 'pass fields=' dead end)",
-                  sDGroup.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && sDGroup.Contains("group_by", StringComparison.OrdinalIgnoreCase)
-                  && sDGroup.Contains("count table", StringComparison.OrdinalIgnoreCase));
-            var sDDense = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
-                fields: new[] { "Keywords" }, depth: 2, conflict_tree: false, limit: 500, max_chars: 0, format: "dense");
-            Check("depth=2 + format=dense is REFUSED loud, naming the text/json hop",
-                  sDDense.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && sDDense.Contains("dense", StringComparison.OrdinalIgnoreCase)
-                  && sDDense.Contains("json", StringComparison.OrdinalIgnoreCase));
-
-            // dense at depth=1 still renders — its container cells hint the FORMAT hop with the knob, so the
-            // "pass depth=2" advice never sends a dense caller into a blind refusal.
-            var sDenseKw = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
-                fields: new[] { "Keywords" }, conflict_tree: false, limit: 500, max_chars: 0, format: "dense");
-            Check("dense (depth=1) container cells carry the format-hop hint ('pass depth=2 with format=text/json')",
-                  sDenseKw.Contains("pass depth=2 with format=text/json"));
+            // This whole block drove housecarl_cross_plugin_query and goes with it. What expansion does — the
+            // collapsed container's hint, per-match elements with no out-of-bounds noise, the round-trip token
+            // on the leaf, composition with resolve_names, the json paths, the whole-record dump at depth, and
+            // dense's format-hop hint — is tested against housecarl_records in
+            // src/housecarl-mcp-tests/RecordsScanProjectionTests.cs. The two refusals about depth's COMPANY
+            // (without fields=, and under group_by) have no spelling there: depth lives inside the
+            // 'fields'/'everything' forms, so those pairings cannot be written, and the form-scoping rule that
+            // replaced them is asserted in src/housecarl-mcp-tests/RecordsScanLaneTests.cs.
+            //
+            // depth>1 under format='dense' was a LOUD refusal here, and deleting this file's tool-layer block
+            // would have taken the guard with it: housecarl_records was accepting the pair and rendering the
+            // depth-1 table silently. It refuses by name now, and the arms that hold it live beside the other
+            // dense refusals in src/housecarl-mcp-tests — the repair landed with the cut, not this conversion.
 
             Console.WriteLine();
             Console.WriteLine($"=== bulk-query-primitives-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");

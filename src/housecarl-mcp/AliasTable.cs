@@ -280,21 +280,21 @@ internal static class AliasTable
         // compile error means RESTORE THE LITERAL, not delete the site: the redirect has to
         // outlive the tool it redirects away from. The six already-retired write names below
         // are literals for exactly that reason.
-        (ToolNames.ReadRecord,
+        ("housecarl_read_record",
          "absorbed into " + ToolNames.Records + ": formids=[\"XXXXXX:Plugin.esp\"] — project={\"form\": \"fields\", \"fields\": […]} for named fields, \"everything\" for the full body; plugin= is source=; conflict_tree=true is project={\"form\": \"tree\"}."),
-        (ToolNames.BatchRecordDetail,
+        ("housecarl_batch_record_detail",
          "absorbed into " + ToolNames.Records + ": the same formids= list with a project= form (summary | fields | everything); plugin= is source=; to_file=/@file re-entry unchanged."),
-        (ToolNames.Resolve,
+        ("housecarl_resolve",
          "absorbed into " + ToolNames.Records + ": formids=[…] with project={\"form\": \"identity\"} — the labeling form."),
-        (ToolNames.CrossPluginQuery,
+        ("housecarl_cross_plugin_query",
          "absorbed into " + ToolNames.Records + ": the same scan terms, set-valued — type= is types=, editorid_contains= is where=[\"editorid contains …\"], group_by= is project={\"form\": \"aggregate\", \"group_by\": …}, fields= lives inside project={\"form\": \"fields\"}."),
-        (ToolNames.ReadPluginFile,
+        ("housecarl_read_plugin_file",
          "absorbed into " + ToolNames.Records + ": source=\"X.esp\" reads that plugin WHEREVER it lives (active or on disk out of the order — the response states which); types=/where= scan the file's records; formids= reads specific ones."),
-        (ToolNames.DiffRecord,
+        ("housecarl_diff_record",
          "absorbed into " + ToolNames.Records + ": project={\"form\": \"delta\"} — source= is the subject (was plugin_a), versus= the reference (was plugin_b; structured poles carry the mod disambiguator), project.fields narrows the comparison."),
-        (ToolNames.EffectChain,
+        ("housecarl_effect_chain",
          "absorbed into " + ToolNames.Records + ": project={\"form\": \"chain\"} with walk={\"direction\": \"reverse\"} and the MGEF in formids= (types= still narrows the carrier types)."),
-        (ToolNames.SkypatcherRead,
+        ("housecarl_skypatcher_read",
          "absorbed into " + ToolNames.Records + ": source={\"overlay\": \"skypatcher\", \"state\": \"post\"} reads the post-INI body; pre-vs-post is project={\"form\": \"delta\"} with the two overlay poles."),
 
         // W3 — the write side. Both field-edit tools became housecarl_apply; the LANE and vocabulary changes

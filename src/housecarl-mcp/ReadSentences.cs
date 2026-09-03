@@ -65,13 +65,14 @@ internal static class ReadSentences
     /// manifest is line 1 with its rows below, the single-read json object wrote the clause ahead of its own
     /// <c>fields</c> array, and a cap hit inside the text field loop truncated away the very field being pointed
     /// at. Naming the fields is true from any position, in any medium.</para></summary>
-    [MustState("declared per plugin", "conflict_tree=true", ToolNames.ReadRecord, "text mode")]
+    [MustState("declared per plugin", "\"form\": \"tree\"", ToolNames.Records)]
     internal const string NotReadFraming =
         "note: this response annotates field(s) that hold CHILD RECORDS ({0}). Child records are declared per " +
         "plugin — so what one plugin's body carries is not the whole story for that field. This read did not open " +
         "the other plugins' bodies to see what they declare. To get a read that does, and names them: " +
-        ToolNames.ReadRecord + " or " + ToolNames.BatchRecordDetail + " in text mode (the default) with conflict_tree=true " +
-        "— it is a text-only view, so json, dense and to_file reads refuse it.";
+        // This string is a string.Format TEMPLATE ({0} is the field list), so every literal brace is doubled.
+        ToolNames.Records + " with project={{\"form\": \"tree\"}} — the same formids, every touching plugin's " +
+        "declaration, in text or json, and it spills to to_file like any other form.";
 
     /// <summary>The cheap tier's response-level clause over the fields <paramref name="fields"/> the response
     /// actually emitted an annotation for.</summary>
