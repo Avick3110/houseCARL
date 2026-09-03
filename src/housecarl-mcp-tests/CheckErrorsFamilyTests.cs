@@ -41,7 +41,9 @@ public sealed class CheckErrorsFamilyTests : IClassFixture<CheckErrorsWorldFixtu
         var r = Svc.CheckErrors(null, 1000, findings: new[] { "missing_masters" });
 
         var text = Text(r, 20000);
-        Assert.Contains("dangling refs NOT CHECKED (findings= excluded 'dangling')", text);
+        // Anchored on the surrounding bullet separators the head composes it between, so an insertion right
+        // after the "· " that precedes this clause cannot hide behind a same-suffix match.
+        Assert.Contains("· dangling refs NOT CHECKED (findings= excluded 'dangling') · ", text);
         Assert.DoesNotContain("0 dangling ref(s)", text);
 
         var fam = ErrorsFamily(Json(r, 20000));
@@ -284,9 +286,13 @@ public sealed class CheckErrorsFamilyTests : IClassFixture<CheckErrorsWorldFixtu
     public void Fact14_BaselineLinePrintsOnlyWhereABaseMasterWasSwept_AndNamesThatSubset()
     {
         var swept = Text(Svc.CheckErrors(null, 1000, findings: null), 20000);
+        // Extended past the plugin-name parenthesis into the very next clause, so a sabotage inserted right
+        // after it cannot hide behind a same-prefix match.
         Assert.Contains("baseline: " + CheckErrorsWorld.BaselineDangling + " of " + CheckErrorsWorld.TotalDangling +
                          " dangling ref(s) come from the base-game master(s) this sweep covered (" + W.BaseName +
-                         ")", swept);
+                         ") — vanilla leftovers rather than anything this load order introduced; " +
+                         (CheckErrorsWorld.TotalDangling - CheckErrorsWorld.BaselineDangling) +
+                         " come from the rest of the swept scope.", swept);
 
         var neverSwept = Text(Svc.CheckErrors(null, 1000, findings: null, exclude: new[] { W.BaseName }), 20000);
         Assert.DoesNotContain("baseline:", neverSwept);
