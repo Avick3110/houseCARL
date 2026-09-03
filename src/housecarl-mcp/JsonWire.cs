@@ -139,65 +139,6 @@ static class JsonWire
     }
 
     // ---- housecarl_diff_record (P8c) ----------------------------------------------------------------
-    /// <summary>Render a pairwise record diff as JSON: <c>{formid, a:{plugin,where,in_order,type,editorid}, b:{…},
-    /// complete, deltas:[…], delta_count, rendered, truncated, agreed_count, agreed_sample:[…]}</c>. Deltas are the SAME
-    /// strings text emits; budget-aware (drops trailing deltas past max_chars, flags <c>truncated</c>) and always valid
-    /// JSON. On refusal a single <c>{formid, error}</c>.</summary>
-    public static string RenderDiffRecord(LoadOrderService.DiffRecordOutcome o, int maxChars)
-    {
-        int cap = Cap(maxChars);
-        using var ms = new MemoryStream();
-        using (var w = new Utf8JsonWriter(ms, Opts))
-        {
-            w.WriteStartObject();
-            w.WriteString("formid", o.Formid);
-            // Refusals carry the bare stamp only — coverage is an assertion about RESOLVED inputs, and a refusal's
-            // poles were never resolved (emitting true there claimed full coverage on e.g. an off-order-path
-            // refusal; PR #305 third round, finding 2). Text refusals carry no qualifier either — D2 restored.
-            if (o.Error is not null) { WriteRefusal(w, o.Error); WriteNullable(w, "epoch", o.Epoch); }
-            else
-            {
-                WriteEpochWithCoverage(w, o);   // §2.1.1: the INDEX build + whether it covers every input
-                WriteDiffPole(w, "a", o.A!);
-                WriteDiffPole(w, "b", o.B!);
-                var d = o.Diff!;
-                w.WriteBoolean("complete", d.Complete);
-                w.WriteStartArray("deltas");
-                int rendered = 0; bool truncated = false;
-                foreach (var delta in d.Deltas)
-                {
-                    w.Flush();
-                    if (ms.Length >= cap) { truncated = true; break; }
-                    w.WriteStringValue(delta);
-                    rendered++;
-                }
-                w.WriteEndArray();
-                w.WriteNumber("delta_count", d.Deltas.Count);
-                w.WriteNumber("rendered", rendered);
-                w.WriteBoolean("truncated", truncated);
-                w.WriteNumber("agreed_count", d.AgreedCount);
-                WriteStringArray(w, "agreed_sample", d.AgreedSample);
-            }
-            w.WriteEndObject();
-        }
-        return Finish(ms);
-    }
-
-    /// <summary>The diff stamp + its coverage AS DATA (PR #305 re-review): the epoch names the INDEX build, and an
-    /// OUT-OF-LOAD-ORDER pole's file content is outside that fingerprint — so a machine consumer comparing epochs
-    /// for "same inputs ⇒ same answer" gets told in-band, not in a C# comment. <c>epoch_covers_all_inputs</c> is
-    /// false exactly when an off-order pole contributed (derivable from the poles' <c>in_order</c>, emitted as a
-    /// sibling so equality checks need no join); the text render's "(active-order inputs only …)" qualifier is this
-    /// same fact's prose form (D2 — one datum, two renders). SUCCESS path only: a refusal's poles were never
-    /// resolved, so it carries the bare stamp without a coverage claim (third-round finding 2).</summary>
-    static void WriteEpochWithCoverage(Utf8JsonWriter w, LoadOrderService.DiffRecordOutcome o)
-    {
-        if (o.Epoch is null) return;
-        w.WriteString("epoch", o.Epoch);
-        w.WriteBoolean("epoch_covers_all_inputs",
-                       o.A is null or { InOrder: true } && o.B is null or { InOrder: true });
-    }
-
     static void WriteDiffPole(Utf8JsonWriter w, string name, LoadOrderService.DiffPole p)
     {
         w.WriteStartObject(name);
@@ -381,27 +322,6 @@ static class JsonWire
     }
 
     // ---- housecarl_read_record (P6) -----------------------------------------------------------------
-    /// <summary>read_record as JSON: the record object at top level, or <c>{error}</c>. conflict_tree is refused at
-    /// the tool layer for json (a text-only diff view), so only the field data reaches here. The single-read record
-    /// object carries <c>epoch</c> top-level (it IS the response); batch/query rows never repeat it per row — there
-    /// the epoch is response-level accounting.</summary>
-    public static string RenderRecord(ReadOutcome o, int maxChars)
-    {
-        int cap = Cap(maxChars);
-        using var ms = new MemoryStream();
-        using (var w = new Utf8JsonWriter(ms, Opts))
-        {
-            if (o.Error is not null)
-            {
-                // A stamped refusal carries its stamp on the wire too (PR #305 review) — same contract as text.
-                w.WriteStartObject(); WriteRefusal(w, o.Error); WriteNullable(w, "epoch", o.Epoch); w.WriteEndObject();
-            }
-            else WriteReadRecord(w, o, ms, cap, epoch: o.Epoch,
-                                 childFields: new SortedSet<string>(StringComparer.Ordinal), stateChildNote: true);
-        }
-        return Finish(ms);
-    }
-
     /// <summary>The #342 clause on the json lane, written ONCE per response over the annotated fields the document
     /// actually CARRIES — the same source the text lane states, so the two transports cannot drift. Gated on the
     /// paths that were written, never on the prose.
@@ -1332,80 +1252,6 @@ static class JsonWire
     }
 
     // ---- housecarl_check_errors (#282) --------------------------------------------------------------
-    /// <summary>The integrity sweep as json, carrying the SAME accounting the text render states in prose — one
-    /// <see cref="CheckAccounting"/> computes both, so the two transports cannot disagree about what this response
-    /// is missing (#337).
-    ///
-    /// <para>An error CLASS the caller excluded is emitted as <c>null</c>, NOT as 0 — the json counterpart of the
-    /// text render's "NOT CHECKED", so a skipped check cannot be parsed as a clean one (Q3).</para>
-    ///
-    /// <para><b>The budget is tested per ENTRY, not per plugin</b> (#361). It used to be tested before each plugin
-    /// OBJECT, so one plugin's whole dangling array went out in a single piece: measured on the live ARR order, a
-    /// single-plugin sweep of a 2591-ref plugin returned 202,425 chars against an 80,000 cap and reported
-    /// <c>truncated: false</c> — true, and useless, because <c>max_chars</c> had not been applied at all. Testing at
-    /// the entry makes the overshoot unrepresentable rather than smaller.</para>
-    ///
-    /// <para>The field list this summary used to carry has been deleted rather than corrected a second time: it was
-    /// a HAND-KEPT second spelling of the wire names, outside <c>wire-names-guard</c>'s reach, and it had already
-    /// drifted once (it named <c>base_masters_in_scope</c>, which no writer emits). The writer below is the only
-    /// authority — #358's roster lesson, taken at the second drift as that comment itself asked.</para></summary>
-    public static string RenderCheckErrors(ErrorCheckResult r, int maxChars, int histogramLimit = 1000)
-    {
-        int cap = Cap(maxChars);
-        var acct = new CheckAccounting(r, cap);
-        int reserve = acct.JsonReserve;
-        int budget = acct.BodyBudget(reserve);
-        using var ms = new MemoryStream();
-        using (var w = new Utf8JsonWriter(ms, Opts))
-        {
-            w.WriteStartObject();
-            // w.Flush() before Finish: this early return sits INSIDE the using, so without it the writer's buffered
-            // bytes never reach the stream and the refusal rendered as an EMPTY STRING — a latent, pre-existing Q3
-            // break on every json-mode sweep refusal, surfaced by the epoch guard's refusal-render arm (PR #305).
-            // Bare stamp only: coverage is an assertion about SWEPT inputs, and a refusal swept none (finding 2).
-            if (r.Error is not null) { WriteRefusal(w, r.Error); WriteNullable(w, "epoch", r.Epoch); w.WriteEndObject(); w.Flush(); return Finish(ms); }
-
-            WriteErrorsHead(w, r);
-            // EVERYTHING A CAP CAN REFUSE GOES THROUGH `body`, including the excluded roster, which used to be
-            // written up in the header where no budget could reach it — 1,188 chars past the budget on three
-            // 400-character parse reasons, while the TEXT lane bounded the same roster. The fourth instance of one
-            // class, which is why the bound now lives in one helper rather than at each write site.
-            var body = new BoundedBody(acct, budget, () => Size(w, ms));
-
-            WriteErrorsSection(w, r, body, histogramLimit);
-            // The excluded roster is a SCOPE fact — the plugins the INDEX could not parse — so it is written once
-            // per RESPONSE rather than per family, and exactly one accounting declares its rows.
-            WriteExcluded(w, r.ExcludedPlugins, body);
-
-            // §2.1's required in-band accounting rides the accounting's own writer — everything the close emits is
-            // written in one place, which is the same place JsonReserve measures.
-            acct.WriteJson(w);
-            w.WriteString("boundary", ReadSentences.SweepBoundary);
-            // Measured, like the text lane: Size() is the document so far, plus what closing it still costs — and
-            // like the text lane, the notice is part of the document whose length it states, so its own encoded cost
-            // is counted in and the composition is run to a fixed point.
-            int closed = Size(w, ms) + Framing.RootClose;
-            // The response's FIXED PART, by SUBTRACTION (CheckAccounting.CapTooSmall states the rule): the document
-            // just measured, less what the entries and rows put in it. Handed the RESERVE instead it carried this
-            // lane's whole JsonGlue — a kilobyte sized to absorb one entry, inside a number describing a fixed part
-            // that never spends it — and the raise-to it feeds came out 85% above the smallest cap that fits.
-            int needed = body.FixedPart(closed);
-            // How many times this document prints the cap back, COUNTED in the document itself — read before the
-            // notice is written, because a site inside it is one the raise is paying to remove.
-            int sites = acct.CapPrintsIn(SoFar(w, ms));
-            if (acct.CapTooSmall(closed, needed, 0, sites) is { } notice)
-            {
-                int cost = OverrunNoticeCost(notice);
-                var settled = acct.CapTooSmall(closed + cost, needed, cost, sites)!;
-                if (OverrunNoticeCost(settled) != cost)
-                    settled = acct.CapTooSmall(closed + OverrunNoticeCost(settled), needed, OverrunNoticeCost(settled), sites)!;
-                w.WriteString("max_chars_overrun", settled);
-            }
-            w.WriteEndObject();
-        }
-        return Finish(ms);
-    }
-
     /// <summary>The errors family's own head members, written into whatever object is open. Everything above the
     /// first thing a budget can refuse; the response's own title/scanned framing is the caller's, because the
     /// merged surface writes these into a per-family object where the single-family tool writes them flat.</summary>
@@ -1743,10 +1589,11 @@ static class JsonWire
         return Size(w, ms) - before;
     }
 
-    /// <summary>check_errors' stamp + coverage as data (PR #305 re-review) — the sweep twin of
-    /// <see cref="WriteEpochWithCoverage"/>: <c>epoch_covers_all_inputs</c> is false exactly when off-order files
-    /// were swept beside the index (their content is outside the fingerprint; <c>off_order_scanned</c> names them).
-    /// validate_scripts needs no twin — it has no off-order lane, so its stamp always covers everything swept.
+    /// <summary>The errors family's stamp + coverage as data (PR #305 re-review): <c>epoch_covers_all_inputs</c> is
+    /// false exactly when off-order files were swept beside the index (their content is outside the fingerprint;
+    /// <c>off_order_scanned</c> names them). The pairwise-diff twin this was written beside went with
+    /// housecarl_diff_record (#486). The scripts family needs no coverage flag — it has no off-order lane, so its
+    /// stamp always covers everything swept.
     /// SUCCESS path only — a refusal swept nothing, so it carries the bare stamp (third-round finding 2).</summary>
     static void WriteSweepEpoch(Utf8JsonWriter w, ErrorCheckResult r)
     {
@@ -1939,56 +1786,6 @@ static class JsonWire
     }
 
     // ---- housecarl_validate_scripts (#282) ---------------------------------------------------------
-    /// <summary>The script-property sweep as JSON: <c>{scanned_plugins, records_with_scripts, unbound, unbound_object,
-    /// unbound_scalar, bound_but_null, unverifiable, classes_checked, filter_note, read_incomplete, excluded_plugins,
-    /// records:[…], capped, rendered, truncated, boundary}</c>, or the <c>counts_only</c> shape with
-    /// <c>unbound_by_property</c> in place of <c>records</c>. A finding CLASS the caller excluded is emitted as
-    /// <c>null</c>, NOT as 0 — the json counterpart of the text render's "NOT CHECKED", so a class nobody looked for
-    /// cannot be parsed as one that came back clean (PR #288 review, finding 1). <c>unverifiable</c> is never null: it
-    /// cannot be filtered out. Same data as the text render off the same result object (D2 — the two can differ only in
-    /// formatting).</summary>
-    public static string RenderScriptCheck(ScriptCheckResult r, int maxChars, int histogramLimit = 1000)
-    {
-        int cap = Cap(maxChars);
-        // The same accounting the text lane states in prose, so the two transports cannot disagree about what this
-        // response is missing. It is also what brings the record roster under the max_chars bound — it was not
-        // before (PR #391's stated LOW-1 residual): the loop tested `ms.Length >= cap` before each record and the
-        // roster's own `rendered`/`truncated` were written past that test.
-        var acct = new CheckAccounting(r, cap);
-        int budget = acct.BodyBudget(acct.JsonReserve);
-        using var ms = new MemoryStream();
-        using (var w = new Utf8JsonWriter(ms, Opts))
-        {
-            w.WriteStartObject();
-            // w.Flush() before Finish — same latent empty-refusal bug as RenderCheckErrors' early return (see there).
-            if (r.Error is not null) { WriteRefusal(w, r.Error); WriteNullable(w, "epoch", r.Epoch); w.WriteEndObject(); w.Flush(); return Finish(ms); }
-
-            WriteScriptsHead(w, r);
-            var body = new BoundedBody(acct, budget, () => Size(w, ms));
-            WriteScriptsSection(w, r, body, histogramLimit);
-            // The excluded roster is a SCOPE fact, written once per response and bounded like everything else.
-            WriteExcluded(w, r.ExcludedPlugins, body);
-
-            acct.WriteJson(w);
-            w.WriteString("boundary", ReadSentences.SweepScriptBoundary);
-            int closed = Size(w, ms) + Framing.RootClose;
-            int needed = body.FixedPart(closed);
-            // How many times this document prints the cap back, COUNTED in the document itself — read before the
-            // notice is written, because a site inside it is one the raise is paying to remove.
-            int sites = acct.CapPrintsIn(SoFar(w, ms));
-            if (acct.CapTooSmall(closed, needed, 0, sites) is { } notice)
-            {
-                int cost = OverrunNoticeCost(notice);
-                var settled = acct.CapTooSmall(closed + cost, needed, cost, sites)!;
-                if (OverrunNoticeCost(settled) != cost)
-                    settled = acct.CapTooSmall(closed + OverrunNoticeCost(settled), needed, OverrunNoticeCost(settled), sites)!;
-                w.WriteString("max_chars_overrun", settled);
-            }
-            w.WriteEndObject();
-        }
-        return Finish(ms);
-    }
-
     /// <summary>The scripts family's own head members, written into whatever object is open. A finding CLASS the
     /// caller excluded is emitted as <c>null</c>, NOT as 0 — the json counterpart of the text render's NOT CHECKED,
     /// so a class nobody looked for cannot be parsed as one that came back clean (PR #288 review, finding 1).
@@ -2361,83 +2158,6 @@ static class JsonWire
         if (c.HasFlag(ScriptFindingClass.UnboundScalar)) names.Add("unbound_scalar");
         if (c.HasFlag(ScriptFindingClass.BoundNull)) names.Add("bound_null");
         return names;
-    }
-
-    // ---- housecarl_read_plugin_file (P6) ------------------------------------------------------------
-    /// <summary>read_plugin_file as JSON — always stamped <c>out_of_load_order:true</c> (the load-bearing raw-file
-    /// caveat), then the file/masters context and the mode payload: <c>record</c> (the FILE's own record — no winner,
-    /// it's not resolved), <c>records</c> (enumerate), or <c>type_counts</c> (summary). <c>error</c>/<c>ambiguous</c>
-    /// on failure.</summary>
-    public static string RenderPluginFile(PluginFileOutcome o, int maxChars,
-                                          IReadOnlyList<KeyValuePair<string, string>>? envelope = null)
-    {
-        int cap = Cap(maxChars);
-        using var ms = new MemoryStream();
-        using (var w = new Utf8JsonWriter(ms, Opts))
-        {
-            w.WriteStartObject();
-            WriteEnvelope(w, envelope);
-            if (o.Mode == "error") { WriteRefusal(w, o.Error); }
-            else if (o.Mode == "ambiguous")
-            {
-                WriteRefusal(w, $"'{Path.GetFileName(o.Requested)}' is provided by {o.Ambiguous.Count} locations — specify which with mod= (or pass an absolute path).");
-                w.WriteStartArray("ambiguous");
-                foreach (var h in o.Ambiguous) { w.WriteStartObject(); w.WriteString("where", h.Where); w.WriteString("path", h.Path); w.WriteEndObject(); }
-                w.WriteEndArray();
-            }
-            else
-            {
-                w.WriteBoolean("out_of_load_order", true);
-                WriteNullable(w, "file", o.FilePath);
-                WriteNullable(w, "where", o.Where);
-                w.WriteBoolean("enabled", o.Enabled);
-                // The JSON lane surfaces this state too, so it gets the cause as well (#271) — a consumer reading
-                // enabled=false here would otherwise have to go re-derive WHY, which is the whole cost this fixes.
-                // Always PRESENT, explicitly null when the game loads the file (the WriteNullable house style), so a
-                // consumer can tell "no cause" from "field not emitted by an older build".
-                WriteNullable(w, "why_not_active", o.WhyNotActive);
-                WriteStringArray(w, "masters", o.Masters);
-                WriteStringArray(w, "missing_masters", o.MissingMasters);
-                WriteStringArray(w, "inactive_masters", o.InactiveMasters);
-                w.WriteString("mode", o.Mode);
-                if (o.Mode == "read" && o.Record is { } rf)
-                {
-                    w.WritePropertyName("record");
-                    w.WriteStartObject();
-                    w.WriteString("formid", rf.FormKey);
-                    w.WriteString("type", rf.Type);
-                    WriteNullable(w, "editorid", rf.EditorId);
-                    WriteFieldsArray(w, rf, ms, cap);
-                    w.WriteEndObject();
-                }
-                else if (o.Mode == "enumerate")
-                {
-                    w.WriteNumber("total", o.RowTotal);
-                    w.WriteBoolean("capped", o.Capped);
-                    w.WriteStartArray("records");
-                    int rendered = 0; bool truncated = false;
-                    foreach (var row in o.Rows)
-                    {
-                        w.Flush();
-                        if (ms.Length >= cap) { truncated = true; break; }
-                        w.WriteStartObject(); w.WriteString("formid", row.FormKey); w.WriteString("type", row.Type); WriteNullable(w, "editorid", row.EditorId); w.WriteEndObject();
-                        rendered++;
-                    }
-                    w.WriteEndArray();
-                    w.WriteNumber("rendered", rendered);
-                    w.WriteBoolean("truncated", truncated);
-                }
-                else   // summary
-                {
-                    w.WriteNumber("total", o.RecordTotal);
-                    w.WriteStartArray("type_counts");
-                    foreach (var tc in o.TypeCounts) { w.WriteStartObject(); w.WriteString("type", tc.Type); w.WriteNumber("count", tc.Count); w.WriteEndObject(); }
-                    w.WriteEndArray();
-                }
-            }
-            w.WriteEndObject();
-        }
-        return Finish(ms);
     }
 
     // ---- housecarl_apply (W3 — the 2.0 write surface) -----------------------------------------------

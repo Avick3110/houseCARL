@@ -94,65 +94,6 @@ static class Wire
         return QueryFormat.Text;
     }
 
-    // ---- the delta form (was housecarl_diff_record, P8c) --------------------------------------------
-    /// <summary>Render a pairwise record diff (P8c; the delta form): a header naming both poles (plugin + where
-    /// found + record identity), then one line per delta (plugin_a's value, reference = plugin_b), budget-bounded with an
-    /// explicit cut. No deltas ⇒ "identical across the fields read" WITH the agreed-leaf count — UNLESS the deep read was
-    /// TRUNCATED, in which case it says so instead of claiming identical (Q3). On refusal, a single error: line.</summary>
-    public static string RenderDiffRecord(LoadOrderService.DiffRecordOutcome o, int maxChars)
-    {
-        if (o.Error is not null) return $"error: {o.Error}" + (o.Epoch is not null ? $"\nepoch={o.Epoch}" : "");
-        int cap = Cap(maxChars);
-        var a = o.A!; var b = o.B!; var d = o.Diff!;
-        var sb = new StringBuilder();
-        sb.Append("diff ").Append(o.Formid);
-        if (o.Epoch is not null)
-        {
-            sb.Append("  epoch=").Append(o.Epoch);
-            // The fingerprint covers the ACTIVE ORDER only — an off-order pole's file content sits outside it, so
-            // equal epochs must not be read as "same inputs" across such calls (PR #305 review; the fact itself is
-            // per-pole data: InOrder/Where, rendered on each pole line).
-            if (!a.InOrder || !b.InOrder) sb.Append(" (active-order inputs only — the off-order pole's file is outside the fingerprint)");
-        }
-        sb.Append('\n')
-          .Append("  a: ").Append(PoleLine(a)).Append('\n')
-          .Append("  b: ").Append(PoleLine(b)).Append('\n');
-
-        if (d.Deltas.Count == 0)
-        {
-            if (!d.Complete)
-                sb.Append("no differing fields in what was read, but the deep read was TRUNCATED at the cap — NOT a clean 'identical' (Q3). Narrow with fields= to compare in full.\n");
-            else if (d.AgreedCount > 0)
-                sb.Append("identical across the fields read (").Append(d.AgreedCount).Append(" value leaf/leaves agree")
-                  .Append(d.AgreedSample.Count > 0 ? ": " + string.Join(", ", d.AgreedSample) + (d.AgreedCount > d.AgreedSample.Count ? ", …" : "") : "")
-                  .Append(").\n");
-            else
-                sb.Append("identical across the fields read (no differing fields).\n");
-            return sb.ToString();
-        }
-
-        sb.Append(d.Deltas.Count).Append(d.Deltas.Count == 1 ? " difference" : " differences")
-          .Append(" — each line: ").Append(a.Plugin).Append("'s value (reference = ").Append(b.Plugin).Append("):\n");
-        int shown = 0;
-        foreach (var delta in d.Deltas)
-        {
-            if (sb.Length >= cap)
-            {
-                sb.Append("  ... [truncated: rendered ").Append(shown).Append(" of ").Append(d.Deltas.Count)
-                  .Append(" at max_chars=").Append(cap).Append("; pass fields= to narrow, or raise max_chars]\n");
-                break;
-            }
-            sb.Append("  - ").Append(delta).Append('\n');
-            shown++;
-        }
-        if (!d.Complete)
-            sb.Append("note: the deep read was TRUNCATED — list-content and one-sided-presence deltas are SUPPRESSED (only both-sides value mismatches shown); narrow with fields= to compare those in full.\n");
-        return sb.ToString();
-    }
-
-    static string PoleLine(LoadOrderService.DiffPole p) =>
-        $"{p.Plugin} [{p.Where}{(p.RecordType is not null ? ", " + p.RecordType : "")}{(p.EditorId is not null ? " " + p.EditorId : "")}]";
-
     // ---- the identity form (was housecarl_resolve) --------------------------------------------------
     /// <summary>Render the bulk name-resolution result (P3; the identity form): one compact identity line per input
     /// FormID (type/editorid/name/winner), or <c>error=</c> for a bad/absent input (per-item, the batch survives — Q3).
@@ -188,22 +129,6 @@ static class Wire
             sb.Append('\n');
         }
         if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
-        return sb.ToString().TrimEnd('\n');
-    }
-
-    // ---- one record (was housecarl_read_record) -----------------------------------------------------
-    public static string RenderRecord(LoadOrderService svc, ReadOutcome o, IReadOnlyList<string>? fields, bool conflictTree, int maxChars)
-    {
-        // A stamped refusal renders its stamp (PR #305 review): "not present" is an answer about a build, and the
-        // wire must say WHICH — the DTO carrying it while the render dropped it was the unmet half of the contract.
-        if (o.Error is not null) return "error: " + o.Error + (o.Epoch is not null ? $"\nepoch={o.Epoch}" : "");
-        var sb = new StringBuilder();
-        // Header line, like every other text lane — and BEFORE the cap-bounded body, so a capped record never
-        // overruns its budget to fit the stamp (third-round note).
-        if (o.Epoch is not null) sb.Append("epoch=").Append(o.Epoch).Append('\n');   // §2.1.1: the build this read answered from
-        var notes = new ChildNotes();
-        AppendRecordBlock(sb, svc, o, fields, conflictTree, Cap(maxChars), notes);
-        AppendOwnedChildNotes(sb, notes);
         return sb.ToString().TrimEnd('\n');
     }
 
@@ -250,11 +175,11 @@ static class Wire
         sb.Append('\n').Append(ReadSentences.NotReadClause(fields)).Append('\n');
     }
 
-    /// <summary>Render one record, and its conflict tree when asked. The outcome keeps the cheap index-only #342
-    /// annotation the service already put on it — the precise tier lives on <c>records project={"form":"tree"}</c>
-    /// now (#485), not on this lane's <c>conflict_tree=true</c>, which no 2.0 surface calls.</summary>
-    static void AppendRecordBlock(StringBuilder sb, LoadOrderService svc, ReadOutcome o, IReadOnlyList<string>? fields,
-                                  bool conflictTree, int cap, ChildNotes notes, LeverNames? levers = null)
+    /// <summary>Render one record. The outcome keeps the cheap index-only #342 annotation the service already put
+    /// on it — the precise tier lives on <c>records project={"form":"tree"}</c> now (#485), and this lane renders
+    /// no tree at all: the render, and the <c>conflict_tree=true</c> flag that reached it, went with the last
+    /// caller that could set it (#486).</summary>
+    static void AppendRecordBlock(StringBuilder sb, ReadOutcome o, int cap, ChildNotes notes, LeverNames? levers = null)
     {
         var lv = levers ?? LeverNames.Legacy;
         // Hold back the clause this record could earn BEFORE its fields render, so an annotated response answers
@@ -264,17 +189,16 @@ static class Wire
         // The RESERVE is held back from the budget, never from the number the render QUOTES: a cut that told the
         // caller "at max_chars=1124" when they passed 2000 would be a wrong sentence of its own.
         AppendRecord(sb, o, cap, notes.Reserve, notes, lv);
-        if (conflictTree) AppendConflictTree(sb, svc, o, fields, cap, notes.Reserve, lv);
     }
 
     // ---- many records (was housecarl_batch_record_detail) -------------------------------------------
-    public static string RenderBatch(LoadOrderService svc, IReadOnlyList<ReadOutcome> outcomes, IReadOnlyList<string>? fields, bool conflictTree, int maxChars)
-        => RenderBatch(svc, outcomes, fields, conflictTree, maxChars, null, out _);
+    public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars)
+        => RenderBatch(outcomes, maxChars, null, out _);
 
     /// <summary><paramref name="levers"/> is the CALLER's lever vocabulary for the remedy sentences below —
     /// this renderer is shared by both tool generations and they spell the selector differently (#439).
     /// Omitted means the 1.x spelling, so a 1.x call site renders byte-identically.</summary>
-    public static string RenderBatch(LoadOrderService svc, IReadOnlyList<ReadOutcome> outcomes, IReadOnlyList<string>? fields, bool conflictTree, int maxChars,
+    public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars,
                                      SpillState? spill, out bool truncated, LeverNames? levers = null)
     {
         truncated = false;
@@ -301,7 +225,7 @@ static class Wire
             }
             sb.Append('\n');
             if (o.Error is not null) sb.Append("error: ").Append(o.Error).Append('\n');
-            else AppendRecordBlock(sb, svc, o, fields, conflictTree, cap, notes, lv);
+            else AppendRecordBlock(sb, o, cap, notes, lv);
             rendered++;
         }
         AppendOwnedChildNotes(sb, notes);
@@ -314,14 +238,14 @@ static class Wire
     // The dense render's container hint moved to LeverNames.DenseContainerHint (#439): dense refuses depth>1, so
     // the hint names the format hop with the knob — and the knob is spelled per caller like every other lever.
 
-    public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, bool conflictTree, int maxChars,
+    public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars,
                                           bool resolveNames = false, bool winnerFields = false, int depth = 1)
-        => RenderCrossQuery(svc, q, fields, conflictTree, maxChars, resolveNames, winnerFields, depth, null, out _);
+        => RenderCrossQuery(svc, q, fields, maxChars, resolveNames, winnerFields, depth, null, out _);
 
     /// <summary>The §2.1.1-aware render: <paramref name="spill"/> carries the call's artifact disposition (the
     /// spilled marker / to_file manifest-only mode / failed-spill warning), and <paramref name="truncated"/> hands
     /// the row-level max_chars cut back to the tool layer — the auto-spill trigger.</summary>
-    public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, bool conflictTree, int maxChars,
+    public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars,
                                           bool resolveNames, bool winnerFields, int depth, SpillState? spill, out bool truncated,
                                           LeverNames? levers = null)
     {
@@ -332,7 +256,7 @@ static class Wire
         if (q.Error is not null) return "error: " + q.Error + (q.Epoch is not null ? $"\nepoch={q.Epoch}" : "");
         int cap = Cap(maxChars);
         if (q.Groups is not null) return RenderCrossQueryGroups(q, cap, spill, out truncated);   // group_by= → a count table, not per-match lines
-        bool detail = (fields is { Count: > 0 }) || conflictTree;          // expand matches, vs. one-line summaries
+        bool detail = fields is { Count: > 0 };          // expand matches, vs. one-line summaries
         var linkMemo = resolveNames && detail ? new Dictionary<FormKey, ResolvedRef>() : null;   // P7: one link cache across all rendered matches
         bool anyScoped = detail && q.Sources is { } ss && ss.Take(q.Keys.Count).Any(s => s is not null);   // P5: plugins= scope shows a plugin's OWN body
         var sb = new StringBuilder();
@@ -383,14 +307,14 @@ static class Wire
             {
                 // winner_fields=: read the load-order WINNER's body (source=null) regardless of scan scope; else the
                 // body the scan filtered (scoped plugin under plugins=, else winner) — so display never contradicts filter.
-                // PINNED to the scan's build (ResolveReadOn / the q-carrying AppendConflictTree): the header's epoch
-                // names ONE build, so every fill must read it (PR #305 review).
-                var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, conflictTree, depth, resolveNames: resolveNames, linkMemo: linkMemo,
+                // PINNED to the scan's build (ResolveReadOn): the header's epoch names ONE build, so every fill
+                // must read it (PR #305 review).
+                var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, depth, resolveNames: resolveNames, linkMemo: linkMemo,
                                           containerHint: lv.ContainerHint);   // a collapsed cell names the caller's own expansion knob (#439)
                 sb.Append('\n');
                 if (matches is not null) sb.Append("  ").Append(fk).Append("  matches=").Append(matches).Append('\n');
                 if (o.Error is not null) sb.Append(fk).Append(": error: ").Append(o.Error).Append('\n');
-                else AppendRecordBlock(sb, svc, o, fields, conflictTree, cap, notes, lv);   // o carries the scan's pin
+                else AppendRecordBlock(sb, o, cap, notes, lv);   // o carries the scan's pin
             }
             else
             {
@@ -494,37 +418,6 @@ static class Wire
     }
 
     // ---- the errors family (was housecarl_check_errors) ---------------------------------------------
-    /// <summary>Render the integrity sweep. <paramref name="histogramLimit"/> (#282) caps the <c>counts_only=</c>
-    /// histogram rows — the one thing <c>limit=</c> means in that mode, since nothing else is listed. An error class the
-    /// caller EXCLUDED renders as "NOT CHECKED", never as a 0, so a skipped check can never be read as a clean one (Q3).</summary>
-    public static string RenderCheckErrors(ErrorCheckResult r, int maxChars, int histogramLimit = 1000)
-    {
-        if (r.Error is not null) return "error: " + r.Error + (r.Epoch is not null ? $"\nepoch={r.Epoch}" : "");
-        int cap = Cap(maxChars);
-        // ONE accounting for this response, and the body renders inside what it leaves (#361). Everything below
-        // emits through `acct`, and every omission claim is computed from those registrations after emission stops
-        // — there is no truncation flag to miss, and no path that appends the tail past the cap.
-        var acct = new CheckAccounting(r, cap);
-        int reserve = acct.TextReserve;
-        int budget = acct.BodyBudget(reserve);
-        var sb = new StringBuilder();
-
-        sb.Append("check_errors — load-order integrity sweep\n");
-        AppendErrorsHead(sb, r, acct);
-        // EVERYTHING A CAP CAN REFUSE GOES THROUGH `body`. What the header above, the axes' own lines, the reserved
-        // closing disclosures, the accounting and the boundary come to is therefore whatever the finished response
-        // is MINUS what `body` let through — which is how the overrun notice is told the fixed part's size
-        // (BoundedBody.FixedPart), rather than by a header length captured here and summed with a reserve.
-        var body = new BoundedBody(acct, budget, () => sb.Length);
-        AppendErrorsSection(sb, r, body, histogramLimit);
-        // The excluded-plugin roster is a SCOPE fact, not a family fact — which plugins the INDEX could not parse
-        // at all. It is emitted once per RESPONSE, after every section, which is why it sits here rather than
-        // inside the section renderer: on the merged surface a roster written per family would be the same rows
-        // twice, declared by two accountings and counted by both.
-        AppendExcludedPlugins(sb, body, r.ExcludedPlugins);
-        return Close(sb, acct, body);
-    }
-
     /// <summary>The errors family's own head: what it swept and what it found. Everything above the first thing a
     /// budget can refuse, and everything below the response's title — which is the caller's, because the merged
     /// surface titles a SECTION where the single-family tool titles the whole response.</summary>
@@ -680,35 +573,6 @@ static class Wire
                 if (!body.Emit(SweepSubject.DanglingEntries, line.Length, () => sb.Append(line), p.Plugin)) break;
             }
         }
-    }
-
-    /// <summary>Close the response: the accounting for what it emitted, then the boundary. Both live inside the
-    /// reserve taken before the body rendered, so this is the ONE place either can be appended and it cannot
-    /// overrun. The single exception — a <c>max_chars</c> smaller than the accounting itself — is stated in-band
-    /// rather than taken silently (#361: appending past the cap without saying so is half of what that issue is).
-    /// </summary>
-    /// <param name="body">the bounded body, for what the BODY wrote
-    /// (<see cref="BoundedBody.FixedPart"/> subtracts it). The rest of the finished response is its fixed part —
-    /// the quantity the overrun notice branches on. Given a fixed part that leaves out an unconditional line, a cap
-    /// too small for that line gets explained as a body unit overshooting.</param>
-    static string Close(StringBuilder sb, CheckAccounting acct, BoundedBody body)
-    {
-        if (acct.TextLine() is { } line) sb.Append('\n').Append(line).Append('\n');
-        sb.Append('\n').Append(ReadSentences.SweepBoundaryLabel).Append(acct.Boundary).Append('\n');
-        // The overrun question is asked of the FINISHED response, so the string is built first and measured — and
-        // the notice is PART of the response it reports the length of. Measured without itself it understated by its
-        // own length: 1,109 stated on a response of 1,281. Composing it changes only the width of one printed
-        // number, so a second pass settles it and a third is only ever needed when that width moved.
-        var response = sb.ToString().TrimEnd('\n');
-        int needed = body.FixedPart(response.Length);
-        // How many times this response prints the cap back, COUNTED in the response itself: raising the cap widens
-        // every one of those numbers, and the remedy has to name a cap that already covers that.
-        int sites = acct.CapPrintsIn(response);
-        if (acct.CapTooSmall(response.Length, needed, 0, sites) is not { } notice) return response;
-        var settled = acct.CapTooSmall(response.Length + notice.Length, needed, notice.Length, sites)!;
-        if (settled.Length != notice.Length)
-            settled = acct.CapTooSmall(response.Length + settled.Length, needed, settled.Length, sites)!;
-        return response + settled;
     }
 
     /// <summary>#344 — the baseline split: how much of the dangling total came from the base-game masters, and how
@@ -1035,29 +899,6 @@ static class Wire
     internal const int BoundaryWrap = 32;
 
     // ---- the scripts family (was housecarl_validate_scripts) ----------------------------------------
-    /// <summary>Render the script-property sweep. <paramref name="histogramLimit"/> (#282) caps the
-    /// <c>counts_only=</c> histogram rows.</summary>
-    public static string RenderScriptCheck(ScriptCheckResult r, int maxChars, int histogramLimit = 1000)
-    {
-        if (r.Error is not null) return "error: " + r.Error + (r.Epoch is not null ? $"\nepoch={r.Epoch}" : "");
-        int cap = Cap(maxChars);
-        // The scripts family now renders through the same accounting and the same bounded body the errors family
-        // does. What it replaces: an inline `sb.Length >= cap` test, a truncation marker of its own, and a boundary
-        // footer appended unconditionally AFTER that test — which is why validate_scripts returned 80,673 chars
-        // against its own 80,000 cap on the live order, undeclared. The footer is now inside the reserve, so the
-        // overrun closes by construction rather than by a second length check.
-        var acct = new CheckAccounting(r, cap);
-        int budget = acct.BodyBudget(acct.TextReserve);
-        var sb = new StringBuilder();
-
-        sb.Append("validate_scripts — VMAD script-property binding sweep\n");
-        AppendScriptsHead(sb, r);
-        var body = new BoundedBody(acct, budget, () => sb.Length);
-        AppendScriptsSection(sb, r, body, histogramLimit);
-        AppendExcludedPlugins(sb, body, r.ExcludedPlugins);
-        return Close(sb, acct, body);
-    }
-
     /// <summary>The scripts family's own head: what it swept and what it found. Every count states its own scope —
     /// a class the caller excluded reads NOT CHECKED and never 0, and the two counts <c>property_contains=</c>
     /// narrows carry their own label — so no number here can be read as a wider claim than it is.</summary>
@@ -1199,86 +1040,6 @@ static class Wire
         : string.IsNullOrEmpty(r.Name) ? $"→ {r.EditorId ?? "<no editorid>"}"
         : $"→ {r.EditorId ?? "<no editorid>"} \"{r.Name}\"";
 
-    /// <summary>The conflict tree: the ordered touching-plugin list, then (when >1 plugin touches) the
-    /// winner-relative field diff — each other plugin's only-the-fields-that-differ, as `path=theirs (winner X)`.
-    /// Bodies come from <see cref="LoadOrderService.ResolveTree"/> (on-demand fetch, held by nothing). The diff
-    /// is char-budget-bounded: over <paramref name="cap"/> it stops with an explicit notice (Q3).</summary>
-    /// <param name="reserve">Chars held back for the #342 response-level clauses — the same split
-    /// <see cref="AppendRecord"/> makes: budget against <c>cap - reserve</c>, quote <c>cap</c>.</param>
-    static void AppendConflictTree(StringBuilder sb, LoadOrderService svc, ReadOutcome o, IReadOnlyList<string>? fields, int cap,
-                                   int reserve = 0, LeverNames? levers = null)
-    {
-        var lv = levers ?? LeverNames.Legacy;
-        var tp = o.TouchingPlugins;
-        if (tp is null) return;
-        sb.Append("conflict_tree: ").Append(tp.Count).Append(tp.Count == 1 ? " plugin touches" : " plugins touch")
-          .Append(" this record (load order, winner last):\n");
-        for (int i = 0; i < tp.Count; i++)
-        {
-            if (sb.Length >= cap - reserve && i < tp.Count - 1)            // budget gone mid-list — name the rest + the winner, stop
-            {
-                sb.Append("  ... [").Append(tp.Count - i).Append(" more plugins omitted at max_chars=").Append(cap)
-                  .Append("; winner (last in load order) = ").Append(tp[^1]).Append("; raise max_chars or narrow with ").Append(lv.Fields).Append("]\n");
-                return;                                                    // and skip the diff (the all-bodies fetch too) — already over budget
-            }
-            sb.Append("  ").Append(i + 1).Append(". ").Append(tp[i]).Append(i == tp.Count - 1 ? "  (winner)" : "").Append('\n');
-        }
-
-        if (tp.Count <= 1) return;                                         // nothing to diff against
-        // Pinned to the OUTCOME's own build (PR #305 review + re-review): every ReadOutcome — single read, batch
-        // item, cross-query detail row — carries the (resolver, view) it was answered from, so the tree fill and
-        // the response's epoch stamp name the same build. The unpinned fallback exists only for a hand-built
-        // outcome (guards).
-        // The prefetched-tree parameter this took is gone with #342's precise tier, which was the one lane that
-        // had already materialised the tree and passed it in — restored elsewhere by #485 on
-        // records project={"form":"tree"}, not on this lane's conflict_tree=true (see AppendRecordBlock below).
-        var tree = o.Pin is { } p ? svc.ResolveTreePinned(p, o.FormKey, fields)
-                                  : svc.ResolveTree(o.FormKey, fields);   // materialised (no live overlay) — Option B
-        if (tree is null || tree.Nodes.Count <= 1) return;
-
-        var winnerNode = tree.Winner;                                       // Nodes[^1] = highest priority = the winner
-
-        // CONTENT diff (HCBR-2026-06-09-01): each node's DEEP read vs the winner's, compared by FieldsDiff —
-        // scalar leaves exact-path, list contents order-insensitively by whole element (a reorder of equal
-        // contents surfaces as an explicit ORDER-DIFFERS note, #275). The old depth-1 token
-        // comparison called equal-count lists with different contents "identical to winner" — an affirmative
-        // false ITM that masked a real override regression. "Identical" is now only claimed when the FULL
-        // modeled content compared clean; a truncated comparison says so instead (Q3).
-        sb.Append("diff (field deltas vs winner ").Append(winnerNode.Plugin)
-          .Append("; identical fields omitted; list contents compared by content, element reorders flagged):\n");
-        for (int n = 0; n < tree.Nodes.Count - 1; n++)                      // every node except the winner
-        {
-            if (sb.Length >= cap - reserve)
-            {
-                sb.Append("  ... [truncated: response hit max_chars=").Append(cap)
-                  .Append("; pass ").Append(lv.Fields).Append(" to narrow the diff or raise max_chars]\n");
-                return;
-            }
-            var node = tree.Nodes[n];
-            var diff = FieldsDiff.Compare(node.Record, winnerNode.Record);
-            string line = diff.Deltas.Count > 0
-                ? string.Join("; ", diff.Deltas)
-                  + (diff.Complete ? "" : " [comparison TRUNCATED at the expansion cap — only value mismatches observed on both sides are shown; list contents and one-sided fields were NOT compared; narrow with " + lv.Fields + " to fully compare]")
-                : diff.Complete
-                    // No deltas. Surface HOW MANY modeled fields read identical to the winner (item 4.3) — node-
-                    // neutral, because this renders for every touching plugin including the master (Nodes[0]),
-                    // which is not an "override". AgreedCount counts only value leaves read identical on both
-                    // sides; it distinguishes an ITM-restate (high N) from a fields-narrow compare, without
-                    // asserting intent the diff can't know.
-                    ? (fields is { Count: > 0 }
-                        ? IdenticalAcrossFields(diff)
-                        : IdenticalWholeRecord(diff))
-                    : "(no differences found, but the comparison was TRUNCATED at the expansion cap — NOT a verified ITM; narrow with " + lv.Fields + " to fully compare)";
-            // One node's joined deltas are unbounded (two divergent deep reads can carry thousands); slice
-            // against the remaining char budget with the same explicit notice the other cuts use (Q3).
-            int room = cap - reserve - sb.Length;
-            if (line.Length > room)
-                line = string.Concat(line.AsSpan(0, Math.Max(0, room)),
-                    " ... [delta line truncated at max_chars; narrow with " + lv.Fields + " or raise max_chars]");
-            sb.Append("  ").Append(node.Plugin).Append(": ").Append(line).Append('\n');
-        }
-    }
-
     /// <summary>No-delta render for a WHOLE-record compare. Node-NEUTRAL: this renders for every touching plugin,
     /// including the master node (Nodes[0]), which is not an override — so it reports the COUNT of fields read
     /// identical to the winner (the ITM-restate-vs-no-op signal lives in N) without asserting an "override" or a
@@ -1304,103 +1065,4 @@ static class Wire
         return diff.AgreedCount > diff.AgreedSample.Count ? $"e.g. {s}, …" : s;
     }
 
-    // ---- the named-plugin source pole (was housecarl_read_plugin_file) ------------------------------
-    /// <summary>Render a RAW plugin-file read. THE load-bearing requirement: every result is stamped
-    /// OUT-OF-LOAD-ORDER up front, so a raw-file read is never mistaken for load-order truth. The read mode reuses
-    /// the SAME `path = token` field format as read_record (round-trip parity). Size-bounded with an explicit cut,
-    /// never silent (Q3). An "ambiguous" outcome lists the folders that provide the name and asks for mod=.</summary>
-    public static string RenderPluginFile(PluginFileOutcome o, int maxChars)
-    {
-        if (o.Mode == "error") return "error: " + o.Error;
-        int cap = Cap(maxChars);
-        var sb = new StringBuilder();
-
-        if (o.Mode == "ambiguous")
-        {
-            sb.Append("error: '").Append(Path.GetFileName(o.Requested)).Append("' is provided by ").Append(o.Ambiguous.Count)
-              .Append(" locations — specify which with mod= (or pass an absolute path):\n");
-            foreach (var h in o.Ambiguous)
-                sb.Append("  ").Append(h.Where).Append("  ->  ").Append(h.Path).Append('\n');
-            return sb.ToString().TrimEnd('\n');
-        }
-
-        // The banner — OUT-OF-LOAD-ORDER first, always (the single load-bearing requirement). The stamp describes THIS
-        // READ (it bypassed load-order resolution), which is true of every call; the old parenthetical went further and
-        // asserted "the game does not load this file", which is FALSE whenever the file passed is the live, winning
-        // plugin — exactly #269's case. The wording below says only what the stamp actually knows (#271); what the game
-        // does with the file is the separate, per-file question the bracket on the next line answers.
-        sb.Append("read_plugin_file — OUT-OF-LOAD-ORDER (raw file read — not resolved through the load order)\n");
-        sb.Append("file: ").Append(o.FilePath);
-        // Where reports the LAYER the file was found in (a mod folder's switch); the standing reports the FILE. Read
-        // together, "mod 'X' (enabled)" beside a bare "NOT active" looked self-contradictory, so the two subjects are
-        // now named explicitly and the not-loaded case carries its CAUSE — the reader should never have to infer which
-        // of the two facts changed, nor go searching for a remedy the tool already knows (#271).
-        if (!string.IsNullOrEmpty(o.Where))
-            sb.Append("  [").Append(o.Where)
-              .Append(o.WhyNotActive is { } why ? $" — but the game does NOT load this file: {why}" : " — the game loads this file")
-              .Append(']');
-        sb.Append('\n');
-        sb.Append("masters: ").Append(o.Masters.Count == 0 ? "none" : string.Join(", ", o.Masters)).Append('\n');
-        if (o.MissingMasters.Count > 0)
-            sb.Append("  ! declared master(s) NOT installed anywhere in the MO2 install: ").Append(string.Join(", ", o.MissingMasters))
-              .Append("  (install them — the file will not load in-game without them)\n");
-        if (o.InactiveMasters.Count > 0)
-            sb.Append("  ! declared master(s) installed but NOT ACTIVE in the load order (in a disabled mod, or unchecked): ")
-              .Append(string.Join(", ", o.InactiveMasters))
-              .Append("  (enable them — the file will not load until you do)\n");
-
-        if (o.Mode == "read")
-        {
-            var r = o.Record!;
-            sb.Append("type=").Append(r.Type).Append("  formid=").Append(r.FormKey).Append("  editorid=").Append(r.EditorId ?? "<none>").Append('\n');
-            sb.Append("fields (raw, from ").Append(Path.GetFileName(o.FilePath)).Append("):\n");
-            for (int i = 0; i < r.Fields.Count; i++)
-            {
-                if (sb.Length >= cap)
-                {
-                    sb.Append("  ... [truncated: showing ").Append(i).Append(" of ").Append(r.Fields.Count)
-                      .Append(" field lines at max_chars=").Append(cap).Append("; narrow with fields=, lower depth=, or raise max_chars]\n");
-                    break;
-                }
-                var f = r.Fields[i];
-                sb.Append("  ").Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note);
-                if (f.Display is not null) sb.Append("   (").Append(f.Display).Append(')');   // display-only annotation (e.g. decoded biped slots) — never the round-trip token
-                if (f.Link is not null) sb.Append("   (").Append(LinkText(f.Link)).Append(')');   // resolve_names: target identity (resolved against the ACTIVE order), DISPLAY-ONLY
-                sb.Append('\n');
-            }
-        }
-        else if (o.Mode == "enumerate")
-        {
-            sb.Append(o.RowTotal).Append(o.RowTotal == 1 ? " record" : " records");
-            if (o.Capped) sb.Append(" (showing first ").Append(o.Rows.Count).Append("; raise limit= to see more)");
-            sb.Append('\n');
-            for (int i = 0; i < o.Rows.Count; i++)
-            {
-                if (sb.Length >= cap)
-                {
-                    sb.Append("  ... [truncated: rendered ").Append(i).Append(" of ").Append(o.Rows.Count)
-                      .Append(" rows at max_chars=").Append(cap).Append("; lower limit= or raise max_chars]\n");
-                    break;
-                }
-                var row = o.Rows[i];
-                sb.Append("  ").Append(row.FormKey).Append("  type=").Append(row.Type).Append("  editorid=").Append(row.EditorId ?? "<none>").Append('\n');
-            }
-        }
-        else // summary
-        {
-            sb.Append(o.RecordTotal).Append(o.RecordTotal == 1 ? " record" : " records").Append(" across ")
-              .Append(o.TypeCounts.Count).Append(o.TypeCounts.Count == 1 ? " type" : " types").Append(":\n");
-            for (int i = 0; i < o.TypeCounts.Count; i++)
-            {
-                if (sb.Length >= cap)
-                {
-                    sb.Append("  ... [truncated at max_chars=").Append(cap).Append("; raise max_chars to see all types]\n");
-                    break;
-                }
-                var tc = o.TypeCounts[i];
-                sb.Append("  ").Append(tc.Type).Append("  (").Append(tc.Count).Append(")\n");
-            }
-        }
-        return sb.ToString().TrimEnd('\n');
-    }
 }

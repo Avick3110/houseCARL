@@ -8,10 +8,11 @@ namespace HousecarlMcp;
 /// housecarl_records project=info_order. The Skyrim-typed validation lives in
 /// <see cref="HousecarlCore.DialogueValidate"/>; this file is the render alone.
 /// </summary>
-/// <summary>Renders a <see cref="HousecarlCore.DialogueValidationReport"/> as a compact, honest text report: a
-/// topic (or per-topic-of-a-quest) block with its graph issues, voice + result-script verdicts, and ALWAYS the
-/// standing-limits footer (grill-rev C2 — the un-checkable CTDA/lip-sync set, so a clean structural pass is never
-/// mistaken for "this will play"). Budget-bounded like the read tools (explicit cut at max_chars, never silent).</summary>
+/// <summary>The composers a dialogue report is rendered FROM: a topic block (graph issues, voice and
+/// result-script verdicts), a findings list, an effective INFO order, a .seq note. Budget-bounded like the read
+/// tools (explicit cut at max_chars, never silent). The whole-report composer that assembled them, and the
+/// standing-limits footer it always printed, went with housecarl_validate_dialogue (#486); the merged surface
+/// composes these through <see cref="DialogueSweepRender"/> and states its own standing limits.</summary>
 internal static class DialogueWire
 {
     /// <summary>The ONE home for rendering a finding list — each as "[X]/[!] message" at <paramref name="pad"/>,
@@ -28,78 +29,6 @@ internal static class DialogueWire
               .Append(iss.Message).Append('\n');
         }
         return true;
-    }
-
-    public static string Render(DialogueValidationReport r, int maxChars)
-    {
-        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
-
-        // A check that didn't run to completion is NOT a clean pass (Q3) — say so, loudly, never an empty "ok".
-        if (r.CheckError is not null)
-            return $"validate_dialogue: could NOT complete the check for {r.Input} — {r.CheckError}. " +
-                   "Nothing here is a verified pass; the validation did not finish. Try again (the next call rebuilds the index); if it persists, inspect the topic in xEdit.";
-        if (r.Error is not null) return "error: " + r.Error;
-
-        var sb = new StringBuilder();
-
-        // DLVW/DLBR inputs: a RECORD-LEVEL CK-parity check — no topic graph, so no per-topic blocks and no
-        // topic-shaped standing-limits footer. The scope note names what this did NOT check (Q3 — a clean pass
-        // here must never read as a graph/voice/script validation).
-        if (r.InputKind is "view" or "branch")
-        {
-            string kind = r.InputKind == "view" ? "dialogue view (DLVW)" : "dialogue branch (DLBR)";
-            sb.Append("validate_dialogue: ").Append(kind).Append(' ').Append(Edid(r.InputEditorId))
-              .Append(" (").Append(r.Input).Append(") — winner ").Append(r.InputWinnerPlugin).Append('\n');
-            // The two sentences are SHARED with the merged surface, for the reason the quest parity line already
-            // is: this is the same verdict about the same record, and two spellings of it drift. Which kinds
-            // have a record-level parity, and what each one's verdict says, is DialogueKindChecks' answer in
-            // both places.
-            if (r.InputIssues.Count == 0 && DialogueKindChecks.ParityOkLine(r.InputKind) is { } ok) sb.Append(ok);
-            else AppendIssues(sb, r.InputIssues, "  ", cap);
-            sb.Append(ReadSentences.DialogueRecordLevelScope);
-            return sb.ToString();
-        }
-
-        if (r.InputKind == "quest")
-        {
-            sb.Append("validate_dialogue: quest ").Append(Edid(r.InputEditorId)).Append(" (").Append(r.Input).Append(')')
-              .Append(" — ").Append(r.Topics.Count).Append(r.Topics.Count == 1 ? " topic owned" : " topics owned").Append('\n');
-            if (r.Topics.Count == 0)
-                sb.Append("  no dialogue topics in the active load order are owned by this quest — nothing to validate. " +
-                          "If you expected some, check those topics set DialogTopic.Quest to this quest and that their plugin is enabled.\n");
-            AppendSeq(sb, r.SeqLint);
-
-            // Quest-level CK-parity (ANAM / objective FNAM) — input-level findings, printed ONCE here, never per
-            // topic. An explicit OK line, matching the per-topic "graph: OK" style (a sub-check that ran and passed
-            // is stated, not silent).
-            if (r.InputIssues.Count == 0)
-                sb.Append(ReadSentences.DialogueQuestParityOk);
-            else
-                AppendIssues(sb, r.InputIssues, "  ", cap);
-        }
-
-        for (int i = 0; i < r.Topics.Count; i++)
-        {
-            if (sb.Length >= cap)
-            {
-                sb.Append("... [truncated: rendered ").Append(i).Append(" of ").Append(r.Topics.Count)
-                  .Append(" topics at max_chars=").Append(cap).Append("; raise max_chars to see the rest]\n");
-                break;
-            }
-            AppendTopic(sb, r.Topics[i], indent: r.InputKind == "quest", cap);
-        }
-
-        // The standing CTDA limit sums conditioned lines across ALL topics (a global honesty note), not just the ones
-        // that fit under the render cap.
-        AppendStandingLimits(sb, SumConditioned(r), r.ReadIncomplete);
-        return sb.ToString().TrimEnd('\n');
-    }
-
-    internal static int SumConditioned(DialogueValidationReport r)
-    {
-        int n = 0;
-        foreach (var t in r.Topics) n += t.ConditionedInfoCount;
-        return n;
     }
 
     /// <param name="includeInfoOrder">render the effective merged INFO order (class 8) inside this block.
@@ -398,25 +327,6 @@ internal static class DialogueWire
               .Append(" — if your last change altered which quests are start-game-enabled or the master list (a master added/removed, an ESL compaction), regenerate with " + ToolNames.WriteSeq + "; if it was a dialogue- or condition-only edit, the .seq is still correct (an older mtime alone does not mean stale).\n");
         sb.Append("  SEQ note: a .seq is needed only when WHICH quests are start-game-enabled changes (a new SGE quest, or a quest " +
                   "alias/topic that depends on one) — NOT for a dialogue-only or condition-only edit; those never need a regen.\n");
-    }
-
-    /// <summary>The ALWAYS-printed footer (grill-rev C2): the validator is the only non-advisory enforcement, so it
-    /// must enumerate what it could NOT verify — the CTDA gate (semantic, game-only) and lip-sync/audio — so a clean
-    /// structural pass is never mistaken for "this dialogue will play as intended". The BSA read-incomplete caveat
-    /// rides here too when an archive failed to read (an "absent" above may merely be unscanned, Q3).</summary>
-    internal static void AppendStandingLimits(StringBuilder sb, int conditioned, bool readIncomplete)
-    {
-        sb.Append("standing limits — what houseCARL could NOT verify (so a clean pass above does NOT mean the dialogue will play as intended):\n");
-        sb.Append("  • CTDA conditions gate WHEN each line fires. houseCARL statically catches a meaningful subset of MALFORMED conditions (a dangling form reference, a dead quest-alias index, an unset Run On reference — surfaced above as graph issues); it still cannot EVALUATE whether a WELL-FORMED condition passes — only the running game can, so a well-formed but wrong condition can still silently stop a line from ever playing");
-        if (conditioned > 0) sb.Append(" — ").Append(conditioned).Append(" line(s) here carry conditions, checked for malformedness but not evaluated");
-        sb.Append(".\n");
-        sb.Append("  • voice presence is an on-disk file check only — lip-sync accuracy and the audio content itself are not verified (voice acting is out of scope).\n");
-        sb.Append("  • the per-line checks above (voice, result script, CK parity) audit the WINNING topic's INFO list only. A line another plugin contributes but this winner does not re-list is NOT dropped from the game — it still plays, and it DOES appear in the effective INFO order above — but its voice/script/parity is not audited here.\n");
-        // (No PNAM-zero caveat here. One shipped for four review rounds describing a blind spot that does not
-        //  exist — the reader DOES distinguish a present-but-zero PNAM from an absent one. See
-        //  DialogueInfoOrder.PnamZeroIsDistinguishable for the mis-measurement that produced it.)
-        if (readIncomplete)
-            sb.Append("  • a BSA failed to read this build, so an \"absent\" voice/.pex above may merely be unscanned — see " + ToolNames.LoadOrderStatus + ".\n");
     }
 
     static string Edid(string? e) => string.IsNullOrEmpty(e) ? "<none>" : e;
