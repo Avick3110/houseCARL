@@ -120,3 +120,18 @@ assertion failure with its own.
 The sharing-violation arm asserts the exact exception type and `ERROR_SHARING_VIOLATION` (HResult
 `0x80070020`), not the message text: the BCL composes that message and it is a localizable resource string,
 so a substring of it would pin .NET rather than the harness.
+
+### `Read<T>` — `use` must materialise everything it returns
+
+The arms' `Read<T>` helper unmaps the overlay in a `finally`, so the overlay is gone *before* the value
+crosses the return. Every value-returning call site must therefore materialise inside `use` — a string, a
+count, a copy — and the helper refuses a `T` that is an `IModGetter` or an `IMajorRecordGetter` before it
+opens the plugin at all. That refusal exists because the failure is otherwise silent: measured on this
+fixture, `Read(path, mod => Assert.Single(mod.Weapons))` returned a record whose `EditorID` then read back
+correctly off the unmapped view and the arm reported a pass. The documented outcomes are an
+`ObjectDisposedException` at best and an `AccessViolationException` that takes the runner down at worst, and
+which one a caller gets is not the caller's to choose — so the hazard is refused at the type rather than
+left to the fixture's size. The check is a static one on `typeof(T)`: a caller who erases the type (returning
+`object`) walks past it, which is the limit of what a cheap guard buys. Same contract the product states on
+`OverlaySession` ("the service reads fields off a fetched body before its session disposes"); this is that
+sentence, restated where PR 2's three dialogue lock arms will read it.
