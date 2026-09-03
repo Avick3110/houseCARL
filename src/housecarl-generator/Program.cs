@@ -296,7 +296,7 @@ if (args.Length > 0 && !IsDirectoryArgument(args[0]))
         Console.Error.WriteLine("  " + name + (CiAll.StandaloneProbeNames.Contains(name) ? "  [standalone]" : ""));
     Console.Error.WriteLine();
     Console.Error.WriteLine("Other modes are the manual/exploratory harnesses declared in src/housecarl-generator/Program.cs");
-    Console.Error.WriteLine("(they are not in the suggestion pool above — only the CI registry is).");
+    Console.Error.WriteLine("(they are not in the suggestion pool above — only the CI guards are).");
     // State the RULE, not just the intent: "pass a directory path" alone is advice a caller who typed one has
     // already followed, and the accepted spellings are not guessable (reviews [low], twice).
     Console.Error.WriteLine("To GENERATE the corpus into a directory, pass a path that is ROOTED (C:\\…), carries a");

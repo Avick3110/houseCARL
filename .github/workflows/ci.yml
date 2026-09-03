@@ -49,7 +49,8 @@ jobs:
       # assembly loads + JITs once and the schema corpus is reflected once (memoized) instead of ~21x —
       # collapsing ~12 min of per-probe cold starts. The runner runs EVERY probe even if one fails and emits a
       # `::error::` annotation per failure, so the job still goes red on any failure and names which probe(s).
-      # The probe set lives in CiAll.cs (single source of truth). See dev/plans/CI_OPTIMIZATION_RESEARCH_2026-06-24.md.
+      # The probe set is the [CiProbe]-attributed entry points themselves; CiAll.cs holds the discovery, not
+      # the set. See dev/plans/CI_OPTIMIZATION_RESEARCH_2026-06-24.md.
       - name: Probes — all-in-one-process (ci-all)
         run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll ci-all
 

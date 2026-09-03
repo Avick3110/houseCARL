@@ -320,7 +320,7 @@ public static class DescriptionVocabularyGuardProbe
     /// <summary>One authored sentence and the <c>path:line</c> that tells an author where to go and fix it.</summary>
     readonly record struct Sentence(string Label, string Text);
 
-    static readonly Assembly Surface = typeof(ApplyOp).Assembly;
+    static readonly Assembly Surface = HousecarlMcp.ToolSurface.Assembly;
     static readonly Assembly Core = typeof(WriteVerbs).Assembly;
     static readonly Assembly Setup = typeof(HousecarlSetup.Program).Assembly;
 

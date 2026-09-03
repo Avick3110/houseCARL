@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.RegularExpressions;
 using ModelContextProtocol.Server;
 using Xunit;
 using Xunit.Abstractions;
@@ -132,6 +133,91 @@ public sealed class ToolSurfaceCensusTests
             "become more than one assembly deliberately — which is a decision, not an accident.");
     }
 
+    // ---- ToolSurface.Assembly is the ONE home for "which assembly is the tool surface" ------------------
+    //
+    // The discarded spelling is `typeof(SomeToolType).Assembly` — a sentence about where a type happens to
+    // live, which agrees with the registration only by coincidence of layout. ToolSurface.cs says it is the
+    // one home, and that sentence has to be true of the tree it ships on.
+    //
+    // BOTH sides of this population are derived: the type names come off the tool-surface assembly by
+    // reflection, the files off the repo's own project list. A hand-list of "the sites we know about" is
+    // exactly what went short here twice — the first pass repointed the two a reviewer named and left two
+    // live ci-all guards on the old spelling, and a second hand pass over those left three more.
+
+    static readonly Regex TypeofAssembly =
+        new(@"typeof\(\s*([A-Za-z_][A-Za-z0-9_.]*)\s*\)\s*\.\s*Assembly", RegexOptions.Compiled);
+
+    /// <summary>Every type the tool-surface assembly declares, by simple name and by full name — the names a
+    /// `typeof(…).Assembly` expression could use to mean "the tool surface".</summary>
+    static (HashSet<string> Simple, string[] Full) SurfaceTypeNames()
+    {
+        var types = HousecarlMcp.ToolSurface.Assembly.GetTypes()
+            .Where(t => !t.Name.Contains('<', StringComparison.Ordinal)
+                     && !t.Name.Contains('`', StringComparison.Ordinal))
+            .ToArray();
+
+        return (types.Select(t => t.Name).ToHashSet(StringComparer.Ordinal),
+                types.Select(t => t.FullName ?? t.Name).ToArray());
+    }
+
+    /// <summary>
+    /// Whether a `typeof(<paramref name="named"/>)` expression names a type on the tool surface.
+    ///
+    /// <para>A bare name matches on the simple name. A qualified one has to be consistent with a real surface
+    /// type's full name, because a simple name is not unique across assemblies —
+    /// <c>typeof(HousecarlSetup.Program).Assembly</c> names a different project's <c>Program</c>, and matching
+    /// on the last segment alone reported it as an offender.</para>
+    /// </summary>
+    static bool NamesASurfaceType(string named, (HashSet<string> Simple, string[] Full) surface) =>
+        named.Contains('.', StringComparison.Ordinal)
+            ? surface.Full.Any(f => f == named || f.EndsWith("." + named, StringComparison.Ordinal))
+            : surface.Simple.Contains(named);
+
+    [Fact]
+    [Trait("tier", "unit")]
+    public void NothingNamesTheToolSurfaceAssemblyByPickingAType_ToolSurfaceIsTheOneHome()
+    {
+        var surfaceTypes = SurfaceTypeNames();
+
+        // Vacuity canary: an empty name set would make every file below clean by arithmetic.
+        Assert.True(surfaceTypes.Simple.Count > 0,
+            "Reflection over ToolSurface.Assembly found no types, so nothing below can match and this arm " +
+            "passes over any spelling. The reflection is broken, not the source.");
+
+        var files = RepoProjects.All
+            .SelectMany(p => Directory.EnumerateFiles(p.Directory, "*.cs", SearchOption.AllDirectories))
+            .Where(NotBuildOutput)
+            // The one home itself: ToolSurface.cs is where this fact is allowed to be spelled.
+            .Where(f => !string.Equals(Path.GetFileName(f), "ToolSurface.cs", StringComparison.Ordinal))
+            .ToArray();
+
+        Assert.True(files.Length > 0,
+            "No .cs files were found under the repo's projects, so this scan is vacuous.");
+
+        var offenders = files
+            .SelectMany(f => TypeofAssembly.Matches(File.ReadAllText(f))
+                .Select(m => (File: f, Named: m.Groups[1].Value))
+                .Where(x => NamesASurfaceType(x.Named, surfaceTypes))
+                .Select(x => $"{Rel(x.File)}: typeof({x.Named}).Assembly"))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(s => s, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.True(offenders.Length == 0,
+            $"These name the tool surface by picking a type that happens to live in it ({files.Length} files " +
+            $"scanned, {surfaceTypes.Simple.Count} surface type names):\n  " + string.Join("\n  ", offenders) +
+            "\nRead HousecarlMcp.ToolSurface.Assembly instead. It is the property Program.cs passes to " +
+            "WithToolsFromAssembly, so it is the assembly the server actually registers from; a typeof() " +
+            "expression agrees with that only while the type stays put.");
+    }
+
+    static bool NotBuildOutput(string p) =>
+        !p.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+     && !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
+
+    static string Rel(string full) =>
+        Path.GetRelativePath(HarnessPaths.RepoRoot, full).Replace('\\', '/');
+
     /// <summary>A tool declared where the server does not look. Never registered: the server scans
     /// <c>ToolSurface.Assembly</c>, and nothing references this project.</summary>
     [McpServerToolType]
@@ -191,11 +277,11 @@ public sealed class ToolSurfaceCensusWireTests
     [Fact]
     public void ToolsListNamesHousecarlCheck_TheWholePointOf470()
     {
-        // The literal is deliberate, and is the one site on the branch that keeps one. Every other
-        // assertion over this name reads ToolNames.Check and so follows a change to the constant's
-        // VALUE; this cell is the rename oracle, and a constant here would move with the thing it
-        // exists to pin. A typo'd rename goes RED here while the reflected set-equality above,
-        // which compares two sets that both moved, stays green.
+        // The literal is deliberate: every other assertion over this name reads ToolNames.Check and so
+        // follows a change to the constant's VALUE, while a literal does not. Deliberately redundant now
+        // — data/tools-list-2.0.json spells all 46 published names as literals and PublishedNameAnchorTests
+        // is the rename oracle for every one of them, in both directions. This cell is the belt beside
+        // those braces for the one name #470 was about, and it costs a line.
         Assert.Contains("housecarl_check", _s.PublishedNames);
     }
 }

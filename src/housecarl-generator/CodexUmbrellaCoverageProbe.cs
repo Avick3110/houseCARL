@@ -137,11 +137,12 @@ public static class CodexUmbrellaCoverageProbe
 
     static HashSet<string> Empty() => new(StringComparer.Ordinal);
 
-    /// <summary>Reflect every [McpServerTool] Name off the housecarl-mcp assembly (anchored via a known tool type).</summary>
+    /// <summary>Reflect every [McpServerTool] Name off the assembly the server registers from, read from its one
+    /// home (<see cref="HousecarlMcp.ToolSurface"/>) rather than by naming a type expected to live there.</summary>
     static HashSet<string> McpToolNames()
     {
         var names = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var t in typeof(ReadTools).Assembly.GetTypes())
+        foreach (var t in HousecarlMcp.ToolSurface.Assembly.GetTypes())
             foreach (var m in t.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly))
             {
                 var a = m.GetCustomAttribute<McpServerToolAttribute>(inherit: false);

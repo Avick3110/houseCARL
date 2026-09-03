@@ -429,7 +429,7 @@ public static class WireNamesProbe
     /// member. This IS the wire-type set — adding a spec object to the surface enrols it here with no
     /// edit to this guard.</summary>
     static List<Type> WireTypes() =>
-        typeof(ApplyOp).Assembly.GetTypes()
+        HousecarlMcp.ToolSurface.Assembly.GetTypes()
             .Where(t => t.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
                          .Any(p => p.GetCustomAttribute<JsonPropertyNameAttribute>() is not null))
             .OrderBy(t => t.Name, StringComparer.Ordinal).ToList();
@@ -530,7 +530,7 @@ public static class WireNamesProbe
     static Dictionary<string, MethodInfo> ToolMethods()
     {
         var map = new Dictionary<string, MethodInfo>(StringComparer.Ordinal);
-        foreach (var t in typeof(ApplyOp).Assembly.GetTypes())
+        foreach (var t in HousecarlMcp.ToolSurface.Assembly.GetTypes())
         {
             if (t.GetCustomAttribute<McpServerToolTypeAttribute>() is null) continue;
             foreach (var m in t.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly))
