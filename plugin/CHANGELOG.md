@@ -1579,6 +1579,46 @@ offset, paging meant slicing by `editorid_contains`. Now:
   offset=1000`), and json/dense carry `offset` in-band. Negative offsets and `offset=` under `group_by=` (a count
   table has no window) are refused by name.
 
+- **Eleven more 1.x tools are gone — the eight read tools and the three check tools.** `housecarl_read_record`,
+  `housecarl_batch_record_detail`, `housecarl_resolve`, `housecarl_cross_plugin_query`,
+  `housecarl_read_plugin_file`, `housecarl_diff_record`, `housecarl_effect_chain` and
+  `housecarl_skypatcher_read` are all on `housecarl_records`: one record or many is `formids=`, the shape of
+  the answer is `project={"form": …}` — `identity` for the labelling read, `fields`/`everything` for a body,
+  `delta` for a two-plugin comparison, `tree` for the conflict view, `chain` for an effect's carriers — and
+  whose version to read is `source=`, which takes a plugin filename wherever that plugin lives, `{"file",
+  "mod"}` when two mods ship the same filename, and `{"overlay": "skypatcher", "state": "pre"|"post"}` for
+  the runtime view around the SkyPatcher INI layer. `housecarl_check_errors` and `housecarl_validate_scripts`
+  are `housecarl_check` with `findings=["errors"]` and `findings=["scripts"]`. `housecarl_validate_dialogue`
+  split: its findings are `housecarl_check findings=["dialogue"]` with the same DIAL/QUST/DLVW/DLBR FormIDs in
+  `seeds=`, and the effective merged INFO order — the answer to which line plays — is
+  `housecarl_records project={"form": "info_order"}`, because an ordered sequence is not a finding.
+
+  They are deleted rather than deprecated, on the same ruling the six write tools went under: a 1.x tool whose
+  capability the finished 2.0 surface covers goes at 2.0.0 with no deprecation window, in the release that
+  ships its replacement. Calling a deleted name is not a dead end — the server answers with the successor and
+  that tool's parameter migration, and for `housecarl_validate_dialogue` it names both destinations rather
+  than sending a caller who wants the INFO order to the sweep that deliberately does not answer it.
+  Check it from your client's tool list: the eleven names are absent, and `housecarl_records` and
+  `housecarl_check` are present.
+
+- **Sentences on tools that survive point at a call you can make.** Repairs the deletion above forced:
+  `housecarl_write_seq`'s standing limit and its mtime-stamp note named the retired dialogue validator and
+  name `housecarl_check findings=["dialogue"]` now; `housecarl_skypatcher_layer`'s description and its
+  end-of-report pointer named the retired per-record reader and name the `housecarl_records` overlay pole;
+  the child-record note that told you to re-read with `conflict_tree=true` in text mode names
+  `project={"form": "tree"}`, which also spills to `to_file=` — the 1.x sentence said the view refused that;
+  the copy tools' read-back-failed advice, the untick and not-in-order advisories, and the full-readback cut
+  hint all name `housecarl_records`. An artifact's manifest records which tool wrote it, and that field named
+  a retired tool for artifacts `housecarl_records` itself had written; it names `housecarl_records` now.
+
+- **`housecarl_records` refuses `format="dense"` with a `project.depth` above 1, instead of answering at depth 1
+  without saying so.** Dense rows are positional cells, one per requested field path, so depth expansion has no
+  column to go in — the tool's description already said the expansion is inexpressible in that format, and the
+  code accepted the pairing and dropped it. A call that used to come back as the depth-1 document now comes back
+  as a refusal naming the depth you passed, and pointing at `format="text"` or `"json"` for expansion. Check it by
+  asking for `format="dense"` with `project={"form":"fields","fields":[…],"depth":2}`: at depth 1 the same call is
+  served unchanged, and the same depth in `"text"` is served, so the refusal is about the transport.
+
 ## 1.9.0 — 2026-07-17
 
 houseCARL's view of the **SKSE-plugin layer** grows from *inventory* into *diagnosis*: two new audit tools
