@@ -57,11 +57,21 @@ No extra record fetch: the tier asks its question of each body already open for 
 field NAMES the caller's own `fields=` requested, not the paths the response actually emitted; a bracketed
 path (`fields=["Temporary[0]"]`) narrows the block away entirely, matching the cheap tier's own narrowing.
 
-Both text and json check `max_chars` at every point the block can grow the response, including the two
-tails round 1's review caught uncovered: the block's own last line (text has no diff loop to notice it on a
-sole-provider row) and json's response-level `child_declarers_note`, written after `truncated` is already
-computed and reserved for (`JsonWire.DeclarersLeadReserve`, since a `Utf8JsonWriter` cannot un-write a
-property once appended). Either half hitting the cap sets the response's own `truncated` flag, which
-triggers the standard auto-spill to a JSONL artifact rather than a silent overrun. The lead itself
-(`DeclarersLead`) is invariant framing text, so it is stated at most once per response on every transport —
-text tracks whether it has written it yet, matching json's and the artifact's own once-per-response note.
+Both text and json check `max_chars` at every point the block can grow the response, including the two tails
+that are easy to miss: the block's own last line (text has no diff loop to notice it on a sole-provider row)
+and json's response-level `child_declarers_note`, written after `truncated` is already computed. Either half
+hitting the cap sets the response's own `truncated` flag, which triggers the standard auto-spill to a JSONL
+artifact rather than a silent overrun.
+
+The lead itself (`DeclarersLead`) is invariant framing text, so it is stated at most once per response on
+every transport, and it is **reserved** rather than written and regretted — text checks its length against
+the remaining budget before writing it, json measures its encoded cost (`JsonWire.DeclarersLeadReserve`)
+because a `Utf8JsonWriter` cannot un-write a property once appended, and the cheap tier reserves its own
+clause the same way (`ReadSentences.ClauseReserve`). Content lines still overshoot the cap by at most one
+line, which is the whole lane's existing tolerance; invariant framing does not.
+
+A cut notice claims only what was cut. The text block's tail is reachable only when every declarer line was
+written, so it says nothing about the declarers: it ends the row, and the caller — which knows whether the
+row had a diff to lose — names the nodes it dropped, or stays silent on a sole-provider row that lost
+nothing. All five of the lane's cut notices compose through one `RecordsTools.AppendCutNotice`, so the
+grammar guard that harvests one rendered notice covers the wording of all of them.

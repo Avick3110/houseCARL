@@ -22,6 +22,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   points here. The bound is the field set: the record type's own child-bearing set (reflection over the type),
   not the narrower set the default read's own note is restricted to — the block covers every child-bearing
   field of the type, sole-provider records included, where the default read's note has nothing to say at all.
+  `fields=` narrows the block as it narrows the rest of the response: naming a child-bearing field keeps that
+  field's line, and a path inside one (`fields=["Temporary[0]"]`) drops the block entirely, the same way the
+  default read's own note declines to annotate a bracketed path.
   Check it: run the tree form on a cell and read the block above the diff.
 
 - **`housecarl_check` is callable. It was not before.** The merged derived-findings sweep — the errors,

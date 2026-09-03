@@ -784,13 +784,8 @@ static class JsonWire
             }
             w.WriteEndArray();
             w.WriteNumber("rendered", rendered);
-            // The precise tier's one framing line (ReadSentences.DeclarersLead), stated ONCE over the whole
-            // response rather than duplicated into every row — the response/field split #342 already established,
-            // carried to this tier's own lead. RESERVED against cap before truncated is written (review-A MEDIUM2 /
-            // review-B L7, #485 round 1): a Utf8JsonWriter cannot un-write a property once appended, so checking
-            // ms.Length only AFTER deciding to write it is too late — the reservation (DeclarersLeadReserve, the
-            // note's own measured cost) has to be checked BEFORE, the same way Framing reserves for the writer's
-            // own punctuation instead of guessing it.
+            // The framing line is stated once per response, and its reserve MUST be checked before `truncated`
+            // is written: a Utf8JsonWriter cannot un-write a property once appended.
             w.Flush();
             bool leadOverCap = anyDeclarers && ms.Length + DeclarersLeadReserve >= cap;
             if (leadOverCap) rowsTruncated = true;
@@ -1621,7 +1616,7 @@ static class JsonWire
 
     /// <summary>What <c>child_declarers_note</c> costs the document — <see cref="ReadSentences.DeclarersLead"/>'s
     /// own json-escaped bytes plus the property's separator, measured the same way <see cref="Framing"/> measures
-    /// the writer's own punctuation rather than hand-counted (#485 round 1, <see cref="RenderTree"/>'s reservation).
+    /// the writer's own punctuation rather than hand-counted. Reserved by <see cref="RenderTree"/>.
     /// Written into an object that already has a property, so the measurement pays the same separator the real
     /// write does.</summary>
     static readonly int DeclarersLeadReserve = MeasureDeclarersLeadReserve();

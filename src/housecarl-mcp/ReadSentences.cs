@@ -13,10 +13,8 @@ namespace HousecarlMcp;
 /// write sentences have: the CONTENT net (<see cref="MustStateAttribute"/> — the phrases whose loss changes what
 /// the caller is told, declared beside the sentence) and a REACH net in the probe that owns the feature.</para>
 ///
-/// <para><b>Two tiers, cheap and precise, because naming WHICH plugins declare children costs a body read per
-/// toucher and every other read settles for the index's cheaper fact. Two shapes, because a COLLECTION field is
-/// assembled from every declarer and a SINGULAR one (Cell.Landscape, Worldspace.TopCell) is one record they
-/// OVERRIDE.</b> History, cost measurements, and the #485 restoration: `docs/architecture/records-owned-child-declarers.md`.</para>
+/// <para><b>The owned-child consts below come in two tiers and two shapes.</b> Which is which, why, what the
+/// precise tier costs, and the #485 restoration: `docs/architecture/records-owned-child-declarers.md`.</para>
 ///
 /// <para><b>The response/field split.</b> The invariant half is a fact about the response, not about one field,
 /// so it is stated ONCE per response. Carried per field it cost 288 chars per annotated field per record, ~275 of
@@ -111,7 +109,7 @@ internal static class ReadSentences
     /// <summary>Every row AFTER the one that carried <see cref="DeclarersLead"/> gets this short label instead —
     /// text has no per-row structure to hang the block on the way json's <c>child_declarers</c> array (a named key
     /// under each row) and the artifact's own columns do, so an unlabelled block on row 2+ sat flush against the
-    /// numbered toucher list above it with nothing saying what it was (round-2 review-A MEDIUM3).</summary>
+    /// numbered toucher list above it with nothing saying what it was.</summary>
     [NoClaims("a label; the claim — what the two shapes mean — is DeclarersLead's, stated once already")]
     internal const string DeclarersHeader = "child records — declared per plugin (see above for what the shapes mean):";
 
@@ -120,10 +118,10 @@ internal static class ReadSentences
     internal const int DeclarerNameCap = 3;
 
     /// <summary>Points a TEXT reader at the medium that carries the names <see cref="DeclarerNameCap"/> elided —
-    /// json's (and the artifact's) <c>declaring</c> array is never capped (settled #485-round-1 item 19), so this
+    /// json's (and the artifact's) <c>declaring</c> array is never capped, so this
     /// is always followable. TEXT-ONLY: json and the artifact already show every name in that same array, so
-    /// baking this into <see cref="DeclarersNote"/> itself put the hint into the medium that already answers it
-    /// (round-2 review-A MEDIUM4) — the caller composing text is the one who appends it, over the identical
+    /// baking this into <see cref="DeclarersNote"/> itself would put the hint into the medium that already
+    /// answers it — the caller composing text is the one who appends it, over the identical
     /// substring every other overflow tail in this class names as a lever.</summary>
     [NoClaims("a remedy fragment; the caller appends it, never DeclarersNote")]
     internal const string DeclarersOverflowRemedy = " — format=json for the full list";
@@ -132,7 +130,7 @@ internal static class ReadSentences
     /// the empty answer is <see cref="NoDeclarers"/> for a COLLECTION field (never null, never an omitted line);
     /// a SINGULAR field's empty answer stays in ITS OWN voice — "carried by 0 provider(s)" — rather than
     /// borrowing the collection negative's "declares child record**s**" plural, which is the shape's own claim
-    /// (a singular child is not a set of them) said falsely (round-1 review-B L4). Never names
+    /// (a singular child is not a set of them) said falsely. Never names
     /// <see cref="DeclarersOverflowRemedy"/> itself — every transport shares this text, and json/the artifact
     /// answer the overflow inline (their own <c>declaring</c> array), so only a TEXT caller needs the pointer.</summary>
     internal static string DeclarersNote(OwnedChildShape shape, IReadOnlyList<string> declaring, IReadOnlyList<string> unreadable)

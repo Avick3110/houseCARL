@@ -299,8 +299,8 @@ public static class OwnedChildContentProbe
     /// never false) directly, and the composed sentence at the SENTENCE block above (fed hand-built lists, since
     /// the fixture cannot honestly produce an unreadable body). The wiring between the two —
     /// <c>ResolveTreePinned</c>'s own classification of a real unreadable body into <c>ChildDeclarers.Unreadable</c>
-    /// — is not independently driven by an arm (round-1 review-B L3: an earlier version of this comment called
-    /// the hazard "pinned at its two ends", which overstated this middle as covered).</para></summary>
+    /// — is not independently driven by an arm: the hazard is pinned at its two ends, not through the
+    /// middle.</para></summary>
     static void CheckUnreadable(string root, string mods, string baseDir, ModKey baseKey, ModKey topKey, FormKey cellA)
     {
         var inst2 = Path.Combine(root, "unreadable");
