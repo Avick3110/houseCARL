@@ -104,3 +104,31 @@ Four consequences of the shape, each load-bearing:
   checked-in baseline as a number rather than as something a later session has to remember. (The eighth,
   `SkyPatcherHarness.cs`, is not a `*Probe*.cs` and so is not a countdown key; it holds one site and no
   arms.)
+
+---
+
+## Addendum — 2026-09-03: the rule's scope, measured on #486 PR 2
+
+*Appended at the maintainer's ruling on #486 PR 2's round-1 CLAUDE.md §4(b) stop ("agreed", 2026-09-03).
+Nothing accepted above is rewritten; this narrows what the rule claims to what was actually verified, and
+names where the remainder is chartered.*
+
+**"Guards on a deleted tool die with the tool; behaviour that survives gets a fresh test" is true as stated
+for every site the COMPILER named.** That is what #486 PR 2 discharges: 200 distinct sites over 204
+complaints, each classified — dies with the tool, owes a fresh test, or diagnostic only — and each carried to
+a disposition, with 57 new tests written against the surfaces that render the surviving facts today.
+
+**The compiler's list is not the whole cost of a whole-FILE deletion.** #486 PR 2 removed
+`CheckErrorsProbe.cs` and `ScriptPropertyCheckProbe.cs` entirely, and a file deletion also takes every arm
+the compiler never named — arms that drove `ErrorCheck.Run` / `ScriptPropertyCheck.Run` or a product class
+directly and were never coupled to a render half at all. Derived by script rather than by eye (an arm is
+coupled when a compiler-named line falls in its own span, or when it calls one of the eleven helper methods
+whose bodies contain one): **93 such arms**, 66 in the first file and 27 in the second.
+
+Three of them are re-homed in PR 2 itself — #207's owner-rank exemption, whose shipped code was left with no
+guard anywhere. **The remaining 90 are chartered to issue #494**, sequenced with #492 and before the
+conversion PRs. Until that lands, the honest statement of this rule's coverage is the one above: the
+compiler-named population, not every arm that shared a file with it.
+
+The rule holds. What this addendum corrects is the same thing the 2026-09-03 measurement in the body
+corrected one level up — a claim about how much one change can be trusted to have found.
