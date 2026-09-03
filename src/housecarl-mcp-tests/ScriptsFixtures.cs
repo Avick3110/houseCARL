@@ -52,25 +52,12 @@ internal static class ScriptsFixtures
     internal static string Text(ScriptCheckResult r, int maxChars, params string[] tokens) =>
         Wire.RenderCheck(new CheckSweep(Sel(tokens), Scripts: r), maxChars);
 
-    /// <summary>The text render with an explicit histogram row budget.</summary>
-    internal static string Text(ScriptCheckResult r, int maxChars, int histogramLimit, params string[] tokens) =>
-        Wire.RenderCheck(new CheckSweep(Sel(tokens), Scripts: r), maxChars, histogramLimit);
-
     /// <summary>The json render of the same.</summary>
     internal static string Json(ScriptCheckResult r, int maxChars, params string[] tokens) =>
         JsonWire.RenderCheck(new CheckSweep(Sel(tokens), Scripts: r), maxChars);
-
-    internal static string Json(ScriptCheckResult r, int maxChars, int histogramLimit, params string[] tokens) =>
-        JsonWire.RenderCheck(new CheckSweep(Sel(tokens), Scripts: r), maxChars, histogramLimit);
 
     /// <summary>The scripts family's own object in a merged json document.</summary>
     internal static JsonElement ScriptsFamily(string json) =>
         JsonDocument.Parse(json).RootElement.GetProperty("families")
                     .GetProperty(SweepFamilySelection.Token(SweepFamily.Scripts));
-
-    internal static string Head(string response)
-    {
-        var lines = response.Split('\n');
-        return lines.Length > 1 ? lines[0] + " | " + lines[1] : lines[0];
-    }
 }
