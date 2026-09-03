@@ -124,19 +124,9 @@ public static class CiAll
     /// for the residue countdown's row count. Sorted by name — the order <c>ci-all</c> runs them in.</summary>
     public static IReadOnlyList<string> ProbeNames { get; } = ProbeHosts.Select(p => p.Name).ToArray();
 
-    /// <summary>The TYPE hosting each roster guard's entry point, off the attributed methods themselves. Read
-    /// by the residue countdown to derive which files still hold a CI guard: two of them
-    /// (<c>WriteEngine</c>'s coerce verbs) do not live in this project at all, so no naming rule inside the
-    /// generator could find them.</summary>
-    public static IReadOnlyList<Type> ProbeTypes { get; } = ProbeHosts.Select(p => p.Host).Distinct().ToArray();
-
     /// <summary>The guards CI runs as their own workflow step instead of inside <c>ci-all</c>.</summary>
     public static IReadOnlyList<string> StandaloneProbeNames { get; } =
         StandaloneProbeHosts.Select(p => p.Name).ToArray();
-
-    /// <summary>Their host types, for the residue countdown — a standalone guard is residue too.</summary>
-    public static IReadOnlyList<Type> StandaloneProbeTypes { get; } =
-        StandaloneProbeHosts.Select(p => p.Host).Distinct().ToArray();
 
     /// <summary>Every type hosting a CI guard of either kind.</summary>
     public static IReadOnlyList<Type> GuardTypes { get; } = All.Select(e => e.Host).Distinct().ToArray();

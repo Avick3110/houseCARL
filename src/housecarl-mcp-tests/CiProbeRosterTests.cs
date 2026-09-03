@@ -76,7 +76,24 @@ public sealed class CiProbeRosterTests
     [Fact]
     public void EveryVerbTheRunnerKnowsWasFoundInTheRepoToo_TheTwoSpellingsAgree()
     {
-        var acrossRepo = AttributedVerbsAcrossTheRepo().ToDictionary(v => v.Verb, v => v, StringComparer.Ordinal);
+        var all = AttributedVerbsAcrossTheRepo();
+
+        // CiAll refuses a verb clash for the assemblies IT walks. This scan sees the whole repo, so a clash in
+        // a project the runner does not reference reaches here first — and a bare ToDictionary answered it with
+        // the BCL's "An item with the same key has already been added", which names neither guard.
+        var clashes = all.GroupBy(v => v.Verb, StringComparer.Ordinal)
+                         .Where(g => g.Count() > 1)
+                         .Select(g => $"{g.Key} — " + string.Join(", ", g.Select(v => $"{v.Member} in {v.Assembly}")))
+                         .OrderBy(s => s, StringComparer.Ordinal)
+                         .ToArray();
+
+        Assert.True(clashes.Length == 0,
+            "Two guards claim the same CI verb, so one of them is unreachable by name:\n  " +
+            string.Join("\n  ", clashes) +
+            "\nVerb names are the roster's identity and must be unique across the whole repo, not just across " +
+            "the assemblies the runner walks.");
+
+        var acrossRepo = all.ToDictionary(v => v.Verb, v => v, StringComparer.Ordinal);
 
         var missing = CiAll.ProbeNames.Concat(CiAll.StandaloneProbeNames)
                                       .Where(n => !acrossRepo.ContainsKey(n))

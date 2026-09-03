@@ -33,7 +33,7 @@ internal static class PreFlattenSurface
     internal static IReadOnlyList<Tool> Read()
     {
         var services = new ServiceCollection();
-        services.AddMcpServer().WithToolsFromAssembly(typeof(ToolSchemas).Assembly);
+        services.AddMcpServer().WithToolsFromAssembly(HousecarlMcp.ToolSurface.Assembly);
         using var provider = services.BuildServiceProvider();
 
         var tools = provider.GetRequiredService<IOptions<McpServerOptions>>().Value.ToolCollection

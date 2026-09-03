@@ -35,7 +35,7 @@
     "src/housecarl-generator/CheckMergeProbe.cs": { "lines": 2014, "ciAllRows": 1 },
     "src/housecarl-generator/ClosureCopyProbe.cs": { "lines": 226, "ciAllRows": 1 },
     "src/housecarl-generator/ClosureWalkProbe.cs": { "lines": 294, "ciAllRows": 1 },
-    "src/housecarl-generator/CodexUmbrellaCoverageProbe.cs": { "lines": 196, "ciAllRows": 1 },
+    "src/housecarl-generator/CodexUmbrellaCoverageProbe.cs": { "lines": 197, "ciAllRows": 1 },
     "src/housecarl-generator/CompactReadbackProbe.cs": { "lines": 180, "ciAllRows": 1 },
     "src/housecarl-generator/CompactServiceGuardProbe.cs": { "lines": 850, "ciAllRows": 1 },
     "src/housecarl-generator/CompileErgonomicsProbe.cs": { "lines": 691, "ciAllRows": 1 },

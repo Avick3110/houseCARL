@@ -802,7 +802,7 @@ public static class BulkPrimitivesWave3Probe
         // as a per-file report, and an ordinal-ignore-case match would read that correct sentence as the defect. What is
         // banned is the flat lower-case assertion (review of PR #274, round 2).
         const string overclaim = "the game does not load this file";
-        var mcpTypes = typeof(HousecarlMcp.ReadTools).Assembly.GetTypes();
+        var mcpTypes = HousecarlMcp.ToolSurface.Assembly.GetTypes();
         const System.Reflection.BindingFlags AllDeclared =
             System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic
             | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Instance
