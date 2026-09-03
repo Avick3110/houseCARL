@@ -16,6 +16,7 @@ namespace HousecarlMcpTests;
 /// therefore cannot tell a resolved fixture from a missing one; the declarations have to be observed.</para>
 /// </summary>
 [Collection("scripts")]
+[Trait("tier", "integration")]
 public sealed class ScriptsWorldTests
 {
     readonly ScriptsWorld _w;
@@ -95,6 +96,15 @@ public sealed class ScriptsWorldTests
     /// <para>Its own server, never the shared <see cref="ServerFixture"/>: that one is deliberately
     /// UNCONFIGURED — every stdio test in the run reads "the body ran" off its config prompt — and pointing
     /// it at an instance would silently retune all of them.</para>
+    ///
+    /// <para><b>Every string asserted here is anchored to something only this world can produce.</b> Three
+    /// looser spellings were measured and refused: the bare words <c>not on disk</c> are in the scripts
+    /// family's boundary sentence, which the renderer writes through the reserve on EVERY scripts response
+    /// (<c>ReadSentences.SweepScriptBoundary</c>); the bare script name <c>HcSpNoPex</c> is also the
+    /// record's own EditorID, printed by the record header regardless; and the record count survives a world
+    /// whose .pex files never resolved, because <c>RecordsWithScripts</c> is incremented before any .pex is
+    /// opened. All three stay green over a broken fixture. The reason line and the unbound finding below
+    /// cannot.</para>
     /// </summary>
     [Fact]
     [Trait("tier", "stdio")]
@@ -102,16 +112,26 @@ public sealed class ScriptsWorldTests
     {
         using var server = new ServerFixture();
 
+        // A bad instance comes back as an in-band "error: …" text result, not an MCP error, so IsError
+        // cannot tell a configured server from a refused one. The confirmation render is what can.
         var set = server.Call(ToolNames.SetMo2Instance,
             $$"""{"path": {{JsonSerializer.Serialize(_w.Instance)}}}""");
-        Assert.False(set.IsError, set.Describe());
+        Assert.Contains($"configured houseCARL -> MO2 instance '{_w.Instance}'", set.Text, StringComparison.Ordinal);
+        Assert.Contains("active profile: Default", set.Text, StringComparison.Ordinal);
 
         var r = server.Call(ToolNames.Check, """{"findings":["scripts"]}""");
 
         Assert.False(r.IsError, r.Describe());
         Assert.DoesNotContain(ServerFixture.ConfigPrompt, r.Text, StringComparison.Ordinal);
         Assert.Contains($"{ScriptsWorld.RecordsWithScripts} record(s) with scripts", r.Text, StringComparison.Ordinal);
-        Assert.Contains(ScriptsWorld.MissingScript, r.Text, StringComparison.Ordinal);
-        Assert.Contains("not on disk", r.Text, StringComparison.Ordinal);
+
+        // The unverifiable attribution, spelled the way the sweep composes it — names the .pex it looked for.
+        Assert.Contains($@"'Scripts\{ScriptsWorld.MissingScript}.pex' is not on disk", r.Text, StringComparison.Ordinal);
+
+        // A finding only a RESOLVED child .pex can produce: the declaration has to have been read for the
+        // property to be known unbound at all.
+        Assert.Contains($"{ScriptsWorld.ObjectProperty} (Spell) on script {ScriptsWorld.ChildScript}",
+                        r.Text, StringComparison.Ordinal);
+        Assert.Contains("declared but NOT bound", r.Text, StringComparison.Ordinal);
     }
 }

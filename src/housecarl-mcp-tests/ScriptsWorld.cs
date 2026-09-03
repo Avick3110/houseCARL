@@ -1,9 +1,14 @@
 // The Papyrus fixture world (#486 PR 1, item 1). Record shapes ported from
 // src/housecarl-generator/ScriptPropertyCheckProbe.cs's RunChecks — same EditorIDs, same VMAD shapes, same
 // property bindings, same planted .pex pair — re-homed as an MO2-INSTANCE world so the same fixture can be
-// driven three ways: the core sweep, the service (LoadOrderService over the instance), and housecarl_check
-// off the built server. The probe's own world was a bare directory + LoadOrderResolver.Build, which the
-// shipped tool surface cannot point at.
+// driven by the service (LoadOrderService.ValidateScripts over the instance) AND by housecarl_check off the
+// built server. The probe's own world was a bare directory + LoadOrderResolver.Build, which the shipped tool
+// surface cannot point at.
+//
+// It cannot be handed to the core ScriptPropertyCheck.Run(resolver, assets, …) directly: LoadOrderService's
+// Resolver and Assets are private and this world does not re-derive them. Nothing needs that seam —
+// ValidateScripts carries every knob the core sweep takes (record scope, property_contains, finding classes,
+// counts_only, exclude, limit) — so it is not opened speculatively.
 
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
