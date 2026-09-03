@@ -84,13 +84,22 @@ public sealed class TestProseGuardTests
     public sealed record Site(string File, int Line, string Form, string Bucket,
                               string Expected, string Actual, IReadOnlyList<string> Literals);
 
+    // Every memo below is guarded: the three arms in this class run sequentially, but nothing stops a future
+    // caller in another class from asking, and a torn Dictionary read fails toward a wrong population.
+    static readonly object Memo = new();
     static IReadOnlyList<Site>? _sites;
     static int _skipped, _hoisted;
 
     public static IReadOnlyList<Site> Sites()
     {
-        if (_sites is not null) return _sites;
+        lock (Memo)
+        {
+            return _sites ??= DeriveSites();
+        }
+    }
 
+    static IReadOnlyList<Site> DeriveSites()
+    {
         var wire = WireTokens();
         var fixtureValues = FixtureValues();
         var fixtureSymbols = FixtureSymbols();
@@ -151,7 +160,7 @@ public sealed class TestProseGuardTests
 
         _skipped = skipped;
         _hoisted = hoisted;
-        return _sites = sites;
+        return sites;
     }
 
     static string Classify(string expected, string actual, IReadOnlyList<string> literals,
@@ -193,7 +202,7 @@ public sealed class TestProseGuardTests
     /// surface <c>WireNamesProbe</c> already reflects over, read here off the syntax.</summary>
     public static IReadOnlySet<string> WireTokens()
     {
-        if (_wire is not null) return _wire;
+        lock (Memo) { if (_wire is not null) return _wire; }
 
         var toks = new HashSet<string>(StringComparer.Ordinal);
         foreach (var root in new[] { "housecarl-mcp", "housecarl-core" })
@@ -224,7 +233,7 @@ public sealed class TestProseGuardTests
                         toks.Add(a.Token.ValueText);
             }
 
-        return _wire = toks;
+        lock (Memo) { return _wire ??= toks; }
     }
 
     static IReadOnlySet<string>? _fixtureValues;
@@ -233,7 +242,7 @@ public sealed class TestProseGuardTests
     /// A literal a fixture wrote is an input the test handed the product, not prose the product composed.</summary>
     public static IReadOnlySet<string> FixtureValues()
     {
-        if (_fixtureValues is not null) return _fixtureValues;
+        lock (Memo) { if (_fixtureValues is not null) return _fixtureValues; }
 
         var vals = new HashSet<string>(StringComparer.Ordinal);
 
@@ -255,7 +264,7 @@ public sealed class TestProseGuardTests
             foreach (var assign in tree.DescendantNodes().OfType<AssignmentExpressionSyntax>()) Take(assign.Right);
         }
 
-        return _fixtureValues = vals;
+        lock (Memo) { return _fixtureValues ??= vals; }
     }
 
     static IReadOnlySet<string>? _fixtureSymbols;
@@ -269,7 +278,7 @@ public sealed class TestProseGuardTests
     /// </summary>
     public static IReadOnlySet<string> FixtureSymbols()
     {
-        if (_fixtureSymbols is not null) return _fixtureSymbols;
+        lock (Memo) { if (_fixtureSymbols is not null) return _fixtureSymbols; }
 
         var symbols = new HashSet<string>(StringComparer.Ordinal);
         var fixtureTypes = new HashSet<string>(StringComparer.Ordinal);
@@ -301,7 +310,7 @@ public sealed class TestProseGuardTests
 
         foreach (var reg in NameRegistries()) symbols.Add(reg);
 
-        return _fixtureSymbols = symbols;
+        lock (Memo) { return _fixtureSymbols ??= symbols; }
     }
 
     /// <summary>Product types whose every non-private declared member is a <c>const string</c> — a registry of
@@ -590,7 +599,7 @@ public sealed class TestProseGuardTests
     /// it lands.</summary>
     public static IReadOnlySet<string> ProductTypes()
     {
-        if (_productTypes is not null) return _productTypes;
+        lock (Memo) { if (_productTypes is not null) return _productTypes; }
 
         var types = new HashSet<string>(StringComparer.Ordinal);
         foreach (var root in new[] { "housecarl-mcp", "housecarl-core" })
@@ -599,6 +608,6 @@ public sealed class TestProseGuardTests
                                                   .DescendantNodes().OfType<BaseTypeDeclarationSyntax>())
                     types.Add(t.Identifier.ValueText);
 
-        return _productTypes = types;
+        lock (Memo) { return _productTypes ??= types; }
     }
 }

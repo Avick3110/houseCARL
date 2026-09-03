@@ -66,6 +66,7 @@ public sealed class ReadSentenceReachabilityTests : IClassFixture<OwnedChildFixt
         public string Key => Member + "|" + File;
     }
 
+    static readonly object SitesLock = new();
     static IReadOnlyList<Site>? _sites;
 
     /// <summary>
@@ -75,8 +76,14 @@ public sealed class ReadSentenceReachabilityTests : IClassFixture<OwnedChildFixt
     /// </summary>
     public static IReadOnlyList<Site> Sites()
     {
-        if (_sites is not null) return _sites;
+        lock (SitesLock)
+        {
+            return _sites ??= Derive();
+        }
+    }
 
+    static IReadOnlyList<Site> Derive()
+    {
         var sentences = SentenceCatalogue.Members(typeof(ReadSentences))
             .Where(m => m.Kind == SentenceCatalogue.Shape.Value && m.Type == typeof(string))
             .Select(m => m.Name)
@@ -105,9 +112,9 @@ public sealed class ReadSentenceReachabilityTests : IClassFixture<OwnedChildFixt
             foreach (var named in SentencesNamedInside(composer, sentences))
                 found.Add(new Site(named, composer + "()"));
 
-        return _sites = found.OrderBy(s => s.Member, StringComparer.Ordinal)
-                             .ThenBy(s => s.File, StringComparer.Ordinal)
-                             .ToList();
+        return found.OrderBy(s => s.Member, StringComparer.Ordinal)
+                    .ThenBy(s => s.File, StringComparer.Ordinal)
+                    .ToList();
     }
 
     /// <summary>The catalogue's composers that the product actually calls somewhere under src/housecarl-mcp.</summary>
