@@ -1760,7 +1760,12 @@ public static class RecordsTools
             }
             sb.Append("    ").Append(cd.Field).Append(": ")
               .Append(ReadSentences.DeclarersNote(cd.Shape, cd.Declaring, cd.Unreadable));
-            if (cd.Shape == OwnedChildShape.Collection && cd.Declaring.Count > ReadSentences.DeclarerNameCap)
+            // DeclarersNote elides past DeclarerNameCap in TWO clauses of the same sentence — a COLLECTION field's
+            // `declaring` names, and the `unreadable` names of ANY shape — and both elisions are followable only
+            // in json. The remedy answers whichever fired; ONE remedy per line even when both did, because the
+            // pointer is the same pointer.
+            if ((cd.Shape == OwnedChildShape.Collection && cd.Declaring.Count > ReadSentences.DeclarerNameCap)
+                || cd.Unreadable.Count > ReadSentences.DeclarerNameCap)
                 sb.Append(ReadSentences.DeclarersOverflowRemedy);
             sb.Append('\n');
         }
