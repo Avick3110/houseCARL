@@ -9,7 +9,7 @@ It is one C# process built on Mutagen. Users start at [README.md](README.md). Th
 ## Design
 
 - **Record coverage is generated, never hand-written.** A build-time generator walks Mutagen's record interfaces and emits the schema and validation data. The set of record types houseCARL handles is the set Mutagen models. Do not add a per-record-type schema or write mapping by hand. Where Mutagen lags xEdit, say so loudly; never paper over it.
-- **One grammar, closed under composition.** Every operation, single or bulk, is one call composed from a small set of orthogonal axes: select a set of records (one is a set of one), project what to read, apply one of a few generic write verbs. There is no verb per job and no single/bulk tool pair. A new need lands as a value on an existing axis; if it truly cannot, add one general primitive, never a job-shaped tool. The surface contract is `dev/projects/tool-surface-2.0/SPEC.md`; look the verb set up there rather than reciting it. Domain knowledge (field bundles, forbidden prefixes) lives in skills as data.
+- **One grammar, closed under composition.** Every operation, single or bulk, is one call composed from a small set of orthogonal axes: select a set of records (one is a set of one), project what to read, apply one of a few generic write verbs. There is no verb per job and no single/bulk tool pair (the one left from 1.x, `place_asset` / `bulk_place_asset`, is a leftover to fold, not a pattern). A new need lands as a value on an existing axis; if it truly cannot, add one general primitive, never a job-shaped tool. The surface contract is `dev/projects/tool-surface-2.0/SPEC.md`; look the verb set up there rather than reciting it. Domain knowledge (field bundles, forbidden prefixes) lives in skills as data.
 - **Errors are one plain sentence: what went wrong and what to try.** A tool never returns a silently wrong answer or a silently degraded mode. When it cannot do the thing, it says so.
 - **Reads are lazy, freshness is cheap.** Records parse on access from a binary overlay; nothing holds the load order in memory or keeps plugin file handles open at rest; a change on disk is picked up by an mtime check. One process, no daemon, no live tracking of MO2.
 
@@ -38,15 +38,15 @@ A design question that these four do not settle goes to the PRFAQ (`dev/PRFAQ/`,
 | `src/housecarl-generator/` | Build-time schema generator; also the probe runner (`ci-all`) |
 | `src/housecarl-mcp-tests/` | xUnit tests against the built server |
 | `src/housecarl-setup/` | Installer |
-| `plugin/` | The shipped Claude Code plugin: skills, changelog |
+| `plugin/` | The shipped Claude Code plugin's manifest, changelog, and notices; skills are copied in at build |
 | `.claude/skills/` | Skill sources (`/housecarl:<name>`) |
 | `docs/` | Architecture notes and design decisions |
-| `standards/` | Testing and naming, one page each |
+| `standards/` | Testing, naming, and skill authoring |
 | `dev/projects/tool-surface-2.0/` | The tool-surface charter and spec (private) |
 | `dev/BACKLOG.md` | What is next, in order (private) |
 | `dev/DECISIONS.md` | Aaron's rulings, one line each (private) |
 
-MCP tools are named `housecarl_<snake_case>`. The brand string "houseCARL" appears once in code, in the server's name. Everything else: [standards/NAMING.md](standards/NAMING.md).
+MCP tools are named `housecarl_<snake_case>`; namespaces, classes, and files are named for what they do, not for the brand. Everything else: [standards/NAMING.md](standards/NAMING.md).
 
 ## Don't
 

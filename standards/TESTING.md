@@ -11,7 +11,7 @@ Most tests are engine tests. Write a wire test when the thing under test is the 
 
 ## Worlds
 
-A world (`RecordsWorld`, `ScriptsWorld`, `DialogueWorld`, `CheckErrorsWorld`, `ArtifactWorld`, `BulkRecordsWorld`) builds a temporary MO2 instance with real plugins written by Mutagen: a master, overrides at different load positions, a disabled patch, scripts. One instance is shared across a test class's collection through an xUnit fixture. A test that mutates the world (rewrites a plugin, touches an mtime) builds its own instance so it cannot poison the shared one.
+A world (`RecordsWorld`, `ScriptsWorld`, `DialogueWorld`, `CheckErrorsWorld`, `ArtifactWorld`, `BulkRecordsWorld`) builds a temporary MO2 instance with real plugins written by Mutagen: a master, overrides at different load positions, a disabled patch, scripts. One instance is shared through an xUnit collection fixture or class fixture. A test that mutates the world (rewrites a plugin, touches an mtime) builds its own instance so it cannot poison the shared one.
 
 To test a new behaviour, first look for a world that already has the records you need. Add to one before creating another.
 
@@ -19,7 +19,8 @@ To test a new behaviour, first look for a world that already has the records you
 
 1. Arrange with the world: pick the record, the plugin, the state.
 2. Act by calling the tool once.
-3. Assert on what the caller would look for: the record that should appear, the value it should carry, the refusal it should get. The `Served(response, ...)` and `Refused(response, ...)` helpers in each test base cover the common cases.
+3. Assert on what the caller would look for: the record that should appear, the value it should carry, the refusal it should get. Most test bases have `Served(response, ...)` and `Refused(response, ...)` helpers for the common cases.
+4. Tag the class with a tier trait: `[Trait("tier", "unit")]` when it needs no world, `"integration"` when it drives a world, `"stdio"` when it goes through `ServerFixture`.
 
 Assert on the specific thing, not the whole text. A refusal test names the one word that carries the fix (the parameter, the rule) and nothing more, so a rewording of the sentence does not break it.
 
@@ -27,7 +28,7 @@ A test must fail before the fix and pass after. If it cannot fail, it is not a t
 
 ## What not to write
 
-- No tests about tests: no guards over test files, no baseline counts, no sweeps that check the suite's own shape. If you doubt the suite, run Stryker.NET once, fix what it shows, and move on.
+- No tests about tests: no guards over test files, no baseline counts, no sweeps that check the suite's own shape. The few that still exist are being deleted; do not add to them. If you doubt the suite, run Stryker.NET once, fix what it shows, and move on.
 - No test that needs the real game. Anything that needs a real load order runs locally; the PR says what was run and what it showed.
 - No duplicate of a probe. The probes in `src/housecarl-generator` are the old harness and still cover real behaviour. Leave them alone until you change what one covers; then move that coverage here and delete the probe.
 
@@ -39,4 +40,4 @@ dotnet test src/housecarl-mcp-tests -c Release --no-build --filter "tier!=bridge
 dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll ci-all
 ```
 
-The `bridge` tier is the handful of tests that need a real local install; CI skips them.
+The one `bridge`-tier test shells the generator's `ci-all` itself; CI runs `ci-all` as its own step, so the filter leaves it out there.
