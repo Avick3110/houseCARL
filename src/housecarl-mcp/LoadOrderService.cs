@@ -4592,10 +4592,41 @@ public sealed class LoadOrderService : IDisposable
                            with { Epoch = view.Epoch };
                 offOrder.Add((n, loc.Path!));
             }
-            return ErrorCheck.Run(resolver, viewAll, active, limit, offOrder.Count > 0 ? offOrder : null,
-                                  recordScope, classes, countsOnly, excluded);
+            return ClassifyMissingMasters(
+                ErrorCheck.Run(resolver, viewAll, active, limit, offOrder.Count > 0 ? offOrder : null,
+                               recordScope, classes, countsOnly, excluded));
         }
-        return ErrorCheck.Run(resolver, viewAll, plugins, limit, null, recordScope, classes, countsOnly, excluded);
+        return ClassifyMissingMasters(
+            ErrorCheck.Run(resolver, viewAll, plugins, limit, null, recordScope, classes, countsOnly, excluded));
+    }
+
+    /// <summary>Fill in each report's install-vs-enable split for the masters the sweep found unsatisfied. The core
+    /// sweep knows the ACTIVE ORDER and stops there; which of those masters is nonetheless sitting in the install —
+    /// in a disabled mod, or unticked — is a fact about the MO2 composition, which lives at this layer. Done here so
+    /// the split has one home shared with <c>read_plugin_file</c>'s advisory
+    /// (<see cref="Mo2LoadOrder.SplitUnsatisfiedMasters"/>) rather than a second spelling inside the core.
+    /// <para>A composition that cannot be read leaves every report's subset NULL — not empty. Empty would say "none
+    /// of these is merely disabled", which is a claim about an install nobody looked at; null says the split was not
+    /// made, and the render answers with the union remedy it printed before (Q3).</para></summary>
+    ErrorCheckResult ClassifyMissingMasters(ErrorCheckResult r)
+    {
+        if (r.Error is not null || r.Reports.Count == 0) return r;
+        if (!r.Reports.Any(p => p.MissingMasters.Count > 0)) return r;
+
+        string modsDir, dataDir, overwriteDir, profileDir;
+        try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
+        catch { return r; }
+        Mo2Composition comp;
+        try { comp = Mo2LoadOrder.ReadComposition(profileDir); }
+        catch { return r; }
+
+        var classified = new List<PluginErrors>(r.Reports.Count);
+        foreach (var p in r.Reports)
+            classified.Add(p.MissingMasters.Count == 0
+                ? p with { InstalledButInactiveMasters = Array.Empty<string>() }
+                : p with { InstalledButInactiveMasters =
+                               Mo2LoadOrder.SplitUnsatisfiedMasters(comp, modsDir, dataDir, overwriteDir, p.MissingMasters).InstalledButInactive });
+        return r with { Reports = classified };
     }
 
     /// <summary>The force-loaded plugin names (in the order, absent from plugins.txt) for
@@ -8473,16 +8504,12 @@ public sealed class LoadOrderService : IDisposable
             //                precise false-negative this split exists to prevent (PR #148 review): it suppresses the
             //                "won't load" warning exactly when it applies.
             // "Active" is read from the PROFILE (plugins.txt actives + the force-loaded implicit masters) — the same
-            // active-order notion housecarl_check_errors uses — NOT mere on-disk presence, so the two tools agree.
-            var missing = new List<string>();
-            var inactive = new List<string>();
-            foreach (var m in masters)
-            {
-                if (!Mo2LoadOrder.PluginFileExists(comp, modsDir, dataDir, overwriteDir, m)) { missing.Add(m); continue; }
-                bool active = comp.ActivePluginNames.Contains(m)
-                              || comp.ImplicitPluginNames.Any(x => x.Equals(m, StringComparison.OrdinalIgnoreCase));
-                if (!active) inactive.Add(m);
-            }
+            // active-order notion housecarl_check's errors family uses — NOT mere on-disk presence, so the two agree.
+            var unsatisfied = masters.Where(m => !(comp.ActivePluginNames.Contains(m)
+                                                   || comp.ImplicitPluginNames.Any(x => x.Equals(m, StringComparison.OrdinalIgnoreCase))));
+            // The split itself lives in ONE home (Mo2LoadOrder.SplitUnsatisfiedMasters), shared with the check
+            // surface's missing-master remedy — so "install it" vs "enable it" cannot be decided two ways.
+            var (missing, inactive) = Mo2LoadOrder.SplitUnsatisfiedMasters(comp, modsDir, dataDir, overwriteDir, unsatisfied);
             var baseOut = new PluginFileOutcome
             {
                 Requested = plugin, FilePath = path, Where = where, Enabled = enabled, WhyNotActive = whyNotActive,

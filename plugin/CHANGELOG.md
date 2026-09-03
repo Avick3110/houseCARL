@@ -1606,6 +1606,13 @@ offset, paging meant slicing by `editorid_contains`. Now:
   states that other plugins touch the record and that this read did not open their bodies, and
   `project={"form": "tree"}` shows you each touching plugin's own content in that field instead (#485).
 
+  What does carry across is the master advisory the deleted `housecarl_read_plugin_file` printed:
+  `housecarl_check findings=["missing_masters"]` now names, per unsatisfied master, whether it is not
+  installed anywhere in the MO2 install (install it) or installed but not active — in a disabled mod, or
+  unchecked (enable it). The finding class, its count and its list are unchanged; the remedy line used to say
+  "install/enable it" for every master at once, so a caller had to work out which applied. Check it by running
+  `housecarl_check plugins=["<a plugin with an unsatisfied master>"] findings=["missing_masters"]`.
+
 - **Sentences on tools that survive point at a call you can make.** Repairs the deletion above forced:
   `housecarl_write_seq`'s standing limit and its mtime-stamp note named the retired dialogue validator and
   name `housecarl_check findings=["dialogue"]` now; `housecarl_skypatcher_layer`'s description and its
