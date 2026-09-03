@@ -12,6 +12,13 @@
 >   hosted in a file already counted, moves none of the other three, so the countdown could reach
 >   zero with CI still running it. The line total is still derived and printed, not asserted; it is
 >   now the fifth number, not the fourth.
+>
+>   **And the bound on that fourth measure, stated once:** `standaloneCiSteps` counts attributed
+>   standalone verbs, and CI's steps for them are *generated* from that attribute into a block
+>   `ci.yml` carries byte-equal. A guard invocation hand-added to a workflow outside that block is
+>   outside the countdown's reach. The claim is completeness over the sanctioned path, not over
+>   arbitrary shell — three earlier shapes of this check tried to cover the wider surface by parsing
+>   the workflow, and each went green over a real offender.
 > - **The baseline is a per-file map, not a set of totals.** The totals derive from it. A conversion
 >   PR deletes its own key instead of lowering numbers every other conversion PR also lowers, so two
 >   conversions of different families merge cleanly.

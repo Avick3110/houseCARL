@@ -118,13 +118,16 @@ jobs:
       # too fast to land that race, so it is carved out here (cold). See FreshnessCaptureProbe's own summary.
       #
       # A step like this one is outside the reflected roster, which is how a guard could go unrun or uncounted
-      # with everything green. CiWorkflowGuardStepTests derives the population from THIS FILE's OWN LINES:
-      # every generator verb invoked here is either ci-all or a guard whose attribute flags it Standalone, and
-      # every Standalone guard has a step. Adding a step that invokes an unattributed verb is a failing test —
-      # naming the verb where the guard can read the invocation, and naming this line where it cannot, so an
-      # invocation spelling it has not seen goes red rather than dropping out of the population.
-      - name: Probe — freshness + write-capture (own cold process; timing-sensitive deferral arm)
-        # Run even if ci-all failed (but not if the run was cancelled), so one red run still shows whether
-        # freshness passes — the same "report every failure" posture as the ci-all runner itself.
+      # with everything green. The block below is therefore GENERATED from the [CiProbe(…, Standalone = true)]
+      # attributes and held byte-equal by CiWorkflowGuardStepTests: flag a guard Standalone and its step is
+      # owed here; hand-edit, delete or respell one and the test is red naming it. That is the sanctioned way
+      # to give a guard its own CI step. A guard invocation hand-added to a workflow OUTSIDE this block is
+      # outside the residue countdown's reach — the countdown claims completeness over this path, not over
+      # arbitrary shell.
+      # >>> generated: standalone CI guard steps — do not hand-edit
+      # Rendered from CiAll.StandaloneProbeNames. `if: !cancelled()` so one red run still shows whether these
+      # passed — the same "report every failure" posture as the ci-all runner itself.
+      - name: CI guard (standalone, own cold process) — freshness-capture-guard
         if: ${{ !cancelled() }}
         run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll freshness-capture-guard
+      # <<< generated: standalone CI guard steps
