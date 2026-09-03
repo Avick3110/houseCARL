@@ -123,7 +123,7 @@ public static class CheckMergeProbe
             WritePex(Path.Combine(scriptsDir, "HcCmScript.pex"), "HcCmScript", parent: null,
                 AutoObj("HcCmSpell", "Spell"),
                 AutoObj("HcCmOther", "Spell"),
-                AutoScalar("HcCmChance", "Int", initInt: null));
+                AutoScalar("HcCmChance", "Int"));
 
             // The absent master: written so its FormKeys are real, then deliberately NOT loaded.
             var ghost = new SkyrimMod(new ModKey("HcCmGhost", ModType.Master), SkyrimRelease.SkyrimSE);
@@ -1189,7 +1189,7 @@ public static class CheckMergeProbe
         Directory.CreateDirectory(offDir); Directory.CreateDirectory(scripts);
         WritePex(Path.Combine(scripts, "HcOrchScript.pex"), "HcOrchScript", parent: null,
             AutoObj("HcOrchSpell", "Spell"),
-            AutoScalar("HcOrchChance", "Int", initInt: null));
+            AutoScalar("HcOrchChance", "Int"));
 
         // The absent master, written so its FormKeys are real and then left out of the order entirely: every NPC
         // pointing at it is a dangling ref, and every plugin mastering it also reports a MISSING MASTER. Two error
@@ -2037,7 +2037,7 @@ public static class CheckMergeProbe
     /// <summary>One Auto property to plant in a .pex: the property record + its backing variable.</summary>
     internal sealed record Decl(PexObjectProperty Prop, PexObjectVariable Backing);
 
-    static Decl Auto(string name, string typeName, int? initInt)
+    static Decl Auto(string name, string typeName)
     {
         var prop = new PexObjectProperty
         {
@@ -2047,30 +2047,21 @@ public static class CheckMergeProbe
             Flags = PropertyFlags.Read | PropertyFlags.Write | PropertyFlags.AutoVar,
             AutoVarName = $"::{name}_var",
         };
-        var data = initInt is int v
-            ? new PexObjectVariableData { VariableType = VariableType.Integer, IntValue = v }
-            : new PexObjectVariableData { VariableType = VariableType.Null };
+        var data = new PexObjectVariableData { VariableType = VariableType.Null };
         var backing = new PexObjectVariable { Name = $"::{name}_var", TypeName = typeName, VariableData = data };
         return new Decl(prop, backing);
     }
 
     /// <summary>An Auto object/form property (no baked default — a FormID can't be a literal).</summary>
-    internal static Decl AutoObj(string name, string typeName) => Auto(name, typeName, null);
+    internal static Decl AutoObj(string name, string typeName) => Auto(name, typeName);
 
-    /// <summary>An Auto scalar property, optionally with a baked initializer on its backing variable.
+    /// <summary>An Auto scalar property, with no baked initializer.
     ///
-    /// <para><b>Honest only for an <c>Int</c>.</b> The baked-initializer branch writes
-    /// <c>VariableType.Integer</c> while stamping the backing variable's <c>TypeName</c> from the caller's
-    /// declared type, so <c>AutoScalar("MyFlag", "Bool", 1)</c> produces a lie.
-    /// The test project's copy does NOT merely record this — <c>PexWriter.Auto</c> REFUSES a
-    /// non-<c>Int</c> declared type carrying an initializer, with an <c>ArgumentException</c> naming the property,
-    /// the type and the value, pinned in both directions by
-    /// <c>ScriptsWorldTests.TheWriterRefusesABakedInitializerOnANonIntScalar</c> and its round-trip twin;
-    /// <c>docs/architecture/test-project-fixtures.md</c> spends a paragraph on why refusing beats documenting.
-    /// This copy is not hardened to match, deliberately: the refusal is a conditional, the generator has no unit
-    /// harness to arm both of its branches from, and an unarmed conditional is what the review-rounds standard
-    /// says not to add. Both call sites here pass <c>"Int"</c>, and this file retires with its own conversion.</para></summary>
-    internal static Decl AutoScalar(string name, string typeName, int? initInt) => Auto(name, typeName, initInt);
+    /// <para>This copy cannot express a baked initializer at all. <c>PexWriter.Auto</c> in the test project is the
+    /// one that models initializers, and it REFUSES them on a non-<c>Int</c> declared type — pinned in both
+    /// directions by <c>ScriptsWorldTests.TheWriterRefusesABakedInitializerOnANonIntScalar</c> and its round-trip
+    /// twin.</para></summary>
+    internal static Decl AutoScalar(string name, string typeName) => Auto(name, typeName);
 
     /// <summary>Write a single-object .pex with the given Auto properties + backing variables to <paramref name="path"/>.</summary>
     internal static void WritePex(string path, string name, string? parent, params Decl[] decls)

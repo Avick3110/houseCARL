@@ -21,7 +21,10 @@ state.
 It is a **port rather than a project reference** because #486 PR 2 deleted the probe file that held the
 generator's copy. Two copies still exist — this one and `CheckMergeProbe.cs`'s, which PR 2 re-derived
 there rather than moving to a third shared file, because `CheckMergeProbe` is the sole remaining
-`housecarl-generator` caller and it dies with its own conversion. This one is the survivor of the two. The
+`housecarl-generator` caller and it dies with its own conversion. This one is the survivor of the two, and
+the only one that models a baked initializer at all: at Aaron's PR #496 gate the generator's `AutoScalar`
+lost its `int? initInt` parameter, since neither of its two call sites passed a value — removing the
+divergent shape rather than describing it. The
 probe's copy carried a stale `Mutagen 0.53.1` comment that was deliberately not carried over — the csproj
 pins 0.54.4.
 
