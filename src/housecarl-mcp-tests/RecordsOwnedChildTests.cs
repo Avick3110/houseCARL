@@ -35,6 +35,10 @@ public sealed class OwnedChildWorld : IDisposable
     public FormKey CellD { get; }
     /// <summary>SELF — only the winner declares.</summary>
     public FormKey CellE { get; }
+    /// <summary>TWO LOWER DECLARERS — base AND mid declare Temporary and Persistent; the winner declares nothing,
+    /// and nothing anywhere declares Landscape or NavigationMeshes. The precise tier's own fixture (#485): the
+    /// positive names two plugins, and the two untouched fields are the negative it must state rather than omit.</summary>
+    public FormKey CellF { get; }
     public FormKey Topic { get; }
     /// <summary>A 3-toucher record with no child-bearing field at all.</summary>
     public FormKey Weapon { get; }
@@ -60,7 +64,7 @@ public sealed class OwnedChildWorld : IDisposable
         BaseName = baseKey.FileName.String; MidName = midKey.FileName.String; TopName = topKey.FileName.String;
 
         CellA = new FormKey(baseKey, 0xC01); CellB = new FormKey(baseKey, 0xC02); CellC = new FormKey(baseKey, 0xC03);
-        CellD = new FormKey(baseKey, 0xC04); CellE = new FormKey(baseKey, 0xC05);
+        CellD = new FormKey(baseKey, 0xC04); CellE = new FormKey(baseKey, 0xC05); CellF = new FormKey(baseKey, 0xC06);
         Topic = new FormKey(baseKey, 0xD01); Weapon = new FormKey(baseKey, 0xE01); Worldspace = new FormKey(baseKey, 0xF01);
 
         var baseDir = Path.Combine(mods, "BaseMod"); Directory.CreateDirectory(baseDir);
@@ -88,6 +92,12 @@ public sealed class OwnedChildWorld : IDisposable
             FileInterior(m, d);
 
             FileInterior(m, new Cell(CellE, SkyrimRelease.SkyrimSE) { EditorID = "HcOcCellE", Flags = Cell.Flag.IsInteriorCell });
+
+            var f = new Cell(CellF, SkyrimRelease.SkyrimSE) { EditorID = "HcOcCellF", Flags = Cell.Flag.IsInteriorCell };
+            for (int i = 0; i < 2; i++)
+                f.Temporary.Add(new PlacedObject(new FormKey(baseKey, (uint)(0xC60 + i)), SkyrimRelease.SkyrimSE) { EditorID = $"HcOcFTemp{i}" });
+            f.Persistent.Add(new PlacedObject(new FormKey(baseKey, 0xC6A), SkyrimRelease.SkyrimSE) { EditorID = "HcOcFPers0" });
+            FileInterior(m, f);
 
             var t = new DialogTopic(Topic, SkyrimRelease.SkyrimSE) { EditorID = "HcOcTopic" };
             for (int i = 0; i < 2; i++)
@@ -117,6 +127,12 @@ public sealed class OwnedChildWorld : IDisposable
             using var baseOv = SkyrimMod.CreateFromBinaryOverlay(basePath, SkyrimRelease.SkyrimSE);
             var m = new SkyrimMod(midKey, SkyrimRelease.SkyrimSE);
             FileInterior(m, new Cell(CellA, SkyrimRelease.SkyrimSE) { EditorID = "HcOcCellA", Flags = Cell.Flag.IsInteriorCell });
+
+            var f = new Cell(CellF, SkyrimRelease.SkyrimSE) { EditorID = "HcOcCellF", Flags = Cell.Flag.IsInteriorCell };
+            f.Temporary.Add(new PlacedObject(new FormKey(midKey, 0xA60), SkyrimRelease.SkyrimSE) { EditorID = "HcOcMidFTemp0" });
+            f.Persistent.Add(new PlacedObject(new FormKey(midKey, 0xA6A), SkyrimRelease.SkyrimSE) { EditorID = "HcOcMidFPers0" });
+            FileInterior(m, f);
+
             m.Weapons.GetOrAddAsOverride(baseOv.Weapons.First(w => w.FormKey == Weapon)).BasicStats!.Damage = 7;
             m.BeginWrite.ToPath(Path.Combine(midDir, MidName)).WithLoadOrder(new ISkyrimModGetter[] { baseOv }).Write();
         }
@@ -139,6 +155,10 @@ public sealed class OwnedChildWorld : IDisposable
             var e = new Cell(CellE, SkyrimRelease.SkyrimSE) { EditorID = "HcOcCellE", Flags = Cell.Flag.IsInteriorCell };
             e.Temporary.Add(new PlacedObject(new FormKey(topKey, 0xB50), SkyrimRelease.SkyrimSE) { EditorID = "HcOcTopETemp0" });
             FileInterior(m, e);
+
+            // CellF's winner: it touches the cell and declares NOTHING — the Occlusion.esp shape, with two lower
+            // plugins declaring below it.
+            FileInterior(m, new Cell(CellF, SkyrimRelease.SkyrimSE) { EditorID = "HcOcCellF", Flags = Cell.Flag.IsInteriorCell });
 
             var t = new DialogTopic(Topic, SkyrimRelease.SkyrimSE) { EditorID = "HcOcTopic" };
             var only = new DialogResponses(new FormKey(baseKey, 0xD10), SkyrimRelease.SkyrimSE);
@@ -208,11 +228,11 @@ public sealed class OwnedChildFixture : IDisposable
 /// reports an empty collection the game fills.
 ///
 /// <para>The arms come from the tool-layer half of <c>OwnedChildContentProbe</c> — the ones whose subject was a
-/// value returned by <c>read_record</c> / <c>batch_record_detail</c>. Only the CHEAP tier is here, and only the
-/// cheap tier still exists: the PRECISE tier rode <c>conflict_tree=true</c>, a lever the records surface does not
-/// have and whose renderer never asked for the annotation, so it was deleted at the cut along with its sentences
-/// and its arms (gap #485). The probe's engine-level arms (<c>OwnedChildContent.DeclaresChild</c> /
-/// <c>ShapeOf</c> / <c>Fields</c>) survive the cut untouched and stay where they are.</para>
+/// value returned by <c>read_record</c> / <c>batch_record_detail</c>. Both tiers are here now: the CHEAP one on
+/// the default read, and — restored by #485 after the cut deleted it with the <c>conflict_tree=true</c> lever
+/// that was its only caller — the PRECISE one on <c>project={"form":"tree"}</c>, the 2.0 form that fetches every
+/// provider body anyway. The probe's engine-level arms (<c>OwnedChildContent.DeclaresChild</c> / <c>ShapeOf</c> /
+/// <c>Fields</c>, and <c>ReadSentences.DeclarersNote</c>'s own composition) stay where they are.</para>
 /// </summary>
 [Trait("tier", "integration")]
 public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
@@ -544,6 +564,122 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         var r = Tree(_w.CellA, toFile: art);
         Assert.True(File.Exists(art));
         Assert.Contains(art, r);
+    }
+
+    // ---- the precise tier the remedy now carries (#485) -------------------------------------------
+    //
+    // The cheap tier says "other plugins touch this record and their declarations were not read". The tree
+    // form has already read them, so it says WHICH — and, the half no cheap tier can reach, that NONE do.
+    // Every arm below pins a WHOLE rendered line composed from the sentence consts and the fixture's own
+    // plugin names, so a second branch of DeclarersNote cannot satisfy it.
+
+    [Fact]
+    public void ThePreciseTierNamesEveryProviderDeclaringInACollectionField() =>
+        Assert.Contains($"Temporary: {ReadSentences.DeclaredBy} {_w.BaseName}, {_w.MidName}",
+                        DeclarersBlock(Tree(_w.CellF)));
+
+    /// <summary>The whole block for the two-declarer cell, in one assertion: two collection fields naming both
+    /// lower plugins, and two fields nobody declares stating so. A tier that emitted only the positives, or only
+    /// the fields it had something to say about, fails here rather than passing on a substring.</summary>
+    [Fact]
+    public void ThePreciseTierStatesEveryChildBearingFieldOfTheType_PositiveAndNegativeAlike() =>
+        Assert.Equal(new[]
+        {
+            $"Landscape: {ReadSentences.NoDeclarers}",
+            $"NavigationMeshes: {ReadSentences.NoDeclarers}",
+            $"Persistent: {ReadSentences.DeclaredBy} {_w.BaseName}, {_w.MidName}",
+            $"Temporary: {ReadSentences.DeclaredBy} {_w.BaseName}, {_w.MidName}",
+        }, DeclarersBlock(Tree(_w.CellF)));
+
+    /// <summary>The NEGATIVE on its own, and the claim is that it is a SENTENCE. The tier this restores said
+    /// nothing at all here, which a caller cannot tell apart from the tier not having run.</summary>
+    [Fact]
+    public void AFieldNoProviderDeclaresInGetsTheNoneSentence_NeverSilence()
+    {
+        var block = DeclarersBlock(Tree(_w.CellF));
+        Assert.Contains($"NavigationMeshes: {ReadSentences.NoDeclarers}", block);
+        Assert.DoesNotContain(block, l => l == "NavigationMeshes:");
+    }
+
+    /// <summary>The SINGULAR arm: Cell.Landscape is ONE record its providers override, so the line is a COUNT.
+    /// Naming them would be the collection sentence, which is false of this shape.</summary>
+    [Fact]
+    public void ASingularChildFieldIsCountedNotNamed() =>
+        Assert.Contains($"Landscape: {ReadSentences.CarriedBy} 1 provider(s)", DeclarersBlock(Tree(_w.CellA)));
+
+    /// <summary>The block is about DECLARATIONS, not differences, so it is emitted for a record only one plugin
+    /// touches — where the tree renders no diff at all.</summary>
+    [Fact]
+    public void ASoleProviderRecordStillGetsTheBlock_ItIsNotADiff() =>
+        Assert.Contains($"Temporary: {ReadSentences.DeclaredBy} {_w.BaseName}", DeclarersBlock(Tree(_w.CellC)));
+
+    /// <summary>…and a record whose type owns no children gets no block at all — the field set is the type's own,
+    /// so there is nothing to state.</summary>
+    [Fact]
+    public void ARecordTypeThatOwnsNoChildrenGetsNoBlockAtAll() =>
+        Assert.DoesNotContain(ReadSentences.DeclarersLead, Tree(_w.Weapon));
+
+    /// <summary>The remedy arm the review standard asks for: the cheap tier's clause tells a caller the tree form
+    /// names the declarers. This MAKES that call, on the fields the clause itself named, and asserts every one of
+    /// them comes back with a precise answer — so the promise is pinned by what returns, not by the wording.</summary>
+    [Fact]
+    public void TheRemedyNamedByTheCheapClauseAnswersPreciselyForEveryFieldTheClauseNamed()
+    {
+        var named = NamedFields(ClauseLine(Read(_w.CellF), ReadSentences.NotReadFraming), ReadSentences.NotReadFraming);
+        Assert.NotEmpty(named);
+        var block = DeclarersBlock(Tree(_w.CellF));
+        foreach (var f in named)
+            Assert.Contains(block, l => l.StartsWith(f + ": ", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void TheDefaultReadOfTheSameCellStillStatesOnlyTheCheapTier()
+    {
+        var r = Read(_w.CellF);
+        Assert.Contains("2 " + ReadSentences.NotRead, FieldLine(r, "Temporary"));
+        Assert.DoesNotContain(ReadSentences.DeclarersLead, r);
+        Assert.DoesNotContain(ReadSentences.DeclaredBy, r);
+        Assert.DoesNotContain(ReadSentences.CarriedBy, r);
+    }
+
+    /// <summary>json carries the same answer, composed from the same TreeRow rather than rebuilt — the structured
+    /// halves a caller can filter on, plus the sentence the text lane renders.</summary>
+    [Fact]
+    public void ThePreciseTierRidesJsonToo_StructuredHalvesAndTheSameSentence()
+    {
+        using var doc = JsonDocument.Parse(Tree(_w.CellF, format: "json"));
+        var byField = doc.RootElement.GetProperty("rows")[0].GetProperty("child_declarers").EnumerateArray()
+                         .ToDictionary(e => e.GetProperty("field").GetString()!);
+        Assert.Equal(new[] { _w.BaseName, _w.MidName },
+                     byField["Temporary"].GetProperty("declaring").EnumerateArray().Select(x => x.GetString()));
+        Assert.Equal($"{ReadSentences.DeclaredBy} {_w.BaseName}, {_w.MidName}",
+                     byField["Temporary"].GetProperty("note").GetString());
+        Assert.Equal(ReadSentences.NoDeclarers, byField["NavigationMeshes"].GetProperty("note").GetString());
+        Assert.Empty(byField["NavigationMeshes"].GetProperty("declaring").EnumerateArray());
+    }
+
+    /// <summary>The precise block is emitted with the provider list it is about, ABOVE the diff — a provider whose
+    /// content in a child-bearing field equals the reference's is omitted from the diff, so a declarations
+    /// statement living inside the diff would silently drop half its subjects.</summary>
+    [Fact]
+    public void TheBlockSitsWithTheProviderListNotInsideTheDiff()
+    {
+        var t = Tree(_w.CellF).Replace("\r\n", "\n");
+        Assert.True(t.IndexOf(ReadSentences.DeclarersLead, StringComparison.Ordinal)
+                    < t.IndexOf("diff (field deltas", StringComparison.Ordinal));
+    }
+
+    /// <summary>The tree's owned-child block: the lines under its lead, trimmed — so an arm about what the block
+    /// says cannot pass on a match in the toucher list above it or the diff below it.</summary>
+    static IReadOnlyList<string> DeclarersBlock(string tree)
+    {
+        var lines = tree.Replace("\r\n", "\n").Split('\n');
+        int i = Array.FindIndex(lines, l => l.Trim() == ReadSentences.DeclarersLead);
+        Assert.True(i >= 0, "the tree rendered no owned-child declarers block");
+        var block = new List<string>();
+        for (int j = i + 1; j < lines.Length && lines[j].StartsWith("    ", StringComparison.Ordinal); j++)
+            block.Add(lines[j].Trim());
+        return block;
     }
 
     /// <summary>The tree's per-plugin delta block, i.e. everything after the "diff (field deltas…)" header —
