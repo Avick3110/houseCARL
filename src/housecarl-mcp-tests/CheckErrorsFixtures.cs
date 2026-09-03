@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Mutagen.Bethesda.Plugins;
 using HousecarlCore;
 using HousecarlMcp;
 using Xunit;
@@ -23,16 +22,6 @@ internal static class CheckErrorsFixtures
                                                   out var selection, out var error), error);
         return selection!;
     }
-
-    /// <summary>One dangling ref from <paramref name="plugin"/>, numbered so a rendered entry is identifiable.</summary>
-    internal static DanglingRef Ref(int i, string plugin) =>
-        new(FormKey.Factory($"{0x000800 + i:X6}:{plugin}"), "Npc", $"HcEd{i}",
-            FormKey.Factory("0E0E0E:Skyrim.esm"));
-
-    /// <summary>A plugin report carrying <paramref name="n"/> dangling refs and nothing else.</summary>
-    internal static PluginErrors Plugin(string name, int n) =>
-        new(name, Enumerable.Range(1, n).Select(i => Ref(i, name)).ToArray(),
-            Array.Empty<string>(), 0, Array.Empty<string>(), null);
 
     /// <summary>An errors result. Every parameter a fact below varies is named; the rest are the quiet defaults.</summary>
     internal static ErrorCheckResult Result(
