@@ -57,20 +57,65 @@ public sealed class RecordsScanRefusalRepairTests : IDisposable
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
     }
 
-    /// <summary>Every parameter the tool DECLARES, off the method the SDK builds the schema from. Derived so a
-    /// renamed or dropped parameter moves this set with it.</summary>
+    /// <summary>Every spelling the tool DECLARES: its own parameters, plus the members of the structured ones —
+    /// a refusal legitimately says <c>project.group_by=</c>, and <c>group_by</c> is a member of the project object
+    /// rather than a top-level argument. Both halves are reflected off the method the SDK builds the schema from,
+    /// so a renamed parameter or member moves the subject with it instead of needing an edit here.</summary>
     static HashSet<string> DeclaredParameters()
     {
         var m = typeof(RecordsTools).GetMethods(BindingFlags.Public | BindingFlags.Static)
             .Single(x => x.GetCustomAttribute<ModelContextProtocol.Server.McpServerToolAttribute>() is { } a
                       && a.Name == ToolNames.Records);
-        return m.GetParameters().Select(p => p.Name!).ToHashSet(StringComparer.Ordinal);
+
+        var names = m.GetParameters().Select(p => p.Name!).ToHashSet(StringComparer.Ordinal);
+        foreach (var p in m.GetParameters())
+        {
+            var t = Nullable.GetUnderlyingType(p.ParameterType) ?? p.ParameterType;
+            if (t.IsPrimitive || t == typeof(string) || t.IsArray || !t.IsClass) continue;
+            foreach (var prop in t.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                names.Add(prop.Name);
+        }
+        return names;
     }
 
-    [Fact]
-    public void TheNoScopeRefusalNamesOnlyParametersThisToolDeclares()
+    /// <summary>Under-specified calls, each of which this tool answers with a refusal that tells the caller which
+    /// parameter to reach for. One theory row each, so a RED names the call that produced the bad sentence.</summary>
+    public static IEnumerable<object[]> UnderSpecifiedCalls() => new[]
     {
-        var r = RecordsTools.Records(_w.Svc);
+        new object[] { "nothing selected" },
+        new object[] { "a body predicate with no bounding scope" },
+        new object[] { "a reverse-reference scan with no bounding scope" },
+        new object[] { "an aggregate form with no group key" },
+    };
+
+    string Refuse(string which) => which switch
+    {
+        "nothing selected" => RecordsTools.Records(_w.Svc),
+        "a body predicate with no bounding scope" =>
+            RecordsTools.Records(_w.Svc, where: new[] { "editorid contains Hc" }),
+        "a reverse-reference scan with no bounding scope" =>
+            RecordsTools.Records(_w.Svc, references: new[] { "000800:HcRecMaster.esm" }),
+        _ => RecordsTools.Records(_w.Svc, types: new[] { "WEAP" },
+                                  project: new RecordsTools.RecordsProject { form = "aggregate" }),
+    };
+
+    /// <summary>
+    /// The class this arm exists for: a remedy naming a parameter the tool does not declare. The instance that
+    /// prompted it was the scan's no-scope refusal in the service, which told the caller to pass <c>type=</c> and
+    /// <c>editorid_contains=</c> — the 1.x scan tool's spellings, which this tool has as <c>types=</c> and the
+    /// <c>where=</c> grammar's editorid term.
+    ///
+    /// <para>That exact sentence is NOT what this arm drives, and saying so is the point: measured, this tool
+    /// refuses an unscoped call with its own sentence first, so the service's copy is unreachable from here. It
+    /// was corrected anyway; what is PINNED is the reachable family — the refusals these four calls actually
+    /// produce. The declared set is reflected off the tool method and the members of its structured parameters,
+    /// so a rename moves the subject rather than needing an edit here.</para>
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(UnderSpecifiedCalls))]
+    public void AnUnderSpecifiedCallsRefusalNamesOnlyParametersThisToolDeclares(string which)
+    {
+        var r = Refuse(which);
         Assert.StartsWith("error:", r);
 
         var declared = DeclaredParameters();
@@ -79,12 +124,12 @@ public sealed class RecordsScanRefusalRepairTests : IDisposable
                          .Distinct(StringComparer.Ordinal)
                          .ToArray();
 
-        // Vacuity canary: a refusal that names no parameter would satisfy the claim below without testing it.
-        Assert.NotEmpty(named);
+        // Vacuity canary: a refusal naming no parameter would satisfy the claim below without testing it.
+        Assert.True(named.Length > 0, $"the refusal for '{which}' names no parameter at all: {r}");
 
         var undeclared = named.Where(n => !declared.Contains(n)).OrderBy(n => n, StringComparer.Ordinal).ToArray();
         Assert.True(undeclared.Length == 0,
-            "the no-scope refusal tells the caller to pass [" + string.Join(", ", undeclared) +
+            $"the refusal for '{which}' tells the caller to pass [" + string.Join(", ", undeclared) +
             "], which " + ToolNames.Records + " does not declare. Refusal: " + r);
     }
 }
