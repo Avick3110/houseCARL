@@ -54,15 +54,31 @@ static class RepoProjects
 
     /// <summary>
     /// The built assembly for one project. Already-loaded assemblies come back from the runtime; the rest are
-    /// loaded off the project's own build output. A project that has no build output at all is loud: skipping
+    /// loaded from <see cref="LocateAssembly"/>. A project that has no build output at all is loud: skipping
     /// it would shrink every population derived from this list, which is the failure those populations exist
     /// to catch. One home, because two walks over the repo's projects were about to spell this twice.
     /// </summary>
-    public static Assembly BuiltAssembly(string assemblyName, string directory)
+    public static Assembly BuiltAssembly(string assemblyName, string directory) =>
+        AppDomain.CurrentDomain.GetAssemblies()
+            .FirstOrDefault(a => string.Equals(a.GetName().Name, assemblyName, StringComparison.OrdinalIgnoreCase))
+        ?? Assembly.LoadFrom(LocateAssembly(assemblyName, directory));
+
+    /// <summary>
+    /// Which file this class would load <paramref name="assemblyName"/> from: the copy beside the running test
+    /// assembly first, the project's own build output second.
+    ///
+    /// <para>App base first because it is the build under test. A project tree holds every configuration it has
+    /// ever built, so "newest under bin/" picked a Debug dll during a Release run whenever Debug happened to be
+    /// the more recent build. <c>LoadFrom</c> loads into the DEFAULT load context, so <c>CiAll</c>'s later
+    /// <c>Assembly.Load(reference)</c> for the same name resolved to that same stale instance — both
+    /// derivations reflecting one build nobody asked for, and a guard present only in the configuration under
+    /// test invisible to both, green. It was order-dependent too: whichever population was built first decided
+    /// which dll the rest of the run saw.</para>
+    /// </summary>
+    internal static string LocateAssembly(string assemblyName, string directory)
     {
-        var already = AppDomain.CurrentDomain.GetAssemblies()
-            .FirstOrDefault(a => string.Equals(a.GetName().Name, assemblyName, StringComparison.OrdinalIgnoreCase));
-        if (already is not null) return already;
+        var beside = Path.Combine(AppContext.BaseDirectory, assemblyName + ".dll");
+        if (File.Exists(beside)) return beside;
 
         // Enumerated from the PROJECT directory — which exists by construction, its csproj having been read
         // out of it — and then filtered to the bin tree. Enumerating bin/ directly threw
@@ -76,11 +92,12 @@ static class RepoProjects
                            .FirstOrDefault();
 
         Assert.True(dll is not null,
-            $"Project '{assemblyName}' has no built {assemblyName}.dll under {directory}/bin, so it cannot be " +
-            "searched. Build the whole solution before running these tests — a project skipped here is a " +
-            "population that is short by exactly one project.");
+            $"Project '{assemblyName}' has no built {assemblyName}.dll beside the test assembly " +
+            $"({AppContext.BaseDirectory}) and none under {directory}/bin, so it cannot be searched. Build the " +
+            "whole solution before running these tests — a project skipped here is a population that is short " +
+            "by exactly one project.");
 
-        return Assembly.LoadFrom(dll!);
+        return dll!;
     }
 
     static Assembly[]? _allAssemblies;
