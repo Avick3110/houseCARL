@@ -27,8 +27,12 @@ namespace HousecarlMcpTests;
 /// surface renders that no subject covers REFUSES the run rather than shrinking the grid quietly.</para>
 ///
 /// <para><c>RecordsWorld</c> stays frozen, and <see cref="RecordsRemedyGrammarTests"/>' arms are untouched.
-/// The lever vocabulary, the remedy discriminant and the lane list come from <see cref="RemedyHarvest"/>, so
-/// there is still one home for each.</para>
+/// The lever vocabulary, the remedy discriminant, the per-lane harvest and the lane list all come from
+/// <see cref="RemedyHarvest"/>, so there is one home for each — and the lane list is itself derived from the
+/// product's format vocabulary plus the artifact lane, with <see cref="TheGridDrivesEveryLaneTheSurfaceRenders"/>
+/// holding it against that surface in both directions. The first cut of this grid spelled its own two-lane
+/// list and so covered two of the four lanes the surface renders, which is the hand-enumerated-population
+/// failure #498 was filed about arriving one level above the subjects.</para>
 /// </summary>
 [Trait("tier", "integration")]
 public sealed class OwnedChildRemedyGrammarTests : IClassFixture<OwnedChildFixture>
@@ -174,10 +178,51 @@ public sealed class OwnedChildRemedyGrammarTests : IClassFixture<OwnedChildFixtu
     public static TheoryData<string, string> LanesAndLevers()
     {
         var data = new TheoryData<string, string>();
-        foreach (var lane in new[] { "text", "json" })
+        foreach (var lane in RemedyHarvest.Lanes)
             foreach (var (pattern, _) in RemedyHarvest.WrongLevers)
                 data.Add(lane, pattern);
         return data;
+    }
+
+    /// <summary>
+    /// THE LANE SET'S OWN COMPLETENESS, in both directions. The grid is only as wide as the lanes it drives,
+    /// and this grid drove two of the four the surface renders — the same hand-enumerated-population failure
+    /// #498 was filed about, one level up from the subjects. So the lanes are derived, and the derivation is
+    /// held against the surface it claims: <see cref="RemedyHarvest.Lanes"/> must carry every value of the
+    /// product's own format vocabulary plus the artifact lane, and the grid above must drive every lane
+    /// <see cref="RemedyHarvest.Lanes"/> carries. Narrowing either one fails here rather than shrinking the
+    /// grid in silence.
+    /// </summary>
+    [Fact]
+    public void TheGridDrivesEveryLaneTheSurfaceRenders()
+    {
+        var surface = Enum.GetNames<Wire.QueryFormat>()
+                          .Select(n => n.ToLowerInvariant())
+                          .Append(RemedyHarvest.ArtifactLane)
+                          .ToArray();
+
+        var missingFromHome = surface.Except(RemedyHarvest.Lanes, StringComparer.Ordinal)
+                                     .OrderBy(x => x, StringComparer.Ordinal).ToArray();
+
+        Assert.True(missingFromHome.Length == 0,
+            "RemedyHarvest.Lanes does not carry every lane housecarl_records renders — missing: " +
+            string.Join(", ", missingFromHome) +
+            ". Every consumer of that list, this grid included, then runs green over the gap. The list is the " +
+            "one home for the lane vocabulary and it is derived from the surface; narrowing it by hand is the " +
+            "thing #498 is about.");
+
+        var driven = LanesAndLevers().Select(row => (string)row[0])
+                                     .Distinct(StringComparer.Ordinal).ToArray();
+        var undriven = RemedyHarvest.Lanes.Except(driven, StringComparer.Ordinal)
+                                          .OrderBy(x => x, StringComparer.Ordinal).ToArray();
+
+        Assert.True(undriven.Length == 0,
+            "These lanes are in RemedyHarvest.Lanes and this grid drives no row for them: " +
+            string.Join(", ", undriven) +
+            ". A lane with no rows proves nothing about the sentences it renders.");
+
+        _out.WriteLine($"lanes: {string.Join(", ", RemedyHarvest.Lanes)} · " +
+                       $"grid rows: {LanesAndLevers().Count()}");
     }
 
     [Theory, MemberData(nameof(LanesAndLevers))]
@@ -195,22 +240,70 @@ public sealed class OwnedChildRemedyGrammarTests : IClassFixture<OwnedChildFixtu
             string.Join("\n  ", offenders));
     }
 
-    [Theory]
-    [InlineData("text")]
-    [InlineData("json")]
-    public void EveryLaneEmitsATreeFormRemedySentenceOverAChildBearingRecord(string lane)
+    public static TheoryData<string> EveryLane()
     {
-        var remedies = Harvest(lane).Where(s => RemedyHarvest.RemedyLine.IsMatch(s)).ToArray();
+        var data = new TheoryData<string>();
+        foreach (var lane in RemedyHarvest.Lanes) data.Add(lane);
+        return data;
+    }
 
-        Assert.True(remedies.Length > 0,
-            $"The {lane} lane produced no remedy sentence at all over the child-bearing subjects, so the grid " +
-            "above is vacuous on this lane. A cut tree renders a notice naming what to raise; a lane emitting " +
-            "none means the harvest is not reaching the cut, not that the notices are clean.");
+    /// <summary>
+    /// Per lane, the grid is measuring something: the lane either rendered sentences this harvest could read,
+    /// or the product REFUSED the tree form on that lane by name. Both are real outcomes and the second is a
+    /// fact about the surface — <c>format='dense'</c> renders positional columns against a fixed field set
+    /// and the tree form's rows are variable-length, so the product refuses the pair outright. A lane that
+    /// rendered nothing AND refused nothing is a lane this grid is running blind over.
+    /// </summary>
+    [Theory, MemberData(nameof(EveryLane))]
+    public void EveryLaneEitherRendersSentencesThisGridReads_OrRefusesTheTreeFormByName(string lane)
+    {
+        var harvested = Harvest(lane).Count;
+        var refusals = Responses(lane).Count(r => r.StartsWith("error:", StringComparison.Ordinal));
+        var responses = Responses(lane).Count;
+
+        _out.WriteLine($"{lane}: {responses} response(s) · {harvested} sentence(s) · {refusals} refusal(s)");
+
+        Assert.True(responses > 0, $"The {lane} lane drove no call at all, so its grid rows say nothing.");
+
+        Assert.True(harvested > 0 || refusals == responses,
+            $"The {lane} lane rendered no sentence this grid can read and did not refuse the tree form " +
+            $"either — {responses} response(s), {refusals} of them refusals. The grid's rows for this lane " +
+            "are running over nothing, which is the vacuity the derived lane list was supposed to expose " +
+            "rather than create.");
+    }
+
+    /// <summary>
+    /// The cut notices are reached SOMEWHERE. Held across the lanes rather than per lane, because a lane can
+    /// legitimately never cut: the artifact lane spills the complete result by definition, so its rows carry
+    /// the declarers block and never a "raise max_chars" tail.
+    /// </summary>
+    [Fact]
+    public void TheTreeFormsCutNoticesAreReachedOverAChildBearingRecord()
+    {
+        var byLane = RemedyHarvest.Lanes.ToDictionary(
+            l => l, l => Harvest(l).Count(s => RemedyHarvest.RemedyLine.IsMatch(s)), StringComparer.Ordinal);
+
+        _out.WriteLine("remedy sentences per lane: " +
+                       string.Join(" · ", byLane.Select(kv => $"{kv.Key} {kv.Value}")));
+
+        Assert.True(byLane.Values.Sum() > 0,
+            "No lane produced a remedy sentence at all over the child-bearing subjects, so the wrong-lever " +
+            "grid is vacuous everywhere. A cut tree renders a notice naming what to raise; none arriving means " +
+            "the harvest is not reaching the cut, not that the notices are clean.");
     }
 
     // ---- driving ----------------------------------------------------------------------------------------
 
     readonly Dictionary<string, IReadOnlyList<string>> _harvest = new(StringComparer.Ordinal);
+    readonly Dictionary<string, IReadOnlyList<string>> _responses = new(StringComparer.Ordinal);
+
+    /// <summary>The raw responses one lane produced — what makes "this lane rendered nothing" separable from
+    /// "this lane refused the form".</summary>
+    IReadOnlyList<string> Responses(string lane)
+    {
+        Harvest(lane);
+        return _responses[lane];
+    }
 
     /// <summary>
     /// Every string one lane emits for the tree form over one subject per child-bearing owner type, at a cap
@@ -221,6 +314,7 @@ public sealed class OwnedChildRemedyGrammarTests : IClassFixture<OwnedChildFixtu
         if (_harvest.TryGetValue(lane, out var got)) return got;
 
         var sentences = new List<string>();
+        var responses = new List<string>();
         var tree = new RecordsTools.RecordsProject { form = "tree" };
 
         foreach (var type in SurfaceOwners().Keys.OrderBy(t => t.Name, StringComparer.Ordinal))
@@ -230,15 +324,23 @@ public sealed class OwnedChildRemedyGrammarTests : IClassFixture<OwnedChildFixtu
 
             foreach (var cap in new[] { 0, 900, 400 })
             {
-                var r = RecordsTools.Records(_w.Svc, formids: new[] { subject }, project: tree,
-                                             format: lane == "json" ? "json" : null, max_chars: cap);
+                // The artifact lane is not a format= value: it is a to_file spill, harvested off the file the
+                // call left behind. Everything else is a format the product's own vocabulary declares, with
+                // text spelled as the absent default.
+                var artifact = lane == RemedyHarvest.ArtifactLane
+                    ? Path.Combine(_w.Root, $"owned-child-remedy-{type.Name}-{cap}.jsonl")
+                    : null;
+                var format = lane is "text" or RemedyHarvest.ArtifactLane ? null : lane;
 
-                sentences.AddRange(lane == "json"
-                    ? RemedyHarvest.HarvestAllStrings(r)
-                    : r.Split('\n').Where(l => RemedyHarvest.RemedyLine.IsMatch(l)));
+                var r = RecordsTools.Records(_w.Svc, formids: new[] { subject }, project: tree,
+                                             format: format, to_file: artifact, max_chars: cap);
+
+                responses.Add(r);
+                sentences.AddRange(RemedyHarvest.HarvestLane(lane, r, artifact));
             }
         }
 
+        _responses[lane] = responses;
         return _harvest[lane] = sentences;
     }
 }

@@ -32,7 +32,38 @@ public sealed class RemedyHarvest
         (@"drop project\.fields",    "drop 'project.fields' (the 'fields' form refuses without its paths)"),
     };
 
-    public static readonly string[] Lanes = { "json", "text", "dense", "artifact" };
+    /// <summary>The lane that is not a <c>format=</c> value at all — a <c>to_file</c> spill, whose rows are
+    /// read back off the artifact rather than out of the response.</summary>
+    public const string ArtifactLane = "artifact";
+
+    /// <summary>
+    /// Every lane housecarl_records renders, DERIVED from the product's own format vocabulary plus the
+    /// artifact lane. A format the product gains is in this list the day it lands, and every consumer of the
+    /// list gets its rows without being edited.
+    /// </summary>
+    public static readonly string[] Lanes =
+        Enum.GetNames<Wire.QueryFormat>().Select(n => n.ToLowerInvariant()).Append(ArtifactLane).ToArray();
+
+    /// <summary>
+    /// HOW ONE LANE IS HARVESTED — the one home for the discriminant. json is a document and is walked for
+    /// its strings; the artifact lane's rows are read off the file the call spilled; everything else is a
+    /// text render and is read line by line. A consumer that spelled this switch itself would drift from the
+    /// lane list beside it, which is how the tree form's lanes came to be two of four.
+    /// </summary>
+    public static List<string> HarvestLane(string lane, string response, string? artifactPath)
+    {
+        if (lane == ArtifactLane)
+        {
+            if (artifactPath is null)
+                throw new ArgumentNullException(nameof(artifactPath),
+                    "The artifact lane is harvested off the file the call spilled, so its path is required.");
+            return HarvestArtifact(artifactPath);
+        }
+
+        return lane == "json"
+            ? HarvestAllStrings(response)
+            : response.Split('\n').Where(l => RemedyLine.IsMatch(l)).ToList();
+    }
 
     public IReadOnlyList<(string Lane, string Label, string Text)> Sentences { get; }
     public IReadOnlyList<string> ProbeLabels { get; }
@@ -97,12 +128,7 @@ public sealed class RemedyHarvest
         var sentences = new List<(string, string, string)>();
         foreach (var (label, lane, resp) in probes)
         {
-            var hits = lane switch
-            {
-                "artifact" => HarvestArtifact(ArtifactPath),
-                "text" => resp.Split('\n').Where(l => RemedyLine.IsMatch(l)).ToList(),
-                _ => HarvestAllStrings(resp),
-            };
+            var hits = HarvestLane(lane, resp, ArtifactPath);
             foreach (var h in hits.Select(x => x.Trim()).Distinct())
                 sentences.Add((lane, label, h));
         }
