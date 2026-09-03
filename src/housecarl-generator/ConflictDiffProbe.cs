@@ -157,12 +157,12 @@ public static class ConflictDiffProbe
         Check("J: the ITM override is detectable — AgreedCount > arm-I (it restates the formlink arm I omits)",
               dJ.AgreedCount > dI.AgreedCount && dJ.AgreedSample.Count > 0);
 
-        // (Review finding #1's node-neutral render WORDING — IdenticalWholeRecord/IdenticalAcrossFields in
-        // ReadTools — is human-reviewed, not pinned here: a cross-assembly call into the mcp render helper
-        // could not be compiled in this worktree (a build-server metadata-cache pathology, see the PR summary),
-        // and the reviewer explicitly authorised skipping the render-string pin when it needs an awkward
-        // harness. The data-layer signal the wording rests on — AgreedCount distinguishing an ITM restate from
-        // a no-op — IS pinned by arm J above.)
+        // (Review finding #1's node-neutral render WORDING had no arm here — a cross-assembly call into the mcp
+        // render helper could not be compiled in this worktree, and the reviewer authorised skipping the
+        // render-string pin when it needs an awkward harness. It has no subject at all now: the two helpers that
+        // wrote it, ReadTools' IdenticalWholeRecord and IdenticalAcrossFields, went with the conflictTree render
+        // chain at #486. The data-layer signal the wording rested on — AgreedCount distinguishing an ITM restate
+        // from a no-op — IS pinned by arm J above, and survives it.)
 
         // ---- K (review finding #3): the SYMMETRIC absent branch — the contributor CARRIES the link, the WINNER
         //      cleared it. Distinct render string "<path>=<val> (winner has <path> ABSENT)", previously

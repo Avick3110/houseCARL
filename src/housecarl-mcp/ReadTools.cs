@@ -755,8 +755,8 @@ static class Wire
         var sections = o.Sections;
         var accts = o.Accountings(cap);
         // The reserve: one accounting line PER FAMILY, and ONE boundary line per family, held before anything
-        // renders. Summing whole TextReserves would hold the boundary once per family — room for a sentence
-        // written once, taken out of the rows that could have used it.
+        // renders. (The 1.x TextReserve that bundled a family's accounting and boundary into one number went with
+        // #486; this loop is where the two are summed now, per family, from the members that survive.)
         int reserve = 0;
         for (int i = 0; i < accts.Count; i++)
             reserve += accts[i].TextAccountingReserve

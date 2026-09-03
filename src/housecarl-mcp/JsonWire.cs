@@ -308,7 +308,7 @@ static class JsonWire
     {
         var r = o.Record!;
         w.WriteStartObject();
-        if (epoch is not null) w.WriteString("epoch", epoch);   // single-read top level ONLY — see RenderRecord
+        if (epoch is not null) w.WriteString("epoch", epoch);   // single-read top level ONLY (its text twin, Wire.RenderRecord, went with #486)
         w.WriteString("formid", r.FormKey);
         w.WriteString("type", r.Type);
         WriteNullable(w, "editorid", r.EditorId);
@@ -1816,7 +1816,7 @@ static class JsonWire
 
     /// <summary>The scripts family's BODY — everything a cap can refuse. It writes no excluded roster, no accounting
     /// and no boundary: those are the RESPONSE's, and they are also where <c>capped</c>, <c>rendered</c> and
-    /// <c>truncated</c> now come from, because <see cref="CheckAccounting.JsonReserve"/> measures that writer and a
+    /// <c>truncated</c> now come from, because <see cref="CheckAccounting.JsonAccountingReserve"/> measures that writer and a
     /// field written anywhere else is a field outside the reserve.</summary>
     static void WriteScriptsSection(Utf8JsonWriter w, ScriptCheckResult r, BoundedBody body, int histogramLimit)
     {

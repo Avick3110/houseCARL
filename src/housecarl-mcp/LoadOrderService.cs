@@ -4820,7 +4820,7 @@ public sealed class LoadOrderService : IDisposable
         {
             var e = edits[i];
             if (!string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal)) continue;
-            // LooksLikePath gate, matching ResolveDiffPole / ResolveOffOrderForwardSource — the convention those
+            // LooksLikePath gate, matching ResolvePoleArm / ResolveOffOrderForwardSource — the convention those
             // sites cite; harmless without it (a bare filename that is active never reaches the off-order arm
             // anyway), but a convention with an exception is one someone has to re-derive.
             if (string.IsNullOrWhiteSpace(e.FromPlugin) || !LooksLikePath(e.FromPlugin!)) continue;
@@ -4866,7 +4866,8 @@ public sealed class LoadOrderService : IDisposable
         var view = resolver.Capture();
         epoch = view.Epoch;
         if (view.ContainsPlugin(fromPlugin)) return null;      // active — the engine resolves it off the shared build
-        // LooksLikePath gate, matching ResolveDiffPole / ResolvePoleArm — the three-site rule this helper's doc cites
+        // LooksLikePath gate, matching ResolvePoleArm / RespellActiveCopySourcePaths / BuildSourceChain — the
+        // four-site rule (five until #486 deleted ResolveDiffPole) this helper's doc cites
         // as reused rather than restated, so it should not be the one site that omits it (PR #313 review 3 [nit]).
         // Harmless without it (a bare filename already failed ContainsPlugin above and would fail it again), but a
         // convention with an exception is a convention someone has to re-derive.
