@@ -25,8 +25,9 @@ internal static class RegisteredTools
     const BindingFlags Flags = BindingFlags.Public | BindingFlags.NonPublic
                              | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly;
 
-    /// <summary>The shipped tool surface — the assembly the SDK scans.</summary>
-    static readonly Assembly Surface = typeof(WriteTools).Assembly;
+    /// <summary>The shipped tool surface — the assembly the SDK scans, read off the one home for that fact
+    /// rather than by naming a type expected to live there.</summary>
+    static readonly Assembly Surface = ToolSurface.Assembly;
 
     /// <summary>Every registered (tool name, declaring method) pair, ordinal-sorted by name. Callers that need to
     /// reflect over a tool's PARAMETERS (arm H's in_place sweep) filter this; callers that need only the names call

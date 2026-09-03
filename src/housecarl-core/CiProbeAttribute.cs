@@ -7,7 +7,7 @@ namespace HousecarlCore;
 /// <remarks>
 /// Lives in housecarl-core because guard entry points do: two of them are <c>WriteEngine</c>'s coerce verbs,
 /// and core is the only assembly every guard host can reference.
-/// Rationale: <c>docs/decisions/0003-guards-move-to-a-test-project.md</c>.
+/// Rationale: <c>docs/decisions/0003-guards-move-to-a-standard-test-project.md</c>.
 /// </remarks>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = false)]
 public sealed class CiProbeAttribute : Attribute

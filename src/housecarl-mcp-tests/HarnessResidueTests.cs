@@ -293,7 +293,7 @@ public sealed class HarnessResidueTests
     }
 
     /// <summary>
-    /// The four headline numbers, derived from the same map the gates use, printed for the CI countdown step.
+    /// The five headline numbers, derived from the same map the gates use, printed for the CI countdown step.
     /// The line total is report-only, so the drift it accumulates is printed per file rather than asserted:
     /// a conversion PR refreshes what it touches, and nothing chases a total.
     /// </summary>

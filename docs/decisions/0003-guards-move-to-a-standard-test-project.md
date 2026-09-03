@@ -20,6 +20,12 @@
 >   "walks a registry of about 130 rows" and the Decision's "the registry's dispatch delegates are
 >   the only honest answer to what CI runs" describe the shape this ADR's own principle has since
 >   been applied to; the attribute is that answer now.
+>
+> Both of the last two land on one sentence in particular, because it is the one a conversion PR
+> reads as its recipe — **Consequences, "A conversion PR has a fixed shape"**. Its shape now is:
+> delete the probe, add the tests with their `Converted-from:` marker, and delete that probe's key
+> from `harness-residue-baseline.json` in the same commit. There is no registry row, and no number
+> to lower.
 
 ## Context
 

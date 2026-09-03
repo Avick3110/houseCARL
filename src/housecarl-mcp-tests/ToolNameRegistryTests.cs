@@ -26,8 +26,9 @@ public sealed class ToolNameRegistryTests
     const BindingFlags Members = BindingFlags.Public | BindingFlags.NonPublic
                                | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly;
 
-    /// <summary>The shipped tool assembly — the one the SDK scans.</summary>
-    static Assembly Surface => typeof(HousecarlMcp.CheckTools).Assembly;
+    /// <summary>The shipped tool assembly — the one the SDK scans, read off the one home for that fact rather
+    /// than by naming a type expected to live there.</summary>
+    static Assembly Surface => HousecarlMcp.ToolSurface.Assembly;
 
     /// <summary>Every value of a public string constant on <see cref="ToolNames"/>.</summary>
     static HashSet<string> Constants() => new(
