@@ -194,8 +194,13 @@ static class Facts
     /// <para>A format TEMPLATE is handled rather than refused: the constant is split at its <c>{N}</c> holes
     /// and every literal segment must appear, IN ORDER, in the text. That is the strongest identity claim a
     /// template supports, and it is still the constant's own text — nothing is spelled here.</para>
-    /// <para>A constant that has been emptied cannot make this arm pass silently: an empty or hole-only
-    /// constant fails by name, because "contains nothing" is true of every string.</para>
+    /// <para>A constant this arm cannot IDENTIFY is refused rather than asserted. An empty or hole-only
+    /// constant fails by name, because "contains nothing" is true of every string — and so does a constant
+    /// whose longest literal run is under <see cref="IdentifiableRun"/> non-space characters, because
+    /// "contains a bracket" is nearly as true. <c>SweepClose</c> is <c>"]"</c> and
+    /// <c>SweepFamilySectionHead</c> is <c>"[{0}] {1}"</c>: an arm over either passes on almost any response,
+    /// which is #492's own class arriving through the remedy #492 recommends. The claim such a sentence
+    /// carries belongs to a fact about the response instead.</para>
     /// </remarks>
     public static void States(string text, string catalogueConstant)
     {
@@ -214,6 +219,16 @@ static class Facts
             "The catalogue sentence handed to Facts.States is empty once its format holes are removed, so " +
             "this arm would pass over any text at all. A sentence emptied to a placeholder is the thing this " +
             "arm is meant to catch, not a reason for it to go quiet.");
+
+        Assert.True(Identifiable(catalogueConstant!),
+            $"Facts.States cannot assert this sentence by identity: {Quote(Clip(catalogueConstant!))} carries " +
+            $"no literal run longer than {LongestRun(catalogueConstant!)} non-space character(s), and " +
+            $"{IdentifiableRun} is the least that identifies a sentence in a response. An arm over it would be " +
+            "satisfied by almost any text, so it would pass over a surface that had stopped emitting the " +
+            "sentence entirely — #492's own class, reached through the remedy #492 recommends. Assert the " +
+            "claim this sentence carries as a FACT about the response instead (Facts.Record / Facts.Field / " +
+            "Facts.Number|Text|Flag), and record the sentence as unreachable-by-identity where the " +
+            "reachability countdown asks for it.");
 
         int cursor = 0;
         foreach (var seg in segments)
@@ -234,6 +249,26 @@ static class Facts
     // ---- the walk itself -------------------------------------------------------------------------------
 
     static readonly Regex FormatHole = new(@"\{\d+\}", RegexOptions.Compiled);
+
+    /// <summary>
+    /// The least a sentence must carry to be findable by its own words, and the ONE home for that rule. Below
+    /// it an identity arm is vacuous: <c>SweepClose</c> is <c>"]"</c> and <c>SweepFamilySectionHead</c>'s only
+    /// literal runs are a bracket and a space — every response contains those. Both
+    /// <see cref="States"/> and the reachability population read it here rather than each carrying a copy: a
+    /// threshold with two homes is a threshold that drifts, and the copy that drifts is the one that lets a
+    /// vacuous arm through.
+    /// </summary>
+    public const int IdentifiableRun = 8;
+
+    /// <summary>The longest run of non-space characters between a sentence's format holes.</summary>
+    public static int LongestRun(string sentence) =>
+        FormatHole.Split(sentence)
+                  .Select(seg => seg.Replace("{{", "{").Replace("}}", "}").Count(c => !char.IsWhiteSpace(c)))
+                  .DefaultIfEmpty(0)
+                  .Max();
+
+    /// <summary>Whether a sentence can be asserted by identity at all.</summary>
+    public static bool Identifiable(string sentence) => LongestRun(sentence) >= IdentifiableRun;
 
     /// <summary>A FormID as the surfaces spell it — six hex digits, a colon, a plugin filename.</summary>
     static readonly Regex FormIdToken =
