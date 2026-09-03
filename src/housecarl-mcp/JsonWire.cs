@@ -784,12 +784,19 @@ static class JsonWire
             }
             w.WriteEndArray();
             w.WriteNumber("rendered", rendered);
-            w.WriteBoolean("truncated", rowsTruncated);
-            truncated = rowsTruncated;
             // The precise tier's one framing line (ReadSentences.DeclarersLead), stated ONCE over the whole
             // response rather than duplicated into every row — the response/field split #342 already established,
-            // carried to this tier's own lead.
-            if (anyDeclarers) w.WriteString("child_declarers_note", ReadSentences.DeclarersLead);
+            // carried to this tier's own lead. RESERVED against cap before truncated is written (review-A MEDIUM2 /
+            // review-B L7, #485 round 1): a Utf8JsonWriter cannot un-write a property once appended, so checking
+            // ms.Length only AFTER deciding to write it is too late — the reservation (DeclarersLeadReserve, the
+            // note's own measured cost) has to be checked BEFORE, the same way Framing reserves for the writer's
+            // own punctuation instead of guessing it.
+            w.Flush();
+            bool leadOverCap = anyDeclarers && ms.Length + DeclarersLeadReserve >= cap;
+            if (leadOverCap) rowsTruncated = true;
+            w.WriteBoolean("truncated", rowsTruncated);
+            truncated = rowsTruncated;
+            if (anyDeclarers && !leadOverCap) w.WriteString("child_declarers_note", ReadSentences.DeclarersLead);
             if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
             w.WriteEndObject();
         }
@@ -1611,6 +1618,29 @@ static class JsonWire
     /// flush per entry would be the obvious spelling and the wrong one — this is the same number, and it is what
     /// makes a per-entry budget test affordable.</summary>
     static int Size(Utf8JsonWriter w, MemoryStream ms) => (int)(ms.Length + w.BytesPending);
+
+    /// <summary>What <c>child_declarers_note</c> costs the document — <see cref="ReadSentences.DeclarersLead"/>'s
+    /// own json-escaped bytes plus the property's separator, measured the same way <see cref="Framing"/> measures
+    /// the writer's own punctuation rather than hand-counted (#485 round 1, <see cref="RenderTree"/>'s reservation).
+    /// Written into an object that already has a property, so the measurement pays the same separator the real
+    /// write does.</summary>
+    static readonly int DeclarersLeadReserve = MeasureDeclarersLeadReserve();
+
+    static int MeasureDeclarersLeadReserve()
+    {
+        using var ms = new MemoryStream();
+        int before, after;
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteString("x", "");
+            before = Size(w, ms);
+            w.WriteString("child_declarers_note", ReadSentences.DeclarersLead);
+            after = Size(w, ms);
+            w.WriteEndObject();
+        }
+        return after - before;
+    }
 
     /// <summary>The document written SO FAR, as text, without closing it — for the one caller that has to READ what
     /// it has produced rather than measure it: the overrun remedy counts how many times this response prints back

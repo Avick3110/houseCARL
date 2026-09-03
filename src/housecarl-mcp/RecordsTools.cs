@@ -1651,6 +1651,7 @@ public static class RecordsTools
         if (epoch is not null) sb.Append("  epoch=").Append(epoch);
         sb.Append('\n');
         int rendered = 0;
+        bool declarersLeadWritten = false;
         foreach (var row in rows)
         {
             if (manifestOnly) break;
@@ -1668,7 +1669,7 @@ public static class RecordsTools
             for (int i = 0; i < row.Touchers.Count; i++)
                 sb.Append("    ").Append(i + 1).Append(". ").Append(row.Touchers[i])
                   .Append(i == row.Touchers.Count - 1 ? "  (winner)" : "").Append('\n');
-            if (AppendChildDeclarers(sb, row, cap)) truncated = true;
+            if (AppendChildDeclarers(sb, row, cap, ref declarersLeadWritten)) { truncated = true; rendered++; continue; }
             if (row.Nodes.Count <= 1) { rendered++; continue; }   // a sole provider has nothing to diff against
             sb.Append("  diff (field deltas vs ").Append(row.ReferencePlugin)
               .Append("; identical fields omitted; list contents compared by content, element reorders flagged):\n");
@@ -1698,12 +1699,15 @@ public static class RecordsTools
     }
 
     /// <summary>The tree's precise owned-child block (#485): which providers declare children per child-bearing
-    /// field, and the negative sentence when none do. Sits ABOVE the diff, never inside it — the diff omits a
-    /// provider whose content equals the reference, so a declarations statement in there would drop half its
-    /// subjects. Emitted for every row whose type owns children, sole-toucher rows included (not a diff).
-    /// Rationale: `docs/architecture/records-owned-child-declarers.md`.</summary>
+    /// field, and the negative sentence when none do. Sits ABOVE the diff, not inside it. Rationale:
+    /// `docs/architecture/records-owned-child-declarers.md`.
+    ///
+    /// <para>The block's one framing line (<see cref="ReadSentences.DeclarersLead"/>) is invariant text, so it is
+    /// written at most ONCE over the whole response — tracked by <paramref name="leadWritten"/> — matching the
+    /// json and artifact transports (<see cref="JsonWire.RenderTree"/>'s <c>child_declarers_note</c>,
+    /// <see cref="Artifacts.PreciseChildNotes"/>), which never repeated it per row.</para></summary>
     /// <returns>true if the block hit <paramref name="cap"/> and was cut short.</returns>
-    static bool AppendChildDeclarers(StringBuilder sb, LoadOrderService.TreeRow row, int cap)
+    static bool AppendChildDeclarers(StringBuilder sb, LoadOrderService.TreeRow row, int cap, ref bool leadWritten)
     {
         if (row.ChildDeclarers.Count == 0) return false;
         if (sb.Length >= cap)
@@ -1711,7 +1715,11 @@ public static class RecordsTools
             sb.Append("    ... [child declarers cut at max_chars=").Append(cap).Append(" — raise max_chars or narrow with ").Append(LeverNames.Records.Fields).Append("]\n");
             return true;
         }
-        sb.Append("  ").Append(ReadSentences.DeclarersLead).Append('\n');
+        if (!leadWritten)
+        {
+            sb.Append("  ").Append(ReadSentences.DeclarersLead).Append('\n');
+            leadWritten = true;
+        }
         foreach (var cd in row.ChildDeclarers)
         {
             if (sb.Length >= cap)
@@ -1721,6 +1729,13 @@ public static class RecordsTools
             }
             sb.Append("    ").Append(cd.Field).Append(": ")
               .Append(ReadSentences.DeclarersNote(cd.Shape, cd.Declaring, cd.Unreadable)).Append('\n');
+        }
+        // The block's own tail: the LAST field line can itself push past cap with nothing downstream to notice —
+        // a sole-provider row has no diff loop to catch it (review-A MEDIUM2 / review-B L5/L6, #485 round 1).
+        if (sb.Length >= cap)
+        {
+            sb.Append("    ... [child declarers cut at max_chars=").Append(cap).Append(" — raise max_chars or narrow with ").Append(LeverNames.Records.Fields).Append("]\n");
+            return true;
         }
         return false;
     }
