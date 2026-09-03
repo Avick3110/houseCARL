@@ -118,7 +118,7 @@ public sealed class TestProseGuardTests
             foreach (var call in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
             {
                 if (call.Expression is not MemberAccessExpressionSyntax ma) continue;
-                if (ma.Expression is not IdentifierNameSyntax { Identifier.ValueText: "Assert" }) continue;
+                if (!IsAssert(ma.Expression)) continue;
 
                 var form = ma.Name.Identifier.ValueText;
                 if (!Forms.Contains(form)) continue;
@@ -162,6 +162,15 @@ public sealed class TestProseGuardTests
         _hoisted = hoisted;
         return sites;
     }
+
+    /// <summary>The receiver of an assertion call: <c>Assert</c>, or any qualification of it
+    /// (<c>Xunit.Assert</c>), so writing the namespace out does not take a site off the population.</summary>
+    static bool IsAssert(ExpressionSyntax receiver) => receiver switch
+    {
+        IdentifierNameSyntax { Identifier.ValueText: "Assert" } => true,
+        MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Assert" } => true,
+        _ => false,
+    };
 
     static string Classify(string expected, string actual, IReadOnlyList<string> literals,
                            IReadOnlySet<string> wire, IReadOnlySet<string> fixtureValues, Regex? symbolRe)
@@ -534,7 +543,7 @@ public sealed class TestProseGuardTests
                 foreach (var call in cls.DescendantNodes().OfType<InvocationExpressionSyntax>())
                 {
                     if (call.Expression is not MemberAccessExpressionSyntax ma) continue;
-                    if (ma.Expression is not IdentifierNameSyntax { Identifier.ValueText: "Assert" }) continue;
+                    if (!IsAssert(ma.Expression)) continue;
                     if (!Forms.Contains(ma.Name.Identifier.ValueText)) continue;
                     if (call.ArgumentList.Arguments.Count < 2) continue;
 
