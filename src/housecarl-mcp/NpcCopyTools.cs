@@ -77,7 +77,7 @@ public static class NpcCopyTools
         {
             sb.AppendLine("masters: <NOT VERIFIED — read-back failed>");
             sb.AppendLine($"!! {o.Warning}");
-            sb.AppendLine("standalone: NOT VERIFIED — confirm with " + ToolNames.ReadPluginFile + " that the donor is absent from the masters before relying on this copy.");
+            sb.AppendLine("standalone: NOT VERIFIED — confirm with " + ToolNames.Records + " source=\"<the patch>.esp\" that the donor is absent from the masters before relying on this copy.");
         }
         else
         {

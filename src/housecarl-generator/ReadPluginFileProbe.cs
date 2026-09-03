@@ -126,29 +126,12 @@ internal static class ReadPluginFileProbe
             Check(dp.Error is null && dp.Mode == "read" && dp.Where == "direct path" && dp.Record?.EditorId == "DonorKw",
                   $"reads by absolute path — where='{dp.Where}', editorid={dp.Record?.EditorId ?? "?"}");
 
-            // 5 — render stamps OUT-OF-LOAD-ORDER (end-to-end through the tool)
-            Console.WriteLine("\n--- 5: render stamps OUT-OF-LOAD-ORDER ---");
-            var render = ReadTools.ReadPluginFile(svc, "Donor.esp", swordFk.ToString(), null, null, new[] { "BasicStats.Damage" }, 1, null, limit: 500, max_chars: 0);
-            Check(render.Contains("OUT-OF-LOAD-ORDER"), "the rendered read is stamped OUT-OF-LOAD-ORDER (the load-bearing requirement)");
-            Check(render.Contains("BasicStats.Damage = 12"), "…and shows the field line in read_record's `path = token` format");
-
-            // 5b — json render (P6): a valid document stamped out_of_load_order, same field token as the text render.
-            var renderJson = ReadTools.ReadPluginFile(svc, "Donor.esp", swordFk.ToString(), null, null, new[] { "BasicStats.Damage" }, 1, null, limit: 500, format: "json", max_chars: 0);
-            JsonDocument? pfDoc = null;
-            try { pfDoc = JsonDocument.Parse(renderJson); } catch { }
-            Check(pfDoc is not null, "read_plugin_file format=json is VALID json (P6)");
-            if (pfDoc is not null)
-            {
-                var pfRoot = pfDoc.RootElement;
-                bool okShape = pfRoot.TryGetProperty("out_of_load_order", out var ool) && ool.GetBoolean()
-                               && pfRoot.TryGetProperty("mode", out var m) && m.GetString() == "read";
-                string? dmg = null;
-                if (pfRoot.TryGetProperty("record", out var rec) && rec.TryGetProperty("fields", out var flds))
-                    foreach (var f in flds.EnumerateArray())
-                        if (f.TryGetProperty("path", out var p) && p.GetString() == "BasicStats.Damage" && f.TryGetProperty("value", out var v)) dmg = v.GetString();
-                Check(okShape && dmg == "12", $"read_plugin_file json: out_of_load_order + mode=read + the SAME field token as text (damage={dmg ?? "?"})");
-                pfDoc.Dispose();
-            }
+            // Arms 5 and 5b stood here — the text render's OUT-OF-LOAD-ORDER stamp and its `path = token` field
+            // line, and the json render's validity, out_of_load_order/mode=read shape and matching field token.
+            // All four drove housecarl_read_plugin_file, which the 1.x cut deleted. The stamp and the ambiguity
+            // remedy were already covered by the converted records family; the field FORM and the json arms are
+            // tests against housecarl_records' off-order source pole in src/housecarl-mcp-tests now. Every arm
+            // above and below calls svc.ReadPluginFile — the service method, which is not deleted — and stands.
 
             // 6 — master advisory (Q3): each declared master classified by whether it will actually LOAD.
             //   6a missing  — installed NOWHERE in the install
@@ -191,9 +174,10 @@ internal static class ReadPluginFileProbe
                   $"6b the disabled-mod-only master is INACTIVE, NOT satisfied (the fixed false-negative) — inactive=[{string.Join(", ", mm.InactiveMasters)}]");
             Check(!mm.MissingMasters.Concat(mm.InactiveMasters).Any(x => x.Equals("HcRpfActive.esm", StringComparison.OrdinalIgnoreCase)),
                   "6c the enabled+checked master is satisfied — in neither list");
-            var mmRender = ReadTools.ReadPluginFile(svc, "Dependent.esp", null, null, null, null, 1, null, limit: 500, max_chars: 0);
-            Check(mmRender.Contains("NOT installed anywhere") && mmRender.Contains("NOT ACTIVE"),
-                  "…and the render shows BOTH the not-installed and the not-active advisory lines");
+            // The render arm for 6 stood here — that both advisory lines reach the rendered read. It drove
+            // housecarl_read_plugin_file and dies with it, and it has NO replacement: the advisory is written
+            // only by that tool's own renderer, and the records surface says nothing about a read file's
+            // declared masters. The three classification arms above ask the service and stand.
 
             // 7 — Q3 refusals (never a silent wrong answer)
             Console.WriteLine("\n--- 7: Q3 refusals ---");
@@ -220,8 +204,9 @@ internal static class ReadPluginFileProbe
             }
             var amb = svc.ReadPluginFile("Dup.esp", null, "Weapon", null, null, 1, null, 500);
             Check(amb.Mode == "ambiguous" && amb.Ambiguous.Count == 2, $"a name in 2 folders is AMBIGUOUS, not guessed — mode={amb.Mode}, hits={amb.Ambiguous.Count}");
-            var ambRender = ReadTools.ReadPluginFile(svc, "Dup.esp", null, "Weapon", null, null, 1, null, limit: 500, max_chars: 0);
-            Check(ambRender.Contains("mod="), "…and the render tells the caller to pass mod=");
+            // The render arm here — that the ambiguity render tells the caller to pass mod= — drove
+            // housecarl_read_plugin_file. The records surface refuses the same way, and RecordsDuplicateFilenameTests
+            // in src/housecarl-mcp-tests already covered it before the cut.
             var disamb = svc.ReadPluginFile("Dup.esp", null, "Weapon", "DupModB", null, 1, null, 500);
             Check(disamb.Mode == "enumerate" && disamb.Rows.Count == 1 && disamb.Rows[0].EditorId == "DupDisabledW",
                   $"mod=DupModB reads THAT copy — editorid={(disamb.Rows.Count > 0 ? disamb.Rows[0].EditorId : "?")}");

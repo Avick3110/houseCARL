@@ -1,528 +1,13 @@
-using System.ComponentModel;
 using System.Text;
-using ModelContextProtocol.Server;
 using Mutagen.Bethesda.Plugins;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// houseCARL read tools (§8.4 Beat B). Reads ride the proven read core (<see cref="ReadEngine"/>) + the load-order
-/// resolver (<see cref="LoadOrderResolver"/>) through <see cref="LoadOrderService"/>; they never mutate. The
-/// compact `path = token` wire format (Q4.8 lever 1) is token-lean and the token IS a value a write can reuse.
-/// conflict_tree adds the winner-relative field diff (Q4.8 lever 2). Every bulk view estimates its size and
-/// stops with an explicit notice rather than truncating silently (Q3 + Q4.9).
-/// </summary>
-[McpServerToolType]
-public static class ReadTools
-{
-    [McpServerTool(Name = "housecarl_read_record", ReadOnly = true, Title = "Read a record"),
-     Description(
-         "Read one record's fields as the load order resolves it. Returns the TRUE load-order winner's values by " +
-         "default — or a named plugin's version via `plugin` — as compact `path = token` lines whose tokens a write " +
-         "can reuse verbatim. With conflict_tree=true, also lists every plugin that touches the record (load order, " +
-         "winner last) AND the winner-relative field diff (each other plugin's only-the-fields-that-differ). A FormID " +
-         "is 'XXXXXX:Plugin.esp'. Does NOT modify anything. For many records in one call use " +
-         "housecarl_batch_record_detail; to scan the order by type/reference/conflict use housecarl_cross_plugin_query; " +
-         "to edit, use housecarl_apply.")]
-    public static string ReadRecord(
-        LoadOrderService svc,
-        [Description("The record's FormID as 'XXXXXX:Plugin.esp' — 6 hex digits, a colon, then the defining master's filename. Example: '0F1AC1:Skyrim.esm'.")]
-            string formid,
-        [Description("Optional. Read THIS plugin's version of the record instead of the load-order winner (a filename, e.g. 'Requiem.esp'). Useful to inspect a specific override.")]
-            string? plugin = null,
-        [Description("Optional. Dotted field paths to read (e.g. 'BasicStats.Damage', 'Name', 'Keywords'). Index into a list/dict element with BRACKETS, e.g. 'Effects[0].Data.Magnitude' or 'VirtualMachineAdapter.Aliases[0].Scripts[0].Properties[5].Name' — a bare '.0' is read as a field name, not an index. Omit to dump every modeled field one level deep (pass depth= to expand list/dict contents).")]
-            string[]? fields = null,
-        [Description("Optional. Expansion depth for list/dict/substruct CONTENTS (default 1 = one level, a container shown as just a count like '[List: 22 item(s)]'). depth=2 enumerates each element with its index + an identity, e.g. 'VirtualMachineAdapter.Aliases[0].Scripts[0].Properties[5] = [ScriptObjectProperty] Name=DAK_HorseBuyPerk' AND, one level beneath it, that property's VALUE ('...Properties[5].Object = 0F1AC1:Skyrim.esm', a Data scalar, or '(null link)' for a declared-but-unset property) — so you can SEE indices/contents without probing each [i]. Higher depth opens deeper. Pair with a fields= path to expand only that subtree; on a whole-record dump it expands every container (bounded, with an explicit truncation note).")]
-            int depth = 1,
-        [Description("When true, also return the ordered list of every plugin that touches this record (winner last) and the winner-relative field diff for each.")]
-            bool conflict_tree = false,
-        [Description("When true, annotate every FormLink field value with its target's identity (→ editorid \"Name\"), resolved against the load order — so a Keywords/Template/DeathItem token reads as what it points AT, not just a FormID. Display-only: the token itself is unchanged (a write can still reuse it). A target no active plugin defines is marked 'unresolved' — except the engine-implicit forms (PlayerRef 000014 / Player 000007), which annotate their hardcoded identity.")]
-            bool resolve_names = false,
-        [Description("Optional. 'text' (default) or 'json' — a machine-readable {formid,type,editorid,winner,override_depth,source,fields[]} document (field values are the SAME tokens as text). conflict_tree is a text-only diff view.")]
-            string? format = null,
-        [Description("Optional. Max characters before the diff is cut with an explicit notice (never silent). 0 = the server default (~80k). Raise to see a very deep conflict tree in full.")]
-            int max_chars = 0) => Guard.Tool("housecarl_read_record", () =>
-    {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        bool json = Wire.WantsJson(format, out var ferr);
-        if (ferr is not null) return ferr;
-        if (json && conflict_tree) return Wire.Refuse(json, "error: conflict_tree=true is a text-only diff view and is not carried in json mode — use format=text for the conflict tree, or drop conflict_tree for the json field data.");
-        FormKey fk;
-        try { fk = FormKey.Factory(formid.Trim()); }
-        catch (Exception ex) { return Wire.Refuse(json, $"error: bad FormID '{formid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '0F1AC1:Skyrim.esm'."); }
-
-        var outcome = svc.ResolveRead(fk, plugin?.Trim(), fields, conflict_tree, depth <= 0 ? 1 : depth, resolve_names);
-        return json ? JsonWire.RenderRecord(outcome, max_chars) : Wire.RenderRecord(svc, outcome, fields, conflict_tree, max_chars);
-    });
-
-    [McpServerTool(Name = "housecarl_batch_record_detail", ReadOnly = true, Title = "Read many records"),
-     Description(
-         "Read many records in ONE call (saves per-record tool-call overhead). Each FormID resolves to its " +
-         "load-order winner (or a named plugin's version via plugin=) and renders like housecarl_read_record; a bad " +
-         "or absent FormID yields a per-item error without failing the batch. With conflict_tree=true each record " +
-         "also gets its touching-plugin list + winner-relative field diff. The combined response is size-estimated: " +
-         "over the cap it stops with an explicit 'rendered X of N' notice (never silent truncation) — request fewer " +
-         "formids, pass fields= to slim each, or raise max_chars. The header carries epoch=<hex> — the load-order " +
-         "build identity the WHOLE batch was answered from; a different epoch on a sibling call means the order " +
-         "changed between them. Does NOT modify anything.")]
-    public static string BatchRecordDetail(
-        LoadOrderService svc,
-        [Description("The FormIDs to read, each 'XXXXXX:Plugin.esp'. Resolved in order; results are returned in the same order.")]
-            string[] formids,
-        [Description("Optional. Read THIS plugin's version of EVERY record instead of the load-order winner (a filename, e.g. 'Gray Fox Cowl.esm') — the batch twin of housecarl_read_record's plugin=. Use to bulk-read a specific override's version (e.g. a mod's OWN records when something else currently wins). A formid that plugin doesn't touch gets its own per-item error; the rest still read.")]
-            string? plugin = null,
-        [Description("Optional. Dotted field paths to read for EVERY record (e.g. 'Name', 'BasicStats.Damage'); index a list/dict element with BRACKETS, e.g. 'Effects[0].Data.Magnitude'. Omit to dump every modeled field one level deep per record.")]
-            string[]? fields = null,
-        [Description("Optional. Expansion depth for list/dict/substruct CONTENTS per record (default 1). depth=2 enumerates each container's elements with index + identity (see housecarl_read_record). Bounded per record with an explicit truncation note.")]
-            int depth = 1,
-        [Description("When true, include each record's touching-plugin list (winner last) + winner-relative field diff.")]
-            bool conflict_tree = false,
-        [Description("When true, annotate every FormLink field value across every record with its target's identity (→ editorid \"Name\"), resolved against the load order and cached across the whole batch. Display-only: the token itself is unchanged. Unresolvable targets are marked.")]
-            bool resolve_names = false,
-        [Description("Optional. 'text' (default) or 'json' — a machine-readable {count, records:[…], rendered, truncated} document (each record like read_record's json; field values are the SAME tokens as text). conflict_tree is a text-only diff view.")]
-            string? format = null,
-        [Description("Optional. Max characters before the response stops with an explicit 'rendered X of N' notice. 0 = the server default (~80k).")]
-            int max_chars = 0,
-        [Description("Optional. Write the COMPLETE batch to this ABSOLUTE .jsonl path as a §2.1.1 artifact (line 1 = manifest with the epoch fingerprint; then one JSON record-row per input, per-item errors included) and render only the manifest inline. Re-enter it later via formids=[\"@<path>\"] — epoch-checked against the then-current build. Not combinable with conflict_tree (a text-only view with no row form).")]
-            string? to_file = null) => Guard.Tool("housecarl_batch_record_detail", () =>
-    {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        // Transport BEFORE the first refusal: the empty-formids check used to fire above this line, so a json
-        // caller got that one refusal as bare prose while every later refusal in the same body honoured json.
-        bool json = Wire.WantsJson(format, out var ferr);
-        if (ferr is not null) return ferr;
-        if (formids is null || formids.Length == 0) return Wire.Refuse(json, "error: formids is empty. Pass one or more 'XXXXXX:Plugin.esp' FormIDs.");
-        if (json && conflict_tree) return Wire.Refuse(json, "error: conflict_tree=true is a text-only diff view and is not carried in json mode — use format=text for the conflict tree, or drop conflict_tree for the json field data.");
-
-        // formids= under the @file convention (§5.1): a single "@<path>" element stands for the whole list — a
-        // plain file's tokens, or a §2.1.1 artifact's identity column + its epoch demand (checked in the batch's
-        // own capture: scan once, project forever, never against a build the artifact didn't come from).
-        var (toks, demand, echoSrc, xerr) = Artifacts.ExpandListInput(formids, "formids");
-        if (xerr is not null) return Wire.Refuse(json, xerr);
-        formids = toks!;
-
-        var toFile = to_file?.Trim();
-        bool wantFile = !string.IsNullOrEmpty(toFile);
-        if (wantFile)
-        {
-            if (Artifacts.ValidateToFile(toFile!) is { } verr) return Wire.Refuse(json, verr);
-            if (conflict_tree) return Wire.Refuse(json, "error: to_file= writes the result as JSONL rows, and conflict_tree=true is a text-only diff view with no row form — drop one of the two.");
-        }
-
-        var outcomes = svc.ResolveBatch(formids, fields, conflict_tree, depth <= 0 ? 1 : depth, resolve_names, plugin?.Trim(),
-                                        demand, out var artifactRefusal, out var refusalEpoch);
-        if (artifactRefusal is not null)
-            return json ? JsonWire.RenderError(artifactRefusal, refusalEpoch)
-                        : "error: " + artifactRefusal + (refusalEpoch is not null ? $"\nepoch={refusalEpoch}" : "");
-
-        List<KeyValuePair<string, string>> Echo()
-        {
-            var e = new List<KeyValuePair<string, string>> { new("formids", echoSrc ?? $"{formids.Length} inline formid(s)") };
-            void Add(string k, string? v) { if (!string.IsNullOrEmpty(v)) e.Add(new(k, v!)); }
-            Add("plugin", plugin?.Trim());
-            Add("fields", fields is { Length: > 0 } ? string.Join(", ", fields) : null);
-            if (depth > 1) Add("depth", depth.ToString());
-            return e;
-        }
-
-        SpillState? spill = null;
-        if (wantFile)
-        {
-            var (s, aerr) = Artifacts.WriteBatch(outcomes, toFile!, "to_file", Echo());
-            if (aerr is not null)
-                // Post-scan failure keeps the format contract (review finding 4) — never bare text under json.
-                return json ? JsonWire.RenderError(aerr, outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch) : "error: " + aerr;
-            spill = SpillState.Spilled(s!, manifestOnly: true);
-        }
-
-        string Render(SpillState? sp, out bool trunc) => json
-            ? JsonWire.RenderBatch(outcomes, max_chars, sp, out trunc)
-            : Wire.RenderBatch(svc, outcomes, fields, conflict_tree, max_chars, sp, out trunc);
-        var rendered = Render(spill, out var truncated);
-        if (spill is null && truncated)
-        {
-            // AUTO-SPILL (§2.1.1): the complete batch goes to the server results dir; the response re-renders
-            // with the spilled marker in-band. See cross_plugin_query's twin for the contract notes.
-            if (conflict_tree)
-                // WriteBatch rows carry no conflict tree — same no-row-form honesty as the cross-query twin
-                // (review finding 1).
-                rendered = Render(SpillState.NoRowForm(), out _);
-            else
-            {
-                var path = ResultsStore.NextPath("housecarl_batch_record_detail", outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch ?? "none");
-                var (s, aerr) = Artifacts.WriteBatch(outcomes, path, "ceiling", Echo());
-                if (aerr is not null) ResultsStore.Release(path);
-                rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
-            }
-        }
-        return rendered;
-    });
-
-    [McpServerTool(Name = "housecarl_diff_record", ReadOnly = true, Title = "Diff two plugins' versions of a record"),
-     Description(
-         "Field-level diff between TWO plugins' versions of ONE record — plugin_a vs plugin_b. Each plugin may be an " +
-         "ACTIVE plugin OR a plugin FILE on disk that isn't in the load order (e.g. a DISABLED old patch): the classic " +
-         "use is diffing a disabled OLD patch against the mod that supersedes it, to see exactly what changed. Both " +
-         "sides are deep-read and compared by the SAME content-keyed (list reorders flagged), truncation-honest engine the conflict tree " +
-         "uses; each delta line shows plugin_a's value with plugin_b's (the reference) value labeled by plugin_b's " +
-         "filename. A FormID is 'XXXXXX:Plugin.esp'. Read-only. Unlike housecarl_read_record conflict_tree (which diffs " +
-         "every toucher against the load-order WINNER), this compares TWO explicit plugins with no winner pole — use it " +
-         "when neither side is the winner (an off-order file), or to compare two specific overrides directly. On a " +
-         "TRUNCATED deep read it reports the truncation rather than claiming 'identical' (Q3).")]
-    public static string DiffRecord(
-        LoadOrderService svc,
-        [Description("The record's FormID as 'XXXXXX:Plugin.esp' — the record whose two versions to compare.")]
-            string formid,
-        [Description("The FIRST plugin whose version to compare — a filename (e.g. 'OldPatch.esp'); an ACTIVE plugin OR a file on disk not in the load order.")]
-            string plugin_a,
-        [Description("The SECOND plugin whose version to compare — the REFERENCE side (each delta labels this plugin's value by its filename). A filename, active OR on disk.")]
-            string plugin_b,
-        [Description("Optional. Dotted field paths to compare (e.g. 'BasicStats.Damage', 'Keywords'); omit to diff every modeled field (deep). BOTH sides read the SAME paths so the comparison is apples-to-apples.")]
-            string[]? fields = null,
-        [Description("Optional. 'text' (default) or 'json' — a machine-readable {formid, a:{plugin,where,type,editorid}, b:{…}, complete, deltas[], delta_count, agreed_count} document. Deltas are the SAME strings text emits.")]
-            string? format = null,
-        [Description("Optional. Disambiguate plugin_a when its filename lives in more than one mod folder on disk (the mod-folder name) — or omit and pass an exact path in plugin_a.")]
-            string? mod_a = null,
-        [Description("Optional. Disambiguate plugin_b (see mod_a).")]
-            string? mod_b = null,
-        [Description("Optional. Max characters before the delta list is cut with an explicit notice (never silent). 0 = the server default.")]
-            int max_chars = 0) => Guard.Tool("housecarl_diff_record", () =>
-    {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        bool json = Wire.WantsJson(format, out var ferr);
-        if (ferr is not null) return ferr;
-        var outcome = svc.DiffRecord(formid, plugin_a, plugin_b, fields, mod_a?.Trim(), mod_b?.Trim());
-        return json ? JsonWire.RenderDiffRecord(outcome, max_chars) : Wire.RenderDiffRecord(outcome, max_chars);
-    });
-
-    [McpServerTool(Name = "housecarl_cross_plugin_query", ReadOnly = true, Title = "Query records across the load order"),
-     Description(
-         "Find records across the whole load order matching a filter — returns matches only, each as a compact " +
-         "summary line (FormID, type, editorid, winner, override depth). Filters (combine freely): type= a record " +
-         "signature ('WEAP') or catalog name ('Weapon'); conflicts_only=true for records >1 plugin touches; " +
-         "editorid_contains= a substring of the EditorID; references= one or more FormIDs the record points at " +
-         "(reverse lookup, e.g. 'what uses this keyword' — OR over the list, and each match shows which target(s) it " +
-         "hit); where= filters by a field's VALUE (e.g. 'MagicSkill = Destruction', " +
-         "'BasicStats.Damage >= 50' — any scalar field, ANDed; under a plugins= scope pass where_source=winner to " +
-         "decide the match on the live load-order WINNER instead of the scoped plugin's own body); plugins= limits the scan to records those plugins " +
-         "touch (a bare plugins= is 'everything this plugin touches'); defined_in=true narrows a plugins= scope to " +
-         "records DEFINED in those plugins (not overrides they merely touch). At least one filter or plugins= is " +
-         "required. editorid_contains/references/where " +
-         "are body scans and MUST be combined with type= or plugins= to bound the work (conflicts_only= alone is not " +
-         "enough). Pass fields= " +
-         "or conflict_tree=true to expand each match from a summary line to full detail; or group_by= " +
-         "(winner|type|defined_in) for a count table over ALL matches instead of per-match lines. Results cap at " +
-         "limit= matches and max_chars; both overruns are reported explicitly (never silent), and offset= pages a big " +
-         "enumeration in exact windows (offset=0/500/1000… with format='dense' for the compact columnar rows). " +
-         "Does NOT modify anything.")]
-    public static string CrossPluginQuery(
-        LoadOrderService svc,
-        [Description("Optional. A record signature ('WEAP', 'NPC_') or catalog name ('Weapon', 'Npc'). Cheap — uses typed group enumeration.")]
-            string? type = null,
-        [Description("Optional. One or more FormIDs 'XXXXXX:Plugin.esp'; matches records that reference ANY of them (OR, deep link scan). Each match line shows matches=<which target(s)> when you pass 2+. Must be combined with type= or plugins= (conflicts_only= alone is not enough).")]
-            string[]? references = null,
-        [Description("Optional. Case-insensitive substring of the EditorID. Body scan — must be combined with type= or plugins= (conflicts_only= alone is not enough).")]
-            string? editorid_contains = null,
-        [Description("When true, restrict to records more than one plugin touches (the contested set).")]
-            bool conflicts_only = false,
-        [Description("Optional. Plugin filenames to scope the scan to (records those plugins touch). A name not in the load order is an error. Omit to scan the whole order.")]
-            string[]? plugins = null,
-        [Description("When true, narrow a plugins= scope to records DEFINED in those plugins (origin FormID), not overrides they merely touch — the catalogue-scope semantics. Requires plugins= (refused loud otherwise).")]
-            bool defined_in = false,
-        [Description("Optional. Field-VALUE predicates, each \"<path> <op> <value>\" — e.g. 'MagicSkill = Destruction', 'BasicStats.Damage >= 50', 'Archetype.ActorValue = Infamy'. Operators: = != > >= < <= (>/< numeric), contains (case-insensitive substring), has (bitwise flag/bit set-test, e.g. 'BodyTemplate.FirstPersonFlags has Body'), and the no-value PRESENCE tests exists / missing ('VirtualMachineAdapter exists' lists records that CARRY a script/substruct/non-empty list; missing is its complement); multiple are ANDed. IDENTITY membership: 'formid in <list>' / 'formid not in <list>' keep/drop records BY FormID against a supplied list — the list is inline comma-separated ('formid not in [XXXXXX:A.esp, YYYYYY:B.esp]' — commas separate, spaces in plugin names are fine, brackets/quotes optional so a pasted JSON array works) or a file via '@' + ABSOLUTE path ('formid not in @C:\\work\\claimed.txt', FormIDs comma- or newline-separated). The reconciliation subtraction: 'every record of these types in plugin X minus the ~1,200 already claimed' is type= + plugins= + where=[\"formid not in @file\"]. The value ops filter on ANY scalar field the read tools can read (any type, any depth); exists/missing also match a carried substruct/list. A body scan — MUST be combined with type= or plugins=. A wrong or container/list path is reported, never a silent '0 matches'. UNION-ARM tip: when a field can be one of several shapes (e.g. an NPC's Configuration.Level is EITHER a fixed level OR a PC-level multiplier), a scalar predicate on one arm's sub-field doubles as an ARM-PRESENCE test — only records whose live arm actually carries that sub-field can match; records on a different arm report no value and drop out. So where=[\"Configuration.Level.LevelMult >= 0\"] returns exactly the NPCs still on a PC-level multiplier (a one-call way to list which records are on a given arm). SOURCE: under a plugins= scope this predicate reads each match's SCOPED body by default (the ORIGINAL arm) — pass where_source=winner to test the LIVE load-order winner's arm instead (the post-patch 'which winners are STILL on the multiplier' answer, #233).")]
-            string[]? where = null,
-        [Description("Optional. Aggregate matches into a count table (sorted desc) instead of listing them: 'winner' (by load-order-winning plugin), 'type' (by record type — needs type= or plugins=), or 'defined_in' (by defining plugin). Counts ALL matches (not capped by limit=). Cannot combine with fields= or conflict_tree=.")]
-            string? group_by = null,
-        [Description("Optional. Dotted field paths to show for each match (e.g. 'BasicStats.Damage'). Omit for a one-line summary per match. Pair with depth= to expand list/dict contents (fields=['Effects'], depth=4 shows every effect's Data in the scan — no hand-written 'Effects[0].Data.Magnitude' index guessing).")]
-            string[]? fields = null,
-        [Description("Optional. With fields= (or conflict_tree=true's whole-record dump): expansion depth for list/dict/substruct CONTENTS (#231; default 1 = a container shown as just a count like '[list: 3 item(s)]'), same semantics as housecarl_read_record / housecarl_batch_record_detail — depth=2 enumerates each element with index + identity, higher opens deeper (fields=['Effects'], depth=4 reaches every effect's Magnitude/Area/Duration). Applies to EVERY match in the scan. Refused loud on a surface with nothing to expand: bare summary lines (no fields=/conflict_tree) and group_by= (a count table has no field values). Not carried in format='dense' (columnar cells align 1:1 with the requested paths) — use format=text/json for depth expansion.")]
-            int depth = 1,
-        [Description("When true, include each match's touching-plugin list (winner last) + winner-relative field diff.")]
-            bool conflict_tree = false,
-        [Description("When true (with fields=), annotate every FormLink field value with its target's identity (→ editorid \"Name\"), resolved against the load order and cached across all matches. Display-only; the token is unchanged. No effect on summary lines or group_by (there are no field tokens to annotate).")]
-            bool resolve_names = false,
-        [Description("DISPLAY control (with fields= under a plugins= scope): when true, expand each match's fields from the load-order WINNER's body instead of the scoped plugin's OWN version. WITHOUT this, plugins=-scoped fields are that plugin's values (e.g. a defining esp's AR 38), NOT the live winner (AR 200) — a note names the source either way. No effect under type= scope (already the winner). This governs what is SHOWN, not what MATCHES — to filter on the winner, use where_source=winner (the two compose: where_source=winner + winner_fields=false matches on the winner but shows the scoped origin body).")]
-            bool winner_fields = false,
-        [Description("Optional. Which BODY the body filters (where=, references=, editorid_contains=) decide the MATCH on: 'scoped' (default) = the body the scan streams (the scoped plugin's OWN under plugins=, else the winner); 'winner' = the live load-order WINNER regardless of scan scope. THE FIX for #233: under a plugins= scope, where=['Configuration.Level.LevelMult >= 0'] with the default source matches records whose SCOPED body ever had a PC-level multiplier (259), while where_source=winner matches only those whose LIVE winner still does (82) — the post-patch audit answer. It retargets the MATCH; winner_fields= independently governs DISPLAY. Requires a body filter (refused loud otherwise). Redundant under a type=-only scope (that scan already reads the winner) — accepted with a note, not refused.")]
-            string? where_source = null,
-        [Description("Optional. 'text' (default), 'json' (a machine-readable document — group_by count table, detail record objects with fields, or summary rows), or 'dense' (#223 — COLUMNAR json: a columns array once, then ONE positional row array per match [formid, editorid, field values…] — plus a source column under a plugins= scope naming the body each row read — no per-field envelopes or repeated keys — the compact form for bulk enumeration; ~same data at a fraction of the characters; under group_by it renders the same count table as 'json'). All formats carry total/capped/notes/truncated accounting in-band. conflict_tree is a text-only diff view.")]
-            string? format = null,
-        [Description("Optional. Max matches to return (default 500). The TRUE total is always reported; over the cap it says 'showing first N'. Page with offset=.")]
-            int limit = 500,
-        [Description("Optional. Skip the first N post-filter matches before returning rows (#223 pagination) — combine with limit= to page a big enumeration in windows (offset=0/500/1000…). Scan order is deterministic while the load order is unchanged, so windows tile exactly. The true total always counts ALL matches. Not valid with group_by= (a count table has no window). Every response carries epoch=<hex> in-band — the identity of the load-order build it was answered from: windows tile ONLY within one epoch, so if two pages' epochs differ, the load order changed mid-pagination and the pages must not be stitched (re-run from offset=0).")]
-            int offset = 0,
-        [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k).")]
-            int max_chars = 0,
-        [Description("Optional. Write the COMPLETE result to this ABSOLUTE .jsonl path as a §2.1.1 artifact (line 1 = a manifest carrying the query echo, row count/schema, and the epoch fingerprint; then one JSON row per match) and render only the manifest inline. The artifact is never windowed: limit=/offset= do not apply to it (offset= is refused with to_file=). Re-enter it later via where=[\"formid in @<path>\"] — epoch-checked against the then-current build. Not combinable with conflict_tree (a text-only view with no row form).")]
-            string? to_file = null) => Guard.Tool("housecarl_cross_plugin_query", () =>
-    {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        var fmt = Wire.CrossQueryFormat(format, out var ferr);
-        if (ferr is not null) return ferr;
-        // This tool carries the three-value format; `dense` is a textual transport, so only the json arm gets the
-        // refusal document. Named once here so the refusals below read the same as every other tool body's.
-        bool json = fmt is Wire.QueryFormat.Json;
-        if (fmt is not Wire.QueryFormat.Text && conflict_tree) return Wire.Refuse(json, $"error: conflict_tree=true is a text-only diff view and is not carried in {(fmt is Wire.QueryFormat.Json ? "json" : "dense")} mode — use format=text for the conflict tree, or drop conflict_tree for the field data.");
-        if (group_by is not null && ((fields is { Length: > 0 }) || conflict_tree))
-            return Wire.Refuse(json, "error: group_by aggregates matches into a count table and cannot be combined with fields= or conflict_tree=true (those expand each match to full detail — pick one). Drop fields=/conflict_tree, or drop group_by.");
-        if (depth <= 0) depth = 1;
-        if (depth > 1 && group_by is not null)
-            return Wire.Refuse(json, "error: depth= expands per-match field contents, and group_by= renders a count table with no field values — depth= never applies there. Drop depth= (or drop group_by= and pass fields= for per-match detail).");
-        if (depth > 1 && fields is not { Length: > 0 } && !conflict_tree)
-            return Wire.Refuse(json, "error: depth= expands the list/dict contents of fields= paths, and no fields= was passed — summary lines have nothing to expand. Pass fields= (e.g. fields=['Effects'], depth=4) or conflict_tree=true (the whole-record dump), or drop depth=.");
-        if (depth > 1 && fmt is Wire.QueryFormat.Dense)
-            return Wire.Refuse(json, "error: depth>1 is not carried in format='dense' — dense rows are positional (one cell per requested fields= path), and depth expansion emits extra sub-paths that would break the column alignment. Use format=text or format=json for depth expansion, or drop depth= for the dense summary cells.");
-        // references= may itself be an @file / @artifact list (the §5.1 @file convention) — expanded BEFORE the
-        // FormKey parse; an artifact target contributes its epoch demand, checked inside the scan's own capture.
-        HousecarlCore.ArtifactDemand? refDemand = null;
-        string? refEcho = null;
-        if (references is { Length: > 0 })
-        {
-            var (toks, demand, echoSrc, xerr) = Artifacts.ExpandListInput(references, "references");
-            if (xerr is not null) return Wire.Refuse(json, xerr);
-            references = toks!; refDemand = demand; refEcho = echoSrc;
-        }
-        IReadOnlyList<FormKey>? refFks = null;
-        if (references is { Length: > 0 })
-        {
-            var list = new List<FormKey>();
-            foreach (var r in references)
-            {
-                if (string.IsNullOrWhiteSpace(r)) continue;
-                try { list.Add(FormKey.Factory(r.Trim())); }
-                catch (Exception ex) { return Wire.Refuse(json, $"error: bad references FormID '{r}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
-            }
-            if (list.Count > 0) refFks = list.Distinct().ToList();   // preserve input order, drop dupes
-        }
-
-        // to_file= (§2.1.1): validated BEFORE the scan — a doomed disposition must not pay a scan first.
-        var toFile = to_file?.Trim();
-        bool wantFile = !string.IsNullOrEmpty(toFile);
-        if (wantFile)
-        {
-            if (Artifacts.ValidateToFile(toFile!) is { } verr) return Wire.Refuse(json, verr);
-            if (conflict_tree) return Wire.Refuse(json, "error: to_file= writes the result as JSONL rows, and conflict_tree=true is a text-only diff view with no row form — drop one of the two.");
-            if (offset > 0) return Wire.Refuse(json, "error: to_file= captures the COMPLETE result (the artifact is never a window), so offset= has nothing to page — drop offset=.");
-        }
-
-        var outcome = svc.CrossQuery(type, refFks, editorid_contains, conflicts_only, plugins, where,
-                                     wantFile ? int.MaxValue : (limit <= 0 ? 500 : limit),   // to_file: the artifact is the FULL result, never limit-windowed
-                                     defined_in, group_by, offset, where_source,
-                                     refDemand is null ? null : new[] { refDemand });
-
-        // The query echo the manifest carries — what produced this artifact, readable without this conversation.
-        List<KeyValuePair<string, string>> Echo()
-        {
-            var e = new List<KeyValuePair<string, string>>();
-            void Add(string k, string? v) { if (!string.IsNullOrEmpty(v)) e.Add(new(k, v!)); }
-            Add("type", type);
-            Add("references", refEcho ?? (references is { Length: > 0 } ? string.Join(", ", references) : null));
-            Add("editorid_contains", editorid_contains);
-            if (conflicts_only) Add("conflicts_only", "true");
-            Add("plugins", plugins is { Length: > 0 } ? string.Join(", ", plugins) : null);
-            if (defined_in) Add("defined_in", "true");
-            Add("where", where is { Length: > 0 } ? string.Join(" AND ", where) : null);
-            Add("group_by", group_by);
-            Add("fields", fields is { Length: > 0 } ? string.Join(", ", fields) : null);
-            if (depth > 1) Add("depth", depth.ToString());
-            if (winner_fields) Add("winner_fields", "true");
-            Add("where_source", where_source);
-            return e;
-        }
-
-        SpillState? spill = null;
-        if (wantFile && outcome.Error is null)
-        {
-            var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, fields, resolve_names, winner_fields, depth, toFile!, "to_file", Echo());
-            if (aerr is not null)
-                // A POST-scan failure must keep the format contract — a bare text "error:" under format=json/dense
-                // hands a json consumer a non-document (review finding 4).
-                return fmt is Wire.QueryFormat.Text ? "error: " + aerr : JsonWire.RenderError(aerr, outcome.Epoch);
-            spill = SpillState.Spilled(s!, manifestOnly: true);
-        }
-
-        // dense + group_by: the count table is already columnar — render it exactly as json (documented on format=),
-        // so dense is never a refusal there and the two renders can't drift.
-        string Render(SpillState? sp, out bool trunc) => fmt switch
-        {
-            Wire.QueryFormat.Dense when group_by is null => JsonWire.RenderCrossQueryDense(svc, outcome, fields, max_chars, resolve_names, winner_fields, sp, out trunc),
-            Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, fields, max_chars, resolve_names, winner_fields, depth, sp, out trunc),
-            _ => Wire.RenderCrossQuery(svc, outcome, fields, conflict_tree, max_chars, resolve_names, winner_fields, depth, sp, out trunc),
-        };
-        var rendered = Render(spill, out var truncated);
-        if (spill is null && truncated && outcome.Error is null)
-        {
-            // AUTO-SPILL (§2.1.1, decided over refuse-and-redirect): the inline render hit max_chars, so the
-            // complete requested window goes to the server results dir and the response re-renders with the
-            // spilled marker IN-BAND (both formats). The rows are re-filled off the SAME pinned view the scan
-            // stamped, so the file cannot mix builds the header didn't claim. A failed write re-renders with the
-            // failure named — a truncated response silently missing its promised artifact is the Q3 case.
-            if (conflict_tree)
-                // No row form for the trees (to_file refuses on the same ground) — spilling thinner tree-less rows
-                // under a completeness claim would silently substitute the shape (review finding 1). Say so instead.
-                rendered = Render(SpillState.NoRowForm(), out _);
-            else
-            {
-                var path = ResultsStore.NextPath("housecarl_cross_plugin_query", outcome.Epoch ?? "none");
-                var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, fields, resolve_names, winner_fields, depth, path, "ceiling", Echo());
-                if (aerr is not null) ResultsStore.Release(path);   // don't leave the empty reservation behind
-                rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
-            }
-        }
-        return rendered;
-    });
-
-    [McpServerTool(Name = "housecarl_resolve", ReadOnly = true, Title = "Resolve FormIDs to their identity"),
-     Description(
-         "Turn a batch of FormIDs into their load-order identity — for EACH: type, editorid, display name, and " +
-         "winning plugin — in ONE call. The bulk name-resolution primitive: where housecarl_batch_record_detail frames " +
-         "every record (fields, override depth, per-record header), this returns one compact identity line (or JSON " +
-         "row) per FormID and nothing else — the cheap way to label a list of material/perk/keyword FormIDs. Resolved " +
-         "in order; a bad or absent FormID yields a per-item error without failing the batch (never a silent drop — " +
-         "Q3). Winners only (the load-order-effective identity of each target). The engine-implicit forms (PlayerRef " +
-         "000014:Skyrim.esm / Player 000007:Skyrim.esm) resolve to their hardcoded identity with winner '<engine>' — " +
-         "no plugin defines them, but they are real, never dangling. Deliberately minimal: no fields=, no " +
-         "depth, no conflict_tree — for those use housecarl_batch_record_detail. The header carries epoch=<hex> — " +
-         "the load-order build identity the whole batch resolved against (differs across calls only when the order " +
-         "changed between them). Does NOT modify anything.")]
-    public static string Resolve(
-        LoadOrderService svc,
-        [Description("The FormIDs to resolve, each 'XXXXXX:Plugin.esp'. Resolved in order; results are returned in the same order.")]
-            string[] formids,
-        [Description("Optional. 'text' (default) — one compact identity line per FormID — or 'json' for a machine-readable document (one {formid,type,editorid,name,winner} row per input; a bad/absent input carries {formid,error}).")]
-            string? format = null,
-        [Description("Optional. Max characters before the response stops with an explicit notice (text) or drops trailing rows with truncated=true (json). 0 = the server default (~80k).")]
-            int max_chars = 0,
-        [Description("Optional. Write the COMPLETE identity table to this ABSOLUTE .jsonl path as a §2.1.1 artifact (line 1 = manifest with the epoch fingerprint; then one identity row per input, per-item errors included) and render only the manifest inline. Re-enter it later via formids=[\"@<path>\"] — epoch-checked against the then-current build.")]
-            string? to_file = null) => Guard.Tool("housecarl_resolve", () =>
-    {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        // Transport BEFORE the first refusal — see the same hoist in BatchRecordDetail.
-        bool json = Wire.WantsJson(format, out var ferr);
-        if (ferr is not null) return ferr;
-        if (formids is null || formids.Length == 0) return Wire.Refuse(json, "error: formids is empty. Pass one or more 'XXXXXX:Plugin.esp' FormIDs.");
-
-        // formids= under the @file convention — see batch_record_detail's twin.
-        var (toks, demand, echoSrc, xerr) = Artifacts.ExpandListInput(formids, "formids");
-        if (xerr is not null) return Wire.Refuse(json, xerr);
-        formids = toks!;
-
-        var toFile = to_file?.Trim();
-        bool wantFile = !string.IsNullOrEmpty(toFile);
-        if (wantFile && Artifacts.ValidateToFile(toFile!) is { } verr) return Wire.Refuse(json, verr);
-
-        var rows = svc.ResolveRefs(formids, demand, out var epoch, out var artifactRefusal);
-        if (artifactRefusal is not null)
-            return json ? JsonWire.RenderError(artifactRefusal, epoch)
-                        : "error: " + artifactRefusal + $"\nepoch={epoch}";
-
-        var echo = new List<KeyValuePair<string, string>> { new("formids", echoSrc ?? $"{formids.Length} inline formid(s)") };
-        SpillState? spill = null;
-        if (wantFile)
-        {
-            var (s, aerr) = Artifacts.WriteResolve(rows, epoch, toFile!, "to_file", echo);
-            if (aerr is not null)
-                // Post-scan failure keeps the format contract (review finding 4).
-                return json ? JsonWire.RenderError(aerr, epoch) : "error: " + aerr;
-            spill = SpillState.Spilled(s!, manifestOnly: true);
-        }
-
-        string Render(SpillState? sp, out bool trunc) => json
-            ? JsonWire.RenderResolve(rows, max_chars, epoch, sp, out trunc)
-            : Wire.RenderResolve(rows, max_chars, epoch, sp, out trunc);
-        var rendered = Render(spill, out var truncated);
-        if (spill is null && truncated)
-        {
-            // AUTO-SPILL (§2.1.1) — see cross_plugin_query's twin for the contract notes.
-            var path = ResultsStore.NextPath("housecarl_resolve", epoch);
-            var (s, aerr) = Artifacts.WriteResolve(rows, epoch, path, "ceiling", echo);
-            if (aerr is not null) ResultsStore.Release(path);
-            rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
-        }
-        return rendered;
-    });
-
-    [McpServerTool(Name = "housecarl_effect_chain", ReadOnly = true, Title = "Resolve an effect's carriers + magnitudes"),
-     Description(
-         "Given a MagicEffect (MGEF), return every Spell/Enchantment/Potion/Scroll/Ingredient (SPEL/ENCH/ALCH/SCRL/INGR) " +
-         "that APPLIES it, each with the magnitude/area/duration from the MATCHING effect entry — collapsing the " +
-         "'cross_plugin_query references=<MGEF> then read each hit's effect' trace (repeated across five record types) " +
-         "into one call. The FormID MUST resolve to a MagicEffect: a non-MGEF or absent FormID fails LOUD (never a " +
-         "silent '0 carriers') — to find what references an arbitrary record, use housecarl_cross_plugin_query " +
-         "references=. A carrier that applies the effect in more than one entry yields one row per entry. Magnitude is " +
-         "reported AS AUTHORED: this does NOT evaluate the effect's Conditions, so a row means 'this carrier defines the " +
-         "effect at this strength', not 'it will fire'. Winners only (the load-order-effective version). Results cap at " +
-         "limit= and max_chars (both overruns explicit, never silent). Does NOT modify anything.")]
-    public static string EffectChainTool(
-        LoadOrderService svc,
-        [Description("The MagicEffect's FormID as 'XXXXXX:Plugin.esp' — 6 hex digits, a colon, then the defining master's filename. Must resolve to an MGEF in the active order.")]
-            string mgef_formid,
-        [Description("Optional. Narrow the scan to a subset of the effect-bearing types — any of 'SPEL','ENCH','ALCH','SCRL','INGR' (or the catalog names 'Spell','ObjectEffect','Ingestible','Scroll','Ingredient'). A non-effect-bearing type is refused. Omit to scan all five.")]
-            string[]? types = null,
-        [Description("Optional. Max rows (default 500). The TRUE total is always reported; over the cap it says 'showing first N'.")]
-            int limit = 500,
-        [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k).")]
-            int max_chars = 0) => Guard.Tool("housecarl_effect_chain", () =>
-    {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        FormKey fk;
-        try { fk = FormKey.Factory(mgef_formid.Trim()); }
-        catch (Exception ex) { return $"error: bad FormID '{mgef_formid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '0F1AC1:Skyrim.esm'."; }
-
-        var result = svc.ResolveEffectChain(fk, types, limit <= 0 ? 500 : limit);
-        return Wire.RenderEffectChain(result, max_chars);
-    });
-
-    [McpServerTool(Name = "housecarl_read_plugin_file", ReadOnly = true, Title = "Read a plugin file directly (active or not)"),
-     Description(
-         "Read ONE plugin file straight off disk — INCLUDING a plugin DISABLED in MO2 — returning THAT FILE's own " +
-         "version of a record, NOT the load-order winner. Where housecarl_read_record resolves the ACTIVE order, this " +
-         "reaches an inactive/arbitrary plugin: give it a filename (located even inside a DISABLED mod folder) or an " +
-         "absolute path. Modes: formid= reads one record's fields (compact `path = token`, same format as read_record); " +
-         "type= enumerates the records of that type the file defines/overrides; neither returns a record-type summary " +
-         "(what's in the file). EVERY result is labeled OUT-OF-LOAD-ORDER — the read did not go through load-order " +
-         "resolution; whether the game loads the file is reported separately, per file, with its reason. It emits " +
-         "FormLinks as FormKey tokens (does NOT follow links), so it needs no masters present; a declared master that " +
-         "is not installed is flagged. Read-only — writes nothing: read an inactive donor here, then author into a NEW " +
-         "active patch with the write tools. Primary use: fork/borrow an existing NPC's appearance records (the " +
-         "standalone-copy flow). A missing/ambiguous filename, a bad FormID, or a FormID the file does not define is " +
-         "reported explicitly (never a silent wrong answer). To read the load-order WINNER instead, use " +
-         "housecarl_read_record.")]
-    public static string ReadPluginFile(
-        LoadOrderService svc,
-        [Description("The plugin to read: a FILENAME (e.g. 'Vivace.esp' — located across all mod folders, ENABLED or DISABLED, the overwrite folder, and game Data) OR an absolute path to a .esp/.esm/.esl. This is the FILE to open, not a load-order lookup.")]
-            string plugin,
-        [Description("Optional. Read THIS record's fields from the file, as 'XXXXXX:Plugin.esp' (6 hex, a colon, the defining master's filename). Reads the file's OWN version — a record it defines, or an override it carries. Mutually exclusive with type=.")]
-            string? formid = null,
-        [Description("Optional. Enumerate the records of this type the file defines/overrides — a signature ('NPC_','HDPT') or catalog name ('Npc','HeadPart'). Mutually exclusive with formid=. Omit BOTH formid= and type= for a record-type summary of the whole file.")]
-            string? type = null,
-        [Description("Optional. When a bare FILENAME is provided by more than one MO2 mod folder, the exact mod folder name to read from — disambiguates instead of guessing. Ignored for an absolute path.")]
-            string? mod = null,
-        [Description("Optional. With formid=: dotted field paths to read (e.g. 'HeadParts', 'FaceMorph', 'Name'); index a list/dict element with BRACKETS (e.g. 'HeadParts[0]'). Omit to dump every modeled field one level deep.")]
-            string[]? fields = null,
-        [Description("Optional. With formid=: expansion depth for list/dict/substruct CONTENTS (default 1; higher enumerates elements — see housecarl_read_record).")]
-            int depth = 1,
-        [Description("Optional. With type=: case-insensitive substring of the EditorID to filter the enumerated records.")]
-            string? editorid_contains = null,
-        [Description("Optional. With type=: max rows to return (default 500). The TRUE total is always reported; over the cap it says 'showing first N'.")]
-            int limit = 500,
-        [Description("Optional. With formid=: annotate every FormLink field value with its target's identity (→ editorid \"Name\"), resolved against the ACTIVE load order (the only identity frame — this file may itself be inactive). Display-only; the token is unchanged. A target the active order doesn't define is marked 'unresolved' — except the engine-implicit forms (PlayerRef 000014 / Player 000007), which annotate their hardcoded identity. Forces the load-order build (opt-in), unlike the default cheap raw read.")]
-            bool resolve_names = false,
-        [Description("Optional. 'text' (default) or 'json' — a machine-readable document (always stamped out_of_load_order:true; the file's masters context, then the record/records/type_counts payload). Field values are the SAME tokens as text.")]
-            string? format = null,
-        [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k).")]
-            int max_chars = 0) => Guard.Tool("housecarl_read_plugin_file", () =>
-    {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        bool json = Wire.WantsJson(format, out var ferr);
-        if (ferr is not null) return ferr;
-        var outcome = svc.ReadPluginFile(plugin, formid, type, mod, fields, depth <= 0 ? 1 : depth, editorid_contains, limit <= 0 ? 500 : limit, resolve_names);
-        return json ? JsonWire.RenderPluginFile(outcome, max_chars) : Wire.RenderPluginFile(outcome, max_chars);
-    });
-}
+// The seven 1.x read tools this file was named for were deleted at the 1.x cut; housecarl_records absorbs
+// all of them. What is left is the render layer they shared, which housecarl_records calls.
 
 /// <summary>Compact, parseable `key = value` rendering (Q4.8 lever 1) + the winner-relative conflict diff
-/// (lever 2) + response-size estimation (Q3 / Q4.9 — explicit cut, never silent). Shared by all three read tools.</summary>
+/// (lever 2) + response-size estimation (Q3 / Q4.9 — explicit cut, never silent). The record reads' render.</summary>
 static class Wire
 {
     /// <summary>Server default char budget for one tool response (~20k tokens). A caller raises it per-call via max_chars.</summary>
@@ -609,8 +94,8 @@ static class Wire
         return QueryFormat.Text;
     }
 
-    // ---- housecarl_diff_record (P8c) ----------------------------------------------------------------
-    /// <summary>Render a pairwise record diff (housecarl_diff_record — P8c): a header naming both poles (plugin + where
+    // ---- the delta form (was housecarl_diff_record, P8c) --------------------------------------------
+    /// <summary>Render a pairwise record diff (P8c; the delta form): a header naming both poles (plugin + where
     /// found + record identity), then one line per delta (plugin_a's value, reference = plugin_b), budget-bounded with an
     /// explicit cut. No deltas ⇒ "identical across the fields read" WITH the agreed-leaf count — UNLESS the deep read was
     /// TRUNCATED, in which case it says so instead of claiming identical (Q3). On refusal, a single error: line.</summary>
@@ -668,8 +153,8 @@ static class Wire
     static string PoleLine(LoadOrderService.DiffPole p) =>
         $"{p.Plugin} [{p.Where}{(p.RecordType is not null ? ", " + p.RecordType : "")}{(p.EditorId is not null ? " " + p.EditorId : "")}]";
 
-    // ---- housecarl_resolve --------------------------------------------------------------------------
-    /// <summary>Render the bulk name-resolution result (housecarl_resolve — P3): one compact identity line per input
+    // ---- the identity form (was housecarl_resolve) --------------------------------------------------
+    /// <summary>Render the bulk name-resolution result (P3; the identity form): one compact identity line per input
     /// FormID (type/editorid/name/winner), or <c>error=</c> for a bad/absent input (per-item, the batch survives — Q3).
     /// Budget-bounded with the same explicit cut the other reads use.</summary>
     public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, string epoch)
@@ -706,7 +191,7 @@ static class Wire
         return sb.ToString().TrimEnd('\n');
     }
 
-    // ---- housecarl_read_record ----------------------------------------------------------------------
+    // ---- one record (was housecarl_read_record) -----------------------------------------------------
     public static string RenderRecord(LoadOrderService svc, ReadOutcome o, IReadOnlyList<string>? fields, bool conflictTree, int maxChars)
     {
         // A stamped refusal renders its stamp (PR #305 review): "not present" is an answer about a build, and the
@@ -848,7 +333,7 @@ static class Wire
         return o with { Record = rec with { Fields = rebuilt }, OwnedChildFields = annotated };
     }
 
-    // ---- housecarl_batch_record_detail --------------------------------------------------------------
+    // ---- many records (was housecarl_batch_record_detail) -------------------------------------------
     public static string RenderBatch(LoadOrderService svc, IReadOnlyList<ReadOutcome> outcomes, IReadOnlyList<string>? fields, bool conflictTree, int maxChars)
         => RenderBatch(svc, outcomes, fields, conflictTree, maxChars, null, out _);
 
@@ -890,7 +375,7 @@ static class Wire
         return sb.ToString().TrimEnd('\n');
     }
 
-    // ---- housecarl_cross_plugin_query ---------------------------------------------------------------
+    // ---- the scan lane (was housecarl_cross_plugin_query) -------------------------------------------
 
     // The dense render's container hint moved to LeverNames.DenseContainerHint (#439): dense refuses depth>1, so
     // the hint names the format hop with the knob — and the knob is spelled per caller like every other lever.
@@ -917,7 +402,7 @@ static class Wire
         var linkMemo = resolveNames && detail ? new Dictionary<FormKey, ResolvedRef>() : null;   // P7: one link cache across all rendered matches
         bool anyScoped = detail && q.Sources is { } ss && ss.Take(q.Keys.Count).Any(s => s is not null);   // P5: plugins= scope shows a plugin's OWN body
         var sb = new StringBuilder();
-        sb.Append("cross_plugin_query: ").Append(q.Total).Append(q.Total == 1 ? " match" : " matches");
+        sb.Append("scan: ").Append(q.Total).Append(q.Total == 1 ? " match" : " matches");
         if (q.ScopeLabel is not null) sb.Append(" DEFINED IN ").Append(q.ScopeLabel);   // P1: explicit scope — NOT the 'touches' default
         if (q.Offset > 0)                                                              // #223 pagination — name the window, and the next offset while paging
         {
@@ -1002,7 +487,7 @@ static class Wire
         truncated = false;
         var groups = q.Groups!;
         var sb = new StringBuilder();
-        sb.Append("cross_plugin_query: grouped by ").Append(q.GroupBy).Append(" — ")
+        sb.Append("scan: grouped by ").Append(q.GroupBy).Append(" — ")
           .Append(q.Total).Append(q.Total == 1 ? " match" : " matches")
           .Append(" across ").Append(groups.Count).Append(groups.Count == 1 ? " group" : " groups");
         if (q.ScopeLabel is not null) sb.Append(" (DEFINED IN ").Append(q.ScopeLabel).Append(')');
@@ -1025,7 +510,7 @@ static class Wire
         return sb.ToString().TrimEnd('\n');
     }
 
-    // ---- housecarl_effect_chain ---------------------------------------------------------------------
+    // ---- the chain form (was housecarl_effect_chain) ------------------------------------------------
     /// <summary>Render the effect chain: a header that RESOLVES the MGEF (its editorid + the confirmed MagicEffect
     /// type — the Q3 typed-match proof), then carrier rows grouped by record type. A valid-but-unused MGEF renders a
     /// clean "none" line, NOT an error (the error path is the bad/mistyped FormID, handled in core). Over max_chars it
@@ -1074,7 +559,7 @@ static class Wire
         return sb.ToString().TrimEnd('\n');
     }
 
-    // ---- housecarl_check_errors ---------------------------------------------------------------------
+    // ---- the errors family (was housecarl_check_errors) ---------------------------------------------
     /// <summary>Render the integrity sweep. <paramref name="histogramLimit"/> (#282) caps the <c>counts_only=</c>
     /// histogram rows — the one thing <c>limit=</c> means in that mode, since nothing else is listed. An error class the
     /// caller EXCLUDED renders as "NOT CHECKED", never as a 0, so a skipped check can never be read as a clean one (Q3).</summary>
@@ -1601,7 +1086,7 @@ static class Wire
     /// headroom the accounting's own wrap uses, per block rather than once for the lot.</summary>
     internal const int BoundaryWrap = 32;
 
-    // ---- housecarl_validate_scripts -----------------------------------------------------------------
+    // ---- the scripts family (was housecarl_validate_scripts) ----------------------------------------
     /// <summary>Render the script-property sweep. <paramref name="histogramLimit"/> (#282) caps the
     /// <c>counts_only=</c> histogram rows.</summary>
     public static string RenderScriptCheck(ScriptCheckResult r, int maxChars, int histogramLimit = 1000)
@@ -1871,7 +1356,7 @@ static class Wire
         return diff.AgreedCount > diff.AgreedSample.Count ? $"e.g. {s}, …" : s;
     }
 
-    // ---- housecarl_read_plugin_file -----------------------------------------------------------------
+    // ---- the named-plugin source pole (was housecarl_read_plugin_file) ------------------------------
     /// <summary>Render a RAW plugin-file read. THE load-bearing requirement: every result is stamped
     /// OUT-OF-LOAD-ORDER up front, so a raw-file read is never mistaken for load-order truth. The read mode reuses
     /// the SAME `path = token` field format as read_record (round-trip parity). Size-bounded with an explicit cut,

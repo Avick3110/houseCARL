@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
@@ -9,24 +8,24 @@ using HousecarlMcp;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// REGRESSION GUARD (standing CI instrument, self-contained) for bulk-primitives WAVE 2 — the OUTPUT CONTRACT
-/// (PLAN.md P3/P5/P6/P7):
-///   • P3 <c>housecarl_resolve</c> — bulk FormID → identity (type/editorid/name/winner), per-item error isolation.
-///   • P5 <c>winner_fields=</c> on cross_plugin_query — render the load-order WINNER's body under a plugins= scope,
-///     plus the loud scoped-values note when plugins=-scoped fields render WITHOUT it.
-///   • P6 <c>format="json"</c> across the read surfaces — the SAME data as text (round-trip token parity), Q3
-///     accounting carried in-band, always-valid JSON.
-///   • P7 <c>resolve_names=</c> — every FormLink token in a field dump annotated with its target's identity,
-///     display-only (never replaces the round-trip token).
-///   • HCBR-2026-07-15 <c>batch_record_detail plugin=</c> — bulk-read a NAMED plugin's version (an override, not
-///     the winner), the batch twin of read_record's plugin=, with a per-item error for a record it doesn't touch.
+/// REGRESSION GUARD (standing CI instrument, self-contained) for bulk-primitives WAVE 2 — the SERVICE-LAYER half
+/// of the output contract (PLAN.md P3/P7):
+///   • P3 bulk FormID → identity (type/editorid/name/winner) with per-item error isolation, and the batch memo.
+///   • P7 <c>resolveNames</c> — every FormLink in a field read annotated with its target's identity, display-only
+///     (the round-trip token is never replaced), and a link nothing defines annotated unresolved.
 ///   • #230 — the engine-implicit forms (PlayerRef 000014 / Player 000007) resolve to their hardcoded identity
-///     (winner <c>&lt;engine&gt;</c>), never "unresolved", in BOTH housecarl_resolve rows and resolve_names
-///     annotations; the very next sub-0x800 form (000015) still dangles, proving the exemption stays precise.
+///     (winner <c>&lt;engine&gt;</c>), never "unresolved"; the very next sub-0x800 form (000015) still dangles,
+///     proving the exemption is a two-form set rather than a reserved range.
+///   • The container hint: the expansion knob is named where it exists, and the write read-back lane
+///     (containerHint:null) renders the bare count with no knob named at all.
+///
+/// This file's TOOL-LAYER blocks were removed when the eight 1.x read tools were deleted; the surviving claims are
+/// tests against <c>housecarl_records</c> in <c>src/housecarl-mcp-tests</c> (RecordsBulkSelectTests.cs and
+/// RecordsScanProjectionTests.cs). Each removed block leaves a comment in its place saying what stood there.
 ///
 /// Synthesizes a small on-disk order (a master + a replacer that overrides one NAMED weapon and defines others, with
-/// keyword links) and drives the REAL service layer (<see cref="LoadOrderService"/> via the ForGuard seam) + the
-/// tool layer (<see cref="ReadTools"/>). Self-contained: a corpus is generated in-process if none is configured.
+/// keyword links) and drives the REAL service layer (<see cref="LoadOrderService"/> via the ForGuard seam).
+/// Self-contained: a corpus is generated in-process if none is configured.
 ///
 /// Run: <c>dotnet run --project src/housecarl-generator bulk-primitives-wave2-guard</c>
 /// </summary>
@@ -68,7 +67,6 @@ public static class BulkPrimitivesWave2Probe
                 { new FormLink<IKeywordGetter>(kaFk), new FormLink<IKeywordGetter>(ghostFk) };
             var w1Fk = w1.FormKey;
             var w2 = master.Weapons.AddNew(); w2.EditorID = "hcw2Sword2"; w2.Name = "Steel Sword"; w2.BasicStats = new WeaponBasicStats { Damage = 20 };
-            var w2Fk = w2.FormKey;
             master.BeginWrite.ToPath(masterPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
             // ---- REPLACER (masters [master]): OVERRIDE W1 (so its WINNER is the replacer), DEFINE a new NAMED weapon W3[KA]. ----
@@ -125,45 +123,13 @@ public static class BulkPrimitivesWave2Probe
             Check("a NON-implicit sub-0x800 form (000015:Skyrim.esm) is STILL unresolved — the exemption is the 2-form set, not the reserved range",
                   ei[2] is { Resolved: false, Error: null });
 
-            // ---- tool layer: text render ----
-            Console.WriteLine();
-            Console.WriteLine("── P3 tool layer: text + json render, bad-format refusal ──");
-            var txt = ReadTools.Resolve(svc, new[] { w1Fk.ToString(), kaFk.ToString(), badFid }, format: null, max_chars: 0);
-            Check("text render carries the identity line (type=Weapon, name=\"Iron Sword\")",
-                  txt.Contains("type=Weapon") && txt.Contains("name=\"Iron Sword\"") && txt.Contains("editorid=hcw2KwA"));
-            Check("text render carries the per-item error for the bad input", txt.Contains("error="));
-
-            // ---- tool layer: json render (must be VALID json, carrying the same data) ----
-            var js = ReadTools.Resolve(svc, new[] { w1Fk.ToString(), badFid }, format: "json", max_chars: 0);
-            bool jsonValid = true; JsonDocument? doc = null;
-            try { doc = JsonDocument.Parse(js); } catch { jsonValid = false; }
-            Check("json render is VALID json", jsonValid && doc is not null);
-            if (doc is not null)
-            {
-                var root = doc.RootElement;
-                var arr = root.GetProperty("resolved");
-                Check("json: 'resolved' array has one row per input", arr.GetArrayLength() == 2);
-                var j0 = arr[0];
-                Check("json row 0 carries {type,editorid,name,winner} matching text",
-                      j0.GetProperty("type").GetString() == "Weapon" && j0.GetProperty("editorid").GetString() == "hcw2Sword1"
-                      && j0.GetProperty("name").GetString() == "Iron Sword" && j0.GetProperty("winner").GetString() == replName);
-                var j1 = arr[1];
-                Check("json row 1 (bad input) carries an 'error' field, not identity",
-                      j1.TryGetProperty("error", out _) && !j1.TryGetProperty("winner", out _));
-                doc.Dispose();
-            }
-
-            var badFmt = ReadTools.Resolve(svc, new[] { w1Fk.ToString() }, format: "bogus", max_chars: 0);
-            Check("an unrecognized format= is REFUSED loud (never a silent fall-through to text — Q3)",
-                  badFmt.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && badFmt.Contains("format", StringComparison.OrdinalIgnoreCase));
-
-            // resolve json honors max_chars too (review cleanup #2): row-drop truncation, valid json, exact count.
-            var resClip = ReadTools.Resolve(svc, new[] { w1Fk.ToString(), kaFk.ToString(), w3Fk.ToString() }, format: "json", max_chars: 60);
-            var resClipDoc = ParseOrNull(resClip);
-            Check("housecarl_resolve json honors max_chars: valid json, truncated=true, rendered<count (row-drop — Q3)",
-                  resClipDoc is not null && resClipDoc.RootElement.GetProperty("truncated").GetBoolean()
-                  && resClipDoc.RootElement.GetProperty("rendered").GetInt32() < resClipDoc.RootElement.GetProperty("count").GetInt32());
-            resClipDoc?.Dispose();
+            // ---- tool layer ----
+            // The housecarl_resolve TOOL-LAYER arms stood here: the text and json renders of a bulk
+            // FormID -> identity read, the per-item error row, the unrecognized-format refusal, and the
+            // max_chars accounting. housecarl_resolve is gone; those claims are tests against
+            // housecarl_records' identity form in src/housecarl-mcp-tests/RecordsBulkSelectTests.cs.
+            // (max_chars changed shape rather than dying: housecarl_records spills the complete result to an
+            // artifact instead of dropping rows, and the test asserts that contract.)
 
             // ================= P7 — resolve_names (FormLink token → target identity, DISPLAY-ONLY) =================
             Console.WriteLine();
@@ -184,295 +150,54 @@ public static class BulkPrimitivesWave2Probe
             Check("without resolve_names, NO leaf carries a Link annotation (default behavior unchanged)",
                   plainRead.Record!.Fields.All(f => f.Link is null));
 
-            var tRec = ReadTools.ReadRecord(svc, w1Fk.ToString(), plugin: null, fields: new[] { "Keywords" }, depth: 2,
-                conflict_tree: false, resolve_names: true, max_chars: 0);
-            Check("text render carries BOTH the raw token AND the → identity parenthetical",
-                  tRec.Contains(kaFk.ToString()) && tRec.Contains("→ hcw2KwA"));
-            Check("text render marks the dangling target 'unresolved'", tRec.Contains("unresolved"));
+            // The housecarl_read_record / housecarl_batch_record_detail renders of the same annotation stood
+            // here (the raw token plus the arrow parenthetical; the dangling target marked unresolved). Both
+            // tools are gone; the claims are tests against housecarl_records' fields form with
+            // project.resolve_names in src/housecarl-mcp-tests/RecordsBulkSelectTests.cs. The "the batch tool
+            // shares the memo" arm has no successor — housecarl_records' formids lane IS the batch, so there is
+            // no sibling to compare against.
 
-            var tBatch = ReadTools.BatchRecordDetail(svc, new[] { w1Fk.ToString() }, fields: new[] { "Keywords" }, depth: 2,
-                conflict_tree: false, resolve_names: true, max_chars: 0);
-            Check("batch_record_detail resolve_names annotates too (shared batch memo)", tBatch.Contains("→ hcw2KwA"));
+            // ---- #230 end-to-end ----
+            // The issue's manifestation stood here: its own mini-order (a stub Skyrim.esm written for the master
+            // table but NOT loaded, so 000014 and 000015 both fail ResolveWinner and only the EngineImplicit
+            // carve-out separates them) driven through housecarl_read_record, proving a PlayerRef link annotates
+            // its identity while the next sub-0x800 form still reads unresolved. The tool is gone; that world and
+            // both arms are RecordsEngineImplicitLinkTests in src/housecarl-mcp-tests/RecordsBulkSelectTests.cs.
+            // The RESOLVER half of #230 stays above — it is a service-layer claim.
 
-            // ---- #230 end-to-end: a record LINKING to PlayerRef annotates '→ PlayerRef', not 'unresolved'. ----
-            // Own mini-order, the CheckErrorsProbe PLAYERREF pattern: a stub Skyrim.esm written for the master table
-            // but NOT loaded — so 000014/000015 both fail ResolveWinner and only the EngineImplicit carve-out differs.
-            Console.WriteLine();
-            Console.WriteLine("── P7 #230: resolve_names annotates a PlayerRef link with its identity (the issue's manifestation) ──");
-            {
-                var stubSkyrimPath = Path.Combine(dir, "Skyrim.esm");
-                var eiPluginPath = Path.Combine(dir, "hcw2Player.esp");
-                var stubSkyrim = new SkyrimMod(new ModKey("Skyrim", ModType.Master), SkyrimRelease.SkyrimSE);
-                stubSkyrim.Races.AddNew();   // one throwaway record so the stub is a valid, non-empty master
-                stubSkyrim.BeginWrite.ToPath(stubSkyrimPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-
-                var eiMod = new SkyrimMod(ModKey.FromNameAndExtension("hcw2Player.esp"), SkyrimRelease.SkyrimSE);
-                var eiW = eiMod.Weapons.AddNew(); eiW.EditorID = "hcw2EiSword";
-                eiW.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>>
-                {
-                    new FormLink<IKeywordGetter>(FormKey.Factory("000014:Skyrim.esm")),   // PlayerRef — engine-implicit, must annotate '→ PlayerRef'
-                    new FormLink<IKeywordGetter>(FormKey.Factory("000015:Skyrim.esm")),   // control — must still annotate 'unresolved'
-                };
-                var eiWFk = eiW.FormKey;
-                eiMod.BeginWrite.ToPath(eiPluginPath).WithLoadOrder(new ISkyrimModGetter[] { stubSkyrim }).Write();
-
-                using var eiResolver = LoadOrderResolver.Build(new[] { eiPluginPath });   // Skyrim.esm on disk, NOT loaded
-                var eiSvc = LoadOrderService.ForGuard(eiResolver, new UserConfigStore(Path.Combine(dir, "houseCARL.ei.user.json")));
-                var eiText = ReadTools.ReadRecord(eiSvc, eiWFk.ToString(), plugin: null, fields: new[] { "Keywords" }, depth: 2,
-                    conflict_tree: false, resolve_names: true, max_chars: 0);
-                Check("the PlayerRef link annotates '→ PlayerRef' (#230 — was 'unresolved: target not in the active order')",
-                      eiText.Contains("000014:Skyrim.esm") && eiText.Contains("→ PlayerRef"));
-                Check("the control link (000015) STILL annotates 'unresolved' — the annotation exemption is precise too",
-                      eiText.Contains("000015:Skyrim.esm") && eiText.Contains("unresolved: target not in the active order"));
-            }
-
-            // ================= P6 — format="json" (same data as text, valid JSON, accounting in-band) =================
-            Console.WriteLine();
-            Console.WriteLine("── P6: format=json — token parity with text, stable DTO shape, Q3 accounting in-band ──");
-
-            // read_record: text and json emit the SAME field token (round-trip parity). W1's winner (override) damage = 15.
-            var recText = ReadTools.ReadRecord(svc, w1Fk.ToString(), plugin: null, fields: new[] { "BasicStats.Damage", "Name" }, depth: 1,
-                conflict_tree: false, resolve_names: false, format: "text", max_chars: 0);
-            var recJsonStr = ReadTools.ReadRecord(svc, w1Fk.ToString(), plugin: null, fields: new[] { "BasicStats.Damage", "Name" }, depth: 1,
-                conflict_tree: false, resolve_names: false, format: "json", max_chars: 0);
-            var recDoc = ParseOrNull(recJsonStr);
-            Check("read_record json is VALID json", recDoc is not null);
-            if (recDoc is not null)
-            {
-                var root = recDoc.RootElement;
-                // DTO shape pin: the record object carries exactly the contracted keys.
-                Check("read_record json DTO carries {formid,type,editorid,winner,override_depth,source,fields}",
-                      root.TryGetProperty("formid", out _) && root.TryGetProperty("type", out _) && root.TryGetProperty("editorid", out _)
-                      && root.TryGetProperty("winner", out _) && root.TryGetProperty("override_depth", out _)
-                      && root.TryGetProperty("source", out _) && root.TryGetProperty("fields", out _));
-                Check("read_record json identity matches (Weapon/hcw2Sword1/winner=Repl)",
-                      root.GetProperty("type").GetString() == "Weapon" && root.GetProperty("editorid").GetString() == "hcw2Sword1"
-                      && root.GetProperty("winner").GetString() == replName);
-                var dmg = FindField(root, "BasicStats.Damage");
-                Check("read_record json field VALUE is the SAME token text emits (damage 15, the winner override)",
-                      dmg is not null && dmg.Value.GetProperty("value").GetString() == "15" && recText.Contains("BasicStats.Damage = 15"));
-                recDoc.Dispose();
-            }
-
-            // read_record json + resolve_names: the link sibling is STRUCTURED, the value is still the raw token.
-            var linkJson = ReadTools.ReadRecord(svc, w1Fk.ToString(), plugin: null, fields: new[] { "Keywords" }, depth: 2,
-                conflict_tree: false, resolve_names: true, format: "json", max_chars: 0);
-            var linkDoc = ParseOrNull(linkJson);
-            Check("read_record json+resolve_names is VALID json", linkDoc is not null);
-            if (linkDoc is not null)
-            {
-                var kaEl = FindField(linkDoc.RootElement, "Keywords[0]");
-                bool ok = kaEl is not null
-                          && kaEl.Value.GetProperty("value").GetString() == kaFk.ToString()          // round-trip token intact
-                          && kaEl.Value.TryGetProperty("link", out var link)                          // structured sibling, not a mangled token
-                          && link.GetProperty("resolved").GetBoolean()
-                          && link.GetProperty("editorid").GetString() == "hcw2KwA";
-                Check("read_record json resolve_names: value is the raw token, link:{resolved,editorid} is a STRUCTURED sibling (P7 in json)", ok);
-                linkDoc.Dispose();
-            }
-
-            // field-level json truncation stays VALID json (Q3): a whole-record dump under a tiny cap emits a
-            // sentinel field, never a malformed (string-cut) document.
-            var clipJson = ReadTools.ReadRecord(svc, w1Fk.ToString(), plugin: null, fields: null, depth: 1,
-                conflict_tree: false, resolve_names: false, format: "json", max_chars: 200);
-            var clipDoc = ParseOrNull(clipJson);
-            Check("read_record json under a tiny max_chars is STILL valid json, field-truncated with a sentinel (not string-cut — Q3)",
-                  clipDoc is not null && FindField(clipDoc.RootElement, "…") is not null);
-            clipDoc?.Dispose();
-
-            // conflict_tree + json is REFUSED loud (a text-only diff view — never silently dropped, Q3).
-            var ctJson = ReadTools.ReadRecord(svc, w1Fk.ToString(), plugin: null, fields: null, depth: 1,
-                conflict_tree: true, resolve_names: false, format: "json", max_chars: 0);
-            // The refusal is a json DOCUMENT now, not prose: a json caller gets the refusal grammar
-            // ({ok:false, error}) like every other reachable refusal on this surface (#403). This pin used to
-            // assert the bare "error: …" spelling — the behaviour the refusal grammar deliberately replaced.
-            var ctDoc = ParseOrNull(ctJson);
-            Check("conflict_tree=true + format=json is REFUSED loud (text-only diff, not silently dropped — Q3)",
-                  ctDoc is not null
-                  && ctDoc.RootElement.TryGetProperty("ok", out var ctOk) && ctOk.ValueKind == JsonValueKind.False
-                  && ctDoc.RootElement.TryGetProperty("error", out var ctErr)
-                  && ctErr.GetString()!.Contains("conflict_tree", StringComparison.OrdinalIgnoreCase));
-            ctDoc?.Dispose();
-
-            // batch json: {count, records, rendered, truncated}; records carry the same record objects.
-            var batchJson = ReadTools.BatchRecordDetail(svc, new[] { w1Fk.ToString(), "not-a-formid" }, fields: new[] { "Name" }, depth: 1,
-                conflict_tree: false, resolve_names: false, format: "json", max_chars: 0);
-            var batchDoc = ParseOrNull(batchJson);
-            Check("batch_record_detail json is VALID json with {count,records,rendered,truncated}",
-                  batchDoc is not null && batchDoc.RootElement.TryGetProperty("count", out _)
-                  && batchDoc.RootElement.TryGetProperty("records", out _) && batchDoc.RootElement.TryGetProperty("truncated", out _));
-            if (batchDoc is not null)
-            {
-                var records = batchDoc.RootElement.GetProperty("records");
-                Check("batch json: good record resolves, bad formid is a per-item {formid,error} (batch survives — Q3)",
-                      records.GetArrayLength() == 2 && records[0].GetProperty("type").GetString() == "Weapon"
-                      && records[1].TryGetProperty("error", out _));
-                batchDoc.Dispose();
-            }
+            // ================= P6 — format="json" =================
+            // P6's arms stood here, driving housecarl_read_record and housecarl_batch_record_detail: the record
+            // DTO's key set, text/json token parity, the structured link sibling under resolve_names, the
+            // sentinel-truncated body under a tiny max_chars, the batch envelope, and the conflict_tree+json
+            // refusal. Both tools are gone. The surviving claims are tests against housecarl_records in
+            // src/housecarl-mcp-tests/RecordsBulkSelectTests.cs. The conflict_tree refusal is NOT among them:
+            // housecarl_records has no such parameter (the tree is a project FORM) and serves tree+json.
 
             // ===== HCBR-2026-07-15 — batch_record_detail plugin= (a specific override's version, in BULK) =====
-            // The batch twin of housecarl_read_record's plugin=. W1 is DEFINED in master (damage 10) and OVERRIDDEN
-            // in Repl (damage 15 = the live winner). A bulk read AS THE MASTER's version must read 10 (not the winner's
-            // 15); AS THE REPLACER's must read 15; and a record the named plugin doesn't touch (W2, master-only) gets a
-            // per-item error under plugin=Repl while the batch survives — the coverage this closes (a validation run
-            // fell back to SAMPLING because the batch couldn't scope to a mod's own version).
-            Console.WriteLine();
-            Console.WriteLine("── HCBR-2026-07-15: batch_record_detail plugin= reads a NAMED plugin's version in bulk ──");
-            var bMaster = ReadTools.BatchRecordDetail(svc, new[] { w1Fk.ToString(), w2Fk.ToString() }, plugin: masterName,
-                fields: new[] { "BasicStats.Damage" }, depth: 1, conflict_tree: false, resolve_names: false, format: null, max_chars: 0);
-            Check("plugin=master: W1 reads the MASTER's OWN value (damage 10), NOT the live winner's 15",
-                  bMaster.Contains("BasicStats.Damage = 10") && !bMaster.Contains("BasicStats.Damage = 15"));
-            Check("plugin=master: W2 (master-only) reads its master value (damage 20) in the SAME batch",
-                  bMaster.Contains("BasicStats.Damage = 20"));
+            // The batch twin of housecarl_read_record's plugin= stood here: reading W1 as the master's own body
+            // (damage 10) and as the replacer's (15), W2 read off the same pole in the same batch, the per-item
+            // "does not touch" error for a record the pole never touches while the rest of the batch survives,
+            // and the json record naming the pole as its source. Now housecarl_records' source= pole on the
+            // formids lane — tests in src/housecarl-mcp-tests/RecordsBulkSelectTests.cs.
 
-            var bRepl = ReadTools.BatchRecordDetail(svc, new[] { w1Fk.ToString() }, plugin: replName,
-                fields: new[] { "BasicStats.Damage" }, depth: 1, conflict_tree: false, resolve_names: false, format: null, max_chars: 0);
-            Check("plugin=Repl: W1 reads the REPLACER's version (damage 15) — the override, on demand",
-                  bRepl.Contains("BasicStats.Damage = 15") && !bRepl.Contains("BasicStats.Damage = 10"));
-
-            var bMiss = ReadTools.BatchRecordDetail(svc, new[] { w2Fk.ToString(), w1Fk.ToString() }, plugin: replName,
-                fields: new[] { "BasicStats.Damage" }, depth: 1, conflict_tree: false, resolve_names: false, format: null, max_chars: 0);
-            // W2 UPDATE (SPEC §4.2 untouched contract): the per-item error now says "does not touch" and NAMES
-            // the actual touchers, replacing the old "does not define … the winner is" wording.
-            Check("plugin=Repl: W2 (untouched by Repl) is a per-item 'does not touch' error naming the touchers, W1 still reads (batch survives — Q3)",
-                  bMiss.Contains("does not touch") && bMiss.Contains("Touched by") && bMiss.Contains("BasicStats.Damage = 15"));
-
-            var bJson = ReadTools.BatchRecordDetail(svc, new[] { w1Fk.ToString() }, plugin: masterName,
-                fields: new[] { "BasicStats.Damage" }, depth: 1, conflict_tree: false, resolve_names: false, format: "json", max_chars: 0);
-            var bJsonDoc = ParseOrNull(bJson);
-            Check("plugin= json: the record's source is the NAMED plugin (master), not the winner (Repl)",
-                  bJsonDoc is not null && bJsonDoc.RootElement.GetProperty("records")[0].GetProperty("source").GetString() == masterName);
-            bJsonDoc?.Dispose();
-
-            // cross_plugin_query json — summary rows, group_by table, and Q3 notes survival.
-            var cqSummary = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null, resolve_names: false,
-                fields: null, conflict_tree: false, format: "json", limit: 500, max_chars: 0);
-            var cqDoc = ParseOrNull(cqSummary);
-            Check("cross_plugin_query json summary is VALID json {total,capped,matches}",
-                  cqDoc is not null && cqDoc.RootElement.GetProperty("total").GetInt32() == 3
-                  && cqDoc.RootElement.GetProperty("matches").GetArrayLength() == 3);
-            cqDoc?.Dispose();
-
-            var cqGroup = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: "winner", resolve_names: false,
-                fields: null, conflict_tree: false, format: "json", limit: 500, max_chars: 0);
-            var cqgDoc = ParseOrNull(cqGroup);
-            Check("cross_plugin_query json group_by is VALID json {group_by,total,groups}",
-                  cqgDoc is not null && cqgDoc.RootElement.GetProperty("group_by").GetString() == "winner"
-                  && cqgDoc.RootElement.GetProperty("total").GetInt32() == 3
-                  && cqgDoc.RootElement.GetProperty("groups").GetArrayLength() == 2);
-            cqgDoc?.Dispose();
-
-            // Q3 accounting parity: a where= wrong-path note must survive INTO json (json is never a degraded mode).
-            const string badWhere = "NoSuchField = 5";
-            var noteText = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: new[] { badWhere }, group_by: null, resolve_names: false,
-                fields: null, conflict_tree: false, format: "text", limit: 500, max_chars: 0);
-            var noteJsonStr = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: new[] { badWhere }, group_by: null, resolve_names: false,
-                fields: null, conflict_tree: false, format: "json", limit: 500, max_chars: 0);
-            var noteDoc = ParseOrNull(noteJsonStr);
-            bool jsonHasNotes = false; string? firstNote = null;
-            if (noteDoc is not null && noteDoc.RootElement.TryGetProperty("notes", out var notesEl) && notesEl.GetArrayLength() > 0)
-            { jsonHasNotes = true; firstNote = notesEl[0].GetString(); }
-            // The real parity check: the where= accounting note is present in json AND its EXACT text also appears in
-            // the text render — the same Q3 note reaches both surfaces, so json is not a silently degraded mode.
-            Check("a where= accounting note is carried in json AND its exact text is in the text render (json is not a degraded mode — Q3)",
-                  jsonHasNotes && firstNote is not null && noteText.Contains(firstNote, StringComparison.Ordinal));
-            noteDoc?.Dispose();
-
-            // read_plugin_file json is exercised in ReadPluginFileProbe's own order; here confirm bad-format refusal is shared.
-            var cqBadFmt = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null, resolve_names: false,
-                fields: null, conflict_tree: false, format: "xml", limit: 500, max_chars: 0);
-            Check("cross_plugin_query unrecognized format= is REFUSED loud (shared parser, Q3)",
-                  cqBadFmt.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && cqBadFmt.Contains("format", StringComparison.OrdinalIgnoreCase));
-
-            // ================= P5 — winner_fields= (scoped body vs live winner) + the loud scoped-values note =================
-            Console.WriteLine();
-            Console.WriteLine("── P5: plugins=-scoped fields are the plugin's OWN body; winner_fields= reads the winner; the trap is named loud ──");
-            // W1 is defined in master (damage 10) and OVERRIDDEN in Repl (damage 15 = the live winner). Scope to [master].
-            var scopedText = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: new[] { masterName }, defined_in: false, where: null, group_by: null,
-                resolve_names: false, winner_fields: false, fields: new[] { "BasicStats.Damage" }, conflict_tree: false,
-                format: "text", limit: 500, max_chars: 0);
-            Check("plugins=[master] fields= shows the MASTER's OWN W1 value (damage 10), NOT the live winner",
-                  scopedText.Contains("BasicStats.Damage = 10") && !scopedText.Contains("BasicStats.Damage = 15"));
-            Check("... and the silent-wrong trap is named LOUD (scoped-values note pointing at winner_fields=true)",
-                  scopedText.Contains("SCOPED plugin's OWN version") && scopedText.Contains("winner_fields=true"));
-
-            var winnerText = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: new[] { masterName }, defined_in: false, where: null, group_by: null,
-                resolve_names: false, winner_fields: true, fields: new[] { "BasicStats.Damage" }, conflict_tree: false,
-                format: "text", limit: 500, max_chars: 0);
-            Check("winner_fields=true shows the LIVE WINNER's W1 value (damage 15) instead of the master's 10",
-                  winnerText.Contains("BasicStats.Damage = 15") && !winnerText.Contains("BasicStats.Damage = 10"));
-            Check("... and the header truthfully says the values are the WINNER's",
-                  winnerText.Contains("field values are the load-order WINNER's"));
-
-            // type= scope (no plugins=) already shows the winner — no scoped-values note (winner_fields is a no-op there).
-            var typeScoped = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
-                resolve_names: false, winner_fields: false, fields: new[] { "BasicStats.Damage" }, conflict_tree: false,
-                format: "text", limit: 500, max_chars: 0);
-            Check("type= scope (no plugins=) already shows winners — no scoped-values note, and W1=15 (the winner)",
-                  !typeScoped.Contains("SCOPED plugin's OWN version") && typeScoped.Contains("BasicStats.Damage = 15"));
-
-            // json parity: the scoped note rides notes[], and each match's source/winner fields carry the truth.
-            var scopedJson = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: new[] { masterName }, defined_in: false, where: null, group_by: null,
-                resolve_names: false, winner_fields: false, fields: new[] { "BasicStats.Damage" }, conflict_tree: false,
-                format: "json", limit: 500, max_chars: 0);
-            var sjDoc = ParseOrNull(scopedJson);
-            Check("json (scoped, no winner_fields) carries the scoped-values note in notes[]",
-                  sjDoc is not null && HasNoteContaining(sjDoc.RootElement, "SCOPED plugin's OWN version"));
-            if (sjDoc is not null)
-            {
-                var w1Row = FindMatch(sjDoc.RootElement, w1Fk.ToString());
-                Check("json scoped W1 row: source=master and value=10 (the scoped body — machine-readable truth)",
-                      w1Row is not null && w1Row.Value.GetProperty("source").GetString() == masterName
-                      && FindField(w1Row.Value, "BasicStats.Damage")?.GetProperty("value").GetString() == "10");
-                sjDoc.Dispose();
-            }
-            var winnerJson = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: new[] { masterName }, defined_in: false, where: null, group_by: null,
-                resolve_names: false, winner_fields: true, fields: new[] { "BasicStats.Damage" }, conflict_tree: false,
-                format: "json", limit: 500, max_chars: 0);
-            var wjDoc = ParseOrNull(winnerJson);
-            if (wjDoc is not null)
-            {
-                var w1Row = FindMatch(wjDoc.RootElement, w1Fk.ToString());
-                Check("json winner_fields W1 row: source=Repl (the winner) and value=15",
-                      w1Row is not null && w1Row.Value.GetProperty("source").GetString() == replName
-                      && FindField(w1Row.Value, "BasicStats.Damage")?.GetProperty("value").GetString() == "15");
-                wjDoc.Dispose();
-            }
+            // ===== cross_plugin_query json, and P5 (winner_fields= vs the scoped body) =====
+            // The scan-lane arms stood here: the summary and group_by json envelopes, the where= wrong-path
+            // accounting note reaching both transports verbatim, the unrecognized-format refusal, the scoped
+            // body's own values with the loud scoped-values note, and winner_fields= retargeting display.
+            // housecarl_cross_plugin_query is gone; the claims are tests against housecarl_records in
+            // src/housecarl-mcp-tests/RecordsScanProjectionTests.cs — where the note names fields_source="winner",
+            // which is how that tool spells the lever.
 
             // ================= container hint — the depth= knob is hinted only where it EXISTS =================
-            // The depth-1 container note self-documents the expansion lever (HCBR-2026-07-12). Since #231
-            // cross_plugin_query HAS depth= (text/json), so its containers carry the SAME generic hint as
-            // read_record — the old "no depth=; expand via batch_record_detail" redirect must be GONE (it named a
-            // gap that no longer exists). The dense render still refuses depth>1 (positional cells), so ITS hint
-            // names the format hop — that arm lives in bulk-query-primitives-guard. A write read-back (no knob at
-            // all) keeps the bare count.
+            // The depth-1 container note self-documents the expansion lever (HCBR-2026-07-12). The
+            // cross_plugin_query text and json arms stood here — the tool's own depth= hint, and the absence of
+            // the retired batch_record_detail redirect. That tool is gone, and the redirect's negative pin has no
+            // subject left; the hint claim is a test against housecarl_records' scan lane in
+            // src/housecarl-mcp-tests/RecordsScanProjectionTests.cs.
+            // What remains below is service-layer: read_record's own hint, and the write read-back lane
+            // (containerHint:null), which keeps the bare count with no knob named at all.
             Console.WriteLine();
-            Console.WriteLine("── container hint: cross_plugin_query text/json now hint depth=2 directly (#231); write read-backs stay bare ──");
-            var cqList = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
-                resolve_names: false, winner_fields: false, fields: new[] { "Keywords" }, conflict_tree: false,
-                format: "text", limit: 500, max_chars: 0);
-            Check("cross_plugin_query container note hints the tool's OWN depth= (' — pass depth=2 to expand', #231)",
-                  cqList.Contains("pass depth=2 to expand"));
-            Check("... and the retired batch_record_detail redirect is GONE (it described the closed gap)",
-                  !cqList.Contains("housecarl_batch_record_detail depth=2"));
-
-            var cqListJson = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
-                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
-                resolve_names: false, winner_fields: false, fields: new[] { "Keywords" }, conflict_tree: false,
-                format: "json", limit: 500, max_chars: 0);
-            Check("json parity: the depth= hint rides the json render too, never the retired redirect",
-                  cqListJson.Contains("pass depth=2 to expand") && !cqListJson.Contains("housecarl_batch_record_detail depth=2"));
+            Console.WriteLine("── container hint: the service layer hints depth=2 where the knob exists; write read-backs stay bare ──");
 
             var rrHint = svc.ResolveRead(w1Fk, null, new[] { "Keywords" }, false);
             var rrNote = rrHint.Record?.Fields.FirstOrDefault(f => f.Path == "Keywords")?.Note;
@@ -496,39 +221,5 @@ public static class BulkPrimitivesWave2Probe
     {
         Console.WriteLine($"   [{(ok ? "PASS" : "FAIL")}] {label}");
         if (ok) _pass++; else _fail++;
-    }
-
-    /// <summary>Parse a JSON string, returning null (not throwing) on malformed input — so an assertion can report
-    /// "invalid json" as a FAIL rather than crashing the whole guard.</summary>
-    static JsonDocument? ParseOrNull(string s)
-    {
-        try { return JsonDocument.Parse(s); } catch { return null; }
-    }
-
-    /// <summary>Find a field object by its "path" in a record object's "fields" array (null if absent).</summary>
-    static JsonElement? FindField(JsonElement record, string path)
-    {
-        if (!record.TryGetProperty("fields", out var fields)) return null;
-        foreach (var f in fields.EnumerateArray())
-            if (f.TryGetProperty("path", out var p) && p.GetString() == path) return f;
-        return null;
-    }
-
-    /// <summary>Find a cross_plugin_query match object by its "formid" in the "matches" array (null if absent).</summary>
-    static JsonElement? FindMatch(JsonElement root, string formid)
-    {
-        if (!root.TryGetProperty("matches", out var matches)) return null;
-        foreach (var m in matches.EnumerateArray())
-            if (m.TryGetProperty("formid", out var f) && f.GetString() == formid) return m;
-        return null;
-    }
-
-    /// <summary>True if the document's "notes" array carries a note containing the given substring.</summary>
-    static bool HasNoteContaining(JsonElement root, string needle)
-    {
-        if (!root.TryGetProperty("notes", out var notes)) return false;
-        foreach (var n in notes.EnumerateArray())
-            if (n.GetString() is { } s && s.Contains(needle, StringComparison.Ordinal)) return true;
-        return false;
     }
 }

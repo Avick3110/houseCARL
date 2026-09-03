@@ -95,7 +95,7 @@ public static class CheckTools
          "the effective merged INFO order — the sequence the game walks, which line MOVED and which plugin moved it, " +
          "the answer to 'why does the wrong line play' — is an ordered sequence rather than a finding and lives on " +
          ToolNames.Records + " project='info_order'. To CREATE dialogue lines use " + ToolNames.Create + "; to inspect " +
-         "one record use " + ToolNames.ReadRecord + ". " +
+         "one record use " + ToolNames.Records + ". " +
          // ---- narrowing, shared, with each family's own cost teaching ------------------------------
          "NARROWING: beyond plugins= it takes a record scope (type= / formids= / editorid_contains=), " +
          "property_contains= (the scripts family — chasing one property name), a findings= filter, counts_only=true " +

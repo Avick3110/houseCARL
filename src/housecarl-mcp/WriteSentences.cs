@@ -255,7 +255,7 @@ internal static class WriteSentences
     [MustState("NOT VERIFIED", "do NOT re-run")]
     internal const string CopyReadBackUnverified =
         "masters: <NOT VERIFIED — the post-write read-back failed>\n" +
-        "the patch WAS written, so do NOT re-run blindly (that mints a duplicate); read it back with " + ToolNames.ReadPluginFile + ".";
+        "the patch WAS written, so do NOT re-run blindly (that mints a duplicate); read it back with " + ToolNames.Records + " source=\"<the patch>.esp\".";
 
     /// <summary>What a strip actually costs the caller. The clone keeps the look and loses the source's own
     /// factions/outfits/packages — said plainly, because "standalone" must never quietly mean "different".</summary>

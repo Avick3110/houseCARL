@@ -9,8 +9,7 @@ using HousecarlMcp;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// #342 stage 1 — GUARD for the owned-child content annotation, over a synthetic MO2 instance driven through the
-/// REAL read tool (<c>housecarl_read_record</c>, both transports).
+/// #342 stage 1 — GUARD for the owned-child content annotation, at the UNIT level, over a synthetic MO2 instance.
 ///
 /// The bug: a parent's child records — placed references under a cell, INFOs under a topic, cells under a
 /// worldspace — are declared per plugin and assembled by the game from every plugin that declares them. An
@@ -18,27 +17,20 @@ namespace HousecarlGenerator;
 /// reports an empty cell the game fills. Reproduced on a real order at <c>008EB5:Skyrim.esm</c>: winner
 /// Temporary 0, <c>Skyrim.esm</c>'s own body 201.
 ///
-/// The trigger is a BOOLEAN — does any OTHER plugin touching this record declare at least one child record for
-/// this field — and two arms exist because the cheaper questions both produce wrong answers:
-///   REACH-NOT-ELEMENT — "has a top-level element" is true of a worldspace holding empty block scaffolding, whose
-///                  cells sit two container levels down. WRLD-SCAFFOLD holds that an empty-scaffold plugin is NOT
-///                  named a declarer while a real one is.
-///   DISJOINT     — "declares MORE than this body" says nothing when this body holds the biggest single list and
-///                  another declares a disjoint set the game also loads. DISJOINT + EQUAL hold that both annotate.
-/// The rest:
-///   FALSE-EMPTY  — the winner touches cell A carrying no children; a lower plugin declares Temporary, Persistent
-///                  and a Landscape. Each is annotated, naming the declarer. The pre-fix hazard is asserted first
-///                  — a fixture that stopped exhibiting it would make every arm below vacuous.
-///   SINGULAR     — Cell.Landscape is a SINGULAR owned child, not a list.
-///   NOT-A-CELL   — DialogTopic.Responses, because the field set is <see cref="OwnedChildContent.Fields"/>
-///                  over the write surface's pinned authority, never a hand list of cell fields.
-///   SOLE / SELF  — one declarer: no annotation, and the read body is never named among the "others".
-///   UNREQUESTED  — fields=[EditorID]: no annotation (the walk is gated on the read's own field lines).
-///   NO-CHILDREN  — a weapon with three touchers: no annotation, and the field set for its type is EMPTY.
-///   RESPONSE-ONCE— the invariant clause is stated ONCE per response, not per annotated field, on both lanes.
-///   UNREADABLE   — a toucher whose body cannot be read is NAMED, never silently dropped (a missing declarer
-///                  reads as "nobody else declares", the same wrong answer one level down).
-///   TOKEN        — display-only: the field's round-trip token/note is what it was, on both transports.
+/// <para>This guard used to drive <c>housecarl_read_record</c> end to end, and most of its arms were about a
+/// RENDERED response. The 1.x cut deleted that tool. The rendered arms for the CHEAP tier are tests against
+/// <c>housecarl_records</c> in <c>src/housecarl-mcp-tests</c>; the rendered arms for the PRECISE tier
+/// (<c>conflict_tree=true</c>) have no 2.0 lever and are gone. What is left here is the layer underneath, which
+/// no tool change touches:</para>
+///   REACH-NOT-ELEMENT — <c>DeclaresChild</c> answers "does this body declare a child RECORD", not "does it hold a
+///                  top-level element": a worldspace holding empty block scaffolding declares no cells, and its
+///                  real cells sit two container levels down.
+///   SHAPE        — the singular-vs-collection classifier answers off the TYPE, before any body is read.
+///   NO-CHILDREN  — a weapon's child-bearing field set is EMPTY, so no read of one can annotate anything.
+///   BY CONSTRUCTION — the getter → concrete hop the field set rides resolves for EVERY child-bearing type.
+///   UNREADABLE   — a declarer that stops being openable leaves the ORDER, and the load-order layer NAMES the
+///                  failure rather than swallowing it; and <c>DeclaresChild</c> keeps "I could not look" (null)
+///                  distinct from "nothing there" (false).
 ///   SENTENCE     — the content net over <see cref="ReadSentences"/>, consts AND the composed per-field note.
 ///
 /// Run: <c>dotnet run --project src/housecarl-generator -- owned-child-content-guard</c>
@@ -190,164 +182,46 @@ public static class OwnedChildContentProbe
             using var svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(root, "houseCARL.user.json")));
             svc.Stats();
 
-            // The DEFAULT lane — the cheap tier. conflict_tree stays false.
-            string Read(FormKey fk, string? plugin = null, string[]? fields = null, int depth = 1, string? format = null)
-                => ReadTools.ReadRecord(svc, fk.ToString(), plugin, fields, depth, false, false, format);
-            // The lane that has already fetched every touching body — the precise tier rides it for free.
-            string ReadCt(FormKey fk, string? plugin = null)
-                => ReadTools.ReadRecord(svc, fk.ToString(), plugin, null, 1, true, false, null);
-            string By(ModKey k) => $"{ReadSentences.DeclaredBy} {k.FileName}";
-            // ================= TIER 1 — the CHEAP annotation every read states from the index alone =========
-            var aWinner = Read(cellA);
-            Check("FIXTURE exhibits the bug: the winner's own Temporary reads EMPTY on a cell the base fills",
-                aWinner.Contains("winner=HcOcTop.esp", StringComparison.Ordinal)
-                && FieldLine(aWinner, "Temporary") is { } tw && tw.Contains("0 item(s)", StringComparison.Ordinal),
-                FieldLine(aWinner, "Temporary"));
-            var aBase = Read(cellA, plugin: baseKey.FileName.String);
-            Check("…and the base's own body carries 3 — the content the winner does not show",
-                FieldLine(aBase, "Temporary") is { } tb && tb.Contains("3 item(s)", StringComparison.Ordinal),
-                FieldLine(aBase, "Temporary"));
-
-            Check("CHEAP: the child-bearing field says other plugins touch this record and were not read",
-                FieldLine(aWinner, "Temporary") is { } c1
-                && c1.Contains($"2 {ReadSentences.NotRead}", StringComparison.Ordinal),
-                FieldLine(aWinner, "Temporary"));
-            Check("CHEAP: it claims nothing about WHO declares — no declarer naming on the default lane",
-                !aWinner.Contains(ReadSentences.DeclaredBy, StringComparison.Ordinal)
-                && !aWinner.Contains(ReadSentences.CarriedBy, StringComparison.Ordinal), Trim(aWinner));
-            Check("CHEAP: every child-bearing field carries it, including one nobody declares — 'not read' is true of all",
-                FieldLine(aWinner, "NavigationMeshes") is { } c2 && c2.Contains(ReadSentences.NotRead, StringComparison.Ordinal),
-                FieldLine(aWinner, "NavigationMeshes"));
-            Check("CHEAP: the response states the not-read clause ONCE, and names the lane that answers precisely",
-                Occurrences(aWinner, ClauseHead(ReadSentences.NotReadFraming)) == 1
-                && ClauseLine(aWinner, ReadSentences.NotReadFraming) is { } cc
-                && cc.Contains("conflict_tree=true", StringComparison.Ordinal),
-                $"clause={Occurrences(aWinner, ClauseHead(ReadSentences.NotReadFraming))}");
-            // The clause NAMES its fields rather than pointing at them — the fix for a positional claim three
-            // transports independently falsified (manifest line 1, json's second key, a truncated field loop).
-            Check("CLAUSE-NAMES: the clause names the annotated fields, and points at no position at all",
-                ClauseLine(aWinner, ReadSentences.NotReadFraming) is { } cn
-                && cn.Contains("Temporary", StringComparison.Ordinal)
-                && cn.Contains("Persistent", StringComparison.Ordinal)
-                && !cn.Contains("above", StringComparison.OrdinalIgnoreCase)
-                && !cn.Contains("below", StringComparison.OrdinalIgnoreCase),
-                ClauseLine(aWinner, ReadSentences.NotReadFraming) ?? "(no clause)");
-            Check("CLAUSE-NAMES: the names are DERIVED — every field named is one the response annotated",
-                ClauseLine(aWinner, ReadSentences.NotReadFraming) is { } cd
-                && NamedFields(cd, ReadSentences.NotReadFraming).All(f => FieldLine(aWinner, f) is { } fl
-                                                                          && fl.Contains(ReadSentences.NotRead, StringComparison.Ordinal)),
-                ClauseLine(aWinner, ReadSentences.NotReadFraming) ?? "(no clause)");
+            // TIER 1 stood here: the DEFAULT lane's Read()/ReadCt() helpers and the eight arms over a cheap read
+            // of cell A - that the winner's Temporary reads empty while the base carries 3, that each
+            // child-bearing field says other plugins were not read, that no declarer is named, that the clause is
+            // stated once and names its fields with no positional claim, and that those names are derived. They
+            // drove housecarl_read_record and are tests against housecarl_records in src/housecarl-mcp-tests now.
             Check("CHEAP: the cheap tier CANNOT read a body — its signature takes no overlay session",
                 typeof(LoadOrderService)
                     .GetMethod("AnnotateOwnedChildContent", BindingFlags.NonPublic | BindingFlags.Static)!
                     .GetParameters().All(x => x.ParameterType != typeof(LoadOrderResolver.OverlaySession)),
                 "AnnotateOwnedChildContent takes an OverlaySession — it can fetch bodies");
 
-            var cRead = Read(cellC);
-            Check("SOLE: a record only one plugin touches is not annotated at all",
-                FieldLine(cRead, "Temporary") is { } t5 && !t5.Contains(ReadSentences.NotRead, StringComparison.Ordinal),
-                FieldLine(cRead, "Temporary"));
-            var aNarrow = Read(cellA, fields: new[] { "EditorID" });
-            Check("UNREQUESTED: fields=[EditorID] carries no annotation and no clause",
-                !aNarrow.Contains(ReadSentences.NotRead, StringComparison.Ordinal)
-                && ClauseLine(aNarrow, ReadSentences.NotReadFraming) is null, Trim(aNarrow));
-            var weapRead = Read(weapon);
-            Check("NO-CHILDREN: a 3-toucher weapon read carries no annotation, and its field set is EMPTY",
-                weapRead.Contains("winner=HcOcTop.esp", StringComparison.Ordinal)
-                && !weapRead.Contains(ReadSentences.NotRead, StringComparison.Ordinal)
-                && FieldsOn(topDir, topKey, weapon).Count == 0, Trim(weapRead));
-
-            // ================= TIER 2 — the PRECISE answer, on the lane that already fetched the bodies =======
-            var aTree = ReadCt(cellA);
-            Check("PRECISE: conflict_tree names the declaring plugin instead of the cheap 'not read' note",
-                FieldLine(aTree, "Temporary") is { } p1
-                && p1.Contains(By(baseKey), StringComparison.Ordinal)
-                && !p1.Contains(ReadSentences.NotRead, StringComparison.Ordinal),
-                FieldLine(aTree, "Temporary"));
-            Check("PRECISE: a field NOBODY declares loses its note entirely — the cheap tier could not know that",
-                FieldLine(aTree, "NavigationMeshes") is { } p2
-                && !p2.Contains(ReadSentences.NotRead, StringComparison.Ordinal)
-                && !p2.Contains(ReadSentences.DeclaredBy, StringComparison.Ordinal),
-                FieldLine(aTree, "NavigationMeshes"));
-            Check("PRECISE: the plugin that touches the cell declaring NOTHING is not named a declarer",
-                FieldLine(aTree, "Temporary") is { } p3 && !p3.Contains("HcOcMid.esp", StringComparison.Ordinal),
-                FieldLine(aTree, "Temporary"));
-            Check("PRECISE: Persistent too — the annotation is per FIELD, not per record",
-                FieldLine(aTree, "Persistent") is { } p4 && p4.Contains(By(baseKey), StringComparison.Ordinal),
-                FieldLine(aTree, "Persistent"));
-
-            // ---- the two SHAPES say different things, because different things are true of them ----
-            Check("SINGULAR: Landscape is annotated with a COUNT, never a declarer name list",
-                FieldLine(aTree, "Landscape") is { } s1
-                && s1.Contains($"{ReadSentences.CarriedBy} 1 other plugin(s)", StringComparison.Ordinal)
-                && !s1.Contains(ReadSentences.DeclaredBy, StringComparison.Ordinal),
-                FieldLine(aTree, "Landscape"));
-            Check("SINGULAR: the response carries the singly-resolved clause for that shape, naming its field",
-                Occurrences(aTree, ClauseHead(ReadSentences.SingleResolvedFraming)) == 1
-                && ClauseLine(aTree, ReadSentences.SingleResolvedFraming) is { } sc
-                && NamedFields(sc, ReadSentences.SingleResolvedFraming).SequenceEqual(new[] { "Landscape" }),
-                ClauseLine(aTree, ReadSentences.SingleResolvedFraming) ?? "(no singular clause)");
-            Check("COLLECTION: the response also carries the additive clause, once, naming the list-shaped fields",
-                Occurrences(aTree, ClauseHead(ReadSentences.MergeCollectionFraming)) == 1
-                && ClauseLine(aTree, ReadSentences.MergeCollectionFraming) is { } mc
-                && NamedFields(mc, ReadSentences.MergeCollectionFraming).SequenceEqual(new[] { "Persistent", "Temporary" }),
-                ClauseLine(aTree, ReadSentences.MergeCollectionFraming) ?? "(no collection clause)");
-            // FINDING 5 — the flagship: a winner carrying NOTHING, beside plugins that declare. "also declared by"
-            // asserted that this body declares too, which is false in exactly the case the feature exists for.
-            Check("LABEL: on a winner carrying 0 items the declarer label does NOT assert this body declares too",
-                FieldLine(aTree, "Temporary") is { } fs
-                && fs.Contains("0 item(s)", StringComparison.Ordinal)
-                && fs.Contains(By(baseKey), StringComparison.Ordinal)
-                && !fs.Contains("also ", StringComparison.OrdinalIgnoreCase),
-                FieldLine(aTree, "Temporary"));
+            // The SOLE, UNREQUESTED and NO-CHILDREN reads stood here, driving housecarl_read_record; they are
+            // tests in src/housecarl-mcp-tests now. The field-set half of NO-CHILDREN is a fact about the TYPE,
+            // asked of a body and answered without any tool, so it stays here as its own arm.
+            Check("NO-CHILDREN: a weapon's child-bearing field set is EMPTY, so no read of one can annotate anything",
+                FieldsOn(topDir, topKey, weapon).Count == 0,
+                string.Join(", ", FieldsOn(topDir, topKey, weapon).Keys));
+            // ================= TIER 2 - the PRECISE answer =====================================================
+            // The precise tier's reads stood here and through the DISJOINT/EQUAL/SELF and NOT-A-CELL arms below:
+            // conflict_tree=true naming the declaring plugin per field, the singular-vs-collection clauses, the
+            // no-"also" label on a winner carrying nothing, and the worldspace scaffolding pair. They drove
+            // housecarl_read_record with conflict_tree=true, which the 1.x cut deleted, and the records surface has
+            // no lever for that tier - so unlike the arms above they have NO test replacing them. What survives is
+            // the unit level: the shape classifier and DeclaresChild, which answer the same questions off a body
+            // with no render in the way, and are the arms kept below.
             Check("SHAPE: the classifier answers the two shapes off the TYPE, before any body is read",
                 ShapeOn(topDir, topKey, cellA, "Landscape") == OwnedChildShape.Singular
                 && ShapeOn(topDir, topKey, cellA, "Temporary") == OwnedChildShape.Collection
                 && ShapeOn(baseDir, baseKey, wrld, "TopCell") == OwnedChildShape.Singular
                 && ShapeOn(baseDir, baseKey, wrld, "SubCells") == OwnedChildShape.Collection,
                 $"Landscape={ShapeOn(topDir, topKey, cellA, "Landscape")} SubCells={ShapeOn(baseDir, baseKey, wrld, "SubCells")}");
-            var dOnly = ReadCt(cellD);
-            Check("SHAPE: a response with only COLLECTION fields annotated states only the additive clause",
-                Occurrences(dOnly, ClauseHead(ReadSentences.MergeCollectionFraming)) == 1
-                && Occurrences(dOnly, ClauseHead(ReadSentences.SingleResolvedFraming)) == 0,
-                $"collection={Occurrences(dOnly, ClauseHead(ReadSentences.MergeCollectionFraming))} "
-                + $"singular={Occurrences(dOnly, ClauseHead(ReadSentences.SingleResolvedFraming))}");
-
             // ---- REACH-NOT-ELEMENT: empty block scaffolding is not a declaration of cells ----
-            var wsBase = ReadCt(wrld, plugin: baseKey.FileName.String);
-            Check("WRLD-SCAFFOLD: a worldspace declaring 2 EMPTY blocks is NOT named as declaring SubCells content",
-                FieldLine(wsBase, "SubCells") is { } w1 && !w1.Contains(ReadSentences.DeclaredBy, StringComparison.Ordinal),
-                FieldLine(wsBase, "SubCells"));
-            var wsWinner = ReadCt(wrld);
-            Check("…while the winner (2 empty blocks) IS annotated by the base's 1 block holding 3 real cells",
-                FieldLine(wsWinner, "SubCells") is { } w2 && w2.Contains(By(baseKey), StringComparison.Ordinal),
-                FieldLine(wsWinner, "SubCells"));
+            // The two rendered WRLD-SCAFFOLD arms that stood here drove the precise tier and die with it. The
+            // question they were about is asked directly below.
             Check("REACH: DeclaresChild answers the CHILD question, not the element question, on both bodies",
                 DeclaresOn(baseDir, baseKey, wrld, "SubCells") == true
                 && DeclaresOn(topDir, topKey, wrld, "SubCells") == false,
                 $"base={DeclaresOn(baseDir, baseKey, wrld, "SubCells")} top={DeclaresOn(topDir, topKey, wrld, "SubCells")}");
 
-            // ---- DISJOINT / EQUAL / SELF: the shapes a count comparison stayed silent on ----
-            var bTree = ReadCt(cellB);
-            Check("DISJOINT: the winner declaring 4 of its OWN references is still annotated by the base's 1",
-                FieldLine(bTree, "Temporary") is { } t3
-                && t3.Contains("4 item(s)", StringComparison.Ordinal) && t3.Contains(By(baseKey), StringComparison.Ordinal),
-                FieldLine(bTree, "Temporary"));
-            Check("EQUAL: one reference each side — both bodies declare, so the read is annotated",
-                FieldLine(dOnly, "Temporary") is { } t7 && t7.Contains(By(baseKey), StringComparison.Ordinal),
-                FieldLine(dOnly, "Temporary"));
-            var eTree = ReadCt(cellE);
-            Check("SELF: a body that is the ONLY declarer is not annotated, and never names itself",
-                FieldLine(eTree, "Temporary") is { } t8
-                && t8.Contains("1 item(s)", StringComparison.Ordinal)
-                && !t8.Contains(ReadSentences.DeclaredBy, StringComparison.Ordinal),
-                FieldLine(eTree, "Temporary"));
-
-            var topicTree = ReadCt(topic);
-            Check("NOT-A-CELL: DialogTopic.Responses is annotated (winner re-lists 1 of the base's 2)",
-                FieldLine(topicTree, "Responses") is { } r1 && r1.Contains(By(baseKey), StringComparison.Ordinal),
-                FieldLine(topicTree, "Responses"));
-
+            // The DISJOINT / EQUAL / SELF / NOT-A-CELL arms stood here - all precise-tier reads, all gone with it.
             // ---- BY CONSTRUCTION: the getter -> concrete hop resolves for EVERY child-bearing type ----
             var hopBad = new List<string>();
             foreach (var t in typeof(Weapon).Assembly.GetTypes())
@@ -364,158 +238,12 @@ public static class OwnedChildContentProbe
             Check("BY CONSTRUCTION: every concrete child-bearing type's overlay maps back to it (the hop the field set rides)",
                 hopBad.Count == 0, string.Join(" | ", hopBad));
 
-            // ---- DEPTH / TRANSPORTS ----
-            var aDeep = Read(cellA, depth: 2);
-            Check("DEPTH: at depth=2 the container's own summary line still carries the annotation",
-                FieldLine(aDeep, "Temporary") is { } t6 && t6.Contains(ReadSentences.NotRead, StringComparison.Ordinal),
-                FieldLine(aDeep, "Temporary"));
-            var batch = ReadTools.BatchRecordDetail(svc, new[] { cellA.ToString(), cellB.ToString() });
-            Check("RESPONSE-ONCE (batch): two annotated records, still ONE clause",
-                Occurrences(batch, ClauseHead(ReadSentences.NotReadFraming)) == 1,
-                $"clause={Occurrences(batch, ClauseHead(ReadSentences.NotReadFraming))}");
-            var cleanBatch = ReadTools.BatchRecordDetail(svc, new[] { weapon.ToString() });
-            Check("RESPONSE-ONCE: a response with nothing annotated carries NO clause",
-                Occurrences(cleanBatch, ClauseHead(ReadSentences.NotReadFraming)) == 0, Trim(cleanBatch));
-
-            // ---- EMISSION (text): the clause is earned by a field LINE, not by the decision to annotate ----
-            // A cap that stops the field loop before the annotated field leaves a clause describing something the
-            // caller cannot see. Both directions, on the same record, moved only by max_chars.
-            var tightText = ReadTools.ReadRecord(svc, cellA.ToString(), null, null, 1, false, false, null, max_chars: 300);
-            Check("EMISSION (text): a cap that truncates the annotated field away states NO clause over it",
-                tightText.Contains("truncated: showing", StringComparison.Ordinal)
-                && !tightText.Contains(ReadSentences.NotRead, StringComparison.Ordinal)
-                && ClauseLine(tightText, ReadSentences.NotReadFraming) is null, Trim(tightText));
-            Check("EMISSION (text): …and the SAME read with room for the field states it, over that field",
-                aWinner.Contains(ReadSentences.NotRead, StringComparison.Ordinal)
-                && ClauseLine(aWinner, ReadSentences.NotReadFraming) is not null, Trim(aWinner));
-
-            // ---- RESERVE: the clauses come OUT of max_chars, not on top of it (finding 6) ----
-            // Measured on the SINGLE read, because the bulk lanes auto-spill when they truncate and that manifest
-            // block is appended outside any cap — a total-length claim there would be measuring the spill. Here the
-            // ceiling is tight: every cut is checked before a line is appended, so the response can exceed
-            // max_chars by its own longest line and by nothing else. fields= puts the annotated fields FIRST so
-            // they survive the cut (otherwise the emission gate correctly states nothing and there is no clause to
-            // budget for), with filler behind them to make the body outgrow the cap either way.
-            var padded = new[] { "Temporary", "Persistent", "Landscape", "NavigationMeshes" }
-                .Concat(Enumerable.Repeat(new[] { "Name", "Flags", "Grid", "Lighting", "OcclusionData", "MaxHeightData",
-                                                  "LightingTemplate", "WaterHeight", "Regions", "Location", "Water",
-                                                  "Owner", "FactionRank", "LockList" }, 4).SelectMany(x => x)).ToArray();
-            var cappedCheap = ReadTools.ReadRecord(svc, cellA.ToString(), null, padded, 1, false, false, null, 1400);
-            int longestLine = cappedCheap.Split('\n').Max(l => l.Length + 1);
-            Check("RESERVE: an annotated response answers INSIDE its max_chars — the clause is reserved, not appended",
-                cappedCheap.Contains("truncated: showing", StringComparison.Ordinal)
-                && ClauseLine(cappedCheap, ReadSentences.NotReadFraming) is not null
-                && cappedCheap.Length <= 1400 + longestLine,
-                $"len={cappedCheap.Length} cap=1400 longest-line={longestLine}");
-            Check("RESERVE: the cut still quotes the caller's OWN max_chars, not the reduced budget",
-                cappedCheap.Contains("max_chars=1400", StringComparison.Ordinal)
-                && !cappedCheap.Contains("max_chars=" + (1400 - ReadSentences.ClauseReserve(true, false, false)), StringComparison.Ordinal),
-                Trim(cappedCheap));
-            // The conflict_tree lane is Aaron's own repro. Its diff block cuts per NODE rather than per line, so its
-            // pre-existing slack is wider than one line and a total-length claim there would be measuring the diff,
-            // not this fix. What IS this fix on that lane: what the clauses actually cost fits what was held back.
-            var cappedTree = ReadTools.BatchRecordDetail(svc, new[] { cellA.ToString(), cellB.ToString() },
-                                                         conflict_tree: true, max_chars: 2000);
-            int clauseChars = new[] { ReadSentences.MergeCollectionFraming, ReadSentences.SingleResolvedFraming }
-                .Select(f => ClauseLine(cappedTree, f))
-                .Where(l => l is not null).Sum(l => l!.Length + 2);   // each clause is written as "\n" + clause + "\n"
-            Check("RESERVE: on the conflict_tree lane the stated clauses fit inside the chars reserved for them",
-                clauseChars > 0 && clauseChars <= ReadSentences.ClauseReserve(false, true, true),
-                $"clauses={clauseChars} reserve={ReadSentences.ClauseReserve(false, true, true)}");
-
-            var aJson = Read(cellA, format: "json");
-            string? jsonDisplay = null, jsonNote = null;
-            using (var doc = JsonDocument.Parse(aJson))
-            {
-                foreach (var f in doc.RootElement.GetProperty("fields").EnumerateArray())
-                    if (f.GetProperty("path").GetString() == "Temporary")
-                    {
-                        jsonDisplay = f.TryGetProperty("display", out var d) ? d.GetString() : null;
-                        jsonNote = f.TryGetProperty("note", out var n) ? n.GetString() : null;
-                    }
-                Check("JSON: the clause is a response-level member, from the same source as text",
-                    doc.RootElement.TryGetProperty("owned_child_note", out var ocn)
-                    && ocn.GetString() is { } s
-                    && s.StartsWith(ClauseHead(ReadSentences.NotReadFraming), StringComparison.Ordinal)
-                    && NamedFields(s, ReadSentences.NotReadFraming).Contains("Temporary"),
-                    "owned_child_note missing or drifted");
-            }
-            // The single-read json object writes the clause AFTER the array it describes, and only over what that
-            // array carried — it used to be the object's SECOND key, ahead of `fields` (Aaron's finding 3).
-            Check("JSON: the clause is written after the fields array it is about, never ahead of it",
-                aJson.IndexOf("\"owned_child_note\"", StringComparison.Ordinal)
-                    > aJson.IndexOf("\"fields\"", StringComparison.Ordinal),
-                $"note-at={aJson.IndexOf("\"owned_child_note\"", StringComparison.Ordinal)} fields-at={aJson.IndexOf("\"fields\"", StringComparison.Ordinal)}");
-            var aJsonTight = ReadTools.ReadRecord(svc, cellA.ToString(), null, null, 1, false, false, "json", 300);
-            using (var doc = JsonDocument.Parse(aJsonTight))
-                Check("EMISSION (json single): a fields array truncated before the annotated field states NO clause",
-                    doc.RootElement.GetProperty("fields").EnumerateArray()
-                       .Any(f => f.TryGetProperty("note", out var n) && n.GetString()!.StartsWith("[truncated at max_chars", StringComparison.Ordinal))
-                    && !doc.RootElement.TryGetProperty("owned_child_note", out _), Trim(aJsonTight));
-            Check("JSON: the per-field half rides `display`",
-                jsonDisplay is not null && jsonDisplay.Contains(ReadSentences.NotRead, StringComparison.Ordinal),
-                jsonDisplay ?? "(no display)");
-            Check("TOKEN: the leaf's own note is unchanged on both lanes — the annotation never replaces the value",
-                jsonNote is not null && jsonNote.StartsWith("[list: 0 item(s)]", StringComparison.Ordinal)
-                && FieldLine(aWinner, "Temporary")!.StartsWith(
-                       "Temporary = [list: 0 item(s)]" + ReadEngine.DepthExpandHint + "   (", StringComparison.Ordinal),
-                jsonNote ?? "(no note)");
-
-            // ---- ARTIFACTS: a to_file job carries the same tier its lane ran, clause IN the file ----
-            var artifact = Path.Combine(root, "cells.jsonl");
-            var inline = ReadTools.BatchRecordDetail(svc, new[] { cellA.ToString() }, to_file: artifact);
-            var fileText = File.ReadAllText(artifact);
-            // The manifest is JSON, and the writer escapes non-ASCII (an em-dash ships as —), so the clause is
-            // compared against the DECODED string values rather than the raw file text.
-            var fileDecoded = JsonStrings(File.ReadAllLines(artifact)[0]);
-            Check("ARTIFACT: the annotation reaches the FILE's rows, and its clause reaches the manifest",
-                fileText.Contains(ReadSentences.NotRead, StringComparison.Ordinal)
-                && fileDecoded.Contains(ClauseHead(ReadSentences.NotReadFraming), StringComparison.Ordinal),
-                $"note={fileText.Contains(ReadSentences.NotRead, StringComparison.Ordinal)} "
-                + $"clause-in-manifest={fileDecoded.Contains(ClauseHead(ReadSentences.NotReadFraming), StringComparison.Ordinal)}");
-            // The manifest is line 1 and the rows are lines 2..N, so a clause that pointed "above" pointed away from
-            // its own subject for the one reader it was written for — an artifact re-opened with no conversation
-            // attached (Aaron's finding 2). It names the fields instead, which is true from line 1.
-            Check("ARTIFACT: the manifest clause names the annotated fields and claims no position",
-                ClauseLine(fileDecoded, ReadSentences.NotReadFraming) is { } ml
-                && NamedFields(ml, ReadSentences.NotReadFraming).Contains("Temporary")
-                && !ml.Contains("above", StringComparison.OrdinalIgnoreCase)
-                && !ml.Contains("below", StringComparison.OrdinalIgnoreCase),
-                ClauseLine(fileDecoded, ReadSentences.NotReadFraming) ?? "(no manifest clause)");
-            Check("ARTIFACT: the manifest-only response does NOT state a clause over rows it did not render",
-                ClauseLine(inline, ReadSentences.NotReadFraming) is null, Trim(inline));
-
-            // ---- THE PRECISE TIER INHERITS THE TREE RENDER'S SKIPS ----
-            // A tree fetch is one whole-overlay enumeration per touching plugin. The annotation must never buy
-            // those bodies where the diff itself would not: on a record nothing else touches (nothing to diff), or
-            // on a response already over budget (the diff is skipped and the bodies thrown away).
-            var soleCt = ReadCt(cellC);
-            Check("SKIP: conflict_tree on a SOLE-toucher record does not fetch a tree — nothing to diff, nothing to name",
-                !soleCt.Contains("diff (field deltas", StringComparison.Ordinal)
-                && FieldLine(soleCt, "Temporary") is { } sk1
-                && !sk1.Contains(ReadSentences.DeclaredBy, StringComparison.Ordinal)
-                && !sk1.Contains(ReadSentences.NotRead, StringComparison.Ordinal), FieldLine(soleCt, "Temporary"));
-            // The over-budget half of that skip is NOT pinned, and the code says why: the prefetch runs before the
-            // record's own fields are rendered, so it cannot foresee a cap hit during them. What IS pinned is that
-            // a bulk lane whose buffer is already full renders no further rows at all, so those rows pay nothing.
-            var capped = ReadTools.BatchRecordDetail(svc, new[] { cellA.ToString(), cellB.ToString() },
-                                                     conflict_tree: true, max_chars: 400);
-            Check("SKIP: a bulk response past its budget stops rendering rows, so the rows past it buy no bodies",
-                capped.Contains("truncated: rendered", StringComparison.Ordinal), Trim(capped));
-
-            // ---- JSON gates the clause on rows RENDERED, exactly as the text lane does ----
-            var jsonTrunc = ReadTools.BatchRecordDetail(svc, new[] { weapon.ToString(), cellA.ToString() },
-                                                        format: "json", max_chars: 400);
-            using (var doc = JsonDocument.Parse(jsonTrunc))
-                Check("JSON: a batch truncated before its only annotated row states NO clause",
-                    doc.RootElement.GetProperty("truncated").GetBoolean()
-                    && !doc.RootElement.TryGetProperty("owned_child_note", out _),
-                    $"rendered={doc.RootElement.GetProperty("rendered").GetInt32()} clause={doc.RootElement.TryGetProperty("owned_child_note", out _)}");
-            var jsonSpill = ReadTools.BatchRecordDetail(svc, new[] { cellA.ToString() }, format: "json",
-                                                        to_file: Path.Combine(root, "spill.jsonl"));
-            using (var doc = JsonDocument.Parse(jsonSpill))
-                Check("JSON: a manifest-only response states NO clause over rows it did not render",
-                    !doc.RootElement.TryGetProperty("owned_child_note", out _), Trim(jsonSpill));
+            // ---- DEPTH / TRANSPORTS / EMISSION / RESERVE / JSON / ARTIFACTS ----
+            // A long block of arms stood here over the depth=2 render, the batch lane, the emission gate at a tight
+            // max_chars, the clause reserve, both json transports and the to_file artifact. All drove
+            // housecarl_read_record or housecarl_batch_record_detail; all are tests against housecarl_records in
+            // src/housecarl-mcp-tests now, apart from the two conflict_tree arms in the block (the tree lane's
+            // clause reserve, and the sole-toucher tree skip), which die with the precise tier.
 
             // ---- UNREADABLE: a toucher whose body cannot be read is NAMED, not dropped ----
             CheckUnreadable(root, mods, baseDir, baseKey, topKey, cellA);
@@ -581,29 +309,22 @@ public static class OwnedChildContentProbe
 
         using var svc = LoadOrderService.WithInstance(inst2, 0, new UserConfigStore(Path.Combine(root, "unreadable.user.json")));
         svc.Stats();                                                   // index built off the INTACT files
-        var before = ReadTools.ReadRecord(svc, cellA.ToString(), null, null, 1, true);   // precise lane — declarer naming lives there
-        bool intact = FieldLine(before, "Temporary") is { } l
-                      && l.Contains($"{ReadSentences.DeclaredBy} {baseKey.FileName}", StringComparison.Ordinal);
-        Check("UNREADABLE: the fixture's intact read names the declarer (so the corrupted read has something to lose)",
-              intact, FieldLine(before, "Temporary"));
+        // The intact-read arm and the corrupted-read arm stood here, both precise-tier conflict_tree reads through
+        // housecarl_read_record. They die with that tier: the cheap annotation names no plugin at all, so there is
+        // nothing left for "the annotation follows the order" to be about. What the pair was really guarding —
+        // that the disappearance is ACCOUNTED for rather than swallowed — is the load-failure arm below, which
+        // asks the load-order layer directly.
 
-        // Corrupt the declaring plugin AFTER the index knows it touches the record, then read again.
+        // Corrupt the declaring plugin AFTER the index knows it touches the record. Stats() captures a fresh
+        // build (the same freshness re-check any read would have triggered), so the exclusion surfaces here.
         File.WriteAllBytes(Path.Combine(mods2, "BaseMod", baseKey.FileName.String), new byte[] { 0x00, 0x01, 0x02, 0x03 });
-        string after;
-        try { after = ReadTools.ReadRecord(svc, cellA.ToString(), null, null, 1, true); }
-        catch (Exception ex) { after = "THREW " + ex.GetType().Name + ": " + ex.Message; }
-        var line = FieldLine(after, "Temporary");
         var stats = svc.Stats();
 
-        // What actually happens, measured: the plugin leaves the ORDER. The annotation must then stop naming it —
-        // it no longer declares anything the game loads from this order — but the disappearance must be ACCOUNTED
+        // What actually happens, measured: the plugin leaves the ORDER — and the disappearance must be ACCOUNTED
         // for where a caller can see it, which is the load-failure list, not swallowed in silence.
         Check("UNREADABLE: an unopenable declarer leaves the order, and the load-order layer NAMES the failure",
             stats.loadFailures.Any(f => f.Contains(baseKey.FileName.String, StringComparison.OrdinalIgnoreCase)),
             $"loadFailures=[{string.Join(" | ", stats.loadFailures)}]");
-        Check("…and the annotation follows the order rather than naming a plugin that is no longer in it",
-            line is not null && !line.Contains(baseKey.FileName.String, StringComparison.OrdinalIgnoreCase),
-            line ?? Trim(after));
 
         // The null rule, at the unit end: a field the body does not have is "I could not look", never "nothing
         // there". This is the answer the service turns into a NAMED could-not-read plugin.
@@ -642,68 +363,8 @@ public static class OwnedChildContentProbe
         return body is null ? OwnedChildShape.None : OwnedChildContent.ShapeOf(body, field);
     }
 
-    /// <summary>The rendered line for one field path, trimmed — the text lane's "  Path = value   (annotation)".</summary>
-    static string? FieldLine(string render, string path)
-    {
-        foreach (var line in render.Split('\n'))
-        {
-            var t = line.Trim();
-            if (t.StartsWith(path + " = ", StringComparison.Ordinal)) return t;
-        }
-        return null;
-    }
-
-    /// <summary>Every string VALUE in a json document, concatenated — the write guard's own idiom, because the
-    /// writer escapes non-ASCII and a raw Contains would fail for the encoder's reasons, not the render's.</summary>
-    static string JsonStrings(string json)
-    {
-        var sb = new System.Text.StringBuilder();
-        void Walk(JsonElement e)
-        {
-            switch (e.ValueKind)
-            {
-                case JsonValueKind.String: sb.Append(e.GetString()).Append('\n'); break;
-                case JsonValueKind.Object: foreach (var p in e.EnumerateObject()) Walk(p.Value); break;
-                case JsonValueKind.Array: foreach (var v in e.EnumerateArray()) Walk(v); break;
-            }
-        }
-        using var doc = JsonDocument.Parse(json);
-        Walk(doc.RootElement);
-        return sb.ToString();
-    }
-
-    /// <summary>A response-level clause's field-INDEPENDENT head, up to the "{0}" its derived field list fills.
-    /// "Is this clause stated, and how often" is a question about the clause; WHICH fields it names is a separate
-    /// question with its own arms, so counting on the head keeps the two from masking each other.</summary>
-    static string ClauseHead(string framing) => framing[..framing.IndexOf("{0}", StringComparison.Ordinal)];
-
-    /// <summary>The rendered clause line for one framing, or null when the response does not state it.</summary>
-    static string? ClauseLine(string render, string framing)
-    {
-        var head = ClauseHead(framing);
-        foreach (var line in render.Split('\n'))
-            if (line.StartsWith(head, StringComparison.Ordinal)) return line;
-        return null;
-    }
-
-    /// <summary>The field names a rendered clause actually derived — the "({0})" list, parsed back out.</summary>
-    static IReadOnlyList<string> NamedFields(string clauseLine, string framing)
-    {
-        var rest = clauseLine[ClauseHead(framing).Length..];
-        int close = rest.IndexOf(')');
-        return close < 0
-            ? Array.Empty<string>()
-            : rest[..close].Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                           .Where(s => s != "…").ToList();
-    }
-
-    static int Occurrences(string haystack, string needle)
-    {
-        int n = 0;
-        for (int i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0;
-             i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal)) n++;
-        return n;
-    }
+    // FieldLine / JsonStrings / ClauseHead / ClauseLine / NamedFields / Occurrences stood here: helpers that
+    // parsed a RENDERED response. Every arm that read one drove a deleted tool, so they went with those arms.
 
     /// <summary>The content half of the response-layer net, over <see cref="ReadSentences"/>: every const must
     /// DECIDE — declared phrases, or a stated reason there are none — and a sentence that declares a phrase must
@@ -742,7 +403,6 @@ public static class OwnedChildContentProbe
         sub.Cells.Add(cell);
     }
 
-    static string Trim(string s) => s.Length <= 300 ? s.Replace('\n', '|') : s[..300].Replace('\n', '|') + "…";
 
     static void Check(string label, bool ok, string? detail = null)
     {

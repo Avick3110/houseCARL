@@ -238,7 +238,7 @@ public sealed class LoadOrderService : IDisposable
         if (unticked)
             return $"'{fn}' IS installed, but it is UNTICKED in plugins.txt (MO2's right pane), so the game does not " +
                    "load it and houseCARL does not read it. Tick it in MO2 and re-sort — or, to read the file as-is " +
-                   "without loading it, use " + ToolNames.ReadPluginFile + " (a raw, out-of-load-order read).";
+                   "without loading it, use " + ToolNames.Records + $" with source=\"{fn}\" (it resolves a plugin wherever it lives, in the order or on disk, and the response states which arm answered).";
 
         // Ticked but absent from the index: the file itself couldn't be resolved. Locate it to say which.
         PluginFileHit[] hits;
@@ -268,7 +268,7 @@ public sealed class LoadOrderService : IDisposable
                                                                                       ? "Switch that mod on in MO2, then tick the plugin and sort"
                                                                                       : "MO2 has not registered that folder yet — refresh MO2, then tick the plugin and sort";
         return $"'{fn}' is on disk in {pick.Where}, but MO2's load order does not list it, so it is not active. " +
-               $"{remedy} — or read the file as-is with {ToolNames.ReadPluginFile}.";
+               $"{remedy} — or read the file as-is with {ToolNames.Records} source=\"{fn}\".";
     }
 
     /// <summary>Build the asset resolver from the current roots: discover the active BSAs (co-name + Skyrim.ini base
@@ -1177,7 +1177,7 @@ public sealed class LoadOrderService : IDisposable
                 return c != 0 ? c : string.Compare(x.FormKey, y.FormKey, StringComparison.OrdinalIgnoreCase);
             });
             if (broadLines > 0) noOpNotes.Add($"no-op scan: {broadLines} broad (type-wide) line(s) were evaluated only against the explicitly-targeted records, not every record of their type.");
-            if (unresolvedTargets > 0) noOpNotes.Add($"no-op scan: {unresolvedTargets} explicit target(s) did not resolve (the overlay's per-record warnings name them via {ToolNames.SkypatcherRead}).");
+            if (unresolvedTargets > 0) noOpNotes.Add($"no-op scan: {unresolvedTargets} explicit target(s) did not resolve (the overlay's per-record warnings name them via {ToolNames.Records} source={{\"overlay\": \"skypatcher\", \"state\": \"post\"}}).");
             if (failedReplays > 0) noOpNotes.Add($"no-op scan: {failedReplays} targeted record(s) could not be replayed (not in the order / unpatchable type / copy failure).");
         }
 
@@ -3966,7 +3966,7 @@ public sealed class LoadOrderService : IDisposable
         bool hasFormidSet = formidSet is { Count: > 0 };
 
         if (!hasType && !conflictsOnly && !hasPlugins && !bodyFilter && !hasFormidSet)
-            return CrossQueryOutcome.Fail("cross_plugin_query needs at least one of: type=, conflicts_only=true, editorid_contains=, references=, where=, or plugins=.");
+            return CrossQueryOutcome.Fail("a scan needs at least one of: types=, plugins=, formids=, conflicts_only=true, where=, or references=.");
         // A formid set is itself a bound: the scan touches at most those keys, so a body filter over one needs no
         // types=/plugins= (the W2 formids×scan composition).
         if (bodyFilter && !hasType && !hasPlugins && !hasFormidSet)
@@ -8539,7 +8539,7 @@ public sealed class LoadOrderService : IDisposable
                 try { rec = ov.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == fk); }
                 catch (Exception ex) { return baseOut with { Mode = "error", Error = $"'{Path.GetFileName(path)}' could not be fully read — a record Mutagen cannot parse before reaching {fk}: {ex.Message}" }; }
                 if (rec is null)
-                    return baseOut with { Mode = "error", Error = $"file '{Path.GetFileName(path)}' does not define or override {fk}. This reads the FILE's OWN records only — it does not resolve across masters or report a load-order winner; use {ToolNames.ReadRecord} for the winner." };
+                    return baseOut with { Mode = "error", Error = $"file '{Path.GetFileName(path)}' does not define or override {fk}. This reads the FILE's OWN records only — it does not resolve across masters or report a load-order winner; use {ToolNames.Records} with the default source= for the winner." };
                 var rf = ReadEngine.ReadFields(rec, fields, depth <= 0 ? 1 : depth);
                 if (resolveNames)
                 {
