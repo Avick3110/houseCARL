@@ -199,17 +199,20 @@ internal static class Artifacts
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
     }
 
-    /// <summary>The response-level #342 statements an artifact's ROWS depend on. An artifact is re-entered with no
-    /// conversation attached, so a row's "N other plugins touch this record; their declarations were not read"
-    /// label has to travel with the sentence that says what a child record is and where the precise answer lives.
-    /// Only the CHEAP tier ever reaches a file: the artifact lanes read with conflict_tree off (it is a text-only
-    /// diff view), so a row can only ever carry the cheap note.
-    ///
-    /// <para>The manifest is LINE 1 and the annotated rows are lines 2..N, so the clause's old "an annotated field
-    /// above" pointed the wrong way for exactly the reader it was added for (Aaron's finding 2). It now names the
-    /// annotated fields instead of pointing at them, which is true from line 1 and from anywhere else.</para></summary>
+    /// <summary>The CHEAP tier's response-level #342 statement an artifact's ROWS depend on. An artifact is
+    /// re-entered with no conversation attached, so a row's "N other plugins touch this record; their
+    /// declarations were not read" label has to travel with the sentence that says what a child record is and
+    /// where the precise answer lives. The manifest is LINE 1 and the annotated rows are lines 2..N, so this
+    /// names the annotated fields rather than pointing at a position ("above") that would be true only sometimes.
+    /// The PRECISE tier's own artifact note is <see cref="PreciseChildNotes"/>, on the tree lane only.</summary>
     static IReadOnlyList<string>? OwnedChildNotes(IReadOnlyCollection<string> annotatedFields) =>
         annotatedFields.Count == 0 ? null : new[] { ReadSentences.NotReadClause(annotatedFields) };
+
+    /// <summary>The PRECISE tier's response-level note (#485) for a tree artifact: <see cref="ReadSentences.DeclarersLead"/>,
+    /// stated once — never per row, the same #342 response/field split as <see cref="OwnedChildNotes"/> — when any
+    /// row's own <c>child_declarers</c> reached the file.</summary>
+    static IReadOnlyList<string>? PreciseChildNotes(IReadOnlyList<LoadOrderService.TreeRow> rows) =>
+        rows.Any(r => r.Error is null && r.ChildDeclarers.Count > 0) ? new[] { ReadSentences.DeclarersLead } : null;
 
     /// <summary>The annotated field paths an artifact's rows CARRY. Rows are written uncapped (the file is the
     /// answer), so every annotated field of every row reaches the file — but the set is collected from the rows all
@@ -298,8 +301,8 @@ internal static class Artifacts
             writer.WriteRow((w, ms) => JsonWire.WriteTreeRow(w, row, ms, int.MaxValue, LeverNames.Records),
                             row.Error is null ? row.Type : null);   // a records-only artifact: the rows speak the records vocabulary (#439)
         var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
-                                          new[] { "formid", "type", "editorid", "reference", "touchers", "nodes" },
-                                          "input order", rows.Count, epoch ?? "");
+                                          new[] { "formid", "type", "editorid", "reference", "touchers", "child_declarers", "nodes" },
+                                          "input order", rows.Count, epoch ?? "", PreciseChildNotes(rows));
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
     }
 

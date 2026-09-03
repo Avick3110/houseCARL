@@ -1668,7 +1668,7 @@ public static class RecordsTools
             for (int i = 0; i < row.Touchers.Count; i++)
                 sb.Append("    ").Append(i + 1).Append(". ").Append(row.Touchers[i])
                   .Append(i == row.Touchers.Count - 1 ? "  (winner)" : "").Append('\n');
-            AppendChildDeclarers(sb, row);
+            if (AppendChildDeclarers(sb, row, cap)) truncated = true;
             if (row.Nodes.Count <= 1) { rendered++; continue; }   // a sole provider has nothing to diff against
             sb.Append("  diff (field deltas vs ").Append(row.ReferencePlugin)
               .Append("; identical fields omitted; list contents compared by content, element reorders flagged):\n");
@@ -1697,24 +1697,32 @@ public static class RecordsTools
         return sb.ToString().TrimEnd('\n');
     }
 
-    /// <summary>The tree's precise owned-child block (#485): for each child-bearing field of the record's own
-    /// type, WHICH providers declare child records there — and the sentence the cheap tier can never say, that
-    /// none of them do.
-    ///
-    /// <para><b>Above the diff, not inside it.</b> The diff renders DIFFERENCES; a provider whose content in a
-    /// child-bearing field equals the reference's is omitted from it, so its declaration is invisible there. This
-    /// block is a statement about declarations, so it sits with the provider list it is about rather than in a
-    /// view that would silently drop half of its subjects.</para>
-    ///
-    /// <para><b>It is emitted for every row whose type owns children</b>, sole-toucher rows included — the block
-    /// is not a diff and does not need two providers to be true.</para></summary>
-    static void AppendChildDeclarers(StringBuilder sb, LoadOrderService.TreeRow row)
+    /// <summary>The tree's precise owned-child block (#485): which providers declare children per child-bearing
+    /// field, and the negative sentence when none do. Sits ABOVE the diff, never inside it — the diff omits a
+    /// provider whose content equals the reference, so a declarations statement in there would drop half its
+    /// subjects. Emitted for every row whose type owns children, sole-toucher rows included (not a diff).
+    /// Rationale: `docs/architecture/records-owned-child-declarers.md`.</summary>
+    /// <returns>true if the block hit <paramref name="cap"/> and was cut short.</returns>
+    static bool AppendChildDeclarers(StringBuilder sb, LoadOrderService.TreeRow row, int cap)
     {
-        if (row.ChildDeclarers.Count == 0) return;
+        if (row.ChildDeclarers.Count == 0) return false;
+        if (sb.Length >= cap)
+        {
+            sb.Append("    ... [child declarers cut at max_chars=").Append(cap).Append(" — raise max_chars or narrow with ").Append(LeverNames.Records.Fields).Append("]\n");
+            return true;
+        }
         sb.Append("  ").Append(ReadSentences.DeclarersLead).Append('\n');
         foreach (var cd in row.ChildDeclarers)
+        {
+            if (sb.Length >= cap)
+            {
+                sb.Append("    ... [child declarers cut at max_chars=").Append(cap).Append(" — raise max_chars or narrow with ").Append(LeverNames.Records.Fields).Append("]\n");
+                return true;
+            }
             sb.Append("    ").Append(cd.Field).Append(": ")
               .Append(ReadSentences.DeclarersNote(cd.Shape, cd.Declaring, cd.Unreadable)).Append('\n');
+        }
+        return false;
     }
 
     /// <summary>The chain form's text render: per seed the reached nodes in BFS order with provenance (what
