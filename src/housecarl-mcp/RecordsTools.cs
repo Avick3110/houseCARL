@@ -1621,7 +1621,7 @@ public static class RecordsTools
                     if (sb.Length >= cap)
                     {
                         truncated = true;
-                        sb.Append("    ... [delta lines cut at max_chars=").Append(cap).Append(" — raise max_chars or narrow with ").Append(LeverNames.Records.Fields).Append("]\n");
+                        AppendCutNotice(sb, "delta lines", cap);
                         break;
                     }
                     sb.Append("    - ").Append(delta).Append('\n');
@@ -1669,7 +1669,14 @@ public static class RecordsTools
             for (int i = 0; i < row.Touchers.Count; i++)
                 sb.Append("    ").Append(i + 1).Append(". ").Append(row.Touchers[i])
                   .Append(i == row.Touchers.Count - 1 ? "  (winner)" : "").Append('\n');
-            if (AppendChildDeclarers(sb, row, cap, ref declarersLeadWritten)) { truncated = true; rendered++; continue; }
+            if (AppendChildDeclarers(sb, row, cap, ref declarersLeadWritten, out bool declarersCut))
+            {
+                truncated = true;
+                // The block ran to completion and ended past cap: what this row loses is its DIFF, so that is
+                // what the notice names. A sole-provider row has no diff, and loses nothing — it says nothing.
+                if (!declarersCut && row.Nodes.Count > 1) AppendCutNotice(sb, "nodes", cap);
+                rendered++; continue;
+            }
             if (row.Nodes.Count <= 1) { rendered++; continue; }   // a sole provider has nothing to diff against
             sb.Append("  diff (field deltas vs ").Append(row.ReferencePlugin)
               .Append("; identical fields omitted; list contents compared by content, element reorders flagged):\n");
@@ -1679,7 +1686,7 @@ public static class RecordsTools
                 if (sb.Length >= cap)
                 {
                     truncated = true;
-                    sb.Append("    ... [nodes cut at max_chars=").Append(cap).Append(" — raise max_chars or narrow with ").Append(LeverNames.Records.Fields).Append("]\n");
+                    AppendCutNotice(sb, "nodes", cap);
                     break;
                 }
                 sb.Append("    ").Append(n.Plugin).Append(n.IsWinner ? " (winner)" : "").Append(": ");
@@ -1698,44 +1705,49 @@ public static class RecordsTools
         return sb.ToString().TrimEnd('\n');
     }
 
+    /// <summary>The records text lane's cut notice, composed in ONE place. Five call sites across three forms
+    /// wrote this string by hand; a rendered sentence with copies drifts between the copy a grammar guard
+    /// harvests and the copies it never reaches.</summary>
+    /// <param name="what">What was cut — the notice claims this and nothing else, so a caller that cut something
+    /// different names that instead.</param>
+    static void AppendCutNotice(StringBuilder sb, string what, int cap) =>
+        sb.Append("    ... [").Append(what).Append(" cut at max_chars=").Append(cap)
+          .Append(" — raise max_chars or narrow with ").Append(LeverNames.Records.Fields).Append("]\n");
+
     /// <summary>The tree's precise owned-child block (#485): which providers declare children per child-bearing
     /// field, and the negative sentence when none do. Sits ABOVE the diff, not inside it. Rationale:
     /// `docs/architecture/records-owned-child-declarers.md`.
     ///
-    /// <para>The block's one framing line (<see cref="ReadSentences.DeclarersLead"/>) is invariant text, so it is
-    /// written at most ONCE over the whole response — tracked by <paramref name="leadWritten"/> — matching the
-    /// json and artifact transports (<see cref="JsonWire.RenderTree"/>'s <c>child_declarers_note</c>,
-    /// <see cref="Artifacts.PreciseChildNotes"/>), which never repeated it per row. Every LATER row still gets
-    /// <see cref="ReadSentences.DeclarersHeader"/> — a short label, not the full explanation again — so its block
-    /// is never unlabelled text flush against the numbered toucher list above it (round-2 review-A MEDIUM3).</para>
-    ///
-    /// <para><c>internal</c> rather than <c>private</c> so a test can drive it directly against a hand-built
-    /// <see cref="LoadOrderService.TreeRow"/> with more declarers than the MO2 fixture's widest cell carries —
-    /// the fixture tops out at two, never reaching <see cref="ReadSentences.DeclarerNameCap"/>'s overflow branch
-    /// through a live read (round-2 review-A MEDIUM4).</para></summary>
-    /// <returns>true if the block hit <paramref name="cap"/> and was cut short.</returns>
-    internal static bool AppendChildDeclarers(StringBuilder sb, LoadOrderService.TreeRow row, int cap, ref bool leadWritten)
+    /// <para><c>internal</c> rather than <c>private</c> so a test can drive it against a hand-built
+    /// <see cref="LoadOrderService.TreeRow"/> wider than the MO2 fixture's widest cell.</para></summary>
+    /// <param name="leadWritten">Set once the framing line has been stated; every later row gets the short
+    /// <see cref="ReadSentences.DeclarersHeader"/> instead of repeating it.</param>
+    /// <param name="blockCut">true only when declarer lines were actually DROPPED. false with a true return means
+    /// the block is complete and the ROW ends at <paramref name="cap"/> — the caller names what it loses.</param>
+    /// <returns>true if the row ends here.</returns>
+    internal static bool AppendChildDeclarers(StringBuilder sb, LoadOrderService.TreeRow row, int cap,
+                                              ref bool leadWritten, out bool blockCut)
     {
+        blockCut = false;
         if (row.ChildDeclarers.Count == 0) return false;
-        if (sb.Length >= cap)
+        // The framing line is invariant text of a KNOWN length, so it is RESERVED rather than written and
+        // regretted: writing it on a sb.Length < cap check alone puts its whole length past cap with nothing
+        // able to take it back. JsonWire.RenderTree reserves the identical sentence the same way.
+        string framing = leadWritten ? ReadSentences.DeclarersHeader : ReadSentences.DeclarersLead;
+        if (sb.Length + framing.Length + 3 >= cap)   // 3: the two-space indent and the newline around it
         {
-            sb.Append("    ... [child declarers cut at max_chars=").Append(cap).Append(" — raise max_chars or narrow with ").Append(LeverNames.Records.Fields).Append("]\n");
+            blockCut = true;
+            AppendCutNotice(sb, "child declarers", cap);
             return true;
         }
-        if (!leadWritten)
-        {
-            sb.Append("  ").Append(ReadSentences.DeclarersLead).Append('\n');
-            leadWritten = true;
-        }
-        else
-        {
-            sb.Append("  ").Append(ReadSentences.DeclarersHeader).Append('\n');
-        }
+        sb.Append("  ").Append(framing).Append('\n');
+        leadWritten = true;
         foreach (var cd in row.ChildDeclarers)
         {
             if (sb.Length >= cap)
             {
-                sb.Append("    ... [child declarers cut at max_chars=").Append(cap).Append(" — raise max_chars or narrow with ").Append(LeverNames.Records.Fields).Append("]\n");
+                blockCut = true;
+                AppendCutNotice(sb, "child declarers", cap);
                 return true;
             }
             sb.Append("    ").Append(cd.Field).Append(": ")
@@ -1744,14 +1756,10 @@ public static class RecordsTools
                 sb.Append(ReadSentences.DeclarersOverflowRemedy);
             sb.Append('\n');
         }
-        // The block's own tail: the LAST field line can itself push past cap with nothing downstream to notice —
-        // a sole-provider row has no diff loop to catch it (review-A MEDIUM2 / review-B L5/L6, #485 round 1).
-        if (sb.Length >= cap)
-        {
-            sb.Append("    ... [child declarers cut at max_chars=").Append(cap).Append(" — raise max_chars or narrow with ").Append(LeverNames.Records.Fields).Append("]\n");
-            return true;
-        }
-        return false;
+        // Reachable only when every declarer line was written, so the block was NOT cut — the last line simply
+        // ended past cap. Ending the row is right; claiming the declarers were cut would be false in every case
+        // this fires, so the notice is the caller's to write over what the row actually loses.
+        return sb.Length >= cap;
     }
 
     /// <summary>The chain form's text render: per seed the reached nodes in BFS order with provenance (what
