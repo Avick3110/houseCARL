@@ -1,15 +1,3 @@
-// The Papyrus fixture world (#486 PR 1, item 1). Record shapes ported from
-// src/housecarl-generator/ScriptPropertyCheckProbe.cs's RunChecks — same EditorIDs, same VMAD shapes, same
-// property bindings, same planted .pex pair — re-homed as an MO2-INSTANCE world so the same fixture can be
-// driven by the service (LoadOrderService.ValidateScripts over the instance) AND by housecarl_check off the
-// built server. The probe's own world was a bare directory + LoadOrderResolver.Build, which the shipped tool
-// surface cannot point at.
-//
-// It cannot be handed to the core ScriptPropertyCheck.Run(resolver, assets, …) directly: LoadOrderService's
-// Resolver and Assets are private and this world does not re-derive them. Nothing needs that seam —
-// ValidateScripts carries every knob the core sweep takes (record scope, property_contains, finding classes,
-// counts_only, exclude, limit) — so it is not opened speculatively.
-
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
@@ -20,19 +8,15 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The synthetic MO2 world the script-property surface is driven against: one plugin carrying five records
-/// (a footgun, a fully-bound control, a script with no compiled .pex, a script-free record, and a QUST whose
-/// script hangs off an ALIAS), plus the loose <c>Scripts/HcSpBase.pex</c> + <c>Scripts/HcSpChild.pex</c> pair
-/// that DECLARES the properties those records do or do not bind.
+/// The synthetic MO2 world the script-property surface is driven against: one plugin of five records plus
+/// the loose <c>Scripts/HcSpBase.pex</c> + <c>Scripts/HcSpChild.pex</c> pair that DECLARES what those
+/// records do or do not bind. Where the records came from, why it is an MO2 instance rather than the
+/// probe's bare directory, and why it generates no corpus:
+/// <c>docs/architecture/test-project-fixtures.md</c>.
 ///
-/// <para>One instance is shared by every read-only test through <see cref="ScriptsFixture"/>, and it is
-/// FROZEN: tests take fixture-known totals from it (four script-bearing records), so a later need gets its
-/// own world rather than an edit to this one. A test that MUTATES — the file-lock arms hold a plugin open —
-/// constructs its own instance and never touches this world's files.</para>
-///
-/// <para>No corpus. Unlike <see cref="RecordsWorld"/> this world never repoints
-/// <c>CorpusRulebook.CorpusPath</c>: the script-property sweep reads VMADs and .pex tables, never the record
-/// rulebook, so generating a corpus here would be cost with no subject.</para>
+/// <para>Shared through <see cref="ScriptsFixture"/> and FROZEN: tests take fixture-known totals from it,
+/// so a later need gets its own world rather than an edit to this one, and a test that holds a file open
+/// builds its own instance.</para>
 /// </summary>
 public sealed class ScriptsWorld : IDisposable
 {
@@ -87,7 +71,10 @@ public sealed class ScriptsWorld : IDisposable
     public string Instance { get; }
     public string ModsDir { get; }
     public string ScriptsDir { get; }
+
+    /// <summary>The shared world's plugin. An arm that would HOLD it open builds its own world instead.</summary>
     public string PluginPath { get; }
+
     public string PluginName { get; }
 
     public LoadOrderService Svc { get; }
