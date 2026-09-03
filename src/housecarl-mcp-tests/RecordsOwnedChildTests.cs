@@ -719,14 +719,19 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     // ---- the block's own TAIL, not just its per-line checks -------------------------------------------------
     //
     // The per-field checks run BEFORE each line and never after the last one, so the LAST line pushing sb.Length
-    // past cap goes unnoticed on a sole-provider row — nothing downstream catches it, because the diff loop never
-    // runs. Measured on CellC (4-line block, full text 844 chars, its SINGULAR Landscape line reading "carried by
-    // 0 provider(s)"): a StringBuilder holding cap-or-more AFTER the final line (before TrimEnd('\n') removes one
-    // char) is the boundary, at max_chars=845; 846 is the first cap the same content fits inside.
+    // past cap goes unnoticed — nothing downstream catches it once the row ends there. Measured on CellC (4-line
+    // block, full text 844 chars, its SINGULAR Landscape line reading "carried by 0 provider(s)"): a
+    // StringBuilder holding cap-or-more AFTER the final line (before TrimEnd('\n') removes one char) is the
+    // boundary, at max_chars=845; 846 is the first cap the same content fits inside.
+    //
+    // The tail-trip arm is driven on CellF (3 touchers), not CellC: `truncated` says the ANSWER is incomplete and
+    // drives the spill, so it is set at the tail only for a row that LOST something — the diff a multi-provider
+    // row never reached. CellC at the same tail loses nothing and is the DoesNotContain control two arms down
+    // (ASoleProviderRowWhoseCompleteBlockEndsPastTheCapClaimsNothingWasCut).
 
     [Fact]
     public void ATextRowsDeclarersBlockTailAloneCanTripMaxChars_AndTheResponseIsMarkedTruncated() =>
-        Assert.Contains("spilled: complete result", Tree(_w.CellC, maxChars: 845));
+        Assert.Contains("spilled: complete result", Tree(_w.CellF, maxChars: 830));
 
     [Fact]
     public void ARowWhoseDeclarersBlockFitsExactlyAtTheTailIsNotMarkedTruncated() =>
@@ -761,7 +766,9 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.Contains("NavigationMeshes: ", r);
         Assert.DoesNotContain("[child declarers cut", r);   // …so nothing may say it was cut,
         Assert.DoesNotContain("[nodes cut", r);             // and a sole provider loses no diff either.
-        Assert.Contains("spilled: complete result", r);
+        // …and nothing ELSE may say it either: `truncated` reaches TreeResponse, which writes a JSONL artifact
+        // and re-renders with "spilled: complete result". A row that lost nothing does not spill.
+        Assert.DoesNotContain("spilled", r);
     }
 
     [Fact]

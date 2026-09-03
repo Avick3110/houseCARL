@@ -1671,9 +1671,13 @@ public static class RecordsTools
                   .Append(i == row.Touchers.Count - 1 ? "  (winner)" : "").Append('\n');
             if (AppendChildDeclarers(sb, row, cap, ref declarersLeadWritten, out bool declarersCut))
             {
-                truncated = true;
-                // The block ran to completion and ended past cap: what this row loses is its DIFF, so that is
-                // what the notice names. A sole-provider row has no diff, and loses nothing — it says nothing.
+                // The ROW ends here, but `truncated` claims the ANSWER is incomplete — it drives the spill and the
+                // "spilled: complete result" line, so it is set only when this row actually LOST something:
+                // declarer lines dropped, or a diff (Nodes > 1) the row never reached. A sole-provider row whose
+                // complete block merely ended past cap lost nothing, and reporting it truncated is the same
+                // falsity the tail notice used to carry, moved into a different sentence.
+                if (declarersCut || row.Nodes.Count > 1) truncated = true;
+                // What such a row loses is its DIFF, so that is what the notice names.
                 if (!declarersCut && row.Nodes.Count > 1) AppendCutNotice(sb, "nodes", cap);
                 rendered++; continue;
             }
