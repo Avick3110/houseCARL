@@ -292,14 +292,18 @@ public static class DescriptionVocabularyGuardProbe
         {
             var source = SourceArm();
             VocabularyArm(source);
-        // The TOOLNAME arm was RETIRED at the 1.x cut. It held every housecarl_ token in a caller-facing
-        // sentence against the registered set, and the tool-name registry (ADR 0004) took its population away:
-        // shipped prose interpolates a ToolNames CONSTANT, and a constant cannot name a tool that does not
-        // exist. Its anti-vacuity floor was held up entirely by the 43 literals in the three deletion-flagged 1.x
-        // tool bodies; deleting those bodies took `carrying` to 0 and the arm went RED with nothing left to read.
-        // Re-flooring it would have been in-place growth in a harness being retired. What it proved lives in
-        // ToolNameRegistryTests (constants == declared == registered) and PublishedNameAnchorTests (each published
-        // name pinned to a literal), both in src/housecarl-mcp-tests.
+            // The TOOLNAME arm was RETIRED at the 1.x cut. It held every housecarl_ token in a caller-facing
+            // sentence against the registered set, and the tool-name registry (ADR 0004) took its population
+            // away: shipped prose interpolates a ToolNames CONSTANT, and a constant cannot name a tool that does
+            // not exist. Its anti-vacuity floor was held up entirely by the 43 literals in the three
+            // deletion-flagged 1.x tool bodies; deleting those bodies took `carrying` to 0 and the arm went RED
+            // with nothing left to read. Re-flooring it would have been in-place growth in a harness being
+            // retired. What it proved lives in ToolNameRegistryTests (constants == declared == registered) and
+            // PublishedNameAnchorTests (each published name pinned to a literal), both in src/housecarl-mcp-tests.
+            // What it never covered, and still nobody does by construction: a BARE retired name (no housecarl_
+            // prefix) in a shipped sentence. The token filter matched the prefix only. Deleting a tool means
+            // grepping for its bare spelling too — RecordsRetiredNameRemedyTests holds the reachable records
+            // sentences against the retired table, and states which spellings that oracle can decide.
             var surface = SurfaceSites().ToList();
             ReachArm(surface, source);
             VerbArm(surface);
@@ -2476,7 +2480,6 @@ public static class DescriptionVocabularyGuardProbe
                   + "docstring boundary would be false in one direction or the other" }, redArm: true);
     }
 
-    // ================= TOOL NAMES: no caller-facing sentence points at a tool nobody can call =================
     // ================= reporting =================
 
     /// <summary>A type carrying a nested type, both described, so <c>RED-NESTEDTYPE</c> has a shape the live
@@ -2494,6 +2497,10 @@ public static class DescriptionVocabularyGuardProbe
     }
 
 
+    /// <summary>What a given arm's green actually proves, so a reader can price it.
+    /// <list type="bullet">
+    ///   <item><b>Construction</b> — the arm's claim is true by how the thing is built, not by a pattern
+    ///         that happened to match. Its population comes from the surface it claims.</item>
     ///   <item><b>BestEffort</b> — the arm reads MEANING out of prose or reflection by pattern. A pattern's reach
     ///         is never a by-construction fact, so the arm is labelled and MUST print its own coverage: how many
     ///         of the things present it actually compared, and what it skipped, named with the reason.</item>

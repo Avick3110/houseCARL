@@ -20,9 +20,9 @@ namespace HousecarlMcpTests;
 /// (see data/tools-list-1.9.0.json for its provenance). Each one is either still on the surface or must
 /// redirect — a deleted tool with no row is a RED cell by construction, not an invisible omission.</para>
 ///
-/// <para>This DUPLICATES D3 for the rows both cover; D3 stays until BindingShimProbe converts whole, which
-/// the ruling places at the cut. It is not repointed here — nothing moves out of the old harness except by
-/// a conversion PR.</para>
+/// <para>This replaced BindingShimProbe's D3 arm, which converted whole at the cut. It is the stronger form:
+/// D3's subjects came from the alias table itself, so a deleted tool nobody added a row for was invisible to
+/// it; these come from the frozen capture, so that case is RED.</para>
 /// </summary>
 [Collection("server")]
 [Trait("tier", "stdio")]

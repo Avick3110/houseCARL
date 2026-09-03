@@ -4,7 +4,9 @@ using Mutagen.Bethesda.Plugins.Records;
 namespace HousecarlCore;
 
 /// <summary>
-/// The RECORD-level narrowing the two sweep tools share (housecarl_check_errors, housecarl_validate_scripts — #282).
+/// The RECORD-level narrowing the sweep families share. It was written for the two 1.x sweep tools
+/// (housecarl_check_errors, housecarl_validate_scripts — #282), which the 1.x cut deleted; the families ride
+/// housecarl_check findings=["errors"] and findings=["scripts"] now.
 /// Both had exactly one scope knob, <c>plugins=</c>, and one script-heavy plugin (~183 scripted records, 711 unbound
 /// findings) renders past the tool-result token cap — so the common follow-up question ("did the unbound count for
 /// THESE few records change?") had no call that could ask it. This is that missing scope, in the vocabulary the sibling
@@ -83,7 +85,7 @@ public sealed class SweepScope
 /// findings in the swept scope carry it.</summary>
 public sealed record SweepCount(string Key, int Count);
 
-/// <summary>The error classes housecarl_check_errors can be filtered to (<c>findings=</c>). Excluding a class SKIPS the
+/// <summary>The error classes the errors family can be filtered to (<c>findings=</c>). Excluding a class SKIPS the
 /// work that finds it — <see cref="Dangling"/> off skips the per-record link walk entirely, which is what turns "is any
 /// master missing anywhere in my order" from a full sweep into a master-table read. Parse failures are deliberately NOT
 /// a member: "houseCARL could not read this" is the honesty layer, not a finding class, and must never be filterable
@@ -99,7 +101,7 @@ public enum ErrorFindingClass
     All = Dangling | MissingMasters,
 }
 
-/// <summary>The finding classes housecarl_validate_scripts can be filtered to (<c>findings=</c>), in severity order:
+/// <summary>The finding classes the scripts family can be filtered to (<c>findings=</c>), in severity order:
 /// an unbound OBJECT property is the silent-<c>None</c> footgun (HIGH), an unbound uninitialized SCALAR silently
 /// defaults (MEDIUM), a bound-but-null object property is advisory. Unverifiable attachments are deliberately NOT a
 /// member — same reason as the parse class above: an attachment houseCARL could not read must stay visible under every
@@ -122,7 +124,7 @@ public enum ScriptFindingClass
 /// one asked — Q3). An empty/omitted list means "every class", the unfiltered default.</summary>
 public static class SweepFindings
 {
-    /// <summary>housecarl_check_errors' <c>findings=</c>: <c>dangling</c> / <c>missing_masters</c>.</summary>
+    /// <summary>The errors family's <c>findings=</c>: <c>dangling</c> / <c>missing_masters</c>.</summary>
     public static bool TryParseErrorClasses(IReadOnlyList<string>? names, out ErrorFindingClass classes, out string? error)
     {
         classes = ErrorFindingClass.All; error = null;
@@ -146,7 +148,7 @@ public static class SweepFindings
         return true;
     }
 
-    /// <summary>housecarl_validate_scripts' <c>findings=</c>: <c>unbound_object</c> / <c>unbound_scalar</c> /
+    /// <summary>The scripts family's <c>findings=</c>: <c>unbound_object</c> / <c>unbound_scalar</c> /
     /// <c>bound_null</c>, plus the convenience alias <c>unbound</c> (both unbound classes).</summary>
     public static bool TryParseScriptClasses(IReadOnlyList<string>? names, out ScriptFindingClass classes, out string? error)
     {

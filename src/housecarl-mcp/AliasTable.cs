@@ -164,9 +164,10 @@ internal static class AliasTable
         new("fromfolder",   new[] { "sourcefolder" }),
     };
 
-    /// <summary>The full tables, for the activation census (binding-shim-guard's CENSUS arm): the guard
-    /// enumerates the REAL published schemas and asserts, per row, exactly where it activates — the
-    /// executable form of "dormant by construction".</summary>
+    /// <summary>The full tables, for the activation census (AliasActivationTests): it runs the shipped
+    /// resolver over the REAL published schemas and asserts, per row, exactly where it activates — the
+    /// executable form of "dormant by construction". The census's other half — that no row fires anywhere
+    /// unintended — is not statically derivable and is owed as its own guard (#482).</summary>
     internal static IReadOnlyList<Rename> AllRenames => Renames;
     internal static IReadOnlyList<Dissolution> AllDissolutions => Dissolutions;
 
@@ -269,10 +270,12 @@ internal static class AliasTable
     /// before the shim's filter runs, so this table answers only a call naming a tool the server does NOT
     /// have. That was nothing at all until the demolition catch-up (#468), which unregistered the six 1.x
     /// WRITE tools — those rows are LIVE now, and are the only thing standing between a caller on pre-2.0
-    /// docs and a dead end. The eight read rows and the three check rows stay dormant while their tools are
-    /// still registered, and go live at their own retirement. BindingShimProbe arm D3 drives every live row
-    /// over the wire and treats an empty sweep as a broken guard, so how many are live is MEASURED there
-    /// rather than asserted here. It turns the SDK's generic unknown-tool error into the successor
+    /// docs and a dead end. The eight read rows and the three check rows went LIVE at the cut (#468), which
+    /// unregistered their tools too, so every row in this table is live now. RetiredNameRedirectTests drives
+    /// each one over the wire, with its subject set derived from the frozen 1.9.0 capture rather than from this
+    /// table — so a deleted tool with no row here is a RED cell rather than an invisible omission. What that
+    /// arm does not cover: a row added for a name 1.9.0 never published has no subject in the capture.
+    /// It turns the SDK's generic unknown-tool error into the successor
     /// spelling, so a caller working from old docs lands on `records` in one hop instead of a dead end.</summary>
     static readonly (string Old, string Successor)[] RetiredTools =
     {

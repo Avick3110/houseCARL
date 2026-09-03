@@ -19,7 +19,7 @@ namespace HousecarlMcp;
 /// deliberately stricter than the SDK binder and consults no schema at all.</para>
 ///
 /// <para>Why it is shaped this way: <c>docs/architecture/tool-schema-publication.md</c>. What it guarantees is
-/// pinned by <c>binding-shim-guard</c>'s SCHEMA arms (the real served surface) and <c>schema-flatten-guard</c>
+/// pinned by <c>PublishedSchemaShapeTests</c> (the real served surface) and <c>schema-flatten-guard</c>
 /// (the mechanism).</para>
 ///
 /// <para><b>Scope of <see cref="FlattenRefs"/>: it normalizes what THIS SDK's schema generator emits — it is not
@@ -58,7 +58,7 @@ internal static class ToolSchemas
 
     /// <summary>Register both passes. Runs as a POST-configure over <c>McpServerOptions</c> — the one place the
     /// final tool collection exists whichever transport built the host, since the assembly scan registers each tool
-    /// as a factory. A tool or parameter not found is skipped; <c>binding-shim-guard</c>'s SCHEMA arms name every
+    /// as a factory. A tool or parameter not found is skipped; <c>PublishedSchemaShapeTests</c> names every
     /// union row and assert the published shape, so a stale <see cref="FileListParams"/> row fails there rather
     /// than degrading quietly. (Not <c>apply-guard</c>, which never reads a published schema.)</summary>
     internal static void PublishSchemas(IServiceCollection services) =>
@@ -176,7 +176,7 @@ internal static class ToolSchemas
     /// <summary>Inline every same-document <c>$ref</c> that resolves, bounding each recursive chain at
     /// <see cref="MaxSelfExpansions"/> expansions of the same pointer. One that does not resolve — or is not a
     /// same-document pointer, or is not a string at all — is left in place to fail the invariant
-    /// <c>binding-shim-guard</c> asserts: no published tool schema carries a <c>$ref</c> MEMBER, in any spelling.
+    /// <c>PublishedSchemaShapeTests</c> asserts: no published tool schema carries a <c>$ref</c> MEMBER, in any spelling.
     /// That predicate is wider than this pass's gate on purpose, and it is what makes leaving a form this pass
     /// does not understand a report rather than a silence. Internal so <c>schema-flatten-guard</c> can drive it
     /// over synthetic documents — the published surface exercises only the shapes today's DTOs happen to
