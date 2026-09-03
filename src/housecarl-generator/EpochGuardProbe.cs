@@ -21,7 +21,10 @@ namespace HousecarlGenerator;
 ///   3  STAMPS — every index-backed lane carries the capture's epoch: cross_plugin_query (incl. the Fail path
 ///      staying null — a refusal that never consulted a build must not invent one), batch (ONE epoch for the
 ///      whole batch; a malformed-formid row carries none), single read (refusals INCLUDED — "not present" is an
-///      answer about a build), resolve (out-epoch), diff, effect_chain, check_errors, validate_scripts, status.
+///      answer about a build), resolve (out-epoch), effect_chain, status. The diff, check_errors and
+///      validate_scripts arms this list used to name went with #486's deleted render halves: the two sweep
+///      families' stamp facts are carried by <c>EpochCheckSweepTests</c> against the merged renderer today, and
+///      diff's died with the 1.x pairwise-diff service.
 ///   4  RENDERS — the text and json renders both emit it (D2: the two may differ only in formatting), and a
 ///      freshness rebuild between two queries changes the STAMP, not just the index (the cross-page detection
 ///      this exists for).
@@ -70,7 +73,10 @@ internal static class EpochGuardProbe
                 .BasicStats = new WeaponBasicStats { Damage = 20, Weight = 1 };
 
             // An OFF-ORDER plugin: in a DISABLED mod folder (modlist '-OldMod'), overriding weapons[0] — the
-            // documented diff-against-a-disabled-old-patch case, for the F3 coverage-qualifier arms (PR #305 fold).
+            // documented diff-against-a-disabled-old-patch case. The coverage-qualifier arms it was built for
+            // (PR #305 fold) moved to EpochCheckSweepTests with #486's deletion; the plugin stays because this
+            // world's SHAPE is what arms 1 and 2 fingerprint, and dropping a mod folder from it changes what they
+            // measure.
             var oldKey = new ModKey("HcEpochOld", ModType.Plugin);
             string oldName = oldKey.FileName.String;
             var oldMod = new SkyrimMod(oldKey, SkyrimRelease.SkyrimSE);
@@ -89,8 +95,10 @@ internal static class EpochGuardProbe
             master.BeginWrite.ToPath(masterFile).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
             ovMod.BeginWrite.ToPath(ovFile).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
             oldMod.BeginWrite.ToPath(oldFile).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
-            // An UNPARSEABLE plugin, ENABLED — the index build excludes it, so a scope naming it hits the CORE
-            // sweep frame's excluded-plugin refusal (PR #305 re-review finding 1).
+            // An UNPARSEABLE plugin, ENABLED — the index build excludes it. The arm that named it in a sweep scope
+            // and read back the CORE frame's excluded-plugin refusal (PR #305 re-review finding 1) moved to
+            // EpochCheckSweepTests.FactE5_6 with #486's deletion; the plugin stays because it is listed in this
+            // world's loadorder.txt/plugins.txt below and arms 1-2 fingerprint that order.
             const string badName = "HcEpochBad.esp";
             File.WriteAllText(Path.Combine(mods, "BadMod", badName), "this is not a bethesda plugin");
 
