@@ -540,33 +540,12 @@ public static class DialogueValidateGuardProbe
             all &= Pass("QUST-CKPARITY-OK not flagged", ok, $"kind={r.InputKind} issues={InputIssues(r)}");
         }
 
-        // ---------- RENDER-SCOPE-PIN: the "CK-parity: OK" prose names EVERY subrecord the check covers ----------
-        // The OK lines in DialogueWire are hand-written scope declarations ("the DNAM and ENAM byte subrecords …
-        // are both present") — a third statement of the checked-subrecord set, outside the fill/check predicate
-        // tie. This arm pins them: the authoritative set is DERIVED here by running Missing*Defaults on a BARE
-        // record and extracting each gap's 4-char signature — never hand-listed — so a subrecord added to a check
-        // fails this arm until the corresponding OK line names it (a clean pass must never under-claim its scope, Q3).
-        {
-            var pinView = GapSigs(DialogueCkParity.MissingViewDefaults(
-                new DialogView(FormKey.Factory("000900:HcDvPin.esm"), SkyrimRelease.SkyrimSE)));
-            var pinBranch = GapSigs(DialogueCkParity.MissingBranchDefaults(
-                new DialogBranch(FormKey.Factory("000901:HcDvPin.esm"), SkyrimRelease.SkyrimSE)));
-            var pinQuest = new Quest(FormKey.Factory("000902:HcDvPin.esm"), SkyrimRelease.SkyrimSE);
-            pinQuest.Objectives.Add(new QuestObjective { Index = 1 });   // one Flags-less objective so FNAM is in the set
-            var pinQ = GapSigs(DialogueCkParity.MissingQuestDefaults(pinQuest));
-
-            string rView = DialogueWire.Render(DialogueValidate.Run(resolver, assets, viewOkFk), 0);
-            string rBr = DialogueWire.Render(DialogueValidate.Run(resolver, assets, brOkFk), 0);
-            string rQ = DialogueWire.Render(DialogueValidate.Run(resolver, assets, qOkFk), 0);
-            bool viewNamed = rView.Contains("CK-parity: OK", StringComparison.Ordinal)
-                && pinView.Length > 0 && pinView.All(s => rView.Contains(s, StringComparison.Ordinal));
-            bool brNamed = rBr.Contains("CK-parity: OK", StringComparison.Ordinal)
-                && pinBranch.Length > 0 && pinBranch.All(s => rBr.Contains(s, StringComparison.Ordinal));
-            bool qNamed = rQ.Contains("quest CK-parity: OK", StringComparison.Ordinal)
-                && pinQ.Length > 0 && pinQ.All(s => rQ.Contains(s, StringComparison.Ordinal));
-            all &= Pass("RENDER-SCOPE-PIN OK lines name checked set", viewNamed && brNamed && qNamed,
-                $"view[{string.Join(",", pinView)}]={viewNamed} branch[{string.Join(",", pinBranch)}]={brNamed} quest[{string.Join(",", pinQ)}]={qNamed}");
-        }
+        // ---------- RENDER-SCOPE-PIN: MOVED to xunit ----------
+        // DialogueWire.Render (the deleted 1.x whole-report renderer) is gone. The fact — each seed kind's
+        // "CK-parity: OK" prose names EVERY subrecord its Missing*Defaults check covers, the signature set
+        // DERIVED from the check rather than hand-listed — moves onto the live surface that renders it today:
+        // DialogueKindChecks.ParityOkLine -> DialogueSweepRender.cs:136 -> housecarl_check findings=["dialogue"].
+        // DialogueFamilyTests.FactV1_ParityOkProseNamesEveryCoveredSubrecord.
 
         // ---------- NO-QUEST: an unowned topic warns 'Quest' ----------
         {
