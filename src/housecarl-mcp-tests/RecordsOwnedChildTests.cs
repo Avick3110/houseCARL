@@ -579,7 +579,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
 
     /// <summary>The whole block for the two-declarer cell, in one assertion: two collection fields naming both
     /// lower plugins, and two fields nobody declares stating so — Landscape in its own SINGULAR voice (a count,
-    /// never the collection negative's plural "declares child record**s**", round-1 review-B L4), NavigationMeshes
+    /// never the collection negative's plural "declares child record**s**"), NavigationMeshes
     /// in the collection one. A tier that emitted only the positives, or only the fields it had something to say
     /// about, fails here rather than passing on a substring.</summary>
     [Fact]
@@ -593,7 +593,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         }, DeclarersBlock(Tree(_w.CellF)));
 
     /// <summary>The SINGULAR negative, on its own: a count of zero, never the collection voice's plural claim
-    /// (round-1 review-B L4 — "Saying 'not the merged total' about a singular child is simply false" applies
+    /// ("not the merged total" is simply false about a singular child — the same objection applies
     /// just as hard to the empty answer as to the positive one).</summary>
     [Fact]
     public void ASingularFieldNobodyCarriesIsCountedZero_NeverTheCollectionVoice()
@@ -677,7 +677,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
                     < t.IndexOf("diff (field deltas", StringComparison.Ordinal));
     }
 
-    // ---- the declarers block respects max_chars like every other row content (review-A H1) --------
+    // ---- the declarers block respects max_chars like every other row content ------------------------------
     //
     // AppendChildDeclarers/WriteTreeRow used to append the whole block with no cap check of their own. A
     // sole-provider row (CellC: nothing to diff, so nothing else in the row loop would ever notice the overrun)
@@ -734,7 +734,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
 
     /// <summary>When the block IS cut on a multi-provider row, the row stops there — it used to fall through into
     /// an unconditional "diff (field deltas…):" header for a section the cap already forbade, and the FIRST diff
-    /// node then printed a SECOND, redundant cut notice (review-B L5). Measured on CellF (3 touchers): at every cap
+    /// node then printed a SECOND, redundant cut notice. Measured on CellF (3 touchers): at every cap
     /// that cuts the declarers block, no diff header and no second "[nodes cut" notice follow it.</summary>
     [Fact]
     public void ACutDeclarersBlockEndsTheRow_NoEmptyDiffHeaderAndNoSecondCutNotice()
@@ -811,7 +811,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
 
     /// <summary>The lead is invariant framing text, not per-record content, so a multi-row response states it once
     /// — matching json's `child_declarers_note` and the artifact's manifest note, which never repeated it per row
-    /// (round-1 review-A MEDIUM1 / review-B M1). Both CellA and CellF carry declarers, so a per-row repeat would
+    /// at all. Both CellA and CellF carry declarers, so a per-row repeat would
     /// show two occurrences; the fix shows one.</summary>
     [Fact]
     public void TheLeadIsStatedOnceAcrossMultipleRowsInText_NotPerRow()
@@ -825,8 +825,8 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     }
 
     /// <summary>The row that did NOT carry the full lead still labels its own block — an unlabelled set of field
-    /// lines flush against the numbered toucher list above it is indistinguishable from more touchers (round-2
-    /// review-A MEDIUM3). The label is a SHORT one; the full shape explanation is not repeated.</summary>
+    /// lines flush against the numbered toucher list above it is indistinguishable from more touchers. The
+    /// label is a SHORT one; the full shape explanation is not repeated.</summary>
     [Fact]
     public void TheSecondRowsBlockCarriesTheShortHeaderNotTheFullLeadAgain()
     {
@@ -838,7 +838,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
                     < r.IndexOf(ReadSentences.DeclarersHeader, StringComparison.Ordinal));
     }
 
-    // ---- the new remedy sentences never name a lever housecarl_records lacks (round-2 review-B MEDIUM3) ----
+    // ---- the new remedy sentences never name a lever housecarl_records lacks -------------------------------
     //
     // RecordsRemedyGrammarTests' own harvest (RemedyHarvest.cs) probes the tree form only through RecordsWorld's
     // fixture, which has no child-bearing record type at all — WEAP owns no children, so the four
@@ -865,12 +865,12 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         }
     }
 
-    // ---- WriteTreeRow's bool return, isolated from the declarers path (round-2 review-A MEDIUM2 / review-B MEDIUM4) ----
+    // ---- WriteTreeRow's bool return, isolated from the declarers path ---------------------------------------
     //
     // On a row WITH declarers, the response-level lead-reserve check covers for a missing return value, so the
     // existing cap arms pass whether or not WriteTreeRow's own return is plumbed into rowsTruncated. WEAP has no
     // child-bearing fields at all — anyDeclarers is false, so this arm depends ONLY on the nodes-branch return
-    // value the H1/M6 fix (#485 round 1's pre-green fold) added, with nothing else able to cover for it.
+    // value plumbed into rowsTruncated, with nothing else able to cover for it.
 
     [Fact]
     public void Json_ANoChildrenRowsNodesCutStillSetsTruncated_NotCoveredByTheDeclarersLeadCheck()
@@ -890,7 +890,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     // ---- the block's fields= narrowing (settled item 14) — documented and deliberate, previously UNGUARDED ----
     //
     // Deleting the fields= filter from ResolveTreePinned's `wanted` derivation left the FULL 885-test suite green
-    // (round-2 review-B MEDIUM2) — a documented, deliberate behavior with no arm anywhere pinning it.
+    // — a documented, deliberate behavior that had no arm anywhere pinning it.
 
     [Fact]
     public void FieldsNarrowsTheBlockToTheNamedTopLevelField_NotTheWholeType()
@@ -914,7 +914,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.DoesNotContain("Temporary:", r);
     }
 
-    // ---- the overflow remedy is TEXT-only; json and the artifact already carry every name (round-2 review-A MEDIUM4) ----
+    // ---- the overflow remedy is TEXT-only; json and the artifact already carry every name -------------------
     //
     // The fixture's widest COLLECTION field has 2 declarers; DeclarerNameCap is 3, so no live read ever crosses
     // it. AppendChildDeclarers and JsonWire.WriteTreeRow are internal for exactly this — driven directly against
@@ -953,14 +953,14 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.DoesNotContain("format=json", field.GetProperty("note").GetString());
     }
 
-    // ---- json's response-level lead respects cap too, not just the row-level array (review-A MEDIUM2 / review-B L7) ----
+    // ---- json's response-level lead respects cap too, not just the row-level array --------------------------
     //
     // child_declarers_note used to be written unconditionally after `truncated` was already computed — a
     // Utf8JsonWriter cannot un-write it once appended, so the cap has to be checked (via DeclarersLeadReserve,
     // JsonWire's own measured cost for the property) BEFORE deciding to write it, not after. Measured on CellC's
     // json tree (full 1911 chars): the true boundary is 1885 (the last cap that drops the note and spills) / 1886
     // (the first that keeps it) — the two caps this pair actually asserts, 1884 and 1886, both sit on the correct
-    // side of it (round-2 review-A LOW1: an earlier version of this comment said 1884 was the boundary itself).
+    // side of it; 1884 is not itself the boundary.
 
     [Fact]
     public void Json_TheResponseLevelLeadIsDroppedRatherThanOverrunningCap_AndTruncatedIsSet()
@@ -979,7 +979,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.False(doc.RootElement.GetProperty("truncated").GetBoolean());
     }
 
-    // ---- the precise tier's lead reaches json and the artifact too, not just text (review-A M3) ----
+    // ---- the precise tier's lead reaches json and the artifact too, not just text ---------------------------
 
     [Fact]
     public void Json_ThePreciseTiersLeadRidesTheResponseToo_OnceNotPerRow()
@@ -997,7 +997,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
 
     /// <summary>Marked optional ("child_declarers?"), like every other column most rows don't carry
     /// ("matches?", "note?", "cycles?" …) — a record type that owns no children writes a tree row with no such
-    /// key at all (round-1 review: both reviewers independently, seeded-A LOW4 / gate-B L1).</summary>
+    /// key at all.</summary>
     [Fact]
     public void Artifact_ThePreciseTiersRowSchemaNamesTheChildDeclarersColumnAsOptional()
     {
