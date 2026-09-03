@@ -24,7 +24,10 @@ namespace HousecarlMcpTests;
 /// by-construction set <c>OwnedChildContent.Fields</c> splits by shape and <c>ReadSentences.FieldList</c>
 /// consumes. The SUBJECTS are then found by asking the fixture's own load order for a record of each owner
 /// type, so nothing here names a FormKey. And the completeness of that is itself asserted: a shape the
-/// surface renders that no subject covers REFUSES the run rather than shrinking the grid quietly.</para>
+/// surface renders that no subject covers fails
+/// <see cref="TheSubjectSetCoversEveryShapeTheSurfaceRendersADeclarersBlockFor"/> by name. The grid's own
+/// theory cases still run, narrowed past the missing subject — the class goes red either way, but it is the
+/// completeness arm that says so, not a refusal that stops the run.</para>
 ///
 /// <para><c>RecordsWorld</c> stays frozen, and <see cref="RecordsRemedyGrammarTests"/>' arms are untouched.
 /// The lever vocabulary, the remedy discriminant, the per-lane harvest and the lane list all come from
@@ -70,13 +73,24 @@ public sealed class OwnedChildRemedyGrammarTests : IClassFixture<OwnedChildFixtu
         {
             if (WriteEngine.ChildBearingProperties(t).Count == 0) continue;
 
-            var blank = System.Activator.CreateInstance(t, FormKey.Null, SkyrimRelease.SkyrimSE) as IMajorRecordGetter;
-            Assert.True(blank is not null,
-                $"{t.Name} is child-bearing and this guard cannot make a blank one to read its shapes off. " +
-                "The shape split comes from OwnedChildContent.Fields, which takes a body; a type the guard " +
-                "cannot instantiate takes itself out of the population, which is the gap #498 is about.");
+            IMajorRecordGetter blank;
+            try
+            {
+                // Every IMajorRecord is an IMajorRecordGetter, so the cast cannot yield null and a null check
+                // here would be an arm that cannot fail. What CAN happen is that the type has no
+                // (FormKey, SkyrimRelease) constructor, and that throws — which is the case this explains.
+                blank = (IMajorRecordGetter)System.Activator.CreateInstance(t, FormKey.Null, SkyrimRelease.SkyrimSE)!;
+            }
+            catch (Exception ex)
+            {
+                throw new Xunit.Sdk.XunitException(
+                    $"{t.Name} is child-bearing and this guard cannot make a blank one to read its shapes " +
+                    "off. The shape split comes from OwnedChildContent.Fields, which takes a body; a type the " +
+                    "guard cannot instantiate takes itself out of the population, which is the gap #498 is " +
+                    $"about.\n{ex.GetType().Name}: {ex.Message}");
+            }
 
-            owners[t] = OwnedChildContent.Fields(blank!).Values.Distinct().OrderBy(s => s).ToList();
+            owners[t] = OwnedChildContent.Fields(blank).Values.Distinct().OrderBy(s => s).ToList();
         }
 
         Assert.True(owners.Count > 0,
