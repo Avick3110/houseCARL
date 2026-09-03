@@ -874,10 +874,11 @@ internal static class WriteSentences
         // The phrase is the ACTION, not the token (PR #337 re-review, residual B). The tool name alone survives a
         // rewrite to "…confirms the dialogue graph is sound (that check not required)", which inverts the standing
         // limit into a claim write_seq cannot make.
-        [MustState("does not verify", "use " + ToolNames.Check + " findings=[\"dialogue\"] for the dialogue graph")]
+        [MustState("does not verify", "use " + ToolNames.Check + " findings=[\"dialogue\"] with the quest in seeds=")]
         internal const string SeqStandingLimit =
             "this makes the quest(s) START at game start; it does not verify the quest or its dialogue is otherwise "
-          + "well-formed (use " + ToolNames.Check + " findings=[\"dialogue\"] for the dialogue graph).";
+          + "well-formed (use " + ToolNames.Check + " findings=[\"dialogue\"] with the quest in seeds= for the dialogue "
+          + "graph — that family validates the topics and quests you name and will not sweep the whole order).";
 
         /// <summary>What a truncated QUEST list means and what re-running costs. The .seq FILE carries every quest —
         /// only the LIST was cut — so the remedy prices the re-run rather than prescribing it (the wrong-remedy
