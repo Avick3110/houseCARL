@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Mutagen.Bethesda;
+using Mutagen.Bethesda.Pex;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
@@ -119,10 +120,10 @@ public static class CheckMergeProbe
         string mainPath = Path.Combine(tmpDir, "HcCm.esp");
         try
         {
-            ScriptPropertyCheckProbe.WritePex(Path.Combine(scriptsDir, "HcCmScript.pex"), "HcCmScript", parent: null,
-                ScriptPropertyCheckProbe.AutoObj("HcCmSpell", "Spell"),
-                ScriptPropertyCheckProbe.AutoObj("HcCmOther", "Spell"),
-                ScriptPropertyCheckProbe.AutoScalar("HcCmChance", "Int", initInt: null));
+            WritePex(Path.Combine(scriptsDir, "HcCmScript.pex"), "HcCmScript", parent: null,
+                AutoObj("HcCmSpell", "Spell"),
+                AutoObj("HcCmOther", "Spell"),
+                AutoScalar("HcCmChance", "Int", initInt: null));
 
             // The absent master: written so its FormKeys are real, then deliberately NOT loaded.
             var ghost = new SkyrimMod(new ModKey("HcCmGhost", ModType.Master), SkyrimRelease.SkyrimSE);
@@ -141,7 +142,7 @@ public static class CheckMergeProbe
             {
                 var w = mod.Weapons.AddNew();
                 w.EditorID = $"HcCmWeapon{i:D2}";
-                w.VirtualMachineAdapter = ScriptPropertyCheckProbe.Vmad("HcCmScript");   // binds nothing ⇒ all declared unbound
+                w.VirtualMachineAdapter = Vmad("HcCmScript");   // binds nothing ⇒ all declared unbound
             }
             mod.BeginWrite.ToPath(mainPath).WithLoadOrder(new ISkyrimModGetter[] { ghost }).Write();
         }
@@ -291,8 +292,12 @@ public static class CheckMergeProbe
         // claim is about WHEN the scripts family first renders anything, held against what a serial walk would have
         // needed. Both quantities are measured off this fixture.
         int mergedFloor = Wire.RenderCheck(both, 1).Length;                       // the response with no body at all
-        int errorsWholeBody = Wire.RenderCheckErrors(errors, 0).Length            // what the errors family's body
-                            - Wire.RenderCheckErrors(errors, 1).Length;          // comes to when nothing is cut
+        // #486: Wire.RenderCheckErrors (the deleted 1.x single-family renderer) is gone. Re-derived with no loss
+        // through the merged renderer over an ERRORS-ONLY sweep — arguably the better baseline, since the number
+        // is now measured through the SAME renderer it is compared against.
+        var errorsOnly = new CheckSweep(Sel("errors"), errors);
+        int errorsWholeBody = Wire.RenderCheck(errorsOnly, 0).Length              // what the errors family's body
+                            - Wire.RenderCheck(errorsOnly, 1).Length;             // comes to when nothing is cut
         int firstScriptsCap = -1;
         var asymmetric = new List<string>();
         for (int cap = mergedFloor; cap <= 20000; cap += 20)
@@ -1182,9 +1187,9 @@ public static class CheckMergeProbe
         string scripts = Path.Combine(modDir, "Scripts");
         Directory.CreateDirectory(modDir); Directory.CreateDirectory(twoDir);
         Directory.CreateDirectory(offDir); Directory.CreateDirectory(scripts);
-        ScriptPropertyCheckProbe.WritePex(Path.Combine(scripts, "HcOrchScript.pex"), "HcOrchScript", parent: null,
-            ScriptPropertyCheckProbe.AutoObj("HcOrchSpell", "Spell"),
-            ScriptPropertyCheckProbe.AutoScalar("HcOrchChance", "Int", initInt: null));
+        WritePex(Path.Combine(scripts, "HcOrchScript.pex"), "HcOrchScript", parent: null,
+            AutoObj("HcOrchSpell", "Spell"),
+            AutoScalar("HcOrchChance", "Int", initInt: null));
 
         // The absent master, written so its FormKeys are real and then left out of the order entirely: every NPC
         // pointing at it is a dangling ref, and every plugin mastering it also reports a MISSING MASTER. Two error
@@ -1201,7 +1206,7 @@ public static class CheckMergeProbe
             for (int i = 0; i < npcs; i++)
             { var n = m.Npcs.AddNew(); n.EditorID = $"{name}Npc{i:D2}"; n.Race.SetTo(ghostFk); }
             for (int i = 0; i < weapons; i++)
-            { var w = m.Weapons.AddNew(); w.EditorID = $"{name}Weap{i:D2}"; w.VirtualMachineAdapter = ScriptPropertyCheckProbe.Vmad("HcOrchScript"); }
+            { var w = m.Weapons.AddNew(); w.EditorID = $"{name}Weap{i:D2}"; w.VirtualMachineAdapter = Vmad("HcOrchScript"); }
             using var g = SkyrimMod.CreateFromBinaryOverlay(ghostPath, SkyrimRelease.SkyrimSE);
             m.BeginWrite.ToPath(path).WithLoadOrder(new ISkyrimModGetter[] { g }).Write();
         }
@@ -2011,4 +2016,68 @@ public static class CheckMergeProbe
     }
 
     static string Trim(string s) => s.Length <= 400 ? s.Replace('\n', '|') : s[..400].Replace('\n', '|') + "…";
+
+    // ---- .pex fixture helpers, relocated from ScriptPropertyCheckProbe (#486 phase 3) ----------------------
+    // ScriptPropertyCheckProbe.cs is deleted (its own facts moved to ScriptsFamilyTests); this guard is the
+    // only remaining housecarl-generator consumer of a hand-written .pex, so its four small builders move here
+    // rather than into a third shared file for one caller. The survivor for everyone else is
+    // src/housecarl-mcp-tests/PexWriter.cs, a separate port for the same reason that file's own doc states:
+    // housecarl-generator cannot reference the test project.
+
+    /// <summary>A VMAD binding ONE script <paramref name="scriptClass"/> with the given bound properties.</summary>
+    internal static VirtualMachineAdapter Vmad(string scriptClass, params Mutagen.Bethesda.Skyrim.ScriptProperty[] props)
+    {
+        var entry = new Mutagen.Bethesda.Skyrim.ScriptEntry { Name = scriptClass };
+        foreach (var p in props) entry.Properties.Add(p);
+        var vmad = new VirtualMachineAdapter();
+        vmad.Scripts.Add(entry);
+        return vmad;
+    }
+
+    /// <summary>One Auto property to plant in a .pex: the property record + its backing variable.</summary>
+    internal sealed record Decl(PexObjectProperty Prop, PexObjectVariable Backing);
+
+    static Decl Auto(string name, string typeName, int? initInt)
+    {
+        var prop = new PexObjectProperty
+        {
+            Name = name,
+            TypeName = typeName,
+            DocString = "",
+            Flags = PropertyFlags.Read | PropertyFlags.Write | PropertyFlags.AutoVar,
+            AutoVarName = $"::{name}_var",
+        };
+        var data = initInt is int v
+            ? new PexObjectVariableData { VariableType = VariableType.Integer, IntValue = v }
+            : new PexObjectVariableData { VariableType = VariableType.Null };
+        var backing = new PexObjectVariable { Name = $"::{name}_var", TypeName = typeName, VariableData = data };
+        return new Decl(prop, backing);
+    }
+
+    /// <summary>An Auto object/form property (no baked default — a FormID can't be a literal).</summary>
+    internal static Decl AutoObj(string name, string typeName) => Auto(name, typeName, null);
+
+    /// <summary>An Auto scalar property, optionally with a baked initializer on its backing variable.</summary>
+    internal static Decl AutoScalar(string name, string typeName, int? initInt) => Auto(name, typeName, initInt);
+
+    /// <summary>Write a single-object .pex with the given Auto properties + backing variables to <paramref name="path"/>.</summary>
+    internal static void WritePex(string path, string name, string? parent, params Decl[] decls)
+    {
+        var obj = new PexObject { Name = name, ParentClassName = parent ?? "", DocString = "", AutoStateName = "" };
+        obj.States.Add(new PexObjectState { Name = "" });
+        foreach (var d in decls) { obj.Properties.Add(d.Prop); obj.Variables.Add(d.Backing); }
+
+        var pex = new PexFile(Mutagen.Bethesda.GameCategory.Skyrim)
+        {
+            MajorVersion = 3,
+            MinorVersion = 2,
+            GameId = 1,
+            CompilationTime = default,
+            SourceFileName = name + ".psc",
+            Username = "hc",
+            MachineName = "ci",
+        };
+        pex.Objects.Add(obj);
+        pex.WritePexFile(path, Mutagen.Bethesda.GameCategory.Skyrim);
+    }
 }

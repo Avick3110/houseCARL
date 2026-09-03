@@ -200,11 +200,12 @@ internal static class EpochGuardProbe
                 Check(Wire.RenderBatch(batch, 0).Contains($"epoch={current}"), "…text header carries it once, response-level");
                 Check(JsonWire.RenderBatch(batch, 0).Contains($"\"epoch\": \"{current}\""), "…json carries it once, response-level");
 
-                // single read — text tail + json top-level
+                // single read — text tail + json top-level. Wire.RenderRecord / JsonWire.RenderRecord went with
+                // #486's render-halves cut; the fact moved to housecarl_records, its live surface today
+                // (RecordsListLaneTests.IdentityForm_LabelsTheListStatesTheFormAndStampsTheEpoch for text,
+                // EpochCheckSweepTests.FactE2_ASingleRecordReadsJsonRenderCarriesTheCapturesEpoch for json).
                 var one = svc.ResolveRead(FormKey.Factory(Fid(weapons[0])), null, null, false);
                 Check(one.Epoch == current, "read_record outcome stamps its capture");
-                Check(Wire.RenderRecord(svc, one, null, false, 0).Contains($"epoch={current}"), "…text render carries it");
-                Check(JsonWire.RenderRecord(one, 0).Contains($"\"epoch\": \"{current}\""), "…json render carries it");
 
                 // resolve — the out-epoch overload feeds both renders
                 var rows = svc.ResolveRefs(new[] { Fid(weapons[0]), Fid(mgef.FormKey) }, out var resolveEpoch);
@@ -216,68 +217,24 @@ internal static class EpochGuardProbe
                 var ec = svc.ResolveEffectChain(mgef.FormKey, null, 500);
                 Check(ec.Error is null && ec.Epoch == current && Wire.RenderEffectChain(ec, 0).Contains($"epoch={current}"),
                       "effect_chain stamps + renders it");
-                var ce = svc.CheckErrors(null, 1000);
-                Check(ce.Error is null && ce.Epoch == current, "check_errors stamps the swept build");
-                Check(Wire.RenderCheckErrors(ce, 0).Contains($"epoch={current}") && JsonWire.RenderCheckErrors(ce, 0).Contains($"\"epoch\": \"{current}\""),
-                      "…both renders carry it");
-                var vs = svc.ValidateScripts(null, 1000);
-                Check(vs.Error is null && vs.Epoch == current, "validate_scripts stamps the swept build");
-                Check(Wire.RenderScriptCheck(vs, 0).Contains($"epoch={current}") && JsonWire.RenderScriptCheck(vs, 0).Contains($"\"epoch\": \"{current}\""),
-                      "…both renders carry it");
-
-                // ---- PR #305 fold: the refusal contract ON THE WIRE (finding 1) ----
-                Console.WriteLine();
-                Console.WriteLine("--- 3b (PR #305 fold): stamped refusals render their stamp; pre-capture refusals stay null ---");
-                var miss = svc.ResolveRead(FormKey.Factory("0ABC12:" + masterName), null, null, false);
-                Check(miss.Error is not null && miss.Epoch == current, "an absent-record read refusal is stamped on the DTO");
-                Check(Wire.RenderRecord(svc, miss, null, false, 0).Contains($"epoch={current}"), "…and the TEXT refusal carries it");
-                Check(JsonWire.RenderRecord(miss, 0).Contains($"\"epoch\": \"{current}\""), "…and the JSON refusal carries it");
-
-                // finding 4: effect_chain / diff / check_errors post-capture refusals stamped; pre-capture null.
+                // check_errors / validate_scripts sweep stamps, their refusal contracts (locate, the CORE
+                // sweep frame's excluded-plugin refusal, scripts' not-in-order refusal), and the off-order
+                // coverage qualifier all went through the deleted 1.x single-family renderers
+                // (Wire/JsonWire.RenderCheckErrors, .RenderScriptCheck). Fresh facts, on the merged
+                // Wire.RenderCheck / JsonWire.RenderCheck a surviving tool calls: EpochCheckSweepTests —
+                // FactE4 (sweep stamps), FactE5_6 (every refusal shape, no coverage claim on a refusal),
+                // FactE7/FactE8 (the off-order qualifier, text and json).
+                //
+                // The absent-record READ refusal (ex-"3b") is not re-tested here either: it is the same fact
+                // E3 already covers on the live records surface (RecordsArtifactTests.StaleReEntry…,
+                // RecordsRefusalGrammarTests.TheOffOrderRefusalCarriesTheBuildItConsultedNotEpochNull).
+                //
+                // effect_chain's own refusal contract survives unmoved — Wire.RenderEffectChain is untouched.
                 var ecMiss = svc.ResolveEffectChain(FormKey.Factory("0ABC12:" + masterName), null, 500);
                 Check(ecMiss.Error is not null && ecMiss.Epoch == current, "effect_chain's not-in-order refusal is stamped");
                 Check(Wire.RenderEffectChain(ecMiss, 0).Contains($"epoch={current}"), "…and rendered");
                 Check(svc.ResolveEffectChain(mgef.FormKey, new[] { "WEAP" }, 500).Epoch is null,
                       "…its PRE-capture type-narrow refusal stays null");
-                var ceMiss = svc.CheckErrors(new[] { "Nope.esp" }, 1000);
-                Check(ceMiss.Error is not null && ceMiss.Epoch == current, "check_errors' locate refusal is stamped");
-                Check(Wire.RenderCheckErrors(ceMiss, 0).Contains($"epoch={current}"), "…and rendered");
-                // Latent bug surfaced by this arm: both sweep json refusal paths returned INSIDE the writer's using
-                // without a Flush — every json-mode sweep refusal rendered as an EMPTY STRING (pre-existing, silent).
-                Check(JsonWire.RenderCheckErrors(ceMiss, 0).Contains("\"error\"") && JsonWire.RenderCheckErrors(ceMiss, 0).Contains($"\"epoch\": \"{current}\""),
-                      "…check_errors' JSON refusal is a real document with the stamp (the empty-refusal flush bug is dead)");
-                Check(!JsonWire.RenderCheckErrors(ceMiss, 0).Contains("epoch_covers_all_inputs"),
-                      "…and it carries NO coverage claim (a refusal swept nothing — third-round finding 2)");
-
-                // Re-review finding 1: the CORE sweep frame's own refusals — one frame deeper than the service's.
-                var ceExcl = svc.CheckErrors(new[] { badName }, 1000);
-                Check(ceExcl.Error is not null && ceExcl.Error.Contains("excluded") && ceExcl.Epoch == current,
-                      "check_errors' CORE-frame excluded-plugin refusal is stamped (the frame the first fold missed)");
-                Check(Wire.RenderCheckErrors(ceExcl, 0).Contains($"epoch={current}"), "…and rendered");
-                var vsMiss = svc.ValidateScripts(new[] { "Nope.esp" }, 1000);
-                Check(vsMiss.Error is not null && vsMiss.Epoch == current,
-                      "validate_scripts' not-in-order refusal is stamped (previously NO ScriptCheckResult refusal could be)");
-                Check(Wire.RenderScriptCheck(vsMiss, 0).Contains($"epoch={current}"),
-                      "…and the TEXT refusal render carries it — no longer dead code");
-                Check(JsonWire.RenderScriptCheck(vsMiss, 0).Contains($"\"epoch\": \"{current}\""),
-                      "…and the JSON refusal render carries it");
-
-                // ---- PR #305 fold: off-order coverage is QUALIFIED, never overclaimed (finding 3) ----
-                Console.WriteLine();
-                Console.WriteLine("--- 3c (PR #305 fold): an off-order input qualifies the stamp — the fingerprint covers the index only ---");
-                var ceOld = svc.CheckErrors(new[] { oldName }, 1000);
-                Check(ceOld.Error is null && ceOld.Epoch == current && ceOld.OffOrderScanned is { Count: > 0 },
-                      "an off-order sweep resolves and still stamps the INDEX build");
-                Check(Wire.RenderCheckErrors(ceOld, 0).Contains("(indexed plugins only"),
-                      "…and its text stamp is qualified");
-                Check(!Wire.RenderCheckErrors(ce, 0).Contains("(indexed plugins only"),
-                      "…while the all-indexed sweep carries NO qualifier (control)");
-                // Re-review finding 4: the coverage fact rides the JSON as DATA, not prose — the machine consumer
-                // comparing epochs is the one that needs it.
-                Check(JsonWire.RenderCheckErrors(ceOld, 0).Contains("\"epoch_covers_all_inputs\": false"),
-                      "check_errors json: false when off-order files were swept");
-                Check(JsonWire.RenderCheckErrors(ce, 0).Contains("\"epoch_covers_all_inputs\": true"),
-                      "…and true for the all-indexed control");
 
                 // ---- 4: the pin + the re-stamp (PR #305 fold, finding 2) ----
                 Console.WriteLine();
