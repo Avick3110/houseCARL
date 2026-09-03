@@ -281,7 +281,12 @@ public sealed class FactsTests : RecordsTestBase
         var passed = new List<string>();
         foreach (var (name, text) in unidentifiable)
         {
-            try { Facts.States(unrelated, text!); passed.Add($"{name} ({Facts.LongestRun(text!)} run)"); }
+            // The probe text CARRIES every literal segment of the sentence, in order, so a States that did
+            // not refuse would pass. Without this the arm's strength would depend on whether the response
+            // happened to contain a bracket, which is the vacuity it is about.
+            var carries = unrelated + " " + text!.Replace("{", "").Replace("}", "");
+
+            try { Facts.States(carries, text!); passed.Add($"{name} ({Facts.LongestRun(text!)} run)"); }
             catch (Exception) { /* refused, which is the claim */ }
         }
 
@@ -292,8 +297,8 @@ public sealed class FactsTests : RecordsTestBase
             "one passes on almost any response.");
 
         // The arm is never vacuous: a sentence gutted to punctuation is refused whether or not the catalogue
-        // currently carries a short member.
-        Assert.ThrowsAny<Exception>(() => Facts.States(unrelated, "{0}.{1}"));
+        // currently carries a short member, and over a text that does carry the segment.
+        Assert.ThrowsAny<Exception>(() => Facts.States(unrelated + " . ", "{0}.{1}"));
     }
 
     // ---- driving ---------------------------------------------------------------------------------------
