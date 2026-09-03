@@ -108,23 +108,40 @@ internal static class ReadSentences
         "field (\"" + DeclaredBy + " …\") is assembled by the game from every plugin that declares any; a ONE-child " +
         "field (\"" + CarriedBy + " N\") is ONE record those providers override, resolved by load order:";
 
+    /// <summary>Every row AFTER the one that carried <see cref="DeclarersLead"/> gets this short label instead —
+    /// text has no per-row structure to hang the block on the way json's <c>child_declarers</c> array (a named key
+    /// under each row) and the artifact's own columns do, so an unlabelled block on row 2+ sat flush against the
+    /// numbered toucher list above it with nothing saying what it was (round-2 review-A MEDIUM3).</summary>
+    [NoClaims("a label; the claim — what the two shapes mean — is DeclarersLead's, stated once already")]
+    internal const string DeclarersHeader = "child records — declared per plugin (see above for what the shapes mean):";
+
     /// <summary>How many declaring plugins a COLLECTION field names before it summarises the rest. Three names is
     /// enough to go look at; the rest are a count, because this rides EVERY child-bearing field of every row.</summary>
     internal const int DeclarerNameCap = 3;
+
+    /// <summary>Points a TEXT reader at the medium that carries the names <see cref="DeclarerNameCap"/> elided —
+    /// json's (and the artifact's) <c>declaring</c> array is never capped (settled #485-round-1 item 19), so this
+    /// is always followable. TEXT-ONLY: json and the artifact already show every name in that same array, so
+    /// baking this into <see cref="DeclarersNote"/> itself put the hint into the medium that already answers it
+    /// (round-2 review-A MEDIUM4) — the caller composing text is the one who appends it, over the identical
+    /// substring every other overflow tail in this class names as a lever.</summary>
+    [NoClaims("a remedy fragment; the caller appends it, never DeclarersNote")]
+    internal const string DeclarersOverflowRemedy = " — format=json for the full list";
 
     /// <summary>The precise tier's per-field line, in the voice of the field's SHAPE. Always returns a sentence:
     /// the empty answer is <see cref="NoDeclarers"/> for a COLLECTION field (never null, never an omitted line);
     /// a SINGULAR field's empty answer stays in ITS OWN voice — "carried by 0 provider(s)" — rather than
     /// borrowing the collection negative's "declares child record**s**" plural, which is the shape's own claim
-    /// (a singular child is not a set of them) said falsely (round-1 review-B L4).</summary>
+    /// (a singular child is not a set of them) said falsely (round-1 review-B L4). Never names
+    /// <see cref="DeclarersOverflowRemedy"/> itself — every transport shares this text, and json/the artifact
+    /// answer the overflow inline (their own <c>declaring</c> array), so only a TEXT caller needs the pointer.</summary>
     internal static string DeclarersNote(OwnedChildShape shape, IReadOnlyList<string> declaring, IReadOnlyList<string> unreadable)
     {
         string head = shape == OwnedChildShape.Singular
             ? $"{CarriedBy} {declaring.Count} provider(s)"
             : declaring.Count == 0 ? NoDeclarers
                 : $"{DeclaredBy} {string.Join(", ", declaring.Take(DeclarerNameCap))}"
-                  + (declaring.Count > DeclarerNameCap
-                      ? $" (+{declaring.Count - DeclarerNameCap} more) — format=json for the full list" : "");
+                  + (declaring.Count > DeclarerNameCap ? $" (+{declaring.Count - DeclarerNameCap} more)" : "");
         return unreadable.Count == 0 ? head
             : head + $"; {unreadable.Count} provider(s) {CouldNotRead} "
               + $"({string.Join(", ", unreadable.Take(DeclarerNameCap))}"

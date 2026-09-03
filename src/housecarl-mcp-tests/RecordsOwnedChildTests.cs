@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
@@ -680,9 +681,10 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     //
     // AppendChildDeclarers/WriteTreeRow used to append the whole block with no cap check of their own. A
     // sole-provider row (CellC: nothing to diff, so nothing else in the row loop would ever notice the overrun)
-    // measurably returned 889 chars against a 200-char max_chars with truncated=false — the ClauseReserve class
-    // of bug (ReadSentences.cs's own docstring on that const), which means the auto-spill that exists to make an
-    // over-cap answer complete never fires.
+    // measurably returned its full text (844 chars uncapped, as the SINGULAR-voice fix in round 1 left it)
+    // against a 200-char max_chars with truncated=false — the ClauseReserve class of bug (ReadSentences.cs's own
+    // docstring on that const), which means the auto-spill that exists to make an over-cap answer complete never
+    // fires.
 
     [Fact]
     public void ATextRowsDeclarersBlockAloneCanTripMaxChars_AndTheResponseIsMarkedTruncated()
@@ -697,9 +699,9 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     public void Json_ATextRowsDeclarersBlockAloneCanTripMaxChars_AndTheResponseIsMarkedTruncated()
     {
         // 400: past the envelope + row header + declarers block (so WriteTreeRow's own cap check fires and cuts
-        // it mid-row, writing an inline "[child declarers cut …]" note), short of the whole row (889 chars
-        // uncapped) — the shape that used to leave the RESPONSE-level truncated flag false while the row's own
-        // content already says it was cut.
+        // it mid-row, writing an inline "[child declarers cut …]" note), short of the whole row (1911 chars
+        // uncapped in json) — the shape that used to leave the RESPONSE-level truncated flag false while the
+        // row's own content already says it was cut.
         using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 400));
         Assert.True(doc.RootElement.GetProperty("truncated").GetBoolean());
         Assert.True(doc.RootElement.TryGetProperty("spilled", out _));
@@ -759,13 +761,143 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.Contains($"Temporary: {ReadSentences.DeclaredBy} {_w.BaseName}, {_w.MidName}", r);
     }
 
+    /// <summary>The row that did NOT carry the full lead still labels its own block — an unlabelled set of field
+    /// lines flush against the numbered toucher list above it is indistinguishable from more touchers (round-2
+    /// review-A MEDIUM3). The label is a SHORT one; the full shape explanation is not repeated.</summary>
+    [Fact]
+    public void TheSecondRowsBlockCarriesTheShortHeaderNotTheFullLeadAgain()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { OwnedChildWorld.Fid(_w.CellA), OwnedChildWorld.Fid(_w.CellF) },
+                                     project: new RecordsTools.RecordsProject { form = "tree" });
+        Assert.Equal(1, Occurrences(r, ReadSentences.DeclarersLead));
+        Assert.Equal(1, Occurrences(r, ReadSentences.DeclarersHeader));
+        Assert.True(r.IndexOf(ReadSentences.DeclarersLead, StringComparison.Ordinal)
+                    < r.IndexOf(ReadSentences.DeclarersHeader, StringComparison.Ordinal));
+    }
+
+    // ---- the new remedy sentences never name a lever housecarl_records lacks (round-2 review-B MEDIUM3) ----
+    //
+    // RecordsRemedyGrammarTests' own harvest (RemedyHarvest.cs) probes the tree form only through RecordsWorld's
+    // fixture, which has no child-bearing record type at all — WEAP owns no children, so the four
+    // "[child declarers cut ...]" notices this branch adds never entered that harvest and the wrong-lever grid
+    // never saw them. RecordsWorld is a frozen shared fixture (not touched here); the same check, run directly
+    // against a fixture that HAS a child-bearing type, closes the gap without it.
+
+    [Fact]
+    public void TheChildDeclarersCutNoticesNameNoWrongLever()
+    {
+        var text = Tree(_w.CellC, maxChars: 200);
+        var jsonR = Tree(_w.CellC, format: "json", maxChars: 300);
+
+        var textHits = text.Split('\n').Where(l => RemedyHarvest.RemedyLine.IsMatch(l)).ToList();
+        var jsonHits = RemedyHarvest.HarvestAllStrings(jsonR);
+
+        Assert.Contains(textHits, h => h.Contains("child declarers cut", StringComparison.Ordinal));
+        Assert.Contains(jsonHits, h => h.Contains("child declarers cut", StringComparison.Ordinal));
+
+        foreach (var (pattern, claim) in RemedyHarvest.WrongLevers)
+        {
+            Assert.DoesNotContain(textHits, h => System.Text.RegularExpressions.Regex.IsMatch(h, pattern));
+            Assert.DoesNotContain(jsonHits, h => System.Text.RegularExpressions.Regex.IsMatch(h, pattern));
+        }
+    }
+
+    // ---- WriteTreeRow's bool return, isolated from the declarers path (round-2 review-A MEDIUM2 / review-B MEDIUM4) ----
+    //
+    // On a row WITH declarers, the response-level lead-reserve check covers for a missing return value, so the
+    // existing cap arms pass whether or not WriteTreeRow's own return is plumbed into rowsTruncated. WEAP has no
+    // child-bearing fields at all — anyDeclarers is false, so this arm depends ONLY on the nodes-branch return
+    // value the H1/M6 fix (#485 round 1's pre-green fold) added, with nothing else able to cover for it.
+
+    [Fact]
+    public void Json_ANoChildrenRowsNodesCutStillSetsTruncated_NotCoveredByTheDeclarersLeadCheck()
+    {
+        using var doc = JsonDocument.Parse(Tree(_w.Weapon, format: "json", maxChars: 1077));
+        Assert.True(doc.RootElement.GetProperty("truncated").GetBoolean());
+        Assert.True(doc.RootElement.TryGetProperty("spilled", out _));
+    }
+
+    [Fact]
+    public void Json_TheSameNoChildrenRowFitsWithRoomToSpareIsNotMarkedTruncated()
+    {
+        using var doc = JsonDocument.Parse(Tree(_w.Weapon, format: "json", maxChars: 1078));
+        Assert.False(doc.RootElement.GetProperty("truncated").GetBoolean());
+    }
+
+    // ---- the block's fields= narrowing (settled item 14) — documented and deliberate, previously UNGUARDED ----
+    //
+    // Deleting the fields= filter from ResolveTreePinned's `wanted` derivation left the FULL 885-test suite green
+    // (round-2 review-B MEDIUM2) — a documented, deliberate behavior with no arm anywhere pinning it.
+
+    [Fact]
+    public void FieldsNarrowsTheBlockToTheNamedTopLevelField_NotTheWholeType()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { OwnedChildWorld.Fid(_w.CellF) },
+                                     project: new RecordsTools.RecordsProject { form = "tree", fields = new[] { "Persistent" } });
+        Assert.Contains($"Persistent: {ReadSentences.DeclaredBy} {_w.BaseName}, {_w.MidName}", r);
+        Assert.DoesNotContain("Temporary:", r);
+        Assert.DoesNotContain("Landscape:", r);
+        Assert.DoesNotContain("NavigationMeshes:", r);
+    }
+
+    /// <summary>A path INSIDE a child-bearing field (settled item 14's bracketed-path case) narrows the block to
+    /// NOTHING — it matches the caller's request by NAME, not the path the response emitted.</summary>
+    [Fact]
+    public void FieldsWithABracketedPathInsideAChildBearingFieldYieldsNoBlockAtAll()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { OwnedChildWorld.Fid(_w.CellF) },
+                                     project: new RecordsTools.RecordsProject { form = "tree", fields = new[] { "Temporary[0]" } });
+        Assert.DoesNotContain(ReadSentences.DeclarersLead, r);
+        Assert.DoesNotContain("Temporary:", r);
+    }
+
+    // ---- the overflow remedy is TEXT-only; json and the artifact already carry every name (round-2 review-A MEDIUM4) ----
+    //
+    // The fixture's widest COLLECTION field has 2 declarers; DeclarerNameCap is 3, so no live read ever crosses
+    // it. AppendChildDeclarers and JsonWire.WriteTreeRow are internal for exactly this — driven directly against
+    // a hand-built TreeRow with 5 declarers on one field, no MO2 fixture extension needed.
+
+    static LoadOrderService.TreeRow FiveDeclarerRow() => new(
+        "000001:Test.esm", "Cell", "TestCell",
+        new[] { "A.esp", "B.esp", "C.esp", "D.esp", "E.esp" }, "E.esp",
+        new[] { new LoadOrderService.TreeNodeDelta("E.esp", true, true, Array.Empty<string>(), 0, true, null) },
+        null,
+        new[] { new ChildDeclarers("Persistent", OwnedChildShape.Collection,
+                                   new[] { "A.esp", "B.esp", "C.esp", "D.esp", "E.esp" }, Array.Empty<string>()) });
+
+    [Fact]
+    public void TheOverflowRemedyNamesFormatJson_TextOnly()
+    {
+        var sb = new StringBuilder();
+        bool leadWritten = false;
+        RecordsTools.AppendChildDeclarers(sb, FiveDeclarerRow(), cap: 100_000, ref leadWritten);
+        Assert.Contains(
+            $"Persistent: {ReadSentences.DeclaredBy} A.esp, B.esp, C.esp (+2 more){ReadSentences.DeclarersOverflowRemedy}",
+            sb.ToString());
+    }
+
+    [Fact]
+    public void Json_TheOverflowIsNeverCapped_AndCarriesNoRemedyText()
+    {
+        var row = FiveDeclarerRow();
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms))
+            JsonWire.WriteTreeRow(w, row, ms, cap: 100_000);
+        using var doc = JsonDocument.Parse(ms.ToArray());
+        var field = doc.RootElement.GetProperty("child_declarers").EnumerateArray().Single();
+        Assert.Equal(new[] { "A.esp", "B.esp", "C.esp", "D.esp", "E.esp" },
+                     field.GetProperty("declaring").EnumerateArray().Select(x => x.GetString()));
+        Assert.DoesNotContain("format=json", field.GetProperty("note").GetString());
+    }
+
     // ---- json's response-level lead respects cap too, not just the row-level array (review-A MEDIUM2 / review-B L7) ----
     //
     // child_declarers_note used to be written unconditionally after `truncated` was already computed — a
     // Utf8JsonWriter cannot un-write it once appended, so the cap has to be checked (via DeclarersLeadReserve,
     // JsonWire's own measured cost for the property) BEFORE deciding to write it, not after. Measured on CellC's
-    // json tree (full 1911 chars): 1884 is the last cap that drops the note and spills; 1886 is the first that
-    // keeps it.
+    // json tree (full 1911 chars): the true boundary is 1885 (the last cap that drops the note and spills) / 1886
+    // (the first that keeps it) — the two caps this pair actually asserts, 1884 and 1886, both sit on the correct
+    // side of it (round-2 review-A LOW1: an earlier version of this comment said 1884 was the boundary itself).
 
     [Fact]
     public void Json_TheResponseLevelLeadIsDroppedRatherThanOverrunningCap_AndTruncatedIsSet()
