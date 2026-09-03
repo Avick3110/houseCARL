@@ -1,30 +1,17 @@
-// Ported from src/housecarl-generator/ScriptPropertyCheckProbe.cs (WritePex / Decl / AutoObj / AutoScalar).
-//
-// PORTED, not referenced: the generator's copy dies with the probe under #486 PR 2, and the scripts-family
-// arms that PR writes need a .pex writer that outlives it. The two copies are expected to coexist only until
-// that PR lands; this one is the survivor.
-//
-// The test project had NO Papyrus fixture of any kind before this file (#486 PR 1, item 1): nothing under
-// src/housecarl-mcp-tests referenced Pex, VirtualMachineAdapter or ScriptEntry.
-
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Pex;
 
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// Writes byte-valid single-object Skyrim <c>.pex</c> files with a chosen table of Auto properties — the
-/// fixture side of every script-property assertion. The product reads a record's VMAD, then reads the
-/// attached script's compiled <c>.pex</c> (and its ancestors) to learn which properties were DECLARED; a
-/// test can only state "declared but not bound" if it can plant a declaration on disk.
+/// Writes byte-valid single-object Skyrim <c>.pex</c> files with a chosen table of Auto properties. Ported
+/// from <c>src/housecarl-generator/ScriptPropertyCheckProbe.cs</c> rather than referenced; why, and what
+/// the fixture uses it for: <c>docs/architecture/test-project-fixtures.md</c>.
 /// </summary>
 public static class PexWriter
 {
-    /// <summary>One Auto property to plant in a .pex: the property record + its backing variable (every auto
-    /// property has one, <c>::Name_var</c> — an object/scalar with no initializer carries Null data, an
-    /// initialized scalar carries the baked literal). Modeled on a real Skyrim .pex: an Auto property is
-    /// Flags = Read|Write|AutoVar with NO handler functions (the backing var IS the handler), a non-null
-    /// DocString, and the autovar name set.</summary>
+    /// <summary>One Auto property: the property record plus its <c>::Name_var</c> backing variable, which
+    /// carries Null data for an object or an uninitialized scalar and the baked literal otherwise.</summary>
     public sealed record Decl(PexObjectProperty Prop, PexObjectVariable Backing);
 
     static Decl Auto(string name, string typeName, int? initInt)
@@ -44,18 +31,15 @@ public static class PexWriter
         return new Decl(prop, backing);
     }
 
-    /// <summary>An Auto object/form property (no baked default — a FormID can't be a literal).</summary>
+    /// <summary>An Auto object/form property — no baked default, a FormID cannot be a literal.</summary>
     public static Decl AutoObj(string name, string typeName) => Auto(name, typeName, null);
 
-    /// <summary>An Auto scalar property, optionally with a baked initializer on its backing variable.</summary>
+    /// <summary>An Auto scalar property. A baked initializer is what stops the product reporting it
+    /// unbound, so the two branches are not interchangeable.</summary>
     public static Decl AutoScalar(string name, string typeName, int? initInt) => Auto(name, typeName, initInt);
 
-    /// <summary>Write a single-object .pex with the given Auto properties + backing variables to
-    /// <paramref name="path"/> via Mutagen's native Pex writer. The object carries a non-null DocString, an
-    /// empty auto-state, and the empty '' state — the minimal byte-valid shell a real Skyrim .pex has. That
-    /// it round-trips is asserted, not assumed: see
-    /// <c>ScriptsWorldTests.ThePlantedChildPexReadsBackWithItsAutoPropertyAndItsParentClass</c> (the probe's
-    /// PEX-ROUNDTRIP arm, re-homed).</summary>
+    /// <summary>Write a single-object .pex to <paramref name="path"/>. That it round-trips is asserted, not
+    /// assumed: <c>ScriptsWorldTests.ThePlantedChildPexReadsBackWithItsAutoPropertyAndItsParentClass</c>.</summary>
     public static void WritePex(string path, string name, string? parent, params Decl[] decls)
     {
         var obj = new PexObject { Name = name, ParentClassName = parent ?? "", DocString = "", AutoStateName = "" };
@@ -73,6 +57,6 @@ public static class PexWriter
             MachineName = "ci",
         };
         pex.Objects.Add(obj);
-        pex.WritePexFile(path, GameCategory.Skyrim);   // Mutagen PexMixIn.WritePexFile(outputPath, gameCategory)
+        pex.WritePexFile(path, GameCategory.Skyrim);
     }
 }
