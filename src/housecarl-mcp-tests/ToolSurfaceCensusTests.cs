@@ -209,12 +209,7 @@ public sealed class ToolSurfaceCensusTests
             "Reflection over ToolSurface.Assembly found no types, so nothing below can match and this arm " +
             "passes over any spelling. The reflection is broken, not the source.");
 
-        var files = RepoProjects.All
-            .SelectMany(p => Directory.EnumerateFiles(p.Directory, "*.cs", SearchOption.AllDirectories))
-            .Where(NotBuildOutput)
-            // The one home itself: ToolSurface.cs is where this fact is allowed to be spelled.
-            .Where(f => !string.Equals(Path.GetFileName(f), "ToolSurface.cs", StringComparison.Ordinal))
-            .ToArray();
+        var files = ScannedFiles();
 
         Assert.True(files.Length > 0,
             "No .cs files were found under the repo's projects, so this scan is vacuous.");
@@ -228,6 +223,26 @@ public sealed class ToolSurfaceCensusTests
             "WithToolsFromAssembly, so it is the assembly the server actually registers from; a typeof() " +
             "expression agrees with that only while the type stays put.");
     }
+
+    /// <summary>
+    /// Every .cs file under the repo's projects, except the one file this fact is allowed to live in.
+    ///
+    /// <para>The exemption is a full path, not a filename. Filtering on the bare name excused any file called
+    /// ToolSurface.cs anywhere under src/, so a second home — src/housecarl-generator/ToolSurface.cs, say —
+    /// would never have entered the scan at all, and a guard whose whole subject is "this fact lives in
+    /// exactly one place" would have been defeated by giving the second place the same name. The home is
+    /// derived: the project producing the tool-surface assembly, plus the filename.</para>
+    /// </summary>
+    static string[] ScannedFiles() =>
+        RepoProjects.All
+            .SelectMany(p => Directory.EnumerateFiles(p.Directory, "*.cs", SearchOption.AllDirectories))
+            .Where(NotBuildOutput)
+            .Where(f => !string.Equals(
+                f,
+                Path.Combine(RepoProjects.DirectoryFor(HousecarlMcp.ToolSurface.Assembly.GetName().Name!),
+                             "ToolSurface.cs"),
+                StringComparison.OrdinalIgnoreCase))
+            .ToArray();
 
     /// <summary>Every site in <paramref name="files"/> naming the tool surface by picking a type, as
     /// repo-relative "file: expression" rows.</summary>
@@ -270,6 +285,49 @@ public sealed class ToolSurfaceCensusTests
 
         Assert.Equal(new[] { toolType.Name },
                      SurfaceNamingExpressions($"var a = typeof({toolType.Name}).Assembly;", surface));
+    }
+
+    /// <summary>
+    /// A SECOND file called ToolSurface.cs is still scanned. The exemption is the one home's path; the name
+    /// is not a licence.
+    ///
+    /// <para>The fixture is planted in another project's directory, in the tree the scan walks, and removed in
+    /// a finally. Its content is a comment: the scan reads source as text, so a comment carries the same
+    /// expression a statement would, and it cannot break a build if anything compiles this tree while it
+    /// exists.</para>
+    /// </summary>
+    [Fact]
+    [Trait("tier", "unit")]
+    public void ASecondFileCalledToolSurfaceCsIsStillScanned_TheExemptionIsAPathNotAFilename()
+    {
+        var surface = SurfaceTypeNames();
+        var toolType = HousecarlMcp.ToolSurface.Assembly.GetTypes()
+            .First(t => t.GetCustomAttribute<McpServerToolTypeAttribute>(inherit: false) is not null);
+
+        var home = Path.Combine(RepoProjects.DirectoryFor(HousecarlMcp.ToolSurface.Assembly.GetName().Name!),
+                                "ToolSurface.cs");
+        var elsewhere = RepoProjects.All
+            .First(p => !string.Equals(p.Directory, Path.GetDirectoryName(home), StringComparison.OrdinalIgnoreCase))
+            .Directory;
+        var planted = Path.Combine(elsewhere, "ToolSurface.cs");
+
+        Assert.False(File.Exists(planted),
+            $"{planted} already exists — the fixture would overwrite a real file, and a second home is exactly " +
+            "what this arm claims the scan reports.");
+
+        try
+        {
+            File.WriteAllText(planted, $"// typeof({toolType.Name}).Assembly{Environment.NewLine}");
+
+            Assert.Contains(OffendersAmong(ScannedFiles(), surface),
+                            o => o.StartsWith(Rel(planted) + ":", StringComparison.Ordinal));
+        }
+        finally
+        {
+            if (File.Exists(planted)) File.Delete(planted);
+        }
+
+        Assert.False(File.Exists(planted), $"The fixture left {planted} behind in the source tree.");
     }
 
     /// <summary>A tool declared where the server does not look. Never registered: the server scans
