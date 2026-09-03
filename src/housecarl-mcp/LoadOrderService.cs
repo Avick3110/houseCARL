@@ -238,7 +238,10 @@ public sealed class LoadOrderService : IDisposable
         if (unticked)
             return $"'{fn}' IS installed, but it is UNTICKED in plugins.txt (MO2's right pane), so the game does not " +
                    "load it and houseCARL does not read it. Tick it in MO2 and re-sort — or, to read the file as-is " +
-                   "without loading it, use " + ToolNames.Records + $" with source=\"{fn}\" (it resolves a plugin wherever it lives, in the order or on disk, and the response states which arm answered).";
+                   "without loading it, use " + ToolNames.Records + $" with source=\"{fn}\" and something to select — " +
+                   "types=[…] to scan the file, or formids=[…] for named records (source= names the version to read, " +
+                   "it is not a selection). It resolves a plugin wherever it lives, in the order or on disk, and the " +
+                   "response states which arm answered.";
 
         // Ticked but absent from the index: the file itself couldn't be resolved. Locate it to say which.
         PluginFileHit[] hits;
@@ -268,7 +271,8 @@ public sealed class LoadOrderService : IDisposable
                                                                                       ? "Switch that mod on in MO2, then tick the plugin and sort"
                                                                                       : "MO2 has not registered that folder yet — refresh MO2, then tick the plugin and sort";
         return $"'{fn}' is on disk in {pick.Where}, but MO2's load order does not list it, so it is not active. " +
-               $"{remedy} — or read the file as-is with {ToolNames.Records} source=\"{fn}\".";
+               $"{remedy} — or read the file as-is with {ToolNames.Records} source=\"{fn}\" types=[…] " +
+               "(source= names the version to read; the read still needs a selection).";
     }
 
     /// <summary>Build the asset resolver from the current roots: discover the active BSAs (co-name + Skyrim.ini base
@@ -1177,7 +1181,7 @@ public sealed class LoadOrderService : IDisposable
                 return c != 0 ? c : string.Compare(x.FormKey, y.FormKey, StringComparison.OrdinalIgnoreCase);
             });
             if (broadLines > 0) noOpNotes.Add($"no-op scan: {broadLines} broad (type-wide) line(s) were evaluated only against the explicitly-targeted records, not every record of their type.");
-            if (unresolvedTargets > 0) noOpNotes.Add($"no-op scan: {unresolvedTargets} explicit target(s) did not resolve (the overlay's per-record warnings name them via {ToolNames.Records} source={{\"overlay\": \"skypatcher\", \"state\": \"post\"}}).");
+            if (unresolvedTargets > 0) noOpNotes.Add($"no-op scan: {unresolvedTargets} explicit target(s) did not resolve (the overlay's per-record warnings name them; read one with {ToolNames.Records} formids=[\"<FormID>\"] source={{\"overlay\": \"skypatcher\", \"state\": \"post\"}}).");
             if (failedReplays > 0) noOpNotes.Add($"no-op scan: {failedReplays} targeted record(s) could not be replayed (not in the order / unpatchable type / copy failure).");
         }
 

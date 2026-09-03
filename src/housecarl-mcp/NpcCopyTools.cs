@@ -77,7 +77,10 @@ public static class NpcCopyTools
         {
             sb.AppendLine("masters: <NOT VERIFIED — read-back failed>");
             sb.AppendLine($"!! {o.Warning}");
-            sb.AppendLine("standalone: NOT VERIFIED — confirm with " + ToolNames.Records + " source=\"<the patch>.esp\" that the donor is absent from the masters before relying on this copy.");
+            sb.AppendLine("standalone: NOT VERIFIED — and no houseCARL tool can list a plugin's masters today, so this is not "
+                        + "something to re-check here: verify the master list in xEdit or the CK before relying on the copy. "
+                        + ToolNames.Check + " plugins=[\"<the patch>.esp\"] findings=[\"missing_masters\"] tells you the patch has "
+                        + "no UNSATISFIED master, which is a different claim.");
         }
         else
         {

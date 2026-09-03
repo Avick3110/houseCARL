@@ -386,7 +386,7 @@ internal static class SeqWriteGuardProbe
             // SERVES, which is this file only when this folder wins the SEQ\ conflict) — and (b) the render is
             // reading that source. A fragment check could only ever have pinned one render's spelling of it.
             var renderStale = SeqTools.Render(oStale);
-            Check(WriteSentences.Twins.SeqTimestampRefreshed.Contains(ToolNames.Check + " findings=[\"dialogue\"]", StringComparison.Ordinal)
+            Check(WriteSentences.Twins.SeqTimestampRefreshed.Contains(ToolNames.Check + " findings=[\"dialogue\"] with the quest in seeds=", StringComparison.Ordinal)
                   && WriteSentences.Twins.SeqTimestampRefreshed.Contains("the copy the load order actually serves", StringComparison.Ordinal)
                   && renderStale.Contains(WriteSentences.Twins.SeqTimestampRefreshed, StringComparison.Ordinal),
                 $"MTIME-REFRESH-RENDER the stamp is STATED and its scope is bounded — render=[{Trim(renderStale)}]");

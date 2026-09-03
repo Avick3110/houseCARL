@@ -255,7 +255,9 @@ internal static class WriteSentences
     [MustState("NOT VERIFIED", "do NOT re-run")]
     internal const string CopyReadBackUnverified =
         "masters: <NOT VERIFIED — the post-write read-back failed>\n" +
-        "the patch WAS written, so do NOT re-run blindly (that mints a duplicate); read it back with " + ToolNames.Records + " source=\"<the patch>.esp\".";
+        "the patch WAS written, so do NOT re-run blindly (that mints a duplicate); read its records back with " + ToolNames.Records +
+        " source=\"<the patch>.esp\" types=[\"NPC_\"]. The MASTERS line above stays unverified either way — no houseCARL tool " +
+        "lists a plugin's masters; check them in xEdit or the CK.";
 
     /// <summary>What a strip actually costs the caller. The clone keeps the look and loses the source's own
     /// factions/outfits/packages — said plainly, because "standalone" must never quietly mean "different".</summary>
@@ -847,10 +849,10 @@ internal static class WriteSentences
         /// promise a verdict from a tool that resolves its input differently.
         /// <para>Named the retired housecarl_validate_dialogue until the 1.x cut; the SEQ staleness check is one of
         /// that tool's finding classes and rides findings=["dialogue"] on the sweep now.</para></summary>
-        [MustState("has been stamped forward", "contents untouched", ToolNames.Check + " findings=[\"dialogue\"]", "no longer reads")]
+        [MustState("has been stamped forward", "contents untouched", ToolNames.Check + " findings=[\"dialogue\"] with the quest in seeds=", "no longer reads")]
         internal const string SeqTimestampRefreshed =
             "its mtime was older than the plugin and has been stamped forward (contents untouched); "
-          + ToolNames.Check + " findings=[\"dialogue\"] compares those two mtimes in its SEQ staleness check, so this file "
+          + ToolNames.Check + " findings=[\"dialogue\"] with the quest in seeds= compares those two mtimes in its SEQ staleness check, so this file "
           + "no longer reads as stale — for the copy the load order actually serves, which is this one only if this "
           + "folder wins the SEQ\\ conflict.";
 

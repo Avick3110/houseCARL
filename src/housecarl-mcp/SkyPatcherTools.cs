@@ -35,7 +35,7 @@ public static class SkyPatcherTools
          "Entries whose applicability " +
          "also hangs on other filters are flagged conditional rather than guessed. Pass filter= a type folder, mod, " +
          "or filename substring to expand matching files to their patch lines. For ONE record's computed " +
-         "post-SkyPatcher state use " + ToolNames.Records + " source={\"overlay\": \"skypatcher\", \"state\": \"post\"}. " +
+         "post-SkyPatcher state use " + ToolNames.Records + " formids=[\"<FormID>\"] source={\"overlay\": \"skypatcher\", \"state\": \"post\"} — source= is a version pole, not a selection, so the read needs formids= (or a scan scope). " +
          "Read-only.")]
     public static string SkyPatcherLayer(
         LoadOrderService svc,

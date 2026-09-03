@@ -536,8 +536,9 @@ public static class NpcAppearanceCopy
             catch (Exception ex)
             {
                 warning = $"the patch WAS written, but the post-write read-back failed ({ex.Message}) — the masters list " +
-                          "could not be verified this call. Do NOT re-run blindly (that would mint a duplicate patch); " +
-                          "inspect the plugin with " + ToolNames.Records + " source=\"<the patch>.esp\".";
+                          "could not be verified this call, and no houseCARL tool lists a plugin's masters, so verify them in " +
+                          "xEdit or the CK. Do NOT re-run blindly (that would mint a duplicate patch); inspect the plugin's " +
+                          "records with " + ToolNames.Records + " source=\"<the patch>.esp\" types=[\"NPC_\"].";
             }
 
             return new NpcCopyOutcome(
