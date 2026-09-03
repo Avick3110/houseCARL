@@ -1705,9 +1705,16 @@ public static class RecordsTools
     /// <para>The block's one framing line (<see cref="ReadSentences.DeclarersLead"/>) is invariant text, so it is
     /// written at most ONCE over the whole response — tracked by <paramref name="leadWritten"/> — matching the
     /// json and artifact transports (<see cref="JsonWire.RenderTree"/>'s <c>child_declarers_note</c>,
-    /// <see cref="Artifacts.PreciseChildNotes"/>), which never repeated it per row.</para></summary>
+    /// <see cref="Artifacts.PreciseChildNotes"/>), which never repeated it per row. Every LATER row still gets
+    /// <see cref="ReadSentences.DeclarersHeader"/> — a short label, not the full explanation again — so its block
+    /// is never unlabelled text flush against the numbered toucher list above it (round-2 review-A MEDIUM3).</para>
+    ///
+    /// <para><c>internal</c> rather than <c>private</c> so a test can drive it directly against a hand-built
+    /// <see cref="LoadOrderService.TreeRow"/> with more declarers than the MO2 fixture's widest cell carries —
+    /// the fixture tops out at two, never reaching <see cref="ReadSentences.DeclarerNameCap"/>'s overflow branch
+    /// through a live read (round-2 review-A MEDIUM4).</para></summary>
     /// <returns>true if the block hit <paramref name="cap"/> and was cut short.</returns>
-    static bool AppendChildDeclarers(StringBuilder sb, LoadOrderService.TreeRow row, int cap, ref bool leadWritten)
+    internal static bool AppendChildDeclarers(StringBuilder sb, LoadOrderService.TreeRow row, int cap, ref bool leadWritten)
     {
         if (row.ChildDeclarers.Count == 0) return false;
         if (sb.Length >= cap)
@@ -1720,6 +1727,10 @@ public static class RecordsTools
             sb.Append("  ").Append(ReadSentences.DeclarersLead).Append('\n');
             leadWritten = true;
         }
+        else
+        {
+            sb.Append("  ").Append(ReadSentences.DeclarersHeader).Append('\n');
+        }
         foreach (var cd in row.ChildDeclarers)
         {
             if (sb.Length >= cap)
@@ -1728,7 +1739,10 @@ public static class RecordsTools
                 return true;
             }
             sb.Append("    ").Append(cd.Field).Append(": ")
-              .Append(ReadSentences.DeclarersNote(cd.Shape, cd.Declaring, cd.Unreadable)).Append('\n');
+              .Append(ReadSentences.DeclarersNote(cd.Shape, cd.Declaring, cd.Unreadable));
+            if (cd.Shape == OwnedChildShape.Collection && cd.Declaring.Count > ReadSentences.DeclarerNameCap)
+                sb.Append(ReadSentences.DeclarersOverflowRemedy);
+            sb.Append('\n');
         }
         // The block's own tail: the LAST field line can itself push past cap with nothing downstream to notice —
         // a sole-provider row has no diff loop to catch it (review-A MEDIUM2 / review-B L5/L6, #485 round 1).
