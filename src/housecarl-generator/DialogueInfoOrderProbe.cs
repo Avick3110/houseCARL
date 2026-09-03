@@ -641,8 +641,14 @@ public static class DialogueInfoOrderProbe
         // #486: DialogueWire.Render (the deleted 1.x whole-report renderer) is gone; the INFO-order BLOCK it
         // wrapped survives as DialogueWire.AppendInfoOrderView, called directly here rather than through a
         // synthetic TopicValidation/DialogueValidationReport shell.
+        //
+        // The cap is Wire.DefaultMaxChars because that is what the old call resolved to: Render(report, 0) went
+        // through Wire.Cap, which turns 0 into the default. AppendInfoOrderView takes the cap raw, so the port
+        // has to spell it. It was written as a bare 8000 first — a silent 10x cut to the budget the eight arms
+        // below render at, RENDER-BIG-TOPIC among them, whose whole subject is what a large order does at the
+        // row cap (round-2 finding B-LOW-2; ci-all is ALL PASS at both values, so this was latent, not live).
         var sb = new System.Text.StringBuilder();
-        DialogueWire.AppendInfoOrderView(sb, io, "", 8000, indent: asQuest);
+        DialogueWire.AppendInfoOrderView(sb, io, "", Wire.DefaultMaxChars, indent: asQuest);
         return sb.ToString();
     }
 
