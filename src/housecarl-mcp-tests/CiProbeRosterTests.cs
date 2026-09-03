@@ -31,10 +31,9 @@ public sealed class CiProbeRosterTests
     {
         var found = new List<(string, string, string, bool)>();
 
-        foreach (var (assemblyName, directory) in RepoProjects.All)
+        foreach (var asm in RepoProjects.AllAssemblies)
         {
-            var asm = LoadProjectAssembly(assemblyName, directory);
-            if (asm is null) continue;   // never silent: LoadProjectAssembly asserts before returning null
+            var assemblyName = asm.GetName().Name!;
 
             foreach (var type in asm.GetTypes())
                 foreach (var method in type.GetMethods(Members))
@@ -43,30 +42,6 @@ public sealed class CiProbeRosterTests
         }
 
         return found.OrderBy(f => f.Item1, StringComparer.Ordinal).ToArray();
-    }
-
-    /// <summary>
-    /// The built assembly for one project. Already-loaded assemblies come back from the runtime; the rest are
-    /// loaded off the project's own build output. A project that has no build output at all is loud: skipping
-    /// it would shrink this population silently, which is the failure the whole test exists to catch.
-    /// </summary>
-    static Assembly? LoadProjectAssembly(string assemblyName, string directory)
-    {
-        var already = AppDomain.CurrentDomain.GetAssemblies()
-            .FirstOrDefault(a => string.Equals(a.GetName().Name, assemblyName, StringComparison.OrdinalIgnoreCase));
-        if (already is not null) return already;
-
-        var dll = Directory.EnumerateFiles(Path.Combine(directory, "bin"), assemblyName + ".dll",
-                                           SearchOption.AllDirectories)
-                           .OrderByDescending(File.GetLastWriteTimeUtc)
-                           .FirstOrDefault();
-
-        Assert.True(dll is not null,
-            $"Project '{assemblyName}' has no built {assemblyName}.dll under {directory}/bin, so it cannot be " +
-            "searched for CI guards. Build the whole solution before running these tests — a project skipped " +
-            "here is a guard population that is short by exactly one project.");
-
-        return Assembly.LoadFrom(dll!);
     }
 
     [Fact]

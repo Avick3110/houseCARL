@@ -72,30 +72,27 @@ public sealed class ToolSurfaceCensusTests
     // documented and unreachable — #470's shape, one level up. Nothing in the build stops that: it needs a
     // project reference to the MCP SDK and nothing else.
     //
-    // It is latent today, because housecarl-core carries no MCP SDK reference and so cannot host a marked
-    // type without a csproj change. A latent arm still has to be shown to fire, so the check is a function
-    // over a population and the fixture arm hands it a population that contains an offender.
+    // It is NOT latent everywhere. housecarl-generator already compiles against the MCP SDK, so a marked type
+    // there needs no csproj change at all; housecarl-core is the assembly that would. A latent arm still has
+    // to be shown to fire, so the check is a function over a population and the fixture arm hands it a
+    // population that contains an offender.
 
-    /// <summary>The repo's shipped assemblies: the tool surface plus every houseCARL assembly it references.
-    /// The test project is outside this by construction — it references housecarl-mcp, not the reverse — which
-    /// is why its own fixture tool below cannot make the real arm red.</summary>
+    /// <summary>
+    /// The repo's shipped assemblies: every project under src/ except this test project, which is not shipped
+    /// and deliberately declares an offender fixture below.
+    ///
+    /// <para>The population is the repo's own project list, not the tool surface's reference closure. A
+    /// closure reaches only what its root REFERENCES: housecarl-generator references housecarl-mcp rather
+    /// than the reverse, so walking outward from the tool surface left out the one shipped assembly that
+    /// already carries the MCP SDK reference — the assembly a split would land in first, invisible to the arm
+    /// written to catch it.</para>
+    /// </summary>
     static Assembly[] ShippedAssemblies()
     {
-        var repo = RepoProjects.All.Select(p => p.AssemblyName).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var seen = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
-        var queue = new Queue<Assembly>();
-        queue.Enqueue(HousecarlMcp.ToolSurface.Assembly);
-
-        while (queue.Count > 0)
-        {
-            var asm = queue.Dequeue();
-            if (!seen.TryAdd(asm.GetName().Name!, asm)) continue;
-            foreach (var r in asm.GetReferencedAssemblies())
-                if (r.Name is { } n && repo.Contains(n) && !seen.ContainsKey(n))
-                    queue.Enqueue(Assembly.Load(r));
-        }
-
-        return seen.Values.OrderBy(a => a.GetName().Name, StringComparer.Ordinal).ToArray();
+        var self = typeof(ToolSurfaceCensusTests).Assembly;
+        return RepoProjects.AllAssemblies.Where(a => a != self)
+                                         .OrderBy(a => a.GetName().Name, StringComparer.Ordinal)
+                                         .ToArray();
     }
 
     /// <summary>Assemblies in <paramref name="population"/> other than the registered one that declare a tool.</summary>

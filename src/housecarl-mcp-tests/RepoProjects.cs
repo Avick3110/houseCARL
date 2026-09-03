@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.RegularExpressions;
 using Xunit;
 
@@ -50,4 +51,43 @@ static class RepoProjects
                 : "— " + string.Join(", ", hits) + ". Which one declares a given type is then unanswerable."));
         return hits[0];
     }
+
+    /// <summary>
+    /// The built assembly for one project. Already-loaded assemblies come back from the runtime; the rest are
+    /// loaded off the project's own build output. A project that has no build output at all is loud: skipping
+    /// it would shrink every population derived from this list, which is the failure those populations exist
+    /// to catch. One home, because two walks over the repo's projects were about to spell this twice.
+    /// </summary>
+    public static Assembly BuiltAssembly(string assemblyName, string directory)
+    {
+        var already = AppDomain.CurrentDomain.GetAssemblies()
+            .FirstOrDefault(a => string.Equals(a.GetName().Name, assemblyName, StringComparison.OrdinalIgnoreCase));
+        if (already is not null) return already;
+
+        // Enumerated from the PROJECT directory — which exists by construction, its csproj having been read
+        // out of it — and then filtered to the bin tree. Enumerating bin/ directly threw
+        // DirectoryNotFoundException on a project that had never been built, which is the one case the
+        // refusal below is written for: the written sentence was unreachable and the reader got a bare path
+        // exception instead.
+        var binSegment = Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar;
+        var dll = Directory.EnumerateFiles(directory, assemblyName + ".dll", SearchOption.AllDirectories)
+                           .Where(p => p.Contains(binSegment, StringComparison.OrdinalIgnoreCase))
+                           .OrderByDescending(File.GetLastWriteTimeUtc)
+                           .FirstOrDefault();
+
+        Assert.True(dll is not null,
+            $"Project '{assemblyName}' has no built {assemblyName}.dll under {directory}/bin, so it cannot be " +
+            "searched. Build the whole solution before running these tests — a project skipped here is a " +
+            "population that is short by exactly one project.");
+
+        return Assembly.LoadFrom(dll!);
+    }
+
+    /// <summary>Every project's built assembly: the repo-wide population, derived from the csproj files rather
+    /// than from any one assembly's reference closure. A closure only reaches what its root REFERENCES, which
+    /// is a different set from "the repo's own assemblies" and is short in a direction nothing announces.</summary>
+    public static IReadOnlyList<Assembly> AllAssemblies { get; } =
+        All.Select(p => BuiltAssembly(p.AssemblyName, p.Directory))
+           .OrderBy(a => a.GetName().Name, StringComparer.Ordinal)
+           .ToArray();
 }
