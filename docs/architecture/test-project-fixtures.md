@@ -11,15 +11,18 @@ or `src/housecarl-generator` is involved.
 
 ## `PexWriter` — ported, not referenced
 
-`WritePex` / `Decl` / `AutoObj` / `AutoScalar` are lifted from `src/housecarl-generator/ScriptPropertyCheckProbe.cs`
-(modulo accessibility and namespace). They write a byte-valid single-object Skyrim `.pex` carrying a chosen
+`WritePex` / `Decl` / `AutoObj` / `AutoScalar` were lifted from `src/housecarl-generator/ScriptPropertyCheckProbe.cs`
+(modulo accessibility and namespace) while that file still existed; #486 PR 2 deleted it, and the
+generator's surviving copy now lives in `CheckMergeProbe.cs`, its one remaining caller there. They write a byte-valid single-object Skyrim `.pex` carrying a chosen
 table of Auto properties: the property record plus its `::Name_var` backing variable, Flags =
 `Read|Write|AutoVar`, no handler functions, a non-null DocString, an empty auto-state and the empty `''`
 state.
 
-It is a **port rather than a project reference** because #486 PR 2 may delete the probe file that holds
-the generator's copy. The two copies coexist only until that PR lands; this one is the survivor. The
-probe's copy carries a stale `Mutagen 0.53.1` comment that was deliberately not carried over — the csproj
+It is a **port rather than a project reference** because #486 PR 2 deleted the probe file that held the
+generator's copy. Two copies still exist — this one and `CheckMergeProbe.cs`'s, which PR 2 re-derived
+there rather than moving to a third shared file, because `CheckMergeProbe` is the sole remaining
+`housecarl-generator` caller and it dies with its own conversion. This one is the survivor of the two. The
+probe's copy carried a stale `Mutagen 0.53.1` comment that was deliberately not carried over — the csproj
 pins 0.54.4.
 
 The writer has one branch worth naming: an Auto scalar may carry a baked initializer on its backing
@@ -106,14 +109,16 @@ off the built server, to prove the fixture is reachable through the live surface
 spins its **own** server process: the shared `ServerFixture` is deliberately unconfigured and every stdio
 test in the run reads "the body ran" off its config prompt, so configuring it would retune all of them.
 
-### ADR 0003 rule 2 — the scripts family is briefly in both harnesses
+### ADR 0003 rule 2 — the scripts family was briefly in both harnesses; the overlap is closed
 
-`ScriptsWorldTests` drives `ValidateScripts` and `housecarl_check findings=["scripts"]` while
-`ScriptPropertyCheckProbe.cs` still guards the same family in `ci-all`; one probe arm (PEX-ROUNDTRIP) is
-re-homed here. No family is converted, so no `Converted-from:` marker is owed and the mechanical guard —
-which is decidable only on that marker — has nothing to check. The literal rule is already documented RED
-at birth for the duration of the ruled sequence (`HarnessResidueTests`, the one-way conversion section).
-The overlap closes when #486 PR 2 deletes the probe, adds the marker and drops its baseline key.
+For the length of PR 1, `ScriptsWorldTests` drove `ValidateScripts` and `housecarl_check
+findings=["scripts"]` while `ScriptPropertyCheckProbe.cs` still guarded the same family in `ci-all`; one
+probe arm (PEX-ROUNDTRIP) was re-homed here. No family was converted then, so no `Converted-from:` marker
+was owed and the mechanical guard — which is decidable only on that marker — had nothing to check.
+
+**#486 PR 2 closed it**, in commit `601510d`: `ScriptPropertyCheckProbe.cs` is deleted,
+`ScriptsFamilyTests.cs` carries the `Converted-from: ScriptPropertyCheckProbe` marker, and the file's
+`harness-residue-baseline.json` key is gone. The scripts family now lives in one harness.
 
 ## `HeldOpen` — the file-lock harness
 

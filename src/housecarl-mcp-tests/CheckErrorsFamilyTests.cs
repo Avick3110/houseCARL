@@ -265,17 +265,37 @@ public sealed class CheckErrorsFamilyTests : IClassFixture<CheckErrorsWorldFixtu
     public void Fact13_JsonAccountingNumbersAgreeWithTheirOwnDocument()
     {
         var r = Svc.CheckErrors(null, 1000, findings: null);
-        var fam = ErrorsFamily(Json(r, 400));
 
-        int danglingVisible = fam.GetProperty("accounting").GetProperty("dangling_visible").GetInt32();
-        int danglingEntriesInDoc = fam.TryGetProperty("plugins", out var plugins)
-            ? plugins.EnumerateArray().Sum(p => p.GetProperty("dangling").GetArrayLength())
-            : 0;
-        Assert.Equal(danglingEntriesInDoc, danglingVisible);
+        // Driven at a PARTIAL cut, searched rather than pinned. At any cap this world's json renders empty
+        // (everything below ~4000 chars) both agreements read 0 == 0, so the arm could only ever have caught an
+        // OVER-count: measured, an under-report of either number stayed green on both verification surfaces
+        // (round 1). A partial cut is the shape the old RESPONSE-CUT-JSON-NUMBERS-MATCH-THE-DOCUMENT arm drove,
+        // and it is the only shape in which "the number disagrees with its own document" is observable.
+        JsonElement fam = default;
+        int visible = 0, entries = 0, rendered = 0, objects = 0;
+        for (int cap = 400; cap <= 20000; cap += 100)
+        {
+            var f = ErrorsFamily(Json(r, cap));
+            if (!f.TryGetProperty("plugins", out var pl) || pl.GetArrayLength() == 0) continue;
+            int e = pl.EnumerateArray().Sum(p => p.GetProperty("dangling").GetArrayLength());
+            if (e == 0 || e >= CheckErrorsWorld.TotalDangling) continue;   // neither empty nor whole: a real cut
+            fam = f; visible = f.GetProperty("accounting").GetProperty("dangling_visible").GetInt32();
+            entries = e; rendered = f.GetProperty("accounting").GetProperty("sections_rendered").GetInt32();
+            objects = pl.GetArrayLength();
+            break;
+        }
+        Assert.True(entries > 0, "no cap in 400..20000 produced a PARTIAL json cut on this world");
 
-        int sectionsRendered = fam.GetProperty("accounting").GetProperty("sections_rendered").GetInt32();
-        int sectionsInDoc = fam.TryGetProperty("plugins", out var plugins2) ? plugins2.GetArrayLength() : 0;
-        Assert.Equal(sectionsInDoc, sectionsRendered);
+        Assert.Equal(entries, visible);
+        Assert.Equal(objects, rendered);
+
+        // The three conjuncts the conversion dropped: the section total is the sweep's, not the render's; the
+        // response cut is named as the cause; and the listing budget is named as NOT a cause (limit=1000 here).
+        var acct = fam.GetProperty("accounting");
+        Assert.Equal(r.Reports.Count, acct.GetProperty("sections_with_findings").GetInt32());
+        Assert.True(acct.GetProperty("dangling_missing_by_response_cut").GetInt32() > 0,
+                    "a partial cut that names no response-cut cause");
+        Assert.Equal(0, acct.GetProperty("dangling_missing_by_budget").GetInt32());
     }
 
     // ---- fact 14 / 15 ---------------------------------------------------------------------------------

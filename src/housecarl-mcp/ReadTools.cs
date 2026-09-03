@@ -1040,29 +1040,8 @@ static class Wire
         : string.IsNullOrEmpty(r.Name) ? $"→ {r.EditorId ?? "<no editorid>"}"
         : $"→ {r.EditorId ?? "<no editorid>"} \"{r.Name}\"";
 
-    /// <summary>No-delta render for a WHOLE-record compare. Node-NEUTRAL: this renders for every touching plugin,
-    /// including the master node (Nodes[0]), which is not an override — so it reports the COUNT of fields read
-    /// identical to the winner (the ITM-restate-vs-no-op signal lives in N) without asserting an "override" or a
-    /// "not a no-op" intent the diff can't know. A whole-record compare always agrees on housekeeping/identity
-    /// leaves, so N is typically >0; that's stated as a plain fact, not a verdict. The sample names a few agreed
-    /// paths; presence is claimed only for the value leaves the read engine actually surfaced (Q3 — never claim a
-    /// non-nullable subrecord bit the read can't prove).</summary>
-    static string IdenticalWholeRecord(FieldsDiff.Result diff) =>
-        diff.AgreedCount > 0
-            ? $"(no field deltas; {diff.AgreedCount} modeled field(s) read identical to the winner ({SampleOf(diff)}))"
-            : "(identical to winner — full modeled content compared)";
-
-    /// <summary>No-delta render for a fields=-narrowed compare — node-neutral, and the identity claim must not
-    /// outrun the compared paths (PR #28 review #2).</summary>
-    static string IdenticalAcrossFields(FieldsDiff.Result diff) =>
-        diff.AgreedCount > 0
-            ? $"(no deltas across the requested fields; {diff.AgreedCount} of them read identical to the winner ({SampleOf(diff)}) — other fields NOT compared)"
-            : "(identical to winner across the requested fields — other fields NOT compared)";
-
-    static string SampleOf(FieldsDiff.Result diff)
-    {
-        var s = string.Join(", ", diff.AgreedSample);
-        return diff.AgreedCount > diff.AgreedSample.Count ? $"e.g. {s}, …" : s;
-    }
+    // The two no-delta renders (IdenticalWholeRecord / IdenticalAcrossFields) and their SampleOf helper
+    // went with Wire.AppendConflictTree, their only caller, when the conflictTree render chain was deleted
+    // (#486). The delta form's own "identical across the fields read" wording lives in RecordsTools.
 
 }

@@ -2057,7 +2057,13 @@ public static class CheckMergeProbe
     /// <summary>An Auto object/form property (no baked default — a FormID can't be a literal).</summary>
     internal static Decl AutoObj(string name, string typeName) => Auto(name, typeName, null);
 
-    /// <summary>An Auto scalar property, optionally with a baked initializer on its backing variable.</summary>
+    /// <summary>An Auto scalar property, optionally with a baked initializer on its backing variable.
+    ///
+    /// <para><b>Honest only for an <c>Int</c>.</b> The baked-initializer branch writes
+    /// <c>VariableType.Integer</c> while stamping the backing variable's <c>TypeName</c> from the caller's
+    /// declared type, so <c>AutoScalar("MyFlag", "Bool", 1)</c> produces a lie. Both call sites here pass
+    /// <c>"Int"</c>. The same caveat is recorded for the test project's copy in
+    /// <c>docs/architecture/test-project-fixtures.md</c>.</para></summary>
     internal static Decl AutoScalar(string name, string typeName, int? initInt) => Auto(name, typeName, initInt);
 
     /// <summary>Write a single-object .pex with the given Auto properties + backing variables to <paramref name="path"/>.</summary>
