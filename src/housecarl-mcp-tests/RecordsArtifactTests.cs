@@ -40,6 +40,31 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         Assert.Equal(W.Epoch0, m.Epoch);
     }
 
+    /// <summary>The manifest's provenance stamp. It records WHICH TOOL wrote the artifact and is read back
+    /// into a live re-entry refusal ("artifact '…' (from X) …"), so a stamp naming a deleted tool is a dead
+    /// name in a sentence a caller reads. Both writers were shared with 1.x tools the cut deleted; records is
+    /// their only caller now, and nothing asserted the stamp until this arm.</summary>
+    [Fact]
+    public void ToFile_TheManifestStampsTheToolThatActuallyWroteIt_Scan()
+    {
+        var art = Art("provenance-scan.jsonl");
+        RecordsTools.Records(Svc, types: new[] { "SPEL" }, to_file: art);
+
+        Assert.Equal(ToolNames.Records, ManifestOf(art).Tool);
+    }
+
+    /// <summary>The identity writer is the second stamp site, and it is a different code path — a per-writer
+    /// arm, not one arm standing in for both.</summary>
+    [Fact]
+    public void ToFile_TheManifestStampsTheToolThatActuallyWroteIt_Identity()
+    {
+        var art = Art("provenance-identity.jsonl");
+        RecordsTools.Records(Svc, formids: W.SpellBodies.Select(b => RecordsWorld.Fid(b.FormKey)).ToArray(),
+                             project: new RecordsTools.RecordsProject { form = "identity" }, to_file: art);
+
+        Assert.Equal(ToolNames.Records, ManifestOf(art).Tool);
+    }
+
     [Fact]
     public void ToFile_TheManifestTypeCountsCountTheRows()
     {
