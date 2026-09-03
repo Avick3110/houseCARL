@@ -1609,8 +1609,11 @@ offset, paging meant slicing by `editorid_contains`. Now:
   What does carry across is the master advisory the deleted `housecarl_read_plugin_file` printed:
   `housecarl_check findings=["missing_masters"]` now names, per unsatisfied master, whether it is not
   installed anywhere in the MO2 install (install it) or installed but not active — in a disabled mod, or
-  unchecked (enable it). The finding class, its count and its list are unchanged; the remedy line used to say
-  "install/enable it" for every master at once, so a caller had to work out which applied. Check it by running
+  unchecked (enable it) — in both transports: `format="text"` says which in the remedy line, and
+  `format="json"` carries the second case as `installed_but_inactive_masters`, the subset of
+  `missing_masters` whose file is in the install (`null` where the split was not made). The finding class,
+  its count and its list are unchanged; the remedy line used to say "install/enable it" for every master at
+  once, so a caller had to work out which applied. Check it by running
   `housecarl_check plugins=["<a plugin with an unsatisfied master>"] findings=["missing_masters"]`.
 
 - **Sentences on tools that survive point at a call you can make.** Repairs the deletion above forced:
