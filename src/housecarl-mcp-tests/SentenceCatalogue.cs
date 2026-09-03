@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Xunit;
@@ -54,7 +55,9 @@ static class SentenceCatalogue
         BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance
       | BindingFlags.DeclaredOnly;
 
-    static readonly Dictionary<Type, IReadOnlyList<Member>> Cache = new();
+    // Concurrent because three test CLASSES ask for this population and xUnit runs classes in parallel:
+    // ReadSentenceWordingTests, ReadSentenceReachabilityTests and OwnedChildRemedyGrammarTests.
+    static readonly ConcurrentDictionary<Type, IReadOnlyList<Member>> Cache = new();
 
     /// <summary>Every member of the catalogue <paramref name="t"/>, classified — or a loud failure naming the
     /// member and the shape this net cannot pin.</summary>
@@ -109,7 +112,8 @@ static class SentenceCatalogue
             "found nothing — a renamed type, a changed accessibility, or a binding-flag mistake — and that is " +
             "this net's subject, not a reason to pass.");
 
-        return Cache[t] = list;
+        Cache[t] = list;
+        return list;
     }
 
     public static IReadOnlyList<string> MemberNames(Type t) => Members(t).Select(m => m.Name).ToList();
