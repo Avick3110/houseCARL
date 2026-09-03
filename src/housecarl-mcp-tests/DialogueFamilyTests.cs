@@ -172,15 +172,15 @@ public sealed class DialogueFamilyTests
 
         var r = CheckDialogue(Svc, W.ViewOk, W.BranchOk, W.QuestOk);
 
-        var byViewLine = LineAfter(r, "dialogue view (DLVW)");
+        var byViewLine = SeedBlock(r, "dialogue view (DLVW)");
         Assert.Contains("CK-parity: OK", byViewLine);
         foreach (var sig in pinView) Assert.Contains(sig, byViewLine);
 
-        var byBranchLine = LineAfter(r, "dialogue branch (DLBR)");
+        var byBranchLine = SeedBlock(r, "dialogue branch (DLBR)");
         Assert.Contains("CK-parity: OK", byBranchLine);
         foreach (var sig in pinBranch) Assert.Contains(sig, byBranchLine);
 
-        var byQuestLine = LineAfter(r, "quest (QUST)");
+        var byQuestLine = SeedBlock(r, "quest (QUST)");
         Assert.Contains("quest CK-parity: OK", byQuestLine);
         foreach (var sig in pinQuest) Assert.Contains(sig, byQuestLine);
     }
@@ -195,14 +195,32 @@ public sealed class DialogueFamilyTests
         return text[(i + seed.Length + 1)..];
     }
 
-    /// <summary>The block of text starting at the line containing <paramref name="marker"/>, running to the
-    /// next blank line — enough to read one seed's own CK-parity report without picking up a sibling's.</summary>
-    static string LineAfter(string response, string marker)
+    /// <summary>ONE seed's own block: the head line containing <paramref name="marker"/> and the indented findings
+    /// under it, stopping at the NEXT seed's head — or at the family's accounting or boundary, whichever comes first.
+    ///
+    /// <para>It terminated on the next BLANK line until round 2. The seed heads are contiguous
+    /// (<c>ReadSentences.DialogueSeedHead</c> ends in one newline and the next head follows it directly), so the
+    /// first blank line in a three-seed response comes AFTER the third seed: every block spanned every seed below
+    /// it, and an assertion that a seed states its own verdict was satisfied by a sibling's. Measured — deleting
+    /// the DLVW verdict outright left the arm green. The terminator is the next head, which is what
+    /// "this seed's own report" was always supposed to mean.</para>
+    ///
+    /// <para>The START is anchored to a HEAD line for the same reason, and that is not belt-and-braces: with the
+    /// terminator fixed and the start still "the first line containing the marker", the quest block resolved to the
+    /// DLVW seed's scope sentence, which names "quest (QUST)" as the record to validate for a graph surface. The
+    /// old span ran past it to the real quest head and passed on that. A kind label is a head's vocabulary, so the
+    /// head is what the search reads.</para></summary>
+    static string SeedBlock(string response, string marker)
     {
         var lines = response.Split('\n');
-        int start = Array.FindIndex(lines, l => l.Contains(marker, StringComparison.Ordinal));
-        Assert.True(start >= 0, $"no line containing '{marker}': {response}");
-        int end = Array.FindIndex(lines, start + 1, l => l.Trim().Length == 0);
+        int start = Array.FindIndex(lines,
+            l => l.StartsWith("seed ", StringComparison.Ordinal) && l.Contains(marker, StringComparison.Ordinal));
+        Assert.True(start >= 0, $"no seed head containing '{marker}': {response}");
+        int end = Array.FindIndex(lines, start + 1,
+            l => l.StartsWith("seed ", StringComparison.Ordinal)
+                 || l.StartsWith("[accounting:", StringComparison.Ordinal)
+                 || l.StartsWith("boundary (", StringComparison.Ordinal)
+                 || l.Trim().Length == 0);
         return string.Join("\n", lines[start..(end < 0 ? lines.Length : end)]);
     }
 
