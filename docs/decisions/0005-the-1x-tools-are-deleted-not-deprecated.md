@@ -7,7 +7,7 @@
 
 houseCARL 1.x published 45 tools. The 2.0 surface replaces most of them with a much smaller set of
 composed tools: `housecarl_records` alone absorbs eight read tools, `housecarl_check` absorbs two more
-plus part of a third, and five write tools absorb six.
+plus part of a third, and four write tools absorb six.
 
 "Absorbs" is exact here rather than approximate. Each 2.0 tool was designed as the closure of the
 parameter planes its ancestors occupied — one record or many is a set, the shape of the answer is a
