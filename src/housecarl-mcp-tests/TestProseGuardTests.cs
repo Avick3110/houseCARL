@@ -353,9 +353,12 @@ public sealed class TestProseGuardTests
     {
         var usable = names.Where(n => n.Length > 0 && n.All(c => char.IsLetterOrDigit(c) || c == '_'))
                           .OrderByDescending(n => n.Length).ToArray();
+        // The dot in the lookbehind matters: a fixture file declares helper METHODS whose names are ordinary
+        // English (First, Plugin, Scope), and without it `response.First()` would read as a fixture symbol.
+        // A fixture symbol is a RECEIVER — it starts an expression, it does not hang off one.
         return usable.Length == 0
             ? null
-            : new Regex(@"(?<![A-Za-z0-9_])(?:" + string.Join("|", usable.Select(Regex.Escape)) + @")\s*[.(]",
+            : new Regex(@"(?<![A-Za-z0-9_.])(?:" + string.Join("|", usable.Select(Regex.Escape)) + @")\s*[.(]",
                         RegexOptions.Compiled);
     }
 
