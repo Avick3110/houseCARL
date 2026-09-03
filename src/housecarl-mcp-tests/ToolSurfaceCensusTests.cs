@@ -90,9 +90,10 @@ public sealed class ToolSurfaceCensusTests
     static Assembly[] ShippedAssemblies()
     {
         var self = typeof(ToolSurfaceCensusTests).Assembly;
-        return RepoProjects.AllAssemblies.Where(a => a != self)
-                                         .OrderBy(a => a.GetName().Name, StringComparer.Ordinal)
-                                         .ToArray();
+        return RepoProjects.AllAssemblies()
+                           .Where(a => a != self)
+                           .OrderBy(a => a.GetName().Name, StringComparer.Ordinal)
+                           .ToArray();
     }
 
     /// <summary>Assemblies in <paramref name="population"/> other than the registered one that declare a tool.</summary>

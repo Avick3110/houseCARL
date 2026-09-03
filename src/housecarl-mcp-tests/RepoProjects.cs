@@ -83,11 +83,20 @@ static class RepoProjects
         return Assembly.LoadFrom(dll!);
     }
 
-    /// <summary>Every project's built assembly: the repo-wide population, derived from the csproj files rather
-    /// than from any one assembly's reference closure. A closure only reaches what its root REFERENCES, which
-    /// is a different set from "the repo's own assemblies" and is short in a direction nothing announces.</summary>
-    public static IReadOnlyList<Assembly> AllAssemblies { get; } =
-        All.Select(p => BuiltAssembly(p.AssemblyName, p.Directory))
-           .OrderBy(a => a.GetName().Name, StringComparer.Ordinal)
-           .ToArray();
+    static Assembly[]? _allAssemblies;
+
+    /// <summary>
+    /// Every project's built assembly: the repo-wide population, derived from the csproj files rather than
+    /// from any one assembly's reference closure. A closure only reaches what its root REFERENCES, which is a
+    /// different set from "the repo's own assemblies" and is short in a direction nothing announces.
+    ///
+    /// <para>A method rather than a property initializer on purpose: <see cref="BuiltAssembly"/> can refuse,
+    /// and a refusal thrown out of a static initializer arrives as a TypeInitializationException that then
+    /// poisons every other test touching this class for the rest of the run. From here it arrives as the
+    /// assertion it is, in the test that asked.</para>
+    /// </summary>
+    public static IReadOnlyList<Assembly> AllAssemblies() =>
+        _allAssemblies ??= All.Select(p => BuiltAssembly(p.AssemblyName, p.Directory))
+                              .OrderBy(a => a.GetName().Name, StringComparer.Ordinal)
+                              .ToArray();
 }
