@@ -13,23 +13,10 @@ namespace HousecarlMcp;
 /// write sentences have: the CONTENT net (<see cref="MustStateAttribute"/> — the phrases whose loss changes what
 /// the caller is told, declared beside the sentence) and a REACH net in the probe that owns the feature.</para>
 ///
-/// <para><b>Two tiers, because the cheap question and the precise one cost differently.</b> Naming WHICH plugins
-/// declare children means reading their bodies, and the resolver fetches a body by enumerating a whole overlay —
-/// measured on a real load order at 588 ms for one Dawnstar cell read and 2.5 s for a worldspace, with an
-/// unbounded artifact job never finishing. So the precise answer is stated only by the lane that has ALREADY
-/// fetched those bodies, and every other read states the cheaper fact the index alone settles: how many other
-/// plugins touch the record, and that their declarations were not read.</para>
-///
-/// <para><b>Which lane that is, and why it changed.</b> Until the 1.x cut it was <c>read_record
-/// conflict_tree=true</c>; no 2.0 surface sets that flag, so the tier had no caller and was deleted with its
-/// sentences (gap #485). It is restored here on <c>records project={"form":"tree"}</c> — the 2.0 form that
-/// fetches every provider body anyway, which is exactly the condition the cost argument above turns on, and the
-/// lane the cheap tier's own remedy already sends the caller to.</para>
-///
-/// <para><b>Two shapes, because one sentence was false for two of its own fields.</b> A COLLECTION child field is
-/// assembled additively; a SINGULAR one (Cell.Landscape, Worldspace.TopCell) is one record several plugins
-/// OVERRIDE. "Assembled from every plugin that declares any" is true of the first and false of the second — see
-/// <see cref="OwnedChildShape"/>. <see cref="DeclarersLead"/> states both, once per record.</para>
+/// <para><b>Two tiers, cheap and precise, because naming WHICH plugins declare children costs a body read per
+/// toucher and every other read settles for the index's cheaper fact. Two shapes, because a COLLECTION field is
+/// assembled from every declarer and a SINGULAR one (Cell.Landscape, Worldspace.TopCell) is one record they
+/// OVERRIDE.</b> History, cost measurements, and the #485 restoration: `docs/architecture/records-owned-child-declarers.md`.</para>
 ///
 /// <para><b>The response/field split.</b> The invariant half is a fact about the response, not about one field,
 /// so it is stated ONCE per response. Carried per field it cost 288 chars per annotated field per record, ~275 of
@@ -89,38 +76,25 @@ internal static class ReadSentences
 
     // ---- the precise tier: WHICH providers declare, off bodies the tree has already fetched ----------
 
-    /// <summary>The per-field label for a COLLECTION child. A pure label: on its own it asserts nothing a caller
-    /// acts on — the claim is the plugin names it introduces, and what those names MEAN is stated once by
-    /// <see cref="DeclarersLead"/>.
-    ///
-    /// <para><b>No leading "also".</b> "also declared by" asserts that some other body declares content TOO, which
-    /// is false in exactly the case this feature exists for: a winner carrying 0 references beside a base carrying
-    /// 201. "declared by" is true whether or not any particular body declares, so it is true in both
-    /// directions.</para></summary>
+    /// <summary>The per-field label for a COLLECTION child; meaning stated once by <see cref="DeclarersLead"/>.
+    /// Never "also declared by" — false in the case this feature exists for, a winner carrying 0 beside a base
+    /// carrying 201.</summary>
     [NoClaims("a label; the claim is the plugin names it introduces, and their meaning is DeclarersLead")]
     internal const string DeclaredBy = "declared by";
 
-    /// <summary>The per-field label for a SINGULAR child: a COUNT, deliberately not a name list. Landscape and
-    /// TopCell are overridden by hundreds of plugins on a real order ("+483 more" is noise, not information), and
-    /// which one wins is the load-order question the tree's own provider list answers directly.</summary>
+    /// <summary>The per-field label for a SINGULAR child: a COUNT, not a name list — hundreds of overriders is
+    /// noise, not information.</summary>
     [NoClaims("a label; the claim is DeclarersLead's, and the count is evidence rather than an assertion")]
     internal const string CarriedBy = "carried by";
 
-    /// <summary>The Q3 half: a provider whose body or field could not be read. Stated, never dropped — an
-    /// unreadable body silently missing from the list would read as "nobody declares", which is the same wrong
-    /// answer this annotation exists to prevent, one level down.</summary>
+    /// <summary>A provider whose body or field could not be read. Stated beside <see cref="NoDeclarers"/>, never
+    /// absorbed into it — that would silently misreport "could not look" as "nothing there".</summary>
     [MustState("could NOT be read")]
     internal const string CouldNotRead = "could NOT be read";
 
-    /// <summary>The half no cheap tier can ever state: nobody declares anything here.
-    ///
-    /// <para><b>It claims only over the bodies that were READ</b>, because that is all the walk knows. A provider
-    /// whose field answered "I could not look" is counted by <see cref="CouldNotRead"/> beside this sentence, and
-    /// a flat "no provider declares" would silently absorb it — the #308 rule at the sentence layer.</para>
-    ///
-    /// <para><b>A sentence, not silence.</b> The tier this restores said nothing at all in this case, which a
-    /// caller cannot tell apart from the tier never having run. Gap #485's whole point is that answer, so the
-    /// answer is stated.</para></summary>
+    /// <summary>The half no cheap tier can state: nobody declares here. Claims only over bodies actually READ — an
+    /// unreadable one is counted by <see cref="CouldNotRead"/>, never folded silently into this (the #308 rule).
+    /// A sentence, never omitted, so it cannot read as the tier not having run.</summary>
     [MustState("none of the provider bodies read", "declares child records")]
     internal const string NoDeclarers = "none of the provider bodies read declares child records in this field";
 

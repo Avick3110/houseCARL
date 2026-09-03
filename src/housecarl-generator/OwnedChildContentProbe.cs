@@ -18,10 +18,9 @@ namespace HousecarlGenerator;
 /// Temporary 0, <c>Skyrim.esm</c>'s own body 201.
 ///
 /// <para>This guard used to drive <c>housecarl_read_record</c> end to end, and most of its arms were about a
-/// RENDERED response. The 1.x cut deleted that tool. The rendered arms for the CHEAP tier are tests against
-/// <c>housecarl_records</c> in <c>src/housecarl-mcp-tests</c>; the rendered arms for the PRECISE tier
-/// (<c>conflict_tree=true</c>) have no 2.0 lever and are gone. What is left here is the layer underneath, which
-/// no tool change touches:</para>
+/// RENDERED response. The 1.x cut deleted that tool. The rendered arms for both tiers are tests against
+/// <c>housecarl_records</c> in <c>src/housecarl-mcp-tests</c> now (the precise tier restored by #485, on
+/// <c>project={"form":"tree"}</c>). What is left here is the layer underneath, which no tool change touches:</para>
 ///   REACH-NOT-ELEMENT — <c>DeclaresChild</c> answers "does this body declare a child RECORD", not "does it hold a
 ///                  top-level element": a worldspace holding empty block scaffolding declares no cells, and its
 ///                  real cells sit two container levels down.
@@ -202,11 +201,10 @@ public static class OwnedChildContentProbe
             // ================= TIER 2 - the PRECISE answer =====================================================
             // The precise tier's reads stood here and through the DISJOINT/EQUAL/SELF and NOT-A-CELL arms below:
             // conflict_tree=true naming the declaring plugin per field, the singular-vs-collection clauses, the
-            // no-"also" label on a winner carrying nothing, and the worldspace scaffolding pair. They drove
-            // housecarl_read_record with conflict_tree=true, which the 1.x cut deleted, and the records surface has
-            // no lever for that tier - so unlike the arms above they have NO test replacing them. What survives is
-            // the unit level: the shape classifier and DeclaresChild, which answer the same questions off a body
-            // with no render in the way, and are the arms kept below.
+            // no-"also" label on a winner carrying nothing, and the worldspace scaffolding pair. Restored by #485
+            // on records project={"form":"tree"} — those wire-level arms are tests in src/housecarl-mcp-tests now.
+            // What survives here is the unit level: the shape classifier and DeclaresChild, answered off a body
+            // with no render in the way.
             Check("SHAPE: the classifier answers the two shapes off the TYPE, before any body is read",
                 ShapeOn(topDir, topKey, cellA, "Landscape") == OwnedChildShape.Singular
                 && ShapeOn(topDir, topKey, cellA, "Temporary") == OwnedChildShape.Collection
@@ -214,8 +212,8 @@ public static class OwnedChildContentProbe
                 && ShapeOn(baseDir, baseKey, wrld, "SubCells") == OwnedChildShape.Collection,
                 $"Landscape={ShapeOn(topDir, topKey, cellA, "Landscape")} SubCells={ShapeOn(baseDir, baseKey, wrld, "SubCells")}");
             // ---- REACH-NOT-ELEMENT: empty block scaffolding is not a declaration of cells ----
-            // The two rendered WRLD-SCAFFOLD arms that stood here drove the precise tier and die with it. The
-            // question they were about is asked directly below.
+            // The two rendered WRLD-SCAFFOLD arms that stood here are not restored — the question they were about
+            // is asked directly below at the unit level.
             Check("REACH: DeclaresChild answers the CHILD question, not the element question, on both bodies",
                 DeclaresOn(baseDir, baseKey, wrld, "SubCells") == true
                 && DeclaresOn(topDir, topKey, wrld, "SubCells") == false,
@@ -242,8 +240,9 @@ public static class OwnedChildContentProbe
             // A long block of arms stood here over the depth=2 render, the batch lane, the emission gate at a tight
             // max_chars, the clause reserve, both json transports and the to_file artifact. All drove
             // housecarl_read_record or housecarl_batch_record_detail; all are tests against housecarl_records in
-            // src/housecarl-mcp-tests now, apart from the two conflict_tree arms in the block (the tree lane's
-            // clause reserve, and the sole-toucher tree skip), which die with the precise tier.
+            // src/housecarl-mcp-tests now, apart from the two conflict_tree-specific arms in the block (the tree
+            // lane's own clause reserve, and the sole-toucher tree skip) — not restored as such; the tree lane's
+            // own max_chars/truncation behaviour for the precise block is covered by that same test project.
 
             // ---- UNREADABLE: a toucher whose body cannot be read is NAMED, not dropped ----
             CheckUnreadable(root, mods, baseDir, baseKey, topKey, cellA);

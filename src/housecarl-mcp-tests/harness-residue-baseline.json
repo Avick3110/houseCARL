@@ -101,7 +101,7 @@
     "src/housecarl-generator/NullArmGuardProbe.cs": { "lines": 327, "ciAllRows": 1 },
     "src/housecarl-generator/OverriderDetectProbe.cs": { "lines": 140, "ciAllRows": 1 },
     "src/housecarl-generator/OverwriteResolveProbe.cs": { "lines": 164, "ciAllRows": 1 },
-    "src/housecarl-generator/OwnedChildContentProbe.cs": { "lines": 423, "ciAllRows": 1 },
+    "src/housecarl-generator/OwnedChildContentProbe.cs": { "lines": 422, "ciAllRows": 1 },
     "src/housecarl-generator/OwnedRecordIdentityProbe.cs": { "lines": 76, "ciAllRows": 1 },
     "src/housecarl-generator/PatchStemCollisionProbe.cs": { "lines": 117, "ciAllRows": 1 },
     "src/housecarl-generator/PerkRefsProbe.cs": { "lines": 346, "ciAllRows": 2 },

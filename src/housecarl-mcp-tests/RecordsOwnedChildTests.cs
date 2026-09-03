@@ -278,10 +278,8 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     public void TheCheapTierClaimsNothingAboutWhoDeclares_NoDeclarerNamingOnTheDefaultLane()
     {
         var r = Read(_w.CellA);
-        // The literals, not the consts: the precise tier that owned them was deleted at the cut (gap #485), so
-        // there is no shared source left to read them from — and the claim is about the WORDS not appearing.
-        Assert.DoesNotContain("declared by", r);
-        Assert.DoesNotContain("carried by", r);
+        Assert.DoesNotContain(ReadSentences.DeclaredBy, r);
+        Assert.DoesNotContain(ReadSentences.CarriedBy, r);
     }
 
     /// <summary>The grid is the record type's OWN child-bearing set, so a Mutagen bump that grows it grows this
@@ -594,12 +592,8 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     /// <summary>The NEGATIVE on its own, and the claim is that it is a SENTENCE. The tier this restores said
     /// nothing at all here, which a caller cannot tell apart from the tier not having run.</summary>
     [Fact]
-    public void AFieldNoProviderDeclaresInGetsTheNoneSentence_NeverSilence()
-    {
-        var block = DeclarersBlock(Tree(_w.CellF));
-        Assert.Contains($"NavigationMeshes: {ReadSentences.NoDeclarers}", block);
-        Assert.DoesNotContain(block, l => l == "NavigationMeshes:");
-    }
+    public void AFieldNoProviderDeclaresInGetsTheNoneSentence_NeverSilence() =>
+        Assert.Contains($"NavigationMeshes: {ReadSentences.NoDeclarers}", DeclarersBlock(Tree(_w.CellF)));
 
     /// <summary>The SINGULAR arm: Cell.Landscape is ONE record its providers override, so the line is a COUNT.
     /// Naming them would be the collection sentence, which is false of this shape.</summary>

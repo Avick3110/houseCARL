@@ -251,9 +251,8 @@ static class Wire
     }
 
     /// <summary>Render one record, and its conflict tree when asked. The outcome keeps the cheap index-only #342
-    /// annotation the service already put on it — the precise tier that rewrote it off the tree's own bodies fired
-    /// only under <c>conflict_tree=true</c> and was deleted at the 1.x cut, since no 2.0 surface sets that flag
-    /// (gap #485).</summary>
+    /// annotation the service already put on it — the precise tier lives on <c>records project={"form":"tree"}</c>
+    /// now (#485), not on this lane's <c>conflict_tree=true</c>, which no 2.0 surface calls.</summary>
     static void AppendRecordBlock(StringBuilder sb, LoadOrderService svc, ReadOutcome o, IReadOnlyList<string>? fields,
                                   bool conflictTree, int cap, ChildNotes notes, LeverNames? levers = null)
     {
