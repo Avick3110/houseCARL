@@ -108,7 +108,7 @@ public sealed class ReadSentenceReachabilityTests : IClassFixture<OwnedChildFixt
         // body names, read off the catalogue's source by the same walk. Two useful consequences: the
         // constants come back into the population, and a composer with BRANCHES needs the harvest to exercise
         // each of them, because each branch's sentence gets its own arm.
-        foreach (var composer in ComposersWithRenderSites(found))
+        foreach (var composer in ComposersWithRenderSites())
             foreach (var named in SentencesNamedInside(composer, sentences))
                 found.Add(new Site(named, composer + "()"));
 
@@ -118,7 +118,7 @@ public sealed class ReadSentenceReachabilityTests : IClassFixture<OwnedChildFixt
     }
 
     /// <summary>The catalogue's composers that the product actually calls somewhere under src/housecarl-mcp.</summary>
-    static IReadOnlyList<string> ComposersWithRenderSites(IEnumerable<Site> direct)
+    static IReadOnlyList<string> ComposersWithRenderSites()
     {
         var called = new HashSet<string>(StringComparer.Ordinal);
         var composers = SentenceCatalogue.Members(typeof(ReadSentences))
@@ -158,12 +158,17 @@ public sealed class ReadSentenceReachabilityTests : IClassFixture<OwnedChildFixt
                     .ToList();
     }
 
+    /// <summary>The product's own source, both assemblies. Walking only <c>housecarl-mcp</c> would let a
+    /// render site LEAVE the population by moving into <c>housecarl-core</c> — the same silent shrink the
+    /// committed population size is about, arriving by a different door.</summary>
     static IEnumerable<string> ProductFiles() =>
-        Directory.EnumerateFiles(Path.Combine(HarnessPaths.RepoRoot, "src", "housecarl-mcp"),
-                                 "*.cs", SearchOption.AllDirectories)
-                 .Where(p => !p.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")
-                          && !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
-                          && !string.Equals(Path.GetFileName(p), "ReadSentences.cs", StringComparison.Ordinal));
+        new[] { "housecarl-mcp", "housecarl-core" }
+            .SelectMany(root => Directory.EnumerateFiles(
+                Path.Combine(HarnessPaths.RepoRoot, "src", root), "*.cs", SearchOption.AllDirectories))
+            .Where(p => !p.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")
+                     && !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
+                     && !string.Equals(Path.GetFileName(p), "ReadSentences.cs", StringComparison.Ordinal))
+            .OrderBy(p => p, StringComparer.Ordinal);
 
     static IReadOnlyDictionary<string, string> Unreached()
     {
@@ -174,6 +179,21 @@ public sealed class ReadSentenceReachabilityTests : IClassFixture<OwnedChildFixt
         Assert.True(doc is not null, $"'{UnreachedPath}' did not parse.");
         return doc!.Where(kv => !kv.Key.StartsWith('_'))
                    .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+    }
+
+    /// <summary>The committed SIZE of the derived population — the half of the countdown that catches a pair
+    /// leaving rather than arriving.</summary>
+    static int CommittedPairs()
+    {
+        var doc = JsonSerializer.Deserialize<Dictionary<string, string>>(
+            File.ReadAllText(UnreachedPath),
+            new JsonSerializerOptions { ReadCommentHandling = JsonCommentHandling.Skip })!;
+
+        Assert.True(doc.TryGetValue("_population_pairs", out var raw) && int.TryParse(raw, out _),
+            $"'{UnreachedPath}' carries no '_population_pairs' number, so the population's own size is " +
+            "ungated and a render site can leave it silently. That is the direction this key exists for.");
+
+        return int.Parse(doc["_population_pairs"]);
     }
 
     /// <summary>The pairs an arm below must actually drive — the derived population minus the countdown.</summary>
@@ -205,7 +225,22 @@ public sealed class ReadSentenceReachabilityTests : IClassFixture<OwnedChildFixt
                             .OrderBy(k => k, StringComparer.Ordinal).ToArray();
 
         _out.WriteLine($"render sites: {sites.Count} · recorded unreached: {recorded.Count} · " +
-                       $"driven: {sites.Count - recorded.Count}");
+                       $"driven: {sites.Count - recorded.Count} · committed population {CommittedPairs()}");
+
+        // The population's own SIZE, both directions. Without this a pair can LEAVE the population — a
+        // constant inlined at its render site, a file moved out of the walk — and take its theory case and
+        // its claim with it, green. Arriving is caught by the countdown; leaving is caught here.
+        var committedPairs = CommittedPairs();
+        Assert.True(sites.Count == committedPairs,
+            $"The derived (member, render site) population is {sites.Count} pair(s) and " +
+            $"'{UnreachedPath}' commits {committedPairs}.\n" +
+            (sites.Count < committedPairs
+                ? "Pairs have LEFT the population. A sentence inlined at its render site, or a render site " +
+                  "moved out of the walk, deletes its own reachability claim and its own theory case with it, " +
+                  "and every remaining arm stays green over the gap. If the sites really went away, lower " +
+                  "'_population_pairs' in this PR and say which ones and why."
+                : "Pairs have ARRIVED. Each new one needs a driven arm or an entry in this file, and then " +
+                  "'_population_pairs' is raised in the same commit."));
 
         Assert.True(stale.Length == 0,
             "These entries name render sites that no longer exist:\n  " + string.Join("\n  ", stale) +
