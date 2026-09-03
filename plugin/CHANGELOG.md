@@ -1601,6 +1601,11 @@ offset, paging meant slicing by `editorid_contains`. Now:
   Check it from your client's tool list: the eleven names are absent, and `housecarl_records` and
   `housecarl_check` are present.
 
+  One thing does not carry across: `housecarl_read_record conflict_tree=true` named which plugins declare
+  child records in a CELL's, DIAL's or WRLD's child-bearing field, and `housecarl_records` does not — it
+  states that other plugins touch the record and that this read did not open their bodies, and
+  `project={"form": "tree"}` shows you each touching plugin's own content in that field instead (#485).
+
 - **Sentences on tools that survive point at a call you can make.** Repairs the deletion above forced:
   `housecarl_write_seq`'s standing limit and its mtime-stamp note named the retired dialogue validator and
   name `housecarl_check findings=["dialogue"]` now; `housecarl_skypatcher_layer`'s description and its
