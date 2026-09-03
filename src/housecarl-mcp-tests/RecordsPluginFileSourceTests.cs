@@ -12,7 +12,8 @@ namespace HousecarlMcpTests;
 /// The source pole that reads a plugin FILE rather than the load order: the arms come from the tool-layer half of
 /// <c>ReadPluginFileProbe</c> (the four <c>ReadTools.ReadPluginFile</c> renders — the rest of that probe drives
 /// <c>LoadOrderService.ReadPluginFile</c> directly and survives the cut untouched) and from the two
-/// <c>ReadTools.DiffRecord</c> renders in <c>BulkPrimitivesWave3Probe</c>.
+/// <c>ReadTools.DiffRecord</c> renders in <c>BulkPrimitivesWave3Probe</c> — that renderer went with the 1.x
+/// pairwise-diff service at #486, so these arms are where those two facts are stated now.
 /// </summary>
 [Collection("records")]
 [Trait("tier", "integration")]

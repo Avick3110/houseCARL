@@ -72,9 +72,10 @@ internal sealed class CheckAccounting
     // lane writes and was covered only by slack meant for something else (round-2 finding B6). One field is one
     // line to copy, and forgetting it is a compile error rather than a silent under-measure.
     readonly DialogueOutcome? _dialogue;
-    // What THIS lane closes with. The two families state different boundaries, and TextReserve holds room for the
-    // one that will actually be written — a reserve sized off the other family's sentence is room for a sentence
-    // this lane cannot write, which is the defect CanStateAccounting exists to name.
+    // What THIS lane closes with. The two families state different boundaries, and the response's reserve loop
+    // (ReadTools.RenderCheck) holds room per family for the one that will actually be written — a reserve sized off
+    // the other family's sentence is room for a sentence this lane cannot write, which is the defect
+    // CanStateAccounting exists to name. The 1.x TextReserve that bundled the two went with #486.
     readonly string _boundary;
 
     /// <summary>Build the accounting for one response, declaring the subjects this lane has.
@@ -566,7 +567,7 @@ internal sealed class CheckAccounting
     /// prose sentence a machine consumer would have to parse.
     ///
     /// <para>It writes §2.1's four required in-band fields too, flat, rather than leaving them at the call site. Not
-    /// tidiness: <see cref="JsonReserve"/> measures this method, so a field written anywhere else is a field outside
+    /// tidiness: <see cref="JsonAccountingReserve"/> measures this method, so a field written anywhere else is a field outside
     /// the reserve — which is how the first cut of this class under-reserved and let a 5000-char cap return 5673.
     /// Everything the close emits is written here, and therefore measured.</para></summary>
     internal void WriteJson(Utf8JsonWriter w) => WriteJson(w, Real());
@@ -581,7 +582,7 @@ internal sealed class CheckAccounting
         bool sections = Has(SweepSubject.PluginSections);
         bool dangling = Has(SweepSubject.DanglingEntries);
         // The scripts family's own listing subject. Its `capped` / `rendered` / `truncated` used to be written at
-        // the render's call site — outside what JsonReserve measures, which is exactly how that lane's roster ended
+        // the render's call site — outside what JsonAccountingReserve measures, which is exactly how that lane's roster ended
         // up unbounded. Everything the close emits is written here, and therefore measured.
         bool scriptSections = Has(SweepSubject.ScriptRecords);
         // The dialogue family's listing subject. Its "capped" is the SEED budget — the knob that decides how many
