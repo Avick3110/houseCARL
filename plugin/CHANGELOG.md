@@ -35,7 +35,7 @@ saying it sets an expectation their install may contradict. Say what is known, a
   off-order `source=` is refused once for the call, before any record is read, instead of once per record.
 
 - **A FormID from the game, a log or a crash log now works as an input, and comes back as an output.**
-  Wherever a parameter holds nothing but FormIDs, houseCARL now also takes the runtime form the game, the
+  Wherever a FormID is read, houseCARL now also takes the runtime form the game, the
   console, Papyrus logs, SKSE logs and crash logs print: eight hex digits and no plugin name — `FExxxYYY` for a light plugin,
   `XX######` for a full one, with or without a leading `0x`. It is resolved against the load order as it
   stands at the call (the light index moves whenever the order does, so nothing is cached), and the answer
