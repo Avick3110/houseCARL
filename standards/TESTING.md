@@ -40,4 +40,4 @@ dotnet test src/housecarl-mcp-tests -c Release --no-build --filter "tier!=bridge
 dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll ci-all
 ```
 
-The one `bridge`-tier test shells the generator's `ci-all` itself; CI runs `ci-all` as its own step, so the filter leaves it out there.
+This block runs `ci-all` explicitly, so the filter leaves out the one `bridge`-tier test, which exists only to run `ci-all` from an unfiltered `dotnet test`. CI does the same.

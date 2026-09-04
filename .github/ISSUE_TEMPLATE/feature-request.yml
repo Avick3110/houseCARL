@@ -1,5 +1,5 @@
-name: Feature request
-description: Something you needed houseCARL to do and it could not
+name: Gap report / feature request
+description: Something you needed houseCARL to do and it could not (tool messages call this a gap report)
 labels: ["enhancement"]
 body:
   - type: textarea
