@@ -11,12 +11,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Parse-only Roslyn: TestProseGuardTests parses the test sources with CSharpSyntaxTree.ParseText
-         and walks the syntax. No workspace, no compilation, no semantic model, so no MSBuild dependency.
-         The version tracks src/housecarl-generator, which already carries this exact package and pulls it
-         in here transitively through the project reference — pinning a lower one is a NU1605 downgrade
-         error, so the two move together. -->
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
