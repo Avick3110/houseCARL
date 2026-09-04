@@ -99,7 +99,11 @@ internal static class DialogueSweepRender
     {
         var sb = new StringBuilder();
         var checks = DialogueKindChecks.For(r.InputKind);
-        if (r.InputKind == "quest" && r.Topics.Count == 0) sb.Append(ReadSentences.DialogueSeedNoTopics);
+        // "owns none" is a claim about the load order, and a fan-out that lost a plugin cannot make it — it says what
+        // it covered instead, and the gap lines below name what it did not.
+        if (r.InputKind == "quest" && r.Topics.Count == 0)
+            sb.Append(r.ScanGaps.Count > 0 ? ReadSentences.DialogueSeedNoTopicsRead : ReadSentences.DialogueSeedNoTopics);
+        foreach (var gap in r.ScanGaps) sb.Append(string.Format(ReadSentences.DialogueSeedScanGap, gap));
         DialogueWire.AppendSeq(sb, r.SeqLint);
         // The seed record's own CK parity, stated both when it passes and when it fails, for every kind that has one.
         // Which kinds those are, and what each verdict says, comes from DialogueKindChecks rather than a literal
@@ -229,6 +233,11 @@ internal static class DialogueSweepRender
         foreach (var name in DialogueKindChecks.Names(DialogueKindChecks.For(r.InputKind))) w.WriteStringValue(name);
         w.WriteEndArray();
         WriteIssues(w, "input_issues", r.InputIssues);
+        // Its own key for the same reason the text lane gives it its own line: a consumer reading input_issues as the
+        // parity result must not find a file lock in it, and must still be able to see the report is bounded.
+        w.WriteStartArray("scan_gaps");
+        foreach (var gap in r.ScanGaps) w.WriteStringValue(gap);
+        w.WriteEndArray();
         if (r.SeqLint is { QuestIsSge: true } seq)
         {
             w.WriteStartObject("seq");

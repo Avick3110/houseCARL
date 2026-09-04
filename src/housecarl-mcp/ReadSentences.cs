@@ -571,6 +571,18 @@ internal static class ReadSentences
         "  this quest owns NO dialogue topics in the active load order — nothing to validate. If you expected some, " +
         "check those topics set DialogTopic.Quest to this quest and that their plugin is enabled.\n";
 
+    /// <summary>The same seed, where the fan-out could not read a plugin: what it found is bounded by what it could
+    /// open, so the answer is about the plugins read, never about the quest.</summary>
+    [MustState("could read", "not the whole load order")]
+    internal const string DialogueSeedNoTopicsRead =
+        "  no dialogue topics of this quest were found in the plugins this sweep could read — that is not the whole " +
+        "load order: the coverage gap below names the plugin(s) left out, and any topic they own is missing here.\n";
+
+    /// <summary>A plugin the fan-out could not read, printed as what bounds the report rather than as a finding
+    /// against the quest.</summary>
+    [NoClaims("a label around the core's own gap sentence; that sentence carries the claim")]
+    internal const string DialogueSeedScanGap = "  coverage gap: {0}\n";
+
     /// <summary>A quest seed whose CK-parity subrecords are present and correct. Stated rather than left silent,
     /// for the reason the per-topic "graph: OK" line exists: a sub-check that ran and passed is a different answer
     /// from one nobody ran, and an absence cannot tell them apart.</summary>

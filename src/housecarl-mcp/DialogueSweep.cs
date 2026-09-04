@@ -74,7 +74,9 @@ internal static class DialogueSweep
     /// rendered, because the accounting subtracts from these totals.</summary>
     static int Problems(DialogueValidationReport r)
     {
-        int n = r.InputIssues.Count;
+        // The coverage gaps count too: they are not parity findings, but a response headlining "0 findings" over a
+        // report that lost a plugin reads as a clean pass.
+        int n = r.InputIssues.Count + r.ScanGaps.Count;
         if (r.SeqLint is { QuestIsSge: true } s && !(s.SeqExists && s.SeqContainsQuest == true && s.SeqNewerThanPlugin == true))
             n++;
         foreach (var t in r.Topics)
