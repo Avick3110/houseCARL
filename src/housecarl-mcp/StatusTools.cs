@@ -22,8 +22,9 @@ public static class StatusTools
          "Lite 2') or a plugin filename (e.g. 'Requiem.esp') to ask whether houseCARL sees that one as enabled/disabled " +
          "(mod) or active/inactive/implicit (plugin). Also reports the resolved Papyrus script-log and SKSE crash-log " +
          "FOLDERS — where to Read logs for triage/diagnosis (auto-detected, or as set via " + ToolNames.SetToolPath + "). " +
-         "Also reports the RUNNING SERVER's build version (the binary's informational version, e.g. " +
-         "'1.9.5-dev+e942910'), so an installed-build-vs-source check never has to read the exe's file properties. " +
+         "Also reports the RUNNING SERVER's build version (the binary's informational version — the release version, " +
+         "then '+' and the full commit sha, e.g. '1.9.5-dev+e942910...'), so an installed-build-vs-source check never " +
+         "has to read the exe's file properties. " +
          "Does NOT modify anything.")]
     public static string LoadOrderStatus(
         LoadOrderService svc,
@@ -48,7 +49,8 @@ public static class StatusTools
 }
 
 /// <summary>The running server's build version, read once from the informational version the tool assembly embeds
-/// (build-plugin.ps1 stamps it from plugin.json, so it carries the commit: '1.9.5-dev+e942910'). The tool assembly,
+/// (build-plugin.ps1 stamps it from plugin.json, so it carries the release version, '+', and the full commit sha:
+/// '1.9.5-dev+e942910...'). The tool assembly,
 /// not the entry assembly: they are the same binary for the shipped server, and under a test host the entry assembly
 /// is the host rather than houseCARL. An unstamped build says so rather than rendering a blank.</summary>
 public static class ServerBuild
