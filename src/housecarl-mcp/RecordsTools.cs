@@ -1593,7 +1593,8 @@ public static class RecordsTools
             else
             {
                 sb.Append("  ").Append(d.Deltas.Count).Append(d.Deltas.Count == 1 ? " difference" : " differences")
-                  .Append(" — each line: ").Append(s.Plugin).Append("'s value (reference = ").Append(r.Plugin).Append("):\n");
+                  .Append(" — each line: ").Append(s.LabelVersus(r.Plugin)).Append("'s value (reference = ")
+                  .Append(r.LabelVersus(s.Plugin)).Append("):\n");
                 foreach (var delta in d.Deltas)
                 {
                     if (sb.Length >= cap)
