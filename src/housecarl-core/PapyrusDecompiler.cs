@@ -6,7 +6,7 @@ namespace HousecarlCore;
 
 /// <summary>
 /// PEX -> Papyrus source reconstruction over Mutagen's PexFile model.
-/// Codegen patterns verified empirically against HC_SpikeProbe01 (see Dump):
+/// The codegen patterns this relies on, each confirmed against compiler output:
 ///   - jump offsets relative to the jump instruction itself
 ///   - while  = cond; JMPF -> E; body; JMP (backward); E:
 ///   - if     = cond; JMPF -> L; then; JMP -> M; L: else; M:   (JMP -> L means no else)
@@ -14,8 +14,8 @@ namespace HousecarlCore;
 ///   - auto-prop backing var ::Name_var; AutoReadOnly = GET returning a literal
 ///   - compiler-generated GotoState/GetState in the '' state (skipped on emit)
 ///   - FunctionFlags raw bits: bit0 = Global, bit1 = Native (Mutagen's enum names sit one off)
-/// Q3 rule: any function whose flow doesn't match a verified pattern FAILS LOUD and is counted —
-/// never silently emitted wrong.
+/// Any function whose flow doesn't match a verified pattern FAILS LOUD and is counted — never
+/// silently emitted wrong.
 /// </summary>
 public sealed class PapyrusDecompiler
 {
@@ -26,8 +26,8 @@ public sealed class PapyrusDecompiler
         public int FunctionsFailed;
         public List<string> Failures = new();
 
-        /// <summary>Count of flow patterns the canonical CK compiler provably never emits (threaded
-        /// shared-join trailing JMPs, jump-to-end early returns, value-reused temps — findings §9):
+        /// <summary>Count of flow patterns the canonical CK compiler never emits (threaded shared-join
+        /// trailing JMPs, jump-to-end early returns, value-reused temps):
         /// &gt;0 means the pex came from an OPTIMIZING compiler (Caprica class). The decompiled source
         /// is still correct, but recompiling it with the CK compiler will not reproduce the original
         /// bytes — the optimizer's output is not the CK compiler's canonical form.</summary>
@@ -78,7 +78,7 @@ public sealed class PapyrusDecompiler
         EBin b => $"{Wrap(b.L, Prec(b))}{(true ? " " : "")}{b.Op} {Wrap(b.R, Prec(b) + 1)}",
         EUn u => u.Op + Wrap(u.E, 7),
         // `as` binds tighter than binary operators — a binop operand must keep its own parens or
-        // `(a || b as float)` regroups to `a || (b as float)` (caught by the bulk gate: Nox_Feat).
+        // `(a || b as float)` regroups to `a || (b as float)`.
         ECast c => $"({(c.E is EBin ? "(" + Render(c.E) + ")" : Render(c.E))} as {c.Type})",
         ECall c => (c.Target is null ? "" : Postfix(c.Target) + ".") + c.Name + "(" + string.Join(", ", c.Args.Select(Render)) + ")",
         EStatic s => $"{s.Cls}.{s.Name}(" + string.Join(", ", s.Args.Select(Render)) + ")",
@@ -114,12 +114,11 @@ public sealed class PapyrusDecompiler
 
     /// <summary>Optional child→parent class map (from `ScriptName X extends Y` headers across the
     /// load order + vanilla sources). Enables implicit-UPCAST detection: a CAST to an ancestor type
-    /// is implicit in every Papyrus context, and re-emitting it explicitly changes codegen (implicit
-    /// arg conversions compile as a batched eval-all-then-convert-all pass; explicit casts compile
-    /// inline per-arg — measured: TIF__00060022 / TCTRC_RefAlias_GhostAliasScript). Injected per
-    /// call — formerly a process-wide static the harness had to set before parallel use (a footgun
-    /// the tool wiring removes). Null = no map: unknown hierarchies keep their explicit casts
-    /// (conservative, correct, gate-tier cosmetic only).</summary>
+    /// is implicit in every Papyrus context, and re-emitting it explicitly changes codegen: implicit
+    /// arg conversions compile as a batched eval-all-then-convert-all pass, while explicit casts
+    /// compile inline per-arg. Injected per call rather than held in a static, so parallel use is
+    /// safe. Null means no map, and unknown hierarchies keep their explicit casts — conservative and
+    /// still correct, only cosmetically different.</summary>
     readonly IReadOnlyDictionary<string, string>? _classParents;
 
     public PapyrusDecompiler(PexFile pex, PexObject obj, IReadOnlyDictionary<string, string>? classParents = null)
@@ -243,8 +242,7 @@ public sealed class PapyrusDecompiler
             var backing = _obj.Variables.FirstOrDefault(v => string.Equals(v.Name, p.AutoVarName, StringComparison.OrdinalIgnoreCase));
             var init = backing is not null ? InitText(backing.VariableData) : null;
             // Conditional on an auto property lands on the BACKING VARIABLE's user flags, not the
-            // property's (measured: DA08EbonyBladeTrackingScript ::FriendsKilled_var flags=0x2) —
-            // merge both so `Auto Conditional` survives the round trip.
+            // property's — merge both so `Auto Conditional` survives the round trip.
             var autoFlagsTxt = ObjFlags(p.RawUserFlags | (backing?.RawUserFlags ?? 0));
             var autoSuffix = autoFlagsTxt.Length > 0 ? " " + autoFlagsTxt : "";
             _sb.AppendLine($"{t} Property {p.Name}{(init is not null ? $" = {init}" : "")} Auto{autoSuffix}");
@@ -305,7 +303,7 @@ public sealed class PapyrusDecompiler
         // Locals: declare at the first assignment when scope-safe (`int i = 0` form). PCompiler
         // allocates the locals-table slot where it SEES the declaration, and the table order drives
         // its same-type temp-slot reuse picks — hoisting everything to the top reorders the table
-        // vs idiomatically-authored sources and shows up as temp-slot reallocations in the gate.
+        // versus idiomatically-authored sources and shows up as temp-slot reallocations on recompile.
         // A local stays hoisted when inline placement is NOT provably safe: first reference isn't a
         // write, the initializer references the local itself, or a reference escapes the block the
         // first write sits in (Papyrus locals are block-scoped).
@@ -334,8 +332,7 @@ public sealed class PapyrusDecompiler
         if (!propertyHandler) _sb.AppendLine();
     }
 
-    /// <summary>Raw instruction-argument render for the loud-failure bytecode dump (was the
-    /// harness's Dump.Val — the failure surface is product behavior, so the renderer ships).</summary>
+    /// <summary>Raw instruction-argument render for the loud-failure bytecode dump.</summary>
     static string RawVal(IPexObjectVariableDataGetter? d) => d is null ? "(none)" : d.VariableType switch
     {
         VariableType.Null => "null",
@@ -362,7 +359,7 @@ public sealed class PapyrusDecompiler
             var refs = new List<int>();
             for (int k = 0; k < stmts.Count; k++)
                 if (word.IsMatch(stmts[k])) refs.Add(k);
-            if (refs.Count == 0) continue;                       // unreferenced: keep hoisted (table parity)
+            if (refs.Count == 0) continue;                       // unreferenced: keep hoisted, to preserve the locals-table order
 
             int first = refs[0];
             var line = stmts[first];
@@ -400,18 +397,18 @@ public sealed class PapyrusDecompiler
         int _consumedStart;   // min start-index of pending values consumed while decoding the current instruction
         int _cur;             // index of the instruction currently being decoded (diagnostics)
 
-        /// <summary>Temps promoted to named locals: an optimizer (Caprica/jump-threading class) can
-        /// condition on a temp and then RE-READ its value inside the guarded block — PCompiler temps
+        /// <summary>Temps promoted to named locals: an optimizing compiler can condition on a temp
+        /// and then RE-READ its value inside the guarded block — PCompiler temps
         /// are strictly single-use, so re-use forces the temp to become a real local in the source.
         /// Declared at function top (function scope is always valid); reads/writes emit by name.</summary>
         public readonly HashSet<string> Materialized = new(StringComparer.OrdinalIgnoreCase);
 
         void SetPending(string name, Expr e, List<string> stmts, int startIdx)
         {
-            // Overwriting an unconsumed pending = the earlier value was discarded — a statement in
-            // the original source. Calls = bare-call statement; EBin = a bare expression statement
-            // (author wrote `x + y` with no assignment — PCompiler compiles it as eval-into-temp;
-            // verified empirically: HC_ExprStmtProbe). Anything else stays a loud failure.
+            // Overwriting an unconsumed pending means the earlier value was discarded — a statement in
+            // the original source. Calls are a bare-call statement; EBin is a bare expression statement
+            // (the author wrote `x + y` with no assignment, which PCompiler compiles as eval-into-temp).
+            // Anything else stays a loud failure.
             if (_pending.TryGetValue(name, out var old))
             {
                 if (IsCallish(old) || old is EBin) stmts.Add(Render(old));
@@ -434,11 +431,10 @@ public sealed class PapyrusDecompiler
         /// READ downstream (before being rewritten) is an optimizer-eliminated named local crossing a
         /// region boundary (value flows into an if arm, or out of an arm to the join — a phi):
         /// materialize it as a named-local assignment, never discard it. The rest are discarded
-        /// results from earlier statements — emit in evaluation order: calls = bare-call statements;
-        /// EBin = bare expression statements (author typo class, e.g. `prop + "…"` with no
-        /// assignment — PCompiler accepts and compiles them; verified empirically on
-        /// HC_ExprStmtProbe). Other expression kinds (EProp, EIndex, …) are NOT verified to
-        /// round-trip (a bare variable read provably compiles to NOTHING) — loud until probed.</summary>
+        /// results from earlier statements — emit in evaluation order: calls are bare-call statements;
+        /// EBin is a bare expression statement (e.g. `prop + "…"` with no assignment, which PCompiler
+        /// accepts and compiles). Other expression kinds (EProp, EIndex, …) are NOT known to
+        /// round-trip — a bare variable read compiles to nothing — so they stay a loud failure.</summary>
         void FlushPending(List<string> stmts) => FlushPending(stmts, _cur + 1);
 
         void FlushPending(List<string> stmts, int scanFrom)
@@ -450,7 +446,7 @@ public sealed class PapyrusDecompiler
                     && ReadsBeforeWrite(scanFrom, _ins.Count, name))
                 {
                     Materialized.Add(name);
-                    _d._res.OptimizerHints++;   // value-reused temp: PCompiler temps are strictly single-use (§9.4)
+                    _d._res.OptimizerHints++;   // value-reused temp: PCompiler temps are strictly single-use
                     stmts.Add($"{LhsName(name)} = {Render(e)}");
                     DropPending(name);
                     continue;
@@ -493,7 +489,7 @@ public sealed class PapyrusDecompiler
         /// <paramref name="exits"/>: instruction indices provably equivalent to "fall off the end of
         /// this region" (the region's own trailing-JMP slot, the enclosing if's join, and — when this
         /// region's join IS the parent's end — the parent's exits, recursively). An optimizer
-        /// (Caprica / jump-threading) collapses a jump-to-a-trailing-JMP into a direct jump to the
+        /// (a jump-threading class) collapses a jump-to-a-trailing-JMP into a direct jump to the
         /// shared join, so nested constructs may target an ENCLOSING join instead of their own;
         /// jumping to any index in <paramref name="exits"/> is identical to falling out of the region.
         /// Jumps beyond hi that are NOT exit-equivalent stay loud failures.
@@ -608,18 +604,15 @@ public sealed class PapyrusDecompiler
                             && ReadsBeforeWrite(i + 1, target, condName))
                         {
                             Materialized.Add(condName);
-                            _d._res.OptimizerHints++;   // value-reused condition temp (§9.4)
+                            _d._res.OptimizerHints++;   // value-reused condition temp
                             stmts.Add($"{LhsName(condName)} = {Render(cond)}");
                             cond = new EIdent(LhsName(condName));
                         }
 
-                        // Statement-level JMPT = inverted branch (seen in Caprica-optimized output):
-                        // same if/while shapes with the condition negated. This is the §4 catalog's
-                        // named Caprica marker — the CK compiler emits statement conditionals as JMPF
-                        // ALWAYS (its JMPTs live only inside short-circuit arms, consumed above) — so
-                        // reaching here on a JMPT is an optimizer hint. Live-fire 2026-06-12 found the
-                        // original four hint sites underfire on real Caprica ships (Campfire, NL_MCM):
-                        // their clean functions are shape-canonical except for exactly this inversion.
+                        // Statement-level JMPT is an inverted branch: the same if/while shapes with the
+                        // condition negated. The CK compiler ALWAYS emits statement conditionals as
+                        // JMPF — its JMPTs live only inside short-circuit arms, consumed above — so
+                        // reaching here on a JMPT means the pex came from an optimizing compiler.
                         if (op == InstructionOpcode.JMPT)
                         {
                             _d._res.OptimizerHints++;
@@ -696,9 +689,9 @@ public sealed class PapyrusDecompiler
                     {
                         var v = a[0];
                         // `return <NoneCall>()` compiles to CALL(dest ::NoneVar) + RETURN ::NoneVar,
-                        // while a bare `return` compiles to RETURN null (measured:
-                        // nioverride.ClearMorphValue). Merge the ::NoneVar return into the
-                        // immediately-preceding ::NoneVar-dest call statement to reproduce the form.
+                        // while a bare `return` compiles to RETURN null. Merge the ::NoneVar return
+                        // into the immediately-preceding ::NoneVar-dest call statement to reproduce
+                        // the form.
                         if (v.VariableType == VariableType.Identifier
                             && IdName(v).Equals("::NoneVar", StringComparison.OrdinalIgnoreCase)
                             && i > lo && IsNoneDestCall(_ins[i - 1])
@@ -872,8 +865,8 @@ public sealed class PapyrusDecompiler
                         _ => null,
                     };
                     // Bool and String casts are implicit in every Papyrus context — emit the bare
-                    // operand and the compiler regenerates the same CAST (explicit string casts
-                    // provably perturb STRCAT temp allocation; verified on the probe round trip).
+                    // operand and the compiler regenerates the same CAST. An explicit string cast
+                    // would perturb STRCAT temp allocation.
                     // CAST of null = the compiler typing a None literal for a comparison — implicit too.
                     if (a[1].VariableType == VariableType.Null)
                         return (dest, src);
@@ -968,9 +961,9 @@ public sealed class PapyrusDecompiler
             var list = new List<Expr>(n);
             for (int k = 0; k < n; k++) list.Add(Resolve(a[argcIdx + 1 + k]));
             // Trailing RAW-null args are BAKED DEFAULTS: an explicitly-written None compiles to a
-            // typed null-CAST temp passed by ident, never a raw null arg slot (measured on
-            // nim__TIF__0500FB82) — so a raw null can only mean the source omitted the arg. Re-omit;
-            // emitting None would materialize an extra cast temp the original never had.
+            // typed null-CAST temp passed by ident, never a raw null arg slot, so a raw null can only
+            // mean the source omitted the arg. Re-omit it; emitting None would materialize an extra
+            // cast temp the original never had.
             int keep = n;
             while (keep > 0 && a[argcIdx + keep].VariableType == VariableType.Null) keep--;
             if (keep < n) list.RemoveRange(keep, n - keep);
@@ -1083,7 +1076,7 @@ public sealed class PapyrusDecompiler
 
         /// <summary>Is <paramref name="ancestor"/> a (strict) ancestor class of <paramref name="type"/>
         /// per the injected class-parent map? False when no map is loaded — unknown hierarchies keep
-        /// their explicit casts (conservative; the recompile gate adjudicates).</summary>
+        /// their explicit casts, which is conservative and still correct.</summary>
         bool IsAncestorClass(string ancestor, string type)
         {
             var map = _d._classParents;

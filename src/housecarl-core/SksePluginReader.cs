@@ -4,41 +4,35 @@ using System.Text;
 namespace HousecarlCore;
 
 /// <summary>
-/// Tier A+C of the SKSE-plugin-layer visibility gap (bug report 2026-06-08_gap_skse-plugin-layer-visibility):
-/// reads what an SKSE plugin DLL DECLARES about itself, STATICALLY — no loading, no execution, no runtime state.
-/// The whole capability's hard ceiling is tier E (DLL *behavior*), which stays UNREACHABLE by design; this reader
-/// stops at the declared manifest, exactly the trustworthy line.
+/// Reads what an SKSE plugin DLL DECLARES about itself, STATICALLY — no loading, no execution, no runtime state.
+/// It stops at the declared manifest; DLL behaviour is out of reach by design.
 ///
-/// The mechanism, confirmed empirically against the live load order (297 real DLLs) and anchored to the two
-/// CommonLib lineages' identical <c>SKSE::PluginVersionData</c> layout (alandtse/CommonLibVR@ng and
-/// powerof3/CommonLibSSE@dev):
+/// The <c>SKSE::PluginVersionData</c> layout is identical in both CommonLib lineages (alandtse/CommonLibVR@ng and
+/// powerof3/CommonLibSSE@dev), and the SKSE loader fixes its ABI:
 ///
 ///   • The AE-era SKSE loader reads an exported DATA BLOB named <c>SKSEPlugin_Version</c> without executing the
-///     DLL (plugin-skeleton.md §1), so its bytes are a static manifest: plugin name, author, version, the
-///     version-independence flags (Address Library / signature-scanning / struct-compat), the compatible-runtime
-///     list, and the XSE version floor. That is the whole of tier C, and it is what a modern plugin exports.
+///     DLL, so its bytes are a static manifest: plugin name, author, version, the version-independence flags
+///     (Address Library / signature-scanning / struct-compat), the compatible-runtime list, and the XSE version
+///     floor. That is what a modern plugin exports.
 ///   • The older SE/VR loader instead CALLS an exported FUNCTION <c>SKSEPlugin_Query</c> that fills its info at
-///     runtime — so a query-ONLY (no <c>SKSEPlugin_Version</c>) plugin's metadata is NOT statically readable. We
-///     classify it <see cref="SksePluginKind.LegacyQuery"/> and say so (Q3: an honest "can't read this
-///     statically", never an invented name).
+///     runtime, so a query-ONLY (no <c>SKSEPlugin_Version</c>) plugin's metadata is NOT statically readable. It is
+///     classified <see cref="SksePluginKind.LegacyQuery"/> and says so, rather than inventing a name.
 ///   • A DLL in SKSE\Plugins with NONE of the SKSE exports is a bundled dependency, not a plugin
 ///     (<see cref="SksePluginKind.NotSkse"/>) — e.g. CrashLogger's msdia140.dll.
 ///
-/// The struct layout is load-bearing and was VALIDATED byte-for-byte (SPID → "Spell Perk Item Distributor" /
-/// "powerofthree", flags 0x5 = AddressLibrary|UpdatedStructs; OAR → AddressLibrary|NoStructs, compat 1.6.1170) —
-/// the one non-obvious detail is <c>supportEmail[252]</c> (NOT 256), which puts <c>versionIndependenceEx</c> at
-/// 0x304, not 0x308. See <see cref="DecodeVersionBlob"/> for the offset map. This reader NEVER guesses a layout:
-/// the offsets come from the pinned headers, and the skse-reader-guard probe pins the decode against them.
+/// The struct layout is load-bearing. The one non-obvious detail is <c>supportEmail[252]</c> (NOT 256), which puts
+/// <c>versionIndependenceEx</c> at 0x304, not 0x308. See <see cref="DecodeVersionBlob"/> for the offset map. This
+/// reader never guesses a layout — the offsets come from the pinned headers.
 /// </summary>
 public static class SksePluginReader
 {
     /// <summary>How a DLL under SKSE\Plugins relates to the SKSE plugin ABI. Drives what metadata (if any) is readable.</summary>
     public enum SksePluginKind
     {
-        /// <summary>Exports the <c>SKSEPlugin_Version</c> data blob → full tier-C metadata is statically readable.</summary>
+        /// <summary>Exports the <c>SKSEPlugin_Version</c> data blob → its metadata is statically readable.</summary>
         Modern,
         /// <summary>Exports <c>SKSEPlugin_Query</c>/<c>SKSEPlugin_Load</c> but NO version blob — an SE/VR-era plugin whose
-        /// metadata is filled at runtime, so it is not statically readable (Q3 honest degrade).</summary>
+        /// metadata is filled at runtime, so it is not statically readable. Named, never silently degraded.</summary>
         LegacyQuery,
         /// <summary>No SKSE export at all — a bundled dependency DLL, not a plugin.</summary>
         NotSkse,
@@ -64,14 +58,14 @@ public static class SksePluginReader
     {
         /// <summary>True if the plugin declared ANY version-independence path (Address Library or signature scanning),
         /// so the loader does NOT pin it to <see cref="CompatibleVersions"/>. False ⇒ version-LOCKED: it loads only on
-        /// the exact runtimes it lists — the compat-risk signal tier C exists to surface.</summary>
+        /// the exact runtimes it lists, which is the compatibility risk worth surfacing.</summary>
         public bool VersionIndependent => UsesAddressLibrary || UsesSignatureScanning;
     }
 
     /// <summary>One DLL's static SKSE identity. <see cref="Version"/> is non-null only for <see cref="SksePluginKind.Modern"/>.
     /// <see cref="Is64Bit"/> is <c>null</c> when the COFF machine field was never read (a non-PE / unopenable file whose
-    /// bitness is genuinely UNKNOWN — it is NEVER presented as 32-bit on a guess). <see cref="Note"/> carries the Q3 reason
-    /// for any non-Modern kind (why the metadata isn't readable).</summary>
+    /// bitness is genuinely UNKNOWN — it is NEVER presented as 32-bit on a guess). <see cref="Note"/> carries the reason
+    /// for any non-Modern kind: why the metadata isn't readable.</summary>
     public sealed record SksePluginInfo(
         string FileName,
         SksePluginKind Kind,
@@ -81,12 +75,12 @@ public static class SksePluginReader
         IReadOnlyList<string>? Imports = null)
     {
         /// <summary>The DLL names this image statically imports — import AND delay-load directories, lower-cased and
-        /// deduplicated (tier D). Tri-state on purpose, the <see cref="Is64Bit"/> discipline: a NON-EMPTY list is what it
-        /// imports; EMPTY means the directories were walked and it genuinely imports nothing; <c>null</c> means the walk
-        /// never happened or FAILED (no optional header / corrupt directory) — an UNKNOWN that must never render as
-        /// "imports nothing" (Q3). Populated on EVERY read because it rides the PE open the manifest read already pays
-        /// for — measured free against the inventory's per-file VFS resolve — which is what lets the Debug-CRT check run
-        /// over the whole layer. The STRING half of tier D is far dearer and stays opt-in per-DLL: see <see cref="SksePeek"/>.</summary>
+        /// deduplicated. Tri-state on purpose, like <see cref="Is64Bit"/>: a NON-EMPTY list is what it imports; EMPTY
+        /// means the directories were walked and it genuinely imports nothing; <c>null</c> means the walk never
+        /// happened or FAILED (no optional header / corrupt directory), an UNKNOWN that must never render as "imports
+        /// nothing". Populated on EVERY read because it rides the PE open the manifest read already pays for, which is
+        /// what lets the Debug-CRT check run over the whole layer. Reading the image's STRINGS is far dearer and stays
+        /// opt-in per-DLL: see <see cref="SksePeek"/>.</summary>
         public IReadOnlyList<string>? Imports { get; init; } = Imports;
 
         /// <summary>The debug-CRT DLLs this image imports — empty when it imports none, or when the walk failed (check
@@ -94,10 +88,9 @@ public static class SksePluginReader
         public IReadOnlyList<string> DebugCrtImports => DebugCrtImportsOf(this);
     }
 
-    /// <summary>Read one DLL's static SKSE manifest off disk. Never throws for a bad/odd file — an unreadable image is
-    /// reported as <see cref="SksePluginKind.Unreadable"/> with the reason (Q3). Reads the file with a plain read-share
-    /// stream (no handle held at rest — the file is closed before return), consistent with houseCARL's "MO2/xEdit can
-    /// move plugins freely" invariant.</summary>
+    /// <summary>Read one DLL's static SKSE manifest off disk. Never throws for a bad or odd file — an unreadable image
+    /// is reported as <see cref="SksePluginKind.Unreadable"/> with the reason. Reads with a read-share stream and
+    /// closes it before returning, so no handle is held at rest and MO2/xEdit can still move the file.</summary>
     public static SksePluginInfo Read(string filePath)
     {
         string file = Path.GetFileName(filePath);
@@ -116,9 +109,9 @@ public static class SksePluginReader
         }
     }
 
-    /// <summary>Read a DLL's static SKSE manifest from in-memory bytes — the BSA-packed twin of <see cref="Read"/>
-    /// (the native-pairing audit PE-screens archive-shipped DLLs so a packed non-SKSE dependency never counts as an
-    /// implementation candidate). Same never-throws contract.</summary>
+    /// <summary>Read a DLL's static SKSE manifest from in-memory bytes — the BSA-packed twin of <see cref="Read"/>, so
+    /// an archive-shipped non-SKSE dependency is screened out the same way a loose one is. Same never-throws
+    /// contract.</summary>
     public static SksePluginInfo ReadBytes(string fileName, byte[] bytes)
     {
         try
@@ -147,12 +140,12 @@ public static class SksePluginReader
         if (pe.PEHeaders.PEHeader is null)
             return new SksePluginInfo(file, SksePluginKind.Unreadable, is64, null, "no PE optional header");
 
-        // Tier D: walk the imports BEFORE the export classification, so even a DLL we go on to call Unreadable (corrupt
-        // EAT) still reports what it imports — the Debug-CRT verdict doesn't depend on the SKSE manifest being readable.
+        // Walk the imports BEFORE the export classification, so even a DLL that goes on to be Unreadable (corrupt EAT)
+        // still reports what it imports — the Debug-CRT verdict does not depend on the SKSE manifest being readable.
         var imports = ReadImportNames(pe);
 
         var exports = ReadExportRvas(pe);
-        if (exports is null)   // export directory present but CORRUPT — a parse failure, NOT "no exports" (Q3: don't misclassify a corrupt DLL as a bundled dependency)
+        if (exports is null)   // export directory present but CORRUPT — a parse failure, not "no exports": a corrupt DLL must not classify as a bundled dependency
             return new SksePluginInfo(file, SksePluginKind.Unreadable, is64, null, "corrupt PE export directory — could not enumerate exports", imports);
 
         bool hasVersion = exports.TryGetValue("SKSEPlugin_Version", out int versionRva) && versionRva != 0;
@@ -169,8 +162,8 @@ public static class SksePluginReader
 
         // Modern: slice the version blob out of its section and decode. A real SKSEPluginVersionData is a FULL
         // 0x350-byte struct whose dataVersion (0x000) is kVersion (>= 1); a version export whose RVA maps to no
-        // section, a forwarder, or a corrupt EAT yields a short or all-zero blob — degrade honestly rather than
-        // present a phantom "" v0.0.0 plugin (Q3).
+        // section, a forwarder, or a corrupt EAT yields a short or all-zero blob — say so rather than present a
+        // phantom "" v0.0.0 plugin.
         var block = pe.GetSectionData(versionRva);
         byte[] blob = block.GetReader().ReadBytes(Math.Min(0x350, block.Length));
         if (blob.Length < 0x350 || BitConverter.ToUInt32(blob, 0) == 0)
@@ -180,8 +173,8 @@ public static class SksePluginReader
         return new SksePluginInfo(file, SksePluginKind.Modern, is64, ver, null, imports);
     }
 
-    /// <summary>Decode the raw <c>SKSEPlugin_Version</c> blob bytes into the manifest. PURE + bounds-checked so the CI
-    /// probe can pin the exact offset map WITHOUT a real PE. The layout (identical in alandtse/CommonLibVR@ng and
+    /// <summary>Decode the raw <c>SKSEPlugin_Version</c> blob bytes into the manifest. Pure and bounds-checked, so the
+    /// offset map can be pinned without a real PE. The layout (identical in alandtse/CommonLibVR@ng and
     /// powerof3/CommonLibSSE@dev, ABI-fixed by the SKSE loader):
     /// <code>
     /// 0x000 uint32  dataVersion
@@ -228,14 +221,14 @@ public static class SksePluginReader
     /// "1.6.1170.0" from the executable's version resource). Version-independent plugins load anywhere → true;
     /// a version-LOCKED plugin loads only when a listed compatible runtime matches numerically. Numeric,
     /// zero-padded segment compare — "1.6.1170" and "1.6.1170.0" are the SAME version (the blob lists 3 segments,
-    /// the exe resource 4). Pure; pinned by the native-pairing guard.</summary>
+    /// the exe resource 4). Pure.</summary>
     public static bool RuntimeCompatible(SkseVersionInfo v, string installedRuntime)
         => v.VersionIndependent || v.CompatibleVersions.Any(cv => VersionsEqual(cv, installedRuntime));
 
     /// <summary>True when the dotted runtime version is AE-era (1.6 or later). Load-bearing for LegacyQuery
-    /// adjudication: the AE SKSE loader loads ONLY plugins exporting the <c>SKSEPlugin_Version</c> data blob (the
-    /// type doc's first bullet), so a query-only SE/VR-era plugin will NOT load on an AE runtime. A non-numeric or
-    /// short version returns FALSE — unknown never becomes a "won't load" claim (Q3).</summary>
+    /// adjudication: the AE SKSE loader loads ONLY plugins exporting the <c>SKSEPlugin_Version</c> data blob, so a
+    /// query-only SE/VR-era plugin will NOT load on an AE runtime. A non-numeric or short version returns FALSE —
+    /// unknown never becomes a "won't load" claim.</summary>
     public static bool IsAeRuntime(string runtime)
     {
         var seg = runtime.Split('.');
@@ -247,13 +240,11 @@ public static class SksePluginReader
     /// <summary>The DEBUG C-runtime DLLs — a plugin importing any of these was built in a Debug configuration and shipped
     /// that way. CURATED, and curated on purpose: the D-suffix is a naming CONVENTION, not a loader rule, so "ends in d.dll"
     /// would sweep in innocents (dinput8.dll, d3d11.dll, and every mod DLL ending in 'd'). This is the exact
-    /// Microsoft debug-CRT family — the same posture as the version-blob offset map: a pinned list with its provenance,
-    /// never a guessed pattern. Pinned by the skse-peek-guard.
+    /// Microsoft debug-CRT family — a pinned list, never a guessed pattern.
     ///
-    /// Why it is load-bearing: these DLLs are NOT redistributable — they ship only with Visual Studio, and are absent from
-    /// a stock Windows install. A plugin importing one fails to load with error 126 (ERROR_MOD_NOT_FOUND) on any machine
-    /// without VS. It is the "Debug-CRT load-126" failure the skse-plugin-authoring corpus records (PR #149): the plugin
-    /// works perfectly for its author (who has VS) and is dead for every user.</summary>
+    /// Why it is load-bearing: these DLLs are NOT redistributable — they ship only with Visual Studio and are absent
+    /// from a stock Windows install. A plugin importing one fails to load with error 126 (ERROR_MOD_NOT_FOUND) on any
+    /// machine without VS, so it works for its author and is dead for every user.</summary>
     public static readonly IReadOnlyList<string> DebugCrtDlls =
     [
         "ucrtbased.dll",                                                   // the debug universal CRT
@@ -270,25 +261,23 @@ public static class SksePluginReader
     /// <summary>The debug-CRT DLLs <paramref name="info"/> imports, in the order the image lists them. EMPTY when it
     /// imports none — and ALSO empty when <see cref="SksePluginInfo.Imports"/> is null (the walk failed), because absence
     /// of evidence is not evidence of absence: a caller rendering a "clean" verdict must check <c>Imports is not null</c>
-    /// first (Q3). Pure.</summary>
+    /// first. Pure.</summary>
     public static IReadOnlyList<string> DebugCrtImportsOf(SksePluginInfo info) =>
         info.Imports is null ? []
             : info.Imports.Where(i => DebugCrtDlls.Contains(i, StringComparer.OrdinalIgnoreCase)).ToList();
 
     /// <summary>The load-blocker reason when <paramref name="info"/> is a DEBUG build whose debug runtime is ABSENT from
-    /// this machine — else <c>null</c>. The seventh static way an SKSE DLL fails to load, alongside BSA-only / subfolder /
-    /// 32-bit / unreadable / version-locked / query-only-on-AE, and the one the native-pairing audit was blind to: a
-    /// debug-built DLL is loose, top-level, x64, readable and often version-INDEPENDENT, so every existing check passes it
-    /// as healthy while the loader refuses it with error 126. Scripts declaring its natives are then silently no-ops —
-    /// exactly the audit's PAIRED-BUT-DEAD class.
+    /// this machine — else <c>null</c>. One more static way an SKSE DLL fails to load, alongside BSA-only, subfolder,
+    /// 32-bit, unreadable, version-locked and query-only-on-AE: a debug-built DLL is loose, top-level, x64, readable
+    /// and often version-INDEPENDENT, so every other check passes it as healthy while the loader refuses it with error
+    /// 126 and scripts declaring its natives become silent no-ops.
     ///
     /// Returns null when the runtime IS present (a developer's box): there the DLL genuinely loads, so there is no
-    /// blocker and no claim to make — the inventory still names it as broken for everyone else. Also null when the import
-    /// walk failed (<see cref="SksePluginInfo.Imports"/> is null) — absence of evidence is never evidence of absence (Q3).
+    /// blocker to claim, though the inventory still names it as broken for everyone else. Also null when the import
+    /// walk failed (<see cref="SksePluginInfo.Imports"/> is null) — absence of evidence is not evidence of absence.
     ///
-    /// <paramref name="resolvable"/> is injected so the decision is pinnable BOTH ways in one run: CI has no Visual
-    /// Studio and a dev box does, so a hard-wired probe would leave whichever half the current machine can't produce
-    /// unpinned — and that is the half that rots. Pure.</summary>
+    /// <paramref name="resolvable"/> is injected so both outcomes can be exercised on one machine: a hard-wired lookup
+    /// would leave whichever half the current machine cannot produce untested. Pure.</summary>
     public static string? DebugCrtBlocker(SksePluginInfo info, Func<string, bool> resolvable)
     {
         if (info.Imports is null) return null;
@@ -301,8 +290,8 @@ public static class SksePluginReader
     /// <summary>Whether <paramref name="dll"/> is resolvable by the Windows loader ON THIS MACHINE — the honest other half
     /// of the Debug-CRT verdict. "Imports the debug CRT ⇒ will not load" is true only where the debug CRT is ABSENT, which
     /// is every stock machine but NOT a developer's (Visual Studio installs it). houseCARL runs on the modder's own box, so
-    /// it can check instead of assuming: a flat "will NOT load" on a machine that has the runtime would be exactly the
-    /// confident-wrong answer Q3 forbids — and a modder who authors SKSE plugins is precisely the user who has VS.
+    /// it can check instead of assuming: a flat "will NOT load" on a machine that has the runtime is a confidently
+    /// wrong answer, and a modder who authors SKSE plugins is precisely the user who has VS.
     ///
     /// Approximates the loader's search order for a DLL loaded from the game root: System32, then the PATH directories.
     /// (The debug CRT is never in the game root and never side-by-side for a mod DLL.) Conservative by construction — it
@@ -329,7 +318,7 @@ public static class SksePluginReader
     static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _resolvableMemo = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Numeric dotted-version equality with zero-padding ("1.6.1170" == "1.6.1170.0"). A non-numeric
-    /// segment ⇒ NOT equal (never guessed equal — a garbage compat entry must not accidentally PASS a lock, Q3).</summary>
+    /// segment ⇒ NOT equal, never guessed equal: a garbage compat entry must not accidentally PASS a lock.</summary>
     public static bool VersionsEqual(string a, string b)
     {
         var sa = a.Split('.'); var sb = b.Split('.');
@@ -370,15 +359,15 @@ public static class SksePluginReader
         for (int i = off; i < end; i++)
         {
             byte c = buf[i];
-            sb.Append(c is >= 0x20 and < 0x7F ? (char)c : ' ');   // printable ASCII only; others → space (Q3: no control chars leak into output)
+            sb.Append(c is >= 0x20 and < 0x7F ? (char)c : ' ');   // printable ASCII only; others → space, so no control chars leak into output
         }
         return sb.ToString().Trim();
     }
 
-    /// <summary>Walk the PE IMPORT + DELAY-LOAD directories and return the imported DLL names, lower-cased + deduplicated,
-    /// in image order (tier D). Same posture as <see cref="ReadExportRvas"/>: an ABSENT directory yields an empty list (a
-    /// real, if odd, "imports nothing"), while a PRESENT-but-CORRUPT one yields <c>null</c> — a parse failure the caller
-    /// renders as UNKNOWN, never as "imports nothing" (Q3: a corrupt import table must not read as a clean bill of health).
+    /// <summary>Walk the PE IMPORT + DELAY-LOAD directories and return the imported DLL names, lower-cased and
+    /// deduplicated, in image order. Same rule as <see cref="ReadExportRvas"/>: an ABSENT directory yields an empty
+    /// list (a real, if odd, "imports nothing"), while a PRESENT-but-CORRUPT one yields <c>null</c> — a parse failure
+    /// the caller renders as UNKNOWN, since a corrupt import table must not read as a clean bill of health.
     /// Never throws.
     ///
     /// Both directories are arrays of fixed-size descriptors terminated by an all-zero entry, each carrying an RVA to the
@@ -390,7 +379,7 @@ public static class SksePluginReader
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var hdr = pe.PEHeaders.PEHeader!;
         // Bound the descriptor count against corruption BEFORE looping: a real DLL imports from at most a few hundred
-        // modules, so a table that never terminates is corrupt — refuse it rather than spin (the export-walk lesson).
+        // modules, so a table that never terminates is corrupt — refuse it rather than spin.
         const int MaxDescriptors = 4096;
 
         bool ok = Walk(hdr.ImportTableDirectory.RelativeVirtualAddress, hdr.ImportTableDirectory.Size, 20, 0x0C, delay: false)
@@ -454,8 +443,8 @@ public static class SksePluginReader
     /// <summary>Walk the PE export directory and return name → export RVA (data exports point AT the data). Minimal by
     /// design: the SKSE loader itself resolves symbols by exact unmangled name string, so a name lookup is all we need.
     /// Returns an EMPTY map for a DLL with genuinely no export table (→ classify NotSkse), but <c>null</c> when the directory
-    /// is present yet CORRUPT (a parse failure — the caller classifies Unreadable, never silently as a bundled dependency,
-    /// Q3). Never throws.</summary>
+    /// is present yet CORRUPT (a parse failure — the caller classifies Unreadable, never silently as a bundled
+    /// dependency). Never throws.</summary>
     static Dictionary<string, int>? ReadExportRvas(PEReader pe)
     {
         var byName = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -499,7 +488,7 @@ public static class SksePluginReader
                 byName[sb.ToString()] = ord < funcRvas.Length ? funcRvas[ord] : 0;
             }
         }
-        catch { return null; /* corrupt directory (bad RVA / truncated table / unterminated string) → parse-failure signal, NOT a silent empty map that would misclassify as NotSkse (Q3) */ }
+        catch { return null; /* corrupt directory (bad RVA / truncated table / unterminated string) → parse-failure signal, NOT a silent empty map that would misclassify as NotSkse */ }
         return byName;
     }
 }

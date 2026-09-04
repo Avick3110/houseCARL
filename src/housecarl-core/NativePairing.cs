@@ -4,7 +4,7 @@ namespace HousecarlCore;
 
 // ======================================================================
 //  NativePairing — the PURE half of the native-function pairing audit
-//  (housecarl_native_pairing_audit; plan dev/plans/SKSE_NATIVE_PAIRING_AUDIT_PLAN_2026-07-16.md).
+//  (housecarl_native_pairing_audit).
 //
 //  A native Papyrus function is ONE thing declared in TWO places: a .pex script class carrying a
 //  native-flagged function (what quests/MCMs/effects compile against) and a DLL that registers the
@@ -13,11 +13,10 @@ namespace HousecarlCore;
 //  silent no-op calls. This file extracts the DECLARATION side from a compiled .pex: which script
 //  objects declare native functions, and which functions those are.
 //
-//  Pure over Mutagen's PexFile model (the PapyrusDecompiler/ScriptPropertyCheck lineage) so the CI
-//  probe can pin it against fixture .pex files with no live order. The sweep, provenance
-//  classification, and pairing ladder live in LoadOrderService (they need the VFS + archive
-//  provenance); the honest ceiling stays tier E — this reads what a script DECLARES, never what a
-//  DLL actually registers at runtime.
+//  Pure over Mutagen's PexFile model, so it runs against fixture .pex files with no live order. The
+//  sweep, provenance classification, and pairing ladder live in LoadOrderService (they need the VFS
+//  + archive provenance). This reads what a script DECLARES, never what a DLL actually registers at
+//  runtime.
 // ======================================================================
 
 /// <summary>One script object (class) in a <c>.pex</c> that declares ≥1 native-flagged function, with the declared
@@ -29,14 +28,14 @@ public sealed record NativeClassDecl(string ClassName, IReadOnlyList<string> Nat
 public static class NativePairing
 {
     /// <summary>The native flag on <see cref="PexObjectFunction.Flags"/>: raw bit1 (bit0 = Global). Mutagen's enum
-    /// names sit one off from the file format — the documented off-by-one (PapyrusDecompiler header) — so the raw
-    /// bit is the truth, pinned by the native-pairing guard's fixture arm.</summary>
+    /// names sit one off from the file format — the off-by-one the PapyrusDecompiler header describes — so the raw
+    /// bit is the truth.</summary>
     const uint NativeFlagBit = 0x2;
 
     /// <summary>Extract every script object in <paramref name="pex"/> that declares native functions. An object with
     /// no native functions yields nothing (the common case — most scripts are pure Papyrus). Pure; never throws on a
     /// model Mutagen managed to parse (an UNPARSEABLE .pex fails at <c>PexFile.Create*</c> in the caller, which names
-    /// it — Q3).</summary>
+    /// it).</summary>
     public static IReadOnlyList<NativeClassDecl> ExtractNativeClasses(PexFile pex)
     {
         var result = new List<NativeClassDecl>();

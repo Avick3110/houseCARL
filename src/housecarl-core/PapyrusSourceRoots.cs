@@ -24,8 +24,8 @@ public sealed record PapyrusSourceRoot(string Provider, string Dir, string Layou
 /// ORDER IS SEMANTICS. The compiler resolves each referenced script to the FIRST match across the import path, so
 /// the roots are walked in the caller's given order and emitted in it — handed the AssetResolver's loose roots, that
 /// is MO2's own precedence (overwrite → enabled mods highest-priority-first → Data), which is the same tie-break the
-/// modlist applies to every other file. Pure + I/O-only-on-probe: no MO2 knowledge lives here, which is what lets the
-/// guard drive it against a fabricated tree.
+/// modlist applies to every other file. Pure apart from the folder check: no MO2 knowledge lives here, so it can be
+/// driven against any tree.
 /// </summary>
 public static class PapyrusSourceRoots
 {
@@ -35,8 +35,8 @@ public static class PapyrusSourceRoots
     /// <summary>Walk <paramref name="looseRoots"/> IN THE GIVEN ORDER and return every folder that holds Papyrus
     /// sources. Deduped by absolute path (case-insensitive), FIRST occurrence kept — so the higher-precedence root
     /// keeps the slot when two roots resolve to the same folder. Unreadable roots are skipped, never thrown on: this
-    /// feeds an ergonomic default, so a permission-denied folder must cost the caller one import dir, not the compile
-    /// (Q3 — the count and the provider names are rendered, so a short list is visible rather than silent).</summary>
+    /// feeds an ergonomic default, so a permission-denied folder must cost the caller one import dir, not the compile.
+    /// The count and the provider names are rendered, so a short list is visible rather than silent.</summary>
     public static IReadOnlyList<PapyrusSourceRoot> Discover(IReadOnlyList<(string Name, string Dir)> looseRoots)
     {
         var found = new List<PapyrusSourceRoot>();
@@ -63,13 +63,13 @@ public static class PapyrusSourceRoots
     /// was taken out (null if there is none).
     /// <para>Splitting rather than merely DROPPING is load-bearing. The base game is not a mod: left among the
     /// candidates it ranks as one, renders as one, and — being last in precedence, hence the fallback provider for
-    /// every unshadowed vanilla name — drags the reference walk through the whole of it. But the rider only appends a
-    /// vanilla slot when the COMPILER-relative folder resolves, so a silent drop can leave a path with no vanilla
+    /// every unshadowed vanilla name — drags the reference walk through the whole of it. But the compile lane only
+    /// appends a vanilla slot when the COMPILER-relative folder resolves, so a silent drop can leave a path with no vanilla
     /// sources at all. Handing the folder back lets the caller use it as the vanilla slot when the compiler-relative
     /// one is missing, which is the only thing that keeps both properties true at once.</para>
     /// <para>The split CANNOT be left to "the caller will notice the folder matches the compiler's vanilla dir". On a
     /// Wabbajack Stock Game setup those are different folders by design — the CK compiler lives in the real Steam
-    /// install (this rider's own tool-path hints exist for exactly that), while MO2's data dir is the Stock Game copy —
+    /// install (the tool-path hints exist for exactly that), while MO2's data dir is the Stock Game copy —
     /// so a compiler-relative comparison silently never fires on the setup it most needs to. Matching is EXACT against
     /// the folders <see cref="Discover"/> would have produced for this data dir, not a path-prefix guess.</para>
     /// <para>A blank <paramref name="dataDir"/> (explicit-paths or unconfigured mode) splits nothing:
@@ -96,12 +96,10 @@ public static class PapyrusSourceRoots
     /// <summary>True iff <paramref name="dir"/> exists and holds at least one top-level <c>.psc</c>. Enumerates
     /// lazily and returns on the FIRST hit, so the check costs one directory entry on a populated folder rather than
     /// a full listing — this runs once per loose root, and a big modlist has thousands.
-    /// <para>The explicit <c>EndsWith(".psc")</c> re-check is CHEAP INSURANCE, not a proven necessity: a
-    /// three-character extension pattern can also match longer extensions on Windows via the 8.3 short-name rule, but
-    /// that depends on 8.3 name generation being enabled for the volume. Falsified 2026-07-28 — removing the re-check
-    /// did NOT make the guard's <c>.pscx</c> arm go red on this machine, so the quirk did not reproduce here and that
-    /// arm is a shape-check rather than a proof. The re-check stays because it costs one string compare and the
-    /// failure it guards against (a non-source folder widening every compile's import path) is silent.</para>
+    /// <para>The explicit <c>EndsWith(".psc")</c> re-check covers the Windows 8.3 short-name rule, under which a
+    /// three-character extension pattern can also match longer extensions on a volume with 8.3 name generation
+    /// enabled. It costs one string compare, and the failure it prevents — a non-source folder widening every
+    /// compile's import path — is silent.</para>
     /// Any I/O failure (denied, vanished mid-walk) reads as "no sources" — best-effort by design.</summary>
     public static bool HasSources(string dir)
     {

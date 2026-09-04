@@ -2,25 +2,20 @@ using System.Text;
 
 namespace HousecarlCore;
 
-// ======================================================================
-//  SksePeek — the STRING half of the SKSE tier-D static peek
-//  (housecarl_skse_inventory peek=true; plan dev/plans/SKSE_TIER_D_STATIC_PEEK_PLAN_2026-07-16.md).
+// SksePeek — the string half of the SKSE static peek (skse_inventory peek=true). It answers "what does this
+// unfamiliar DLL's image statically contain": imports ride the manifest read in SksePluginReader because they
+// are free there, while the embedded strings live here because scanning a whole image is not free and stays
+// opt-in per DLL.
 //
-//  Tier D answers "what does this unfamiliar DLL's IMAGE statically contain" — its imports (which ride
-//  the manifest read in SksePluginReader, because they're free there) and the high-signal strings it
-//  embeds, which live here because scanning a whole image is NOT free and so stays opt-in per-DLL.
-//
-//  The honest frame, and the reason this file filters instead of dumping: a string in an image is what
-//  the image CONTAINS, never what the code DOES (tier E is the ceiling), and ABSENCE PROVES NOTHING —
-//  RequiemLP.dll and YASTM.dll embed no plugin names at all, because their form references live in
-//  configs or are built at runtime. "Nothing embedded" is therefore a fact about the image; it is never
-//  "no dependencies". Every renderer of this data must carry that framing.
-// ======================================================================
+// A string in an image is what the image CONTAINS, never what the code DOES, and absence proves nothing — some
+// plugins embed no plugin names at all because their form references live in configs or are built at runtime.
+// "Nothing embedded" is a fact about the image, never "no dependencies", and every renderer of this data must
+// carry that framing. It is also why this file filters instead of dumping.
 
-/// <summary>What one DLL's image statically embeds, filtered to the extraction classes worth reading (tier D).
-/// <see cref="RunsScanned"/> vs the list sizes is the Q3 accounting: the classes are a FILTER over the haystack, and the
-/// cut is stated rather than implied. A raw full-strings dump is deliberately not offered — it is the noisy 95% these
-/// classes exist to remove, and anyone who needs it has real <c>strings</c> tooling.</summary>
+/// <summary>What one DLL's image statically embeds, filtered to the extraction classes worth reading.
+/// <see cref="RunsScanned"/> against the list sizes states the cut rather than implying it: the classes are a filter
+/// over the haystack. A raw full-strings dump is deliberately not offered — it is the noise these classes exist to
+/// remove, and anyone who needs it has real <c>strings</c> tooling.</summary>
 public sealed record SksePeekResult(
     IReadOnlyList<string> ConfigPaths,
     IReadOnlyList<string> PluginRefs,
@@ -34,7 +29,7 @@ public sealed record SksePeekResult(
     /// lie. So <see cref="Note"/> is exactly the failure channel, and <see cref="Failed"/> reads off it.</summary>
     public string? Note { get; init; } = Note;
 
-    /// <summary>True when the scan did not happen — the caller must not render this as a clean "embeds nothing" (Q3).
+    /// <summary>True when the scan did not happen — the caller must not render this as a clean "embeds nothing".
     /// <see cref="Note"/> carries the reason.</summary>
     public bool Failed => Note is not null;
 }
@@ -53,7 +48,7 @@ public static class SksePeek
     static readonly string[] ConfigExts = [".ini", ".toml", ".json", ".yaml", ".yml"];
 
     /// <summary>Peek one DLL off disk. Never throws — an unreadable image returns a <see cref="SksePeekResult.Failed"/>
-    /// result carrying the reason, never an empty-but-clean-looking one (Q3). Read-share + closed before return, the
+    /// result carrying the reason, never an empty-but-clean-looking one. Read-share + closed before return, the
     /// no-handle-at-rest discipline <see cref="SksePluginReader"/> holds.</summary>
     public static SksePeekResult Scan(string filePath)
     {
@@ -71,10 +66,10 @@ public static class SksePeek
         }
     }
 
-    /// <summary>The pure scan over image bytes — PURE so the skse-peek-guard can pin extraction against planted fixtures
-    /// with no real DLL. Walks the bytes for printable runs in BOTH encodings (ASCII and UTF-16LE: modern C++ plugins use
-    /// wide strings, so scanning only ASCII would silently halve coverage — the exact class of silent gap Q3 forbids),
-    /// then keeps only the runs matching an extraction class.</summary>
+    /// <summary>The pure scan over image bytes — pure so a test can pin extraction against planted fixtures with no
+    /// real DLL. Walks the bytes for printable runs in BOTH encodings (ASCII and UTF-16LE: modern C++ plugins use wide
+    /// strings, so scanning only ASCII would silently halve coverage), then keeps only the runs matching an extraction
+    /// class.</summary>
     public static SksePeekResult ScanBytes(ReadOnlySpan<byte> bytes)
     {
         var configs = new List<string>();
@@ -150,8 +145,8 @@ public static class SksePeek
     }
 
     /// <summary>Whether a run is path-shaped enough to be part of the DLL's CONFIG surface — the "which files does this
-    /// image reach for" signal that complements tier B from the other side (tier B audits what a config DECLARES; this
-    /// shows the folder a DLL actually embeds). Suggestive, never a claim the DLL reads it — it is a string in an image.</summary>
+    /// image reach for" signal, complementing the config audit from the other side (that audits what a config DECLARES;
+    /// this shows the folder a DLL embeds). Suggestive, never a claim the DLL reads it — it is a string in an image.</summary>
     static bool IsConfigPath(string run)
     {
         bool hasCfgExt = ConfigExts.Any(e => run.EndsWith(e, StringComparison.OrdinalIgnoreCase));
