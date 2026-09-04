@@ -14,8 +14,8 @@ saying it sets an expectation their install may contradict. Say what is known, a
 ## Unreleased
 
 - **`housecarl_load_order_status` now names the running server's build in its header** — a `server:` line carrying
-  the informational version the binary embeds (`1.9.5-dev+e942910…`, the version and commit `build-plugin.ps1`
-  stamps from `plugin.json`), so checking that the installed houseCARL is the build you expect no longer means
+  the informational version the binary embeds (the release version `build-plugin.ps1` stamps from `plugin.json`,
+  then `+` and the full commit sha: `1.9.5-dev+e942910…`), so checking that the installed houseCARL is the build you expect no longer means
   reading `ProductVersion` off `housecarl-mcp.exe`. A binary built without that stamp says so on the line and
   points at the file properties, rather than printing a blank.
 
