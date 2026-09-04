@@ -201,7 +201,7 @@ The all-caps-MUST style is brittle and degrades in proportion to how far the run
 When the body references other skills, tools, files, or external docs:
 
 - **Other Housecarl skills:** reference by skill name in backticks: `` `leveled-list-patching` skill ``. Don't link by relative path — paths drift across plugin/repo split.
-- **Housecarl tools:** reference by full tool name in backticks: `` `housecarl_create_patch` ``. Tools are namespace-qualified (per `HOUSECARL_NAMING.md`, P1.8).
+- **houseCARL tools:** reference by full tool name in backticks, for example `` `housecarl_records` ``; names are the constants in `src/housecarl-core/ToolNames.cs` (see `standards/NAMING.md`).
 - **Files in the Housecarl repo:** reference by repo-relative path in backticks: `` `mo2_mcp/tools_records.py:335` `` — line numbers OK if stable.
 - **External URLs:** full URL inline. The body is not auto-rendered as a clickable web doc; raw URLs read fine.
 - **Anthropic doc references:** include the URL so the rule is verifiable. Per <https://code.claude.com/docs/en/skills>, Anthropic's own pattern is consistent.

@@ -33,8 +33,8 @@ A design question that these four do not settle goes to the PRFAQ (`dev/PRFAQ/`,
 
 | Path | What |
 |---|---|
-| `src/housecarl-mcp/` | The MCP server and tool surface |
-| `src/housecarl-core/` | Load-order, record, asset, and write engine |
+| `src/housecarl-mcp/` | The MCP server and tool surface. `LoadOrderService.cs` here holds most of the load-order logic |
+| `src/housecarl-core/` | Record, asset, read, and write engines; the load-order resolver |
 | `src/housecarl-generator/` | Build-time schema generator; also the probe runner (`ci-all`) |
 | `src/housecarl-mcp-tests/` | xUnit tests against the built server |
 | `src/housecarl-setup/` | Installer |
@@ -54,4 +54,5 @@ MCP tools are named `housecarl_<snake_case>`; namespaces, classes, and files are
 - Don't hand-write coverage for a record type, or add a tool for one job.
 - Don't add a guard, sweep, or process rule to catch a mistake. Fix the mistake; if it recurs, fix the code that allows it.
 - Don't work around a block silently. Say what blocks you.
+- Don't add a new domain to `LoadOrderService.cs` (already 9,000 lines). A new subsystem gets its own file.
 - Don't edit `dev/PRFAQ/` or `Housecarl [Legacy]/`. Both are frozen reference.
