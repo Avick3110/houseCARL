@@ -160,7 +160,8 @@ public static class EffectChain
                  : coverageNote is null ? scanNote
                  : scanNote + " " + coverageNote;
 
-        return new EffectChainResult(mgef, mgefEid, rows, total, total > rows.Count, null, scanNote, view.Epoch);
+        return new EffectChainResult(mgef, mgefEid, rows, total, total > rows.Count, null, scanNote, view.Epoch)
+            { UnreadPlugins = unreadable.Select(u => u.PluginName).ToList() };
     }
 }
 
@@ -179,6 +180,11 @@ public sealed record EffectChainResult(
     int Total, bool Capped, string? Error, string? ScanNote,
     string? Epoch = null)   // the build's fingerprint — set on success and on every post-capture refusal; null only on the service's pre-capture type-narrow gate
 {
+    /// <summary>Plugins the carrier scan could not open, by filename. The scan covered the rest of the order, so a
+    /// zero here is a real "nothing carries it" and a non-empty one bounds the answer — the render may not state a
+    /// whole-order negative over it.</summary>
+    public IReadOnlyList<string> UnreadPlugins { get; init; } = Array.Empty<string>();
+
     public bool Success => Error is null;
     public static EffectChainResult Fail(string error) =>
         new(default, "", Array.Empty<EffectChainRow>(), 0, false, error, null);

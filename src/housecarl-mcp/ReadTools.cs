@@ -357,9 +357,15 @@ static class Wire
         if (r.Capped) sb.Append(" (showing first ").Append(r.Rows.Count).Append("; raise limit= or narrow to see more)");
         if (r.Epoch is not null) sb.Append("  epoch=").Append(r.Epoch);
         sb.Append('\n');
-        if (r.Total == 0)
+        // The whole-order negative is only the scan's to make when the scan read the whole order; with a plugin left
+        // out it states the scope it covered and leaves the note below to name what it missed.
+        if (r.Total == 0 && r.UnreadPlugins.Count == 0)
             sb.Append("  none — ").Append(r.MgefEditorId)
               .Append(" is a valid MagicEffect but is applied by no SPEL/ENCH/ALCH/SCRL/INGR in the active order.\n");
+        else if (r.Total == 0)
+            sb.Append("  none in the plugins this scan could read — ").Append(r.MgefEditorId)
+              .Append(" is a valid MagicEffect, and no SPEL/ENCH/ALCH/SCRL/INGR of the plugins read applies it; ")
+              .Append(string.Join(", ", r.UnreadPlugins)).Append(" could not be read, so this is not the whole order.\n");
         if (r.ScanNote is not null) sb.Append(r.ScanNote).Append('\n');
 
         int rendered = 0;
