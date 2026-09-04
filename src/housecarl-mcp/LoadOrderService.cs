@@ -1446,7 +1446,7 @@ public sealed class LoadOrderService : IDisposable
 
             // ---- DEFAULT (new-folder) lane ----
             RiderFolder rf;
-            try { rf = ResolvePatchModFolder(patchName, into, "houseCARL_NifEdit"); }
+            try { rf = ResolvePatchModFolder(patchName, into, "houseCARL_NifEdit", new RiderNaming("patch_name")); }
             catch (InvalidOperationException ex) { return NifSetResult.Fail(ex.Message, providers, profileName); }
 
             var dest = Path.Combine(rf.OutputDir, rel);
@@ -1513,7 +1513,7 @@ public sealed class LoadOrderService : IDisposable
             // excludes every other writer and instance switch throughout, so no profile refresh can land between them.
             // Do not call PlaceOne or Assets here outside this _writeGate hold.
             RiderFolder rf;
-            try { rf = ResolvePatchModFolder(patchName, into, "houseCARL_Assets"); }   // neutral default stem; a caller with a better name passes patch_name
+            try { rf = ResolvePatchModFolder(patchName, into, "houseCARL_Assets", new RiderNaming("patch")); }   // neutral default stem; a caller with a better name passes patch_name
             catch (InvalidOperationException ex) { return PlaceOutcome.Fail(ex.Message); }
 
             // One asset build for the whole batch, reentrant on _gate. Captured rather than the live resolver, so every
@@ -6148,7 +6148,7 @@ public sealed class LoadOrderService : IDisposable
             if (inPlace) outPath = srcPath;
             else
             {
-                try { rf = ResolvePatchModFolder(patchName, null, Path.GetFileNameWithoutExtension(name) + " compacted"); }
+                try { rf = ResolvePatchModFolder(patchName, null, Path.GetFileNameWithoutExtension(name) + " compacted", naming: null); }
                 catch (InvalidOperationException ex) { return WritePatchBuilder.CompactOutcome.Fail(ex.Message); }
                 createdFresh = rf.CreatedFresh;
                 WriteOwnerMeta(rf.ModFolder, name);                       // the output keeps the source's exact basename
@@ -6483,7 +6483,7 @@ public sealed class LoadOrderService : IDisposable
             // ---- output folder: a fresh houseCARL mod folder, since a merge is always a new file ----
             RiderFolder rf;
             try { rf = ResolvePatchModFolder(patchName, null,
-                Path.GetFileNameWithoutExtension(outName) + (donorInfos.Count == 1 ? " renamed" : " merged")); }
+                Path.GetFileNameWithoutExtension(outName) + (donorInfos.Count == 1 ? " renamed" : " merged"), naming: null); }
             catch (InvalidOperationException ex) { return WritePatchBuilder.MergeOutcome.Fail(ex.Message); }
             WriteOwnerMeta(rf.ModFolder, outName);
             var outPath = Path.Combine(rf.OutputDir, outName);
@@ -7407,6 +7407,14 @@ public sealed class LoadOrderService : IDisposable
     /// compile/decompile riders OutputDir is a subfolder (<c>Scripts\</c> / <c>Source\Scripts\</c>) under ModFolder.</summary>
     public readonly record struct RiderFolder(string OutputDir, string ModFolder, bool CreatedFresh);
 
+    /// <summary>How ONE rider lane names the mod folder it creates — the calling tool's own statement, the way
+    /// <see cref="FreshPatchRemedy"/> is for the record lanes. <paramref name="Param"/> is the parameter that tool
+    /// actually declares for the folder's name, and <paramref name="Caveat"/> is any correction that parameter
+    /// carries on it: on <c>housecarl_bsa_repack</c> a bare <c>patch=</c> binds to <c>archive_name</c>, so telling
+    /// that caller to pass <c>patch=</c> would rename their archive and leave the folder defaulted. A lane whose
+    /// <c>into=</c> can never be non-empty passes null, and keeps the weakest true remedy.</summary>
+    public readonly record struct RiderNaming(string Param, string? Caveat = null);
+
     /// <summary>Resolve a houseCARL-owned mod folder under ModsDir for a non-.esp output — compiled scripts, a packed
     /// .bsa, extracted loose files — generalising the folder-per-patch model beyond the .esp write path. Either a
     /// fresh marker-stamped folder, named by <paramref name="defaultStem"/> when patchName is blank and auto-suffixed
@@ -7414,7 +7422,7 @@ public sealed class LoadOrderService : IDisposable
     /// folder houseCARL did not create. Derives ModsDir cheaply by reading ModOrganizer.ini, with no index build, and
     /// throws the unconfigured prompt when there is no instance. The returned
     /// <see cref="RiderFolder.CreatedFresh"/> flag drives the cleanup on a failure.</summary>
-    public RiderFolder ResolvePatchModFolder(string? patchName, string? into, string defaultStem)
+    public RiderFolder ResolvePatchModFolder(string? patchName, string? into, string defaultStem, RiderNaming? naming)
     {
         lock (_gate)
         {
@@ -7429,10 +7437,12 @@ public sealed class LoadOrderService : IDisposable
                 // the .esp it holds or by its new name, so every rider's into= behaves exactly like a record into=.
                 // needEsp:false because a rider targets the FOLDER itself, writing scripts, a .bsa or loose files
                 // into it rather than an .esp, so no <stem>.esp need be present.
-                // The fresh-patch remedy is stated here rather than inherited: omitting into= on this lane does
-                // create a fresh folder, but patch= names the rider's own artifact on some callers, so the naming
-                // remedy would be wrong.
-                var folder = ResolveOwnedPatchFolder(into, needEsp: false, FreshPatchRemedy.CreatedByOmittingInto);
+                // The fresh-patch remedy is the CALLING LANE's, not this method's: omitting into= here does create a
+                // fresh folder, but which parameter names it, and what it is called when nobody names it, differ per
+                // rider — so the lane hands both in and the sentence is true of it (#357). A lane that hands in
+                // nothing keeps the weakest true remedy rather than a shared one that is wrong for it.
+                var folder = ResolveOwnedPatchFolder(into, needEsp: false, FreshPatchRemedy.None,
+                                                     riderNaming: naming, riderDefaultStem: defaultStem);
                 return new RiderFolder(folder, folder, CreatedFresh: false);   // reused — the user owns it; cleanup leaves it
             }
 
@@ -7449,7 +7459,7 @@ public sealed class LoadOrderService : IDisposable
     /// Data\Scripts. Carries the mod-folder root and fresh flag through for cleanup.</summary>
     public RiderFolder ResolveCompiledScriptFolder(string? patchName, string? into)
     {
-        var f = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts");
+        var f = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts", new RiderNaming("patch_name"));
         var scripts = Path.Combine(f.ModFolder, "Scripts");
         Directory.CreateDirectory(scripts);
         return f with { OutputDir = scripts };
@@ -7611,7 +7621,7 @@ public sealed class LoadOrderService : IDisposable
     /// <c>into=</c>. Carries the root and fresh flag through for cleanup.</summary>
     public RiderFolder ResolveDecompiledSourceFolder(string? patchName, string? into)
     {
-        var f = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts");
+        var f = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts", new RiderNaming("patch_name"));
         var src = Path.Combine(f.ModFolder, "Source", "Scripts");
         Directory.CreateDirectory(src);
         return f with { OutputDir = src };
@@ -7647,7 +7657,7 @@ public sealed class LoadOrderService : IDisposable
     /// <c>Data\SEQ</c>. Carries the mod-folder root and fresh flag through for cleanup.</summary>
     public RiderFolder ResolveSeqFolder(string? patchName, string? into)
     {
-        var f = ResolvePatchModFolder(patchName, into, "houseCARL_SEQ");
+        var f = ResolvePatchModFolder(patchName, into, "houseCARL_SEQ", new RiderNaming("patch"));
         var seq = Path.Combine(f.ModFolder, "SEQ");
         Directory.CreateDirectory(seq);
         return f with { OutputDir = seq };
@@ -7967,7 +7977,8 @@ public sealed class LoadOrderService : IDisposable
     /// extra next step, appended to that one arm. Both are deliberately separate from
     /// <paramref name="needEsp"/>.</summary>
     string ResolveOwnedPatchFolder(string into, bool needEsp,
-                                   FreshPatchRemedy freshPatch = FreshPatchRemedy.None, string? laneClause = null)
+                                   FreshPatchRemedy freshPatch = FreshPatchRemedy.None, string? laneClause = null,
+                                   RiderNaming? riderNaming = null, string? riderDefaultStem = null)
     {
         var stem = PatchStem(into);                             // strips a trailing .esp/.esm/.esl; no directory parts (can't escape ModsDir)
         var espName = stem + ".esp";
@@ -8030,7 +8041,13 @@ public sealed class LoadOrderService : IDisposable
             $"cannot extend: no houseCARL plugin '{espName}' in any houseCARL folder, and no houseCARL folder named " +
             $"'{ModFolderName(stem)}'" +
             (string.Equals(bareName, ModFolderName(stem), StringComparison.OrdinalIgnoreCase) ? "" : $" or '{bareName}'") +
-            ". " + (laneClause is null ? "" : laneClause + " ") + freshPatch switch
+            // A rider that named its own folder parameter answers with THAT parameter and THAT lane's default stem;
+            // the enum arms below are the record lanes', where both are the same on every caller (#357).
+            ". " + (laneClause is null ? "" : laneClause + " ") + (riderNaming is { } rn
+            ? $"Omit into= and pass {rn.Param}=\"{stem}\" to create it fresh under a name you choose, or omit "
+              + $"{rn.Param} too and houseCARL names the folder \"{ModFolderName(riderDefaultStem ?? "")}\" — either name auto-suffixed "
+              + "if already taken. " + (rn.Caveat is null ? "" : rn.Caveat + " ") + "Or check the name."
+            : freshPatch switch
             {
                 FreshPatchRemedy.NamedByPatchParam =>
                     $"Omit into= and pass patch=\"{stem}\" to create it fresh under a name you choose, or omit patch= "
@@ -8038,7 +8055,7 @@ public sealed class LoadOrderService : IDisposable
                     + "Or check the name.",
                 FreshPatchRemedy.CreatedByOmittingInto => "Omit into= to create it fresh, or check the name.",
                 _ => WriteSentences.ExtendCheckTheName,
-            });
+            }));
     }
 
     /// <summary>houseCARL-owned mod folders under ModsDir holding a plugin file named <paramref name="espFileName"/>
