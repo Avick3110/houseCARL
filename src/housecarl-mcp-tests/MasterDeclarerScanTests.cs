@@ -61,7 +61,8 @@ public sealed class MasterDeclarerScanTests : IDisposable
         => RemapEngine.IdentifyExternalReferencers(
             resolver,
             new HashSet<FormKey> { _weaponKey },
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { _targetKey.FileName.String });
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { _targetKey.FileName.String },
+            readDeclaredMasters: true);
 
     /// <summary>The declarer must be found, named with what it declares, and must not be mistaken for a referencer:
     /// the pass reported "external referencers: none" for this plugin and the user lost a master at the swap.</summary>
@@ -92,8 +93,22 @@ public sealed class MasterDeclarerScanTests : IDisposable
         Assert.DoesNotContain(id.MasterDeclarers!, d => string.Equals(d.Plugin, _referencerKey.FileName.String, StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>The category's claim is "declares a donor and references none of its records". A plugin the pass
+    /// could not read through had no records walked, so it may not be put in that list — it is named, with its
+    /// reason, in the unscannable accounting instead.</summary>
+    [Fact]
+    public void APluginThePassCouldNotReadIsNotCalledADeclarer()
+    {
+        using var resolver = LoadOrderResolver.Build(new[] { _targetPath, _declarerPath });
+        using var hold = HeldOpen.Hold(_declarerPath);
+        var id = Identify(resolver);
+
+        Assert.Empty(id.MasterDeclarers!);
+        Assert.NotEmpty(id.UnscannablePlugins!);
+    }
+
     /// <summary>Detection is only half of it: the merge report has to NAME the plugin and what it declares, because
-    /// the remedy — add the merged plugin as a master, or include it in the merge — is per plugin.</summary>
+    /// the remedy — remove the stale master, or include it in the merge — is per plugin.</summary>
     [Fact]
     public void TheMergeReportNamesADeclarerAndWhatItDeclares()
     {
@@ -119,7 +134,8 @@ public sealed class MasterDeclarerScanTests : IDisposable
         using var resolver = LoadOrderResolver.Build(new[] { _targetPath, _declarerPath });
         var id = RemapEngine.IdentifyExternalReferencers(
             resolver, new HashSet<FormKey> { _weaponKey },
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { _declarerKey.FileName.String });
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { _declarerKey.FileName.String },
+            readDeclaredMasters: true);
 
         Assert.Empty(id.MasterDeclarers!);
     }

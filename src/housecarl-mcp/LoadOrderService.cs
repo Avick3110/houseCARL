@@ -1,4 +1,4 @@
-using Mutagen.Bethesda.Plugins;
+﻿using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Aspects;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
@@ -6003,7 +6003,7 @@ public sealed class LoadOrderService : IDisposable
             // above covers the wider flag, so this fires only for the new-file lane and only for that one shape.
             if (LocalizedStrings.ResolvesNowhere(srcShape.Shape))
                 return WritePatchBuilder.CompactOutcome.Fail(
-                    UnresolvableStringsRefusal(name, srcShape, "compacting it"));
+                    UnresolvableStringsRefusal(name, srcShape, "compact"));
 
             // 1. originating record keys + the remap into the (light, by default) window.
             if (!WritePatchBuilder.TryReadOriginatingKeys(srcPath, modKey, out var keys, out var keyErr))
@@ -6339,22 +6339,25 @@ public sealed class LoadOrderService : IDisposable
     /// <para>It says houseCARL cannot FIND the tables, never that the plugin has none: MO2's VFS merges mod folders
     /// at runtime, so a plugin's strings can sit in an archive in another mod folder that no path walked here can
     /// see. The remedy is written for that case, because it is the likely one.</para></summary>
-    /// <param name="what">The operation, as the report names it — "compacting it", "merging it".</param>
-    static string UnresolvableStringsRefusal(string name, LocalizedAssessment a, string what)
+    /// <param name="verb">The operation, as the report names it — "compact", "merge".</param>
+    static string UnresolvableStringsRefusal(string name, LocalizedAssessment a, string verb)
     {
-        // Two shapes reach here and they are different facts: one folder was listed and held nothing for this
-        // plugin, the other could not be listed at all. Saying the first about the second claims an absence
-        // nothing checked.
-        var found = a.Shape == LocalizedShape.StringsFolderUnreadable
-            ? $"there is a Strings folder beside '{name}' that houseCARL could not list, so it could not read the tables"
-            : "houseCARL can find no .STRINGS files for it — not beside the plugin, and not in the game's Data folder";
-        return $"refused — '{name}' is flagged LOCALIZED, so its text lives in separate .STRINGS files rather than in the "
-             + $"plugin, and {found}. Every name, description and message it carries therefore reads EMPTY, and {what} "
-             + "would write those blanks into the output with nothing left to distinguish them from a plugin that never "
-             + "had any text. The tables may still exist somewhere houseCARL cannot see from the plugin's own folder — a "
-             + "translation mod that is not enabled, or content whose archive lives in a different mod folder. Enable the "
-             + "mod that provides this plugin's .STRINGS, or put them in a Strings folder beside it, and run this again. "
-             + "Nothing was written.";
+        // WHERE the text is comes from the one renderer that already gets it right for both shapes: it names what
+        // the Strings folder beside the plugin actually holds rather than claiming it is empty, and it drops the
+        // game-Data clause when there was no Data folder to search. Hand-rolling it here asserted both.
+        //
+        // What the READ will be is per shape, and neither claim may be made for the other: nothing resolves a
+        // plugin whose text is nowhere, so its values are empty; a folder that could not be listed was never read,
+        // so what comes back from it is unknown.
+        var consequence = a.Shape == LocalizedShape.StringsFolderUnreadable
+            ? "houseCARL cannot tell what its text reads as, or an empty value from a real one"
+            : "every name, description and message it carries reads back EMPTY";
+        return $"refused — houseCARL did not {verb} '{name}'. "
+             + LocalizedTargetUnsupportedException.WhereTheTextIs(a) + " "
+             + $"So {consequence}, and a {verb} writes whatever this read produced into a NEW plugin you keep, with "
+             + "nothing left in it to tell that text from a plugin that never had any. Put this plugin's .STRINGS "
+             + "where houseCARL can see them — enable the mod that provides them, or place them in a Strings folder "
+             + "beside the plugin — and run this again. Nothing was written.";
     }
 
     /// <summary>The in-place compaction's refusal, rendered per shape. The refusal decision is one fail-closed
@@ -6502,7 +6505,7 @@ public sealed class LoadOrderService : IDisposable
             {
                 var shape = LocalizedStrings.Assess(dPath, view.DataDir);
                 if (LocalizedStrings.ResolvesNowhere(shape.Shape))
-                    return WritePatchBuilder.MergeOutcome.Fail(UnresolvableStringsRefusal(dName, shape, "merging it"));
+                    return WritePatchBuilder.MergeOutcome.Fail(UnresolvableStringsRefusal(dName, shape, "merge"));
                 // ConfirmedLocalized, not "anything but NotLocalized": the note ASSERTS where a donor's text lives,
                 // and a donor houseCARL could not read gives it nothing to assert. That donor fails loudly at the
                 // open in MergeBuild instead.
@@ -6525,7 +6528,11 @@ public sealed class LoadOrderService : IDisposable
             //      affected plugin with the remedy — include it in the merge set, or handle it before disabling the donors.) ----
             var targets = plan.Dict.Keys.ToHashSet();
             var transformSet = new HashSet<string>(donorNames, StringComparer.OrdinalIgnoreCase);
-            var id = RemapEngine.IdentifyExternalReferencers(resolver, targets, transformSet);
+            // readDeclaredMasters: a merge RENAMES the donors' records into a new plugin, so a dependent that only
+            // lists a donor as a master loses it at the swap. Sound here because BuildMergeRemap enters every
+            // originating key of every donor into the dict, so a referencer is always a declarer too and the
+            // declarer-only filter cannot hide one.
+            var id = RemapEngine.IdentifyExternalReferencers(resolver, targets, transformSet, readDeclaredMasters: true);
 
             // ---- 4. masters = union(donor declared masters) − donors, load-order sorted (each donor's own header order
             //      is already load-order-consistent; the union sorts by the active order so the merged header is too) ----

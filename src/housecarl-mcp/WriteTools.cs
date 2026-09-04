@@ -757,8 +757,12 @@ public static class WriteTools
               .Append("without referencing any of its records. They are not in the lists above (nothing links to a donor ")
               .Append("record), but a plugin missing a master does not load at all, so each one breaks the moment you ")
               .Append(isRename ? "deactivate the donor plugin" : "deactivate the donor plugins")
-              .Append(". Add '").Append(o.OutputName).Append("' as a master in xEdit and remove the donor, or include them ")
-              .Append("in the merge set:\n");
+              // The fix is the stale master reference, not a new one: these plugins reference nothing in the donor,
+              // so adding the merged plugin as a master would buy them nothing. Combining is offered second for a
+              // rename, as in the two warnings above, because it stops being a rename.
+              .Append(". Remove that master in xEdit (nothing in them references it)")
+              .Append(isRename ? " — or, to combine them instead, re-run with them added as donors" : ", or include them in the merge set")
+              .Append(":\n");
             foreach (var d in declarers.Take(25))
                 sb.Append("  ! ").Append(d.Plugin).Append("  — declares ").Append(string.Join(", ", d.Declared)).Append('\n');
             if (declarers.Count > 25) sb.Append("  ! … (+").Append(declarers.Count - 25).Append(" more)\n");
