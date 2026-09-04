@@ -29,7 +29,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   game, with its last-write time unchanged so nothing rebuilds — used to be skipped without a word, and every
   record it wins was missing from an answer that read as a complete scan. Each of those tools now names the
   plugin and the reason, and states that records it wins are missing; the scan still covers the rest of the
-  order.
+  order. A SkyPatcher post-state read (`source={"overlay": "skypatcher", "state": "post"}`) of a record whose
+  replay resolves an EditorID against such a plugin now refuses by name rather than replaying against a lookup
+  table it knows is short; a record the layer addresses by FormID is unaffected.
 
 - **`housecarl_compact_plugin` and `housecarl_merge_plugins` name a plugin they could not read.** The
   external-reference pass that runs before a renumber used to skip a plugin it could not open while still
