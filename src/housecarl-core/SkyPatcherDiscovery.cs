@@ -1,23 +1,22 @@
 namespace HousecarlCore;
 
 /// <summary>
-/// SkyPatcher INI DISCOVERY (Wave 1 of the distributor subsystem; plan
-/// dev/plans/SKYPATCHER_DISTRIBUTOR_TOOL_PLAN_2026-07-08.md §5.1–5.2): enumerate the SkyPatcher
-/// layer of the ACTIVE load order into the ordered union the overlay replays.
+/// SkyPatcher INI DISCOVERY: enumerate the SkyPatcher layer of the ACTIVE load order into the ordered
+/// union the overlay replays.
 ///
-/// <para><b>Loose-only (plan §5.1).</b> SkyPatcher's DLL reads INIs off the (VFS-projected)
+/// <para><b>Loose-only.</b> SkyPatcher's DLL reads INIs off the (VFS-projected)
 /// filesystem — a BSA-packed INI is invisible to it. An INI that resolves ONLY to a BSA source is
-/// listed with <see cref="IniFile.NotApplied"/> naming that reason (Q3 visibility), never silently
+/// listed with <see cref="IniFile.NotApplied"/> naming that reason, never silently
 /// dropped and never treated as applied.</para>
 ///
-/// <para><b>Union, not filename-winner (plan §5.2).</b> Every distinct loose INI path applies. The
+/// <para><b>Union, not filename-winner.</b> Every distinct loose INI path applies. The
 /// VFS winner rule only collapses two mods shipping the IDENTICAL relative path — that collision is
 /// surfaced per file (<see cref="IniFile.ShadowedProviders"/>): the loser's content is NOT read by
 /// the game and NOT parsed here (exactly the mod-manager collision the grammar reference warns
 /// about).</para>
 ///
 /// <para><b>Apply order.</b> Within a type folder, files sort <c>0</c>→<c>z</c> by their path
-/// relative to that folder (ordinal, case-insensitive). DECLARED ASSUMPTION (Wave-1 empirical item):
+/// relative to that folder (ordinal, case-insensitive). DECLARED ASSUMPTION:
 /// the reference documents filename-sort for a flat folder; how the DLL orders files across NESTED
 /// organisation subfolders is unverified — this sorts by full relative path, which matches flat-folder
 /// filename sort exactly and gives nested files a deterministic, plausible order.</para>
@@ -54,7 +53,8 @@ public static class SkyPatcherDiscovery
         bool PatchingEnabled,
         IReadOnlyList<IniFile> Files);
 
-    /// <summary>The whole layer: per-folder ordered scans + layer-level notes + the build's Q3 caveat.</summary>
+    /// <summary>The whole layer: per-folder ordered scans, layer-level notes, and whether the read was
+    /// incomplete (an unreadable archive means an "absent" answer may be wrong).</summary>
     public sealed record LayerScan(
         IReadOnlyList<FolderScan> Folders,
         IReadOnlyList<string> Notes,
@@ -102,7 +102,7 @@ public static class SkyPatcherDiscovery
         {
             if (!rel.EndsWith(".ini", StringComparison.OrdinalIgnoreCase)) continue;
 
-            // Subfolder = the first component under the root; deeper nesting is organisation (grammar §2).
+            // Subfolder = the first component under the root; deeper nesting is organisation only.
             var underRoot = rel.Substring(Root.Length + 1);
             int slash = underRoot.IndexOf('\\');
             if (slash < 0)
@@ -174,8 +174,8 @@ public static class SkyPatcherDiscovery
     }
 
     /// <summary>The plugin a filename gates on: 'Skyrim.esm.ini' → "Skyrim.esm"; 'myEdits.ini' → null.
-    /// The gate is the ini-stripped basename ending in a plugin extension (grammar §2; the ONE
-    /// extension list — <see cref="PluginFile.Extensions"/>).</summary>
+    /// The gate is the ini-stripped basename ending in a plugin extension, taken from the one shared
+    /// extension list (<see cref="PluginFile.Extensions"/>).</summary>
     public static string? GatePluginOf(string relPath)
     {
         var stem = Path.GetFileNameWithoutExtension(relPath);   // strips the '.ini'
@@ -201,7 +201,8 @@ public static class SkyPatcherDiscovery
     // ---- SkyPatcher.ini ------------------------------------------------------------------------------
 
     /// <summary>Read the winning loose SkyPatcher.ini's [Patcher] section into toggle→bool. Absent file
-    /// (or no loose copy) ⇒ empty map = all types enabled (the DLL's default). Never throws (Q3 note).</summary>
+    /// (or no loose copy) ⇒ empty map = all types enabled (the DLL's default). Never throws; an
+    /// unreadable file becomes a note.</summary>
     static Dictionary<string, bool> ReadPatcherToggles(AssetResolver.AssetView view, List<string> notes)
     {
         var map = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
@@ -217,8 +218,8 @@ public static class SkyPatcherDiscovery
                 if (line.Length == 0 || line[0] == ';') continue;
                 if (line[0] == '[')
                 {
-                    // The section is the text INSIDE the brackets — '[Patcher] ; note' must still match
-                    // (review finding #9: trailing text silently re-enabled disabled folders).
+                    // The section is the text INSIDE the brackets — '[Patcher] ; note' must still match,
+                    // or trailing text silently re-enables disabled folders.
                     int close = line.IndexOf(']');
                     var section = close > 0 ? line[1..close].Trim() : "";
                     inPatcher = section.Equals("Patcher", StringComparison.OrdinalIgnoreCase);
@@ -229,7 +230,7 @@ public static class SkyPatcherDiscovery
                 if (eq <= 0) continue;
                 var key = line[..eq].Trim();
                 // Inline ';' comments strip off the VALUE ('iEnableNpcPatching=0 ; off for testing' is 0,
-                // not '0 ; off…' — the atoi-style read the DLL's INI layer does) — review finding #9.
+                // not '0 ; off…' — the atoi-style read the DLL's INI layer does).
                 var val = line[(eq + 1)..].Split(';')[0].Trim();
                 if (key.StartsWith("iEnable", StringComparison.OrdinalIgnoreCase) && key.EndsWith("Patching", StringComparison.OrdinalIgnoreCase))
                     map[key["iEnable".Length..^"Patching".Length]] = val != "0";

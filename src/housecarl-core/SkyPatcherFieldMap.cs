@@ -3,27 +3,21 @@ using System.Text.Json;
 namespace HousecarlCore;
 
 /// <summary>
-/// The SkyPatcher op → Mutagen field MAP — Wave 1 of the SkyPatcher distributor subsystem (plan
-/// dev/plans/SKYPATCHER_DISTRIBUTOR_TOOL_PLAN_2026-07-08.md). Where the catalog (Wave 0b) answers
-/// "this key is an operation of shape X / tractability Y", the field map answers "and it lands on
-/// THIS record field, applied with THIS semantic" — the data the overlay engine
-/// (<see cref="SkyPatcherOverlay"/>) executes.
+/// The SkyPatcher op → Mutagen field MAP. Where the catalog answers "this key is an operation of
+/// shape X / tractability Y", the field map answers "and it lands on THIS record field, applied with
+/// THIS semantic" — the data the overlay engine (<see cref="SkyPatcherOverlay"/>) executes.
 ///
-/// <para><b>Coverage contract (guard-enforced).</b> Every CLEAN and COLLECTION operation in the
-/// catalog has exactly one entry here: either a mapping, or an explicit <see cref="OpMap.Unmapped"/>
-/// with a named reason (a genuinely un-modelable op — e.g. weapon <c>bashDamage</c>, which no static
-/// WEAP field carries — fails LOUD in the overlay, never silently absent; Q3). HARD ops have NO
-/// entry — the overlay renders them as unresolved directives by design (tiered honesty, plan §2.3),
-/// and the guard rejects a mapping for one (a mapped HARD op would silently claim a fidelity the
-/// layer doesn't have).</para>
+/// <para><b>Coverage contract.</b> Every CLEAN and COLLECTION operation in the catalog has exactly
+/// one entry here: either a mapping, or an explicit <see cref="OpMap.Unmapped"/> with a named
+/// reason. A genuinely un-modelable op (weapon <c>bashDamage</c>, which no static WEAP field
+/// carries) fails LOUD in the overlay, never silently absent. HARD ops have NO entry and the overlay
+/// renders them as unresolved directives; mapping one would claim a fidelity the layer does not
+/// have, so CI rejects it.</para>
 ///
-/// <para><b>Validation is by construction where it can be:</b> the map itself is hand-modeled (like
-/// the catalog — provenance is the skypatcher-authoring reference + the Mutagen corpus), but the
-/// fieldmap guard walks every <see cref="OpMap.Path"/> with the REAL write engine
-/// (<c>WriteEngine.ResolveProperty</c> over the actual Mutagen types) and parses every
-/// <see cref="OpMap.ValueMap"/> target against the REAL leaf enum — so a typo'd path or enum member
-/// cannot survive CI, only a semantically-wrong-but-existing field can (that's what the Wave-1
-/// empirical gate is for).</para>
+/// <para>The map itself is hand-modeled, but CI walks every <see cref="OpMap.Path"/> with the real
+/// write engine (<c>WriteEngine.ResolveProperty</c> over the actual Mutagen types) and parses every
+/// <see cref="OpMap.ValueMap"/> target against the real leaf enum, so a typo'd path or enum member
+/// cannot survive. Only a semantically-wrong-but-existing field can.</para>
 /// </summary>
 public sealed class SkyPatcherFieldMap
 {
@@ -67,11 +61,11 @@ public sealed class SkyPatcherFieldMap
 
     static SkyPatcherFieldMap? _cached;
 
-    /// <summary>Load the embedded field map (memoized). Throws loudly on a missing/malformed resource —
-    /// a map that silently loaded empty would flag every op unmapped (a Q3 silent-degrade).</summary>
+    /// <summary>Load the embedded field map (memoized). Throws loudly on a missing or malformed resource —
+    /// a map that silently loaded empty would flag every op unmapped.</summary>
     public static SkyPatcherFieldMap Load() => _cached ??= LoadFrom(EmbeddedJson.Read("skypatcher-fieldmap.json", "SkyPatcher field map"));
 
-    /// <summary>Parse a field map from JSON text (also the guard's entry point for a fixture).</summary>
+    /// <summary>Parse a field map from JSON text (also the entry point for a test fixture).</summary>
     public static SkyPatcherFieldMap LoadFrom(string json)
     {
         using var doc = JsonDocument.Parse(json);
@@ -91,8 +85,8 @@ public sealed class SkyPatcherFieldMap
         foreach (var p in opsEl.EnumerateObject())
             ops[p.Name] = ParseOp(subfolder, p.Name, p.Value);
 
-        // Wave 2: the per-record FILTER evaluation specs (base filter name → how the overlay evaluates
-        // it against the record). Same wrong-kind-throws-loud contract as 'ops'.
+        // The per-record FILTER evaluation specs (base filter name → how the overlay evaluates it
+        // against the record). Same wrong-kind-throws-loud contract as 'ops'.
         var filters = new Dictionary<string, FilterSpec>(StringComparer.Ordinal);
         if (el.TryGetProperty("filters", out var fEl))
         {
@@ -341,7 +335,7 @@ public enum SkyPatcherOpSemantic
 /// A filter absent from <see cref="Filters"/> is either evaluated built-in by the overlay (the
 /// name-keyed families that need no per-record path — primary, keywords, editorid/name contains,
 /// hasPlugins, modNames, the skip/override tokens, alternate textures, attached mgefs) or is a
-/// COVERAGE GAP the filtermap guard fails on — never a silent skip.</summary>
+/// COVERAGE GAP that fails CI — never a silent skip.</summary>
 public sealed record RecordMap(string Subfolder, string RecordType, IReadOnlyDictionary<string, OpMap> Ops,
     IReadOnlyDictionary<string, FilterSpec> Filters);
 
@@ -414,7 +408,7 @@ public sealed record FilterSpec(
 /// the case: <c>skin=&lt;Armor&gt;</c> sets WornArmor directly, but the NPC-Replacer-Converter shape
 /// <c>skin=&lt;donor NPC&gt;</c> copies that NPC's worn armor at load. When the value fails to resolve as
 /// <see cref="FormType"/> but DOES resolve as DonorType, the overlay names it an unmodeled donor-copy
-/// (like copyVisualStyle) instead of throwing a malformed-FormKey — issue #181.</para></summary>
+/// (like copyVisualStyle) instead of throwing a malformed-FormKey.</para></summary>
 public sealed record OpMap(
     SkyPatcherOpSemantic Semantic,
     string Path,

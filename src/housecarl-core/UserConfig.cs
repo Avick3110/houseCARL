@@ -13,8 +13,8 @@ namespace HousecarlCore;
 /// </summary>
 public sealed class UserConfig
 {
-    /// <summary>The MO2 instance folder housecarl_set_mo2_instance saved (precedence §6d: this beats appsettings'
-    /// Mo2InstanceDir). Null/absent ⇒ fall through to explicit paths / unconfigured.</summary>
+    /// <summary>The MO2 instance folder housecarl_set_mo2_instance saved — it beats appsettings' Mo2InstanceDir.
+    /// Null/absent ⇒ fall through to explicit paths / unconfigured.</summary>
     public string? Mo2InstanceDir { get; set; }
 
     /// <summary>External-tool paths the bridge saved, keyed by tool wire-name (papyrus_compiler, bsarch, papyrus_logs,
@@ -32,7 +32,7 @@ public sealed class UserConfig
 
     /// <summary>Named Papyrus import-directory sets (housecarl_compile_script's <c>save_import_set=</c> /
     /// <c>import_set=</c>) — a project's dependency source folders supplied ONCE and referenced by name thereafter
-    /// (issue #200's second half; the auto-scan covers frameworks that ship sources inside a mod, this covers the rest —
+    /// (the auto-scan covers frameworks that ship sources inside a mod; this covers the rest —
     /// local stubs, a dev project tree, sources extracted out of a BSA). Name → the ordered dirs. Null/absent until the
     /// first save. The fourth independent concern in this file, read-modify-written ONLY through
     /// <see cref="UserConfigStore.Update"/> so it can never clobber (or be clobbered by) the other three.</summary>
@@ -41,16 +41,15 @@ public sealed class UserConfig
 
 /// <summary>
 /// The single OWNER of houseCARL.user.json — every read and write of that file goes through here, so the two independent
-/// writers (housecarl_set_mo2_instance, housecarl_set_tool_path) can never clobber each other's field. Hardened per the
-/// 2026-06-12 adversarial hunt (F3, hunter-PROVEN silent clobbers):
+/// writers (housecarl_set_mo2_instance, housecarl_set_tool_path) can never clobber each other's field.
 ///   • ATOMIC — <see cref="Update"/> serializes to a sibling temp file and renames it over the target (same volume),
 ///     so a reader never sees a half-written file and a crash mid-write never corrupts the saved config.
 ///   • CROSS-PROCESS — the read-modify-write runs under a NAMED mutex derived from the file path, so two server
-///     processes sharing the file (CLI plugin + desktop app) serialize instead of clobbering each other's field
-///     (the old gate was process-local only).
+///     processes sharing the file (CLI plugin + desktop app) serialize instead of clobbering each other's field;
+///     a process-local gate alone is not enough.
 ///   • CORRUPT = LOUD — an unparseable file is BACKED UP beside itself (.corrupt.bak) and REPORTED via the returned
-///     note, never silently treated as blank (the old path silently wiped every saved setting on the next Update).
-/// Best-effort + HONEST: a write failure (e.g. a read-only data dir) is RETURNED, not thrown or swallowed, so the
+///     note, never treated as blank: treating it as blank wipes every saved setting on the next Update.
+/// Best-effort and honest: a write failure (e.g. a read-only data dir) is RETURNED, not thrown or swallowed, so the
 /// calling tool can tell the user the choice won't survive a restart. One instance is registered as a singleton and
 /// shared by <see cref="LoadOrderService"/> + the tool bridge.
 /// </summary>
@@ -95,7 +94,7 @@ public sealed class UserConfigStore
     }
 
     /// <summary>Read the current config. A missing file yields a fresh blank <see cref="UserConfig"/>; a CORRUPT file is
-    /// backed up beside itself and reported via <paramref name="note"/> (Q3 — never silently "nothing saved yet"), then
+    /// backed up beside itself and reported via <paramref name="note"/> — never silently "nothing saved yet" — then
     /// also yields blank so a tool call still proceeds.</summary>
     public UserConfig Load(out string? note)
     {
@@ -110,7 +109,8 @@ public sealed class UserConfigStore
 
     /// <summary>Apply <paramref name="mutate"/> to the CURRENT on-disk config and write it back ATOMICALLY (temp +
     /// rename) — the ONLY way the file is written, so the two concerns merge instead of overwriting. Returns (ok, error,
-    /// note): a write failure is reported in <c>error</c>, not thrown (Q3 — "works this session, won't persist"); a
+    /// note): a write failure is reported in <c>error</c>, not thrown, so a caller can say "works this session, won't
+    /// persist"; a
     /// corrupt prior file is backed up and named in <c>note</c> even when the write itself succeeds, so a recovery is
     /// never silent. The whole read-modify-write runs under the cross-process lock.</summary>
     public (bool ok, string? error, string? note) Update(Action<UserConfig> mutate)
@@ -135,7 +135,7 @@ public sealed class UserConfigStore
 
     /// <summary>True iff <paramref name="pluginPath"/> already carries a PERSISTED in-place acknowledgement — the
     /// cross-session first-touch handshake (in-place write lane). Normalized full-path compare, so a file is identified
-    /// the same way it was recorded regardless of the caller's path spelling. FAIL-SAFE (Q3): a missing / unreadable /
+    /// the same way it was recorded regardless of the caller's path spelling. FAIL-SAFE: a missing / unreadable /
     /// corrupt config reads as NOT acknowledged, so the handshake re-prompts rather than silently proceeding to write a
     /// user's original. Waives the CONSENT axis only — the touched-record verify still runs.</summary>
     public bool IsInPlaceAcknowledged(string pluginPath)
@@ -147,9 +147,9 @@ public sealed class UserConfigStore
 
     /// <summary>PERSIST an in-place acknowledgement for <paramref name="pluginPath"/> (idempotent — never duplicated),
     /// through the same atomic read-modify-write as every other field so it can never clobber the MO2 instance / tool
-    /// paths sharing this file. Returns (ok, error): a write failure is RETURNED, not thrown (Q3 — the caller can tell
+    /// paths sharing this file. Returns (ok, error): a write failure is RETURNED, not thrown, so the caller can tell
     /// the user the edit proceeded but the acknowledgement did not stick. Nothing caches it — every read goes to the
-    /// file — so a failed write re-prompts on the very next call, not merely in a later session).</summary>
+    /// file — so a failed write re-prompts on the very next call, not merely in a later session.</summary>
     public (bool ok, string? error) RecordInPlaceAcknowledged(string pluginPath)
     {
         var key = NormalizePath(pluginPath);
@@ -162,8 +162,8 @@ public sealed class UserConfigStore
         return (ok, error);
     }
 
-    /// <summary>The saved import-set names, sorted, for a "did you mean" on an unknown name (Q3 — an unknown set names
-    /// what DOES exist rather than failing blank). Empty when none are saved or the file can't be read.</summary>
+    /// <summary>The saved import-set names, sorted, for a "did you mean" on an unknown name — an unknown set names
+    /// what DOES exist rather than failing blank. Empty when none are saved or the file can't be read.</summary>
     public IReadOnlyList<string> ImportSetNames()
     {
         var sets = Load().ImportSets;
@@ -189,8 +189,8 @@ public sealed class UserConfigStore
     /// every other field, so it can never clobber the MO2 instance / tool paths / in-place acknowledgements sharing
     /// this file. Replacing is case-insensitive AND removes the old key before adding the trimmed one, so re-saving
     /// "MyProject" as "myproject" leaves ONE set rather than two that <see cref="GetImportSet"/> would then resolve
-    /// between arbitrarily. Returns (ok, error): a write failure is RETURNED, not thrown (Q3 — the caller can say the
-    /// compile ran but the set won't survive a restart).</summary>
+    /// between arbitrarily. Returns (ok, error): a write failure is RETURNED, not thrown, so the caller can say the
+    /// compile ran but the set won't survive a restart.</summary>
     public (bool ok, string? error) SaveImportSet(string name, IReadOnlyList<string> dirs)
     {
         var key = name.Trim();
@@ -213,7 +213,7 @@ public sealed class UserConfigStore
         catch { return p.Trim().ToLowerInvariant(); }
     }
 
-    /// <summary>The tolerant-but-LOUD read (hunt F3): missing ⇒ blank, parseable ⇒ as saved, CORRUPT ⇒ back the file up
+    /// <summary>The tolerant-but-LOUD read: missing ⇒ blank, parseable ⇒ as saved, CORRUPT ⇒ back the file up
     /// beside itself (.corrupt.bak — kept until the user deletes it; re-copied while the corrupt file persists) and
     /// return blank with a note naming the backup and what was lost. The corrupt original is COPIED, not moved, so a
     /// read never destroys evidence; the next successful <see cref="Update"/> replaces it with a clean file.</summary>

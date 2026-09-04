@@ -5,38 +5,33 @@ using Mutagen.Bethesda.Plugins;
 namespace HousecarlCore;
 
 /// <summary>
-/// The SkyPatcher OVERLAY engine (Wave 1 of the distributor subsystem; plan
-/// dev/plans/SKYPATCHER_DISTRIBUTOR_TOOL_PLAN_2026-07-08.md): replay an ordered union of parsed
-/// SkyPatcher INI lines onto a MUTABLE COPY of one record and report the true post-patch state.
+/// The SkyPatcher OVERLAY engine: replay an ordered union of parsed SkyPatcher INI lines onto a MUTABLE COPY of
+/// one record and report the true post-patch state.
 ///
-/// <para><b>Apply-order replay, not last-write-wins (plan §5.3).</b> Lines apply in the caller-supplied
-/// order (filename sort <c>0</c>→<c>z</c> within the type folder — discovery's job). A same-field
-/// <c>set</c> later in the order overwrites an earlier one <i>by construction</i> (each op mutates the
-/// running copy); <c>…Mult</c>/<c>…ToAdd</c> read the RUNNING value (which may already be the product
-/// of an earlier INI) and so accumulate exactly like the DLL; collection add/remove accumulate on the
-/// running list. There is no separate "final write" model to get wrong.</para>
+/// <para><b>Apply-order replay, not last-write-wins.</b> Lines apply in the caller-supplied order (filename sort
+/// <c>0</c>→<c>z</c> within the type folder — discovery's job). Each op mutates the running copy, so a same-field
+/// <c>set</c> later in the order overwrites an earlier one; <c>…Mult</c>/<c>…ToAdd</c> read the RUNNING value and
+/// so accumulate exactly like the DLL, and collection add/remove accumulate on the running list.</para>
 ///
-/// <para><b>Tiered honesty (plan §2.3, Q3).</b> CLEAN/COLLECTION ops resolve to a post-state value.
-/// HARD ops are returned as <see cref="SkyPatcherDirective"/>s — the directive text plus WHY it has no
-/// static resolution (runtime math / non-deterministic / copy-from-form) — never a silently-wrong
-/// value. Unknown keys, unmapped ops, unevaluable filters, and value failures are all NAMED warnings.</para>
+/// <para><b>Tiered honesty.</b> CLEAN/COLLECTION ops resolve to a post-state value. HARD ops are returned as
+/// <see cref="SkyPatcherDirective"/>s — the directive text plus WHY it has no static resolution (runtime math /
+/// non-deterministic / copy-from-form) — never a silently-wrong value. Unknown keys, unmapped ops, unevaluable
+/// filters, and value failures are all NAMED warnings.</para>
 ///
-/// <para><b>Filter tier (Wave 2 — the COMPLETE surface).</b> Two lanes: (1) BUILT-IN families that
-/// need no per-record path — the primary filter, <c>noFilter…</c>, <c>hasPlugins</c>, keyword /
-/// EditorID-contains / name-contains, <c>filterByModNames</c> (the record's DEFINING master — a
-/// declared assumption, empirical-gate item), the override-aware skip tokens
+/// <para><b>Filters</b> come in two lanes: (1) BUILT-IN families that need no per-record path — the primary
+/// filter, <c>noFilter…</c>, <c>hasPlugins</c>, keyword / EditorID-contains / name-contains,
+/// <c>filterByModNames</c> (assumed to mean the record's DEFINING master), the override-aware skip tokens
 /// (<c>modNamesLastOverriddenExcluded</c> = the record's WINNING override plugin;
-/// <c>skipRecordByModNameContains</c>), attached-mgef, and alternate-texture matching; (2) MAP-DRIVEN
-/// per-record filters from the field map's <c>filters</c> specs (<see cref="FilterSpec"/> — form
-/// equality/membership, enum/flag tests, substrings, biped slots, donor reads). A filter that is
-/// neither built-in nor mapped, or that is explicitly unmapped-with-reason (e.g. NPC
-/// <c>restrictToSkill</c> — autocalc NPCs have no static skill value), keeps the Wave-1 behavior:
-/// the line SKIPS LOUD as filter-unresolved, never guessed either way. Per grammar §4 the PLAYER
-/// matches only a lone bare primary filter that names it — every other line excludes the player.</para>
+/// <c>skipRecordByModNameContains</c>), attached-mgef, and alternate-texture matching; (2) MAP-DRIVEN per-record
+/// filters from the field map's <c>filters</c> specs (<see cref="FilterSpec"/> — form equality/membership,
+/// enum/flag tests, substrings, biped slots, donor reads). A filter that is neither built-in nor mapped, or that
+/// is explicitly unmapped-with-reason (e.g. NPC <c>restrictToSkill</c> — autocalc NPCs have no static skill
+/// value), makes the line SKIP LOUD as filter-unresolved, never guessed either way. The PLAYER matches only a
+/// lone bare primary filter that names it — every other line excludes the player.</para>
 ///
-/// <para>Navigation and mutation ride the PROVEN engines — <see cref="WriteEngine.ApplyVerb"/> for
+/// <para>Navigation and mutation ride the shared engines — <see cref="WriteEngine.ApplyVerb"/> for
 /// sets/adds/removes (same coercion, same materialization) and <see cref="ReadEngine.ReadLeaf"/> for
-/// before/after tokens — so field addressing cannot drift from the read/write surface (plan §3.2.3).</para>
+/// before/after tokens — so field addressing cannot drift from the read/write surface.</para>
 /// </summary>
 public static class SkyPatcherOverlay
 {
@@ -78,8 +73,8 @@ public static class SkyPatcherOverlay
     public sealed record SkyPatcherAppliedOp(string File, int LineNumber, string Op, string RawValue,
         string FieldPath, string? Before, string? After, string? Note);
 
-    /// <summary>One HARD op that applies to this record but has no static resolution — the directive,
-    /// rendered honest (plan §2.3). <see cref="Reason"/> names why (from the catalog note / shape).</summary>
+    /// <summary>One HARD op that applies to this record but has no static resolution — the directive rendered
+    /// honestly. <see cref="Reason"/> names why (from the catalog note / shape).</summary>
     public sealed record SkyPatcherDirective(string File, int LineNumber, string Op, string RawValue, string Reason);
 
     /// <summary>The overlay outcome for one record: what applied (in order), what stayed a directive,
@@ -99,7 +94,7 @@ public static class SkyPatcherOverlay
     /// Replay <paramref name="lines"/> (already in apply order) onto <paramref name="mutableRecord"/> —
     /// a deep mutable copy of the record's load-order winner, identified by <paramref name="fk"/> /
     /// <paramref name="editorId"/>. Never throws for content reasons: every per-line/per-op failure is
-    /// captured as a warning and the replay continues (one bad line must not hide the rest — Q3).
+    /// captured as a warning and the replay continues — one bad line must not hide the rest.
     /// </summary>
     public static SkyPatcherOverlayResult Apply(
         object mutableRecord, FormKey fk, string? editorId,
@@ -133,10 +128,9 @@ public static class SkyPatcherOverlay
                     default: unknownKey = true; break;
                 }
             }
-            // An unknown key poisons the WHOLE line (Wave-1 crux finding): if it was a filter we failed to
-            // recognize, evaluating the remaining segments would mis-scope the line — worst case an
-            // unknown ONLY-filter leaves the filter list empty and the ops apply to EVERY record of the
-            // type (a silently-over-applied post-state). Skip the line LOUD instead; never guess (Q3).
+            // An unknown key poisons the WHOLE line: if it was a filter we failed to recognize, evaluating the
+            // remaining segments would mis-scope the line — worst case an unknown ONLY-filter leaves the filter
+            // list empty and the ops apply to EVERY record of the type. Skip the line LOUD instead; never guess.
             if (unknownKey)
             {
                 unresolvedSkips++;
@@ -146,9 +140,9 @@ public static class SkyPatcherOverlay
                 warnings.Add($"{where}: line skipped — key(s) {bad} are not in the SkyPatcher reference for record type '{recordCatalog.RecordType}' (an unrecognized key may be a filter, so whether the line applies is UNRESOLVED; verify the spelling or the reference version).");
                 continue;
             }
-            if (ops.Count == 0) continue;   // a line with no operation does nothing (grammar §3)
+            if (ops.Count == 0) continue;   // a line with no operation does nothing
 
-            // ---- evaluate the filters against THIS record (Wave-1 tier; unsupported ⇒ loud skip). ----
+            // ---- evaluate the filters against THIS record (unsupported ⇒ loud skip). ----
             var verdict = EvaluateFilters(mutableRecord, fk, editorId, recordCatalog, fieldMap, filters, resolver, warnings, dedupe);
             if (verdict == FilterVerdict.Unresolved)
             {
@@ -203,13 +197,13 @@ public static class SkyPatcherOverlay
     static string NoteSuffix(SkyPatcherOpDef op) => op.Note is { Length: > 0 } n ? $" ({n})" : "";
 
     // ======================================================================
-    //  FILTERS (Wave-1 tier)
+    //  FILTERS
     // ======================================================================
 
     enum FilterVerdict { Match, NoMatch, Unresolved }
 
-    /// <summary>The player actor — per grammar §4 ALWAYS excluded from filtered and unfiltered lines
-    /// alike; only <c>filterByNpcs=Skyrim.esm|7</c> ALONE patches it.</summary>
+    /// <summary>The player actor — ALWAYS excluded from filtered and unfiltered lines alike; only
+    /// <c>filterByNpcs=Skyrim.esm|7</c> ALONE patches it.</summary>
     static readonly FormKey PlayerFormKey = new(new ModKey("Skyrim", ModType.Master), 0x7);
 
     /// <summary>The filter base names the overlay evaluates WITHOUT a field-map spec (no per-record
@@ -228,12 +222,11 @@ public static class SkyPatcherOverlay
     {
         var mutagenRecordType = fieldMap?.RecordType;
 
-        // The player rule (grammar §4): the player is excluded from EVERY line — filtered, restricted,
-        // or unfiltered — except a lone bare primary filter that names it. Strict reading of the
-        // documented "use filterByNpcs=Skyrim.esm|7 ALONE"; declared assumption for the empirical gate.
-        // "Alone" means no other RECORD filter — hasPlugins gates the LINE on the load order, not the
-        // record, so a plugin-gated player line still applies when its gate passes (review finding:
-        // counting the gate silently excluded every conditional player patch).
+        // The player rule: the player is excluded from EVERY line — filtered, restricted, or unfiltered —
+        // except a lone bare primary filter that names it, the strict reading of SkyPatcher's documented
+        // "use filterByNpcs=Skyrim.esm|7 ALONE". "Alone" means no other RECORD filter — hasPlugins gates the
+        // LINE on the load order, not the record, so a plugin-gated player line still applies when its gate
+        // passes; counting the gate as a record filter excludes every conditional player patch.
         if (fk == PlayerFormKey)
         {
             var gates = filters.Where(f2 => f2.cls.Filter!.Kind == SkyPatcherFilterKind.HasPlugins).ToList();
@@ -252,7 +245,7 @@ public static class SkyPatcherOverlay
             return FilterVerdict.Match;
         }
 
-        // No filter set → every record of the type is patched (grammar §5).
+        // No filter set → every record of the type is patched.
         if (filters.Count == 0) return FilterVerdict.Match;
 
         bool any = false;
@@ -264,8 +257,8 @@ public static class SkyPatcherOverlay
             if (f.Kind == SkyPatcherFilterKind.NoFilter)
             {
                 // The explicit apply-all tokens are RECORD-CLASS scoped in the shared leveledList folder:
-                // noFilterLL means "every ITEM list" (LVLI), noFilterLLNPC "every CHARACTER list" (LVLN) —
-                // review finding #3: without this, an LLNPC-only line silently patched item lists too.
+                // noFilterLL means "every ITEM list" (LVLI), noFilterLLNPC "every CHARACTER list" (LVLN).
+                // Without the scope check an LLNPC-only line silently patches item lists too.
                 var required = cls.BaseKey.EndsWith("LLNPC", StringComparison.OrdinalIgnoreCase) ? "LeveledNpc"
                     : cls.BaseKey.EndsWith("LL", StringComparison.OrdinalIgnoreCase) ? "LeveledItem"
                     : null;
@@ -329,12 +322,10 @@ public static class SkyPatcherOverlay
 
             case "filterByModNames":
             {
-                // "Records that come from the named plugin(s)" — the record's DEFINING master
-                // (FormKey.ModKey). DECLARED ASSUMPTION (empirical-gate item): the DLL could
-                // conceivably test the WINNING override's provider instead. When the two readings
-                // AGREE for this record (the overwhelmingly common case) the answer is safe under
-                // either; when they DISAGREE the verdict is honestly UNRESOLVED, never a guess
-                // (review finding — a definite verdict here silently picked a side).
+                // "Records that come from the named plugin(s)" — read as the record's DEFINING master
+                // (FormKey.ModKey), an assumption: the DLL could test the WINNING override's provider
+                // instead. When the two readings AGREE for this record the answer is safe under either;
+                // when they DISAGREE the verdict is UNRESOLVED, since a definite one picks a side.
                 var origin = fk.ModKey.FileName.String;
                 bool inSet = seg.Values.Any(v => v.Raw.Equals(origin, StringComparison.OrdinalIgnoreCase));
                 if (resolver.WinnerPluginOf(fk) is { } winner
@@ -349,16 +340,16 @@ public static class SkyPatcherOverlay
             }
             case "skipRecordByModNameContains":
             {
-                // Skip when the record's source mod name CONTAINS a listed substring (cell.md) —
-                // an inverted filter: match ⇒ the line does NOT apply.
+                // Skip when the record's source mod name CONTAINS a listed substring — an inverted
+                // filter: match ⇒ the line does NOT apply.
                 var origin = fk.ModKey.FileName.String;
                 bool hit = seg.Values.Any(v => origin.Contains(v.Raw, StringComparison.OrdinalIgnoreCase));
                 return hit ? FilterVerdict.NoMatch : FilterVerdict.Match;
             }
             case "modNamesLastOverridden":
             {
-                // "Skip records whose LAST OVERRIDE is from a named mod" (magic-effect.md) — the
-                // load-order WINNER's plugin, i.e. the record view's conflict winner. Documented only
+                // "Skip records whose LAST OVERRIDE is from a named mod" — the load-order WINNER's
+                // plugin, i.e. the record view's conflict winner. Documented only
                 // in the Excluded spelling; any other connective is unresolved, never guessed.
                 if (conn is not ("Excluded" or "Exclude"))
                 {
@@ -411,9 +402,8 @@ public static class SkyPatcherOverlay
             case SkyPatcherFilterEval.FormEquals:
             {
                 // Single-valued form field vs a value list: any-of (an AND over one slot is
-                // unsatisfiable for >1 distinct values — see the enum's declared assumption).
-                // No early break on a match — every unresolvable token still earns its once-per-token
-                // warning (review polish).
+                // unsatisfiable for >1 distinct values). No early break on a match — every unresolvable
+                // token still earns its once-per-token warning.
                 var current = spec.Paths.Select(p => TryLeafToken(record, p)).Where(t => t is not null).ToList();
                 bool matched = false;
                 foreach (var v in seg.Values)
@@ -437,8 +427,8 @@ public static class SkyPatcherOverlay
                 // A token that names NO member of the leaf enum (after valueMap) can never match — but
                 // "never matches" is a silently-WRONG verdict under Excluded (it would flip to Match on
                 // the records the author meant to exclude). Unknown token ⇒ warn + Unresolved, the same
-                // treatment every flag evaluator gives an unknown flag (review finding; the fieldmap's
-                // 'scroll'/'darkness'/'nighteye' notes promise exactly this warning).
+                // treatment every flag evaluator gives an unknown flag, and what the fieldmap's
+                // 'scroll'/'darkness'/'nighteye' notes promise.
                 var current = spec.Paths.Select(p => TryLeafToken(record, p)).FirstOrDefault(t => t is not null);
                 Type? enumType = null;
                 foreach (var p in spec.Paths)
@@ -506,8 +496,8 @@ public static class SkyPatcherOverlay
                 }
                 // A TRAITS-templated NPC takes its gender from the TEMPLATE actor — the own-record
                 // Female bit is not authoritative, so a definite verdict would be silently wrong for
-                // exactly those NPCs (review finding; the same derived-from-template class that keeps
-                // restrictToSkill unmapped). The gendered eval is NPC-only, so the sibling path is fixed.
+                // exactly those NPCs (the same derived-from-template class that keeps restrictToSkill
+                // unmapped). The gendered eval is NPC-only, so the sibling path is fixed.
                 var (tBits, tType) = FlagLeaf(record, "Configuration.TemplateFlags");
                 if (tType is not null && TryParseEnumMember(tType, "Traits", out var traitsBit) && (tBits & traitsBit) != 0)
                 {
@@ -617,9 +607,9 @@ public static class SkyPatcherOverlay
 
     // ---- filter helpers ------------------------------------------------------------------------------
 
-    /// <summary>THE connective fold (grammar §5) — bare = AND (every hit true, gated by
-    /// <paramref name="bareGuard"/>), Or = any, Excluded/Exclude = none. The ONE copy every
-    /// list-membership evaluator rides (review fold — five hand-kept copies of one grammar rule).</summary>
+    /// <summary>THE connective rule — bare = AND (every hit true, gated by <paramref name="bareGuard"/>),
+    /// Or = any, Excluded/Exclude = none. The ONE copy every list-membership evaluator rides, so they
+    /// cannot each keep their own reading of the grammar.</summary>
     static bool ConnectiveVerdict(string conn, IReadOnlyList<bool> hits, bool bareGuard = true) => conn switch
     {
         "Or" => hits.Any(h => h),
@@ -638,8 +628,8 @@ public static class SkyPatcherOverlay
     /// alternate textures, factions, recipe ingredients…): bare = ALL listed present, Or = any,
     /// Excluded = none. A listed form that resolves to NOTHING in the active order can never be attached
     /// to any record — that's a fact about the order, not a guess: it evaluates as not-attached,
-    /// surfaced ONCE per token (Wave-1 crux finding: real INIs list keywords from frameworks the
-    /// modlist doesn't run, e.g. SLA_KillerHeels) — and makes the bare-AND unsatisfiable.</summary>
+    /// surfaced ONCE per token (real INIs list keywords from frameworks the modlist doesn't run,
+    /// e.g. SLA_KillerHeels) — and makes the bare-AND unsatisfiable.</summary>
     static FilterVerdict FormSetVerdict(IReadOnlyList<FormKey> mine, SkyPatcherSegment seg,
         string baseKey, string conn, string? formType, IFormResolver resolver,
         List<string> warnings, HashSet<string> dedupe, string noun = "form")
@@ -726,8 +716,8 @@ public static class SkyPatcherOverlay
     }
 
     /// <summary>ONE navigation for the flag-family evaluators: the raw bits AND the enum type of the
-    /// leaf at <paramref name="path"/> (review fold — the old bits+member pair walked the same leaf
-    /// twice, or 1+N times for a value list). Absent structure reads as (0, null): bits honestly say
+    /// leaf at <paramref name="path"/>, so a value list walks the leaf once rather than once per
+    /// value. Absent structure reads as (0, null): bits honestly say
     /// "no flags set", and the null type tells member-resolving callers to go Unresolved.</summary>
     static (ulong bits, Type? enumType) FlagLeaf(object record, string path)
     {
@@ -795,11 +785,10 @@ public static class SkyPatcherOverlay
     }
 
     /// <summary>SkyPatcher <c>Plugin|FormID</c> → a Mutagen FormKey. A full load-indexed ESL FormID
-    /// (<c>FExxxYYY</c> — the grammar reference documents the full xEdit copy as always legal) keeps only
-    /// its 12-bit local id; anything else keeps the low 24 bits (leading load-order digits trimmable).
-    /// Review finding #4: the bare 24-bit mask made every full ESL FormID silently match nothing.
-    /// Residual EMPIRICAL item: a bare 6-hex ESL spelling like <c>800123</c> is inherently ambiguous
-    /// (documented in the plan's Wave-1 list) — the 24-bit mask applies to it.</summary>
+    /// (<c>FExxxYYY</c> — SkyPatcher documents the full xEdit copy as always legal) keeps only its 12-bit
+    /// local id; anything else keeps the low 24 bits (leading load-order digits trimmable). A bare 24-bit
+    /// mask would make every full ESL FormID silently match nothing. A bare 6-hex ESL spelling like
+    /// <c>800123</c> is inherently ambiguous — the 24-bit mask applies to it.</summary>
     public static bool TryFormKey(FormAddress a, out FormKey fk)
     {
         fk = default;
@@ -827,8 +816,7 @@ public static class SkyPatcherOverlay
             case SkyPatcherOpSemantic.Set:
             {
                 // 'attackDamage=' (empty value) must be LOUD like every sibling semantic — ParseValueList
-                // yields zero items for it, and iterating zero times was the one silent no-op path (review
-                // finding #8).
+                // yields zero items for it, and iterating zero times is otherwise a silent no-op.
                 if (seg.Values.Count == 0)
                 { warnings.Add($"{where}: '{seg.Key}=' has no value; skipped."); break; }
                 foreach (var v in seg.Values)   // most set-ops take one value; tolerate a list by applying in order
@@ -875,10 +863,10 @@ public static class SkyPatcherOverlay
                 var parts = before?.Split(',');
                 if (parts is null || comp >= parts.Length)
                 { warnings.Add($"{where}: '{seg.Key}' — '{map.Path}' is absent or not a {comp + 1}+-component point ('{before ?? "<unreadable>"}'); skipped."); return; }
-                // An INTEGRAL component (P3Int16 — ObjectBounds) rounds fractional input away-from-zero
-                // — the same declared assumption FormatNumericFor carries (Wave-1 empirical item); the
-                // engine's per-component Parse would otherwise reject '3.5' where the old rebuild rounded
-                // it (review fold). The component's ctor-parameter type is the recognizer, not a type list.
+                // An INTEGRAL component (P3Int16 — ObjectBounds) rounds fractional input away-from-zero,
+                // the same assumption FormatNumericFor carries; the engine's per-component Parse would
+                // otherwise reject '3.5'. The component's ctor-parameter type is the recognizer, not a
+                // type list.
                 var leafType = Navigate(record, segs).leaf.PropertyType;
                 var ptType = Nullable.GetUnderlyingType(leafType) ?? leafType;
                 var ctorPs = ptType.GetConstructors().FirstOrDefault(c => c.GetParameters().Length == parts.Length)?.GetParameters();
@@ -902,7 +890,7 @@ public static class SkyPatcherOverlay
                     // A form address, or a bare identifier (EditorID) — either way the value is a DONOR form.
                     // A dot-less token can never be a valid .nif path, so an unresolvable one must fail LOUD
                     // here, never fall through to the literal branch and be written verbatim as a
-                    // "successful" model path (review finding #6).
+                    // "successful" model path.
                     var donor = ResolveFormValue(v, map.FormType, resolver);
                     if (donor is null) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — donor form not resolvable (and '{v.Raw}' is not a model path); skipped."); return; }
                     pathToken = resolver.ReadWinnerLeaf(donor.Value, map.Path);
@@ -1166,7 +1154,7 @@ public static class SkyPatcherOverlay
         {
             // A form-valued target: the value MUST resolve to a form. A bare non-form string must NOT fall
             // through to the engine as a raw FormKey — that throws "Malformed FormKey" and mislabels a
-            // VALID INI as broken (issue #181, Q3). The real-world case is an NPC-replacer's
+            // VALID INI as broken. The real-world case is an NPC-replacer's
             // 'skin=<donor NPC EditorID>', where the value is an NPC, not the Armor the field expects.
             if (ResolveFormValue(v, map.FormType, resolver) is { } rk) token = rk.ToString();
             else
@@ -1246,8 +1234,8 @@ public static class SkyPatcherOverlay
                 case SkyPatcherOpSemantic.RemoveEntry:
                 {
                     // A conditional remove (form~level~count, with <,>,<=,>= operators / 'none' slots) is NOT
-                    // modeled in Wave 1 — replaying it as an unconditional remove would be a silently-WRONG
-                    // post-state (subagent review finding), so the whole item skips LOUD instead (Q3).
+                    // modeled — replaying it as an unconditional remove would be a silently-WRONG post-state,
+                    // so the whole item skips LOUD instead.
                     if (args.Count > 1)
                     {
                         warnings.Add($"{where}: '{seg.Key}={v.Raw}' — conditional/qualified removal (extra ~sub-args) is not modeled in Wave 1; this removal was NOT applied (named gap, never an unconditional guess).");
@@ -1379,8 +1367,8 @@ public static class SkyPatcherOverlay
         { RecordType = fieldMap.RecordType, Path = segs, Verb = "Set", Value = bits.ToString(CultureInfo.InvariantCulture) });
 
     /// <summary>Format a computed stateful result for the leaf's actual type: integral leaves round to
-    /// nearest (how the DLL lands fractional mults on int fields is a Wave-1 EMPIRICAL item — round is
-    /// the declared assumption, revisited at the gate), floats keep the fraction.</summary>
+    /// nearest (how the DLL lands a fractional mult on an int field is unverified — rounding is the
+    /// declared assumption), floats keep the fraction.</summary>
     static string FormatNumericFor(object record, string[] segs, double result)
     {
         var (parent, leaf) = Navigate(record, segs);
@@ -1461,8 +1449,8 @@ public static class SkyPatcherOverlay
     }
 
     /// <summary>A formlink list's FormKeys (null when the path isn't a formlink list; absent reads as
-    /// empty). The walk itself is the shared <see cref="ReadEngine.FormLinkKeys"/> (review fold — two
-    /// link-reading strategies in one assembly was the drift this cleanup exists to kill).</summary>
+    /// empty). The walk itself is the shared <see cref="ReadEngine.FormLinkKeys"/>, so this assembly holds
+    /// one link-reading strategy, not two that can drift.</summary>
     static List<FormKey>? FormLinkList(object record, string[] segs)
     {
         var (parent, leaf) = Navigate(record, segs);

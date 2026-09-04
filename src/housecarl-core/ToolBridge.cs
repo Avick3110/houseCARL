@@ -2,8 +2,8 @@ namespace HousecarlCore;
 
 /// <summary>The external tools houseCARL can drive once the user supplies a path — the bridge's dependency set. Each is an
 /// .exe houseCARL shells out to, or a log DIRECTORY it reads. Extensible: a new rider adds an arm here + a catalog row in
-/// <see cref="ToolBridge"/>. Verified 2026-06-05 (source, not memory): Mutagen cannot compile/decompile Papyrus and has no
-/// archive surface, so these are EXTERNAL exes, not engine work.</summary>
+/// <see cref="ToolBridge"/>. Mutagen cannot compile or decompile Papyrus and has no archive surface, so these are
+/// external exes, not engine work.</summary>
 public enum ToolDependency
 {
     /// <summary>The Creation Kit's PapyrusCompiler.exe — compiles .psc → .pex (housecarl_compile_script). NOT Mutagen.</summary>
@@ -28,9 +28,9 @@ public sealed record ToolInfo(
     ToolDependency Dep, string Key, string Display, bool IsDirectory, string? ExeStem, string Need, string WhereToGet);
 
 /// <summary>
-/// The external-tool catalog + the bridge's pure logic: parse a wire name, VALIDATE a candidate path (Q3 — never silently
-/// accept a wrong one), render the trained MISSING-DEPENDENCY prompt (the forcing function), and AUTO-DETECT canonical
-/// homes. All pure (no DI, no file mutation beyond existence checks), so the build-time probe can exercise it directly;
+/// The external-tool catalog + the bridge's pure logic: parse a wire name, VALIDATE a candidate path (never silently
+/// accept a wrong one), render the missing-dependency prompt, and AUTO-DETECT canonical homes. All pure (no DI, no
+/// file mutation beyond existence checks), so the build-time probe can exercise it directly;
 /// the runtime wrapper (<see cref="ToolPathResolver"/>) adds saved-path lookup + persistence on top.
 /// </summary>
 public static class ToolBridge
@@ -69,7 +69,7 @@ public static class ToolBridge
         dep = default; return false;
     }
 
-    /// <summary>Validate a candidate path for a dependency (Q3 — never silently accept a wrong path): a directory tool
+    /// <summary>Validate a candidate path for a dependency — never silently accept a wrong path: a directory tool
     /// needs an existing folder; an exe tool needs an existing .exe whose name carries the expected stem (so a path to the
     /// wrong program is caught). Returns (ok, error) — error names what's wrong, for the tool to surface to the user.</summary>
     public static (bool ok, string? error) Validate(ToolDependency dep, string path)
@@ -90,14 +90,12 @@ public static class ToolBridge
         return (true, null);
     }
 
-    /// <summary>The trained missing-dependency prompt — RETURNED by a rider tool when its path is unset, so the AI reliably
-    /// asks the user and is handed the exact resolving call (the forcing function). Mirrors the MO2 not-configured prompt
-    /// idiom: a RETURNED string reaches the client, whereas a thrown one is genericized to "An error occurred invoking…"
-    /// (measured 2026-06-02), so the guidance must be a return value, never an exception. When auto-detect had canonical
-    /// candidates to check (the compiler under each <paramref name="gameDirHints"/> dir, the log folders), the prompt NAMES
-    /// them — so a miss says WHERE houseCARL already looked (6.2: "better message"), telling a Wabbajack/Stock-Game user why
-    /// every game-dir anchor missed and that they must supply the real CK path. The tool-key + resolving-call contract is
-    /// kept intact regardless (the AI still gets the exact housecarl_set_tool_path call).</summary>
+    /// <summary>The missing-dependency prompt — RETURNED by a rider tool when its path is unset, so the caller is handed
+    /// the exact resolving call. It must be a return value, never an exception: a returned string reaches the client,
+    /// whereas a thrown one is genericized to "An error occurred invoking…". When auto-detect had canonical candidates to
+    /// check (the compiler under each <paramref name="gameDirHints"/> dir, the log folders), the prompt names them, so a
+    /// miss says where houseCARL already looked — which tells a Wabbajack/Stock-Game user why every game-dir anchor
+    /// missed and that they must supply the real CK path.</summary>
     public static string RenderMissingPrompt(ToolDependency dep, IReadOnlyList<string>? gameDirHints = null)
     {
         var info = Info(dep);
