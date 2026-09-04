@@ -99,9 +99,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
 - **The pairing family now reports a debug-built DLL that loads on your own machine.** Reaching a `[LOADS]` verdict
   while the DLL imports the debug C runtime means that runtime resolved here — so it loads for you and fails with
   error 126 for anyone without it. The verdict is unchanged, because it does load here; what is new is that the DLL
-  line says who it will not load for, and that such a class is a finding of its own in the default view rather than a
-  name in the healthy roster, so the summary no longer reports a clean bill of health over it. The inventory family
-  already flagged this, so the two families no longer disagree about the same file.
+  line says who it will not load for — on a `[VERIFY]` line as well as a `[LOADS]` one — and that a class whose every
+  loading DLL is debug-built is a finding of its own in the default view rather than a name in the healthy roster, so
+  the summary no longer reports a clean bill of health over it. A class that also has a clean DLL that loads stays
+  healthy: that DLL implements it for everyone. The inventory family already flagged this, so the two families no
+  longer disagree about the same file.
 
 - **`housecarl_asset_status` under a `max_chars` its header and alarms already fill now renders the first path's
   answer instead of cutting to none.** `housecarl_nif_inspect` already did; both tools now render through one batch
