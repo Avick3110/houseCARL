@@ -71,6 +71,43 @@ public static class SkseTools
         return $"\n\n(this call ran findings='{mine}'. NOT run: {a}; {b}.)";
     }
 
+    /// <summary>The three family renders, one method each. The dispatch below picks one and appends the footer; behind
+    /// this seam it can be driven without a live MO2 instance, so a test can pin which family a findings= value runs
+    /// and that the answer ends on the footer. <see cref="ServiceRenders"/> is the live implementation.</summary>
+    internal interface IFamilyRenders
+    {
+        string Inventory(string? filter, bool peek, int cap);
+        string Pairing(string? filter, int cap);
+        string Config(string? filter, int cap);
+    }
+
+    /// <summary>The live renders: each family's data read from the service, handed to its own wire class.</summary>
+    sealed class ServiceRenders(LoadOrderService svc) : IFamilyRenders
+    {
+        public string Inventory(string? filter, bool peek, int cap)
+            => SkseInventoryWire.Render(svc.SkseInventory(peek ? filter!.Trim() : null), filter, cap);
+        public string Pairing(string? filter, int cap) => NativePairingWire.Render(svc.NativePairingAudit(), filter, cap);
+        public string Config(string? filter, int cap) => SkseConfigAuditWire.Render(svc.SkseConfigAudit(), filter, cap);
+    }
+
+    /// <summary>Runs the selected family and appends the footer. The footer's length is subtracted from max_chars so it
+    /// is paid for rather than added past the cap; the renders themselves test the cap BEFORE each list item and then
+    /// append their scope note, caveats and filter hint unconditionally, so a response can still overrun a tight cap by
+    /// one item plus that tail. Under a cap too small to hold both, the footer wins: it is the line that says which
+    /// family answered.</summary>
+    internal static string Dispatch(IFamilyRenders renders, SkseFamily family, string? filter, bool peek, int max_chars)
+    {
+        var footer = FamilyFooter(family);
+        int cap = Math.Max(1, (max_chars > 0 ? max_chars : 80_000) - footer.Length);
+        var body = family switch
+        {
+            SkseFamily.Inventory => renders.Inventory(filter, peek, cap),
+            SkseFamily.Pairing => renders.Pairing(filter, cap),
+            _ => renders.Config(filter, cap),
+        };
+        return body + footer;
+    }
+
     [McpServerTool(Name = ToolNames.Skse, ReadOnly = true, Title = "The SKSE layer: DLL/config inventory, native pairing, config references"),
      Description(
          // ---- what it is, and what selects a family ------------------------------------------------
@@ -170,17 +207,7 @@ public static class SkseTools
         if (PeekFamilyError(peek, family) is { } peekErr) return peekErr;
         if (SkseInventoryWire.PeekArgError(peek, filter) is { } err) return err;
 
-        // The footer is priced into the cap rather than appended past it, so max_chars bounds the whole response. Under
-        // a cap too small to hold both, the footer wins: it is the line that says which family answered.
-        var footer = FamilyFooter(family);
-        int cap = Math.Max(1, (max_chars > 0 ? max_chars : 80_000) - footer.Length);
-        var body = family switch
-        {
-            SkseFamily.Inventory => SkseInventoryWire.Render(svc.SkseInventory(peek ? filter!.Trim() : null), filter, cap),
-            SkseFamily.Pairing => NativePairingWire.Render(svc.NativePairingAudit(), filter, cap),
-            _ => SkseConfigAuditWire.Render(svc.SkseConfigAudit(), filter, cap),
-        };
-        return body + footer;
+        return Dispatch(new ServiceRenders(svc), family, filter, peek, max_chars);
     });
 }
 

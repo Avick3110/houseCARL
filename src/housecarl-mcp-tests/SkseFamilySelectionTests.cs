@@ -109,4 +109,59 @@ public sealed class SkseFamilySelectionTests
         foreach (var retired in new[] { "skse_inventory", "native_pairing_audit", "skse_config_audit" })
             Assert.DoesNotContain(retired, footer, StringComparison.Ordinal);
     }
+
+    /// <summary>Every refusal this one tool can return carries the same "error: " prefix, so a caller reading them
+    /// cannot take one for an answer because it happened to start with a lowercase word.</summary>
+    [Fact]
+    public void AllThreeRefusalsCarryTheErrorPrefix()
+    {
+        SkseTools.TryParseFamily("errors", out _, out var famErr);
+        Assert.StartsWith("error: ", famErr);
+        Assert.StartsWith("error: ", SkseTools.PeekFamilyError(peek: true, SkseTools.SkseFamily.Config));
+        Assert.StartsWith("error: ", SkseInventoryWire.PeekArgError(peek: true, filter: null));
+    }
+
+    /// <summary>Records which family render the dispatch called, so the findings= switch and the footer append can be
+    /// driven without a live MO2 instance.</summary>
+    sealed class RecordingRenders : SkseTools.IFamilyRenders
+    {
+        public string? Called;
+        public int Cap;
+        public string Inventory(string? filter, bool peek, int cap) { Called = "inventory"; Cap = cap; return "INVENTORY-BODY"; }
+        public string Pairing(string? filter, int cap) { Called = "pairing"; Cap = cap; return "PAIRING-BODY"; }
+        public string Config(string? filter, int cap) { Called = "config"; Cap = cap; return "CONFIG-BODY"; }
+    }
+
+    /// <summary>Each findings= value runs its OWN family's render, and the answer ends on that family's footer. Without
+    /// this, swapping two arms of the switch changes every response and breaks no test.</summary>
+    [Theory]
+    [InlineData("inventory", "INVENTORY-BODY")]
+    [InlineData("pairing", "PAIRING-BODY")]
+    [InlineData("config", "CONFIG-BODY")]
+    public void EachFamilyRunsItsOwnRenderAndTheAnswerEndsOnTheFooter(string token, string body)
+    {
+        var family = Parse(token);
+        var renders = new RecordingRenders();
+
+        var text = SkseTools.Dispatch(renders, family, filter: null, peek: false, max_chars: 0);
+
+        Assert.Equal(token, renders.Called);
+        Assert.StartsWith(body, text);
+        Assert.EndsWith(SkseTools.FamilyFooter(family), text);
+        Assert.Contains($"this call ran findings='{token}'", text);
+    }
+
+    /// <summary>The footer is paid for out of max_chars rather than appended past it, so the renders are handed a cap
+    /// already short by its length — the one part of the bound the tool itself controls.</summary>
+    [Fact]
+    public void TheFooterLengthIsSubtractedFromTheCapHandedToTheRender()
+    {
+        var renders = new RecordingRenders();
+        SkseTools.Dispatch(renders, SkseTools.SkseFamily.Pairing, filter: null, peek: false, max_chars: 5_000);
+        Assert.Equal(5_000 - SkseTools.FamilyFooter(SkseTools.SkseFamily.Pairing).Length, renders.Cap);
+
+        // A cap smaller than the footer never becomes zero or negative: the render still gets a usable bound.
+        SkseTools.Dispatch(renders, SkseTools.SkseFamily.Pairing, filter: null, peek: false, max_chars: 1);
+        Assert.True(renders.Cap >= 1);
+    }
 }
