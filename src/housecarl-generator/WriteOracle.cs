@@ -7,7 +7,7 @@ using Mutagen.Bethesda.Skyrim;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// The oracle (plan step 5 / build-sequence step 6) — per-kind byte-identical cells.
+/// The write oracle — per-kind byte-identical cells.
 ///
 /// Each cell performs the same logical mutation two ways: <b>Path A</b> through the generic
 /// reflection engine (<see cref="WriteEngine"/>), <b>Path B</b> via a hand-written typed Mutagen
@@ -109,7 +109,7 @@ public static class WriteOracle
                     ActorValue = actorValue,
                     Association = new FormLink<ILightGetter>(FormKey.Factory("00C2A8:Skyrim.esm")),
                 }),
-            // --- new value-type coercion kinds (step-4 coercion completion) ---
+            // --- value-type coercion kinds ---
             Cell.Generic("value Color    Activator.MarkerColor=255,128,0",
                 m => m.Activators.FirstOrDefault(),
                 new() { RecordType = "Activator", Path = ["MarkerColor"], Verb = "Set", Value = "255,128,0" },
@@ -125,9 +125,9 @@ public static class WriteOracle
             Cell.Armor("substruct-whole TranslatedString Armor.Name", ironBoots,
                 new() { RecordType = "Armor", Path = ["Name"], Verb = "Set", Value = "HC Test Boots" },
                 a => a.Name = "HC Test Boots"),
-            // --- wave 1 collection-nav: edit a sub-field INSIDE a list element (Spell.Effects[0]) ---
-            // Proves the new shape (list-element → substruct → scalar, and list-element → formlink) is byte-identical
-            // to a hand-typed Mutagen edit, exactly as the other cells prove their kinds.
+            // --- collection-nav: edit a sub-field INSIDE a list element (Spell.Effects[0]) ---
+            // Proves list-element → substruct → scalar and list-element → formlink are byte-identical to a
+            // hand-typed Mutagen edit, exactly as the other cells prove their kinds.
             Cell.Generic("collnav scalar   Spell.Effects[0].Data.Magnitude=25",
                 m => m.Spells.FirstOrDefault(s => s.Effects.Count > 0 && s.Effects[0].Data is not null),
                 new() { RecordType = "Spell", Path = ["Effects[0]", "Data", "Magnitude"], Verb = "Set", Value = "25" },
@@ -136,9 +136,9 @@ public static class WriteOracle
                 m => m.Spells.FirstOrDefault(s => s.Effects.Count > 0),
                 new() { RecordType = "Spell", Path = ["Effects[0]", "BaseEffect"], Verb = "Set", Value = "013CA9:Skyrim.esm" },
                 r => ((ISpell)r).Effects[0].BaseEffect = new FormLinkNullable<IMagicEffectGetter>(FormKey.Factory("013CA9:Skyrim.esm"))),
-            // --- wave 1 half B composition: ADD a NEW modeled struct element to a list, built FROM PARTS ---
-            // Proves the build-from-parts path (StructSpec -> recursive BuildStruct, INCL. the nested Data substruct,
-            // materialized on first write) is byte-identical to a hand-typed Mutagen Add — the composed-struct shape.
+            // --- composition: ADD a NEW modeled struct element to a list, built FROM PARTS ---
+            // Proves the build-from-parts path (StructSpec -> recursive BuildStruct, including the nested Data
+            // substruct materialized on first write) is byte-identical to a hand-typed Mutagen Add.
             Cell.Generic("struct-elem Add  LeveledItem.Entries+=Entry{Data}",
                 m => m.LeveledItems.FirstOrDefault(l => l.Entries is { Count: > 0 }),
                 new()

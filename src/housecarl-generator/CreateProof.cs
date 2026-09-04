@@ -7,10 +7,10 @@ using HousecarlCore;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// Capability-arc CREATE build proof — exercise <see cref="WritePatchBuilder.CreateRecords"/>, the core the MCP
-/// <c>housecarl_create_record</c> tool calls, so the proof transfers to the server BY CONSTRUCTION (same code path, the
-/// way <see cref="RemoveProof"/> proves removal and <see cref="ApplyProof"/> proves the edit cleave). Each check drives
-/// the core against a LIVE large load order and re-reads the written patch from disk:
+/// Build proof for <see cref="WritePatchBuilder.CreateRecords"/>, the core the <c>housecarl_create_record</c> tool
+/// calls. It must drive the same code path the tool does, or it proves nothing about it (as for
+/// <see cref="RemoveProof"/> and <see cref="ApplyProof"/>). Each check runs against a LIVE large load order and
+/// re-reads the written patch from disk:
 ///
 ///   K1 — FLAT, self-contained: create a Keyword (editorid only) → present on re-read, a fresh LOCAL 0x800+ FormID, and
 ///        a MASTERLESS plugin (references nothing external).
@@ -18,12 +18,12 @@ namespace HousecarlGenerator;
 ///        land via the SAME ApplyVerb path, and the referenced master is DERIVED into the header.
 ///   K3 — EXTEND (into=): create one record fresh, a second into= the same patch → BOTH present, distinct ids (the
 ///        accumulate-across-calls path, re-opening from disk).
-///   K4 — REJECT nested (Q3): create "Cell" (no flat group) → refused loud, NOTHING written.
-///   K5 — REJECT abstract (Q3): create "Global" (abstract T) → refused loud naming concrete subtypes, NOTHING written.
-///   K6 — REJECT no editorid (Q3): create a Keyword with an empty editorid → refused loud, NOTHING written.
+///   K4 — REJECT nested: create "Cell" (no flat group) → refused loud, NOTHING written.
+///   K5 — REJECT abstract: create "Global" (abstract T) → refused loud naming concrete subtypes, NOTHING written.
+///   K6 — REJECT no editorid: create a Keyword with an empty editorid → refused loud, NOTHING written.
 ///
 /// Vanilla masters the proof references are SHA-checked unchanged (create only writes the patch). Patches are left in
-/// write-output/create-proof/ for Aaron to open in xEdit.  Run: dotnet run --project src/housecarl-generator create-proof [maxPlugins]
+/// write-output/create-proof/ to open in xEdit.  Run: dotnet run --project src/housecarl-generator create-proof [maxPlugins]
 /// </summary>
 public static class CreateProof
 {
@@ -83,7 +83,7 @@ public static class CreateProof
             bool localId = created && fk.ID >= 0x800 && string.Equals(fk.ModKey.FileName, Path.GetFileName(outPath), StringComparison.OrdinalIgnoreCase);
             var (cnt, masters) = PatchState(outPath);
             // A self-contained create references nothing, so the DERIVED master set is empty — but every Skyrim plugin
-            // carries the CK baseline masters (Skyrim.esm + Update.esm, Aaron 2026-06-02), force-included by WritePatch.
+            // must carry the CK baseline masters (Skyrim.esm + Update.esm), which WritePatch force-includes.
             bool ckBaseline = cnt == 1 && masters.Count == 2
                 && masters.Any(m => m.Equals("Skyrim.esm", StringComparison.OrdinalIgnoreCase))
                 && masters.Any(m => m.Equals("Update.esm", StringComparison.OrdinalIgnoreCase));
@@ -136,7 +136,7 @@ public static class CreateProof
                 $"s1={YN(s1.Success)} s2-extended={YN(s2.Extended)} both-present={YN(aPresent && bPresent)} distinct={YN(distinct)} count={cnt}"));
         }
 
-        // ===================== K4 — REJECT nested (Q3, no write) =====================
+        // ===================== K4 — REJECT nested (no write) =====================
         {
             var outPath = Path.Combine(outDir, "houseCARL_CreateProof_K4.esp");
             var o = WritePatchBuilder.CreateRecords(resolver, rulebook,
@@ -149,7 +149,7 @@ public static class CreateProof
             results.Add(("K4 reject nested (Cell)", pass, $"refused={YN(refused)} msg-named={YN(named)} no-file={YN(noFile)}"));
         }
 
-        // ===================== K5 — REJECT abstract (Q3, no write) =====================
+        // ===================== K5 — REJECT abstract (no write) =====================
         {
             var outPath = Path.Combine(outDir, "houseCARL_CreateProof_K5.esp");
             var o = WritePatchBuilder.CreateRecords(resolver, rulebook,
@@ -162,7 +162,7 @@ public static class CreateProof
             results.Add(("K5 reject abstract (Global)", pass, $"refused={YN(refused)} msg-named={YN(named)} no-file={YN(noFile)}"));
         }
 
-        // ===================== K6 — REJECT no editorid (Q3, no write) =====================
+        // ===================== K6 — REJECT no editorid (no write) =====================
         {
             var outPath = Path.Combine(outDir, "houseCARL_CreateProof_K6.esp");
             var o = WritePatchBuilder.CreateRecords(resolver, rulebook,

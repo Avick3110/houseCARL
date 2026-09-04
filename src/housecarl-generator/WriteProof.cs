@@ -11,14 +11,12 @@ using Mutagen.Bethesda.Skyrim;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// Wave 0 — the write-PROOF harness. Proves the census's "writable today" surface (≈2,900 leaves on
-/// flat-group records) is not merely <i>reachable</i> but actually <b>writes the intended value and disturbs
-/// nothing else</b>, across real vanilla records, by construction. The roadmap
-/// (<c>dev/plans/WRITE_SURFACE_ROADMAP_2026-05-30.md</c> §3/§6) makes this the wave that BUILDS the
-/// only-target-moved differ every later wave reuses.
+/// The write-PROOF harness. Proves the census's "writable today" surface (≈2,900 leaves on flat-group
+/// records) is not merely <i>reachable</i> but actually <b>writes the intended value and disturbs nothing
+/// else</b>, across real vanilla records, by construction. It also builds the only-target-moved differ every
+/// later phase here reuses.
 ///
-/// Two phases, both fail-loud (Q3 — never a silent skip; a silent skip is the read-side false-green the
-/// step-7 sweep audit caught):
+/// Two phases, both fail-loud — never a silent skip, because a skipped subject is a false green:
 ///
 ///   PHASE 1 — DIFFER COMPLETENESS (the load-bearing primitive).
 ///     A corpus-driven reflective <see cref="Snapshot"/> walks EVERY modeled field of a record into a flat
@@ -52,13 +50,13 @@ public static class WriteProof
 {
     // The modlist's own canonical game root — its isolated "Stock Game" instance, paired with the
     // mods/ tree — NOT the global Steam install. The full vanilla master set lives here; loading all five
-    // (vs Skyrim.esm alone) is the residual lever the wave-0 handoff named: more real Bethesda instances
+    // (vs Skyrim.esm alone) is what shrinks the no-instance gap: more real Bethesda instances
     // populate the optional paths a single master leaves empty.
     const string DefaultDataDir = @"C:\MO2\Instance\Stock Game\Data";
     static readonly string[] VanillaMasters =
         { "Skyrim.esm", "Update.esm", "Dawnguard.esm", "HearthFires.esm", "Dragonborn.esm" };
     // Beyond vanilla, the live mods/ tree. The heaviest mod plugins (Requiem, the modlist's own outputs, LOTD, the
-    // quest mods, ...) populate the optional fields no vanilla master ever fills — driving the residual toward
+    // quest mods, ...) populate the optional fields no vanilla master ever fills — driving the gap toward
     // zero AND proving the engine against real MODDED records. Loaded the same standalone way (no load-order
     // assembly: we snapshot records, never resolve cross-plugin links). Curated by record density (largest =
     // most records); the full-folder sweep (all ~3,400 plugins) is a separate, larger pass.
@@ -82,7 +80,7 @@ public static class WriteProof
         var rulebook = CorpusRulebook.Load();
 
         // Load each as a standalone binary overlay. A plugin that won't parse is surfaced LOUD, never silently
-        // dropped (Q3) — at modlist scale a real differ/format gap must show, not vanish into a skipped source.
+        // dropped — at modlist scale a real differ/format gap must show, not vanish into a skipped source.
         var sources = new List<(string label, ISkyrimModGetter overlay)>();
         var loaded = new List<string>();
         var loadFailures = new List<string>();
@@ -329,7 +327,7 @@ public static class WriteProof
         DumpList("RULEBOOK FALSE-REJECTS (engine proved it, pre-flight wrongly rejected — validator bug)", falseRejects);
         DumpList("RULEBOOK FALSE-ACCEPTS (engine could not, pre-flight wrongly accepted — validator too lax)", falseAccepts);
         Console.WriteLine();
-        // No instance to exercise these from = a master-coverage residual, not an engine defect. Surfaced, not skipped.
+        // No instance to exercise these from = a master-coverage gap, not an engine defect. Surfaced, not skipped.
         var noInstByType = noInstance
             .Select(s => s.Split('.')[0]).GroupBy(x => x).OrderByDescending(g => g.Count())
             .Select(g => $"{g.Key}({g.Count()})").ToList();
@@ -359,7 +357,7 @@ public static class WriteProof
     //  TranslatedString substruct) — the exact set Phase 2 drives as a scalar Set. Collection / dict /
     //  polymorphic leaves are set via Add / Struct, not a token; their ELEMENT values reuse the SAME
     //  EmitToken proven here, so proving the emitter on the value-leaf surface proves it for elements
-    //  too. Per-record fault isolation (Q3): a Mutagen-unparseable record is named + counted, never a
+    //  too. Per-record fault isolation: a Mutagen-unparseable record is named + counted, never a
     //  crash (the product-read-path requirement carried from the write-surface completion sweep).
     //    dotnet run --project src/housecarl-generator read-proof [<plugin> ...]
     // ======================================================================
@@ -422,7 +420,7 @@ public static class WriteProof
                     catch (Exception ex) { unreadable.Add($"{typeName} {r.FormKey}: {leaf.Display}: {Flatten(ex)}"); continue; }
                     if (probe.HasValue) { inst = r; break; }
                     // A coercible VALUE leaf must read as a token or a genuine absence. A container summary ("[…]")
-                    // means the reader did not recognise the value type — a read gap that must NOT hide as no-instance (Q3).
+                    // means the reader did not recognise the value type — a read gap that must NOT hide as no-instance.
                     if (probe.Note is { } nt && nt.StartsWith("[", StringComparison.Ordinal)) untokenizable = nt;
                 }
                 if (inst is null)
@@ -443,7 +441,7 @@ public static class WriteProof
                         // The getter probe DID read a value (that's why inst was chosen), but the override read is empty.
                         // A genuine unreadable/no-field is a defect; an absent value = Mutagen's override doesn't carry it
                         // (a write-time-managed field like Worldspace OFST), which the PRODUCT still reads off the source —
-                        // the same residual class write-proof names for Worldspace. Surface loud; not a read defect.
+                        // the same gap class write-proof names for Worldspace. Surface loud; not a read defect.
                         bool realFailure = read.Note is { } n && (n.StartsWith("(unreadable", StringComparison.Ordinal) || n.StartsWith("(no field", StringComparison.Ordinal));
                         if (realFailure) readDefects.Add($"{leaf.Display}: override read failed ({read.Note})");
                         else overrideNotCarried.Add($"{leaf.Display}: readable off source, Mutagen's override does not carry it (write-time-managed) — round-trip via override N/A");
@@ -554,8 +552,8 @@ public static class WriteProof
         // -> rebuild its fields via the engine, where the first write triggers MaterializeSubstruct) serializes
         // BYTE-IDENTICALLY to native. The COMPOSITION surface (GenderedItem<T>/Array2d<T> — no parameterless ctor) is
         // derived BY CONSTRUCTION: the engine throws CompositionRequiredException, caught + tallied as a wave-1
-        // deferral here and printed every run, NEVER silently skipped (Q3). Non-replayable content (arms,
-        // struct-element collections, owned records) is a named residual whose byte-identity rides later waves.
+        // deferral here and printed every run, NEVER silently skipped. Non-replayable content (arms,
+        // struct-element collections, owned records) is a named gap whose byte-identity rides later waves.
         Console.WriteLine("---- PHASE 4: absent-substruct materialization byte-identity (clear substruct -> engine-rebuild == native) ----");
         var ssSeen = new HashSet<string>(StringComparer.Ordinal);
         int ssChecked = 0, ssOk = 0, ssEquiv = 0, ssGetOnly = 0, ssNoInst = 0, ssMarkerResid = 0;
@@ -591,7 +589,7 @@ public static class WriteProof
                             // Phase-1 completeness backs this: an empty value-diff means EVERY modeled value is
                             // identical, so the only possible byte difference is Mutagen's internal DataTypeState/break
                             // marker (derived parse-state, not a content field, not settable via the value write API).
-                            // Named residual, not a fail; a real VALUE divergence still fails loud.
+                            // Named gap, not a fail; a real VALUE divergence still fails loud.
                             var diff = SnapshotValueDiff(natRec, ov, sn.RecordType, ctx);
                             if (diff.Length == 0)
                             {
@@ -644,7 +642,7 @@ public static class WriteProof
         // Step INTO a list/dict struct element and edit a sub-field (Effects[0].Data.Magnitude). Reuses the wave-0
         // differ: snapshot → engine edit through the element → snapshot → assert the value LANDED at the bracketed
         // target AND nothing outside that subtree moved. Polymorphic (arm) sub-leaves behind collnav are excluded
-        // (wave 4); a collnav leaf with no populated element in any source is a surfaced residual, never a skip (Q3).
+        // (wave 4); a collnav leaf with no populated element in any source is a surfaced gap, never a skip.
         Console.WriteLine("---- PHASE 5: collection-nav (wave 1) — edit a sub-field inside a list/dict element; value-landed + only-target-moved ----");
         var cnByCard = new SortedDictionary<string, int[]>(StringComparer.Ordinal);   // sub-leaf card -> [proven, attempted]
         var cnProvenKeys = new HashSet<string>(StringComparer.Ordinal);
@@ -729,8 +727,8 @@ public static class WriteProof
         // list via the engine (clear -> Add each element, each built from a spec EXTRACTED from the native element by
         // the same WalkReplay recursion) serializes BYTE-IDENTICALLY to native. The element-build reuses the verb
         // engine (BuildStruct), so a faithful rebuild IS the byte-identity test. An element CONTAINING a polymorphic
-        // arm (conditions, script properties, …) is a NAMED residual — its byte-identity rides the wave-4 arm proof,
-        // never silently skipped (Q3); the Add CAPABILITY still works, only the BYTE-proof of arm-bearing elements defers.
+        // arm (conditions, script properties, …) is a NAMED gap — its byte-identity rides the wave-4 arm proof,
+        // never silently skipped; the Add CAPABILITY still works, only the BYTE-proof of arm-bearing elements defers.
         Console.WriteLine("---- PHASE 6: struct-element composition byte-identity (clear -> engine-Add-from-parts == native) ----");
         var seSeen = new HashSet<string>(StringComparer.Ordinal);
         int seChecked = 0, seOk = 0, seEquiv = 0, seNoInst = 0;
@@ -747,7 +745,7 @@ public static class WriteProof
                 if (!seSeen.Add(leaf.LeafKey)) continue;                          // one byte-check per distinct leaf-key
 
                 // Upfront structural guards — each is a struct-element collection the wave-1 Add-from-parts proof
-                // does NOT close here; surfaced as a NAMED deferral (Q3), never a silent skip or a false failure.
+                // does NOT close here; surfaced as a NAMED deferral, never a silent skip or a false failure.
                 if (leaf.Cardinality != "list")                                  // a non-arm struct-valued dict — Phase 6 proves lists
                 { Defer($"struct-valued {leaf.Cardinality} (Phase 6 proves lists)"); continue; }
                 var collAq = leaf.Field.MutableTypeAssemblyQualified ?? leaf.Field.GetterTypeAssemblyQualified;
@@ -788,7 +786,7 @@ public static class WriteProof
                         // (a Mutagen getter/concrete-settability quirk; the corpus marks it writable via the mutable
                         // interface). An UNREPLACEABLE collection cannot be clear-rebuilt — the proof METHOD is N/A here,
                         // NOT an engine defect (the Add capability is proven by the settable leaves + the oracle). Named
-                        // deferral, never a silent skip or a false failure (Q3).
+                        // deferral, never a silent skip or a false failure.
                         Defer("runtime get-only collection (clear-rebuild byte-proof N/A; Add capability proven elsewhere)");
                         continue;
                     }
@@ -802,7 +800,7 @@ public static class WriteProof
                         {
                             // Value-identical but byte-different => a Mutagen internal DataTypeState/break marker only
                             // (e.g. the ScenePhase Unused2 marker), exactly like Phase 4's Scene.Unused2: Phase-1 differ
-                            // completeness guarantees an empty value-diff means no modeled content field differs. Named residual.
+                            // completeness guarantees an empty value-diff means no modeled content field differs. Named gap.
                             var diff = SnapshotValueDiff(natRec, ov, leaf.RecordType, ctx);
                             if (diff.Length == 0)
                                 seMarkerList.Add($"{leaf.Display}: {Math.Abs((long)na.bytes.Length - rbz.bytes.Length)}B DataTypeState/break marker (all modeled values identical)");
@@ -841,7 +839,7 @@ public static class WriteProof
     // subtree-scoping is automatic. A byte-write per type then proves serialization: single-master + source SHA
     // untouched. The 6 placed subtypes with 0 vanilla instances (Arrow/Barrier/Beam/Cone/Flame/Missile) share the
     // exact APlaced + cell-child resolution path as the proven placed types; they are LOUD-LISTED as a named
-    // residual (Q3), byte-true deferred to a source that contains them — never silently treated as covered.
+    // gap, byte-true deferred to a source that contains them — never silently treated as covered.
     static Phase7Result Phase7_NestedGroup(
         List<(string label, ISkyrimModGetter overlay)> sources, WalkContext ctx, CorpusRulebook rulebook, ISkyrimModGetter[] allMasters)
     {
@@ -946,10 +944,10 @@ public static class WriteProof
         Console.WriteLine();
         Console.WriteLine("   by cardinality (proven/attempted):");
         foreach (var (card, t) in byCard) Console.WriteLine($"        {card,-12} {t[0]}/{t[1]}");
-        // LOUD-LIST the absent placed types — named residual, byte-true deferred to a source that contains them (Q3).
+        // LOUD-LIST the absent placed types — named gap, byte-true deferred to a source that contains them.
         Console.WriteLine($"   ABSENT nested types (0 instances in any loaded source; resolution path is identical — surfaced, never silently covered): {absent.Count}");
         if (absent.Count > 0) Console.WriteLine($"        {string.Join(", ", absent)}");
-        // finding 4 (parity): Phase 7 per-sample residuals surfaced, not silently continued (like Phase 2/5 no-instance lines).
+        // Phase 7 per-sample gaps are surfaced, not silently continued — the same as Phase 2/5's no-instance lines.
         Console.WriteLine($"   NESTED residual — leaf-sites not populated on the sampled instance (no-instance, surfaced not skipped): {p7NoInst}; whole-value/composition leaves (not a differ-tracked value-leaf here): {p7WholeValue}.");
         DumpList("NESTED-GROUP violations (value didn't land / moved outside the target record)", violations);
         DumpList("NESTED-GROUP throws (engine could not perform a nested edit)", throwsList);
@@ -1004,7 +1002,7 @@ public static class WriteProof
 
     // ============ PHASE 8 — NESTED-GROUP FAIL-CLOSED (wave 3 guard) ============
     // The wave-3 resolver has two guard clauses that must fail LOUD, never silently resolve to the wrong record
-    // (Q3): (A) a nested record routed WITHOUT the source link cache (WriteEngine NestedGetOrAddAsOverride guard 1),
+    // (A) a nested record routed WITHOUT the source link cache (WriteEngine NestedGetOrAddAsOverride guard 1),
     // and (B) a nested record ABSENT from the provided cache (guard 2). Phase 7 proves the HAPPY path byte-true;
     // Phase 8 proves the SAD path throws. It drives each real instance-bearing nested record through both negatives
     // and asserts an exception is raised — a return WITHOUT throwing is the silent-failure we are guarding against.
@@ -1050,7 +1048,7 @@ public static class WriteProof
             Console.WriteLine($"   {cat,-16} {rec0.FormKey}  no-cache: {aNote}; empty-cache: {bNote}");
         }
 
-        // The absent placed types share this EXACT path (no per-type branch) — fail-closed covered transitively (Q3).
+        // The absent placed types share this EXACT path (no per-type branch) — fail-closed covered transitively.
         Console.WriteLine($"   absent nested types share this exact resolution path (no per-type branch) — fail-closed covered transitively: {absent.Count}{(absent.Count > 0 ? " (" + string.Join(", ", absent) + ")" : "")}");
         DumpList("NESTED FAIL-CLOSED gaps (a missing/uncacheable nested record did NOT fail loud)", failures);
         var pass = failures.Count == 0 && casesRun > 0;
@@ -1173,7 +1171,7 @@ public static class WriteProof
 
     // ============ PHASE 10 — ARM / FLOI FAIL-CLOSED (wave 4 guard) ============
     // Mirrors Phase 8: the wave-4 SetFloi value-classifier must throw LOUD on a malformed condition target, never
-    // write the wrong four bytes (Q3). Each malformed value is driven through the REAL engine path (ApplyVerb ->
+    // write the wrong four bytes. Each malformed value is driven through the REAL engine path (ApplyVerb ->
     // SetFloi) on a real condition arm AND through the pre-flight (rulebook.Validate, which routes to the shared
     // TryClassifyFloiValue — the same classifier the engine uses); BOTH must fail closed (engine throws + rulebook
     // rejects) or the case is a gap. The non-flag-bearing-parent guard in
@@ -1240,9 +1238,9 @@ public static class WriteProof
     //
     // The PEX half of the orphan bucket stays LOUD-DEFERRED: the Mutagen PEX read->write round-trip GATE did NOT clear
     // (pex-probe — a rewritten .pex diverges from the source bytes), so binary-PEX write is not faithful enough to wire.
-    // That is the cornerstone's ONE legitimate residual (a Mutagen-vs-source delta), surfaced here every run + by the
+    // That is the cornerstone's ONE legitimate gap (a Mutagen-vs-source delta), surfaced here every run + by the
     // census orphan bucket; houseCARL PREFERS .psc source + Papyrus compile (project_pex_prefer_source_policy). Wave 5
-    // closes the ModHeader proof slice; the PEX residual reconciles at the final completion sweep's fail-loud delta report.
+    // closes the ModHeader proof slice; the PEX gap reconciles at the final completion sweep's fail-loud delta report.
     static Phase11Result Phase11_ModHeader(
         List<(string label, ISkyrimModGetter overlay)> sources, WalkContext ctx, CorpusRulebook rulebook, ISkyrimModGetter[] allMasters)
     {
@@ -1393,7 +1391,7 @@ public static class WriteProof
     /// <summary>The FLOI site universe BY CONSTRUCTION (every (concrete *ConditionData arm, FormLinkOrIndex prop)
     /// pair — the same 156 the scout + coerce-audit derive) + one POPULATED sample per site from the sources, its
     /// native value expressed by mode (read off the arm flags — independent of the engine). Shared by Phase 9 +
-    /// Phase 10 so the site predicate lives in ONE place (no forked predicate — baseline review S2). Recognition uses
+    /// Phase 10 so the site predicate lives in ONE place rather than forking. Recognition uses
     /// the engine's shared <see cref="WriteEngine.IsFormLinkOrIndex"/> (no drift). Stops scanning once every site has
     /// a sample; if some are absent it sweeps all sources (the Phase 7 SampleNestedTypes shape).</summary>
     static (Dictionary<string, FloiSiteSample> samples, List<string> allSites, List<string> allTargets) SampleFloiSites(
@@ -1832,8 +1830,8 @@ public static class WriteProof
     /// <see cref="TodaySettableLeaves"/> but with a <c>throughColl</c> gate so it emits ONLY leaves behind ≥1 collection
     /// element (the substruct-only leaves are Phase 2's today surface, proven there). Excluded by design:
     ///   - POLYMORPHIC sub-leaves behind a collection (arm-set, e.g. <c>Condition.Data</c>) — the arm-breadth wave
-    ///     (wave 4); the census's wave_collnav bucket holds these "doubly-blocked" leaves (collnav AND arm), per the
-    ///     roadmap §3 note, so wave 1 does NOT zero that bucket — it closes the navigate-into slice only;
+    ///     (wave 4); the census's wave_collnav bucket holds these "doubly-blocked" leaves (collnav AND arm), so
+    ///     wave 1 does NOT zero that bucket — it closes the navigate-into slice only;
     ///   - record-element collections (nested-group wave) and arm-element collections (arm wave) — only Kind=="struct"
     ///     elements are collnav edges, matching the census navAdj definition;
     ///   - ADDING a composed element (composition, half B) — a different operation, tallied by Phase 2.
@@ -2072,7 +2070,7 @@ public static class WriteProof
         if (leaf.Cardinality is "list" or "dict")
         {
             // Absent (null) collections ARE reachable now — the engine materializes them on Add/Set, so
-            // "add to an absent collection" is a proven today operation, not a skipped residual. Require only
+            // "add to an absent collection" is a proven today operation, not a skipped gap. Require only
             // that the property is readable (a genuinely unreadable property is a real reach failure).
             try { GetValueByName(cur, leaf.FieldPath[^1]); return true; } catch { return false; }
         }
@@ -2081,7 +2079,7 @@ public static class WriteProof
 
     /// <summary>Bracket-aware navigability for a collnav leaf (Phase 5): every intermediate hop resolvable + non-null,
     /// and each collection-element hop (<c>[0]</c>) actually POPULATED on this instance. Checked on the getter, whose
-    /// nullness/population matches the override (a deep copy). A no-instance result is a surfaced residual, never a skip.</summary>
+    /// nullness/population matches the override (a deep copy). A no-instance result is a surfaced gap, never a skip.</summary>
     static bool CollnavNavigable(IMajorRecordGetter rec, TodayLeaf leaf)
     {
         object? cur = rec;
@@ -2413,7 +2411,7 @@ public static class WriteProof
     /// leaf to its native value, Add every coercible-collection element). Sets <paramref name="rebuildable"/> false
     /// (with a reason) if the substruct's content is not faithfully replayable here — a polymorphic arm, a
     /// struct-element collection, an owned record, or a value the engine cannot round-trip from a string. Those are
-    /// NAMED residuals (their byte-identity rides the composition/arm waves), never a silent skip.</summary>
+    /// NAMED gaps (their byte-identity rides the composition/arm waves), never a silent skip.</summary>
     static List<WriteRequest> ExtractSubstructReplay(object ov, SubstructNode sn, WalkContext ctx, out bool rebuildable, out string? reason)
     {
         var reqs = new List<WriteRequest>();
@@ -2527,7 +2525,7 @@ public static class WriteProof
     /// <c>BuildStruct</c>. Type = the element's declared catalog type; Sets = element-rooted writes that rebuild it,
     /// produced by the same <see cref="WalkReplay"/> recursion (so nested sub-structs AND nested struct-element lists
     /// are captured). On an un-replayable element (a polymorphic arm inside — wave 4; an owned record — wave 3; or an
-    /// unstringifiable value) it sets rb/rs false, so the whole rebuild becomes a NAMED residual, never a silent skip.</summary>
+    /// unstringifiable value) it sets rb/rs false, so the whole rebuild becomes a NAMED gap, never a silent skip.</summary>
     static StructSpec ExtractStructSpec(object element, string elementCatalog, WalkContext ctx, ref bool rb, ref string? rs, int depth)
     {
         var sets = new List<WriteRequest>();
@@ -2537,7 +2535,7 @@ public static class WriteProof
 
     /// <summary>Stringify a scalar/enum/value/formlink leaf into the Set-string the engine's Coerce round-trips to
     /// the SAME value (so a rebuilt field is byte-identical). Returns null for a value kind not safely round-trippable
-    /// here — the caller then marks the whole substruct a named residual rather than risk a false byte-divergence.</summary>
+    /// here — the caller then marks the whole substruct a named gap rather than risk a false byte-divergence.</summary>
     static string? LeafSetString(object? v)
     {
         switch (v)
@@ -2586,7 +2584,7 @@ public static class WriteProof
     /// <summary>Snapshot-diff two override records, returning the first differing MODELED field values (or "" when
     /// every modeled value is identical). DataTypeState keys are excluded (Mutagen derived parse-state). Backed by
     /// Phase-1 differ completeness: "" guarantees the only possible byte difference is a *DataTypeState/break marker,
-    /// never an unread content field — so classifying a no-value-diff byte difference as a marker residual is sound.</summary>
+    /// never an unread content field — so classifying a no-value-diff byte difference as a marker gap is sound.</summary>
     static string SnapshotValueDiff(object a, object b, string typeName, WalkContext ctx)
     {
         var sa = Snapshot(a, typeName, ctx); var sb = Snapshot(b, typeName, ctx);

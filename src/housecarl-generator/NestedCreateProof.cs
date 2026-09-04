@@ -7,22 +7,21 @@ using HousecarlCore;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// NESTED-CREATE build proof (nested/dialogue plan, Layer A) — exercises the REAL
-/// <see cref="WritePatchBuilder.CreateRecords"/> (the core the MCP create tool calls) on its NESTED path, so the
-/// proof transfers to the server by construction (the way <see cref="CreateProof"/> proves flat create). Where
-/// STEP 0's scout proved the Mutagen PRIMITIVE in isolation, this proves the mechanism THROUGH the production cleave —
-/// parent override → NestedAddNew → ApplyVerb → multi-master serialize → re-open from disk.
+/// Build proof for the NESTED path of <see cref="WritePatchBuilder.CreateRecords"/>, the core the create tool calls
+/// (<see cref="CreateProof"/> covers the flat path). It must drive the whole production chain — parent override →
+/// NestedAddNew → ApplyVerb → multi-master serialize → re-open from disk — not the Mutagen primitive in isolation,
+/// or it proves nothing about the tool.
 ///
-///   N1 — ONE-SHOT (the unit Aaron confirmed): a DialogTopic (flat) + a DialogResponses/INFO under it (same-call
+///   N1 — ONE-SHOT: a DialogTopic (flat) + a DialogResponses/INFO under it (same-call
 ///        sibling parent) in ONE call → re-open: the INFO is in the NEW topic's Responses, both ids local 0x800+.
 ///   N2 — INFO into an EXISTING topic (FormKey parent): the topic is overridden into the patch carrying its
 ///        original lines, the new INFO appended → re-open: new INFO present AND the original responses survive.
-///   N3 — PlacedObject into an EXISTING Cell, collection='Persistent' (the outcome-(ii) named discriminator) →
+///   N3 — PlacedObject into an EXISTING Cell, collection='Persistent' (the named discriminator) →
 ///        re-open: the new ref is in the cell's Persistent list.
-///   N4 — REJECT a nested type with NO parent (Q3): create 'DialogResponses' alone → refused, names the need for a parent.
-///   N5 — REJECT a parent that can't contain the child (Q3): 'DialogResponses' under a WEAPON FormKey → refused loud.
-///   N6 — REJECT an ambiguous add-target (Q3): 'PlacedObject' into a Cell with NO collection= → refused, names the lists.
-///   N7 — REJECT a forward sibling parent (Q3): an INFO whose parent sibling is declared LATER → refused, the order rule.
+///   N4 — REJECT a nested type with NO parent: create 'DialogResponses' alone → refused, names the need for a parent.
+///   N5 — REJECT a parent that can't contain the child: 'DialogResponses' under a WEAPON FormKey → refused loud.
+///   N6 — REJECT an ambiguous add-target: 'PlacedObject' into a Cell with NO collection= → refused, names the lists.
+///   N7 — REJECT a forward sibling parent: an INFO whose parent sibling is declared LATER → refused, the order rule.
 ///
 /// Vanilla Skyrim.esm is SHA-checked unchanged (create only writes the patch). Patches land in
 /// write-output/nested-create-proof/ for xEdit.  Run: dotnet run --project src/housecarl-generator nested-create-proof [Skyrim.esm]
@@ -88,11 +87,10 @@ public static class NestedCreateProof
         }
 
         // ===================== N2 — INFO into an EXISTING topic (FormKey parent) =====================
-        //   ASSERTS THE MECHANISM only (the new child is allocated + placed under the overridden parent + local id).
+        //   Asserts the MECHANISM only: the new child is allocated, placed under the overridden parent, local id.
         //   It does NOT assert "the parent's existing children survive" — overriding the parent yields an override
-        //   carrying ONLY the new child (sibChildren below). Whether that's correct (Skyrim merges children across
-        //   plugins by record) or lossy (the override replaces the child list) is the merge-vs-replace SEMANTIC,
-        //   reported as an OPEN QUESTION below — NOT decided by guessing (evidence-first, §4).
+        //   carrying ONLY the new child. Whether Skyrim merges children across plugins or the override replaces the
+        //   child list is still unestablished, so it is reported below rather than asserted either way.
         int n2OverrideCount = -1;
         {
             var outPath = Path.Combine(outDir, "houseCARL_NestedCreate_N2.esp");
@@ -112,9 +110,9 @@ public static class NestedCreateProof
                 $"created={YN(ok)} new-info-present={YN(present)} local-id={YN(local)} | override-carries={(responses?.Count ?? -1)} of {origResponses + 1} (orig+new) [merge-semantic: OPEN]{Err(o)}"));
         }
 
-        // ===================== N3 — PlacedObject into an existing Cell, collection='Persistent' (outcome ii) =====================
+        // ===================== N3 — PlacedObject into an existing Cell, collection='Persistent' =====================
         //   Same as N2: asserts the MECHANISM (ref allocated + in the cell's Persistent + local id). The override
-        //   carries only the new ref (not the cell's other 28) — the merge-vs-replace OPEN QUESTION, not asserted.
+        //   carries only the new ref, not the cell's other 28 — the same unestablished question, not asserted.
         int n3OverrideCount = -1;
         {
             var outPath = Path.Combine(outDir, "houseCARL_NestedCreate_N3.esp");
@@ -158,11 +156,10 @@ public static class NestedCreateProof
                 $"created={(o.Success ? o.Created.Count : 0)} both-under-topic={YN(bothUnder)} L2.Prompt=\"{prompt}\" field-landed={YN(fieldLanded)} distinct-ids={YN(distinct)}{Err(o)}"));
         }
 
-        // ===================== N9 — extend= with a parent CARRIED BY THE PATCH (the former gap, now SUPPORTED) =====================
+        // ===================== N9 — extend= with a parent CARRIED BY THE PATCH =====================
         //   Create a topic (call 1), then add an INFO under it in a SEPARATE into= call (call 2). The parent topic lives
-        //   in the PATCH, not the load order — resolved from the patch being extended (Phase 0 opens the patch before
-        //   pre-flight). Asserts the INFO lands under the patch-carried topic; and a GENUINELY-absent parent (in neither
-        //   the load order nor the patch) still refuses LOUD, naming both (Q3).
+        //   in the PATCH, not the load order, so it resolves only because the patch being extended is opened before
+        //   pre-flight. Asserts the INFO lands under it, and that a parent absent from BOTH still refuses loud.
         {
             var outPath = Path.Combine(outDir, "houseCARL_NestedCreate_N9.esp");
             var s1 = WritePatchBuilder.CreateRecords(resolver, rulebook,
