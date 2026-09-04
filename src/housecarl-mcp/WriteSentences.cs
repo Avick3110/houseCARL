@@ -95,6 +95,17 @@ internal static class WriteSentences
     internal static string InPlaceModFolder(string modFolder) =>
         $"mod folder: {modFolder}  — already active in your load order; re-sort only if a winner changed\n";
 
+    /// <summary>One plugin the external-referencer pass could not read through, in the words its own cause earns.
+    /// A file that would not OPEN is almost always held by another program and closing it fixes the run; a file
+    /// that opened and threw part way through is held by nothing, and repeating the close-your-programs advice
+    /// there sends the modder round a loop. One home so the report, the prompt and the refusal cannot drift.</summary>
+    internal static string UnscannablePlugin(RemapEngine.UnscannablePlugin p) => p.Cause switch
+    {
+        RemapEngine.UnscannableCause.Unopenable =>
+            $"{p.Plugin} — could not be OPENED, probably held open by another program; close xEdit, MO2 or Skyrim and run this again ({p.Reason})",
+        _ => $"could not fully read {p.Plugin}: {p.Reason}",
+    };
+
     /// <summary>The header + mod-folder pair for a write to a NEW patch or an EXTENDED one — the default lane's
     /// "here is the artifact and what to do with it", rendered identically by apply / create / forward.</summary>
     internal static string NewOrExtendedArtifact(bool extended, string file, long bytes, string modFolder) =>
