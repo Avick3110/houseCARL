@@ -14,10 +14,24 @@ public sealed record BsaListResult(
     public bool Ran => RunError is null;
 }
 
-/// <summary>The result of an unpack (Mutagen) or pack (BSArch). <see cref="RunError"/> non-null ⇒ the operation never
-/// really ran (archive couldn't be opened / BSArch couldn't be launched / a stuck stale scratch refused up front);
-/// otherwise <see cref="Success"/> reflects what was actually written this run.</summary>
+/// <summary>The result of an unpack (Mutagen). <see cref="RunError"/> non-null ⇒ the operation never really ran (the
+/// archive couldn't be opened); otherwise <see cref="Success"/> reflects what was actually written this run.</summary>
 public sealed record BsaResult(bool Success, string Raw, string? RunError)
+{
+    public bool Ran => RunError is null;
+}
+
+/// <summary>What a pack source folder holds: <see cref="Archivable"/> is the files BSArch will archive (anything under a
+/// subfolder) and <see cref="RootFiles"/> names the loose files sitting at the source root, which BSArch silently drops.</summary>
+public sealed record BsaSourceScan(int Archivable, IReadOnlyList<string> RootFiles);
+
+/// <summary>The result of a pack (BSArch). <see cref="RunError"/> non-null ⇒ the pack never really ran (BSArch couldn't
+/// be launched / a stuck stale scratch or an unreadable source refused up front); <see cref="CountError"/> non-null ⇒ it
+/// ran but the produced archive's header count disagreed with the source, so nothing was placed. <see cref="Packed"/> is
+/// the produced archive's file count, <see cref="Expected"/> what the source offered, and <see cref="RootSkipped"/> the
+/// root-level files BSArch dropped.</summary>
+public sealed record BsaPackResult(
+    bool Success, int Packed, int Expected, IReadOnlyList<string> RootSkipped, string Raw, string? RunError, string? CountError)
 {
     public bool Ran => RunError is null;
 }
@@ -192,10 +206,13 @@ public static class BsaArchive
     /// removed REFUSES up front (nothing runs, the prior .bsa untouched), and any failure (BSArch error, timeout, empty
     /// output, stale-mtime scratch) deletes the temp and leaves the prior .bsa untouched. The mtime gate assumes an
     /// NTFS-class timestamp resolution — on a FAT-class target a same-second pack could read as stale and fail LOUD (never
-    /// falsely succeed). NOTE the caller must surface BSArch's caveat: a COMPRESSED archive breaks any sounds/voices it
-    /// contains.</summary>
-    public static BsaResult Pack(string bsarchExe, string srcFolder, string archive, string formatFlag, bool compress, int timeoutMs = 600_000)
+    /// falsely succeed). The source is enumerated first and the produced archive's own header count is checked against it
+    /// before the move, so a short pack refuses instead of reporting success; files at the source ROOT are counted apart
+    /// because BSArch drops them. NOTE the caller must surface BSArch's caveat: a COMPRESSED archive breaks any
+    /// sounds/voices it contains.</summary>
+    public static BsaPackResult Pack(string bsarchExe, string srcFolder, string archive, string formatFlag, bool compress, int timeoutMs = 600_000)
     {
+        var nothing = Array.Empty<string>();
         // Pack to a scratch sibling (keeps the .bsa extension so BSArch is happy); the real target is touched only on success.
         var dir = Path.GetDirectoryName(archive) ?? Environment.CurrentDirectory;
         var tmp = Path.Combine(dir, Path.GetFileNameWithoutExtension(archive) + ".houseCARL-tmp.bsa");
@@ -205,9 +222,18 @@ public static class BsaArchive
             // "tmp exists and is non-empty" pass on the PREVIOUS run's bytes when BSArch fails this
             // run — a false success that ships wrong content over the target. Refuse loud instead;
             // nothing is packed, the prior archive is untouched.
-            return new BsaResult(false, "",
+            return new BsaPackResult(false, 0, 0, nothing, "",
                 $"a stale houseCARL scratch from a previous run is stuck at '{tmp}' and could not be removed " +
-                "(another process may hold it). Delete it and retry — this run packed nothing; the existing archive, if any, is untouched.");
+                "(another process may hold it). Delete it and retry — this run packed nothing; the existing archive, if any, is untouched.", null);
+
+        // Count what the source offers before packing, so the produced archive can be cross-checked against it.
+        BsaSourceScan scan;
+        try { scan = ScanPackSource(srcFolder); }
+        catch (Exception ex)
+        {
+            return new BsaPackResult(false, 0, 0, nothing, "",
+                $"could not read the source folder '{srcFolder}' ({ex.GetType().Name}: {ex.Message}) — check it exists and is readable.", null);
+        }
         var baselineUtc = DateTime.UtcNow;
 
         var args = new List<string> { "pack", srcFolder, tmp, formatFlag, "-mt" };
@@ -221,17 +247,46 @@ public static class BsaArchive
         if (!packed)   // BSArch couldn't run, or produced no/empty output — leave any prior archive untouched
         {
             try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best-effort */ }
-            return new BsaResult(false, (run.stdout + "\n" + run.stderr).Trim(), run.runError);
+            return new BsaPackResult(false, 0, scan.Archivable, scan.RootFiles, (run.stdout + "\n" + run.stderr).Trim(), run.runError, null);
+        }
+
+        // Cross-check the produced archive's own header count against the source, the same oracle List/Unpack use. A
+        // disagreement means files went missing, so refuse before the target is touched.
+        var hdr = ReadBsaHeader(tmp);
+        int packedCount = hdr is { fileCount: var fc } ? (int)fc : scan.Archivable;
+        if (hdr is not null && PackCountError(packedCount, scan.Archivable, Path.GetFileName(archive)) is { } countError)
+        {
+            try { File.Delete(tmp); } catch { /* best-effort */ }
+            return new BsaPackResult(false, packedCount, scan.Archivable, scan.RootFiles,
+                (run.stdout + "\n" + run.stderr).Trim(), null, countError);
         }
 
         try { AtomicFile.Commit(tmp, archive); }   // success → crash-atomically swap the target (File.Replace / rename, same volume)
         catch (Exception ex)
         {
             try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best-effort */ }
-            return new BsaResult(false, (run.stdout + "\n" + run.stderr + $"\ncould not place the packed archive at '{archive}': {ex.Message}").Trim(), null);
+            return new BsaPackResult(false, packedCount, scan.Archivable, scan.RootFiles,
+                (run.stdout + "\n" + run.stderr + $"\ncould not place the packed archive at '{archive}': {ex.Message}").Trim(), null, null);
         }
-        return new BsaResult(File.Exists(archive) && new FileInfo(archive).Length > 0, (run.stdout + "\n" + run.stderr).Trim(), null);
+        return new BsaPackResult(File.Exists(archive) && new FileInfo(archive).Length > 0, packedCount, scan.Archivable,
+            scan.RootFiles, (run.stdout + "\n" + run.stderr).Trim(), null, null);
     }
+
+    /// <summary>Count what a pack of <paramref name="srcFolder"/> will archive and what it will drop: BSArch packs only
+    /// files under a subfolder, so loose files at the source root are silently left out.</summary>
+    public static BsaSourceScan ScanPackSource(string srcFolder)
+    {
+        if (!Directory.Exists(srcFolder)) return new BsaSourceScan(0, Array.Empty<string>());
+        var root = Directory.GetFiles(srcFolder, "*", SearchOption.TopDirectoryOnly).Select(p => Path.GetFileName(p)).ToList();
+        int all = Directory.GetFiles(srcFolder, "*", SearchOption.AllDirectories).Length;
+        return new BsaSourceScan(all - root.Count, root);
+    }
+
+    /// <summary>The one-sentence refusal for a packed archive whose file count disagrees with its source, or null when
+    /// the two agree.</summary>
+    public static string? PackCountError(int packed, int expected, string archiveName) =>
+        packed == expected ? null
+            : $"'{archiveName}' packed {packed} file(s) but the source folder offers {expected} — refusing to place it; check the source folder for unreadable or locked files and repack.";
 
     /// <summary>The legal format tokens, for refusal messages.</summary>
     public const string FormatTokens = "sse (default), tes3/morrowind, tes4/oblivion, fo3, fnv, tes5/le/skyrimle, fo4, fo4dds, sf1/starfield, sf1dds";
