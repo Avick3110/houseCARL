@@ -66,6 +66,13 @@ public sealed class WinnerScanCoverageTests
             HeldPath = Path.Combine(mods, "HeldMod", HeldName);
             held.BeginWrite.ToPath(HeldPath).WithLoadOrder(new ISkyrimModGetter[] { baseMod }).Write();
 
+            // One SkyPatcher line targeting the held plugin's weapon BY EDITORID, so the layer's no-op scan has to
+            // sweep the order's weapon winners to resolve it. The INI lives in the OTHER mod, so holding the plugin
+            // affects the lookup and nothing else.
+            var iniDir = Path.Combine(mods, "BaseMod", "SKSE", "Plugins", "SkyPatcher", "weapon");
+            Directory.CreateDirectory(iniDir);
+            File.WriteAllText(Path.Combine(iniDir, "hcws.ini"), "filterByWeapons=HcWsHeldWeapon:attackDamage=20\r\n");
+
             var genDir = Path.Combine(Root, "corpus-gen");
             CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
             CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
@@ -128,6 +135,23 @@ public sealed class WinnerScanCoverageTests
         Assert.Equal(0, locked.Total);
         Assert.NotNull(locked.ScanNote);
         Assert.Contains(ScanWorld.HeldName, locked.ScanNote!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The layer's no-op scan resolves a line's EditorID target by sweeping the order's winners, so a
+    /// plugin it cannot open leaves that target unresolved. Counting it with the ordinary unresolved targets would
+    /// blame the INI for a file lock.</summary>
+    [Fact]
+    public void TheSkyPatcherNoOpScanNamesAPluginItCouldNotRead()
+    {
+        using var world = new ScanWorld();
+
+        var open = world.Svc.SkyPatcherLayer();
+        Assert.DoesNotContain(open.NoOpNotes, n => n.Contains(ScanWorld.HeldName, StringComparison.OrdinalIgnoreCase));
+
+        using var hold = HeldOpen.Hold(world.HeldPath);
+        var locked = world.Svc.SkyPatcherLayer();
+
+        Assert.Contains(locked.NoOpNotes, n => n.Contains(ScanWorld.HeldName, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>A quest input fans out over the winning topics, so a plugin the sweep cannot open takes its topics

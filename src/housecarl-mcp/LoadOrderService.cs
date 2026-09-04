@@ -941,6 +941,11 @@ public sealed class LoadOrderService : IDisposable
                 $"Could not materialize a mutable copy of {fk} ({typeName}) for the replay — {ex.GetType().Name}: {ex.Message}", null);
         }
 
+        // Watch this record's own EditorID lookups: only a replay that actually read from a table missing a
+        // plugin's records is affected, so a record addressed purely by FormID answers normally.
+        var spr = formResolver as SkyPatcherServiceResolver;
+        spr?.WatchLookups();
+
         var folders = new List<SkyPatcherFolderOutcome>();
         foreach (var m in maps)
         {
@@ -964,11 +969,11 @@ public sealed class LoadOrderService : IDisposable
         }
 
         // An EditorID sweep that could not read a plugin leaves that plugin's EditorIDs out of the lookup table, so a
-        // line naming one resolves to nothing and the replay would report a state the layer does not actually
-        // produce. Named as the record's error rather than answered wrong.
-        if (formResolver is SkyPatcherServiceResolver spr && spr.Unreadable.Count > 0)
+        // line naming one resolves to nothing and this replay would report a state the layer does not produce.
+        // Named as the record's error rather than answered wrong.
+        if (spr is { ConsumedIncompleteTable: true })
             return (typeName, winner.Value.WinnerPlugin, body.EditorID, none,
-                $"the SkyPatcher replay of {fk} resolves EditorIDs against the load order, and "
+                $"the SkyPatcher replay of {fk} resolved an EditorID against the load order, and "
                 + string.Join(" ", spr.Unreadable.Select(u => u.Message).Distinct()), null);
 
         return (typeName, winner.Value.WinnerPlugin, body.EditorID, folders, null, copy);
@@ -1040,10 +1045,6 @@ public sealed class LoadOrderService : IDisposable
                     if (rfk is not null) targets.Add(rfk.Value); else unresolvedTargets++;
                 }
             }
-            // A plugin the EditorID sweep could not open keeps its records out of the lookup, so a target naming one
-            // counts as unresolved for a reason that has nothing to do with the INI. Say which plugin.
-            foreach (var msg in formResolver.Unreadable.Select(u => u.Message).Distinct())
-                noOpNotes.Add($"no-op scan: {msg} Targets naming a record it defines could not be resolved.");
             foreach (var fk in targets)
             {
                 var r = ReplaySkyPatcher(view, session, scan, catalog, fieldMap, scratch, formResolver, fk, linesCache);
@@ -1069,7 +1070,11 @@ public sealed class LoadOrderService : IDisposable
             });
             if (broadLines > 0) noOpNotes.Add($"no-op scan: {broadLines} broad (type-wide) line(s) were evaluated only against the explicitly-targeted records, not every record of their type.");
             if (unresolvedTargets > 0) noOpNotes.Add($"no-op scan: {unresolvedTargets} explicit target(s) did not resolve (the overlay's per-record warnings name them; read one with {ToolNames.Records} formids=[\"<FormID>\"] source={{\"overlay\": \"skypatcher\", \"state\": \"post\"}}).");
-            if (failedReplays > 0) noOpNotes.Add($"no-op scan: {failedReplays} targeted record(s) could not be replayed (not in the order / unpatchable type / copy failure).");
+            if (failedReplays > 0) noOpNotes.Add($"no-op scan: {failedReplays} targeted record(s) could not be replayed (not in the order / unpatchable type / copy failure / an EditorID lookup that could not be completed).");
+            // Emitted AFTER the replays: a plugin can first turn out unreadable in a sweep the replay itself runs
+            // (a value operand naming a donor by EditorID), not only in the target-collection sweep above.
+            foreach (var msg in formResolver.Unreadable.Select(u => u.Message).Distinct())
+                noOpNotes.Add($"no-op scan: {msg} Lines naming a record it defines could not be resolved.");
         }
 
         return new SkyPatcherLayerData(scan, conflicts, itms, duplicates, noOps, noOpNotes,
@@ -1088,11 +1093,21 @@ public sealed class LoadOrderService : IDisposable
         readonly LoadOrderResolver.OverlaySession _session;
         readonly Dictionary<string, Dictionary<string, FormKey>> _eidsByType = new(StringComparer.OrdinalIgnoreCase);
         readonly List<PluginUnreadableException> _unreadable = new();
+        readonly HashSet<string> _incompleteTypes = new(StringComparer.OrdinalIgnoreCase);   // types whose sweep missed a plugin
+        bool _consumedIncomplete;
 
         /// <summary>Plugins an EditorID sweep could not open. Their EditorIDs are absent from the table, so a miss
         /// here is not proof the name does not exist — the callers state the gap rather than let a lookup answer
         /// "no such record" on a plugin they never read.</summary>
         public IReadOnlyList<PluginUnreadableException> Unreadable => _unreadable;
+
+        /// <summary>Whether a lookup since the last <see cref="WatchLookups"/> was answered from a table a plugin is
+        /// missing from. The table is memoized across records, so the count of unreadable plugins does not grow on
+        /// the second record that consults it — this flag is what tells a caller its OWN answer is affected.</summary>
+        public bool ConsumedIncompleteTable => _consumedIncomplete;
+
+        /// <summary>Start watching lookups for a single record's replay.</summary>
+        public void WatchLookups() => _consumedIncomplete = false;
 
         public SkyPatcherServiceResolver(LoadOrderService svc, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session)
         { _svc = svc; _view = view; _session = session; }
@@ -1105,11 +1120,16 @@ public sealed class LoadOrderService : IDisposable
                 eids = new Dictionary<string, FormKey>(StringComparer.OrdinalIgnoreCase);
                 var types = _svc.ResolveFormScope(mutagenType);
                 if (types is not null)
+                {
+                    int before = _unreadable.Count;
                     foreach (var (candidate, _, cBody) in _view.WinnerRecordsOfType(types, _unreadable))
                         if (cBody.EditorID is { Length: > 0 } eid && !eids.ContainsKey(eid))   // first winner keeps the slot
                             eids[eid] = candidate;
+                    if (_unreadable.Count > before) _incompleteTypes.Add(mutagenType);
+                }
                 _eidsByType[mutagenType] = eids;
             }
+            if (_incompleteTypes.Contains(mutagenType)) _consumedIncomplete = true;
             return eids.TryGetValue(editorId, out var fk) ? fk : null;
         }
 
