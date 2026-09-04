@@ -29,10 +29,9 @@ public sealed record BsaResult(bool Success, string Raw, string? RunError)
 /// needed to list or extract. WRITES (repack) still drive <b>BSArch</b> (zilav/ElminsterAU/Sheson; ships with xEdit),
 /// because Mutagen 0.53.1 exposes a reader but no BSA writer.
 ///
-/// This replaces the earlier design that shelled BSArch for reads too: BSArch's unpacker is stricter than its own
-/// lister and the game engine, so an archive written by a non-BSArch tool could list + load in-game yet unpack to
-/// nothing (#217). Mutagen's reader matches BSArch byte-for-byte on conformant archives (verified in bsa-probe) and
-/// reads the archives BSArch's unpacker rejects, so the whole read path is both simpler and more robust.
+/// Reads deliberately do NOT shell BSArch: its unpacker is stricter than its own lister and than the game engine, so
+/// an archive written by a non-BSArch tool can list and load in-game yet unpack to nothing. Mutagen's reader matches
+/// BSArch byte-for-byte on conformant archives and reads the archives BSArch's unpacker rejects.
 ///   • list  : Archive.CreateReader(SkyrimSE, path).Files → the contained paths + count.
 ///   • unpack: same, writing each IArchiveFile's bytes to the dest (path-traversal-guarded, content-aware/idempotent).
 ///   • pack  : `BSArch pack &lt;folder&gt; &lt;archive&gt; -sse [-z] -mt` (-sse = Skyrim SE; -z compresses but BREAKS
@@ -51,7 +50,7 @@ public static class BsaArchive
     const long MaxEntryBytes = 2L * 1024 * 1024 * 1024;
 
     /// <summary>List an archive's contents via Mutagen, cross-checked against the header's OWN declared file count so a
-    /// reader mis-parse can't render a quietly-short list (Q3). On an unreadable/corrupt/non-archive file the failure is
+    /// reader mis-parse can't render a quietly-short list. On an unreadable/corrupt/non-archive file the failure is
     /// surfaced in <see cref="BsaListResult.RunError"/> (Ran=false); a count mismatch surfaces as Ran-but-not-Success
     /// with the discrepancy in <see cref="BsaListResult.Raw"/> — never a silent empty list.</summary>
     public static BsaListResult List(string archive)
@@ -78,7 +77,7 @@ public static class BsaArchive
 
     /// <summary>Unpack the WHOLE archive into <paramref name="destFolder"/> (created if absent) via Mutagen. Each file's
     /// DECOMPRESSED bytes are written to dest/{file path}. Writes are:
-    ///   • path-traversal-guarded — an entry resolving outside the dest refuses loud (Q3), never writes out-of-tree;
+    ///   • path-traversal-guarded — an entry resolving outside the dest refuses loud, never writes out-of-tree;
     ///   • content-aware/idempotent — a file already present byte-identical is skipped, so re-extracting into a
     ///     populated dest reports "already present" rather than a spurious rewrite (this is why the managed flow's
     ///     pre-seeded meta.ini marker is left untouched).
@@ -97,7 +96,7 @@ public static class BsaArchive
         {
             foreach (var f in reader.Files)
             {
-                if (f.Size > MaxEntryBytes)   // corrupt/hostile header — refuse loud rather than OOM the server (Q3)
+                if (f.Size > MaxEntryBytes)   // corrupt/hostile header — refuse loud rather than OOM the server
                     return new BsaResult(false,
                         $"archive entry '{f.Path}' declares {f.Size:N0} bytes, over the {MaxEntryBytes:N0}-byte safety ceiling — refusing to read it in-process (the archive header may be corrupt).", null);
                 string outPath = Path.GetFullPath(Path.Combine(destFull, f.Path));
@@ -120,8 +119,8 @@ public static class BsaArchive
 
         int total = written + already;
         // Cross-check against the header's own count. If the reader enumerated FEWER files than the archive declares
-        // (a mis-parse down to zero being the worst case), the old BSArch provenance would have caught it — fail loud
-        // here rather than report a partial/empty extract as success (Q3, #217's silent-wrong-output class).
+        // (a mis-parse down to zero being the worst case), fail loud rather than report a partial or empty extract
+        // as success.
         if (hdr is { fileCount: var declared } && declared != (uint)total)
             return new BsaResult(false,
                 $"extracted {total} file(s) from '{Path.GetFileName(archive)}' but its header declares {declared} — the archive may be corrupt or unsupported; refusing to report it as success.", null);
@@ -186,7 +185,7 @@ public static class BsaArchive
     }
 
     /// <summary>Pack <paramref name="srcFolder"/> into a .bsa at <paramref name="archive"/> with the given format flag
-    /// (e.g. "-sse") and optional compression, via BSArch (Mutagen has no BSA writer). NON-DESTRUCTIVE (Aaron 2026-06-06):
+    /// (e.g. "-sse") and optional compression, via BSArch (Mutagen has no BSA writer). NON-DESTRUCTIVE:
     /// an existing archive at the target is NEVER overwritten unless this run successfully packs a new one — BSArch writes
     /// to a houseCARL-internal temp beside the target, and only a clean pack THIS RUN (temp exists, non-empty, AND written
     /// at/after the run's mtime baseline) is moved over the target; a stale scratch from a previous run that cannot be
@@ -204,8 +203,8 @@ public static class BsaArchive
         if (File.Exists(tmp))
             // A stale scratch from a previous run that we cannot remove: packing over it would let
             // "tmp exists and is non-empty" pass on the PREVIOUS run's bytes when BSArch fails this
-            // run — a false success that ships wrong content over the target (2026-06-12 adversarial
-            // hunt). Refuse loud instead; nothing is packed, the prior archive is untouched.
+            // run — a false success that ships wrong content over the target. Refuse loud instead;
+            // nothing is packed, the prior archive is untouched.
             return new BsaResult(false, "",
                 $"a stale houseCARL scratch from a previous run is stuck at '{tmp}' and could not be removed " +
                 "(another process may hold it). Delete it and retry — this run packed nothing; the existing archive, if any, is untouched.");
@@ -239,7 +238,7 @@ public static class BsaArchive
 
     /// <summary>Map a houseCARL format token to a BSArch flag. Null/empty/sse-family = the -sse default (Skyrim SE,
     /// the target). An UNKNOWN token returns null — the caller refuses loud naming <see cref="FormatTokens"/> —
-    /// instead of silently packing -sse from a typo (Q3: a silently degraded mode; 2026-06-12 adversarial hunt).</summary>
+    /// instead of silently packing -sse from a typo.</summary>
     public static string? TryFormatFlag(string? format) => (format?.Trim().ToLowerInvariant()) switch
     {
         null or "" or "sse" or "ae" or "skyrimse" => "-sse",
@@ -280,7 +279,7 @@ public static class BsaArchive
         // The PROCESS exited, but a grandchild that inherited the stdout/stderr pipe could keep it open and hang the
         // stream reads forever (WaitForExit(int) does NOT flush async readers, unlike the parameterless overload).
         // Bound the post-exit drain: on a stuck pipe kill the tree to force the inherited handles closed and report
-        // what was captured rather than blocking indefinitely (Q3 — a bounded, named degradation, never a hang).
+        // what was captured rather than blocking indefinitely — a bounded, named degradation, never a hang.
         bool drained; try { drained = Task.WaitAll(new Task[] { o, e }, StreamDrainMs); } catch { drained = false; }
         if (!drained) { try { p.Kill(entireProcessTree: true); } catch { /* already gone */ } }
         var stdout = o.IsCompletedSuccessfully ? o.Result : "";

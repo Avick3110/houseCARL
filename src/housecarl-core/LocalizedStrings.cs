@@ -7,10 +7,9 @@ namespace HousecarlCore;
 /// <summary>What a plugin's own header said when houseCARL asked whether it is flagged LOCALIZED — three answers, not
 /// two, because "could not read it" is not "not localized" and a decision that treats them the same fails OPEN.
 ///
-/// <para>The two-answer form of this is why this enum exists: the read returned a bool, a fault answered
-/// <c>false</c>, and a destination held by another process for the instant of the check — an AV scan, MO2 refreshing,
-/// xEdit, the game — classified as not-localized and let a write through. Measured on a fixture that then read every
-/// value back empty.</para></summary>
+/// <para>A bool cannot carry this: a fault would answer false, so a destination held by another process for the
+/// instant of the check — an AV scan, MO2 refreshing, xEdit, the game — would classify as not-localized and let a
+/// write through that reads every value back empty.</para></summary>
 public enum LocalizedFlagRead
 {
     /// <summary>Read the header; the LOCALIZED flag is clear.</summary>
@@ -60,20 +59,19 @@ public enum LocalizedShape
     /// <summary>Flagged localized, with a <c>Strings\</c> folder beside it that houseCARL could not LIST — an ACL that
     /// denies enumeration, a path the filesystem refuses, a folder held by something else.
     ///
-    /// <para>Its own shape because the folder needs the third answer the plugin already has: "enumerated it and found
-    /// nothing" and "could not enumerate it" are different facts, and collapsing them classified a folder holding a
-    /// complete loose set as <see cref="Nowhere"/> — whose sentence then told the modder there were no .STRINGS files
-    /// beside a plugin whose folder is full. The same unchecked-absence falsehood that arm was rewritten twice to
-    /// remove, arriving through the exception path instead of the matching path.</para></summary>
+    /// <para>Its own shape because the folder needs the third answer the plugin header already has: "enumerated it and
+    /// found nothing" and "could not enumerate it" are different facts. Collapsing them classifies a folder holding a
+    /// complete loose set as <see cref="Nowhere"/>, whose sentence then tells the modder there are no .STRINGS files
+    /// beside a plugin whose folder is full — an absence claim nothing checked.</para></summary>
     StringsFolderUnreadable,
 
-    /// <summary>Flagged localized, and houseCARL can find no strings source for it — the residual case (#371).
+    /// <summary>Flagged localized, and houseCARL can find no strings source for it — the residual case.
     ///
     /// <para>This says what houseCARL could FIND, not what exists: MO2's VFS merges mod folders at runtime, so a
     /// plugin in one mod folder can resolve its strings from a <c>.bsa</c> in ANOTHER, which no path houseCARL walks
-    /// can see. That is not hypothetical — on the measured order all 31 plugins in this shape are Creation Club
-    /// content whose plugin sits in a "Cleaned Masters" folder while its archive sits in the content's own folder.
-    /// Anything user-facing must therefore say houseCARL cannot find the strings, never that the plugin has none.</para></summary>
+    /// can see. Creation Club content routinely lands here, its plugin in a "Cleaned Masters" folder and its archive
+    /// in the content's own. Anything user-facing must say houseCARL cannot find the strings, never that the plugin
+    /// has none.</para></summary>
     Nowhere,
 }
 
@@ -81,11 +79,9 @@ public enum LocalizedShape
 /// NAMES a refusal may quote — capped, because one folder can hold a translation mod's whole set — and the TRUE
 /// count those names were taken from.
 ///
-/// <para><b>One type carrying both, so a sentence cannot render the cap as the count.</b> The refusal used to say
-/// "the Strings folder beside it holds {list.Count} .STRINGS file(s) — a, b, c, d, e, f, g, h" off a list that ended
-/// <c>.Take(8)</c>, so a folder holding thirty was described as holding eight and the list stopped without saying so.
-/// That is an assertion about the modder's disk the code never checked — the same class as the two absence claims
-/// this sentence was already rewritten twice to remove, arriving through the cap instead of the matching.</para></summary>
+/// <para><b>One type carrying both, so a sentence cannot render the cap as the count.</b> Counting a capped list
+/// describes a folder holding thirty files as holding eight — an assertion about the modder's disk nothing
+/// checked.</para></summary>
 /// <param name="Names">The names the sentence may quote — at most <see cref="Cap"/> of them, ordered.</param>
 /// <param name="Total">How many unmatched table files are actually there. Never less than <c>Names.Count</c>.</param>
 public sealed record UnmatchedTableFiles(IReadOnlyList<string> Names, int Total)
@@ -110,15 +106,14 @@ public sealed record UnmatchedTableFiles(IReadOnlyList<string> Names, int Total)
 /// game-Data class — the vanilla masters and every plugin whose tables live in a game archive.</param>
 /// <param name="BsaUnreadable">The archive named by <paramref name="BsaPath"/> could not be parsed, so whether it
 /// embeds this plugin's strings is unknown. Classified as embedded — a shape we cannot see into is refused, never
-/// assumed harmless (Q3).</param>
+/// assumed harmless.</param>
 /// <param name="GameDataUnknown">No game-Data folder was supplied, so whether a competing set lives there could not be
 /// checked. This is NOT the same as having checked and found none, and the refusal sentences say which.</param>
 /// <param name="UnmatchedTables">File names in the <c>Strings\</c> folder beside the plugin that carry a table
 /// extension and that houseCARL did NOT match to this plugin in a language it models — a neighbouring plugin's tables
 /// out of the shared folder, or this plugin's own tables named for a language token Mutagen does not model
 /// (<c>ZRef_ptbr.STRINGS</c>). Carried so the <see cref="LocalizedShape.Nowhere"/> sentence can describe the folder
-/// the modder is looking at instead of claiming nothing is in it — the falsehood that survived one directed fix by
-/// being re-stated a second way. Names and true count travel together; see
+/// the modder is looking at instead of claiming nothing is in it. Names and true count travel together; see
 /// <see cref="UnmatchedTableFiles"/>.</param>
 public sealed record LocalizedAssessment(
     LocalizedShape Shape,
@@ -145,11 +140,10 @@ public sealed record LocalizedAssessment(
 /// destination through, so it decides only which sentence the refusal carries. At the SERVICE pre-flights, which
 /// hold no such mod, an unreadable file refuses too — see <see cref="RefusalFor"/>.</para>
 ///
-/// <para>The shapes were measured, not assumed (localized-write-probe, 2026-08-26): Mutagen loads and re-emits EVERY
-/// language present beside a plugin, so a complete loose set of any size round-trips through a serialize; a language
-/// present only partially has its missing kinds materialised holding empty values; and detection was priced in the
-/// same run — the language enumeration at ~0.1 ms, and asking a real 101 MB archive whether it embeds strings keyed
-/// to a given plugin at under 1 ms.</para>
+/// <para>Mutagen loads and re-emits EVERY language present beside a plugin, so a complete loose set of any size
+/// round-trips through a serialize, while a language present only partially has its missing kinds materialised
+/// holding empty values. Detection is cheap: the language enumeration ~0.1 ms, and asking a 101 MB archive whether
+/// it embeds strings for a given plugin under 1 ms.</para>
 /// </summary>
 public static class LocalizedStrings
 {
@@ -178,10 +172,9 @@ public static class LocalizedStrings
         var ownFolder = ReadStringsFolder(Path.Combine(folder, "Strings"), stem);
         var own = ownFolder.Languages;
         var unmatched = ownFolder.Unmatched;
-        // The game-Data side stays two-answer on purpose, and it is safe to: nothing rendered off it asserts an
-        // absence. The Nowhere sentence says houseCARL "cannot find" the text, AlsoLoose names a game-Data set only
-        // when one was found, and GameDataUnknown already carries the one absence claim there is (no Data folder to
-        // search). The claim that WAS false — "no .STRINGS files beside it" — is about the folder below.
+        // The game-Data side stays two-answer on purpose, and safely: nothing rendered off it asserts an absence. The
+        // Nowhere sentence says houseCARL "cannot find" the text, AlsoLoose names a game-Data set only when one was
+        // found, and GameDataUnknown carries the one absence claim there is (no Data folder to search).
         var gameData = dataDir is null
             ? new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
             : ReadStringsFolder(Path.Combine(dataDir, "Strings"), stem).Languages;
@@ -218,9 +211,8 @@ public static class LocalizedStrings
 
         // Nothing loose anywhere and no archive beside the plugin — but the vanilla masters' strings live in the
         // game-Data ARCHIVES (Skyrim - Interface.bsa carries the base and DLC tables both), so a classifier that
-        // stopped here would call every DLC master "no strings anywhere". That is a silently wrong classification
-        // rather than a conservative one, and on a real order it was 35 plugins including all four DLC masters.
-        // Searched LAST and only when nothing nearer was found, so an ordinary plugin never pays for it.
+        // stopped here would silently call every DLC master "no strings anywhere". Searched LAST and only when
+        // nothing nearer was found, so an ordinary plugin never pays for it.
         if (dataDir is not null)
         {
             var (gdBsa, gdUnreadable) = BsaEmbedding(dataDir, stem);
@@ -329,16 +321,14 @@ public static class LocalizedStrings
     /// <summary>One look inside a <c>Strings\</c> folder, answering everything this classifier asks of it: which
     /// languages matched the plugin, which table files did NOT, and whether the folder could be read at all.
     ///
-    /// <para>ONE enumeration on purpose. The matched pass and the unmatched pass used to walk the same folder
-    /// separately, so they could disagree with each other — one succeeding while the other threw would produce an
-    /// assessment claiming a folder held nothing unmatched while the languages said otherwise. Every claim made about
-    /// this folder now comes from the same listing.</para>
+    /// <para>ONE enumeration on purpose: separate matched and unmatched passes over the same folder can disagree —
+    /// one succeeding while the other throws yields an assessment claiming nothing is unmatched while the languages
+    /// say otherwise. Every claim made about this folder comes from the same listing.</para>
     ///
     /// <para>The unmatched files are reported by NAME and deliberately NOT attributed. Two plugins share a
     /// <c>Strings\</c> folder, and telling a neighbour's <c>ksws07_quest_shrubs_English.STRINGS</c> apart from this
-    /// plugin's own <c>ZRef_ptbr.STRINGS</c> means guessing where the stem ends — the exact guess whose first spelling
-    /// made one plugin's assessment read another's files. What is checkable without guessing is that the files are
-    /// there and that none of them matched, and that is all the sentence claims.</para></summary>
+    /// plugin's own <c>ZRef_ptbr.STRINGS</c> means guessing where the stem ends. What is checkable without guessing
+    /// is that the files are there and that none of them matched, and that is all the sentence claims.</para></summary>
     readonly record struct StringsFolder(
         StringsFolderRead Read,
         Dictionary<string, List<string>> Languages,
@@ -386,7 +376,7 @@ public static class LocalizedStrings
     /// two plugins in one mod folder share a <c>Strings\</c> folder, so for a plugin named <c>ksws07_quest</c> a bare
     /// prefix match also swallows <c>ksws07_quest_shrubs_English.STRINGS</c>, which belongs to
     /// <c>ksws07_quest_shrubs.esp</c>. A write acting on that assessment would back up and delete the OTHER plugin's
-    /// tables. Measured on a real load order, where exactly that pair sits in one folder.</summary>
+    /// tables.</summary>
     static readonly HashSet<string> LanguageNames =
         new(Enum.GetNames(typeof(Language)), StringComparer.OrdinalIgnoreCase);
 
@@ -410,10 +400,10 @@ public static class LocalizedStrings
     /// No archive is opened unless one is present, which is the common case at ~0.06 ms.</summary>
     static (string? Path, bool Unreadable) BsaEmbedding(string folder, string stem)
     {
-        // A POSITIVE hit wins over an unreadable one, and the pass order is why: returning on the first unreadable
-        // archive made a single unparseable .bsa anywhere in game-Data answer for every plugin that searched there —
-        // naming an archive that neither sits beside the plugin nor carries its tables. An archive we cannot see into
-        // still refuses (Q3), but only once no archive has actually claimed the stem.
+        // A POSITIVE hit wins over an unreadable one: returning on the first unreadable archive would let a single
+        // unparseable .bsa anywhere in game-Data answer for every plugin that searched there, naming an archive that
+        // neither sits beside the plugin nor carries its tables. An archive we cannot see into still refuses, but only
+        // once no archive has actually claimed the stem.
         string? unreadable = null;
         foreach (var e in ArchiveStrings(folder))
         {
@@ -425,20 +415,17 @@ public static class LocalizedStrings
 
     /// <summary>Per archive in a folder: which plugin stems it embeds strings for. Cached by folder, because game-Data
     /// holds dozens of archives and a whole-order sweep would otherwise re-enumerate every one of them once per
-    /// plugin — measured at ~0.7 ms for a real 101 MB archive, which a 3800-plugin sweep would pay per plugin.
+    /// plugin — ~0.7 ms for a 101 MB archive, which a 3800-plugin sweep would otherwise pay per plugin.
     ///
-    /// <para>Keyed on each archive's OWN name, length and write time, not on the folder's write time. The folder's
-    /// stamp was the first spelling and it is measurably insufficient: on NTFS, rewriting a file's contents in place
-    /// leaves the parent directory's <c>LastWriteTimeUtc</c> byte-identical (measured 2026-08-26, identical to
-    /// 100 ns), so <c>housecarl_bsa_repack</c> rewriting a <c>.bsa</c> inside one server process kept serving the
-    /// pre-rewrite stem list. Add, delete and rename change the folder stamp; overwrite does not, and overwrite is the
-    /// one this server does to itself.</para>
+    /// <para>Keyed on each archive's OWN name, length and write time, not on the folder's write time: on NTFS,
+    /// rewriting a file's contents in place leaves the parent directory's <c>LastWriteTimeUtc</c> byte-identical, so a
+    /// folder stamp would keep serving the pre-rewrite stem list after <c>housecarl_bsa_repack</c> rewrites a
+    /// <c>.bsa</c> inside one server process. Add, delete and rename move the folder stamp; overwrite does not, and
+    /// overwrite is the one this server does to itself.</para>
     ///
-    /// <para><b>Unarmed, deliberately, and this note is the whole ground</b> (same shape as the
-    /// <see cref="BsaEmbedding"/> ordering fix): observing a stale-vs-fresh stem list needs an archive that PARSES,
-    /// and Mutagen exposes no in-process archive builder — packing shells out to <c>bsarch</c>, which no guard may
-    /// depend on. A malformed fixture archive reads "unreadable" before and after any rewrite, so it cannot tell the
-    /// two answers apart. The key is stated to be what it is; nothing here claims it was measured.</para></summary>
+    /// <para>No test covers the stale-vs-fresh case: observing it needs an archive that PARSES, and Mutagen exposes no
+    /// in-process archive builder (packing shells out to <c>bsarch</c>, which a test may not depend on). A malformed
+    /// fixture archive reads "unreadable" before and after any rewrite, so it cannot tell the two apart.</para></summary>
     static readonly Dictionary<string, (string Stamp, List<ArchiveEntry> Entries)> ArchiveCache =
         new(StringComparer.OrdinalIgnoreCase);
 

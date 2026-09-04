@@ -1,45 +1,32 @@
 namespace HousecarlCore;
 
-// ======================================================================
-//  ArchiveDiscovery — build the ACTIVE-ARCHIVE list (the BSAs the game loads, each bound to its
-//  owning plugin and that plugin's load-order rank) for AssetResolver, from the SAME static MO2
-//  profile read Mo2LoadOrder already does (facegen-diagnostics Phase 2; Aaron 2026-06-15: FULL
-//  discovery — both archive sources — not the co-name convention alone).
+// ArchiveDiscovery — builds the active-archive list (the BSAs the game loads, each bound to its owning
+// plugin and that plugin's load-order rank) for AssetResolver, from the same static MO2 profile read
+// Mo2LoadOrder does. No game state, no VFS hooking, no live tracking.
 //
-//  WHICH BSAs LOAD (Skyrim SE has two sources; a COMPLETE answer needs both, or an asset present
-//  only in an un-scanned archive reads as falsely "absent" — a Q3 silent-wrong-answer):
-//    1. BASE archives — the always-loaded set listed in Skyrim.ini's [Archive] sResourceArchiveList
-//       + sResourceArchiveList2 (vanilla "Skyrim - Textures*.bsa" etc., where base-game NPC facegen
-//       lives). These load FIRST → the LOWEST ranks.
-//    2. PLUGIN-associated archives — for each active plugin X.<esp/esm/esl> the engine auto-loads
-//       "X.bsa" and (SE) "X - Textures.bsa" when present. These load in plugin load order, so a
-//       later plugin's archive outranks an earlier one's AND every base archive.
+// Skyrim SE loads BSAs from two sources, and both must be scanned or an asset present only in an
+// un-scanned archive reads as falsely absent:
+//   1. Base archives — the always-loaded set in Skyrim.ini's [Archive] sResourceArchiveList and
+//      sResourceArchiveList2 (vanilla "Skyrim - Textures*.bsa" etc., where base-game facegen lives).
+//      They load first, so they take the lowest ranks.
+//   2. Plugin-associated archives — for each active plugin X.<esp/esm/esl> the engine auto-loads "X.bsa"
+//      and "X - Textures.bsa" when present, in plugin load order, so they outrank every base archive.
 //
-//  WINNING PHYSICAL PATH (MO2 VFS): a .bsa is itself subject to MO2's overwrite > enabled-mods
-//  (highest priority first) > Data precedence, identical to how Mo2LoadOrder resolves a plugin
-//  filename (a higher-priority mod can ship its own "X - Textures.bsa"). So we resolve each archive
-//  FILENAME through that same VFS map, never by "look beside the .esp" — which would miss an
-//  archive overridden by a higher-priority mod. (AssetResolver.DedupeArchives then collapses a path
-//  bound by more than one plugin to its max-rank binding, so emitting a duplicate is harmless.)
+// A .bsa is itself subject to MO2's overwrite > enabled mods (highest priority first) > Data precedence,
+// so each archive FILENAME resolves through that same map — never "look beside the .esp", which would miss
+// an archive overridden by a higher-priority mod. AssetResolver.DedupeArchives collapses a path bound by
+// more than one plugin to its max-rank binding, so emitting a duplicate is harmless.
 //
-//  RANK = "higher wins among BSAs" (AssetResolver.ActiveArchive contract). Base archives take the
-//  low block (INI order: later entry = later loaded = higher); plugin archives take ranks above all
-//  base archives, in load order (winner last). A plugin's "X.bsa" and "X - Textures.bsa" share the
-//  plugin's rank (they load together; AssetResolver tie-breaks equal ranks by filename).
-//
-//  Q3: a Skyrim.ini we cannot find (so the base-archive list is unknown) is SURFACED as a warning,
-//  never silently dropped — the caller acting on "no facegen → the NPC is fine" must know base-game
-//  archives weren't scanned. A base archive named in the INI but absent on disk simply isn't loaded
-//  (the INI can list a superset across game variants — not a problem worth a warning).
-//
-//  No game state, no VFS, no live tracking — pure static reads of the profile + mods/overwrite/Data
-//  folders + Skyrim.ini, the same crash-free model as Mo2LoadOrder. See memory
-//  project_facegen_diagnostics_resolver.
-// ======================================================================
+// Rank means "higher wins among BSAs" (AssetResolver.ActiveArchive's contract). Base archives take the low
+// block in INI order (later entry = later loaded = higher); plugin archives rank above all of them, in load
+// order. A plugin's "X.bsa" and "X - Textures.bsa" share its rank, and AssetResolver tie-breaks equal ranks
+// by filename. A Skyrim.ini that cannot be found is surfaced as a warning, never dropped silently; a base
+// archive named in the INI but absent on disk simply isn't loaded (the INI lists a superset across game
+// variants), which is not worth a warning.
 
 /// <summary>The active archives for a profile (feed <see cref="ArchiveDiscoveryResult.Archives"/> straight to
-/// <see cref="AssetResolver.Build"/>'s activeArchives) plus any non-fatal problems (Q3 — e.g. a Skyrim.ini that
-/// couldn't be found, so base-game BSAs aren't in the scan).</summary>
+/// <see cref="AssetResolver.Build"/>'s activeArchives) plus any non-fatal problems — e.g. a Skyrim.ini that
+/// couldn't be found, so base-game BSAs aren't in the scan.</summary>
 public sealed record ArchiveDiscoveryResult(IReadOnlyList<ActiveArchive> Archives, IReadOnlyList<string> Warnings);
 
 public static class ArchiveDiscovery
@@ -133,8 +120,8 @@ public static class ArchiveDiscovery
     /// <summary>The always-loaded base archive filenames from Skyrim.ini's [Archive] sResourceArchiveList +
     /// sResourceArchiveList2, in file order. MO2 redirects the game INIs into the active PROFILE folder (the common
     /// Wabbajack/portable setup), so the profile's Skyrim.ini is tried first, then the game-dir copy. The user's
-    /// Documents\My Games copy is NOT reachable from the MO2 instance, so if neither is found we surface it LOUD
-    /// (Q3) — base-game-only assets then can't be seen, which a caller acting on "absent → fine" must know.</summary>
+    /// Documents\My Games copy is NOT reachable from the MO2 instance, so if neither is found we surface it loud —
+    /// base-game-only assets then can't be seen, which a caller acting on "absent → fine" must know.</summary>
     static IReadOnlyList<string> ReadBaseArchiveNames(string profileDir, string gamePath, List<string> warnings)
     {
         var candidates = new List<string>(2);

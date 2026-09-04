@@ -3,13 +3,11 @@ using Mutagen.Bethesda.Plugins;
 namespace HousecarlCore;
 
 // ======================================================================
-//  FaceGenPath — the FaceGen asset path is a PURE TRANSFORM of an NPC's FormKey
-//  (facegen-diagnostics; Aaron-locked keystone 2026-06-14). NO load order, NO runtime
-//  FormID, NO file read: just the FormKey → the two Data-relative paths the game looks
-//  the NPC's generated head geometry + tint up under.
+//  FaceGenPath — the FaceGen asset path is a PURE TRANSFORM of an NPC's FormKey. NO load
+//  order, NO runtime FormID, NO file read: just the FormKey → the two Data-relative paths
+//  the game looks the NPC's generated head geometry + tint up under.
 //
-//  THE RULE (the keystone the whole dark-face feature rests on — get it wrong and you
-//  resolve/place a DIFFERENT NPC's asset, a Q3 silent-wrong answer):
+//  THE RULE (get it wrong and you resolve or place a DIFFERENT NPC's asset):
 //    • FOLDER  = the DEFINING MASTER — the plugin in the FormKey 'XXXXXX:Plugin.esp'
 //      (fk.ModKey.FileName), NOT the conflict winner. The CK writes an NPC's facegen under
 //      the folder named for the plugin that DEFINES the record, so the path is stable across
@@ -17,18 +15,17 @@ namespace HousecarlCore;
 //    • FILE    = the load-order index byte MASKED to "00", then the 6-hex local FormID:
 //      "00" + fk.ID("X6"). The index byte is masked because the file lives in the defining
 //      plugin's OWN named folder — the index is redundant there, so the on-disk convention
-//      normalizes it to 00 (the same masking xEdit applies to voice/InfoFileName paths; see
-//      memory reference_skyrim_voice_file_naming). fk.ID is Mutagen's 24-bit local id, so
-//      "00" + the 6 hex == the 8-hex filename the CK/loose mods/CC BSAs use.
-//      e.g. 01A51A:Dawnguard.esm → "0001A51A" (matches the committed fixtures/asset-resolver
-//      facegen entry facegeom\Dawnguard.esm\0001A51A.nif).
+//      normalizes it to 00 (the same masking xEdit applies to voice/InfoFileName paths).
+//      fk.ID is Mutagen's 24-bit local id, so "00" + the 6 hex == the 8-hex filename the
+//      CK / loose mods / CC BSAs use. e.g. 01A51A:Dawnguard.esm →
+//      facegeom\Dawnguard.esm\0001A51A.nif.
 //
 //    • MESH (.nif): meshes\actors\character\facegendata\facegeom\<Master>\00<6hex>.nif
 //    • TINT (.dds): textures\actors\character\facegendata\facetint\<Master>\00<6hex>.dds
 //
-//  Built in core (not in the place tool) so the read side (housecarl_asset_status / a future
-//  read-tool consumer) can reuse the EXACT same transform — one home for the keystone, never
-//  two subtly-different copies. Backslash-separated (the AssetResolver match form is
+//  Built in core (not in the place tool) so the read side (housecarl_asset_status and other
+//  consumers) reuses the EXACT same transform, never two subtly-different copies.
+//  Backslash-separated (the AssetResolver match form is
 //  backslash, OrdinalIgnoreCase). Hex is UPPERCASE to match the CK's on-disk convention;
 //  resolution is case-insensitive regardless.
 // ======================================================================

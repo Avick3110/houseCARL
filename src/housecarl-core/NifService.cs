@@ -1,34 +1,20 @@
 using NiflySharp;
 using NiflySharp.Blocks;
-using NiflySharp.Helpers;   // ShaderHelper.ShaderGameType — which game's flag layout a shader block was read as (#272)
+using NiflySharp.Helpers;   // ShaderHelper.ShaderGameType — which game's flag layout a shader block was read as
 
 namespace HousecarlCore;
 
 /// <summary>
-/// The NIF-layer format service (Wave 1: read). Turns the RAW BYTES of a Skyrim mesh into the data model behind
-/// <c>housecarl_nif_inspect</c> — the header/version, the block census, the shapes with their N2-whitelist values
-/// (names, NiAVObject flags + scale, BSDismember partitions, alpha property, texture-set paths, bone lists), the node
-/// tree, and the header string table. PURE format logic: bytes in, model out — it knows nothing of MO2, the VFS, or
-/// which mod won (that seam is <see cref="LoadOrderService"/>, which resolves the winning bytes and hands them here),
-/// so it is fully testable off a synthetic in-memory mesh with no live workspace (nif-service-guard).
+/// The NIF format layer: raw mesh bytes in, the model behind <c>housecarl_nif_inspect</c> out — header/version, block
+/// census, shapes, node tree, header string table. Pure format logic; it knows nothing of MO2, the VFS, or which mod
+/// won — <see cref="LoadOrderService"/> resolves the winning bytes and hands them here.
 ///
-/// Reads ride NiflySharp 1.1.0 (NuGet <c>Nifly</c>) — pure C#, source-generated from nifxml. Re-proven on the 1.0.0 →
-/// 1.1.0 bump rather than carried over (#287): both versions scanned back to back over the same 72,739 loose + 18,862
-/// vanilla workspace nifs and diffed FILE BY FILE — 100.00% parse on both corpora, zero unknown blocks in any SE mesh,
-/// zero regressions. (The superseded 1.0.0 baseline — 87,937 nifs, 99.98% loose — is SPIKE_NIF_LAYER_2026-07-08; those
-/// figures are a property of THAT library build and do not describe this one.) Library quirks coded around per the
-/// spike: the alpha/shader/skin refs are read DIRECTLY
-/// (<see cref="INiShape.AlphaPropertyRef"/> etc.) — NEVER via <c>NifFile.GetPropertyOfType&lt;T&gt;</c>, which NREs on
-/// SE-style shapes whose legacy <c>Properties</c> list is null.
+/// Reads ride NiflySharp 1.1.0 (NuGet <c>Nifly</c>), source-generated from nif.xml. Library quirk: read the
+/// alpha/shader/skin refs DIRECTLY (<see cref="INiShape.AlphaPropertyRef"/> etc.) — NEVER via
+/// <c>NifFile.GetPropertyOfType&lt;T&gt;</c>, which NREs on SE-style shapes whose legacy <c>Properties</c> list is null.
 ///
-/// Fail-loud (Q3, PRFAQ N6): a parse failure is a NAMED, recoverable outcome (<see cref="NifInspectOutcome.Error"/>),
-/// not a throw or a half-model. Unknown blocks are REPORTED (count + their real on-disk type names) and left intact —
-/// the model tells the truth about what it could and could not model.
-///
-/// The strict-boolean rejection class this file used to describe as live behaviour is GONE as of 1.1.0: upstream
-/// stopped throwing on a non-0/1 boolean byte, the 9 workspace meshes that hit it now parse, and the message string
-/// is absent from the 1.1.0 assembly (present in 1.0.0's). <see cref="DescribeLoadException"/>'s arm for it is
-/// therefore believed unreachable and kept only as belt-and-braces — it is NOT an outcome to advertise to a caller.
+/// A parse failure is a named, recoverable outcome (<see cref="NifInspectOutcome.Error"/>), never a throw or a
+/// half-built model. Unknown blocks are reported by count and real on-disk type name, and left intact.
 /// </summary>
 public static class NifService
 {
@@ -36,12 +22,11 @@ public static class NifService
     const uint SkyrimSeUserVersion = 12;
     const uint SkyrimSeStreamVersion = 100;
 
-    // NiAVObject flag DEFAULTS per concrete type, SSE-effective — transcribed BY CONSTRUCTION from nif.xml's
-    // NiAVObject.Flags <default onlyT=...> table (the SAME nif.xml NiflySharp is generated from): the SSE-specific value
-    // where one exists, else the unversioned value; FO3/FO4-only variants excluded. nif.xml does NOT name the individual
-    // bits (Flags is a plain uint there, and community docs note most are unused), so houseCARL decodes flags by
-    // DEVIATION from these authoritative defaults rather than inventing bit-names — and always states the one bit nif.xml
-    // DOES document: 0x80000 ("Skyrim lacks it sometimes; FO4 lacks it always"), the head-vs-hair-class signal.
+    // NiAVObject flag defaults per concrete type, transcribed from nif.xml's NiAVObject.Flags <default onlyT=...> table
+    // (the same nif.xml NiflySharp is generated from): the SSE-specific value where one exists, else the unversioned
+    // value; FO3/FO4-only variants excluded. nif.xml does not name the individual bits, so flags are decoded by
+    // deviation from these defaults rather than by invented bit-names. The one bit nif.xml does document is 0x80000,
+    // the head-vs-hair-class signal.
     internal static readonly IReadOnlyDictionary<string, uint> AvFlagsSseDefaults = new Dictionary<string, uint>(StringComparer.Ordinal)
     {
         ["NiNode"] = 0xE, ["NiLight"] = 0xE, ["BSMultiBoundNode"] = 0xE,
@@ -64,7 +49,7 @@ public static class NifService
         return (null, null);
     }
 
-    /// <summary>Inspect a mesh from its raw bytes. Returns the model on success, or a named error (Q3) — a parse the
+    /// <summary>Inspect a mesh from its raw bytes. Returns the model on success, or a named error — a parse the
     /// library rejects, an empty buffer, or a structure read that failed after a clean load. Never throws for an
     /// expected bad-file condition; never returns a partial model.</summary>
     public static NifInspectOutcome Inspect(byte[] bytes)
@@ -93,21 +78,16 @@ public static class NifService
         }
         catch (Exception ex)
         {
-            // The file loaded but reading its structure threw — a real defect surface, not an expected bad file. Fail
-            // loud with the type + message; never hand back a half-built model (Q3).
+            // The file loaded but reading its structure threw — a real defect, not an expected bad file. Fail loud
+            // with the type and message; never hand back a half-built model.
             return new NifInspectOutcome(null, $"the mesh parsed but reading its structure failed — {ex.GetType().Name}: {ex.Message}");
         }
     }
 
-    /// <summary>Turn a load exception into a named, actionable error. The strict-boolean arm below is BELIEVED DEAD as
-    /// of NiflySharp 1.1.0 (#287 / PR #290) — upstream stopped throwing on it, the workspace meshes that hit it now
-    /// parse, and the message string is gone from the assembly. It is kept because a wrong-but-specific message costs
-    /// nothing if it never fires and a missing one costs a diagnosis if the class ever returns; it is deliberately no
-    /// longer advertised in the tool description as an outcome to expect. Original note follows.
-    /// NiflySharp's one strict-boolean rejection class
-    /// (the spike's 13 loud failures — "Byte value for boolean is > 2!", a nonstandard byte some exporters write) is
-    /// called out by name with the NifSkope remedy, so the tool never reads as a silent "absent" and houseCARL never
-    /// hand-patches around the strict read.</summary>
+    /// <summary>Turn a load exception into a named, actionable error, never a silent "absent". The strict-boolean arm
+    /// is believed unreachable on NiflySharp 1.1.0 — upstream no longer throws on a non-0/1 boolean byte and the
+    /// message string is gone from the assembly — but is kept so the diagnosis survives if that rejection class
+    /// returns. It is not an outcome to advertise to a caller.</summary>
     static string DescribeLoadException(Exception ex)
     {
         var m = ex.Message ?? "";
@@ -139,8 +119,8 @@ public static class NifService
             .OrderByDescending(c => c.Count).ThenBy(c => c.Type, StringComparer.Ordinal)
             .ToList();
 
-        // Unknown blocks reported by their real on-disk type (preserved-but-opaque — PRFAQ N6). GetType() on a
-        // NiUnknown is just "NiUnknown"; the informative name lives in the header's block-type table.
+        // Unknown blocks are preserved but opaque, and reported by their real on-disk type: GetType() on a NiUnknown
+        // is just "NiUnknown", so the informative name has to come from the header's block-type table.
         var unknownTypes = new List<string>();
         for (int i = 0; i < blocks.Count && i < blockCount; i++)
             if (blocks[i] is NiUnknown) unknownTypes.Add(typeById[i]);
@@ -193,15 +173,14 @@ public static class NifService
         return new NifShape(name, flags, scale, shape.GetType().Name, defVal, defType, partitions, alpha, textures, bones, shaderInfo);
     }
 
-    /// <summary>Read the shape's SHADER PROPERTY (#272) — the block every visual diagnosis actually asks about: which
-    /// shader is on this shape, and does it emit / scatter / env-map light. Read off <see cref="INiShader"/>, the
-    /// interface <c>NifFile.GetShader</c> already returns, so this covers BSLightingShaderProperty and
-    /// BSEffectShaderProperty (and anything else nifly models as a shader) with no per-block-type wiring.
+    /// <summary>Read the shape's shader property off <see cref="INiShader"/>, the interface <c>NifFile.GetShader</c>
+    /// returns, so this covers BSLightingShaderProperty, BSEffectShaderProperty and anything else nifly models as a
+    /// shader with no per-block-type wiring.
     ///
-    /// TWO Q3 calls live here. (1) <see cref="NifShader.ShaderType"/> is reported ONLY for a lighting shader: the
+    /// Two things must not be assumed. <see cref="NifShader.ShaderType"/> is reported only for a lighting shader: the
     /// <c>ShaderType_SK_FO4</c> property sits on the shared base, but a BSEffectShaderProperty never serializes a
     /// shader type, so reading it there yields a default 0 that renders as a confident "Default" — a wrong answer, not
-    /// a missing one. (2) The flag WORDS are chosen by the shader's own <c>Type</c> (which game's layout the block was
+    /// a missing one. And the flag words are chosen by the shader's own <c>Type</c> (which game's layout the block was
     /// read as), never assumed to be Skyrim's — decoding an FO4 word against Skyrim names would mislabel every bit.</summary>
     static NifShader BuildShader(INiShader shader)
     {
@@ -216,34 +195,28 @@ public static class NifService
             ShaderHelper.ShaderGameType.FO4   => (DecodeFlagWord("F4SPF1", shader.ShaderFlags_F4SPF1), DecodeFlagWord("F4SPF2", shader.ShaderFlags_F4SPF2)),
             ShaderHelper.ShaderGameType.FO3NV => (DecodeFlagWord("ShaderFlags", shader.ShaderFlags), DecodeFlagWord("ShaderFlags2", shader.ShaderFlags2)),
             // FO76/SF (and None) carry no flag word this library exposes as a named enum — report the game type and no
-            // flags, rather than decoding some other game's word and labelling it as this one's (Q3).
+            // flags, rather than decoding some other game's word and labelling it as this one's.
             _ => (null, null),
         };
 
-        // Each lighting value is reported ONLY if this block really reads it (see ReallyReads) — otherwise null, and
-        // the renderer names it as unread. RGB, never RGBA: a lighting shader's emissive is a THREE-component colour
-        // on disk, and the interface widens it to Color4, so its 4th component is a synthetic 0 that would render as
-        // "fully transparent emissive" — a fabricated value, the one thing worse than a missing one (Q3). Specular is
-        // a Color3 both on disk and on the interface, so it needs no such narrowing — the same RGB shape either way.
+        // Each lighting value is reported only if this block really reads it (see ReallyReads) — otherwise null, and
+        // the renderer names it as unread. RGB, never RGBA: a lighting shader's emissive is a three-component colour on
+        // disk and the interface widens it to Color4, so the 4th component is a synthetic 0 that would render as
+        // "fully transparent emissive" — a fabricated value, worse than a missing one. Specular is a Color3 both on
+        // disk and on the interface, so it needs no such narrowing.
         //
-        // SECOND GATE — THE LAYOUT (review of PR #290). ReallyReads keys on the block TYPE, and that is one axis too
-        // narrow: some of these accessors are LAYOUT-dispatched, reading a field the stream only carries on some
-        // games. Glossiness is the live case — nifly documents it as "the material specular power, or glossiness
-        // (BEFORE FO4)", with a separate Smoothness "(starting with FO4)". So on an FO4 / FO76-SF layout the field is
-        // never deserialized and the accessor hands back its nif.xml constructor default: an authored 30 and an
-        // authored 55 both read back as 80. That is "returns a constant regardless of what the mesh holds" — exactly
-        // what ReallyReads exists to suppress — but at LAYOUT granularity, which a type-level interface-map check
-        // structurally cannot see (1.0.0 hid it by not overriding Glossiness at all; the 1.1.0 bump exposed it).
+        // Second gate, the layout: ReallyReads keys on the block TYPE, and some accessors are LAYOUT-dispatched,
+        // reading a field only some games' streams carry. Glossiness is the live case — nifly serves it before FO4 and
+        // Smoothness from FO4 on — so on an FO4 / FO76-SF layout the field is never deserialized and the accessor
+        // returns its nif.xml constructor default (80) whatever the mesh holds. A type-level interface-map check
+        // structurally cannot see that.
         //
-        // The gate is by LAYOUT rather than by a declared list of "the layout-dispatched values" on purpose. A list is
-        // a hand-kept fact about the library's internals — the exact per-type hand-mapping the coverage cornerstone
-        // exists to keep out, unverifiable by a guard that can only mirror the same belief, and already wrong once for
-        // any layout nobody thought to probe. "houseCARL interprets a SKYRIM shader" is instead a claim about
-        // houseCARL's own scope, true whatever nifly does internally, and it is the posture this file already takes
-        // twice over: ShaderTypeName picks its field BY LAYOUT, and slot naming declines entirely off the SK layout.
-        // The cost is the four values that do read correctly elsewhere (specular strength/colour, emissive multiple,
-        // alpha) going unreported on a non-Skyrim mesh — and the renderer states that decline as its own distinct
-        // reason, never as "the library stubs these", because it isn't.
+        // The gate keys on the layout rather than on a declared list of "the layout-dispatched values": a list is a
+        // hand-kept fact about the library's internals, exactly what the coverage cornerstone keeps out. "houseCARL
+        // interprets a Skyrim shader" is a claim about houseCARL's own scope, true whatever nifly does internally, and
+        // it is the posture ShaderTypeName and SlotName already take. The cost is that four values which do read
+        // correctly elsewhere (specular strength/colour, emissive multiple, alpha) go unreported on a non-Skyrim mesh
+        // — and the renderer must state that decline as its own reason, not as "the library stubs these".
         var t = shader.GetType();
         var skyrimLayout = game == ShaderHelper.ShaderGameType.SK;
         NifColor? Rgb3(string prop, Func<NifColor> read) => skyrimLayout && ReallyReads(t, prop) ? read() : null;
@@ -267,8 +240,8 @@ public static class NifService
     ///     shared base, so reading it there yields 0 → a confident "Default".
     ///   • WRONG FIELD — the type property is LAYOUT-DISPATCHED, not shared. A block read as FO76/SF answers its real
     ///     type on <c>ShaderType_FO76_SF</c> while <c>ShaderType_SK_FO4</c> reads 0 ("Default"); on an SK block the
-    ///     reverse holds and <c>ShaderType_FO76_SF</c> is garbage. So the field must be picked by the LAYOUT, which is
-    ///     what the block was actually parsed as — not by the block's type name (review of PR #286).
+    ///     reverse holds and <c>ShaderType_FO76_SF</c> is garbage. So the field must be picked by the LAYOUT the block
+    ///     was actually parsed as — not by the block's type name.
     /// A layout with no type field of its own reports null, and the renderer says so plainly.</summary>
     static string? ShaderTypeName(INiShader shader, string blockType, ShaderHelper.ShaderGameType game)
     {
@@ -289,20 +262,16 @@ public static class NifService
     /// <summary>Whether <paramref name="blockType"/> REALLY reads <paramref name="property"/>, or merely inherits
     /// <see cref="INiShader"/>'s DEFAULT INTERFACE IMPLEMENTATION for it.
     ///
-    /// This is not defensive noise — it is a live upstream gap, and it MOVES between releases. In NiflySharp 1.0.0,
-    /// <c>BSLightingShaderProperty</c> overrode <c>EmissiveColor</c> but NOT <c>Glossiness</c>,
-    /// <c>SpecularStrength</c>, <c>SpecularColor</c>, <c>EmissiveMultiple</c> or <c>Alpha</c>. 1.1.0 (issue #287)
-    /// implements all five there — while <c>BSEffectShaderProperty</c> still answers <c>EmissiveColor</c>,
-    /// <c>SpecularColor</c>, <c>Glossiness</c>, <c>SpecularStrength</c>, <c>EmissiveMultiple</c> and <c>Alpha</c>
-    /// from the interface's default-implementation stub, which returns a CONSTANT (0, or 1 for Alpha) no matter what
-    /// the mesh holds. The values are genuinely on disk — the block's private fields round-trip a save/load intact —
-    /// the library just doesn't surface them for that block. Reporting the stub would be a confident wrong number on
-    /// every mesh carrying one: exactly the silent-wrong-answer the no-silent-failure rule forbids, and the "fail
-    /// loud about the library's delta, never silently around it" posture the coverage cornerstone names.
+    /// This is a live upstream gap, and which values it covers MOVES between library releases. On NiflySharp 1.1.0,
+    /// <c>BSLightingShaderProperty</c> implements all six, while <c>BSEffectShaderProperty</c> answers every one of
+    /// them from the interface's default-implementation stub, which returns a CONSTANT (0, or 1 for Alpha) no matter
+    /// what the mesh holds. The values are genuinely on disk — the block's private fields round-trip a save/load
+    /// intact — the library just doesn't surface them for that block. Reporting the stub would be a confident wrong
+    /// number on every mesh carrying one.
     ///
-    /// Doing it BY CONSTRUCTION rather than by a hand-kept list of "nifly's stubs" is what let the 1.0.0 → 1.1.0 bump
-    /// start reporting five values with no change to this method: the day upstream implements one, houseCARL reports
-    /// it; the day upstream stubs one, that one goes quiet on its own instead of turning into a wrong answer.</summary>
+    /// Deriving this from the interface map rather than from a hand-kept list of the library's stubs is what makes a
+    /// library bump self-correcting, per the coverage cornerstone: the day upstream implements a value houseCARL
+    /// reports it, and the day upstream stubs one that value goes quiet instead of turning into a wrong answer.</summary>
     static bool ReallyReads(Type blockType, string property)
     {
         var real = RealReads.GetOrAdd(blockType, static t =>
@@ -324,14 +293,12 @@ public static class NifService
     /// the vocabulary <c>set_shader_value</c> accepts, and exactly the six <see cref="NifShader"/> reports. The property
     /// names come through <c>nameof</c>, so an upstream rename is a COMPILE error here rather than a runtime "unknown
     /// value" a caller would read as "houseCARL can't do that yet".</summary>
-    /// <para><c>Normalized</c> marks the values Skyrim's shader treats as 0–1 — a CONVENTION, and deliberately not
-    /// enforced. Scanning 40,000 workspace meshes (190,298 SK lighting shaders) found the format carries whatever it is
-    /// given and real meshes exceed the convention: 261 shapes with <c>alpha</c> above 1 (max 100), 155 emissive-colour
-    /// components above 1 (and 10 NEGATIVE), 4 specular-colour components above 1. Refusing those would refuse edits to
-    /// meshes that exist. So an out-of-convention write WARNS on the report and proceeds — enough to catch the likely
-    /// mistake (NifSkope shows colours 0–255, so <c>255,255,255</c> is the natural wrong input) without houseCARL
-    /// asserting a bound the format does not have. The other three are legitimately unbounded: the same scan saw
-    /// glossiness to 900,000 and specular strength to 100.</para>
+    /// <para><c>Normalized</c> marks the values Skyrim's shader treats as 0–1 — a convention, and deliberately not
+    /// enforced: the format stores whatever float it is given and real meshes do carry out-of-range values (negative
+    /// and above-1 emissive components, alpha well above 1), so refusing them would refuse edits to meshes that exist.
+    /// An out-of-convention write therefore WARNS and proceeds — enough to catch the likely mistake, since NifSkope
+    /// shows colours 0–255 and <c>255,255,255</c> is the natural wrong input. The other three values are legitimately
+    /// unbounded.</para>
     internal static readonly IReadOnlyList<(string Wire, string Property, bool Normalized)> ShaderValueNames = new[]
     {
         ("emissive_color",    nameof(INiShader.EmissiveColor),    true),
@@ -345,7 +312,7 @@ public static class NifService
     /// <summary>A WARN-and-proceed note when a write lands outside the 0–1 convention on a value that follows it, or
     /// null. Never a refusal — see the note on <see cref="ShaderValueNames"/>: real meshes carry out-of-range values, so
     /// blocking would refuse legitimate edits. It names the NifSkope 0–255 confusion because that is the mistake this
-    /// actually catches (review of PR #292 — the 0–1 range had been asserted in three places and enforced in none).</summary>
+    /// actually catches.</summary>
     internal static string? ShaderRangeWarning(string wire, IReadOnlyList<float> nums)
     {
         var prop = ShaderValueProperty(wire);
@@ -365,10 +332,9 @@ public static class NifService
     /// (<c>specular_colour</c>) — the renderer says "colour" while the library says "Color", and a caller reading one
     /// and typing it at the other should not get "unknown value".
     ///
-    /// ORDER MATTERS: the case fold runs BEFORE the colour→color rewrite. <c>string.Replace</c> is ordinal and
-    /// case-sensitive, so rewriting first would leave <c>Specular_Colour</c> untouched and then fail to match —
-    /// the alias would serve only callers who already typed it in lower case, i.e. fail exactly the two names it
-    /// exists for while every American spelling resolved at any case (review of PR #292).</summary>
+    /// ORDER MATTERS: the case fold must run BEFORE the colour→color rewrite. <c>string.Replace</c> is ordinal and
+    /// case-sensitive, so rewriting first would leave <c>Specular_Colour</c> untouched and then fail to match — the
+    /// alias would serve only callers who already typed it in lower case.</summary>
     public static string? ShaderValueProperty(string wire)
     {
         var w = (wire ?? "").Trim().Replace('-', '_').ToLowerInvariant().Replace("colour", "color");
@@ -379,20 +345,16 @@ public static class NifService
     /// <summary>Whether <paramref name="blockType"/> can really be WRITTEN at <paramref name="property"/> — and if so,
     /// how many float components the value takes (1 for a scalar, 3 for a colour).
     ///
-    /// THE READ GATE CANNOT ANSWER THIS, and that is the whole reason this method exists rather than reusing
-    /// <see cref="ReallyReads"/> (which #291 assumed it could). <see cref="INiShader"/> declares all six values
-    /// GET-ONLY, so there is no <c>set_</c> accessor on the interface map to detect: on the write side the interface
-    /// map is uniformly empty and would refuse everything. The setters live on the CONCRETE block class instead, so
-    /// that is what gets reflected — still by construction off the library, never a hand-kept list of "the block types
-    /// that work" (which moved once already between 1.0.0 and 1.1.0, and will move again).
+    /// THE READ GATE CANNOT ANSWER THIS, which is why this is a separate method rather than a reuse of
+    /// <see cref="ReallyReads"/>. <see cref="INiShader"/> declares all six values GET-ONLY, so there is no <c>set_</c>
+    /// accessor on the interface map to detect — on the write side that map is uniformly empty and would refuse
+    /// everything. The setters live on the CONCRETE block class, so that is what gets reflected: still derived from
+    /// the library, never a hand-kept list of the block types that work, which has moved between library versions.
     ///
-    /// Getter-real and setter-present are INDEPENDENT FACTS that merely happen to agree today (verified across all 17
-    /// INiShader implementers on 1.1.0: BSLightingShaderProperty carries all six, BSShaderPPLightingProperty and
-    /// Lighting30ShaderProperty carry EmissiveColor, the other 14 carry none). Each path therefore checks its own —
-    /// asking the read gate about writability would be the same type-vs-layout style conflation PR #290's review
-    /// caught, one axis over.
+    /// Getter-real and setter-present are independent facts that merely happen to agree today, so each path must
+    /// check its own.
     ///
-    /// Without this gate the failure is a Q3 silent no-op: <c>BSEffectShaderProperty</c> answers all six from the
+    /// Without this gate the failure is a silent no-op: <c>BSEffectShaderProperty</c> answers all six from the
     /// interface's default-implementation stub, so a write through the interface would discard the value, return
     /// success, and leave the mesh unchanged.
     ///
@@ -405,12 +367,11 @@ public static class NifService
         if (p is null || !p.CanWrite) return NifShaderWritability.NoSetter();
         if (p.PropertyType == typeof(float)) return NifShaderWritability.Ok(1);
         if (HasRgbFields(p.PropertyType)) return NifShaderWritability.Ok(3);
-        // SETTABLE, but of a shape houseCARL has no marshalling for. A DIFFERENT fact from "no setter", and it must
-        // not borrow that one's sentence: a future library that exposes the colour components as properties rather
-        // than public fields, or widens a scalar past Single, lands here with a perfectly writable property — and
-        // "not settable on that block type" would then be a confident false claim about the library, in the very
-        // message whose job is naming the real reason. The refusal is still right; only the reason differs
-        // (review of PR #292 — the same two-axes conflation #290's review caught, one layer down).
+        // Settable, but of a shape houseCARL has no marshalling for — a different fact from "no setter", and it must
+        // not borrow that one's message. A future library that exposes the colour components as properties rather
+        // than public fields, or widens a scalar past Single, lands here with a perfectly writable property, and
+        // "not settable on that block type" would then be a false claim about the library. The refusal is right
+        // either way; only the reason differs.
         return NifShaderWritability.UnknownType(p.PropertyType.Name);
     }
 
@@ -448,9 +409,9 @@ public static class NifService
     /// <summary>Decode one shader flag word into its NAMED bits plus the unnamed remainder. The names come from
     /// <see cref="Enum.GetValues(Type)"/> over nifly's own enum, so coverage is the library's coverage — no hand-kept
     /// bit table to drift. Members are peeled largest-first so a multi-bit combo member wins over its constituent bits
-    /// (the <c>ReadEngine.FlagBitsDisplay</c> algorithm, #255), and whatever no member covers is returned as
-    /// <see cref="NifShaderFlagWord.UnknownBits"/> — surfaced explicitly by the renderer, never silently dropped, which
-    /// is the whole point: an unnamed bit is a real thing the mesh carries.</summary>
+    /// (the same algorithm as <c>ReadEngine.FlagBitsDisplay</c>), and whatever no member covers is returned as
+    /// <see cref="NifShaderFlagWord.UnknownBits"/> — surfaced by the renderer, never silently dropped: an unnamed bit
+    /// is a real thing the mesh carries.</summary>
     internal static NifShaderFlagWord DecodeFlagWord(string label, Enum value)
     {
         uint raw = Convert.ToUInt32(value);
@@ -478,19 +439,16 @@ public static class NifService
     /// reflected out of the library — it is a small, explicit interpreter of engine semantics, each arm keyed to the
     /// flag or type that decides it, in the same posture as <c>effect_chain</c>.
     ///
-    /// Q3 — returns NULL rather than a best guess whenever the deciding flag/type isn't set. An unnamed slot renders
-    /// as bare <c>tex[N]</c>: "this shader doesn't tell us", never a confident wrong label.
+    /// Returns null rather than a best guess whenever the deciding flag/type isn't set — an unnamed slot renders as
+    /// bare <c>tex[N]</c>, never a confident wrong label.
     ///
-    /// SKYRIM LAYOUT ONLY, and that gate is load-bearing rather than tidiness. The conditions read nifly's
-    /// <c>Has*</c>/<c>IsType*</c> helpers, which DISPATCH on the block's game layout — and for a layout where nifly
-    /// doesn't model the concept they return <c>true</c> unconditionally, not false. On an FO4-layout block with an
-    /// all-zero flag word <c>HasSoftlight</c>, <c>HasBacklight</c> and <c>Parallax</c> are all true; on FO3NV every
-    /// one of the seven helpers is. Left ungated, slots 2/3/7 (and on FO3NV 4/5) would take a confident label derived
-    /// from nothing the mesh carries — precisely the plausible-wrong-label this interpreter exists to refuse, and it
-    /// would ride <c>sections=paths</c> and <c>sections=shapes</c> too. nif_inspect reads non-SE meshes on purpose
-    /// (an unconverted FO4 mesh shipped inside a Skyrim mod is a thing people bring here), so this is reachable, not
-    /// theoretical. These slot semantics are a SKYRIM engine convention; on any other layout the honest answer is
-    /// that we don't model it. (Review of PR #286.)</summary>
+    /// SKYRIM LAYOUT ONLY, and that gate is load-bearing. The conditions read nifly's <c>Has*</c>/<c>IsType*</c>
+    /// helpers, which dispatch on the block's game layout and return <c>true</c> unconditionally — not false — for a
+    /// layout where nifly doesn't model the concept. On an FO4-layout block with an all-zero flag word
+    /// <c>HasSoftlight</c>, <c>HasBacklight</c> and <c>Parallax</c> are all true; on FO3NV all seven helpers are.
+    /// Left ungated, slots 2/3/7 (and 4/5 on FO3NV) would take a confident label derived from nothing the mesh
+    /// carries, and it would ride <c>sections=paths</c> and <c>sections=shapes</c> too. nif_inspect reads non-SE
+    /// meshes on purpose, so this is reachable, not theoretical.</summary>
     internal static string? SlotName(int slot, INiShader shader) =>
         shader.Type != ShaderHelper.ShaderGameType.SK ? null : slot switch
     {
@@ -558,20 +516,20 @@ public static class NifService
     }
 
     // ======================================================================
-    //  NIF layer Wave 2 — whitelist WRITES (housecarl_nif_set). Pure bytes-in / verified-bytes-out.
+    //  Whitelisted NIF writes (housecarl_nif_set). Pure bytes-in / verified-bytes-out.
     // ======================================================================
 
-    /// <summary>Apply the N2-whitelist write op(s) to a mesh's raw bytes and hand back the VERIFIED edited bytes, or a
-    /// named refusal (Q3) — the format-level core behind <c>housecarl_nif_set</c>. Like <see cref="Inspect"/> it knows
+    /// <summary>Apply the whitelisted write op(s) to a mesh's raw bytes and hand back the VERIFIED edited bytes, or a
+    /// named refusal — the format-level core behind <c>housecarl_nif_set</c>. Like <see cref="Inspect"/> it knows
     /// nothing of MO2/VFS; the service layer resolves the winning bytes, calls this, and writes the result.
     ///
-    /// Refuses (nothing written) when: the mesh won't parse; it is NOT a Skyrim SE stream (a normalized cross-game write
-    /// is untested territory — spike §7); a target shape/node/property named by an op isn't found or is ambiguous; an op
-    /// can't apply (e.g. set_partition on a shape with no dismember skin). Unknown blocks are WARN-and-proceed — they are
-    /// preserved byte-for-byte by construction and the census gate proves it (PRFAQ N6; Wave-2 posture).
+    /// Refuses, with nothing written, when: the mesh won't parse; it is not a Skyrim SE stream (a normalized
+    /// cross-game write is untested); a target shape/node/property named by an op isn't found or is ambiguous; an op
+    /// can't apply (e.g. set_partition on a shape with no dismember skin). Unknown blocks warn and proceed — they are
+    /// preserved byte-for-byte and the census gate proves it.
     ///
-    /// Every successful write passes TWO offset-immune gates before its bytes are returned (spike §4, empirically refined
-    /// 2026-07-08 from a position-diff to a block-content diff so a length-changing rename can't false-abort):
+    /// Every successful write passes TWO offset-immune gates before its bytes are returned. The first must compare
+    /// block content, not byte position, or a length-changing rename false-aborts:
     ///   1. BLOCK-CONTENT DIFF — normalize the unedited mesh and the edited mesh through nifly's canonical writer, slice
     ///      BOTH by their own block-size tables, and compare block CONTENT by index. Only the block(s)/header the op
     ///      claims to touch may differ; any other change (a stray block, geometry, the footer) → abort. Content-diff is
@@ -601,7 +559,7 @@ public static class NifService
         try { pre = Build(nif); }
         catch (Exception ex) { return NifSetOutcome.Fail($"the mesh parsed but reading its structure failed — {ex.GetType().Name}: {ex.Message}. Nothing was written."); }
 
-        // ---- SE-stream gate: nif_set refuses a non-SE mesh by name (plan §2 version guard; spike §7) ----
+        // ---- SE-stream gate: nif_set refuses a non-SE mesh by name ----
         if (!pre.IsSkyrimSE)
             return NifSetOutcome.Fail(
                 $"this is NOT a Skyrim SE mesh (user {pre.UserVersion} / stream {pre.StreamVersion}; SE is user 12 / stream 100). " +
@@ -655,10 +613,10 @@ public static class NifService
     }
 
     /// <summary>Apply one op to <paramref name="nif"/>, returning the target's before/after value, the single block index
-    /// it is allowed to change (or header for a rename), or a NAMED error (Q3) that aborts the whole call. The write APIs
-    /// follow the empirically-confirmed NiflySharp rules: bitfield sub-values (alpha flags) are structs (read-modify-write
-    /// then re-assign); a block is resolved and mutated via its OWNING ref, never a freshly-built one (which does not
-    /// persist on save).</summary>
+    /// it is allowed to change (or header for a rename), or a named error that aborts the whole call. Two NiflySharp
+    /// rules bind here: bitfield sub-values (alpha flags) are structs, so read-modify-write then re-assign; and a
+    /// block must be resolved and mutated via its OWNING ref, never a freshly-built one, which does not persist on
+    /// save.</summary>
     static (string? Error, string? Target, string? Before, string? After, int? TouchedBlock, bool TouchedHeader) ApplyOp(NifFile nif, NifSetOp op)
     {
         switch (op.Kind)
@@ -763,13 +721,13 @@ public static class NifService
                 if (nif.GetShader(shape!) is not { } shader)
                     return ($"shape '{op.Target}' has no shader property — no lighting value to set. Nothing was written.", null, null, null, null, false);
 
-                // GATE A — THE LAYOUT. Same scope claim the read path makes (BuildShader): houseCARL interprets a
-                // SKYRIM shader. Several of these accessors are layout-dispatched — Glossiness reads a field the FO4+
-                // stream never carries — so on a foreign layout the write would land in a field that is never
-                // serialized: value accepted, mesh unchanged. Today Set() already refuses any non-SE-stream file
-                // before reaching here and an SE stream always parses as SK, so this is a SECOND gate rather than one
-                // catching a live case — stated as such, because Type is a settable property and the header-to-layout
-                // coupling is nifly's internal, not a guarantee houseCARL is owed. It can only refuse, never fabricate.
+                // GATE A — THE LAYOUT. Same scope claim the read path makes in BuildShader: houseCARL interprets a
+                // Skyrim shader. Several of these accessors are layout-dispatched — Glossiness reads a field the FO4+
+                // stream never carries — so on a foreign layout the write lands in a field that is never serialized:
+                // value accepted, mesh unchanged. Set() already refuses a non-SE stream before reaching here and an SE
+                // stream parses as SK, so this is a second gate rather than one catching a live case; it is kept
+                // because Type is a settable property and the header-to-layout coupling is nifly's internal, not a
+                // guarantee houseCARL is owed. It can only refuse, never fabricate.
                 if (shader.Type != ShaderHelper.ShaderGameType.SK)
                     return ($"shape '{op.Target}' carries a {shader.Type} shader layout, not Skyrim's — houseCARL models the Skyrim "
                           + $"shader layout only, and some of these values address a field a {shader.Type} stream never carries "
@@ -820,7 +778,7 @@ public static class NifService
         }
     }
 
-    // ---- target resolution (Q3: not-found and ambiguous are NAMED refusals, never a silent first-match write) ----
+    // ---- target resolution: not-found and ambiguous are named refusals, never a silent first-match write ----
 
     static (INiShape? Shape, string? Error) ResolveShape(NifFile nif, string name)
     {
@@ -861,9 +819,9 @@ public static class NifService
 
     /// <summary>GATE 1 — block-content diff. Normalize the ORIGINAL bytes (reload+save) and compare, block-content by
     /// index, against the edited output (both sliced by their OWN block-size tables so a grown/shrunk header string table
-    /// can't misalign the comparison). Returns null when only the expected block(s)/header changed; else a NAMED refusal.
-    /// If the block layout can't be recovered on either side, it REFUSES (can't verify ⇒ won't write — never a silent
-    /// pass). Internal so the guard can RED-prove it catches a collateral (non-expected-block) change directly.</summary>
+    /// can't misalign the comparison). Returns null when only the expected block(s)/header changed; else a named refusal.
+    /// If the block layout can't be recovered on either side it REFUSES: cannot verify means will not write, never a
+    /// silent pass. Internal so a test can prove directly that it catches a collateral change.</summary>
     internal static string? VerifyBlockContent(byte[] original, byte[] edited, HashSet<int> expectedBlocks, bool expectHeader)
     {
         byte[] normBaseline;
@@ -895,8 +853,8 @@ public static class NifService
         // A header change is legitimate in exactly two cases: a rename (edits the authored string table — the op declares
         // it via expectHeader), OR a touched block changed SIZE (the header's derived block-SIZE table records each
         // block's byte length, so growing/shrinking an expected block mechanically updates it — e.g. a longer texture
-        // path). Any OTHER header change is real collateral → refuse. (Found on real facegen data 2026-07-08: the
-        // synthetic same-length ops never resize a block, so only a corpus set_path surfaced the block-size-table path.)
+        // path). Any other header change is real collateral and must refuse. Same-length ops never resize a block, so
+        // only a real-world set_path exercises the block-size-table case.
         bool expectedBlockResized = expectedBlocks.Any(i => i >= 0 && i < a.Value.blocks.Length && a.Value.blocks[i].Length != c.Value.blocks[i].Length);
         if (c.Value.header.AsSpan().SequenceEqual(a.Value.header) == false && !expectHeader && !expectedBlockResized)
             return "the edit changed the header (its string table or a non-touched block's size entry), which no in-place same-size op should. Refusing, nothing written.";
@@ -906,8 +864,8 @@ public static class NifService
     }
 
     /// <summary>Slice a normalized NIF buffer into (header bytes, per-block content bytes, footer bytes) using its OWN
-    /// block-size table + a footer-length recovery (numRoots consistency check — the spike's difftrace layout recovery).
-    /// null if the layout can't be recovered (the caller refuses).</summary>
+    /// block-size table plus a footer-length recovery (a numRoots consistency check). null if the layout can't be
+    /// recovered, in which case the caller refuses.</summary>
     static (byte[] header, byte[][] blocks, string[] types, byte[] footer)? SliceBlocks(byte[] buf)
     {
         NifFile nif;
@@ -965,8 +923,8 @@ public static class NifService
     /// <summary>GATE 2 — semantic read-back. Reload the WRITTEN bytes, re-inspect, and assert: the file reloads clean and
     /// is still an SE stream; the block census + unknown-block count match the pre-edit inspect (no structural drift); and
     /// each op's target now reads as REQUESTED (a value that didn't take — a silent no-op — aborts here). Returns null on
-    /// success; else a NAMED refusal. Also emits any WARN-and-proceed notes (unknown blocks preserved). Internal so the
-    /// guard can RED-prove it catches a no-op write directly.</summary>
+    /// success; else a named refusal. Also emits any warn-and-proceed notes (unknown blocks preserved). Internal so a
+    /// test can prove directly that it catches a no-op write.</summary>
     internal static string? VerifyReadBack(byte[] edited, NifInspect pre, IReadOnlyList<NifSetOp> ops, out IReadOnlyList<string> warnings)
     {
         warnings = Array.Empty<string>();
@@ -1094,7 +1052,7 @@ public static class NifService
 // ======================================================================
 
 /// <summary>The outcome of <see cref="NifService.Inspect"/>: exactly one of <see cref="Inspect"/> (success) or
-/// <see cref="Error"/> (a named, recoverable parse/read failure — Q3). Never both, never neither.</summary>
+/// <see cref="Error"/> (a named, recoverable parse/read failure). Never both, never neither.</summary>
 public sealed record NifInspectOutcome(NifInspect? Inspect, string? Error);
 
 /// <summary>Everything <see cref="NifService.Inspect"/> can model about a mesh, built in full (a single mesh is
@@ -1116,7 +1074,7 @@ public sealed record NifInspect(
 /// <summary>One block type and how many of it the mesh has, by the on-disk (xEdit/NifSkope) type name.</summary>
 public sealed record NifBlockTypeCount(string Type, int Count);
 
-/// <summary>One shape and its N2-whitelist values. <see cref="Partitions"/> is empty unless the shape has a
+/// <summary>One shape and its whitelisted values. <see cref="Partitions"/> is empty unless the shape has a
 /// BSDismember skin instance; <see cref="Alpha"/> is null unless it carries an alpha property; <see cref="Textures"/>
 /// lists only non-empty texture-set slots; <see cref="Shader"/> is null unless the shape carries a shader property.
 /// <see cref="FlagsDefault"/> is the nif.xml-documented SSE default for the
@@ -1150,14 +1108,14 @@ public sealed record NifAlpha(
     byte Threshold);
 
 /// <summary>One embedded texture path at its BSShaderTextureSet slot index (0 diffuse, 1 normal, … 6 tint/detail, …).
-/// <see cref="SlotName"/> is the slot's SEMANTIC name where the shape's shader determines it (#272) — slot 2 is glow
-/// vs skin-subsurface vs soft-lighting depending on type/flags, slot 7 backlight vs specular — and null when it
-/// doesn't. The index is always kept alongside, so an unnamed slot degrades to the old <c>tex[N]</c> form rather than
-/// to a confident wrong name (Q3). See <c>NifService.SlotName</c>.</summary>
+/// <see cref="SlotName"/> is the slot's SEMANTIC name where the shape's shader determines it — slot 2 is glow vs
+/// skin-subsurface vs soft-lighting depending on type/flags, slot 7 backlight vs specular — and null when it doesn't.
+/// The index is always kept alongside, so an unnamed slot degrades to the bare <c>tex[N]</c> form rather than to a
+/// confident wrong name. See <c>NifService.SlotName</c>.</summary>
 public sealed record NifTexture(int Slot, string Path, string? SlotName = null);
 
-/// <summary>One shape's SHADER PROPERTY (#272) — the block that answers "how is this shape shaded, and does it emit or
-/// scatter light". <see cref="BlockType"/> is the on-disk block name (BSLightingShaderProperty / BSEffectShaderProperty
+/// <summary>One shape's shader property — how the shape is shaded, and whether it emits or scatters light.
+/// <see cref="BlockType"/> is the on-disk block name (BSLightingShaderProperty / BSEffectShaderProperty
 /// / …); <see cref="GameType"/> is which game's layout nifly read it as (SK / FO4 / FO3NV / …), which is what selects
 /// the flag words. <see cref="ShaderType"/> is the BSLightingShaderType enum name (Default, EnvironmentMap, SkinTint,
 /// FaceTint, HairTint, Parallax, MultiLayerParallax, …) and is null for any block that does not serialize one — an
@@ -1184,7 +1142,7 @@ public sealed record NifShader(
 /// <summary>One decoded shader flag word: its on-disk <see cref="Label"/> (SLSF1 / SLSF2 / F4SPF1 / …), the
 /// <see cref="Raw"/> value, the <see cref="Names"/> of every set bit the library's enum names (in bit order), and
 /// <see cref="UnknownBits"/> — the bits NO enum member covers, kept as an explicit mask so an unnamed bit is stated
-/// rather than dropped (#255's posture, carried to the shader words).</summary>
+/// rather than dropped.</summary>
 public sealed record NifShaderFlagWord(string Label, uint Raw, IReadOnlyList<string> Names, uint UnknownBits);
 
 /// <summary>A shader colour — RGB, because that is what the format actually carries for both colours reported here
@@ -1197,11 +1155,11 @@ public sealed record NifColor(float R, float G, float B);
 public sealed record NifNode(int Depth, string Name, uint Flags, string BlockType, uint? FlagsDefault, string? FlagsDefaultType);
 
 // ======================================================================
-//  NIF-layer WRITE model — the N2 whitelist op(s) and the verified outcome (Wave 2).
+//  NIF-layer write model — the whitelisted op(s) and the verified outcome.
 // ======================================================================
 
 /// <summary>Whether a shader lighting value can be WRITTEN on a given block, and if not, WHY — three states, because
-/// two different facts refuse the write and each needs its own sentence (review of PR #292).
+/// two different facts refuse the write and each needs its own sentence.
 /// <list type="bullet">
 /// <item><see cref="Writable"/> with <see cref="Components"/> — the library really carries a setter, taking that many
 /// float components (read off the property's own type: 1 for a scalar, 3 for a colour).</item>
@@ -1218,7 +1176,7 @@ internal readonly record struct NifShaderWritability(bool Writable, int Componen
     public static NifShaderWritability UnknownType(string typeName) => new(false, 0, typeName);
 }
 
-/// <summary>The N2-whitelist write op kinds. Renames edit the header string table; the others edit one block.</summary>
+/// <summary>The whitelisted write op kinds. Renames edit the header string table; the others edit one block.</summary>
 public enum NifSetOpKind { RenameShape, RenameNode, SetFlags, SetScale, SetPartition, SetAlpha, SetPath, SetShaderValue }
 
 /// <summary>One write op. <see cref="Target"/> is the shape/node name it addresses (the CURRENT name, for a rename).
@@ -1249,7 +1207,7 @@ public sealed record NifSetOp(
 
 /// <summary>The outcome of <see cref="NifService.Set"/>: exactly one of <see cref="WrittenBytes"/>+<see cref="Report"/>
 /// (success — the VERIFIED edited mesh bytes for the service layer to place) or <see cref="Error"/> (a named refusal,
-/// with nothing written — Q3). Never both, never neither.</summary>
+/// with nothing written). Never both, never neither.</summary>
 public sealed record NifSetOutcome(byte[]? WrittenBytes, NifSetReport? Report, string? Error)
 {
     public static NifSetOutcome Fail(string error) => new(null, null, error);
@@ -1257,7 +1215,7 @@ public sealed record NifSetOutcome(byte[]? WrittenBytes, NifSetReport? Report, s
 
 /// <summary>What a successful <see cref="NifService.Set"/> did: the per-op before→after accounting, the block id(s) the
 /// verification confirmed were the only ones changed (+ whether the header string table changed — a rename), the size
-/// delta, and any WARN-and-proceed notes (e.g. preserved unknown blocks).</summary>
+/// delta, and any warn-and-proceed notes (e.g. preserved unknown blocks).</summary>
 public sealed record NifSetReport(
     IReadOnlyList<NifOpResult> Ops,
     IReadOnlyList<int> ChangedBlocks,

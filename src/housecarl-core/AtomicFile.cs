@@ -13,22 +13,19 @@ namespace HousecarlCore;
 ///  • target ABSENT  → <c>File.Move</c> (an atomic rename onto a free name): <c>File.Replace</c> cannot create — it
 ///    requires an existing target — so the fresh-file case it throws on is served by a rename, itself atomic.
 ///
-/// This REPLACES the product-wide <c>File.Move(overwrite: true)</c> (MoveFileEx MOVEFILE_REPLACE_EXISTING), which the
-/// in-place-write-lane review named as not crash-atomic: it can unlink the destination BEFORE the rename commits, and
-/// it discards the destination's identity (the result becomes the SOURCE file). Same-volume staging is the caller's
-/// invariant — <c>File.Replace</c> THROWS across volumes (a loud, correct refusal) rather than silently degrading to a
-/// non-atomic copy (Q3). An EFS-encrypted or specially-ACL'd target can likewise make <c>File.Replace</c> throw a
-/// metadata-merge error where <c>File.Move</c> would not — also surfaced loud, original byte-intact; the 3-arg overload
-/// is deliberate (the 4-arg <c>ignoreMetadataErrors: true</c> would silently swallow that failure, violating Q3).
+/// Use this instead of <c>File.Move(overwrite: true)</c> (MoveFileEx MOVEFILE_REPLACE_EXISTING), which is NOT
+/// crash-atomic: it can unlink the destination BEFORE the rename commits, and it discards the destination's identity
+/// (the result becomes the SOURCE file). <c>File.Replace</c> also preserves the replaced file's creation time, where
+/// <c>File.Move</c> resets it. Same-volume staging is the caller's invariant — <c>File.Replace</c> THROWS across
+/// volumes rather than silently degrading to a non-atomic copy. An EFS-encrypted or specially-ACL'd target can
+/// likewise make <c>File.Replace</c> throw a metadata-merge error where <c>File.Move</c> would not — also surfaced
+/// loud, original byte-intact; the 3-arg overload is deliberate, since the 4-arg <c>ignoreMetadataErrors: true</c>
+/// would silently swallow that failure.
 ///
-/// Holds NO handle at rest: it opens nothing it keeps. Proven by the atomic-commit guard, whose overwrite arm is
-/// RED-sensitive to a <c>File.Move(overwrite)</c> regression via the destination's PRESERVED creation time
-/// (<c>File.Replace</c> keeps the replaced file's creation time; <c>File.Move</c> resets it). The guard self-calibrates:
-/// on a host where file-system tunneling would restore the creation time under <c>File.Move</c> too, that one check
-/// self-skips with a loud note rather than false-pass (the distinction is unprovable in-process there).
+/// Holds NO handle at rest: it opens nothing it keeps.
 /// </summary>
-// PUBLIC (facegen-diagnostics Phase 3): place_asset writes from the MCP layer (not a core friend), so the primitive is
-// public. <see cref="Commit"/> is the low-level swap (caller stages same-volume); <see cref="WriteAllBytes"/> is the
+// PUBLIC because place_asset writes from the MCP layer (not a core friend).
+// <see cref="Commit"/> is the low-level swap (caller stages same-volume); <see cref="WriteAllBytes"/> is the
 // high-level convenience that does the same-volume staging for you (it materializes the bytes into a sibling temp, so a
 // cross-volume SOURCE never reaches Commit). The .esp/BSA/config writers keep calling Commit directly with their own staging.
 public static class AtomicFile
@@ -36,7 +33,7 @@ public static class AtomicFile
     /// <summary>Crash-atomically write <paramref name="bytes"/> to <paramref name="finalPath"/>: stage them into a SIBLING
     /// temp (same volume as the target, so the swap is never cross-volume — the place tool may read its source from another
     /// volume or a BSA, but the bytes are in hand by here) and <see cref="Commit"/> it into place. The caller must have
-    /// created the destination directory. THROWS (Q3, never a silent partial write) on any failure, deleting the temp first
+    /// created the destination directory. THROWS on any failure — never a silent partial write — deleting the temp first
     /// so no scratch is left; on a throw the prior <paramref name="finalPath"/>, if any, is byte-intact (Commit's guarantee).</summary>
     public static void WriteAllBytes(string finalPath, byte[] bytes)
     {
@@ -56,7 +53,7 @@ public static class AtomicFile
 
     /// <summary>Commit a fully-written <paramref name="stagedPath"/> onto <paramref name="finalPath"/> crash-atomically.
     /// Both MUST be on the same volume. THROWS (never a silent no-op) if the staged file is missing or the swap fails —
-    /// the caller reports it (Q3); on any throw the prior <paramref name="finalPath"/>, if it existed, is byte-intact.</summary>
+    /// the caller reports it; on any throw the prior <paramref name="finalPath"/>, if it existed, is byte-intact.</summary>
     public static void Commit(string stagedPath, string finalPath)
     {
         try
@@ -66,12 +63,12 @@ public static class AtomicFile
         // Catch FileNotFoundException ONLY, and deliberately: a cross-volume swap surfaces here as IOException
         // (ERROR_UNABLE_TO_MOVE_REPLACEMENT_2) and, given the same-volume invariant, that's a caller bug we WANT loud
         // with the original retained — widening this catch to IOException would silently degrade it into a non-atomic
-        // cross-volume copy (Q3). An EFS/special-ACL merge error likewise surfaces loud here, original byte-intact.
+        // cross-volume copy. An EFS/special-ACL merge error likewise surfaces loud here, original byte-intact.
         catch (FileNotFoundException)
         {
             // File.Replace requires an existing destination; the fresh-file case (no prior output) it throws on is
             // served by a rename instead. overwrite:true keeps that branch idempotent against the (mutex-guarded,
-            // houseCARL-owned-path) sub-millisecond TOCTOU where the target appears between the probe and here — there
+            // houseCARL-owned-path) sub-millisecond TOCTOU where the target appears between that check and here — there
             // is no original to lose on a path just judged fresh. A MISSING SOURCE still throws FileNotFoundException
             // here, so File.Move re-throws it loud rather than masking it as a silent no-op.
             File.Move(stagedPath, finalPath, overwrite: true);
