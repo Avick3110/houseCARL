@@ -166,8 +166,10 @@ public static class NifTools
          "and says why. The ops (op=): rename_shape / rename_node (retitle a baked shape/node — the HDPT-EDID facegen " +
          "case), set_flags (NiAVObject flags on a shape/node — the 0x80000 head/hair-class bit), set_scale, set_partition " +
          "(a BSDismember body-part id — pass body_part_id [+ partition_index]), set_alpha (alpha_flags word and/or " +
-         "alpha_threshold — the hair 0x12ED / hairline 0x12EE class), set_path (swap a BSShaderTextureSet slot — pass " +
-         "texture_slot + path; e.g. the FaceTint slot 6 or skin slots 0/1), set_shader_value (a shader LIGHTING value — " +
+         "alpha_threshold — the hair 0x12ED / hairline 0x12EE class), set_path (swap an asset reference, TWO addressing " +
+         "forms: with texture_slot + path it swaps that BSShaderTextureSet slot on the named shape — e.g. the FaceTint " +
+         "slot 6 or skin slots 0/1; with NO texture_slot it swaps the HEADER STRING target names for path — the " +
+         "material (.bgsm), .tri / BODYTRI and physics-xml refs that sections=strings lists), set_shader_value (a shader LIGHTING value — " +
          "pass shader_value + value: glossiness, specular_strength, specular_color, emissive_color, emissive_multiple, " +
          "alpha; the plastic-looking armour or over-bright glow fix. NOT set_alpha — that is the separate NiAlphaProperty). " +
          "target= is the shape or node NAME the op edits " +
@@ -185,7 +187,9 @@ public static class NifTools
         // caller reads to choose an op, so a stale list here would make a shipped op invisible in the tool schema.
         [Description("The write op — one of: " + OpList + ".")]
             string op,
-        [Description("The NAME of the shape or node the op edits (the current name; from " + ToolNames.NifInspect + "). For a rename this is the OLD name.")]
+        [Description("What the op edits, as it currently reads (from " + ToolNames.NifInspect + "). For most ops the NAME of a " +
+                     "shape or node; for a rename the OLD name; for set_path WITHOUT texture_slot the header STRING to " +
+                     "replace, exactly as sections=strings prints it (case-sensitive).")]
             string target,
         [Description("rename_shape / rename_node: the new name.")] string new_name = "",
         [Description("set_flags: the NiAVObject flags value — hex ('0x800000E') or decimal.")] string flags = "",
@@ -194,8 +198,8 @@ public static class NifTools
         [Description("set_partition: which partition to change when a shape has more than one (0-based). Omit if it has exactly one.")] string partition_index = "",
         [Description("set_alpha: the 16-bit alpha flags word — hex ('0x12ED') or decimal. Optional if only changing the threshold.")] string alpha_flags = "",
         [Description("set_alpha: the alpha test threshold, 0-255. Optional if only changing the flags word.")] string alpha_threshold = "",
-        [Description("set_path: the BSShaderTextureSet slot index (0 diffuse, 1 normal, 6 tint/skin/detail, ...).")] string texture_slot = "",
-        [Description("set_path: the new texture path (Data-relative, e.g. 'textures\\...\\facetint\\Mod.esp\\00000ABC.dds').")] string path = "",
+        [Description("set_path: the BSShaderTextureSet slot index (0 diffuse, 1 normal, 6 tint/skin/detail, ...). OMIT it to swap the header string target= names instead.")] string texture_slot = "",
+        [Description("set_path: the new path — a texture (Data-relative, e.g. 'textures\\...\\facetint\\Mod.esp\\00000ABC.dds') with texture_slot, or the replacement header string (a .bgsm material, a .tri, a physics xml) without it.")] string path = "",
         [Description("set_shader_value: which lighting value — 'glossiness', 'specular_strength', 'specular_color', 'emissive_color', 'emissive_multiple', or 'alpha'.")] string shader_value = "",
         [Description("set_shader_value: the new value — one number for a scalar ('30'), or three comma-separated components for a colour ('1,0.5,0.25'). Colours and alpha are conventionally 0-1 (NOT 0-255); a value outside that is written as asked but WARNED about.")] string value = "",
         [Description("Optional. Edit a specific provider's copy instead of the VFS winner — the mod folder name, 'overwrite', " +
@@ -258,8 +262,13 @@ public static class NifTools
                 if (af is null && at is null) return (null, "set_alpha needs alpha_flags and/or alpha_threshold.");
                 return (new NifSetOp(NifSetOpKind.SetAlpha, target, AlphaFlags: af, AlphaThreshold: at), null);
             case "set_path":
-                if (!int.TryParse(textureSlot, out var slot)) return (null, $"set_path needs a numeric texture_slot; got '{textureSlot}'.");
                 if (string.IsNullOrWhiteSpace(path)) return (null, "set_path needs a path.");
+                // No texture_slot = the header-string form: target IS the string to replace. One op, two addressing
+                // forms, chosen by whether a slot was given.
+                if (string.IsNullOrWhiteSpace(textureSlot))
+                    return (new NifSetOp(NifSetOpKind.SetPath, target, Path: path), null);
+                if (!int.TryParse(textureSlot, out var slot))
+                    return (null, $"set_path's texture_slot must be a number; got '{textureSlot}'. Omit it entirely to swap a header string instead (target = the string as {ToolNames.NifInspect} sections=strings prints it).");
                 return (new NifSetOp(NifSetOpKind.SetPath, target, TextureSlot: slot, Path: path), null);
             case "set_shader_value":
             {
