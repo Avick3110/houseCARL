@@ -163,8 +163,13 @@ public static class BsaTools
         sb.Append(name)
           .Append(" (").Append(fmtFlag.TrimStart('-')).Append(compress ? ", compressed" : ", uncompressed").Append(") → ").Append(archive).Append('\n');
         sb.Append("(a new houseCARL mod folder — enable it in MO2 to use the archive.)");
+        // A null count means the format carries no .bsa header, or the header of one that should have been read failed.
         if (r.Packed is null)
-            sb.Append("\nhouseCARL reads file counts from .bsa headers only, so this archive's contents were not counted or checked against the source.");
+            sb.Append(fmtFlag is "-fo4" or "-fo4dds" or "-sf1" or "-sf1dds" or "-tes3"
+                ? "\nhouseCARL reads file counts from .bsa headers only, so this archive's contents were not counted or checked against the source."
+                : $"\nWARNING: '{name}' was written but houseCARL could not read its .bsa header, so its contents were not counted or checked against the source — list it before relying on it.");
+        else if (r.Expected is null)
+            sb.Append("\nThe source folder could not be fully scanned, so this archive's contents were not checked against it — list it before relying on it.");
         sb.Append(RootSkipNote(r.RootSkipped));
         if (compress) sb.Append("\nNOTE: compressed — any sounds/voices in it will not work in-game (BSArch limitation).");
         return sb.ToString();
