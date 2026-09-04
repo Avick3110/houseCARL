@@ -100,6 +100,10 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>A FormID door for a tool body with no captured view of its own — see <see cref="FormIdDoor"/>.</summary>
     internal FormIdDoor OpenFormIdDoor() => FormIdDoor.For(this);
 
+    /// <summary>The same door for a WRITE verb's tokens, which refuses a runtime FormID — see
+    /// <see cref="FormIdDoor.ForWrite"/>.</summary>
+    internal FormIdDoor OpenWriteFormIdDoor() => FormIdDoor.ForWrite(this);
+
     /// <summary>The resolver, built on first access and kept fresh on every subsequent access. Throws loudly if the
     /// configured roots yield no plugins.</summary>
     LoadOrderResolver Resolver
@@ -4565,11 +4569,11 @@ public sealed class LoadOrderService : IDisposable
                 "target= is only meaningful with in_place=true (it names the plugin to edit in place). For the default patch lane omit target=; use into= to extend an existing houseCARL patch.");
 
         // Map every op to a core PatchEdit, collecting ALL parse problems first (all-or-nothing, like the cleave).
-        // Runs outside the write gate so a malformed call never queues behind a real write. A runtime FormID here
-        // resolves against the order as it stands at the call, the same way a read of one does.
+        // Runs outside the write gate so a malformed call never queues behind a real write. A write door, so a
+        // runtime FormID is refused with the plugin form to use instead.
         var edits = new List<WritePatchBuilder.PatchEdit>(ops.Count);
         var problems = new List<string>();
-        var editDoor = OpenFormIdDoor();
+        var editDoor = OpenWriteFormIdDoor();
         for (int i = 0; i < ops.Count; i++)
         {
             // fromRecords[i] is the zip's per-op source record, carried parallel to the op list because the
@@ -5478,7 +5482,7 @@ public sealed class LoadOrderService : IDisposable
         // Parse every formid first, collecting ALL problems (all-or-nothing, like the edit path). Pure — outside the gate.
         var keys = new List<FormKey>(formids.Count);
         var problems = new List<string>();
-        var door = OpenFormIdDoor();
+        var door = OpenWriteFormIdDoor();
         for (int i = 0; i < formids.Count; i++)
         {
             var raw = formids[i];
@@ -5612,7 +5616,7 @@ public sealed class LoadOrderService : IDisposable
         var fp = fromPlugin.Trim();
         var specs = new List<WritePatchBuilder.ForwardSpec>(formids.Count);
         var problems = new List<string>();
-        var door = OpenFormIdDoor();
+        var door = OpenWriteFormIdDoor();
         for (int i = 0; i < formids.Count; i++)
         {
             var raw = formids[i];
@@ -6483,7 +6487,7 @@ public sealed class LoadOrderService : IDisposable
         // ---- argument shape: exactly one target mode ----
         // ONE door for both tokens: two doors would each capture their own build, and a re-sort between them
         // would read the donor off one order and the target off another.
-        var door = OpenFormIdDoor();
+        var door = OpenWriteFormIdDoor();
         FormKey donorFk;
         try { donorFk = door.Parse(sourceFormid); }
         catch (Exception ex) { return NpcCopyOutcome.Fail($"bad source formid '{sourceFormid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '000D62:Vivace.esp'."); }

@@ -159,7 +159,90 @@ public sealed class RuntimeFormIdTests
         Served(Read(w, World.LightRuntime(1, w.LightWeapon)), "HcRtLightWeapon", World.LightName);
     }
 
+    // ---- a runtime FormID is read-only: every write door refuses it ---------------------------------
+
+    [Fact]
+    public void ApplyRefusesARuntimeFormIdAndNamesThePluginForm()
+    {
+        using var w = new World();
+        var outcome = w.Svc.ApplyEdits(
+            new[] { new BulkOp { Formid = Runtime(w), FieldPath = "BasicStats.Damage", Verb = "Set", Value = "99" } },
+            "HcRtPatch", null);
+        RefusedNothingWritten(w, outcome.Error);
+    }
+
+    [Fact]
+    public void RemoveRefusesARuntimeFormIdAndNamesThePluginForm()
+    {
+        using var w = new World();
+        var outcome = w.Svc.RemoveRecords(new[] { Runtime(w) }, patch: "HcRtPatch.esp");
+        RefusedNothingWritten(w, outcome.Error);
+    }
+
+    [Fact]
+    public void ForwardRefusesARuntimeFormIdAndNamesThePluginForm()
+    {
+        using var w = new World();
+        var outcome = w.Svc.ForwardRecords(new[] { Runtime(w) }, World.MasterName, "HcRtPatch", null);
+        RefusedNothingWritten(w, outcome.Error);
+    }
+
+    [Fact]
+    public void CopyRefusesARuntimeFormIdAndNamesThePluginForm()
+    {
+        using var w = new World();
+        var response = CopyTools.Copy(w.Svc, from: Runtime(w), seed_paths: new[] { "BasicStats" },
+                                      new_editorid: "HcRtCopyClone");
+        RefusedNothingWritten(w, response);
+    }
+
+    [Fact]
+    public void CopyNpcAppearanceRefusesARuntimeFormIdAndNamesThePluginForm()
+    {
+        using var w = new World();
+        var outcome = w.Svc.CopyNpcAppearance(Runtime(w), null, null, null, "HcRtNpcClone", null, null, null);
+        RefusedNothingWritten(w, outcome.Error);
+    }
+
+    [Fact]
+    public void PlaceAssetRefusesARuntimeFormIdAndNamesThePluginForm()
+    {
+        using var w = new World();
+        var response = PlaceAssetTools.PlaceAsset(w.Svc, formid: Runtime(w), kind: "mesh");
+        RefusedNothingWritten(w, response);
+    }
+
+    [Fact]
+    public void BulkPlaceAssetRefusesARuntimeFormIdAndNamesThePluginForm()
+    {
+        using var w = new World();
+        var response = PlaceAssetTools.BulkPlaceAsset(
+            w.Svc, new[] { new PlaceAssetSpec { Formid = Runtime(w), Kind = "mesh" } });
+        RefusedNothingWritten(w, response);
+    }
+
+    /// <summary>The token every write door above refuses still reads — the ruling is read-only, not banned.</summary>
+    [Fact]
+    public void TheTokenTheWriteDoorsRefuseStillReads()
+    {
+        using var w = new World();
+        Served(Read(w, Runtime(w)), "HcRtLightWeapon", World.LightName);
+    }
+
     // ---- helpers ----------------------------------------------------------------------------------
+
+    /// <summary>The runtime FormID of the light plugin's weapon — the token the write doors are given.</summary>
+    static string Runtime(World w) => World.LightRuntime(0, w.LightWeapon);
+
+    /// <summary>A write refusal that hands back the plugin form to paste in the token's place, having written
+    /// nothing: no mod folder was created for the patch.</summary>
+    static void RefusedNothingWritten(World w, string? message)
+    {
+        Assert.NotNull(message);
+        Assert.Contains("runtime FormID", message);
+        Assert.Contains(World.Fid(w.LightWeapon), message);
+        Assert.Equal(w.ModFolders, Directory.GetDirectories(w.ModsDir).Length);
+    }
 
     static string Read(World w, string formid)
         => RecordsTools.Records(w.Svc, formids: new[] { formid });
@@ -201,6 +284,12 @@ public sealed class RuntimeFormIdTests
         readonly string _priorCorpusPath;
 
         public LoadOrderService Svc { get; }
+
+        /// <summary>The instance's mods folder, and how many folders it held before any test ran — a write that
+        /// should have been refused shows up here as a new patch folder.</summary>
+        public string ModsDir { get; }
+        public int ModFolders { get; }
+
         public FormKey FullWeapon { get; }
         public FormKey LightWeapon { get; }
 
@@ -291,6 +380,8 @@ public sealed class RuntimeFormIdTests
             CorpusGenerator.GenerateAll(genDir, Path.Combine(_root, "corpus-ref"));
             CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
+            ModsDir = mods;
+            ModFolders = Directory.GetDirectories(mods).Length;
             Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(_root, "user.json")));
         }
 

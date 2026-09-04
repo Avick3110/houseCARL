@@ -15,9 +15,11 @@ namespace HousecarlMcp;
 internal sealed class FormIdDoor
 {
     readonly LoadOrderService? _svc;
+    readonly bool _write;
     LoadOrderResolver.IndexView? _view;
 
-    FormIdDoor(LoadOrderService? svc, LoadOrderResolver.IndexView? view) { _svc = svc; _view = view; }
+    FormIdDoor(LoadOrderService? svc, LoadOrderResolver.IndexView? view, bool write = false)
+    { _svc = svc; _view = view; _write = write; }
 
     /// <summary>A door pinned to a build the caller already captured, so its FormIDs and its records describe the
     /// same index.</summary>
@@ -26,17 +28,29 @@ internal sealed class FormIdDoor
     /// <summary>A door that captures a build on the first runtime FormID, and never if none arrives.</summary>
     public static FormIdDoor For(LoadOrderService svc) => new(svc, null);
 
+    /// <summary>The same door in WRITE mode: a runtime FormID is translated and then refused, because it names a
+    /// slot in the order as it stands rather than a record, and a re-sort between the parse and the write would
+    /// point the same eight digits at a different record. Reads keep taking it.</summary>
+    public static FormIdDoor ForWrite(LoadOrderService svc) => new(svc, null, write: true);
+
     /// <summary>The build this door captured, or null when no runtime FormID arrived and it never reached for one.
     /// A caller that goes on to scan passes it down, so the tokens it parsed and the records it matches come from
     /// the same index build rather than two adjacent ones.</summary>
     public LoadOrderResolver.IndexView? CapturedView => _view;
 
     /// <summary>Parse one token — see <see cref="LoadOrderResolver.IndexView.ParseFormId"/>. Throws one plain
-    /// sentence on anything it cannot answer.</summary>
+    /// sentence on anything it cannot answer, and on a runtime FormID at a <see cref="ForWrite"/> door.</summary>
     public FormKey Parse(string? raw)
     {
         if (!RuntimeFormId.TryParse(raw, out _)) return FormKey.Factory((raw ?? "").Trim());
         _view ??= _svc!.CaptureView();
-        return _view.Value.ParseFormId(raw);
+        var fk = _view.Value.ParseFormId(raw);
+        // Translate first, so the refusal can hand back the plugin form to paste in place of the token.
+        if (_write)
+            throw new FormatException(
+                $"'{(raw ?? "").Trim()}' is a runtime FormID, which houseCARL accepts for reading but not for " +
+                $"writing, because it names a slot in the load order as it stands rather than a record — write to " +
+                $"'{fk.ID:X6}:{fk.ModKey.FileName}' instead.");
+        return fk;
     }
 }

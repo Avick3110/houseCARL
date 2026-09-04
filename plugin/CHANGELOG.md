@@ -17,6 +17,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
   answer instead of cutting to none.** `housecarl_nif_inspect` already did; both tools now render through one batch
   skeleton, so the first item always answers and the omitted-count cut reads the same in both.
 
+- **A runtime FormID (`FExxxYYY` / `XX######`) is now read-only: the write verbs refuse one and hand back the
+  `XXXXXX:Plugin.esp` form to use in its place.** A runtime FormID names a slot in the load order as it stands, so
+  a re-sort between the parse and the write would point the same eight digits at a different record; the plugin form
+  cannot move that way. The refusal names the translated form, so it can be pasted straight back into the call.
+  Reading by a runtime FormID is unchanged, and the doors that refuse are the ones the write verbs parse their
+  targets through — see `FormIdDoor.ForWrite`.
+
 - **`housecarl_records` with `source={"file", "mod"}` now reads the copy in the named mod folder, even when that
   filename is active in the load order.** Several mod folders can ship the same plugin filename (an ESP replacer),
   and MO2 serves one of them; naming a folder addresses that folder's file. When the named copy is not the one the
