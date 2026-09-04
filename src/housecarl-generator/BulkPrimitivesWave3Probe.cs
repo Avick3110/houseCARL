@@ -492,6 +492,16 @@ public static class BulkPrimitivesWave3Probe
         Directory.CreateDirectory(Path.GetDirectoryName(decoyPath)!);
         File.Copy(dataServedPath, decoyPath, overwrite: true);
 
+        // The same disabled-decoy-ahead-of-Data ordering, on a name the ACTIVE ORDER DOES NOT CARRY, so the locate
+        // actually runs: a pole for a plugin in the order resolves active before any folder is searched, which is
+        // why the live HcW3DataServed arms below can no longer reach this rule.
+        var dofKey = new ModKey("HcW3DataOff", ModType.Plugin);
+        var dataOffPath = Path.Combine(dir, "game", "Data", dofKey.FileName.String);
+        var dofMod = new SkyrimMod(dofKey, SkyrimRelease.SkyrimSE);
+        var dofw = dofMod.Weapons.AddNew(); dofw.EditorID = "DataOffW"; dofw.BasicStats = new WeaponBasicStats { Damage = 12 };
+        dofMod.BeginWrite.ToPath(dataOffPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        File.Copy(dataOffPath, Path.Combine(mods, "DataServedDecoy", dofKey.FileName.String), overwrite: true);
+
         // UNTICKED plugin: sole copy, in an ENABLED mod folder, but listed in plugins.txt WITHOUT the `*`. MO2's left
         // pane says yes, its right pane says no, and the game does not load it — the exact state a mod-folder-only
         // flag reports backwards.
@@ -591,6 +601,8 @@ public static class BulkPrimitivesWave3Probe
             return at < 0 ? null : label[(at + marker.Length)..].TrimEnd(')');
         }
 
+        // The path-identity rule, not the locate: a path that IS the active order's own copy resolves back to the
+        // plugin name and takes the active arm before any folder is searched.
         Check("source pole: an ENABLED plugin addressed by path resolves to the ACTIVE arm, not a not-active one",
               Arm(replPath) == "active in the load order");
         Check("source pole: the same-named backup OUTSIDE the install says no layer provides it — not 'disabled'",
@@ -607,10 +619,15 @@ public static class BulkPrimitivesWave3Probe
                                               project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage" } });
         Check("source pole: the shadowed copy still reads its own value (66) off the file",
               shadowRead.Contains("BasicStats.Damage = 66"));
-        // The served copy is the first ENABLED-layer hit, not the first hit: a DISABLED folder holding the same
-        // filename is listed ahead of game Data, and must not decide the live plugin's provenance.
+        // Same rule, again on path identity: the live copy of a plugin the order carries takes the active arm.
         Check("source pole: a game-Data-served plugin listed BEHIND a disabled copy still resolves ACTIVE",
               Arm(dataServedPath) == "active in the load order");
+        // The served copy is the first ENABLED-layer hit, not the first hit: a DISABLED folder holding the same
+        // filename is walked ahead of game Data, and must not decide which copy serves. Driven on a name the order
+        // does NOT carry, so the locate actually runs — judge against the first hit and this copy reads SHADOWED.
+        Check("source pole: game Data serves the copy a disabled decoy is walked ahead of — the decoy never decides",
+              Cause(dataOffPath) is { } wDo && wDo.Contains("not registered in MO2's load order")
+              && !wDo.Contains("SHADOWED") && !wDo.Contains("switched OFF"));
         // A copy in a switched-off mod: the remedy is the LEFT pane, and the cause must say so rather than blame
         // the plugin's tick (the decoy is in plugins.txt nowhere, so a naive renderer would say "unticked"). The
         // PATH lane's own where identifies no layer, so this cause must still name the mod.
