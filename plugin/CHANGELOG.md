@@ -29,7 +29,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   game, with its last-write time unchanged so nothing rebuilds — used to be skipped without a word, and every
   record it wins was missing from an answer that read as a complete scan. Each of those tools now names the
   plugin and the reason, and states that records it wins are missing; the scan still covers the rest of the
-  order. A SkyPatcher post-state read (`source={"overlay": "skypatcher", "state": "post"}`) of a record whose
+  order. The sentences that would contradict that — "this quest owns NO dialogue topics", "applied by no
+  SPEL/ENCH/ALCH/SCRL/INGR in the active order", and the paged header's "NO records match at any offset; check
+  the filter, not the paging" — are replaced with what the scan can actually claim, which is what it found in
+  the plugins it could read. A file lock is also no longer reported as a quest CK-parity finding: it has its
+  own line in the text response and its own `scan_gaps` key in the json one, so a quest whose ANAM and
+  objective FNAMs are correct still gets its parity verdict. A SkyPatcher post-state read (`source={"overlay": "skypatcher", "state": "post"}`) of a record whose
   replay resolves an EditorID against such a plugin now refuses by name rather than replaying against a lookup
   table it knows is short; a record the layer addresses by FormID is unaffected.
 
