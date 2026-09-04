@@ -696,8 +696,10 @@ public static class NifService
             }
             case NifSetOpKind.SetPath:
             {
-                if (op.TextureSlot is not { } slot) return ("set_path needs a texture_slot.", null, null, null, null, false);
                 if (op.Path is null) return ("set_path needs a path.", null, null, null, null, false);
+                // Two addressing forms, one op: a texture-set SLOT on a named shape, or — with no slot — the header
+                // STRING itself, which is how a material (.bgsm), a .tri or a physics-xml ref is carried.
+                if (op.TextureSlot is not { } slot) return SetHeaderString(nif, op);
                 var (shape, err) = ResolveShape(nif, op.Target);
                 if (err is not null) return (err, null, null, null, null, false);
                 var shader = nif.GetShader(shape!);
@@ -786,6 +788,56 @@ public static class NifService
         if (matches.Count == 0) return (null, $"no shape named '{name}' in this mesh. Shapes: {ShapeNames(nif)}. Nothing was written.");
         if (matches.Count > 1) return (null, $"more than one shape is named '{name}' — ambiguous, refusing rather than guess which. Nothing was written.");
         return (matches[0], null);
+    }
+
+    /// <summary>set_path's HEADER-STRING form: swap the header string equal to <c>op.Target</c> for <c>op.Path</c>,
+    /// wherever a block references it — the material (.bgsm), .tri / BODYTRI and physics-xml refs the read side
+    /// already lists under <c>sections=strings</c>. Addressed by the string's own current VALUE, because that is what
+    /// the read prints and the table holds one entry per distinct string, so every reference to it moves together.
+    ///
+    /// <para>A string that is a shape's or node's NAME is REFUSED here and sent to rename_shape / rename_node: those
+    /// ops carry the rename-onto-an-existing-name guard, and routing a rename through this form would walk around
+    /// it. Everything else in the table is the material/asset-ref class this form exists for.</para>
+    ///
+    /// <para>Touches the header only. The string table is authored, exactly as a rename's is; a block carries the
+    /// table INDEX, which a same-order content swap leaves alone.</para></summary>
+    static (string? Error, string? Target, string? Before, string? After, int? TouchedBlock, bool TouchedHeader)
+        SetHeaderString(NifFile nif, NifSetOp op)
+    {
+        var target = op.Target;
+        if (target.Length == 0)
+            return ("set_path with no texture_slot swaps a HEADER STRING, so target must be the string to replace (from "
+                  + "nif_inspect sections=strings). Nothing was written.", null, null, null, null, false);
+        if (target == op.Path)
+            return ($"the header string '{target}' already reads that way — nothing to change. Nothing was written.", null, null, null, null, false);
+
+        var refs = HeaderStringRefs(nif).Where(r => (r.String ?? "") == target).ToList();
+        if (refs.Count == 0)
+            return ($"no header string in this mesh reads '{target}'. Pass the string EXACTLY as {ToolNames.NifInspect} "
+                  + "sections=strings prints it (matching is case-sensitive). Nothing was written.", null, null, null, null, false);
+
+        // A named shape/node has its own op, with guards this form does not repeat.
+        foreach (var av in nif.Blocks.OfType<NiflySharp.Blocks.NiAVObject>())
+            if (av.Name is { } n && refs.Any(r => ReferenceEquals(r, n)))
+                return ($"'{target}' is the NAME of a shape or node, not an asset reference — use op=rename_shape or "
+                      + "op=rename_node, which refuse renaming onto a name already in use. Nothing was written.", null, null, null, null, false);
+
+        foreach (var r in refs) r.String = op.Path;
+        return (null, target, target, op.Path, null, true);
+    }
+
+    /// <summary>Every <see cref="NiStringRef"/> a block in this mesh carries — the authored half of the header string
+    /// table, reached through each block's own <c>StringRefs</c> rather than the table, because a write must move the
+    /// reference the block holds and the table is regenerated from those on save.</summary>
+    static IEnumerable<NiStringRef> HeaderStringRefs(NifFile nif)
+    {
+        foreach (var b in nif.Blocks)
+        {
+            if (b is null) continue;
+            var refs = b.StringRefs;
+            if (refs is null) continue;
+            foreach (var r in refs) if (r is not null) yield return r;
+        }
     }
 
     static (NiNode? Node, string? Error) ResolveNode(NifFile nif, string name)
@@ -1004,6 +1056,14 @@ public static class NifService
                 if (idx < 0 || idx >= dis.Partitions.Count) return (false, "(index gone)");
                 return (op.BodyPartId is { } bp && (int)dis.Partitions[idx].BodyPart == bp, $"[{idx}]={(int)dis.Partitions[idx].BodyPart}");
             }
+            case NifSetOpKind.SetPath when op.TextureSlot is null:
+            {
+                // The header-string form: the new string must be there and the old one gone, both read off the
+                // RELOADED mesh's own refs.
+                var strings = HeaderStringRefs(nif).Select(r => r.String ?? "").ToList();
+                return (strings.Contains(op.Path ?? "") && !strings.Contains(op.Target),
+                        strings.Contains(op.Target) ? $"'{op.Target}' still present" : "(new string absent)");
+            }
             case NifSetOpKind.SetPath:
             {
                 var s = nif.GetShapes().FirstOrDefault(x => (x.Name?.String ?? "") == op.Target);
@@ -1183,7 +1243,9 @@ public enum NifSetOpKind { RenameShape, RenameNode, SetFlags, SetScale, SetParti
 /// The value fields are read per <see cref="Kind"/> and are otherwise null: <see cref="NewName"/> (rename), <see
 /// cref="Flags"/> (set_flags), <see cref="Scale"/> (set_scale), <see cref="BodyPartId"/> + optional
 /// <see cref="PartitionIndex"/> (set_partition), <see cref="AlphaFlags"/> and/or <see cref="AlphaThreshold"/>
-/// (set_alpha), <see cref="TextureSlot"/> + <see cref="Path"/> (set_path — a BSShaderTextureSet slot),
+/// (set_alpha), <see cref="TextureSlot"/> + <see cref="Path"/> (set_path — a BSShaderTextureSet slot; with a null
+/// <see cref="TextureSlot"/> the same op swaps the HEADER STRING <see cref="Target"/> names, the material / .tri /
+/// physics-xml form),
 /// <see cref="ShaderValue"/> + <see cref="ShaderNumbers"/> (set_shader_value — a shader lighting value; see
 /// <see cref="NifService.ShaderValueNames"/>).
 /// <para><see cref="ShaderNumbers"/> is deliberately an ARITY-FREE list rather than a scalar-or-colour pair: how many

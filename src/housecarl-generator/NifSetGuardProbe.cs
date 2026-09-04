@@ -18,6 +18,9 @@ namespace HousecarlGenerator;
 ///   • rename_shape (same length AND longer) — the header-string edit lands and the length-changing case does NOT
 ///     false-abort (the empirical reason gate 1 is a block-CONTENT diff, not a byte-position diff — 2026-07-08).
 ///   • rename_node — a node's header-string name changes.
+///   • set_path with NO texture_slot — the header-string form (#413): an asset reference (a .tri / material /
+///     physics-xml string) swaps, every other string is untouched, a length-changing swap does not false-abort, and
+///     a shape/node NAME, an absent string, a wrong-case near-miss and a swap-for-itself all refuse loud.
 ///
 /// Verification RED arms (prove the gates CATCH a bad write, not merely pass through — called directly):
 ///   • gate 1 (block-content) — an edit that also changed a NON-expected block is REFUSED; the same edit with that
@@ -35,7 +38,11 @@ namespace HousecarlGenerator;
 /// </summary>
 internal static class NifSetGuardProbe
 {
-    const string DefaultSmoke = @"E:\Skyrim Modding\ARR 2.0\mods\A makeover for Lucien\meshes\actors\character\FaceGenData\FaceGeom\lucien.esp\00005900.nif";
+    /// <summary>The synthetic mesh's asset-reference header string — a BODYTRI value, the material/.tri/xml class
+    /// set_path's header-string form addresses, and not any shape or node's name.</summary>
+    const string GuardTriPath = @"meshes\actors\character\character assets\guard.tri";
+
+    const string DefaultSmoke =@"E:\Skyrim Modding\ARR 2.0\mods\A makeover for Lucien\meshes\actors\character\FaceGenData\FaceGeom\lucien.esp\00005900.nif";
 
     [CiProbe("nif-set-guard")]
     public static int RunGuard(string[] args)
@@ -121,6 +128,40 @@ internal static class NifSetGuardProbe
             var s = ShapeOf(o.WrittenBytes, "GuardShape");
             Check(o.Error is null && s is { Flags: 0x800000E } && Math.Abs(s!.Scale - 3f) < 1e-6f,
                   $"two ops in one call both land — {(s is null ? o.Error : $"0x{s.Flags:X}/{s.Scale}")}");
+        }
+
+        // ---- set_path, HEADER-STRING form (#413): a material / .tri / physics-xml ref swaps like a rename ----
+        Console.WriteLine();
+        Console.WriteLine("--- set_path without texture_slot: the header-string form ---");
+        {
+            const string swapped = @"meshes\actors\character\character assets\guardswapped.tri";
+            var o = NifService.Set(seBytes, new[] { new NifSetOp(NifSetOpKind.SetPath, GuardTriPath, Path: swapped) });
+            Check(o.Error is null && o.WrittenBytes is not null, $"a header string swaps and verifies — {o.Error ?? "ok"}");
+            var strings = o.WrittenBytes is null ? new List<string>() : NifService.Inspect(o.WrittenBytes).Inspect!.HeaderStrings.ToList();
+            Check(strings.Contains(swapped) && !strings.Contains(GuardTriPath),
+                  "the new string is in the table and the old one is gone");
+            // The write is a swap, not an addition: nothing else in the table may move.
+            var before = NifService.Inspect(seBytes).Inspect!.HeaderStrings;
+            Check(strings.Count == before.Count && before.Where(x => x != GuardTriPath).All(strings.Contains),
+                  "every OTHER header string is untouched (a swap, not an insert)");
+            // A LONGER replacement grows the table, which is the case a byte-position diff would false-abort on.
+            var longer = NifService.Set(seBytes, new[] { new NifSetOp(NifSetOpKind.SetPath, GuardTriPath, Path: swapped + "_and_then_some_more") });
+            Check(longer.Error is null, $"a LENGTH-CHANGING header-string swap does not false-abort gate 1 — {longer.Error ?? "ok"}");
+
+            // Refusals. A shape/node name has its own op, with guards this form does not repeat.
+            var onName = NifService.Set(seBytes, new[] { new NifSetOp(NifSetOpKind.SetPath, "GuardShape", Path: "Renamed") });
+            Check(onName.Error is not null && onName.Error.Contains("rename_shape") && onName.WrittenBytes is null,
+                  $"a shape NAME is refused and sent to rename_shape — {onName.Error ?? "(wrote it — BUG)"}");
+            var missing = NifService.Set(seBytes, new[] { new NifSetOp(NifSetOpKind.SetPath, @"meshes\nothing\here.tri", Path: swapped) });
+            Check(missing.Error is not null && missing.Error.Contains("no header string") && missing.WrittenBytes is null,
+                  $"a string no block carries is refused by name — {missing.Error ?? "(wrote it — BUG)"}");
+            // Case matters: the table is exact, so a near-miss must refuse rather than swap something else.
+            var wrongCase = NifService.Set(seBytes, new[] { new NifSetOp(NifSetOpKind.SetPath, GuardTriPath.ToUpperInvariant(), Path: swapped) });
+            Check(wrongCase.Error is not null && wrongCase.WrittenBytes is null,
+                  $"matching is case-SENSITIVE — a wrong-case target refuses — {wrongCase.Error ?? "(wrote it — BUG)"}");
+            var same = NifService.Set(seBytes, new[] { new NifSetOp(NifSetOpKind.SetPath, GuardTriPath, Path: GuardTriPath) });
+            Check(same.Error is not null && same.WrittenBytes is null,
+                  $"swapping a string for itself is refused rather than written as a no-op — {same.Error ?? "(wrote it — BUG)"}");
         }
 
         // ---- verification RED arms: the gates CATCH a bad write (called directly) ----
@@ -510,6 +551,13 @@ internal static class NifSetGuardProbe
 
         var bare = new BSTriShape { Name = new NiStringRef("BareShape"), Flags_ui = 0x400000E, Scale = 1f };
         root.Children.AddBlockRef(f.AddBlock(bare));
+
+        // A header string that is an ASSET REFERENCE rather than a name — the material / .tri / physics-xml class
+        // set_path's header-string form addresses.
+        var tri = new NiStringExtraData { Name = new NiStringRef("BODYTRI"), StringData = new NiStringRef(GuardTriPath) };
+        root.ExtraDataList ??= new NiBlockRefArray<NiExtraData>();
+        root.ExtraDataList.AddBlockRef(f.AddBlock(tri));
+        root.NumExtraDataList = (uint)root.ExtraDataList.Count;
 
         using var ms = new MemoryStream();
         if (f.Save(ms) != 0) throw new InvalidOperationException("nif-set-guard: authoring the synthetic SE mesh failed to save");
