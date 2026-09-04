@@ -954,8 +954,11 @@ public sealed class LoadOrderResolver : IDisposable
 
     /// <summary>The master filenames a plugin declares in its header (the master TABLE). Opens the overlay, reads
     /// <c>ModHeader.MasterReferences</c>, disposes — the header parses without enumerating records. Throws
-    /// on a name not in the order or excluded this build, mirroring <see cref="PluginRecordStatus"/>. The
-    /// integrity sweep (housecarl_check_errors) diffs this against the masters a plugin's records actually reference.</summary>
+    /// on a name not in the order or excluded this build, mirroring <see cref="PluginRecordStatus"/>, and throws
+    /// <see cref="PluginUnreadableException"/> on a plugin that opened at index-build time but cannot be opened now —
+    /// the same fault, in the same words, as the record stream's, so a caller that classifies the two reads of one
+    /// plugin cannot give the same held-open file two different causes. The integrity sweep
+    /// (housecarl_check_errors) diffs this against the masters a plugin's records actually reference.</summary>
     public IReadOnlyList<string> DeclaredMasters(string pluginName) => DeclaredMasters(pluginName, _snap);
 
     IReadOnlyList<string> DeclaredMasters(string pluginName, IndexSnapshot s)
@@ -964,7 +967,11 @@ public sealed class LoadOrderResolver : IDisposable
             throw new ArgumentException($"plugin not in the load order: {pluginName}.{AbsenceClause(pluginName)}");
         if (s.Excluded.Contains(idx))
             throw new ArgumentException($"plugin '{pluginName}' was excluded from this session: {s.ExcludedPlugins[pluginName]}");
-        var ov = OpenOverlay(_paths[idx], _dataDir);
+        ISkyrimModGetter ov;
+        // Named as unopenable, exactly as RecordsIn names it: the header read and the record walk open the same file
+        // the same way, so a plugin held open by another program must arrive at both callers as one fault.
+        try { ov = OpenOverlay(_paths[idx], _dataDir); }
+        catch (Exception ex) { throw new PluginUnreadableException(_names[idx], ex); }
         try { return ov.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList(); }
         finally { (ov as IDisposable)?.Dispose(); }
     }
