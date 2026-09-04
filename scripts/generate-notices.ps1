@@ -34,12 +34,16 @@
   Run standalone against any publish directory:
       pwsh scripts/generate-notices.ps1 -PublishDir dist/housecarl/server
 
+  -Check generates into memory and writes nothing, failing if either tracked copy differs. CI runs it
+  after a publish, so a dependency bump cannot merge with a stale notices file.
+
   NOTE: keep this file ASCII-only. Windows PowerShell 5.1 misreads UTF-8 non-ASCII bytes as CP1252
   and fails to parse.
 #>
 param(
   [Parameter(Mandatory = $true)][string] $PublishDir,
-  [string] $RepoRoot
+  [string] $RepoRoot,
+  [switch] $Check
 )
 $ErrorActionPreference = 'Stop'
 
@@ -244,6 +248,28 @@ for ($k = $regions.Count - 1; $k -ge 0; $k--) {
 }
 
 $rendered = ($lines -join $newline)
+
+if ($Check) {
+  # Compare instead of writing, so CI can fail a dependency bump that leaves a tracked copy stale.
+  foreach ($copy in @($PluginCopy, $RootCopy)) {
+    $onDisk = [System.IO.File]::ReadAllText($copy, [System.Text.Encoding]::UTF8)
+    if ($onDisk -eq $rendered) { continue }
+    $want = $rendered -split "`r?`n"
+    $have = $onDisk -split "`r?`n"
+    $firstDiff = [Math]::Max($want.Length, $have.Length)
+    for ($i = 0; $i -lt $firstDiff; $i++) {
+      $w = if ($i -lt $want.Length) { $want[$i] } else { $null }
+      $h = if ($i -lt $have.Length) { $have[$i] } else { $null }
+      if ($w -ne $h) { $firstDiff = $i; break }
+    }
+    $haveLine = if ($firstDiff -lt $have.Length) { "'" + $have[$firstDiff] + "'" } else { 'nothing' }
+    $wantLine = if ($firstDiff -lt $want.Length) { "'" + $want[$firstDiff] + "'" } else { 'nothing' }
+    throw ("{0} is stale: line {1} has {2} where the publish output gives {3}; rerun scripts/build-plugin.ps1 and commit both THIRD-PARTY-NOTICES.txt copies" -f $copy, ($firstDiff + 1), $haveLine, $wantLine)
+  }
+  Write-Host ("notices: {0} components from {1} (both tracked copies match)" -f $components.Count, $PublishDir)
+  return
+}
+
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($PluginCopy, $rendered, $utf8NoBom)
 [System.IO.File]::WriteAllText($RootCopy, $rendered, $utf8NoBom)
