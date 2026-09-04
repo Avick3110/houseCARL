@@ -87,6 +87,10 @@ jobs:
       # freshness-capture-guard runs as its own cold process: its deferral arm needs a write slow enough to
       # straddle a fixed ~100ms sleep, which only holds in a cold process. The warm ci-all runner finishes the
       # write too fast to land that race, so this probe is carved out here and ci-all does not run it.
+      #
+      # This block is hand-maintained and nothing enforces it. ci-all filters Standalone probes out, so a new
+      # one — or an existing probe flipped to Standalone = true — runs nowhere unless its step is added here
+      # by hand, with the job green either way.
       - name: Probe — freshness-capture-guard (own cold process)
         if: ${{ !cancelled() }}
         run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll freshness-capture-guard

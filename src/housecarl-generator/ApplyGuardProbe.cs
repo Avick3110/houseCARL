@@ -201,6 +201,8 @@ public static class ApplyGuardProbe
         int after = RanksIn(fx.ReplacerPath, fx.FactionFid);
         Check("two key-addressed Removes in one call: BOTH land (the count drops by two)",
             after == before - 2, $"{before} -> {after}\n{twoRemoves}");
+        Check("…and NEITHER is slandered — no op's clause says the re-opened file could not answer for it",
+            !twoRemoves.Contains("the re-opened file did not answer for this op", StringComparison.Ordinal), twoRemoves);
     }
 
     /// <summary>ARM 8 (#308) — the two seams a review found INERT: nothing pinned the keyed exemption (deleting it

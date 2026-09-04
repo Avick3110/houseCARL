@@ -10,7 +10,9 @@ namespace HousecarlGenerator;
 ///
 /// <para>The roster is DERIVED: every method carrying <see cref="CiProbeAttribute"/>, sorted by name. A guard
 /// enrols itself and deleting its file deletes its row — there is no table to keep. Standalone probes
-/// (<c>Standalone = true</c>) are dispatchable and counted but do not run here; CI gives them their own step.</para>
+/// (<c>Standalone = true</c>) are dispatchable and counted but do not run here; each needs its own step in
+/// <c>ci.yml</c>, hand-maintained. Nothing enforces that, so flagging a probe standalone also owes that file
+/// an edit — otherwise the probe runs in neither harness.</para>
 ///
 /// <para>Failure model: every probe runs even if an earlier one fails, so one run surfaces EVERY failure, each
 /// as a GitHub <c>::error::</c> annotation naming the probe. The job still goes red if any probe fails.</para>
@@ -36,8 +38,9 @@ public static class CiAll
     /// The prefix is read off the attribute's own assembly name rather than spelled here.
     /// </summary>
     /// <remarks>
-    /// A guard's assembly has to reference housecarl-core to see the attribute at all, and this project
-    /// references every houseCARL project, so the closure is the whole population.
+    /// The bound, stated plainly: probes are discovered in the generator, housecarl-core, housecarl-mcp and
+    /// housecarl-setup assemblies. A [CiProbe] anywhere else — housecarl-mcp-tests, say, which this project
+    /// does not reference — is not in the roster and nothing runs it.
     /// </remarks>
     public static IReadOnlyList<Assembly> GuardAssemblies => _guardAssemblies ??= DiscoverAssemblies();
 
