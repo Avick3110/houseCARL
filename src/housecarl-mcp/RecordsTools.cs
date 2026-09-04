@@ -156,7 +156,7 @@ public static class RecordsTools
             RecordsScope? plugins = null,
         [Description("SELECT: keep only records touched by more than one plugin (the contested set).")]
             bool conflicts_only = false,
-        [Description("SELECT: body predicates, ANDed — see the tool description for the full grammar (comparisons, contains/startswith, has, exists/missing, in/'not in' membership incl. @file and artifact re-entry, the '->' link step, the 'winner' provenance term, and the 'editorid' term that replaces editorid_contains=). A body scan — must be combined with types= or plugins= to bound the work. A wrong path is reported loud, never a silent '0 matches'.")]
+        [Description("SELECT: body predicates, ANDed — see the tool description for the full grammar (comparisons, contains/startswith, has, exists/missing, in/'not in' membership incl. @file and artifact re-entry, the '->' link step, the 'winner' provenance term, and the 'editorid' term that replaces editorid_contains=). A body scan — must be combined with types= or plugins= to bound the work. A wrong path is reported loud, never a silent '0 matches'. Paths are scalar leaves: step into a list element with BRACKETS ('Effects[0].Data.Magnitude'), never a dotted hop; a WILDCARD over a list ('Effects[*].Magnitude') is a known future capability and is not built.")]
             string[]? where = null,
         [Description("Which BODY the where= predicates decide the MATCH on: 'scoped' (default — the body the scan streams) or 'winner' (the live load-order winner regardless of scan scope; the post-patch audit answer). Match only — fields_source= independently governs display.")]
             string? where_source = null,
