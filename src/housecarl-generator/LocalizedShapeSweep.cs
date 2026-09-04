@@ -4,14 +4,9 @@ using HousecarlMcp;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// A3 (advisor directive, 2026-08-26): classify every localized plugin in a REAL load order into the strings shapes
-/// and count them. It priced who the localized in-place write actually served — the ruling's own "what would make
-/// this wrong" line turned on this table, so the numbers rode the branch rather than a guess.
-///
-/// <para>The in-place write was then cut for EVERY shape, so the table no longer prices an allowed lane: it prices
-/// the population a refusal has to describe accurately. The column that used to read ALLOW / REFUSE names the refusal
-/// FAMILY instead, and the plugins houseCARL could not OPEN are counted as their own number rather than added to
-/// "flagged localized" — which was a claim about each of them that nothing established.</para>
+/// Classify every localized plugin in a REAL load order into the strings shapes and count them — the population a
+/// refusal message has to describe accurately. The in-place write is refused for EVERY shape, so what differs per
+/// row is the refusal FAMILY, not whether the write is allowed.
 ///
 /// <para>Read-only: opens each plugin's header, enumerates its Strings folder, and opens an adjacent .bsa only when one
 /// is present. Nothing is written.</para>
@@ -58,10 +53,8 @@ public static class LocalizedShapeSweep
             l.Add(name + Detail(a));
         }
 
-        // BROKEN OUT, not summed. "N flagged localized" over every non-NotLocalized shape counts the plugins houseCARL
-        // could not OPEN as localized ones — a claim about each of them that nothing established — and the sweep's
-        // whole job is pricing the population, so the plugins it could not read are their own number rather than
-        // padding for someone else's.
+        // Broken out, not summed: a plugin houseCARL could not OPEN is not evidence that it is localized, so it gets
+        // its own number instead of padding the localized count.
         int localized = counts.Where(kv => LocalizedStrings.ConfirmedLocalized(kv.Key)).Sum(kv => kv.Value.Count);
         int unreadable = counts.Where(kv => !LocalizedStrings.ConfirmedLocalized(kv.Key)).Sum(kv => kv.Value.Count);
         Console.WriteLine($"instance : {instance}");
@@ -73,11 +66,8 @@ public static class LocalizedShapeSweep
         {
             if (shape == LocalizedShape.NotLocalized) continue;
             var l = counts.TryGetValue(shape, out var x) ? x : new List<string>();
-            // NOT A VERDICT COLUMN ANY MORE. It printed ALLOW for LooseComplete, from before the in-place write was
-            // cut for EVERY shape — so the one row labelled ALLOW was the row the branch specifically refuses, and
-            // anyone re-running this after the cut would read "ALLOW LooseComplete 1" and conclude houseCARL will
-            // rewrite ksws07_quest.esm in place. It will not. What differs per row now is the refusal FAMILY, so that
-            // is what the column carries.
+            // Not a verdict column: the in-place write is refused for every shape here, so the column names which
+            // refusal applies, never whether one does.
             var family = LocalizedStrings.ConfirmedLocalized(shape) ? "REFUSE localized " : "REFUSE unreadable";
             Console.WriteLine($"  {family} {shape,-27} {l.Count}");
         }

@@ -7,15 +7,11 @@ namespace HousecarlGenerator;
 /// THE SHAPE MATRIX for the merged <c>check</c> response — an INVENTORY of the shapes this surface can produce,
 /// with the allocation, cap and remedy properties driven over EVERY one of them.
 ///
-/// <para><b>Why it exists.</b> Review round 2 (2026-08-22) found six separate conditionals with no arm that could
-/// fail, and CLAUDE.md §5 #11's class rule fired on them together: the arms were being written one per FINDING,
-/// never from an inventory of the shapes the surface produces, so whole shapes had no fixture at all. The headline
-/// instance was that no merged <c>counts_only</c> render at a biting cap existed anywhere in <c>check-guard</c> —
-/// which is precisely the shape #394 is about, so <c>HistogramByTarget</c>, <c>HistogramBySource</c>,
+/// <para><b>Why it exists.</b> Arms written one per finding leave whole shapes with no fixture at all: a merged
+/// <c>counts_only</c> render at a biting cap had none, so <c>HistogramByTarget</c>, <c>HistogramBySource</c>,
 /// <c>HistogramByProperty</c>, <c>UnreadRows</c> and <c>ScriptScanRows</c> were never allocated, never charged and
-/// never asked for monotonicity, no-stranding or exactness. Eleven more arms would have made the suite bigger
-/// without making the shape coverage complete. This is the fixture instead: build the shapes once, drive the
-/// properties over all of them.</para>
+/// never asked for monotonicity, no-stranding or exactness. Build the shapes once and drive the properties over
+/// all of them, so coverage follows from the inventory rather than from what anyone thought to add.</para>
 ///
 /// <para><b>The inventory.</b> Every subset of the three families, each in the LISTING and the <c>counts_only</c>
 /// lane, plus the states a family can be in that are not "ran": REFUSED (its own section is a refusal) and
@@ -29,9 +25,9 @@ namespace HousecarlGenerator;
 /// sample. What these arms are about is shape coverage, not scale; <c>check-measure</c> owns scale, on the live
 /// order.</para>
 ///
-/// <para><b>Its known-RED canary.</b> <c>MATRIX-INSIDE-ITS-CAP</c> reproduces A1 — a merged response with a large
-/// roster landing OVER <c>max_chars</c>, measured by hand at 4,494 chars against a 4,000 cap before this file
-/// existed. A matrix that cannot see a defect measured by hand is a broken matrix.</para>
+/// <para><b>Its known-RED case.</b> <c>MATRIX-INSIDE-ITS-CAP</c> reproduces a merged response with a large roster
+/// landing OVER <c>max_chars</c> — 4,494 chars against a 4,000 cap, found by hand. A matrix that cannot see a
+/// defect found by hand is a broken matrix.</para>
 /// </summary>
 internal static class CheckShapeMatrix
 {
@@ -123,7 +119,7 @@ internal static class CheckShapeMatrix
             new CheckSweep(Sel("errors", "scripts"), e, sc, new[] { "HcMxFresh.esp" }));
         // …and the same file named on a call where that family REFUSED. The off-order sentence is now written above
         // whatever the family goes on to say, refusal included, so a refusal section carries a sentence no other
-        // shape puts in the fixed part — and the fixed-part pass has to measure it (round-2 finding B4).
+        // shape puts in the fixed part — and the fixed-part pass has to measure it.
         Add("errors+scripts, listing, off-order, scripts refused",
             new CheckSweep(Sel("errors", "scripts"), e, refusedScripts, new[] { "HcMxFresh.esp" }));
         // ---- NO FAMILY ANSWERED, on DISTINCT grounds ------------------------------------------------
@@ -278,9 +274,9 @@ internal static class CheckShapeMatrix
                             // (6) THE TWO HONESTY LAYERS ARE ONE SHAPE. `unread` (errors) and `scan_errors`
                             // (scripts) answer the same kind of question — what this sweep could NOT read — and a
                             // merged response carries both in one document, so a consumer has to parse them the
-                            // same way. They disagreed: one kept its 1.x wrapper and the other was rebuilt as a
-                            // bare array (Aaron's review of PR #399, finding 1). Asked at EVERY cap, because what
-                            // the wrapper is FOR is saying it was cut, and the cut is what the band produces.
+                            // same way — one keeping a wrapper while the other is a bare array is a defect. Asked
+                            // at EVERY cap, because what the wrapper is FOR is saying it was cut, and the cut is
+                            // what the band produces.
                             honestyCells += HonestyLayers(doc.RootElement, shape.Name, cap, honestyBad);
                         }
                         catch (Exception ex)
@@ -380,11 +376,10 @@ internal static class CheckShapeMatrix
                                 : noticesFollowed > 0 ? $"{noticesFollowed} notices followed, each cleared in one step"
                                                       : "the notice never fired anywhere in the matrix — the arm never saw the case it is for");
 
-        // THE SHAPE #394 IS ABOUT, and the one that had no fixture anywhere. The three properties above are only
-        // worth their names over subjects the allocation actually reaches, so this asks the membership question
-        // directly: every subject any shape PLANS gets room somewhere in its band, and the five subjects a merged
-        // counts_only render carries are among them. Not one of them was allocated or charged anywhere in this
-        // guard before the matrix existed, so every arm above would have been asked of them vacuously.
+        // The three properties above are only worth their names over subjects the allocation actually reaches, so
+        // this asks the membership question directly: every subject any shape PLANS gets room somewhere in its
+        // band, and the five subjects a merged counts_only render carries are among them. Without this, an
+        // unallocated subject leaves every arm above to be asked of it vacuously.
         var countsOnlySubjects = new[]
         {
             SweepSubject.HistogramByTarget, SweepSubject.HistogramBySource, SweepSubject.HistogramByProperty,
@@ -618,9 +613,9 @@ internal static class CheckShapeMatrix
     }
 
     /// <summary>EVERY subject a shape can render — its families' planned subjects AND the response's own, which
-    /// belong to no family. The roster is the second kind, and leaving it out is how a sabotage that stopped
-    /// measuring its demand altogether came back green through the whole sweep: it is allocated, charged and cut
-    /// like any other subject, so every property here has to be asked of it.</summary>
+    /// belong to no family. The roster is the second kind, and leaving it out lets a break that stops measuring its
+    /// demand pass green through the whole sweep: it is allocated, charged and cut like any other subject, so every
+    /// property here has to be asked of it.</summary>
     static SweepSubject[] Subjects(Shape shape)
         => Subjects(CheckOutcome.For(shape.Sweep));
 
@@ -637,11 +632,10 @@ internal static class CheckShapeMatrix
     /// record sections, scan-error rows, unread rows, dangling entries, seed heads, topic blocks, unreachable-seed
     /// rows, roster rows, and every counts_only histogram row.
     ///
-    /// <para><b>Each marker is a string a composer really emits, and one of them was not.</b> The dangling entry
-    /// was counted by <c>"  dangling ref "</c>, which <see cref="ReadTools.ComposeDanglingLine"/> does not write —
-    /// its line ends in the bracketed reason below. So that term was 0 in every response and this fingerprint was
-    /// blind to the one subject the errors family accounts for a unit at a time (Aaron's review of PR #399,
-    /// finding 2 / round-3 B1). A marker is now taken from the composer's own text.</para></summary>
+    /// <para><b>Every marker must be a string a composer really emits.</b> A marker no composer writes makes its
+    /// term 0 in every response, and the fingerprint then goes blind to that subject instead of failing — which is
+    /// what <c>"  dangling ref "</c> did, since <see cref="ReadTools.ComposeDanglingLine"/> ends its line in the
+    /// bracketed reason below. Take each marker from the composer's own text.</para></summary>
     static string TextFingerprint(string t)
         => string.Join("/", new[]
            {

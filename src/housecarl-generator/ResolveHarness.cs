@@ -5,12 +5,11 @@ using Mutagen.Bethesda.Skyrim;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// MCP-step §8.3 — verification harness for the net-new <see cref="LoadOrderResolver"/> (housecarl-core).
+/// Verification harness for <see cref="LoadOrderResolver"/>: stand it up against a real, large load order and
+/// measure held RAM, build-and-query correctness, on-demand body-fetch timing, and the freshness stat-sweep cost.
 ///
-/// Mirrors the engine/harness split (§6-B): the resolver is product code in the shared lib; this CLI mode
-/// stands it up against a real, large load order and PROVES it — held RAM (the precise multi-only number
-/// Aaron deferred), build-and-query correctness, on-demand body-fetch timing, and the freshness stat-sweep
-/// cost. Winner IDENTITY is NOT asserted here (placeholder order; §8.5 pins the true active order + xEdit-verifies).
+/// Winner IDENTITY is deliberately NOT asserted here — the plugin order this runs on is a placeholder, not the
+/// user's real active order, so a winner it names would mean nothing.
 ///
 /// Run: dotnet run --project src/housecarl-generator resolve [maxPlugins]
 /// </summary>
@@ -30,7 +29,7 @@ public static class ResolveHarness
         Console.WriteLine($"Plugins (placeholder order — masters first, then mods\\ by name): {paths.Count}" +
                           (maxPlugins > 0 ? $"  (capped to {maxPlugins})" : ""));
 
-        // ---- 1. BUILD — held RAM (the precise multi-only index number) + build time. ----
+        // ---- 1. BUILD — held RAM for the index alone + build time. ----
         var baseline = ResolveProbe.Mem();
         var sw = Stopwatch.StartNew();
         using var resolver = LoadOrderResolver.Build(paths);
@@ -62,7 +61,7 @@ public static class ResolveHarness
         Console.WriteLine($"   winner (last in order) = {tree.Winner.Plugin}  | IsConflict {tree.IsConflict}");
         Console.WriteLine($"   CHECK every node is {tree.RecordType}: {(allSameType ? "PASS" : "FAIL")}  | every fetched body == {deepestFk}: {(allMatchFk ? "PASS" : "FAIL")}");
 
-        // ---- 3. CAPABILITY 4/5 — a spread of trees + a batch (body-fetch timing across depths). ----
+        // ---- 3. A spread of conflict trees — body-fetch timing across depths. ----
         Console.WriteLine();
         Console.WriteLine("---- a spread of conflict trees (capabilities 4 + 5) ----");
         var byDepth = new SortedDictionary<int, FormKey>();
@@ -81,7 +80,7 @@ public static class ResolveHarness
             Console.WriteLine($"   depth {d,-3} {fk}  {t.RecordType,-16} winner={t.Winner.Plugin}  {(ok ? "PASS" : "FAIL")}");
         }
 
-        // ---- 4. CAPABILITY 1/2/6 — one plugin's whole-order conflict status. ----
+        // ---- 4. One plugin's whole-order conflict status. ----
         Console.WriteLine();
         Console.WriteLine("---- a plugin's conflict status (capabilities 1, 2, 6) ----");
         // Pick a non-master plugin that actually participates in conflicts: the one owning the deepest tree's winner.
