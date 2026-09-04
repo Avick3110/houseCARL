@@ -96,11 +96,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   ignored on the other two, and a call runs one family — every response names the family it ran and the spelling of
   the two it did not. The three old names return a one-line redirect naming the `findings=` value that replaces them.
 
-- **The pairing family now names a debug-built DLL that loads on your own machine.** Reaching a `[LOADS]` verdict
+- **The pairing family now reports a debug-built DLL that loads on your own machine.** Reaching a `[LOADS]` verdict
   while the DLL imports the debug C runtime means that runtime resolved here — so it loads for you and fails with
-  error 126 for anyone without it. The verdict is unchanged, because it does load here; the line now says who it
-  will not load for. The inventory family already flagged this, so the two families no longer disagree about the
-  same file.
+  error 126 for anyone without it. The verdict is unchanged, because it does load here; what is new is that the DLL
+  line says who it will not load for, and that such a class is a finding of its own in the default view rather than a
+  name in the healthy roster, so the summary no longer reports a clean bill of health over it. The inventory family
+  already flagged this, so the two families no longer disagree about the same file.
 
 - **`housecarl_asset_status` under a `max_chars` its header and alarms already fill now renders the first path's
   answer instead of cutting to none.** `housecarl_nif_inspect` already did; both tools now render through one batch
