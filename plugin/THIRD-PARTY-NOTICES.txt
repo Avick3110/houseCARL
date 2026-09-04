@@ -20,7 +20,9 @@ The complete source for houseCARL is published at:
     https://github.com/Avick3110/houseCARL
 The corresponding source for the bundled Mutagen libraries is at:
     https://github.com/Mutagen-Modding/Mutagen
+  --- generated: Mutagen release ---
     (release 0.54.4; repository commit 0188012c607ce8bb283d2704400d37737f089134)
+  --- end generated ---
 The other GPL components' sources are linked beside each entry below.
 
 WHAT SHIPS
@@ -29,9 +31,10 @@ The plugin bundles the third-party components below in server/ — compiled .NET
 assemblies from a framework-dependent .NET 9 publish (the .NET runtime itself is
 NOT bundled; the user installs it). Components are grouped by license.
 
-The component tables between the "--- generated ---" markers below are written by
-the build from that publish output (scripts/generate-notices.ps1), so the names and
-versions are what actually ships. Everything else here is hand-authored.
+The regions between the "--- generated ---" markers — the component tables below and
+the Mutagen release and commit above — are written by the build from that publish
+output (scripts/generate-notices.ps1), so the names and versions are what actually
+ships. Everything else here is hand-authored.
 
 
 ===============================================================================

@@ -1,0 +1,5 @@
+{
+  "_comment": "Mutagen release version -> the repository commit that release is tagged at, for the GPLv3 section 6 corresponding-source line in THIRD-PARTY-NOTICES.txt. Read by scripts/generate-notices.ps1: the line is written from the Mutagen version the publish output actually ships, and a shipped version with no entry here stops the build. Take the commit from the tag for that release, github.com/Mutagen-Modding/Mutagen/releases/tag/<version>.",
+
+  "0.54.4": "0188012c607ce8bb283d2704400d37737f089134"
+}
