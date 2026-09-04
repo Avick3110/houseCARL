@@ -4241,14 +4241,12 @@ public sealed class LoadOrderService : IDisposable
         var resolver = Resolver;
         var viewAll = resolver.Capture();
 
-        // #344's exclude= axis. The `implicit` group is a fact about the MO2 composition — the plugins the order
-        // loads that plugins.txt does not list — so it is read HERE, where that composition lives, and the core
-        // sweep receives plain filenames. Resolved before anything is swept: a bad value refuses having done no
-        // work (Q3).
-        // The composition read only defines the `implicit` GROUP, so only a caller who wrote that token is affected
-        // by its failure. Gated on "an exclusion was passed at all", exclude=["CoolMod.esp"] over an unreadable
-        // profile was refused with a message about a group the caller never named — and a refusal a caller cannot
-        // act on is the shape this gate exists to avoid, not one to spread.
+        // The exclude= axis. The `implicit` group is a fact about the MO2 composition — the plugins the order loads
+        // that plugins.txt does not list — so it is read here, where that composition lives, and the core sweep
+        // receives plain filenames. Resolved before anything is swept, so a bad value refuses having done no work.
+        // The check is gated on the caller having written the `implicit` token, not merely on an exclusion being
+        // passed: otherwise a named-plugin exclusion over an unreadable profile is refused with a message about a
+        // group the caller never named.
         bool wantsImplicit = exclude?.Any(v => (v ?? "").Trim().Equals(SweepExclusion.ImplicitToken, StringComparison.OrdinalIgnoreCase)) == true;
         var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames() : (Array.Empty<string>(), null);
         if (implicitErr is not null) return ErrorCheckResult.Fail(implicitErr);
@@ -4270,8 +4268,8 @@ public sealed class LoadOrderService : IDisposable
                 if (view.ContainsPlugin(n)) { active.Add(n); continue; }
                 comp ??= Mo2LoadOrder.ReadComposition(profileDir);
                 var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, n, null);
-                // Membership/locate refusals are decided against THIS captured build + its composition — stamped
-                // (PR #305 review, the refusal contract). The parse refusals above consulted no build and stay null.
+                // Membership and locate refusals are decided against THIS captured build and its composition, so
+                // they are stamped. The parse refusals above consulted no build and stay unstamped.
                 if (loc.Error is not null)
                     return ErrorCheckResult.Fail($"plugin not in the load order: {n} — and no on-disk copy was found either ({loc.Error})")
                            with { Epoch = view.Epoch };
@@ -4296,9 +4294,9 @@ public sealed class LoadOrderService : IDisposable
     /// in a disabled mod, or unticked — is a fact about the MO2 composition, which lives at this layer. Done here so
     /// the split has one home shared with <c>read_plugin_file</c>'s advisory
     /// (<see cref="Mo2LoadOrder.SplitUnsatisfiedMasters"/>) rather than a second spelling inside the core.
-    /// <para>A composition that cannot be read leaves every report's subset NULL — not empty. Empty would say "none
-    /// of these is merely disabled", which is a claim about an install nobody looked at; null says the split was not
-    /// made, and the render answers with the union remedy it printed before (Q3).</para></summary>
+    /// <para>A composition that cannot be read leaves every report's subset null, not empty. Empty would say "none
+    /// of these is merely disabled", a claim about an install nobody looked at; null says the split was not made,
+    /// and the render falls back to the union remedy.</para></summary>
     ErrorCheckResult ClassifyMissingMasters(ErrorCheckResult r)
     {
         if (r.Error is not null || r.Reports.Count == 0) return r;
@@ -4312,11 +4310,10 @@ public sealed class LoadOrderService : IDisposable
         try
         {
             comp = Mo2LoadOrder.ReadComposition(profileDir);
-            // The install's plugin-name set, read ONCE for the whole sweep. Per report it was one whole-install
-            // folder walk PER NAME, and the walk's expensive path is the common one: a master that is not installed
-            // short-circuits nowhere, so it pays the enabled mods, the disabled mods, the unlisted-folder listing
-            // and Data before returning false — then the next plugin declaring the same name paid it all again.
-            // The answer never depended on which report asked, so neither does the read.
+            // The install's plugin-name set, read ONCE for the whole sweep rather than per report per name. The
+            // expensive path is the common one: a master that is not installed short-circuits nowhere, so it walks
+            // the enabled mods, the disabled mods, the unlisted folders and Data before returning false. The answer
+            // does not depend on which report asked, so neither does the read.
             installed = Mo2LoadOrder.AllPluginFileNames(comp, modsDir, dataDir, overwriteDir);
         }
         catch { return r; }
@@ -4330,14 +4327,11 @@ public sealed class LoadOrderService : IDisposable
         return r with { Reports = classified };
     }
 
-    /// <summary>The force-loaded plugin names (in the order, absent from plugins.txt) for
-    /// <see cref="SweepExclusion.ImplicitToken"/>, or a REASON it could not be read.
-    ///
-    /// <para>It used to swallow the failure and return an empty list. That is the shape houseCARL fails on: a probe
-    /// that cannot see turns into an absence, and the absence is then acted on. Here the group expanded to nothing,
-    /// nothing was excluded, and the response carried no note that exclude= had even been passed — while the
-    /// parameter's own text promised a value that matches nothing is refused. A read that did not happen is not a
-    /// set that is empty, and the caller who asked for the group is the one who is told.</para></summary>
+    /// <summary>The force-loaded plugin names — in the order, absent from plugins.txt — for
+    /// <see cref="SweepExclusion.ImplicitToken"/>, or the reason they could not be read. A read that did not happen
+    /// is not a set that is empty: swallowing the failure would expand the group to nothing, exclude nothing, and
+    /// leave the response silent about it, while the parameter promises that a value matching nothing is
+    /// refused.</summary>
     (IReadOnlyList<string> Names, string? Error) ImplicitPluginNames()
     {
         string profileDir;
@@ -4359,10 +4353,10 @@ public sealed class LoadOrderService : IDisposable
     internal string? SweepScopeError(IReadOnlyList<string>? formids, string? editoridContains, string? type)
         => BuildSweepScope(formids, editoridContains, type).Error;
 
-    /// <summary>Parse the two sweep tools' shared record-scope params (#282) into a <see cref="SweepScope"/>: FormID
-    /// tokens, an EditorID substring, and a record type resolved through the SAME TypeLookup cross_plugin_query uses.
-    /// Every malformed input is a NAMED refusal returned BEFORE the sweep starts (Q3 — never a scope that silently
-    /// matched nothing). Returns (null, null) when nothing was narrowed, so the unscoped path stays untouched.</summary>
+    /// <summary>Parse the sweep families' shared record-scope params into a <see cref="SweepScope"/>: FormID tokens,
+    /// an EditorID substring, and a record type resolved through the same type lookup the scan uses. Every malformed
+    /// input is a named refusal returned before the sweep starts, never a scope that silently matched nothing.
+    /// Returns (null, null) when nothing was narrowed, so the unscoped path stays untouched.</summary>
     (SweepScope? Scope, string? Error) BuildSweepScope(IReadOnlyList<string>? formids, string? editoridContains, string? type)
     {
         HashSet<FormKey>? keys = null;
@@ -4392,14 +4386,13 @@ public sealed class LoadOrderService : IDisposable
 
     // ---- script-property sweep (housecarl_validate_scripts) --------------------------------------------
 
-    /// <summary>Sweep the active order (or the given <paramref name="plugins"/> scope) for VMAD script properties that
-    /// are declared in the attached script's .pex (or an ancestor it extends) but left UNBOUND on the record — a silent
-    /// <c>None</c> (housecarl_validate_scripts). Thin wiring over the core <see cref="ScriptPropertyCheck.Run"/>, which
-    /// holds all the cross-check logic + Q3 teeth so the self-contained guard drives this same path over synthetic
-    /// records + a planted .pex. Passes the live <see cref="Assets"/> resolver (the same one the dialogue validator and
-    /// facegen use) so a script's .pex is found loose OR BSA-packed. Read-only; composes existing primitives.
-    /// <para>#282 — the record-scope / property-name / class-filter / counts-only knobs are parsed here (a bad FormID,
-    /// unknown record type, or unrecognized finding class refuses the call before any sweep runs).</para></summary>
+    /// <summary>Sweep the active order, or the given <paramref name="plugins"/> scope, for VMAD script properties
+    /// declared in the attached script's .pex (or an ancestor it extends) but left unbound on the record — a silent
+    /// <c>None</c>. Thin wiring over the core <see cref="ScriptPropertyCheck.Run"/>, which holds all the cross-check
+    /// logic so a test can drive this same path over synthetic records and a planted .pex. Passes the live
+    /// <see cref="Assets"/> resolver so a script's .pex is found loose or BSA-packed. Read-only.
+    /// <para>The record-scope, property-name, class-filter and counts-only knobs are parsed here, so a bad FormID,
+    /// unknown record type or unrecognized finding class refuses the call before any sweep runs.</para></summary>
     public ScriptCheckResult ValidateScripts(IReadOnlyList<string>? plugins, int limit,
                                              IReadOnlyList<string>? formids = null, string? editoridContains = null,
                                              string? type = null, string? propertyContains = null,
@@ -4410,10 +4403,10 @@ public sealed class LoadOrderService : IDisposable
         if (scopeErr is not null) return ScriptCheckResult.Fail(scopeErr);
         if (!SweepFindings.TryParseScriptClasses(findings, out var classes, out var classErr))
             return ScriptCheckResult.Fail(classErr!);
-        // ONE resolver + view threaded through, same contract as CheckErrors (PR #305 re-review).
+        // One resolver and view threaded through, same contract as CheckErrors.
         var resolver = Resolver;
-        // The exclusion resolves HERE, where the MO2 composition lives, exactly as it does for CheckErrors — the
-        // core sweep receives plain filenames, and a bad value refuses having done no work (Q3).
+        // The exclusion resolves here, where the MO2 composition lives, exactly as it does for CheckErrors: the core
+        // sweep receives plain filenames, and a bad value refuses having done no work.
         bool wantsImplicit = exclude?.Any(v => (v ?? "").Trim().Equals(SweepExclusion.ImplicitToken, StringComparison.OrdinalIgnoreCase)) == true;
         var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames() : (Array.Empty<string>(), null);
         if (implicitErr is not null) return ScriptCheckResult.Fail(implicitErr);
@@ -4429,17 +4422,16 @@ public sealed class LoadOrderService : IDisposable
     /// sweep's own file, not here.</summary>
     internal IReadOnlyList<string> ActivePluginNames => Resolver.PluginNames;
 
-    // ---- writes (§8.4 Beat C: housecarl_set_field / housecarl_bulk_apply) -------------------------------
+    // ---- writes ----------------------------------------------------------------------------------------
 
-    /// <summary>Apply one-or-more edits as a single patch (housecarl_set_field = one op; housecarl_bulk_apply = many).
-    /// Parses each op's FormID + field path + (optional) composition spec to the core's <see cref="WritePatchBuilder.PatchEdit"/>,
-    /// resolves the output path as a NEW MO2 mod folder under ModsDir (folder-per-patch — see <see cref="ResolveOutputPath"/>),
-    /// then drives the proven public cleave <see cref="WritePatchBuilder.Apply"/> (resolve winner → derive type → pre-flight
-    /// ALL → override → ApplyVerb → multi-master serialize). ALL-OR-NOTHING (Q3): a single malformed op or pre-flight reject
-    /// refuses the whole call with no file written. Writes go to a NEW patch by default; <paramref name="into"/> EXTENDS an
-    /// existing houseCARL-owned patch (the multi-session accumulation lever). Returns null-Error outcome on success.
-    /// <paramref name="fullReadback"/> additionally reads every touched record back IN FULL off the written file
-    /// (the pre-enable verify loop — wishlist #3 re-scoped / HCBR-2026-06-11-02 wave (b)).</summary>
+    /// <summary>Apply one or more edits as a single patch. Parses each op's FormID, field path and optional
+    /// composition spec into the core's <see cref="WritePatchBuilder.PatchEdit"/>, resolves the output path as a new
+    /// MO2 mod folder under ModsDir, then drives <see cref="WritePatchBuilder.Apply"/>: resolve winner, derive type,
+    /// pre-flight all, override, apply the verb, serialize with the right masters. All-or-nothing — a single
+    /// malformed op or pre-flight rejection refuses the whole call with no file written. Writes go to a new patch by
+    /// default; <paramref name="into"/> extends an existing houseCARL-owned patch. Success is a null-Error outcome.
+    /// <paramref name="fullReadback"/> additionally reads every touched record back in full off the written file,
+    /// which is the pre-enable verify loop.</summary>
     public WritePatchBuilder.PatchOutcome ApplyEdits(IReadOnlyList<BulkOp> ops, string? patchName, string? into,
         bool fullReadback = false, string? target = null, bool inPlace = false, bool acknowledge = false,
         bool dryRun = false, IReadOnlyList<string?>? fromRecords = null, IReadOnlyList<string?>? opOrigins = null)
@@ -4447,10 +4439,10 @@ public sealed class LoadOrderService : IDisposable
         if (ops.Count == 0)
             return WritePatchBuilder.PatchOutcome.Fail("no operations supplied.");
 
-        // In-place is the explicit, named-file opt-in (the SECOND write lane — edit an existing plugin, incl. one
-        // houseCARL didn't author, instead of writing a new patch). Validate the contract up front (Q3): it REQUIRES a
-        // target=, and it is mutually exclusive with into= (which EXTENDS a houseCARL patch — a different lane). target=
-        // without in_place is a no-op the caller likely didn't mean — name it rather than silently ignore it.
+        // In-place is the explicit, named-file opt-in: edit an existing plugin, including one houseCARL did not
+        // author, instead of writing a new patch. The contract is validated up front — it requires target=, and it
+        // is mutually exclusive with into=, which extends a houseCARL patch. target= without in_place is a no-op the
+        // caller likely did not mean, so it is named rather than silently ignored.
         if (inPlace && string.IsNullOrWhiteSpace(target))
             return WritePatchBuilder.PatchOutcome.Fail(
                 "in_place=true requires target=<plugin filename> — name the existing plugin to edit in place. (Omit in_place to write a new patch instead — the default, originals untouched.)");
@@ -4467,8 +4459,8 @@ public sealed class LoadOrderService : IDisposable
         var problems = new List<string>();
         for (int i = 0; i < ops.Count; i++)
         {
-            // fromRecords[i] is the §4.5 zip's per-op SOURCE RECORD (housecarl_apply's from=), carried parallel to
-            // the op list because BulkOp — the 1.x published wire shape — deliberately gains no new member.
+            // fromRecords[i] is the zip's per-op source record, carried parallel to the op list because the
+            // published wire shape deliberately gains no new member.
             var edit = MapEdit(ops[i], i, out var err,
                 fromRecords is not null && i < fromRecords.Count ? fromRecords[i] : null,
                 opOrigins is not null && i < opOrigins.Count ? opOrigins[i] : null);
@@ -4478,17 +4470,16 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.PatchOutcome.Fail(
                 $"refused — {problems.Count} of {ops.Count} operation(s) malformed; NO patch written:\n  - " + string.Join("\n  - ", problems));
 
-        lock (_writeGate)                                                 // hunt F2: one write at a time, resolve→commit
+        lock (_writeGate)                                                 // one write at a time, resolve through commit
         {
             var resolver = Resolver;                                      // builds/refreshes the index
             var rulebook = Rulebook;
 
             if (inPlace)
             {
-                // The in-place lane resolves off-order CopyFrom sources exactly as the patch lane does (W3: LANE is
-                // uniform — every ACT verb composes with in_place). The overlays must stay OPEN across the whole
-                // in-place write (CopyField deep-copies through them, and the re-serialize follows), so they are
-                // disposed only after ApplyEditsInPlace returns.
+                // The in-place lane resolves off-order CopyFrom sources exactly as the patch lane does. The overlays
+                // must stay OPEN across the whole in-place write — CopyField deep-copies through them and the
+                // re-serialize follows — so they are disposed only after ApplyEditsInPlace returns.
                 Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? ipSources = null;
                 List<IDisposable>? ipOverlays = null;
                 var ipError = PrepareCopyFromSources(resolver, edits, ref ipSources, ref ipOverlays, out var ipEpoch);
@@ -4501,17 +4492,17 @@ public sealed class LoadOrderService : IDisposable
                 finally { if (ipOverlays is not null) foreach (var d in ipOverlays) d.Dispose(); }
             }
 
-            // #225: a dry run resolves the would-be output path WITHOUT creating the mod folder (create:false) — the
-            // one disk side effect the pre-serialize pipeline otherwise has. The fresh-lane name is a preview: the
-            // real write re-picks a free stem, so a concurrent write can shift the auto-suffix.
+            // A dry run resolves the would-be output path WITHOUT creating the mod folder — the one disk side effect
+            // the pre-serialize pipeline otherwise has. The fresh-lane name is only a preview: the real write
+            // re-picks a free stem, so a concurrent write can shift the auto-suffix.
             string outPath; bool extend, created;
             try { outPath = ResolveOutputPath(patchName, into, out extend, out created, create: !dryRun, FreshPatchRemedy.NamedByPatchParam); }
             catch (Exception ex) { return WritePatchBuilder.PatchOutcome.Fail(ex.Message); }
 
-            // P8b: pre-resolve any CopyFrom source that is OFF-ORDER (from_plugin on disk but NOT in the active order —
-            // the "copy from the disabled OLD patch" case). Active-order sources are resolved INSIDE Apply via its own
-            // captured view (sharing the winner's build); only off-order files need the MO2 on-disk locate here, and
-            // their overlays must stay OPEN through the serialize (CopyField deep-copies through them) — disposed after.
+            // Pre-resolve any CopyFrom source that is off-order — on disk but not in the active order, the "copy
+            // from the disabled old patch" case. Active-order sources are resolved inside Apply via its own captured
+            // view, sharing the winner's build; only off-order files need the on-disk locate here, and their
+            // overlays must stay open through the serialize because CopyField deep-copies through them.
             Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? copyFromSources = null;
             List<IDisposable>? offOrderOverlays = null;
             var cfError = PrepareCopyFromSources(resolver, edits, ref copyFromSources, ref offOrderOverlays, out var cfEpoch);
@@ -4524,7 +4515,7 @@ public sealed class LoadOrderService : IDisposable
             try
             {
                 var outcome = WritePatchBuilder.Apply(resolver, rulebook, edits, outPath, extend, fullReadback, copyFromSources, dryRun);
-                if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused write leaves no orphan
+                if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // a refused write leaves no orphan folder
                 return outcome;
             }
             finally { if (offOrderOverlays is not null) foreach (var d in offOrderOverlays) d.Dispose(); }
@@ -4538,37 +4529,32 @@ public sealed class LoadOrderService : IDisposable
     /// Returns a Q3 refusal string if any off-order source can't be located/opened/read or doesn't define the record
     /// (all-or-nothing, before any write); null on success. Uses the SAME on-disk locate as read_plugin_file / the
     /// copy-npc-appearance donor lane, so the tools can never disagree on which file a filename names.
-    /// <para>This capture is its OWN — the engine captures again — so a body pre-fetched here is only USED when the
-    /// engine's own build still agrees the source is off-order (<c>WritePatchBuilder.TryOffOrderCopyBody</c>, #317).
-    /// That is a structural invariant, NOT the mid-call race #317 was filed as: a write pins one resolver instance and
-    /// its name table is never rebuilt, so the two captures cannot disagree about membership today. The helper's own
-    /// doc carries the full statement.</para>
-    /// <para>MUTATES <paramref name="edits"/> — after the no-CopyFrom early return and this helper's own capture,
-    /// and before anything READS an edit (#321): a CopyFrom source addressed by a PATH
-    /// that names the very file the order LOADS is re-spelled to that plugin's NAME
-    /// (<see cref="RespellActiveCopySourcePaths"/>). Stated here rather than left to the reader because a
-    /// <c>Resolve…</c> helper rewriting its argument is a surprise — the alternative was a second
-    /// <c>Capture()</c> at the call site purely to re-spell, and this list is the one both the pre-locate and the
-    /// ENGINE consume, which is exactly what makes one rewrite reach both.</para></summary>
+    /// <para>This capture is its own — the engine captures again — so a body pre-fetched here is only used when the
+    /// engine's build still agrees the source is off-order. A write pins one resolver instance whose name table is
+    /// never rebuilt, so the two captures cannot disagree about membership.</para>
+    /// <para>MUTATES <paramref name="edits"/>, after the no-CopyFrom early return and this helper's own capture and
+    /// before anything reads an edit: a CopyFrom source addressed by a PATH that names the very file the order loads
+    /// is re-spelled to that plugin's NAME (<see cref="RespellActiveCopySourcePaths"/>). Stated because a resolve
+    /// helper rewriting its argument is a surprise; this list is the one both the pre-locate and the engine consume,
+    /// which is what makes one rewrite reach both.</para></summary>
     string? PrepareCopyFromSources(LoadOrderResolver resolver, IList<WritePatchBuilder.PatchEdit> edits,
         ref Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? sources, ref List<IDisposable>? overlays,
         out string? epoch)
     {
-        // This helper takes its OWN capture, so its refusals are decided AFTER a build was consulted and must be
-        // stamped like every other post-capture outcome (re-review [low]: the first epoch fold missed this class).
-        // Null only when no CopyFrom op exists — then nothing here consults a build at all.
+        // This helper takes its OWN capture, so its refusals are decided after a build was consulted and are stamped
+        // like every other post-capture outcome. Null only when no CopyFrom op exists, when nothing consults a build.
         epoch = null;
         if (!edits.Any(e => string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal))) return null;   // no CopyFrom → no source work
         var view = resolver.Capture();
         epoch = view.Epoch;
-        RespellActiveCopySourcePaths(view, edits);   // #321 — before the predicate, and before any key is taken
+        RespellActiveCopySourcePaths(view, edits);   // before the predicate, and before any edit is used as a key
         string modsDir = "", dataDir = "", overwriteDir = "", profileDir = "";
         Mo2Composition? comp = null;
         var problems = new List<string>();
         foreach (var e in edits)
         {
-            // The SHARED predicate, not a restatement of it (PR #318 review [low]): the engine consumes what this
-            // fetches through the same rule, so a clause added to one can never fail to reach the other.
+            // The shared predicate, not a restatement of it: the engine consumes what this fetches through the same
+            // rule, so a clause added to one can never fail to reach the other.
             if (!WritePatchBuilder.IsOffOrderCopySource(e, view)) continue;   // not a CopyFrom, or active — Apply resolves it off the shared build
             if (comp is null)
             {
@@ -4588,89 +4574,69 @@ public sealed class LoadOrderService : IDisposable
             if (body is null)
             {
                 (ov as IDisposable)?.Dispose();
-                // Name WHICH record the file is missing: the target's own version (same-record copy) or the §4.5
-                // zip's SOURCE record (cross-record) — "this record" would point at the wrong one on the zip lane.
+                // Name WHICH record the file is missing: the target's own version for a same-record copy, or the
+                // zip's source record for a cross-record one — "this record" would point at the wrong one.
                 problems.Add(e.FromTarget is null
                     ? $"{e.Target}: CopyFrom source file '{e.FromPlugin}' does not define or override this record — there is no version of it there to copy."
                     : $"{e.Target}: CopyFrom source file '{e.FromPlugin}' does not define or override the SOURCE record {e.CopySource} — there is no version of it there to copy from.");
                 continue;
             }
             (overlays ??= new()).Add((IDisposable)ov);
-            (sources ??= new())[e] = body;   // distinct Path-array refs make each PatchEdit a distinct key (value equality); indexer is collision-safe regardless
+            (sources ??= new())[e] = body;   // distinct Path-array refs make each PatchEdit a distinct key under value equality; the indexer is collision-safe regardless
         }
         return problems.Count > 0
             ? $"refused — {problems.Count} CopyFrom source problem(s); NO patch written:\n  - " + string.Join("\n  - ", problems)
             : null;
     }
 
-    /// <summary>#321 — re-spell every <c>CopyFrom</c> source that is a PATH to the ACTIVE copy of a plugin into that
-    /// plugin's NAME, in place, so the rest of the write speaks the load order's own vocabulary.
-    ///
-    /// <para>Why it is needed at all: off-order-ness is decided by <c>WritePatchBuilder.IsOffOrderCopySource</c>, a
-    /// lookup in the plugin-NAME table. A full path is never a key there, so <c>from_source=C:\…\SomeMod\Bar.esp</c>
-    /// answered "off-order" for a plugin the order is actively serving — the body was read off the file directly,
-    /// bypassing the build the rest of the call resolves against, and the response described the source as not in the
-    /// load order. Usually a wrong LABEL; under a profile switch, where a filename is served by a different mod
-    /// folder, a wrong BODY.</para>
-    ///
-    /// <para>NOT fixed here, deliberately, though #321 listed it as a symptom: a path to an EXCLUDED-but-active plugin
-    /// still reads the file directly rather than taking the exclusion refusal. That is <c>ActiveNameForPath</c>'s own
-    /// rule (it declines excluded plugins), and it is the read surface's deliberate escape hatch — records ahead of
-    /// the unparseable one still come back. <c>forward</c> made the same call in PR #313; parity is the point.</para>
-    ///
-    /// <para><see cref="ActiveNameForPath"/> is the rule <c>forward</c> already answers this with (PR #313 [medium]),
-    /// reused rather than restated: a FULL-PATH identity compare, so a same-named backup keeps the off-order lane,
-    /// and a path to an EXCLUDED plugin does too — reading that one directly is the deliberate escape hatch.</para>
-    ///
-    /// <para>Applied BEFORE the pre-locate loop for two reasons. A <c>PatchEdit</c> is the KEY of the pre-fetched
-    /// source dictionary, so re-spelling one afterwards would leave a key the engine can never look up; and the same
-    /// list is handed to the engine, so one rewrite reaches the arm decision, the winner comparison and every
-    /// rendered sentence at once — where a clause inside the shared predicate would have routed the body correctly
-    /// while the report still called an active plugin off-order.</para></summary>
+    /// <summary>Re-spell every <c>CopyFrom</c> source that is a PATH to the ACTIVE copy of a plugin into that
+    /// plugin's NAME, in place, so the rest of the write speaks the load order's vocabulary.
+    /// <para>Off-order-ness is decided by a lookup in the plugin-NAME table, and a full path is never a key there, so
+    /// a path to a plugin the order is actively serving would answer "off-order": the body would be read off the
+    /// file directly, bypassing the build the rest of the call resolves against. Usually that is only a wrong label,
+    /// but under a profile switch, where a filename is served by a different mod folder, it is a wrong body.</para>
+    /// <para>A path to an EXCLUDED-but-active plugin deliberately still reads the file directly rather than taking
+    /// the exclusion refusal: <see cref="ActiveNameForPath"/> declines excluded plugins, which is the read surface's
+    /// escape hatch, and the forward lane behaves the same way.</para>
+    /// <para>Applied BEFORE the pre-locate loop for two reasons: a PatchEdit is the key of the pre-fetched source
+    /// dictionary, so re-spelling one afterwards would leave a key the engine can never look up; and the same list
+    /// goes to the engine, so one rewrite reaches the arm decision, the winner comparison and every rendered
+    /// sentence at once.</para></summary>
     static void RespellActiveCopySourcePaths(LoadOrderResolver.IndexView view, IList<WritePatchBuilder.PatchEdit> edits)
     {
         for (int i = 0; i < edits.Count; i++)
         {
             var e = edits[i];
             if (!string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal)) continue;
-            // LooksLikePath gate, matching ResolvePoleArm / ResolveOffOrderForwardSource — the convention those
-            // sites cite; harmless without it (a bare filename that is active never reaches the off-order arm
-            // anyway), but a convention with an exception is one someone has to re-derive.
+            // The same LooksLikePath check the other pole-resolving sites use. Harmless without it — a bare filename
+            // that is active never reaches the off-order arm anyway — but kept so the convention has no exception.
             if (string.IsNullOrWhiteSpace(e.FromPlugin) || !LooksLikePath(e.FromPlugin!)) continue;
             if (ActiveNameForPath(view, e.FromPlugin!) is { } activeName)
                 edits[i] = e with { FromPlugin = activeName };
         }
     }
 
-    /// <summary>W3 PR 2b — locate the ONE <c>source=</c> plugin a forward call shares when the ACTIVE ORDER does not
-    /// contain it (a disabled mod, an unticked plugin, an unregistered folder, or a direct path), open it, and pre-fetch
-    /// every requested record's body off its own overlay. The forward twin of <see cref="PrepareCopyFromSources"/>,
-    /// and simpler than it: every forward in a call names the same source, so this is locate-ONCE / open-ONCE / fetch-N
-    /// rather than a per-edit loop. Uses the SAME on-disk locate as read_plugin_file / the copy-npc-appearance donor lane
-    /// (<see cref="LocatePluginFileOnDisk"/>), so two tools can never disagree about which file a filename names.
-    ///
-    /// <para>Returns null with <paramref name="error"/> null when the source IS in the active order — the ordinary path,
-    /// which pays no locate and no overlay at all (the engine resolves it through the shared captured build). Returns
-    /// null with <paramref name="error"/> set when the file can't be located / opened / read, when its name is ambiguous
-    /// across mod folders, or when it doesn't define a requested record — refused BY NAME, all-or-nothing, before any
-    /// write (Q3).</para>
-    ///
-    /// <para><paramref name="overlay"/> is handed back OPEN: the bodies are deep-copied during the write, so the caller
-    /// disposes it only AFTER the serialize returns — the same lifetime contract the CopyFrom lane's
-    /// <c>offOrderOverlays</c> carries. <paramref name="epoch"/> is this helper's OWN capture (it decides membership
-    /// against a build, so its refusals are stamped like every other post-capture outcome); the reported outcome's own
-    /// stamp still names the build the WRITE was decided from — <see cref="WritePatchBuilder.PatchOutcome.Epoch"/>'s
-    /// honesty bound, unchanged.</para>
-    ///
-    /// <para><paramref name="sourceName"/> is the spelling the ENGINE should resolve against: <paramref name="fromPlugin"/>
-    /// unchanged, EXCEPT when a caller's PATH turns out to name the very file the order loads — then it is that plugin's
-    /// NAME, and this returns null so the ordinary in-order arm handles it. Membership cannot be decided by
-    /// <c>ContainsPlugin</c> alone once a path is an advertised spelling: a full path never matches the name table, so
-    /// the live copy of an ACTIVE plugin would take the off-order arm and be described as "not in the load order", have
-    /// its epoch disclaimed, and — the sharp end — lose the already-the-winner flag, reporting that it out-ranks itself
-    /// (PR #313 review [medium]). <see cref="ActiveNameForPath"/> is the rule that already answers this for the diff
-    /// pole, reused rather than restated: it is a FULL-PATH identity compare, so a same-named backup keeps the off-order
-    /// lane, and a path to an EXCLUDED plugin does too (reading it directly is the escape hatch for exactly that).</para></summary>
+    /// <summary>Locate the one <c>source=</c> plugin a forward call shares when the active order does not contain it
+    /// — a disabled mod, an unticked plugin, an unregistered folder, or a direct path — open it, and pre-fetch every
+    /// requested record's body off its own overlay. The forward twin of <see cref="PrepareCopyFromSources"/>, and
+    /// simpler: every forward in a call names the same source, so this locates once, opens once and fetches N. Uses
+    /// the same on-disk locate as every other lane, so two tools cannot disagree about which file a filename names.
+    /// <para>Returns null with a null <paramref name="error"/> when the source IS in the active order — the ordinary
+    /// path, which pays no locate and no overlay. Returns null with <paramref name="error"/> set when the file cannot
+    /// be located, opened or read, when its name is ambiguous across mod folders, or when it does not define a
+    /// requested record: refused by name, all-or-nothing, before any write.</para>
+    /// <para><paramref name="overlay"/> is handed back OPEN, because the bodies are deep-copied during the write, so
+    /// the caller disposes it only after the serialize returns. <paramref name="epoch"/> is this helper's own
+    /// capture, since it decides membership against a build; the reported outcome's stamp still names the build the
+    /// write was decided from.</para>
+    /// <para><paramref name="sourceName"/> is the spelling the ENGINE should resolve against: <paramref
+    /// name="fromPlugin"/> unchanged, except when a caller's PATH names the very file the order loads — then it is
+    /// that plugin's name, and this returns null so the in-order arm handles it. Membership cannot be decided by
+    /// ContainsPlugin alone once a path is an advertised spelling: a full path never matches the name table, so the
+    /// live copy of an active plugin would take the off-order arm, be described as not in the load order, have its
+    /// epoch disclaimed, and lose the already-the-winner flag, reporting that it out-ranks itself.
+    /// <see cref="ActiveNameForPath"/> is a full-path identity compare, so a same-named backup keeps the off-order
+    /// lane, and so does a path to an excluded plugin.</para></summary>
     WritePatchBuilder.OffOrderForwardSource? ResolveOffOrderForwardSource(
         LoadOrderResolver resolver, string fromPlugin, IReadOnlyList<WritePatchBuilder.ForwardSpec> specs,
         out IDisposable? overlay, out string? epoch, out string? error, out string sourceName)
@@ -4679,11 +4645,8 @@ public sealed class LoadOrderService : IDisposable
         var view = resolver.Capture();
         epoch = view.Epoch;
         if (view.ContainsPlugin(fromPlugin)) return null;      // active — the engine resolves it off the shared build
-        // LooksLikePath gate, matching ResolvePoleArm / RespellActiveCopySourcePaths / BuildSourceChain — the
-        // four-site rule (five until #486 deleted ResolveDiffPole) this helper's doc cites
-        // as reused rather than restated, so it should not be the one site that omits it (PR #313 review 3 [nit]).
-        // Harmless without it (a bare filename already failed ContainsPlugin above and would fail it again), but a
-        // convention with an exception is a convention someone has to re-derive.
+        // The same LooksLikePath check the other pole-resolving sites use. Harmless without it — a bare filename
+        // already failed ContainsPlugin above — but kept so the convention has no exception.
         if (LooksLikePath(fromPlugin) && ActiveNameForPath(view, fromPlugin) is { } activeName)
         {
             sourceName = activeName;                           // a path to the ACTIVE copy — in-order after all
@@ -4695,26 +4658,19 @@ public sealed class LoadOrderService : IDisposable
         catch (Exception ex) { error = $"source plugin '{fromPlugin}' is not in the load order and the MO2 roots couldn't be derived to find it on disk: {ex.Message}"; return null; }
 
         var comp = Mo2LoadOrder.ReadComposition(profileDir);
-        // offerModParam: FALSE — housecarl_forward has no mod= parameter, and a refusal must never send someone to a
-        // parameter their tool does not expose. A direct path is the disambiguator this lane DOES have.
+        // offerModParam is false because this tool has no mod= parameter, and a refusal must never point at a
+        // parameter the caller's tool does not expose. A direct path is this lane's disambiguator.
         var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, fromPlugin, null, offerModParam: false);
         if (loc.Error is not null)
         {
-            // The did-you-mean, restored on THIS arm (PR #313 review 2 [low]). Pre-2b a source= the order didn't
-            // contain fell through to the engine's refusal, which appends AbsenceClause — explainer, or the suggester
-            // when nothing can be explained. Lifting the bound moved the on-disk half here and took the TYPO half with
-            // it: a name nothing provides now fails before Phase 1 ever runs, and "check the filename" is exactly the
-            // question the suggester already answers, on the one lane where a source name is typed by hand.
-            // NameSuggestion, not AbsenceClause: the locate has just proven the file is in no layer at all, so there is
-            // nothing for the explainer to explain — the suggester IS the whole remedy here. Empty when nothing is
-            // close, so a genuinely unknown name is never answered with an invented guess.
-            //
-            // …but suggested from WHAT (PR #313 review 3 [low]). view.NameSuggestion's corpus is the ACTIVE order, and
-            // this lane just made DISABLED plugins first-class sources — so a typo of one got no suggestion at all,
-            // on exactly the half the lift exists to serve. The pool is now every plugin the locate SEARCHED, drawn
-            // from the same folder sequence (Mo2LoadOrder.CandidateFolders), so "not found" and "did you mean" can
-            // never disagree about which places count. It is a real cost — a listing per mod folder where the locate
-            // paid a stat per mod folder — spent ONLY on this refusal, where the alternative is re-typing blind.
+            // A did-you-mean, because this is the one lane where a source name is typed by hand and the locate has
+            // just proven the file is in no layer at all — so a spelling suggestion is the whole remedy, and there
+            // is nothing for the absence explainer to explain. It is empty when nothing is close, so a genuinely
+            // unknown name is never answered with an invented guess.
+            // The pool is every plugin the locate SEARCHED, drawn from the same folder sequence, rather than the
+            // active order's names: this lane makes disabled plugins first-class sources, so a typo of one must
+            // still get a suggestion, and "not found" and "did you mean" cannot disagree about which places count.
+            // It costs a listing per mod folder, spent only on this refusal.
             var pool = Mo2LoadOrder.AllPluginFileNames(comp, modsDir, dataDir, overwriteDir);
             error = $"source plugin '{fromPlugin}' is not in the load order and {loc.Error}" +
                     PluginNameSuggest.DidYouMean(fromPlugin, pool);
@@ -4728,14 +4684,11 @@ public sealed class LoadOrderService : IDisposable
             return null;
         }
 
-        // Is the located file the order's own copy of a plugin this session EXCLUDED (Mutagen could not fully parse it
-        // at index time)? By NAME such a source is refused in the engine; by PATH it reaches here, because
-        // ActiveNameForPath deliberately declines excluded plugins — reading one directly is the read surface's escape
-        // hatch. That asymmetry is KEPT (PR #313 review 3 [low]): forwarding copies ONE body out, which is not the
-        // whole-file re-serialize the exclusion refusal exists to prevent, and re-asserting an unparseable-at-index
-        // plugin's version is a real need. What was wrong was that it happened SILENTLY while the tool description
-        // promised the refusal unconditionally — so it is now disclosed here and the description says by-name.
-        // Judged by file identity, never by name: a same-named copy elsewhere is a different file and not excluded.
+        // Is the located file the order's own copy of a plugin this session excluded because Mutagen could not fully
+        // parse it at index time? By NAME such a source is refused in the engine; by PATH it reaches here, because
+        // ActiveNameForPath declines excluded plugins. The asymmetry is deliberate — forwarding copies one body out,
+        // not the whole-file re-serialize the exclusion refusal exists to prevent — but it must be DISCLOSED rather
+        // than silent. Judged by file identity, never by name: a same-named copy elsewhere is a different file.
         string? excludedWhy = null;
         var locName = Path.GetFileName(loc.Path!);
         if (view.ExcludedPlugins.TryGetValue(locName, out var exWhy)
@@ -4746,16 +4699,14 @@ public sealed class LoadOrderService : IDisposable
         try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
         catch (Exception ex) { error = $"source file '{fromPlugin}' ({loc.Path}) could not be opened as a Skyrim plugin ({ex.Message})."; return null; }
 
-        // ONE walk of the overlay collecting every wanted key — the batch fetch the active-order path defers (its own
-        // PERF note): here the overlay is ours alone and the whole call shares it, so there is no reason to re-enumerate
-        // per record.
+        // One walk of the overlay collecting every wanted key: the overlay is ours alone and the whole call shares
+        // it, so there is no reason to re-enumerate per record.
         var wanted = specs.Select(s => s.Target).ToHashSet();
         var bodies = new Dictionary<FormKey, IMajorRecordGetter>();
-        // …and, in the SAME walk, the local IDs this file ORIGINATES under its own ModKey. A plugin's records are keyed
-        // by its FILENAME, so a parked copy renamed 'MyPatch_old.esp' declares a DIFFERENT ModKey and its records match
+        // In the SAME walk, the local IDs this file originates under its own ModKey. A plugin's records are keyed by
+        // its FILENAME, so a parked copy renamed 'MyPatch_old.esp' declares a different ModKey and its records match
         // nothing the caller asked for — which the miss below would otherwise report as "does not define or override
-        // this record", a true sentence with a misleading cause. Parking old copies under a new NAME is the ordinary
-        // habit this feature invites, so the diagnosis is worth carrying (found by the guard, PR #313 fold).
+        // this record", a true sentence with a misleading cause.
         var selfIds = new HashSet<uint>();
         try
         {
@@ -4775,9 +4726,9 @@ public sealed class LoadOrderService : IDisposable
         var missing = specs.Select(s => s.Target).Where(k => !bodies.ContainsKey(k)).Distinct().ToList();
         if (missing.Count > 0)
         {
-            // The RENAMED-COPY diagnosis, stated only when it is a FACT about this file: the ID is present, under the
-            // file's own ModKey. Never a guess — the ordinary miss (a plugin that simply doesn't touch the record) says
-            // nothing about renaming, and a FormKey whose origin is some other master is not this case either.
+            // The renamed-copy diagnosis, stated only when it is a fact about this file: the ID is present under the
+            // file's own ModKey. Never a guess — the ordinary miss says nothing about renaming, and a FormKey whose
+            // origin is some other master is not this case either.
             var renamed = missing.Where(k => k.ModKey != ov.ModKey && selfIds.Contains(k.ID)).ToList();
             var hint = renamed.Count == 0 ? "" :
                 $"\n  NOTE: this file DOES carry {(renamed.Count == 1 ? "that FormID" : "those FormIDs")} — but under its own " +
@@ -4799,27 +4750,19 @@ public sealed class LoadOrderService : IDisposable
         };
     }
 
-    /// <summary>SPEC §3.1 AMENDMENT 2026-08-14 — build a walk's ORDERED source universe from the caller's pole list.
-    /// Each element is one §4.2 pole; the chain resolves a key by trying them in order, first hit wins
-    /// (<see cref="SourceChain"/> carries the fallback-never-merge boundary and the fault-vs-miss rule).
-    ///
-    /// <para><b>There is no separate single-pole path, deliberately.</b> A length-1 list is this same loop running
-    /// once — which is what makes the amendment's "a length-1 list is precisely today's grammar" a structural fact
-    /// rather than a claim two code paths have to keep agreeing on. If the two ever could diverge, the divergence
-    /// would be invisible exactly where it matters: an off-order element behaving one way alone and another way in a
-    /// chain.</para>
-    ///
-    /// <para><b>The two element kinds are §4.2's own poles</b>, not a new distinction: <c>winner</c> is the active
-    /// order as one universe (today's active-donor lane spells <c>["winner"]</c>), and a plugin NAME is
-    /// <c>named(plugin)</c> — that plugin's version wherever it lives, active or an off-order file, resolved through
-    /// the SAME <see cref="LocatePluginFileOnDisk"/> contract every other lane uses so two tools can never disagree
-    /// about which file a filename names. <c>previous_provider</c> is subject-relative (§4.3) and a walk has no
-    /// per-key subject, so it refuses loud rather than inventing the winner-relative reading §4.3 already rejected.</para>
-    ///
+    /// <summary>Build a walk's ordered source universe from the caller's pole list. Each element is one pole; the
+    /// chain resolves a key by trying them in order, first hit wins (<see cref="SourceChain"/> carries the
+    /// fallback-never-merge boundary and the fault-versus-miss rule).
+    /// <para>There is deliberately no separate single-pole path: a length-1 list is this same loop running once, so
+    /// an off-order element cannot behave one way alone and another way in a chain.</para>
+    /// <para>The element kinds are the ordinary poles: <c>winner</c> is the active order as one universe, and a
+    /// plugin NAME is that plugin's version wherever it lives, active or an off-order file, resolved through the same
+    /// <see cref="LocatePluginFileOnDisk"/> contract every other lane uses. <c>previous_provider</c> is
+    /// subject-relative and a walk has no per-key subject, so it refuses loudly rather than inventing a
+    /// winner-relative reading.</para>
     /// <para>Overlays opened for off-order elements are appended to <paramref name="overlays"/> OPEN: the walk holds
-    /// bodies off them for its whole run, so the caller disposes them only after the write completes — the lifetime
-    /// contract the CopyFrom and forward lanes already carry. A refusal disposes what it opened before returning, so a
-    /// failed build leaks nothing.</para></summary>
+    /// bodies off them for its whole run, so the caller disposes them only after the write completes. A refusal
+    /// disposes what it opened before returning, so a failed build leaks nothing.</para></summary>
     internal SourceChain? BuildSourceChain(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
         IReadOnlyList<string> poles, string paramName, List<IDisposable> overlays, out string? error)
@@ -5631,7 +5574,7 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.ForwardOutcome.Fail(
                 $"refused — {problems.Count} of {formids.Count} formid(s) malformed; NOTHING forwarded:\n  - " + string.Join("\n  - ", problems));
 
-        lock (_writeGate)                                                 // hunt F2: one write at a time, resolve→commit
+        lock (_writeGate)                                                 // one write at a time, resolve through commit
         {
             var resolver = Resolver;                                      // builds/refreshes the index (Overlays for the source fetch + serialize)
 
@@ -5774,7 +5717,7 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.CreatePluginOutcome.Fail(
                 $"plugin_name '{pluginName}' has no usable name once path parts and the plugin extension are stripped — give a plain name like 'MyTrigger'.");
 
-        lock (_writeGate)                                                 // hunt F2: one write at a time, resolve→commit
+        lock (_writeGate)                                                 // one write at a time, resolve through commit
         {
             // Touch Resolver FIRST: in instance mode _modsDir is derived LAZILY (EnsurePathsDerived runs inside the
             // Resolver getter), so a cold first-call (create_plugin before any read warmed the index) would otherwise
@@ -6892,7 +6835,7 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.CreateOutcome.Fail(
                 "target= is only meaningful with in_place=true (it names the plugin to create into in place). For the default patch lane omit target=; use into= to extend an existing houseCARL patch.");
 
-        lock (_writeGate)                                                 // hunt F2: one write at a time, resolve→commit
+        lock (_writeGate)                                                 // one write at a time, resolve through commit
         {
             var resolver = Resolver;
             var rulebook = Rulebook;
