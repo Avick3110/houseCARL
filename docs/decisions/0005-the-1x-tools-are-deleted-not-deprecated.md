@@ -60,7 +60,7 @@ Four consequences of the shape, each load-bearing:
 - **Guards on a deleted tool die with the tool; behaviour that survives gets a fresh test.** A guard
   whose subject is a deleted tool's response is not evidence about anything once the tool is gone, and
   repointing it at the successor was tried and rejected: it preserves the old guard's shape, which is
-  what the guard rewrite (ADR 0003) exists to leave behind. So the arms are deleted, and each one whose
+  what the guard rewrite exists to leave behind. So the arms are deleted, and each one whose
   behaviour the successor still carries is written fresh as a test against that successor.
 
   **Not always in the same change, and this ADR's own change is the counter-example — measured
@@ -98,7 +98,7 @@ Four consequences of the shape, each load-bearing:
   file whose subject is split shrinks in two steps, not one. A file that also guards engine behaviour
   keeps that half and its residue entry. On this change, the eight harness files enumerated on #486 also
   keep their **tool-layer** blocks: those blocks compile against the surviving render and service members,
-  and they go when those do. The countdown that measures the harness's remaining size (ADR 0003) is what
+  and they go when those do. The countdown that measured the harness's remaining size was what
   makes both states visible: it moves in this change by exactly the files that left, and it carries the
   seven probe files among the eight that stayed — by name, with their line counts — so the arrears sit in the
   checked-in baseline as a number rather than as something a later session has to remember. (The eighth,
