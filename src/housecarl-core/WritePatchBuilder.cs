@@ -2085,8 +2085,10 @@ public static class WritePatchBuilder
     /// <summary>The merge tool's outcome: the merged plugin's identity + per-donor remap accounting + every
     /// cross-donor conflict (load-order winner, reported never silent) + the identify-pass WARN surfaces (external
     /// referencers AND overriders — merge never refuses on them, the donors stay installed and active until the user
-    /// swaps in MO2, so nothing breaks at write time; the report names each with the remedy) + the FormID-keyed asset
-    /// carry accounting (facegen/voice/SEQ — a merge renames the plugin, so EVERY donor NPC's facegen and EVERY voiced
+    /// swaps in MO2, so nothing breaks at write time; the report names each with the remedy) + <see cref="LocalizedDonors"/>
+    /// (donors houseCARL read and found flagged LOCALIZED — M is a bare mod, so their text is written into it inline and
+    /// their <c>.STRINGS</c> no longer describe the output: a changed nature the report states, never silently)
+    /// + the FormID-keyed asset carry accounting (facegen/voice/SEQ — a merge renames the plugin, so EVERY donor NPC's facegen and EVERY voiced
     /// line moves to the new-name folders, not just the collided ones). Merge has NO in-place lane and overwrites
     /// nothing, so there is no consent gate.</summary>
     public sealed record MergeOutcome(
@@ -2100,7 +2102,8 @@ public static class WritePatchBuilder
         long Bytes, string? Note = null,
         AssetRenameOutcome? AssetRename = null, VoiceCarryOutcome? VoiceRename = null, SeqRegenOutcome? SeqRegen = null,
         IReadOnlyList<string>? LightDonors = null, IReadOnlyList<string>? HeaderMetaDonors = null,
-        IReadOnlyList<string>? MasterDonors = null, IReadOnlyList<RemapEngine.UnscannablePlugin>? UnscannablePlugins = null)
+        IReadOnlyList<string>? MasterDonors = null, IReadOnlyList<RemapEngine.UnscannablePlugin>? UnscannablePlugins = null,
+        IReadOnlyList<string>? LocalizedDonors = null)
     {
         public static MergeOutcome Fail(string error) =>
             new(false, error, "", "", Array.Empty<string>(), Array.Empty<string>(), 0, 0,
