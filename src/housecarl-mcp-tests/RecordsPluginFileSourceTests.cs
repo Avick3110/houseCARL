@@ -207,6 +207,8 @@ public sealed class ShadowedCopyWorld : IDisposable
     public const int WinnerDamage = 99;
     public const int LoserDamage = 44;
     public string SubjectFid { get; }
+    /// <summary>The full path to one mod folder's copy.</summary>
+    public string PathIn(string mod) => Path.Combine(Root, "instance", "mods", mod, FileName);
 
     public ShadowedCopyWorld()
     {
@@ -313,5 +315,30 @@ public sealed class RecordsModFolderSourceTests : IClassFixture<ShadowedCopyFixt
         var r = Read("SMaster");
         Assert.StartsWith("error:", r);
         Assert.Contains("does not provide", r);
+    }
+
+    /// <summary>A file= that is a PATH addresses that file, and a mod= beside it does not redirect the read to
+    /// another folder's copy of the same filename.</summary>
+    [Fact]
+    public void APathFileWinsOverAModFolderBesideIt()
+    {
+        var r = RecordsTools.Records(_w.Svc, formids: new[] { _w.SubjectFid },
+                                     source: JsonDocument.Parse(JsonSerializer.Serialize(new { file = _w.PathIn(_w.WinnerMod), mod = _w.LoserMod })).RootElement.Clone(),
+                                     project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage" } });
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        Assert.Contains("BasicStats.Damage = " + ShadowedCopyWorld.WinnerDamage, r);
+    }
+
+    /// <summary>previous_provider is a position in the ACTIVE touching stack, which an off-order copy does not
+    /// hold — even when its filename is active as a different file. Refused, never anchored on the served copy.
+    /// </summary>
+    [Fact]
+    public void PreviousProviderAgainstTheShadowedCopyIsRefusedRatherThanAnchoredOnTheServedCopy()
+    {
+        var r = RecordsTools.Records(_w.Svc, formids: new[] { _w.SubjectFid },
+                                     source: JsonDocument.Parse("{\"file\": \"" + _w.FileName + "\", \"mod\": \"" + _w.LoserMod + "\"}").RootElement.Clone(),
+                                     versus: JsonDocument.Parse("\"previous_provider\"").RootElement.Clone(),
+                                     project: new RecordsTools.RecordsProject { form = "delta" });
+        Assert.Contains("no position in the active touching stack", r);
     }
 }
