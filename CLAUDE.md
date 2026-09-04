@@ -26,7 +26,7 @@ A design question that these four do not settle goes to the PRFAQ (`dev/PRFAQ/`,
    ```
    Tests drive the built server. How to write one: [standards/TESTING.md](standards/TESTING.md).
 3. **Commit small.** One change per commit, plain imperative subject under 72 characters.
-4. **Open the PR.** A paragraph saying what changed and why, `Closes #N` for the issue, and a line under `## Unreleased` in `plugin/CHANGELOG.md` if a user would notice the change. Run one review pass (`/code-review`) and fix what is real. Aaron reviews and merges on his word with `gh pr merge <N> --rebase --delete-branch`; then remove the worktree.
+4. **Open the PR.** A paragraph saying what changed and why, `Closes #N` for the issue, and a line under `## Unreleased` in `plugin/CHANGELOG.md` if a user would notice the change. Run one review pass (`/code-review`) and fix what is real. Aaron then reviews; his findings come from a fresh agent reading the PR blind, so a finding can be wrong. Fold what is real; refute the rest in a reply on the PR with the reason, and Aaron decides. He merges on his word with `gh pr merge <N> --rebase --delete-branch`; then remove the worktree.
 5. **Write plainly.** Comments are one line saying what. Commit messages, PR bodies, and issues use ordinary words: bug, test, review, fix. No project jargon, no lore.
 
 ## Where things live
@@ -56,3 +56,4 @@ MCP tools are named `housecarl_<snake_case>`; namespaces, classes, and files are
 - Don't work around a block silently. Say what blocks you.
 - Don't add a new domain to `LoadOrderService.cs` (already 9,000 lines). A new subsystem gets its own file.
 - Don't edit `dev/PRFAQ/` or `Housecarl [Legacy]/`. Both are frozen reference.
+- Don't spawn a Fable agent. Every session, reviewer, or helper you spawn runs on Opus or lower.
