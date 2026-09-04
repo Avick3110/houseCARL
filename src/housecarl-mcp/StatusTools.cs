@@ -22,6 +22,8 @@ public static class StatusTools
          "Lite 2') or a plugin filename (e.g. 'Requiem.esp') to ask whether houseCARL sees that one as enabled/disabled " +
          "(mod) or active/inactive/implicit (plugin). Also reports the resolved Papyrus script-log and SKSE crash-log " +
          "FOLDERS — where to Read logs for triage/diagnosis (auto-detected, or as set via " + ToolNames.SetToolPath + "). " +
+         "Also reports the RUNNING SERVER's build version (the binary's informational version, e.g. " +
+         "'1.9.5-dev+e942910'), so an installed-build-vs-source check never has to read the exe's file properties. " +
          "Does NOT modify anything.")]
     public static string LoadOrderStatus(
         LoadOrderService svc,
@@ -45,6 +47,24 @@ public static class StatusTools
     });
 }
 
+/// <summary>The running server's build version, read once from the informational version the tool assembly embeds
+/// (build-plugin.ps1 stamps it from plugin.json, so it carries the commit: '1.9.5-dev+e942910'). The tool assembly,
+/// not the entry assembly: they are the same binary for the shipped server, and under a test host the entry assembly
+/// is the host rather than houseCARL. An unstamped build says so rather than rendering a blank.</summary>
+public static class ServerBuild
+{
+    /// <summary>The informational version verbatim, metadata suffix and all; null on an unstamped build.</summary>
+    public static string? Version { get; } =
+        ToolSurface.Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), inherit: false)
+            is [System.Reflection.AssemblyInformationalVersionAttribute a, ..] && !string.IsNullOrWhiteSpace(a.InformationalVersion)
+            ? a.InformationalVersion : null;
+
+    /// <summary>What the status line prints: the version, or a sentence naming the absent attribute.</summary>
+    public static string Line { get; } =
+        Version ?? "unstamped build — this binary carries no informational version, so houseCARL cannot name its own build; " +
+                   "read the version off housecarl-mcp.exe's file properties instead.";
+}
+
 /// <summary>Renders <see cref="LoadOrderStatusData"/>: a header line per category, then the name lists (disabled mods,
 /// inactive plugins, implicit masters), each bounded by max_chars with an explicit cut notice. lookup= switches to a
 /// single mod/plugin verdict.</summary>
@@ -60,6 +80,8 @@ static class StatusWire
 
         var sb = new StringBuilder();
         sb.Append("load order status — profile '").Append(d.ProfileName).Append("'\n");
+        // The running server's own build, so an installed-build-vs-source check never leaves the tool surface.
+        sb.Append("server:   ").Append(ServerBuild.Line).Append('\n');
         // The resolved MO2 instance; null means explicit-paths mode, where the three roots are set directly and there
         // is no MO2 instance folder.
         sb.Append("instance: ").Append(d.InstanceDir ?? "explicit-paths mode (no MO2 instance configured)").Append('\n');
