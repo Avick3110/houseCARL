@@ -22,12 +22,14 @@
   Three data files carry what the publish output cannot say:
 
       packaging/notices-display-names.json        package id -> the name the file lists it under
-      packaging/notices-licence-exceptions.json   packages whose NuGet metadata has no licence expression
+      packaging/notices-licence-exceptions.json   packages whose NuGet metadata has no licence expression,
+                                                  each keyed to the version the determination was made against
       packaging/notices-mutagen-commits.json      Mutagen release version -> repository commit
 
   A shipped DLL that resolves to neither a project nor a known package, a package with no licence
-  expression and no exception entry, a licence with no section in the notices file, and a shipped Mutagen
-  version with no recorded commit, all stop the build with the component named.
+  expression and no exception entry, an exception entry recorded against a different version than ships,
+  a licence with no section in the notices file, and a shipped Mutagen version with no recorded commit,
+  all stop the build with the component named.
 
   Run standalone against any publish directory:
       pwsh scripts/generate-notices.ps1 -PublishDir dist/housecarl/server
@@ -130,7 +132,16 @@ foreach ($p in $target.PSObject.Properties) {
   $licence = $null
   if ($facts) { $licence = $facts.Licence }
   $exception = Get-Prop $exceptions $id
-  if (-not $licence -and $exception) { $licence = $exception.licence }
+  if (-not $licence -and $exception) {
+    # The determination was made against one version, and a package can relicense across versions, so a
+    # differing version stops the build rather than carrying the old determination forward.
+    $recorded = $exception.version
+    if (-not $recorded) { $recorded = '(no version recorded)' }
+    if ($recorded -ne $version) {
+      throw "$id ships as $version but packaging/notices-licence-exceptions.json records its licence against $recorded; check the licence of $version and update the entry"
+    }
+    $licence = $exception.licence
+  }
   if (-not $licence) {
     throw "$id $version ships but declares no licence expression in its NuGet metadata; record the determined licence in packaging/notices-licence-exceptions.json"
   }
