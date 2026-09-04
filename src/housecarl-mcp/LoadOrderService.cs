@@ -5998,6 +5998,13 @@ public sealed class LoadOrderService : IDisposable
             if (inPlace && srcLocalized)
                 return WritePatchBuilder.CompactOutcome.Fail(CompactInPlaceRefusal(name, srcShape));
 
+            // The NEW-FILE lane's own refusal: a localized source whose strings houseCARL can find NOWHERE reads
+            // every value EMPTY, and this lane copies that read into a plugin the caller keeps. The in-place refusal
+            // above covers the wider flag, so this fires only for the new-file lane and only for that one shape.
+            if (LocalizedStrings.ResolvesNowhere(srcShape.Shape))
+                return WritePatchBuilder.CompactOutcome.Fail(
+                    UnresolvableStringsRefusal(name, srcShape, "compacting it"));
+
             // 1. originating record keys + the remap into the (light, by default) window.
             if (!WritePatchBuilder.TryReadOriginatingKeys(srcPath, modKey, out var keys, out var keyErr))
                 return WritePatchBuilder.CompactOutcome.Fail(keyErr!);
@@ -6324,6 +6331,32 @@ public sealed class LoadOrderService : IDisposable
         return string.Join(" ", parts);
     }
 
+    /// <summary>The refusal for a plugin that IS flagged localized and whose <c>.STRINGS</c> houseCARL can find
+    /// nowhere — the one shape where the read itself is empty, so a lane that copies the read into a new file writes
+    /// blanks. Shared by compact and merge, one wording: both bake the same read into a plugin the caller keeps, and
+    /// neither may do it silently.
+    ///
+    /// <para>It says houseCARL cannot FIND the tables, never that the plugin has none: MO2's VFS merges mod folders
+    /// at runtime, so a plugin's strings can sit in an archive in another mod folder that no path walked here can
+    /// see. The remedy is written for that case, because it is the likely one.</para></summary>
+    /// <param name="what">The operation, as the report names it — "compacting it", "merging it".</param>
+    static string UnresolvableStringsRefusal(string name, LocalizedAssessment a, string what)
+    {
+        // Two shapes reach here and they are different facts: one folder was listed and held nothing for this
+        // plugin, the other could not be listed at all. Saying the first about the second claims an absence
+        // nothing checked.
+        var found = a.Shape == LocalizedShape.StringsFolderUnreadable
+            ? $"there is a Strings folder beside '{name}' that houseCARL could not list, so it could not read the tables"
+            : "houseCARL can find no .STRINGS files for it — not beside the plugin, and not in the game's Data folder";
+        return $"refused — '{name}' is flagged LOCALIZED, so its text lives in separate .STRINGS files rather than in the "
+             + $"plugin, and {found}. Every name, description and message it carries therefore reads EMPTY, and {what} "
+             + "would write those blanks into the output with nothing left to distinguish them from a plugin that never "
+             + "had any text. The tables may still exist somewhere houseCARL cannot see from the plugin's own folder — a "
+             + "translation mod that is not enabled, or content whose archive lives in a different mod folder. Enable the "
+             + "mod that provides this plugin's .STRINGS, or put them in a Strings folder beside it, and run this again. "
+             + "Nothing was written.";
+    }
+
     /// <summary>The in-place compaction's refusal, rendered per shape. The refusal decision is one fail-closed
     /// boolean, but its words cannot be: the localized arm's clauses are all about a translated plugin's
     /// <c>.STRINGS</c> files and end on the new-file lane, and told to a source houseCARL could not open that would
@@ -6455,6 +6488,23 @@ public sealed class LoadOrderService : IDisposable
             donorInfos.Sort((a, b) => a.Order.CompareTo(b.Order));
             var donorNames = donorInfos.Select(d => d.Name).ToList();
 
+            // ---- the donors' strings, read once and used twice. A donor whose .STRINGS resolve NOWHERE reads every
+            //      value EMPTY, and the merge would copy those blanks into M — refused here, before a rider folder
+            //      exists and before anything is written. A donor that IS localized (and resolves) earns the
+            //      de-localization note the report carries: M is a bare mod, so the text comes out inline and the
+            //      donor's .STRINGS stop describing it. ----
+            var localizedDonors = new List<string>();
+            foreach (var (dName, dPath, _, _) in donorInfos)
+            {
+                var shape = LocalizedStrings.Assess(dPath, view.DataDir);
+                if (LocalizedStrings.ResolvesNowhere(shape.Shape))
+                    return WritePatchBuilder.MergeOutcome.Fail(UnresolvableStringsRefusal(dName, shape, "merging it"));
+                // ConfirmedLocalized, not "anything but NotLocalized": the note ASSERTS where a donor's text lives,
+                // and a donor houseCARL could not read gives it nothing to assert. That donor fails loudly at the
+                // open in MergeBuild instead.
+                if (LocalizedStrings.ConfirmedLocalized(shape.Shape)) localizedDonors.Add(dName);
+            }
+
             // ---- 2. originating keys per donor + the collision-only remap (first donor keeps its ids — zMerge default) ----
             var donorKeys = new List<(string Donor, IReadOnlyList<FormKey> Keys)>();
             foreach (var (dName, dPath, dKey, _) in donorInfos)
@@ -6570,7 +6620,7 @@ public sealed class LoadOrderService : IDisposable
                 plan.Donors, build.Conflicts, id.ExternalPlugins, id.ExternalOverriders,
                 id.PluginsScanned, id.UnscannableRecords, id.UnscannableSamples, build.Bytes, note,
                 assetRename, voiceRename, seqRegen, build.LightDonors, build.HeaderMetaDonors, build.MasterDonors,
-                id.UnscannablePlugins);
+                id.UnscannablePlugins, localizedDonors);
         }
     }
 

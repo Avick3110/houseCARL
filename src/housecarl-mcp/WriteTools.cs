@@ -791,6 +791,21 @@ public static class WriteTools
               .Append(" is NOT flagged as a master — it loads as a plain plugin, in the plugin block rather than the ")
               .Append("master block, so anything depending on that ordering will see it move.\n");
         }
+        // The donors' text is the other thing the bare output does not carry across as it was. The merged plugin is
+        // never flagged localized, so a localized donor's values are written INTO it and its .STRINGS stop describing
+        // it — the plugin's nature changed, and a report that called that an ordinary success said nothing about it.
+        // Keyed on donors houseCARL READ and found flagged, so nothing is asserted about a donor it could not read.
+        if (o.LocalizedDonors is { Count: > 0 } localized)
+        {
+            sb.Append("NOTE — ").Append(string.Join(", ", localized.Take(10)));
+            if (localized.Count > 10) sb.Append(" (+").Append(localized.Count - 10).Append(" more)");
+            sb.Append(localized.Count == 1 ? " is flagged LOCALIZED — its text lives" : " are flagged LOCALIZED — their text lives")
+              .Append(" in separate .STRINGS files rather than in the plugin. ").Append(o.OutputName)
+              .Append(" is NOT localized: it carries whatever this read of the donors produced, written into the plugin ")
+              .Append("itself and with no .STRINGS files of its own — so the donors' .STRINGS no longer describe it, and ")
+              .Append("any language they shipped that this read did not resolve is not in the output. Read the output ")
+              .Append("before you swap it in.\n");
+        }
         if (o.HeaderMetaDonors is { Count: > 0 } meta)
         {
             // No remedy is named because none exists on the surface: author=/description= belong to create_plugin, and

@@ -449,6 +449,29 @@ public static class CompactServiceGuardProbe
                     $"TARGET-LOC the refusal tells THIS caller the new-file output is NOT localized, and where its text is [{oip.Error}]");
             }
 
+            // ---- NOWHERE (#371): a localized source whose strings are NEITHER beside it NOR in game-Data. Nothing
+            //      resolves it, so every value reads blank — and the NEW-FILE lane, the one the refusals above send
+            //      callers to, refuses rather than writing those blanks into a plugin they keep. The arm pins the
+            //      named refusal and that nothing was written.
+            {
+                var gone = Path.Combine(root, "gone");
+                var gs = new LocalizedStringsFixture.Spec("GoneSrc", new ModKey("HcCsGone", ModType.Plugin),
+                    "GONE NAME", "GONE DESC", StringsNowhere: true);
+                var fx = LocalizedStringsFixture.Build(gone, new[] { gs });
+                var goneStore = new UserConfigStore(Path.Combine(gone, "houseCARL.user.json"));
+                using var goneSvc = LoadOrderService.WithInstance(fx.Instance, 0, goneStore);
+                goneSvc.Stats();
+
+                var og = goneSvc.CompactPlugin(gs.Key.FileName.String);
+                bool namedGone = !og.Success && og.Error is not null
+                                 && og.Error.Contains("LOCALIZED", StringComparison.Ordinal)
+                                 && og.Error.Contains(".STRINGS", StringComparison.Ordinal);
+                bool nothingWritten = string.IsNullOrEmpty(og.OutputPath) || !File.Exists(og.OutputPath);
+                Check(namedGone && nothingWritten,
+                    $"NOWHERE-resolving strings REFUSE the new-file compact, named, nothing written " +
+                    $"(refused={!og.Success} named={namedGone} nothingWritten={nothingWritten}) [{og.Error}]");
+            }
+
             // NEWFILE-NOTE, other direction: the SAME lane over a NON-localized source says nothing about localization.
             // Without this the note could be unconditional and the arm above would not notice.
             {

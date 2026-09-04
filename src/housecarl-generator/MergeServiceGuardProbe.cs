@@ -659,14 +659,21 @@ public static class MergeServiceGuardProbe
                     }
                     Check(flagOk && noStringsFolder,
                         $"LOCALIZED output is written NON-localized with strings inline (flagClear={flagOk} noStringsFolder={noStringsFolder})");
+
+                    // #435 — the de-localization above is a change in the output's NATURE, and the report has to say
+                    // so. The donor must be NAMED: a generic note would not tell a caller with ten donors which of
+                    // them stopped being a translated plugin.
+                    var rendered = lo.Success ? WriteTools.RenderMerge(lo) : "";
+                    Check(rendered.Contains("flagged LOCALIZED") && rendered.Contains(la.Key.FileName.String)
+                          && rendered.Contains("is NOT localized"),
+                        "LOCALIZED de-localization is STATED in the merge report, naming the donor");
                 }
             }
 
-            // ---- RESIDUAL (#362, measured not fixed): a localized donor whose strings exist NEITHER beside it NOR in
-            //      game-Data. OpenOverlay's fallback is the game-Data folder and nothing else, so there is no dataDir
-            //      that resolves this one — the merge still succeeds and still writes blanks, with no warning. Pinned
-            //      here so the residual is a measured fact in the PR rather than a claim, and so a later change to it
-            //      is a deliberate one. Asserting the CURRENT behaviour, not endorsing it.
+            // ---- NOWHERE (#371): a localized donor whose strings exist NEITHER beside it NOR in game-Data. There is
+            //      no dataDir that resolves this one, so every value reads blank — and the merge REFUSES rather than
+            //      writing those blanks into a plugin the caller keeps. The arm pins the refusal AND that nothing was
+            //      written: a refusal that still left an output would be the worse failure.
             {
                 var resRoot = Path.Combine(root, "res");
                 var lr = new LocalizedStringsFixture.Spec("LocGone", new ModKey("HcMgLocGone", ModType.Plugin),
@@ -677,16 +684,13 @@ public static class MergeServiceGuardProbe
                 resSvc.Stats();
 
                 var lo = resSvc.MergePlugins(new[] { lr.Key.FileName.String }, "HcMgResRen.esp");
-                var rb = lo.Success && File.Exists(lo.OutputPath)
-                    ? LocalizedStringsFixture.ReadBackBare(lo.OutputPath, LocalizedStringsFixture.WeaponEdid(lr))
-                    : (Name: "unwritten", Desc: "unwritten");
-                // The record must be THERE and blank. A blank read alone is also what an ABSENT record returns, so
-                // without this the arm would report the residual as pinned even if the merge had dropped the record
-                // altogether — an arm that passes for the wrong reason is the one failure a guard cannot survive.
-                bool carried = lo.Success && File.Exists(lo.OutputPath)
-                               && LocalizedStringsFixture.CarriesWeapon(lo.OutputPath, LocalizedStringsFixture.WeaponEdid(lr));
-                Check(lo.Success && carried && string.IsNullOrEmpty(rb.Name) && string.IsNullOrEmpty(rb.Desc),
-                    $"RESIDUAL strings resolvable NOWHERE still merge to blanks, silently (success={lo.Success} carried={carried} Name='{rb.Name}' Desc='{rb.Desc}')");
+                // The refusal must NAME the cause: a generic failure would pass this arm while telling the modder
+                // nothing about where their text went.
+                bool named = !lo.Success && lo.Error is not null
+                             && lo.Error.Contains("LOCALIZED") && lo.Error.Contains(".STRINGS");
+                bool nothingWritten = string.IsNullOrEmpty(lo.OutputPath) || !File.Exists(lo.OutputPath);
+                Check(named && nothingWritten,
+                    $"NOWHERE-resolving strings REFUSE the merge, named, nothing written (success={lo.Success} named={named} nothingWritten={nothingWritten} err='{(lo.Error ?? "").Split('.')[0]}')");
             }
         }
         finally { try { Directory.Delete(root, true); } catch { } }
