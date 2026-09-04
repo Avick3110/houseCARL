@@ -39,7 +39,7 @@ public static class SkseTools
         // A list-shaped value is the housecarl_check habit, where findings= names several families. Naming the shape is
         // what turns the refusal into a fix; "not a family" alone reads as the wrong word rather than the wrong shape.
         var shape = token.Contains(',') || token.Contains('[')
-            ? " findings= here takes ONE value, not a list — this tool runs one family per call."
+            ? " findings= here takes ONE value, not a list."
             : "";
         error = $"error: findings='{token}' is not a family on this tool — pass findings='inventory' (the DLL and config " +
                 "layer), 'pairing' (native Papyrus declarations vs the DLLs that implement them) or 'config' (the form " +
@@ -195,7 +195,7 @@ static class SkseInventoryWire
     /// bare <c>peek=true</c> fails rather than ignoring the flag or peeking one arbitrary DLL.</summary>
     internal static string? PeekArgError(bool peek, string? filter) =>
         peek && string.IsNullOrWhiteSpace(filter)
-            ? "peek=true needs filter= — a peek is per-DLL, not a whole-layer dump (it reads each matching DLL's whole " +
+            ? "error: peek=true needs filter= — a peek is per-DLL, not a whole-layer dump (it reads each matching DLL's whole " +
               "image). Pass filter='<DLL/plugin/mod name>' to name the DLL to peek, e.g. filter='SkyPatcher' peek=true."
             : null;
 
