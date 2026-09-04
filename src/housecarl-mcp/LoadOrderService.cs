@@ -320,7 +320,12 @@ public sealed class LoadOrderService : IDisposable
     /// which source provides it and which copy wins (loose beats BSA; among BSAs the higher plugin rank). One
     /// <see cref="AssetResolver.Capture"/> for the whole batch, so every path and the build-level BsaFailures /
     /// ReadIncomplete caveat describe a single build. A drive-rooted or '..'-escaping path is a per-path recoverable
-    /// error, never a batch failure.</summary>
+    /// error, never a batch failure.
+    /// <para><paramref name="under"/> is the directory / glob SELECT form (#246): each selector names a Data-relative
+    /// folder, or a glob anchored under one, and contributes every path the VFS provides beneath it
+    /// (<see cref="AssetGlob"/>). Its matches follow the explicit paths, sorted, with anything already named dropped.
+    /// <paramref name="limit"/> and <paramref name="offset"/> window the SELECTION, so only the window is resolved and
+    /// a folder-wide sweep pays for what it renders.</para></summary>
     public AssetStatusData AssetStatus(
         IReadOnlyList<string> relPaths,
         IReadOnlyList<string>? under = null,
@@ -375,7 +380,7 @@ public sealed class LoadOrderService : IDisposable
                 catch (ArgumentException ex) { results.Add(new AssetPathResult(p, null, ex.Message)); }   // bad path → per-path note, never a batch failure
             }
             return new AssetStatusData(results, view.BsaFailures, view.ReadIncomplete, _assetWarnings, _profileName,
-                                       notes, total, start);
+                                       notes, total, Math.Max(offset, 0));   // the offset ASKED for, so a past-the-end page can say so
         }
     }
 

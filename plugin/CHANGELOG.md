@@ -59,11 +59,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `meshes/actors/character/facegendata/facegeom/<Master>` replaces the whole path list a facegen sweep used to spell
   out. `*` matches within a path segment, `?` one character in a segment, `**` across separators; `asset_paths=` and
   `under=` compose in one call, and a duplicate path is not resolved twice. A selector that matches nothing says so
-  rather than passing as an empty sweep, and a drive-rooted or `..`-escaping selector is refused by name, the same
-  gate every asset path passes.
+  rather than passing as an empty sweep; a glob with no folder in front of it is refused rather than sweeping the
+  whole load order; and a drive-rooted or `..`-escaping selector is refused by name, the same gate every asset path
+  passes.
 
 - **Every `housecarl_asset_status` response now ends with a structured `[accounting]` line — `total`, `rendered`,
-  `capped`, `truncated`, `offset`, `notes`.** A consumer keying results by path can compare the numbers instead of
+  `capped`, `truncated`, `offset`, `remaining`, `notes`.** A consumer keying results by path can compare the numbers instead of
   parsing the prose cut notice. The line is written after the `max_chars` cut, so it is never itself truncated away.
   `limit=` and `offset=` page a large sweep, and the accounting names where the next page starts.
 
