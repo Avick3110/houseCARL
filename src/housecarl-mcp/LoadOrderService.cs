@@ -2233,7 +2233,7 @@ public sealed class LoadOrderService : IDisposable
         if (resolveNames) record = AnnotateLinks(record, view, session, linkMemo ?? new());   // identity of every FormLink token, display-only, on the same open session
         var touching = conflictTree ? view.TouchingPlugins(fk) : null;
         return new ReadOutcome(fk, record, source, winner.Value.WinnerPlugin, winner.Value.OverrideDepth, touching, null)
-               { OwnedChildFields = childFields };
+               { OwnedChildFields = childFields, RuntimeFormId = view.RuntimeFormIdOf(fk) };
     }
 
     /// <summary>resolve_names (P7): annotate every field whose <see cref="FieldValue.Token"/> is a form reference (a
@@ -8470,6 +8470,12 @@ public sealed record ReadOutcome(
     /// it too: a "not present" is an answer ABOUT a build. Null only where no view was ever consulted, such as a
     /// malformed-FormID parse failure.</summary>
     public string? Epoch { get; init; }
+
+    /// <summary>The RUNTIME FormID of this record in the build that answered — the eight-hex form the game, the
+    /// console, Papyrus logs and crash logs print. Rendered beside the FormKey so a reader can carry the record
+    /// either way. Null when the record's plugin is not active, which is the only way it has no runtime address.
+    /// Carried per outcome because the light index moves whenever the order does.</summary>
+    public string? RuntimeFormId { get; init; }
 
     /// <summary>The resolver and view this outcome was answered from, carried beside <see cref="Epoch"/> so the
     /// render's conflict-tree fill reads the same build the stamp names. Internal render plumbing.</summary>

@@ -929,8 +929,9 @@ static class Wire
         var lv = levers ?? LeverNames.Legacy;
         var r = o.Record!;
         sb.Append("type=").Append(r.Type)
-          .Append("  formid=").Append(r.FormKey)
-          .Append("  editorid=").Append(r.EditorId ?? "<none>")
+          .Append("  formid=").Append(r.FormKey);
+        if (o.RuntimeFormId is { } runtime) sb.Append("  runtime=").Append(runtime);   // what the console and the logs print
+        sb.Append("  editorid=").Append(r.EditorId ?? "<none>")
           .Append("  winner=").Append(o.WinnerPlugin)
           .Append("  override_depth=").Append(o.OverrideDepth).Append('\n');
         sb.Append("fields (from ").Append(o.SourcePlugin).Append("):\n");

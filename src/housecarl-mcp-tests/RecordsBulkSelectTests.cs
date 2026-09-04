@@ -133,7 +133,7 @@ public sealed class RecordsBulkSelectTests : BulkRecordsTestBase
     /// let one through.</summary>
     [Fact]
     public void TheRecordObjectCarriesExactlyTheContractedIdentityAndBodyKeys() =>
-        Assert.Equal(new[] { "formid", "type", "editorid", "winner", "override_depth", "source", "fields" },
+        Assert.Equal(new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "source", "fields" },
                      FieldsRecord().EnumerateObject().Select(p => p.Name).ToArray());
 
     [Fact]

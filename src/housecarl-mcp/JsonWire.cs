@@ -284,6 +284,7 @@ static class JsonWire
         w.WriteStartObject();
         if (epoch is not null) w.WriteString("epoch", epoch);   // single-read top level ONLY
         w.WriteString("formid", r.FormKey);
+        WriteNullable(w, "runtime_formid", o.RuntimeFormId);
         w.WriteString("type", r.Type);
         WriteNullable(w, "editorid", r.EditorId);
         WriteNullable(w, "winner", o.WinnerPlugin);
@@ -423,6 +424,7 @@ static class JsonWire
                 if (ms.Length >= cap) { rowsTruncated = true; break; }
                 w.WriteStartObject();
                 w.WriteString("formid", o.FormKey.ToString());
+                WriteNullable(w, "runtime_formid", o.RuntimeFormId);
                 if (o.Error is not null) w.WriteString("error", o.Error);
                 else
                 {
