@@ -55,6 +55,9 @@ public static class AssetTools
             return "error: asset_paths and under are both empty. Pass Data-relative asset path(s) in asset_paths " +
                    "(e.g. 'textures/armor/iron/cuirass_1.dds'), or a Data-relative directory or glob in under " +
                    "(e.g. 'meshes/actors/character/facegendata/facegeom/Skyrim.esm').";
+        if (limit < 0 || offset < 0)
+            return $"error: limit={limit} offset={offset} — neither can be negative. Pass limit=0 for no limit and " +
+                   "offset=0 to start at the beginning of the selection.";
         var data = svc.AssetStatus(asset_paths ?? Array.Empty<string>(), under, limit, offset);
         return AssetWire.Render(data, max_chars > 0 ? max_chars : 80_000);
     });
@@ -89,7 +92,8 @@ static class AssetWire
     }
 
     /// <summary>What each under= selector had to say for itself — a selector that matched nothing, or was rejected.
-    /// Above the per-path list, with the other alarms, so a truncated sweep cannot cut it away.</summary>
+    /// Above the per-path list, with the other alarms, so a truncated sweep cannot cut it away. Uncapped, and bounded
+    /// by the call's own input: there is at most one note per selector the caller wrote.</summary>
     static void AppendSelectorNotes(StringBuilder sb, IReadOnlyList<string>? notes)
     {
         if (notes is not { Count: > 0 }) return;
@@ -102,17 +106,24 @@ static class AssetWire
     /// consumer keying results by path checks these numbers instead of counting prose it might miss (#246).</summary>
     static string Accounting(AssetStatusData d, int rendered)
     {
-        int capped = Math.Max(d.Selected - d.Results.Count, 0);       // left out by limit/offset
-        int truncated = Math.Max(d.Results.Count - rendered, 0);      // left out by max_chars
+        int capped = Math.Max(d.Selected - d.Results.Count, 0);       // left out of this window by limit/offset
+        int truncated = Math.Max(d.Results.Count - rendered, 0);      // left out of the render by max_chars
+        int remaining = d.Selected - (d.Offset + d.Results.Count);    // still AHEAD of the window — what pages on
         var sb = new StringBuilder("\n\n[accounting] total=").Append(d.Selected)
             .Append(" rendered=").Append(rendered)
             .Append(" capped=").Append(capped)
             .Append(" truncated=").Append(truncated)
             .Append(" offset=").Append(d.Offset)
+            .Append(" remaining=").Append(Math.Max(remaining, 0))
             .Append(" notes=").Append(d.SelectorNotes?.Count ?? 0);
-        if (capped > 0)
+        // Only what is still AHEAD earns a next page: on the last page there is nothing to advance to, and an offset
+        // past the end would otherwise be told to re-call at the offset it already used.
+        if (remaining > 0)
             sb.Append("\nthe selection is longer than this window: re-call with offset=")
               .Append(d.Offset + d.Results.Count).Append(" for the next page.");
+        else if (d.Selected > 0 && d.Offset >= d.Selected)
+            sb.Append("\noffset=").Append(d.Offset).Append(" is past the end of the selection (")
+              .Append(d.Selected).Append(" path(s)) — the last page starts before it.");
         if (truncated > 0)
             sb.Append("\nmax_chars cut ").Append(truncated).Append(" resolved path(s) from the render: raise max_chars, or page with limit=/offset=.");
         return sb.ToString();

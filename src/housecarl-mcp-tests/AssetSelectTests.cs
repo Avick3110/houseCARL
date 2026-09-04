@@ -81,6 +81,27 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         Assert.Empty(shallow.Results);
     }
 
+    /// <summary>'**' spans zero segments as well as many, so a sweep written with it does not quietly skip the files
+    /// sitting directly in the anchor folder.</summary>
+    [Fact]
+    public void ADoubleStarMatchesTheAnchorFolderItselfAndNotOnlyItsSubfolders()
+    {
+        var deep = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir + @"\**\*.nif" });
+
+        Assert.Equal(AssetSelectWorld.FaceGeomFiles, deep.Selected);
+    }
+
+    /// <summary>A glob with no directory in front of it would enumerate every loose file and every archive entry in
+    /// the order before rendering anything, so it is refused instead of paid.</summary>
+    [Fact]
+    public void AnUnanchoredGlobIsRefusedRatherThanSweepingTheWholeLoadOrder()
+    {
+        var d = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { @"**\*.nif" });
+
+        Assert.Empty(d.Results);
+        Assert.Contains(d.SelectorNotes!, n => n.Contains("anchored under a directory", StringComparison.Ordinal));
+    }
+
     /// <summary>Explicit paths and a directory compose in one call: the paths keep their place and their order, and the
     /// sweep does not repeat one it already named.</summary>
     [Fact]
@@ -129,7 +150,7 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         Assert.Equal(2, page.Results.Count);
 
         var text = AssetWire.Render(page, 80_000);
-        Assert.Contains("[accounting] total=5 rendered=2 capped=3 truncated=0 offset=1", text);
+        Assert.Contains("[accounting] total=5 rendered=2 capped=3 truncated=0 offset=1 remaining=2", text);
         Assert.Contains("offset=3 for the next page", text);
 
         // The pages tile the selection: page 2 continues where page 1 stopped.
@@ -151,6 +172,31 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         Assert.Contains("max_chars cut", text);
     }
 
+    /// <summary>The last page says it is the last, and an offset past the end says THAT rather than pointing back at
+    /// the offset it was just called with — a caller following the line's own advice must not loop.</summary>
+    [Fact]
+    public void TheLastPageOffersNoNextPageAndAnOffsetPastTheEndSaysSo()
+    {
+        var last = AssetWire.Render(
+            _w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir }, limit: 2, offset: 3), 80_000);
+        Assert.Contains("remaining=0", last);
+        Assert.DoesNotContain("for the next page", last);
+
+        var past = AssetWire.Render(
+            _w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir }, limit: 2, offset: 9), 80_000);
+        Assert.Contains("offset=9 is past the end of the selection (5 path(s))", past);
+        Assert.DoesNotContain("for the next page", past);
+    }
+
+    /// <summary>A negative window is refused by name rather than reinterpreted as "no limit".</summary>
+    [Fact]
+    public void ANegativeLimitOrOffsetIsRefusedByName()
+    {
+        var text = AssetTools.AssetStatus(_w.Svc, new[] { _w.Rel("0001.nif") }, limit: -1);
+
+        Assert.Contains("neither can be negative", text);
+    }
+
     /// <summary>An unpaged, uncut explicit-path call reports itself whole — the accounting is on every response, not
     /// only the ones that lost something.</summary>
     [Fact]
@@ -158,7 +204,7 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
     {
         var text = AssetTools.AssetStatus(_w.Svc, new[] { _w.Rel("0001.nif") });
 
-        Assert.Contains("[accounting] total=1 rendered=1 capped=0 truncated=0 offset=0 notes=0", text);
+        Assert.Contains("[accounting] total=1 rendered=1 capped=0 truncated=0 offset=0 remaining=0 notes=0", text);
     }
 
     /// <summary>Both select forms empty is a refusal that names both, since either one alone is a legal call.</summary>

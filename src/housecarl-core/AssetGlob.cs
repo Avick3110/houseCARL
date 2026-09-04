@@ -38,12 +38,22 @@ public static class AssetGlob
     public static IReadOnlyList<string> Select(AssetResolver.AssetView view, string selector)
     {
         var norm = AssetResolver.ValidateRelPath(selector).TrimEnd('\\');
-        var under = view.EnumerateUnder(HasWildcard(norm) ? LiteralPrefix(norm) : norm);
-        var hits = HasWildcard(norm)
-            ? under.Where(p => IsMatch(norm, p))
-            : under;
-        return hits.OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
+        if (!HasWildcard(norm)) return Sorted(view.EnumerateUnder(norm));
+
+        var prefix = LiteralPrefix(norm);
+        // A glob with no literal directory in front of it would enumerate the whole VFS — every loose file in every
+        // enabled mod and every entry of every archive — before a single path is rendered. Refused rather than paid.
+        if (prefix.Length == 0)
+            throw new ArgumentException(
+                "a glob has to be anchored under a directory, or it sweeps the whole load order — " +
+                $"put a folder in front of it, e.g. 'meshes/actors/character/**/*.nif': '{selector}'", nameof(selector));
+
+        var rx = ToRegex(norm);                                  // compiled ONCE, not per candidate path
+        return Sorted(view.EnumerateUnder(prefix).Where(p => rx.IsMatch(p)));
     }
+
+    static IReadOnlyList<string> Sorted(IEnumerable<string> paths) =>
+        paths.OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
 
     /// <summary>The glob compiled to an anchored, case-insensitive regex. Every character outside the three wildcard
     /// spellings is escaped, so a mod author's own regex-flavoured filename cannot change what the pattern means.</summary>
@@ -53,11 +63,20 @@ public static class AssetGlob
         for (int i = 0; i < pattern.Length; i++)
         {
             var c = pattern[i];
-            if (c == '*' && i + 1 < pattern.Length && pattern[i + 1] == '*') { sb.Append(".*"); i++; }
+            if (c == '*' && i + 1 < pattern.Length && pattern[i + 1] == '*')
+            {
+                // "**\" spans ZERO OR MORE whole segments, so 'a\**\x.nif' matches 'a\x.nif' as well as 'a\b\x.nif'.
+                // A trailing "**" is the plain any-run-of-characters form.
+                if (i + 2 < pattern.Length && pattern[i + 2] == '\\') { sb.Append("(?:[^\\\\]*\\\\)*"); i += 2; }
+                else { sb.Append(".*"); i++; }
+            }
             else if (c == '*') sb.Append("[^\\\\]*");
             else if (c == '?') sb.Append("[^\\\\]");
             else sb.Append(Regex.Escape(c.ToString()));
         }
-        return new Regex(sb.Append('$').ToString(), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        // NonBacktracking: the '**' spelling nests quantifiers, and a linear-time engine forecloses the pathological
+        // non-match rather than bounding it with a timeout.
+        return new Regex(sb.Append('$').ToString(),
+                         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
     }
 }
