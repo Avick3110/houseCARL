@@ -7,35 +7,25 @@ using Noggog;
 
 namespace HousecarlCore;
 
-// ======================================================================
-//  ClosureCopy — the ACT consumer of a ClosureWalk (SPEC §3.3): internalize the reached
-//  set into a patch under fresh keys, then make the artifact honest about what it still
-//  points at.
+// ClosureCopy — internalize a ClosureWalk's reached set into a patch under fresh keys, then make
+// the artifact honest about what it still points at.
 //
-//  THE MECHANISM is Mutagen's record.Duplicate(newKey) + RemapLinks, through the shared
-//  RemapEngine — the same blessed deep-copy compact and merge ride. Whole-record, never
-//  field-by-field re-authoring: Duplicate carries every field, so there is no field for a
-//  future session to forget. (That property is why the ancestor's two empirically-pinned
-//  traps were structurally impossible rather than merely handled.)
+// Copies whole records via Mutagen's Duplicate(newKey) + RemapLinks through RemapEngine, never
+// field-by-field: Duplicate carries every field, so no field can be forgotten.
 //
-//  THE SCRATCH-MOD STEP IS NOT AN OPTIMIZATION. RenumberRecordsInto remaps links over the
-//  WHOLE target mod, which is correct for its fresh-target contract and wrong for an
-//  EXTENDED patch: a record the user already put there, deliberately referencing a key
-//  this copy happens to be renumbering, would be silently repointed. So the duplicates are
-//  built in a scratch mod sharing the patch's ModKey (allocated keys are therefore final)
-//  and transplanted in afterwards. The patch's pre-existing records are never handed to a
-//  remap at all.
+// The scratch-mod step is a correctness requirement, not an optimization: RenumberRecordsInto
+// remaps links over the WHOLE target mod, which would silently repoint a record the user already
+// put in an EXTENDED patch. Duplicates are built in a scratch mod sharing the patch's ModKey (so
+// allocated keys are final) and transplanted in; the patch's own records never reach a remap.
 //
-//  THE STRIP is generic: after internalize + remap, any link still pointing into the bound
-//  source universe is by definition NOT part of what was copied. Whether that is a faction,
-//  an outfit or a script is not this file's business — it strips by link identity and names
-//  every removal. A REQUIRED link it cannot clear is a loud refusal, never a silent keep:
-//  keeping it would master the very plugin the artifact claims to be free of.
-// ======================================================================
+// The strip is generic: after internalize + remap, any link still pointing into the bound source
+// universe is by definition not part of what was copied, and is removed by link identity with
+// every removal named. A REQUIRED link it cannot clear is a loud refusal — keeping it would
+// master the very plugin the artifact claims to be free of.
 
-/// <summary>One record internalized: where it came from, where it landed, and — carried through from the walk —
-/// WHICH source arm produced the body that was copied. The attribution survives the copy because a report that
-/// loses it cannot answer "which of my sources did this record actually come from".</summary>
+/// <summary>One record internalized: where it came from, where it landed, and which source arm produced the body
+/// that was copied. The arm attribution must survive the copy — without it the report cannot say which source a
+/// record came from.</summary>
 public sealed record CopiedRecord(
     FormKey OldKey, FormKey NewKey, string TypeName, string? EditorId,
     int ArmIndex, string ArmSpelling, string PulledBy);
@@ -43,13 +33,12 @@ public sealed record CopiedRecord(
 /// <summary>One stripped link, or one attached seed: the field it sat on (with index, for a list) and what was
 /// removed or written.
 /// <para><paramref name="Cleared"/> marks an attach whose source carried nothing, so the target's own value was
-/// cleared rather than overwritten. Reported because a silent clear and a silent skip are indistinguishable to a
-/// caller afterwards, and the two have opposite consequences for the resulting face.</para>
+/// cleared rather than overwritten. A clear and a skip are indistinguishable to the caller afterwards but have
+/// opposite consequences, so the clear is reported rather than left silent.</para>
 /// <para><paramref name="WholeProperty"/> marks a strip that nulled an ENTIRE property to remove the link(s) named,
-/// rather than removing just them. The two cost the caller very different things and the render used to spell them
-/// the same: nulling <c>VirtualMachineAdapter</c> to clear one bound script property drops every script on the
-/// clone, and "STRIPPED 1 reference(s)" naming only the offending link understated that by the whole rest of the
-/// property (review round 3).</para></summary>
+/// rather than removing just them — nulling <c>VirtualMachineAdapter</c> to clear one bound script property drops
+/// every script on the clone. The render must distinguish the two; naming only the offending link understates the
+/// cost by the whole rest of the property.</para></summary>
 public sealed record StripEntry(string Field, string Removed, bool Cleared = false, bool WholeProperty = false);
 
 /// <summary>Why an internalize/strip refused.</summary>
@@ -67,38 +56,36 @@ public enum CopyRefusalKind
     /// <summary>A link into the bound universe survived on the attach target after the remap.</summary>
     DonorLeak,
     /// <summary>A seed path names a field whose SHAPE the attach lane does not support — a list of link-bearing
-    /// elements, or a target property the lane cannot write. Refused by name rather than silently no-oped or
-    /// silently emptied (shape ruling (a), Aaron-go 2026-08-15).</summary>
+    /// elements, or a target property the lane cannot write. Refused by name, never silently no-oped or
+    /// emptied.</summary>
     UnsupportedSeedShape,
     /// <summary>A <c>Type:stop</c> exclusion pruned a record that lives OFF the active load order. The artifact
     /// would have to master a plugin the game does not load, which cannot be serialized at all — so it refuses up
-    /// front with both remedies rather than throwing out of the writer (Aaron-go 2026-08-15).</summary>
+    /// front with both remedies rather than throwing out of the writer.</summary>
     StopOffOrder,
     /// <summary>The target record lives in a NESTED group (a placed reference, a cell, a dialog response). Ordinary
     /// caller input, so it is a typed refusal naming the shape — not a throw rendered as an internal fault.</summary>
     UnsupportedTargetShape,
     /// <summary>A record ALREADY in the patch — put there by an earlier call, reached through <c>into=</c> — links
     /// to a plugin the active order does not carry, so the patch cannot be serialized. Nothing this call did caused
-    /// it, which is why it cannot borrow <see cref="StopOffOrder"/>'s sentence: that one names an
-    /// <c>exclude_types</c> prune the caller never asked for and a remedy about an argument they never passed
-    /// (Aaron's review).</summary>
+    /// it, so it must not borrow <see cref="StopOffOrder"/>'s sentence, which names an <c>exclude_types</c> prune
+    /// the caller never asked for.</summary>
     PatchOffOrderLink,
-    /// <summary>A record THIS call copied carries a link to a plugin the active order does not carry, and the link
-    /// is not one an exclusion pruned — it sits on a field <c>seed_paths</c> never named, so the walk never saw it
-    /// and it was duplicated across as-is. Distinct again, because the remedy is the caller's seed set rather than
-    /// their exclusions or their patch.</summary>
+    /// <summary>A record THIS call copied carries a link to a plugin the active order does not carry, and no
+    /// exclusion pruned it — it sits on a field <c>seed_paths</c> never named, so the walk never saw it and it was
+    /// duplicated across as-is. Distinct because the remedy is the caller's seed set, not their exclusions or
+    /// their patch.</summary>
     CopiedOffOrderLink,
     /// <summary>The seed's shape is SUPPORTED and the TARGET's property cannot take it — unset and read-only, or a
-    /// required link that cannot be cleared. A distinct kind because it needs a distinct remedy: these three used
-    /// <see cref="UnsupportedSeedShape"/>, so the render appended the shape route and told a caller whose seed path
-    /// was perfectly legal to go use <c>housecarl_apply</c>'s zip instead (review round 3).</summary>
+    /// required link that cannot be cleared. Distinct from <see cref="UnsupportedSeedShape"/> because the remedy
+    /// differs: the caller's seed path is legal and the fault is the target.</summary>
     UnwritableTarget,
 }
 
-/// <summary>A refusal as data — the render owns the words (#337).</summary>
+/// <summary>A refusal as data — the render owns the words.</summary>
 public sealed record CopyRefusal(CopyRefusalKind Kind, string Detail, string? Field = null, FormKey Key = default);
 
-/// <summary>The internalize outcome. A refusal carries nothing usable (the ACT posture).</summary>
+/// <summary>The internalize outcome. A refusal carries nothing usable.</summary>
 public sealed record CopyResult(
     bool Success, CopyRefusal? Refusal,
     IReadOnlyList<CopiedRecord> Copied,
@@ -117,16 +104,15 @@ public sealed record StripResult(bool Success, CopyRefusal? Refusal, IReadOnlyLi
 public static class ClosureCopy
 {
     /// <summary>Marks a post-attach leak whose key an EXCLUSION pruned rather than one the target already carried.
-    /// The two need different remedies: the generic sentence sends the caller to inspect their target, and for this
-    /// one the reference was written by this very call, because of the caller's own 'stop'. Carried as data on the
-    /// refusal so core states the cause and the tool layer owns the words.</summary>
+    /// The two need different remedies — the generic sentence sends the caller to inspect a target that never had
+    /// the reference. Carried as data so core states the cause and the tool layer owns the words.</summary>
     public const string ExclusionLeakMarker = "<pruned-by-exclusion>";
 
     /// <summary>
     /// Internalize a walk's reached set into <paramref name="patch"/> under fresh local keys.
     /// <para>Allocation comes off the patch's own counter, so an EXTENDED patch keeps counting from where it was.
-    /// The duplicates are built in a scratch mod and transplanted — see the file header for why that is a
-    /// correctness step and not a performance one.</para>
+    /// The duplicates are built in a scratch mod and transplanted — the file header says why that is a correctness
+    /// step, not a performance one.</para>
     /// </summary>
     public static CopyResult Internalize(SkyrimMod patch, IReadOnlyList<WalkNode> nodes)
     {
@@ -171,10 +157,8 @@ public static class ClosureCopy
     /// </summary>
     /// <para><b>Two passes, and the first one does not touch the record.</b> Pass 1 looks for a shape this strip
     /// cannot clear — a required bound link, an unclearable substruct — and refuses before anything is removed.
-    /// Only a clean scan runs pass 2, which mutates. A single mutating pass refuses part-way through with the
-    /// record already half-stripped: the ACT posture says a refusal leaves nothing usable behind, and a caller
-    /// that retries or inspects the record after one would be reading a state no call ever intended. (Found by
-    /// this lane's own guard: the refusing call had already emptied a list before it reached the required link.)</para>
+    /// Only a clean scan runs pass 2, which mutates. A single mutating pass would refuse part-way through with the
+    /// record already half-stripped, leaving a state no call intended for a caller that retries or inspects it.</para>
     public static StripResult StripBoundLinks(IMajorRecord record, Func<FormKey, bool> isBound)
     {
         if (ScanForUnstrippable(record, isBound) is { } blocked) return StripResult.Fail(blocked);
@@ -290,11 +274,10 @@ public static class ClosureCopy
 
     /// <summary>Null a single link's key iff the link is genuinely NULLABLE — judged on the RECORD MODEL's
     /// <c>IFormLinkNullable&lt;T&gt;</c>, never on whether a <c>SetToNull</c> method exists.
-    /// <para><b>This distinction was a live bug, not a hypothetical.</b> Mutagen's REQUIRED <c>FormLink&lt;T&gt;</c>
-    /// also exposes <c>SetToNull</c>, so deciding by method presence made the required-link refusal below dead code
-    /// and silently wrote a null into a required field — a record shipped with <c>Class=00000000</c>. Method
-    /// presence describes the API; the interface describes the MODEL, and only the model knows whether null is a
-    /// legal value for this field.</para>
+    /// <para>Mutagen's REQUIRED <c>FormLink&lt;T&gt;</c> also exposes <c>SetToNull</c>, so deciding by method
+    /// presence makes the required-link refusal dead code and silently writes a null into a required field (a
+    /// record shipped with <c>Class=00000000</c>). Only the interface says whether null is legal for the
+    /// field.</para>
     /// Returns false for a required link, which the caller escalates to the loud refusal.</summary>
     static bool TryNullLink(object link)
     {
@@ -306,19 +289,18 @@ public static class ClosureCopy
     }
 
     /// <summary>The non-mutating half of the same judgement, so pass 1 can decide without touching the record.
-    /// The interface, never the method: see <see cref="TryNullLink"/> for the bug that distinction cost.</summary>
+    /// Judged on the interface, never on method presence — see <see cref="TryNullLink"/>.</summary>
     static bool IsNullableLink(object link) => link.GetType().GetInterfaces().Any(i =>
         i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IFormLinkNullable<>));
 
     /// <summary>
     /// ATTACH — set the walked SEED fields on <paramref name="target"/> from <paramref name="source"/>, substituting
     /// the internalized keys. This is the link-bearing half of "copy the appearance onto an existing NPC": the
-    /// inline fields (tints, morphs, weights) are a field-bundle copy the `apply` zip already does, and which paths
-    /// form a bundle is skill data either way. Here only the seed paths are touched, so everything outside them is
-    /// untouched BY CONSTRUCTION rather than by care.
+    /// inline fields (tints, morphs, weights) are a field-bundle copy the `apply` zip already does. Only the seed
+    /// paths are touched here, so everything outside them is untouched by construction.
     /// <para><b>The remap is confined to the target record</b> — links are written already-mapped rather than
-    /// written raw and fixed up by a mod-wide pass. A patch record the caller never named is therefore unreachable
-    /// from this operation, which is the same property the scratch-mod step gives <see cref="Internalize"/>.</para>
+    /// written raw and fixed up by a mod-wide pass, so a patch record the caller never named is unreachable from
+    /// this operation. Same property the scratch-mod step gives <see cref="Internalize"/>.</para>
     /// <para>A target inside the bound universe REFUSES: standalone-izing a record onto itself is incoherent — the
     /// artifact would master the very plugin it is being freed from, and the "target" and the thing being removed
     /// are the same record.</para>
@@ -352,10 +334,8 @@ public static class ClosureCopy
 
             FormKey Mapped(FormKey k) => map.TryGetValue(k, out var n) ? n : k;
 
-            // THE SHAPE IS THE CLASSIFIER'S, not this lane's. Round 2 measured what happens when each site
-            // decides for itself: a null Keywords was refused here as "neither a record link nor a list of record
-            // links" — false of a field seed_paths fully supports — while the clone lane skipped the same field
-            // in silence. One verdict, consumed, no private opinions (Aaron-go 2026-08-15).
+            // Shape is decided by ClassifySeed, never re-judged here — this lane and the clone lane must give the
+            // same verdict for the same field, or one refuses what the other silently skips.
             var shape = ClosureWalk.ClassifySeed(sp);
             if (shape.Kind == SeedShapeKind.Unsupported)
                 return StripResult.Fail(new CopyRefusal(CopyRefusalKind.UnsupportedSeedShape, shape.Reason!, path));
@@ -366,9 +346,8 @@ public static class ClosureCopy
                     return StripResult.Fail(new CopyRefusal(CopyRefusalKind.UnwritableTarget,
                         $"'{path}' is a record link on the source but the target's is not writable", path));
                 var key = (sv as IFormLinkGetter)?.FormKeyNullable;
-                // An UNSET source link CLEARS the target's — the ancestor assigned the field unconditionally, and
-                // leaving the target's own value would build a face out of two records. Null is a STATE of this
-                // shape, not a reason to refuse it.
+                // An UNSET source link CLEARS the target's: leaving the target's own value would build a face out
+                // of two records. Null is a state of this shape, not a reason to refuse it.
                 if (key is null || key.Value.IsNull)
                 {
                     if (!TryClearLink(tv))
@@ -412,8 +391,8 @@ public static class ClosureCopy
 
             tList.Clear();
             foreach (var m in made) tList.Add(m);
-            // An EMPTY or absent source list clears the target's, on the same reasoning as the unset link above,
-            // and the readback says CLEARED rather than "0 link(s)", which reads as a no-op.
+            // An EMPTY or absent source list clears the target's, as the unset link above does. Reported as
+            // CLEARED, not "0 link(s)", which reads as a no-op.
             set.Add(mapped.Count == 0
                 ? new StripEntry(path, "cleared", Cleared: true)
                 : new StripEntry(path, $"{mapped.Count} link(s)"));
@@ -422,8 +401,8 @@ public static class ClosureCopy
     }
 
     /// <summary>Clear a single link property. A REQUIRED link has no legal null, so this returns false and the
-    /// caller refuses rather than writing an invented zero — the same judgement, and the same reason, as the clone
-    /// lane's strip: it asks the record MODEL rather than whether a SetToNull method happens to exist.</summary>
+    /// caller refuses rather than writing an invented zero. Judged on the record model, not on whether a
+    /// <c>SetToNull</c> method exists — the same rule as the clone lane's strip.</summary>
     static bool TryClearLink(object linkObj)
     {
         if (!IsNullableLink(linkObj)) return false;
@@ -475,15 +454,15 @@ public static class ClosureCopy
     /// <summary>
     /// Build the copy into a patch at <paramref name="outPath"/> and serialize it: internalize the walk's reached
     /// set, run the mode lane (attach to a target / mint a clone and strip it), write multi-master, read the
-    /// header back. Core owns this half because core owns records and serialization — the service owns lanes,
-    /// folders and MO2, and hands in the master set through <paramref name="mastersFor"/>.
+    /// header back. Core owns records and serialization; the service owns lanes, folders and MO2 and hands in the
+    /// master set through <paramref name="mastersFor"/>.
     /// <para>An IN-PATCH target (its FormID names the patch) is resolved HERE, off the opened patch mod:
     /// <paramref name="targetActiveBody"/> is null in that case by construction, because the patch is not in the
     /// load order and resolving it there would find nothing — or, on an extended patch, a body missing the very
     /// edits this call is adding.</para>
-    /// <para>Every refusal returns with nothing usable written (the ACT posture); a post-commit read-back failure
-    /// is a WARNING on a success, never a refusal — the patch IS on disk by then, and mislabelling it invites a
-    /// duplicate re-run.</para></summary>
+    /// <para>Every refusal returns with nothing usable written; a post-commit read-back failure is a WARNING on a
+    /// success, never a refusal — the patch IS on disk by then, and mislabelling it invites a duplicate
+    /// re-run.</para></summary>
     public static ClosureCopyOutcome BuildAndWrite(
         string outPath, bool extend,
         FormKey sourceKey, SourceHit srcHit,
@@ -506,16 +485,14 @@ public static class ClosureCopy
         }
         else patch = new SkyrimMod(patchModKey, SkyrimRelease.SkyrimSE);
 
-        // A pruned link must still be MASTERABLE. Masters come from the active order, so a `stop` on a record in
-        // an off-order plugin cannot be written at all — it threw a raw MissingModException out of the serializer,
-        // with no next step for the caller and against the very lane this verb exists for (a disabled donor).
-        // Checked before anything is built, so the refusal writes nothing (C11).
+        // A pruned link must still be MASTERABLE. Masters come from the active order, so a `stop` on a record in an
+        // off-order plugin cannot be serialized at all (the writer throws MissingModException). Checked before
+        // anything is built, so the refusal writes nothing.
         //
-        // SCOPED PER LANE TO LINKS THAT SURVIVE INTO THE ARTIFACT (review round 3). In the ATTACH lane nothing
-        // strips, so every excluded boundary survives — on the target unmapped, or on an internalized record — and
-        // the up-front check is exactly right. The CLONE lane strips bound links off the clone, so some boundaries
-        // are gone before the writer sees them and refusing those refused a copy that would have written cleanly.
-        // That lane is therefore checked AFTER the strip, against the artifact itself, below.
+        // Scoped per lane to links that survive into the artifact. In the ATTACH lane nothing strips, so every
+        // excluded boundary survives and this up-front check is right. The CLONE lane strips bound links off the
+        // clone, so some boundaries are gone before the writer sees them; that lane is checked AFTER the strip,
+        // against the artifact itself, below.
         var cloneLane = targetKey is null;
         if (!cloneLane && walk.Kept.FirstOrDefault(k => k.Excluded && !isOnOrder(k.Key.ModKey)) is { } offOrder)
             return ClosureCopyOutcome.Fail(
@@ -548,10 +525,8 @@ public static class ClosureCopy
                 try { target = WriteEngine.GenericGetOrAddAsOverride(patch, targetActiveBody); }
                 catch (Exception ex)
                 {
-                    // A placed reference, a cell, a dialog response — records that live in NESTED groups. That is
-                    // ordinary caller input, so it is a named refusal; letting it throw rendered it as "an
-                    // internal houseCARL failure … not bad input", which is the false claim this branch already
-                    // fixed once for duplicate exclude_types.
+                    // A placed reference, a cell, a dialog response — records in NESTED groups. Ordinary caller
+                    // input, so it is a named refusal; letting it throw would render as an internal failure.
                     return ClosureCopyOutcome.Fail(
                         copy: new CopyRefusal(CopyRefusalKind.UnsupportedTargetShape,
                             RecordNaming.StripOverlay(targetActiveBody.GetType().Name), Key: tk),
@@ -569,8 +544,8 @@ public static class ClosureCopy
 
             if (FindBoundLeak(target, isBound) is { } leak)
             {
-                // WHY it leaked decides the remedy. A key an exclusion pruned was attached unmapped by this call a
-                // moment ago; blaming the target for it sent the caller to edit a record that never had it.
+                // Why it leaked decides the remedy: a key an exclusion pruned was attached unmapped by this call,
+                // so blaming the target would send the caller to edit a record that never had it.
                 var fromExclusion = walk.Kept.Any(k => k.Excluded && k.Key == leak);
                 return ClosureCopyOutcome.Fail(
                     copy: new CopyRefusal(CopyRefusalKind.DonorLeak,
@@ -582,9 +557,8 @@ public static class ClosureCopy
         else
         {
             mode = "clone";
-            // A walk that comes back round to the `from` record has ALREADY internalized it (a cycle through the
-            // seed fields does exactly this), and minting a second duplicate left a stray unreferenced copy in the
-            // patch with the same EditorID as the clone (review round 3). Reuse the one the walk made.
+            // A walk that cycles back to the `from` record has ALREADY internalized it; minting a second duplicate
+            // would leave a stray unreferenced copy in the patch sharing the clone's EditorID. Reuse the walk's.
             if (copy.Map.TryGetValue(sourceKey, out var alreadyCloned)) newKey = alreadyCloned;
             else
             {
@@ -612,16 +586,13 @@ public static class ClosureCopy
             stripped = strip.Stripped;
         }
 
-        // The CLONE lane's half of the off-order check, asked of the ARTIFACT now that the strip has run. This is
-        // the direct question — "is there a link here naming a plugin the game does not load, which the writer
-        // therefore cannot master" — rather than the walk-level proxy, which could not tell a boundary the strip
-        // removed from one it never touched (a boundary reached from an INTERNALIZED record is not on the clone,
-        // so the strip never sees it, and that one does still have to be mastered).
-        // The measurement stays artifact-level — it predicts a real serialization failure, including for records a
-        // previous call left in an extended patch — but the RENDER now splits by CAUSE. Attributing every hit to
-        // `Type:stop` told a caller who passed no exclusions to change an exclude_types argument they never wrote,
-        // which is the "a true sentence about the wrong cause" class the exclusion-leak marker exists to fix
-        // (Aaron's review). Three causes, three refusals:
+        // The CLONE lane's half of the off-order check, asked of the ARTIFACT now that the strip has run: is there
+        // a link here naming a plugin the game does not load, which the writer therefore cannot master? The
+        // walk-level proxy cannot answer it — a boundary reached from an INTERNALIZED record is not on the clone,
+        // so the strip never sees it, yet it still has to be mastered.
+        // The measurement is artifact-level because it predicts a real serialization failure, including for records
+        // a previous call left in an extended patch. The RENDER splits by cause, so the remedy names something the
+        // caller actually did:
         //   the key is a boundary an exclusion pruned  -> StopOffOrder, the caller's own 'stop'
         //   the carrier is not a record this call added -> PatchOffOrderLink, pre-existing, this call innocent
         //   the carrier IS ours, link never pruned      -> CopiedOffOrderLink, an unseeded field carried across
@@ -640,23 +611,15 @@ public static class ClosureCopy
                 sources: consulted);
         }
 
-        // …and the same measurement answers what the response may CLAIM was kept. An exclusion "keeps" a link, but
-        // in the clone lane the strip may have removed it — reporting it as kept beside the strip list made one
-        // response claim the link was kept, that the artifact is standalone, and that the link was stripped, all
-        // at once (review round 3). Only boundaries the artifact still carries are reported as kept.
+        // The same measurement decides what may be reported as kept. An exclusion "keeps" a link, but in the clone
+        // lane the strip may have removed it, so only boundaries the artifact still carries are reported as kept.
         var reportedKept = liveLinks is null
             ? walk.Kept
             : walk.Kept.Where(k => !k.Excluded || liveLinks.Contains(k.Key)).ToList();
 
-        // INVENTORY I1 — the asset paths the copied records reference. This call is the only thing that knows WHAT
-        // it copied, so the enumeration stays with it; the decision (carry it? is another provider still supplying
-        // it?) is judgement and leaves, which is the composition split the whole verb is built on. Harvested from
-        // the IN-PATCH duplicates and BEFORE serialize, because the donor bodies may be overlay-backed and released
-        // at serialize — the same lifetime rule the internalized report already follows.
-        //
-        // The walk is generic and so is this: HarvestAssetPaths is an IAssetLinkGetter walk over the record graph,
-        // with no NPC vocabulary in it. It is called where it already lives rather than moved, because its file is
-        // the ancestor's and this branch does not touch those; it moves when the ancestor is removed.
+        // The asset paths the copied records reference — a generic IAssetLinkGetter walk, no record-type
+        // vocabulary. Harvested from the IN-PATCH duplicates and BEFORE serialize: the donor bodies may be
+        // overlay-backed and are released at serialize.
         var assetPaths = Array.Empty<string>() as IReadOnlyList<string>;
         try
         {
@@ -696,8 +659,8 @@ public static class ClosureCopy
         return new ClosureCopyOutcome(
             true, null, null, null, mode, sourceKey, newKey, outPath, extend,
             copy.Copied, reportedKept, walk.Cycles, attached, stripped, consulted,
-            // R2: every internalized record names the arm that produced it, and the record the caller ASKED for
-            // did not — which is the single body an ordered source list exists to disambiguate.
+            // The `from` record's own arm: every internalized record names the arm that produced it, and this is
+            // the one body an ordered source list exists to disambiguate.
             srcHit.Arm.Spelling, assetPaths,
             masters, sourceAmong, nothingBound, bytes, warning);
     }
@@ -709,10 +672,9 @@ public static class ClosureCopy
     /// <summary>One pass over the built patch: every distinct link key it carries, and the FIRST link naming a
     /// plugin the active order does not have. Asks the ARTIFACT what survived rather than inferring it from the
     /// walk — the two disagree in the clone lane, where the strip runs between them.
-    /// <para>The cast is guarded, not asserted. <see cref="ClosureWalk.Run"/> treats this same cast as fallible, and
-    /// the two files must not disagree about that: if a record can fail it, asserting it here throws out of
-    /// BuildAndWrite AFTER the internalize, which <c>Guard.Tool</c> renders as an internal houseCARL failure rather
-    /// than as anything the caller can act on (Aaron's review).</para></summary>
+    /// <para>The cast is guarded, not asserted. <see cref="ClosureWalk.Run"/> treats the same cast as fallible and
+    /// the two must agree: asserting it here would throw out of BuildAndWrite AFTER the internalize, which renders
+    /// as an internal failure the caller cannot act on.</para></summary>
     static (HashSet<FormKey> Live, OffOrderHit? Offender) ScanPatchLinks(
         SkyrimMod patch, ModKey patchModKey, Func<ModKey, bool> isOnOrder)
     {
@@ -735,13 +697,11 @@ public static class ClosureCopy
 
     /// <summary>The belt-and-braces check after an attach: nothing pointing into the BOUND universe may survive on
     /// <paramref name="record"/>. Returns the offending key, or null when clean.
-    /// <para><b>Scoped to bound keys ONLY, and that scoping is the load-bearing half.</b> A broader test — "any link
-    /// that does not resolve" — also catches a target's PRE-EXISTING dangling reference (mod-update dirt whose
-    /// master is still declared), which is not this operation's defect and must not block a legitimate copy. The
-    /// check exists to prove the artifact does not master the source, so it asks exactly that.</para></summary>
-    /// <para>The cast is guarded for the same reason <see cref="ScanPatchLinks"/>'s is: the walk already treats it
-    /// as fallible, and a record that fails it must not throw out of a written copy as an internal fault. A record
-    /// carrying no link container carries no links, so there is nothing here for it to leak.</para>
+    /// <para><b>Scoped to bound keys ONLY.</b> A broader test — "any link that does not resolve" — also catches a
+    /// target's PRE-EXISTING dangling reference (mod-update dirt whose master is still declared), which is not this
+    /// operation's defect and must not block a legitimate copy.</para></summary>
+    /// <para>The cast is guarded for the same reason <see cref="ScanPatchLinks"/>'s is. A record carrying no link
+    /// container carries no links, so there is nothing here for it to leak.</para>
     public static FormKey? FindBoundLeak(IMajorRecordGetter record, Func<FormKey, bool> isBound)
     {
         if (record is not IFormLinkContainerGetter flc) return null;
@@ -751,7 +711,7 @@ public static class ClosureCopy
     }
 }
 
-/// <summary>The whole closure-copy operation's outcome — data only, no prose (#337: the render owns the words).
+/// <summary>The whole closure-copy operation's outcome — data only, no prose; the render owns the words.
 /// Exactly one of the three refusal slots is set on a failure; all are null on success.
 /// <para><see cref="SourcesConsulted"/> is the ordered universe as the caller spelled it, carried so the readback
 /// can name which sources were in play even when nothing was found in any of them.</para></summary>

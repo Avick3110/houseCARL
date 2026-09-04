@@ -3,47 +3,43 @@ using System.Text;
 namespace HousecarlCore;
 
 /// <summary>
-/// The winner-relative CONTENT comparison behind the conflict-tree diff (HCBR-2026-06-09-01).
+/// The winner-relative CONTENT comparison behind the conflict-tree diff. It compares DEEP reads (every
+/// modeled leaf), not depth-1 rendered lines: at depth 1 a list collapses to a "[List: N item(s)]" count
+/// token, so two lists with equal counts but different contents compare identical and a whole override
+/// reads "(identical to winner)" while carrying the edit that motivated it.
 ///
-/// The old diff compared depth-1 rendered lines, where a list collapses to a "[List: N item(s)]" count
-/// token — so two lists with EQUAL counts but DIFFERENT contents compared identical, and a whole override
-/// could be reported "(identical to winner)" while carrying the very edit that motivated it (the report's
-/// masked USSEP PlayerFaction regression). This module compares DEEP reads (every modeled leaf):
-///
-///   • scalar / substruct / dict leaves — exact-path token comparison (the old behavior, at full depth).
-///     Dict brackets are semantic KEYS — non-numeric (Skills[OneHanded]) by spelling, numeric-keyed dicts
-///     (Package.Data) by the read engine's in-band "N pair(s)" container marker — so a key rebinding is a
-///     real delta, never absorbed by positional handling;
+///   • scalar / substruct / dict leaves — exact-path token comparison. Dict brackets are semantic KEYS —
+///     non-numeric (Skills[OneHanded]) by spelling, numeric-keyed dicts (Package.Data) by the read
+///     engine's in-band "N pair(s)" container marker — so a key rebinding is a real delta, never absorbed
+///     by positional handling;
 ///   • positional LIST contents — order-INSENSITIVE multiset comparison of whole elements keyed on their
-///     content (the report's case: USSEP and the winner store the same relations in different orders, so
-///     an index-wise comparison would over-report; element identity is content-based). Elements present
-///     on only one side are reported with identifying leaf values. When the multisets are EQUAL but the
-///     positional order differs, an ORDER-DIFFERS note is emitted (#275) — for record types where list
-///     order IS the semantics (a DIAL's INFO children decide which line plays), a pure reorder must not
-///     read as identical; contents-equal means no element deltas, so the note stands alone. Nested list
-///     reordering INSIDE an
-///     element is not canonicalised (v1) — it can over-report as a content delta, never under-report;
-///   • honesty (Q3) — if either side's deep read hit the expansion cap, <see cref="Result.Complete"/> is
-///     false: list comparison and one-sided-presence deltas are SUPPRESSED (where the two caps fell would
-///     otherwise fabricate differences), only value mismatches observed on both sides are reported, and
-///     the caller must not claim identity beyond what was actually compared.
+///     content, because two plugins commonly store the same entries in different orders and an index-wise
+///     comparison would over-report. Elements present on only one side are reported with identifying leaf
+///     values. When the multisets are EQUAL but the positional order differs, an ORDER-DIFFERS note is
+///     emitted: for record types where list order IS the semantics (a DIAL's INFO children decide which
+///     line plays), a pure reorder must not read as identical. Nested list reordering INSIDE an element is
+///     not canonicalised — it can over-report as a content delta, never under-report;
+///   • if either side's deep read hit the expansion cap, <see cref="Result.Complete"/> is false: list
+///     comparison and one-sided-presence deltas are SUPPRESSED (where the two caps fell would otherwise
+///     fabricate differences), only value mismatches observed on both sides are reported, and the caller
+///     must not claim identity beyond what was actually compared.
 /// </summary>
 public static class FieldsDiff
 {
     /// <summary>Field-level deltas, preformatted for the conflict-tree render. <see cref="Complete"/> false ⇒
     /// at least one side's read was truncated at the expansion cap, so an empty <see cref="Deltas"/> must NOT
-    /// be rendered as "identical to winner" (Q3 — never claim knowledge the comparison doesn't have).
+    /// be rendered as "identical to winner" — never claim knowledge the comparison doesn't have.
     ///
-    /// <para><see cref="AgreedCount"/> + <see cref="AgreedSample"/> are the present-==-winner signal (PR-G, item
-    /// 4.3): how many VALUE LEAVES the node carries that exactly equal the winner's — i.e. ITM-restated fields,
+    /// <para><see cref="AgreedCount"/> + <see cref="AgreedSample"/> are the present-==-winner signal:
+    /// how many VALUE LEAVES the node carries that exactly equal the winner's — i.e. ITM-restated fields,
     /// the deltas of which are (by design) OMITTED, so without this count a contributor that restates a field
     /// identically (an ITM override) was indistinguishable from one that simply doesn't carry it. Counts only
     /// exact-path value leaves read on BOTH sides (never container summaries, never a side's <c>(absent)</c> /
     /// <c>(null link)</c> sentinel — an absent field is NOT an agreement). <see cref="AgreedSample"/> is up to a
-    /// few of those paths for the render. Both are 0/empty on a truncated comparison (the agreed set, like the
-    /// one-sided deltas, would be a where-the-cap-fell artifact — Q3).</para>
+    /// few of those paths for the render. Both are 0/empty on a truncated comparison — the agreed set, like the
+    /// one-sided deltas, would be a where-the-cap-fell artifact.</para>
     ///
-    /// <para><b>Honest limit (Q3):</b> per-field presence is reliable only for NULLABLE fields, whose absence the
+    /// <para><b>Honest limit:</b> per-field presence is reliable only for NULLABLE fields, whose absence the
     /// read engine surfaces as a distinct <c>(absent)</c> / <c>(null link)</c> note. Non-nullable scalars grouped
     /// in a binary subrecord (Armor <c>DATA</c> → rating/value/weight) read as <c>0</c>/default with no carried
     /// presence bit, so a leaf that EQUALS the winner is counted as agreement (it IS the same modeled value) but
@@ -73,7 +69,7 @@ public static class FieldsDiff
         // as elements), then split DICT-vs-LIST by the read engine's in-band container marker: a numeric-KEYED
         // dict (Package.Data) renders "N pair(s)" and is compared by EXACT PATH — its bracket content is a
         // semantic KEY, so the same values rebound to different keys is a real delta — while a positional
-        // list is compared by element content (PR #28 review finding 2).
+        // list is compared by element content.
         var candidates = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (p, _) in tLines) if (ListRoot(p) is { } r) candidates.Add(r);
         foreach (var (p, _) in wLines) if (ListRoot(p) is { } r) candidates.Add(r);
@@ -86,7 +82,7 @@ public static class FieldsDiff
             // the dict marker is structurally absent there, so positional handling could absorb a dict key
             // rebinding — and the user named specific indices/keys anyway, so EXACT-PATH is the natural
             // semantics. The failure direction flips to over-report (a reordered list under bracketed
-            // fields= shows index-wise deltas), never under-report (PR #28 review #2).
+            // fields= shows index-wise deltas), never under-report.
             bool seen = tSum is not null || wSum is not null;
             bool dict = (tSum?.Contains(" pair(s)]", StringComparison.Ordinal) ?? false)
                      || (wSum?.Contains(" pair(s)]", StringComparison.Ordinal) ?? false);
@@ -98,7 +94,7 @@ public static class FieldsDiff
         // ---- exact-path comparison: scalars, substructs, dict children (bracket = a semantic key) --------
         // On a TRUNCATED comparison the list roots' own summary lines join the exact-path set: a root count
         // token read on BOTH sides is a real, cap-independent read, so a count delta still surfaces even
-        // though element comparison is suppressed (PR #28 review #2, non-blocking note).
+        // though element comparison is suppressed.
         var tScalar = ExactPathLines(tLines, listRoots, includeListRootSummaries: !complete);
         var wScalar = ExactPathLines(wLines, listRoots, includeListRootSummaries: !complete);
         int agreedCount = 0;
@@ -115,7 +111,7 @@ public static class FieldsDiff
                 }
                 else if (tAbsent)
                 {
-                    // FIRST-CLASS absent state (item 4.3): the contributor doesn't carry this field but the
+                    // FIRST-CLASS absent state: the contributor doesn't carry this field but the
                     // winner does. Rendered as ABSENT, not as a "=(absent)" phantom value delta. Only nullable
                     // fields reach here — the read engine emits the sentinel only for them.
                     deltas.Add($"{path}: ABSENT here ({referenceLabel} has {wv})");
@@ -141,7 +137,7 @@ public static class FieldsDiff
             }
             // One-sided presence is only a delta when BOTH sides were fully read: on a truncated side a
             // missing line is an artifact of WHERE its cap fell, not of content — reporting it would
-            // FABRICATE a difference (PR #28 review finding 1).
+            // FABRICATE a difference.
             else if (complete) deltas.Add($"{path}={val} ({referenceLabel} has no {path})");   // shape difference (e.g. another ConditionData arm)
         }
         if (complete)
@@ -150,7 +146,7 @@ public static class FieldsDiff
 
         // ---- positional lists: order-insensitive whole-element multiset comparison. SKIPPED entirely on a
         //      truncated comparison — a cap landing mid-list fabricates one-sided elements and wrong counts;
-        //      the renderer surfaces the truncation instead (PR #28 review finding 1). --------------------
+        //      the renderer surfaces the truncation instead. -----------------------------------------------
         if (complete)
         {
             foreach (var root in listRoots.OrderBy(r => r, StringComparer.Ordinal))
@@ -160,21 +156,16 @@ public static class FieldsDiff
                 var (onlyT, onlyW) = MultisetDiff(tElems, wElems);
                 if (onlyT.Count == 0 && onlyW.Count == 0)
                 {
-                    // Equal multisets ⇒ same CONTENTS. For most list fields order is noise (the report that
-                    // motivated the multiset compare: USSEP stores the same relations in a different order), but
-                    // for some it IS the semantics — a DIAL's INFO children decide which line the game plays, so a
-                    // pure reorder is the whole delta (#275). Folding it into "no delta" makes such a record read
-                    // "identical to winner" — a silent wrong. Detect it generically: ElementsOf returns elements in
-                    // positional (index) order, so an ordered fingerprint-sequence mismatch IS a reorder. Surface it
-                    // as an ORDER-DIFFERS note — never element deltas, the contents ARE equal. Type-agnostic by
-                    // design: over-reporting a noise reorder is the safe direction; silently equating a semantic one
-                    // is not (the whole module's posture — over-report, never under-report).
+                    // Equal multisets ⇒ same CONTENTS. For most list fields order is noise, but for some it IS the
+                    // semantics — a DIAL's INFO children decide which line the game plays, so a pure reorder is the
+                    // whole delta and folding it into "no delta" would report such a record identical to the winner.
+                    // ElementsOf returns elements in positional order, so an ordered fingerprint-sequence mismatch
+                    // IS a reorder. Type-agnostic on purpose: over-reporting a noise reorder is the safe direction.
                     //
                     // SIBLING DETECTOR: DialogueInfoOrder.RelativeOrderChanges answers the finer "WHICH elements
                     // moved" (an LCS pass) for a DIAL's N-plugin merge against its origin, feeding validate_dialogue.
-                    // This one answers the coarser "did this list get reordered at all" for an arbitrary two-sided
-                    // field diff. Deliberately separate — different granularity, different call sites — but a change
-                    // to reorder semantics here should consider that one too, and vice versa.
+                    // This one answers the coarser "did this list get reordered at all". Separate by granularity and
+                    // call site, but a change to reorder semantics here should consider that one too, and vice versa.
                     if (!tElems.Select(e => e.Fingerprint).SequenceEqual(wElems.Select(e => e.Fingerprint)))
                         deltas.Add($"{root}: same {tElems.Count} item(s), ORDER DIFFERS from {referenceLabel}");
                     continue;
@@ -184,7 +175,7 @@ public static class FieldsDiff
         }
 
         // On a truncated comparison the agreed set, like the one-sided deltas, would be a where-the-cap-fell
-        // artifact — suppress it (Q3): a partial read must not claim "N fields match the winner".
+        // artifact — suppress it: a partial read must not claim "N fields match the winner".
         if (!complete) { agreedCount = 0; agreedSample.Clear(); }
         return new Result(deltas, complete, agreedCount, agreedSample);
     }
@@ -213,7 +204,7 @@ public static class FieldsDiff
         bool complete = true;
         foreach (var f in rf.Fields)
         {
-            if (f.Path == "…") { complete = false; continue; }         // ReadEngine's expansion-cap sentinel (Q3)
+            if (f.Path == "…") { complete = false; continue; }         // ReadEngine's expansion-cap sentinel
             if (f.HasValue) valueLeaves.Add(f.Path);
             lines.Add((f.Path, f.HasValue ? f.Token ?? "" : f.Note ?? ""));
         }
@@ -281,7 +272,7 @@ public static class FieldsDiff
     /// <summary>Case-normalise a value for COMPARISON when it is a FormKey token ("XXXXXX:Plugin.esp").
     /// ModKeys are case-insensitive and each plugin stores a master's filename as written in ITS OWN master
     /// list, so the same link can render "17DDC4:ccBGSSSE001-Fish.esm" in one version and
-    /// "17ddc4:ccbgssse001-fish.esm" in another (seen live on the report's PlayerFaction record) — an ordinal
+    /// "17ddc4:ccbgssse001-fish.esm" in another — an ordinal
     /// comparison would report a false content delta. Display keeps each side's original token; only equality
     /// checks and element fingerprints use this form. Non-FormKey values pass through untouched (string
     /// content stays case-SENSITIVE).</summary>

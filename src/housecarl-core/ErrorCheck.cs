@@ -5,61 +5,58 @@ using Mutagen.Bethesda.Skyrim;
 namespace HousecarlCore;
 
 /// <summary>
-/// The load-order integrity sweep (housecarl_check_errors — audit A1): the data-layer twin of the Creation Kit's
-/// "Check For Errors" / xEdit's error check. For each plugin in scope it walks EVERY record's FormLinks (Mutagen's
-/// own <see cref="IFormLinkContainerGetter.EnumerateFormLinks"/> — the by-construction link surface, the same one
+/// The load-order integrity sweep (housecarl_check_errors): the data-layer twin of the Creation Kit's "Check For
+/// Errors" / xEdit's error check. For each plugin in scope it walks EVERY record's FormLinks (Mutagen's own
+/// <see cref="IFormLinkContainerGetter.EnumerateFormLinks"/> — the by-construction link surface, the same one
 /// cross_plugin_query references= rides) and reports three error classes:
 ///   • DANGLING — a non-null FormLink whose target NO plugin in the active order defines (<see cref="LoadOrderResolver.IndexView.ResolveWinner"/>
 ///     is null): a broken reference in the resolvable order. Engine-implicit forms (PlayerRef 000014, Player 000007 —
 ///     hardcoded refs the index can't resolve but that are never actually broken) are exempted via <see cref="EngineImplicit"/>,
-///     so the standard player-state pattern doesn't false-flag (HCBR: 531/531 dangling all → 000014 before this exemption).
-///     A container/leveled-list item's OWNERSHIP "variable" word (an <see cref="IUntypedOwnerGetter.VariableData"/> — a
-///     RequiredRank int, not a reference, that Mutagen exposes AS a FormLink whenever it can't type the owner; #207) is
-///     exempted too, so a rank of -1 (0xFFFFFFFF) is not read as a dangling ref — see <see cref="UntypedOwnerVariableData"/>.
+///     so the standard player-state pattern doesn't false-flag. A container/leveled-list item's OWNERSHIP "variable"
+///     word (an <see cref="IUntypedOwnerGetter.VariableData"/> — a RequiredRank int, not a reference, that Mutagen
+///     exposes AS a FormLink whenever it can't type the owner) is exempted too, so a rank of -1 (0xFFFFFFFF) is not
+///     read as a dangling ref — see <see cref="UntypedOwnerVariableData"/>.
 ///   • MISSING MASTER — a plugin DECLARES a master that is not present in the active order
 ///     (<see cref="LoadOrderResolver.IndexView.ContainsPlugin"/> is false): the plugin's dependency is not installed /
 ///     enabled, the most common load-order break (and the root cause behind a cluster of that master's refs dangling).
-///   • PARSE failures — per-record (a body whose link walk THROWS is excluded + accounted, never a silent skip — the
+///   • PARSE failures — per-record (a body whose link walk THROWS is excluded and accounted, never a silent skip — the
 ///     fault-isolation twin of the cross_plugin_query scan) and whole-plugin (plugins the index build could not parse,
 ///     surfaced via <see cref="LoadOrderResolver.IndexView.ExcludedPlugins"/>).
 ///
-/// WHY NOT the master-TABLE diff the CK/xEdit also show (declared-vs-used) — the honest scope boundary, Q3:
+/// WHY NOT the master-TABLE diff the CK/xEdit also show (declared-vs-used) — the honest scope boundary:
 ///   • "used-but-undeclared master" is STRUCTURALLY UNDETECTABLE through Mutagen: a FormID's master-index byte is
 ///     decoded against the plugin's declared master list, so every FormKey Mutagen yields has a ModKey that is, by
 ///     construction, a declared master or the plugin itself — the "references a form from a plugin it does not master"
-///     corruption lives in the RAW master-index byte, below what Mutagen models (adjacent to the mesh-byte residual).
-///     Its OBSERVABLE effect — refs that no longer resolve — is caught as DANGLING. We do not claim to diagnose it.
+///     corruption lives in the RAW master-index byte, below what Mutagen models. Its OBSERVABLE effect — refs that no
+///     longer resolve — is caught as DANGLING. We do not claim to diagnose it.
 ///   • "declared-but-unused master" (xEdit's unused-master cleanup) is advisory only and a FormLink scan cannot prove
 ///     it (a master used solely by scripts or unmodeled refs would read as unused — a false positive). Deferred as a
 ///     named future item rather than shipped as an unprovable claim.
 ///
-/// HONEST BOUNDARY (Q3 — the sweep claims exactly this, never more): it covers the FormLink-resolution / missing-master
-/// / parse class. It does NOT verify navmesh or terrain SPATIAL integrity (the CrcHash / NavmeshGrid recompute — a known
-/// Mutagen-delta residual), does NOT flag a REQUIRED field left null (needs per-field requiredness; a null FormLink is a
-/// legal optional here), and does NOT list unused-master cleanup (see above). All named in the rendered footer so a
-/// clean result is never read as byte-for-byte xEdit parity. It also exempts an <see cref="IUntypedOwnerGetter"/>'s
-/// ambiguous "variable" word (#207 — see <see cref="UntypedOwnerVariableData"/>); the one thing that gives up is a
-/// genuinely-dangling Global on an NPC-OWNED item whose owner NPC lives in a master (vanishingly rare, and that owner
-/// NPC is still checked), which we trade for never false-flagging the far commoner faction-owner rank. DELETED records
-/// are excluded from the link walk entirely (#279 — see <see cref="DeletedRecordRule"/>): their content is not live,
+/// HONEST BOUNDARY — the sweep claims exactly this, never more: it covers the FormLink-resolution / missing-master /
+/// parse class. It does NOT verify navmesh or terrain SPATIAL integrity (the CrcHash / NavmeshGrid recompute Mutagen
+/// does not reproduce), does NOT flag a REQUIRED field left null (that needs per-field requiredness; a null FormLink
+/// is a legal optional here), and does NOT list unused-master cleanup. All named in the rendered footer so a clean
+/// result is never read as byte-for-byte xEdit parity. The <see cref="IUntypedOwnerGetter"/> exemption gives up one
+/// thing: a genuinely-dangling Global on an NPC-OWNED item whose owner NPC lives in a master (vanishingly rare, and
+/// that owner NPC is still checked), traded for never false-flagging the far commoner faction-owner rank. DELETED
+/// records are excluded from the link walk entirely (see <see cref="DeletedRecordRule"/>): their content is not live,
 /// so a link one carries is not a dangling reference, and a malformed deleted body no longer reads as a parse hole.
 ///
-/// Composes existing primitives only — no new dependency (audit A1 "Verified 2026-06-25"): the per-plugin record stream
-/// (<c>RecordsIn</c>), the O(1) resolution test (<c>ResolveWinner</c>), presence (<c>ContainsPlugin</c>), the declared-
-/// master read (<c>DeclaredMasters</c>), and per-record fault isolation. Holds nothing past each yield (Option B).
+/// Composes existing primitives only: the per-plugin record stream (<c>RecordsIn</c>), the O(1) resolution test
+/// (<c>ResolveWinner</c>), presence (<c>ContainsPlugin</c>), the declared-master read (<c>DeclaredMasters</c>), and
+/// per-record fault isolation. Holds nothing past each yield.
 /// </summary>
 public static class ErrorCheck
 {
     /// <summary>The BASELINE plugin set — Mutagen's own <c>Implicits.BaseMasters</c> for Skyrim SE (Skyrim.esm,
-    /// Update.esm, Dawnguard.esm, HearthFires.esm, Dragonborn.esm), in the library's own order. Never a hand-kept list
-    /// (#344): what ships with the game is what Mutagen says ships with it, so an edition change arrives with the
+    /// Update.esm, Dawnguard.esm, HearthFires.esm, Dragonborn.esm), in the library's own order. Never a hand-kept
+    /// list: what ships with the game is what Mutagen says ships with it, so an edition change arrives with the
     /// Mutagen bump instead of as a literal here. Matching is by FILENAME, which is what the sweep has.
-    /// <para>NOT in this set, measured rather than assumed (2026-08-18, against <c>Implicits.Get(SkyrimSE)</c> and a
-    /// live 3800-plugin order carrying 55 of them): Creation Club plugins and <c>_ResourcePack.esl</c>. The engine
-    /// force-loads those, and houseCARL's own load-order status groups them WITH the base masters as "implicit" — but
-    /// that grouping comes from their absence from plugins.txt, not from Mutagen, and the two sets are not the same
-    /// thing. Baseline here means Mutagen's base set, and the render says so rather than letting "baseline" be read as
-    /// "vanilla + CC".</para></summary>
+    /// <para>NOT in this set: Creation Club plugins and <c>_ResourcePack.esl</c>. The engine force-loads those, and
+    /// houseCARL's own load-order status groups them WITH the base masters as "implicit" — but that grouping comes
+    /// from their absence from plugins.txt, not from Mutagen, and the two sets are not the same thing. Baseline here
+    /// means Mutagen's base set, and the render says so rather than letting "baseline" be read as "vanilla + CC".</para></summary>
     static readonly string[] BaseMasterNames =
         Mutagen.Bethesda.Plugins.Implicits.Get(Mutagen.Bethesda.GameRelease.SkyrimSE).BaseMasters
             .Select(m => m.FileName.String).ToArray();
@@ -77,26 +74,26 @@ public static class ErrorCheck
     /// plugins) over the order <paramref name="resolver"/> holds. One <see cref="LoadOrderResolver.Capture"/> pins the
     /// whole sweep. <paramref name="limit"/> caps the number of dangling refs collected across the sweep (the true
     /// total is always counted); missing-master findings are few and never capped. That budget is spent on every other
-    /// plugin BEFORE the base-game masters (#344 — see <see cref="BaseMasters"/>), whose dangling refs are permanent
-    /// vanilla leftovers: on a large order the baseline used to be able to consume it at load-order index 0, and a
+    /// plugin BEFORE the base-game masters (see <see cref="BaseMasters"/>), whose dangling refs are permanent vanilla
+    /// leftovers: on a large order the baseline can otherwise consume the whole budget at load-order index 0, and a
     /// plugin that collects an empty list is dropped from <see cref="ErrorCheckResult.Reports"/> entirely. What the
     /// budget DID drop is reported per source plugin by the response layer, which subtracts against what it actually
-    /// emitted so the claim covers the render's own cut too. A bad/excluded scope name fails
-    /// LOUD (Q3) with no partial result.
+    /// emitted so the claim covers the render's own cut too. A bad or excluded scope name fails LOUD with no partial
+    /// result.
     /// <para><paramref name="offOrder"/> — plugin FILES to sweep that are NOT in the active order (name + on-disk path;
-    /// the caller located them), the pre-enable verify lane (HCBR-2026-07-14-02 gap 3: a patch houseCARL just wrote is
-    /// not in plugins.txt until the MO2 refresh, yet its pre-ship dangling-ref sweep is exactly when check_errors is
-    /// wanted). Each is opened as its OWN overlay; its links resolve against the active order PLUS the file's own
-    /// records (a patch's link to its own new record is not dangling), and a declared master absent from the active
-    /// order is a MISSING MASTER finding — same classes, same rendering, plus an OFF-ORDER stamp in the result.</para>
+    /// the caller located them), the pre-enable verify lane: a patch houseCARL just wrote is not in plugins.txt until
+    /// the MO2 refresh, yet its pre-ship dangling-ref sweep is exactly when check_errors is wanted. Each is opened as
+    /// its OWN overlay; its links resolve against the active order PLUS the file's own records (a patch's link to its
+    /// own new record is not dangling), and a declared master absent from the active order is a MISSING MASTER
+    /// finding — same classes, same rendering, plus an OFF-ORDER stamp in the result.</para>
     ///
-    /// <para>#282 — the narrowing knobs. <paramref name="recordScope"/> restricts WHICH records the link walk visits
+    /// <para>The narrowing knobs. <paramref name="recordScope"/> restricts WHICH records the link walk visits
     /// (<see cref="SweepScope"/>: type at the stream, formids / editorid_contains per record), and
     /// <paramref name="classes"/> restricts which error classes are looked for at all — excluding
     /// <see cref="ErrorFindingClass.Dangling"/> SKIPS the per-record walk entirely, which is what makes "is any master
     /// missing anywhere in my order" a master-table read instead of a full sweep. Both narrow the reported TOTALS as
     /// well as the listing; <see cref="ErrorCheckResult.FilterNote"/> says so in words, and the render prints an
-    /// excluded class as "not checked", never as a zero (Q3 — a skipped check must not read as a clean one).
+    /// excluded class as "not checked", never as a zero — a skipped check must not read as a clean one.
     /// <paramref name="countsOnly"/> collects no per-plugin reports (bar scan errors) and returns a
     /// dangling-by-TARGET-plugin <see cref="ErrorCheckResult.Histogram"/> — which plugin the broken refs point INTO,
     /// the answer the per-plugin grouping never gave. The dangling-by-SOURCE tally
@@ -108,9 +105,9 @@ public static class ErrorCheck
                                        SweepExclusion.Resolved? exclude = null)
         => Run(resolver, resolver.Capture(), scope, limit, offOrder, recordScope, classes, countsOnly, exclude);
 
-    /// <summary>The view-threaded body (PR #305 re-review): a caller that already captured — the service, which
-    /// vets the scope and stamps refusals off ITS view — hands that view in, so the membership gate, the sweep,
-    /// and the epoch stamp all name ONE build. The convenience overload above captures for direct callers.</summary>
+    /// <summary>The view-threaded body: a caller that already captured — the service, which vets the scope and
+    /// stamps refusals off ITS view — hands that view in, so the membership gate, the sweep, and the epoch stamp
+    /// all name ONE build. The convenience overload above captures for direct callers.</summary>
     public static ErrorCheckResult Run(LoadOrderResolver resolver, LoadOrderResolver.IndexView view,
                                        IReadOnlyList<string>? scope, int limit,
                                        IReadOnlyList<(string Name, string Path)>? offOrder = null,
@@ -121,22 +118,20 @@ public static class ErrorCheck
         bool wantDangling = classes.HasFlag(ErrorFindingClass.Dangling);
         bool wantMasters = classes.HasFlag(ErrorFindingClass.MissingMasters);
         // The missing-master count comes off the plugin's master TABLE, so a RECORD scope cannot narrow it. Saying
-        // "every count below is for this narrowed scope" directly under a plugin-level number is a false claim about the
-        // number printed above it, so the claim is qualified whenever both are in play (PR #288 review, finding 3).
-        // The claim fires only under a RECORD scope — that is the one thing here that makes a reported count a subset of
-        // its own label. A findings= class filter leaves every number complete for what it names (an excluded class
-        // renders "NOT CHECKED"), so claiming otherwise over a true whole-order total would be false (re-review finding 3).
-        // The exclude= narrowing note is composed BELOW, after the exclusion has actually run: its number is what
-        // THIS SCOPE lost, and read off the resolved set it was the size of the group the token expanded to.
-        // plugins=["MyMod.esp"] exclude=["base_masters"] said "left out 5 plugin(s)" over a sweep that removed none.
+        // "every count below is for this narrowed scope" directly under a plugin-level number would be a false claim
+        // about the number printed above it, so the claim is qualified whenever both are in play. It fires only under
+        // a RECORD scope — the one thing here that makes a reported count a subset of its own label. A findings= class
+        // filter leaves every number complete for what it names (an excluded class renders "NOT CHECKED").
+        // The exclude= narrowing note is composed BELOW, after the exclusion has actually run, so its number is what
+        // THIS SCOPE lost rather than the size of the group the token expanded to.
         int excludedFromScope = 0;
         // counts_only=: the dangling-by-target-plugin tally, over EVERY dangling ref in scope (never limit-capped).
-        // Built only when the walk that fills it actually RUNS — with 'dangling' excluded there is nothing to tally, and
-        // an empty-but-present histogram would render as "nothing found" for a walk that never happened (PR #288 review,
-        // finding 2). A null histogram means "not computed", never "empty".
+        // Built only when the walk that fills it actually RUNS — with 'dangling' excluded there is nothing to tally,
+        // and an empty-but-present histogram would render as "nothing found" for a walk that never happened. A null
+        // histogram means "not computed", never "empty".
         var histogram = countsOnly && wantDangling ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) : null;
-        // #344 — the SOURCE axis, tallied on EVERY sweep the walk runs on (the existing histogram is keyed by TARGET
-        // plugin, which cannot answer "how much of this is vanilla" or "which plugin lost its entries to the budget").
+        // The SOURCE axis, tallied on EVERY sweep the walk runs on (the histogram above is keyed by TARGET plugin,
+        // which cannot answer "how much of this is vanilla" or "which plugin lost its entries to the budget").
         // Uncapped by limit= like the totals it decomposes; it costs one dictionary bump per dangling ref.
         var bySource = wantDangling ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) : null;
         // WHICH plugins the link walk actually examined a record in, under the scope in force. A record scope
@@ -145,15 +140,15 @@ public static class ErrorCheck
         // the scope filtered every vanilla record out. The layer that applies the filter is the layer that knows.
         var examined = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // --- resolve the plugin set to scan (Q3: a bad or excluded explicit scope name fails loud, never a silent skip). ---
+        // --- resolve the plugin set to scan. A bad or excluded explicit scope name fails loud, never a silent skip. ---
         List<string> targets;
         if (scope is { Count: > 0 })
         {
             targets = new List<string>(scope.Count);
             foreach (var name in scope)
             {
-                // Membership refusals are decided against THIS view — stamped (PR #305 re-review: the same logical
-                // refusal must not stamp through one tool frame and not another).
+                // Membership refusals are decided against THIS view and stamped with its epoch: the same logical
+                // refusal must not stamp through one tool frame and not another.
                 if (!view.ContainsPlugin(name))
                     return ErrorCheckResult.Fail($"plugin not in the load order: {name}.{view.AbsenceClause(name)}")
                            with { Epoch = view.Epoch };
@@ -175,10 +170,10 @@ public static class ErrorCheck
                 if (!view.ExcludedPlugins.ContainsKey(n)) targets.Add(n);
         }
 
-        // #344's exclusion axis. Applied to the SWEEP, not to the listing: a plugin the caller excluded costs no
-        // record walk and no budget, which is the half of #344 the phase order could not reach.
-        // Runs whenever the caller PASSED an exclusion, even one that expands to nothing — otherwise a group with
-        // no members in this order left no trace at all and the response never mentioned exclude= had been written.
+        // The exclusion axis, applied to the SWEEP rather than to the listing: a plugin the caller excluded costs no
+        // record walk and no budget. Runs whenever the caller PASSED an exclusion, even one that expands to nothing —
+        // otherwise a group with no members in this order leaves no trace and the response never mentions that
+        // exclude= was written at all.
         if (exclude is not null)
         {
             // Case-insensitive here, explicitly, rather than relying on whatever comparer the caller's collection
@@ -199,9 +194,9 @@ public static class ErrorCheck
             int targetsBefore = targets.Count;
             int offBefore = offOrder?.Count ?? 0;
             // What the refusal below claims about: the WHOLE scope this sweep would have covered, captured before
-            // either filter runs. Read off targets alone it was 0 over a plugins= that resolved entirely off-order —
-            // that path leaves targets deliberately empty (see the offOrder branch above), so the refusal told a
-            // caller their one-plugin scope had held nothing.
+            // either filter runs. It must include the off-order count — a plugins= that resolves entirely off-order
+            // leaves targets deliberately empty (see the offOrder branch above), so reading targets alone would tell
+            // the caller their one-plugin scope held nothing.
             int scopeBefore = targetsBefore + offBefore;
             targets.RemoveAll(drop.Contains);
             excludedFromScope = targetsBefore - targets.Count;
@@ -232,14 +227,14 @@ public static class ErrorCheck
         int totalDangling = 0, totalMissing = 0, totalUnscannable = 0;
         int danglingBudget = limit;
 
-        // #344 — the LISTING BUDGET's phase order. limit= is ONE counter, and it used to be spent plugin by plugin in
-        // LOAD ORDER with the base-game masters at index 0: on a large order the vanilla baseline could consume it
-        // before any mod plugin was reached, and a plugin that collects an empty dangling list fails the
-        // report-inclusion test below — so its findings did not read as "buried", they were absent from the output
-        // with no per-plugin trace. The per-plugin sweep is therefore a function, called in two phases (below): every
-        // non-base plugin first, then the base-game masters with whatever budget is left. What each plugin FINDS is
-        // unchanged — the totals, the histograms and the missing-master reads never depended on limit= — only which
-        // findings get LISTED, and the reports are re-sorted back into load order before they are returned.
+        // The LISTING BUDGET's phase order. limit= is ONE counter; spent plugin by plugin in LOAD ORDER with the
+        // base-game masters at index 0, the vanilla baseline can consume it before any mod plugin is reached, and a
+        // plugin that collects an empty dangling list fails the report-inclusion test below — so its findings would
+        // be absent from the output with no per-plugin trace at all. The per-plugin sweep is therefore a function,
+        // called in two phases below: every non-base plugin first, then the base-game masters with whatever budget is
+        // left. What each plugin FINDS is unchanged (the totals, the histograms and the missing-master reads never
+        // depend on limit=) — only which findings get LISTED, and the reports are re-sorted back into load order
+        // before they are returned.
         void SweepActivePlugin(string plugin)
         {
             string? scanError = null;
@@ -263,40 +258,40 @@ public static class ErrorCheck
             var unscannableSamples = new List<string>();
 
             // findings= excluded 'dangling' ⇒ the per-record link walk is skipped WHOLESALE (the sweep's entire cost).
-            // The render must then print the dangling AND unscannable lines as "not checked" rather than 0 — a skipped
-            // check that reads as a clean one is the Q3 break this whole tool exists to avoid.
+            // The render must then print the dangling AND unscannable lines as "not checked" rather than 0 — a
+            // skipped check that reads as a clean one is exactly what this tool exists to avoid.
             try
             {
                 foreach (var (fk, _, body, _) in wantDangling
                              ? view.RecordsIn(new[] { plugin }, recordScope?.Types)
                              : Enumerable.Empty<(FormKey, int, IMajorRecordGetter, string)>())
                 {
-                    // PER-RECORD FAULT ISOLATION (twin of the cross_plugin_query scan, HCBR-2026-06-09-03):
-                    // EnumerateFormLinks lazily parses subrecord content, so ONE record Mutagen can't parse is excluded
-                    // + accounted, never an opaque whole-call abort and never a silent skip (Q3).
+                    // PER-RECORD FAULT ISOLATION (twin of the cross_plugin_query scan): EnumerateFormLinks lazily
+                    // parses subrecord content, so ONE record Mutagen can't parse is excluded and accounted, never an
+                    // opaque whole-call abort and never a silent skip.
                     try
                     {
-                        // #282 record scope, tested BEFORE the deleted-record rule and the link walk — the two things
-                        // this sweep actually spends its time on.
+                        // Record scope tested BEFORE the deleted-record rule and the link walk — the two things this
+                        // sweep actually spends its time on.
                         if (recordScope is not null && !recordScope.Matches(fk, body)) continue;
                         examined.Add(plugin);
-                        // A DELETED record links to nothing (#279 — the shared rule, see DeletedRecordRule): its
-                        // content is not live, so none of its FormLinks can be a dangling reference, and an
-                        // engine-authored deleted body can throw on the walk below and land here as an untyped
-                        // unscannable skip (Q3). Excluded before the walk, at all three walkers alike.
+                        // A DELETED record links to nothing (the shared rule, see DeletedRecordRule): its content is
+                        // not live, so none of its FormLinks can be a dangling reference, and an engine-authored
+                        // deleted body can throw on the walk below and land here as an untyped unscannable skip.
+                        // Excluded before the walk, at all three walkers alike.
                         if (DeletedRecordRule.HasNoLiveBody(body)) continue;
                         if (body is not IFormLinkContainerGetter flc) continue;
-                        Dictionary<FormKey, int>? ownerVarExempt = null;   // #207: built lazily on this record's first otherwise-dangling link (see UntypedOwnerVariableData)
+                        Dictionary<FormKey, int>? ownerVarExempt = null;   // built lazily on this record's first otherwise-dangling link (see UntypedOwnerVariableData)
                         foreach (var link in flc.EnumerateFormLinks())
                         {
                             var target = link.FormKey;
                             if (target.IsNull) continue;            // a null FormLink is a legal optional — not an error (see the class-doc boundary)
                             if (view.ResolveWinner(target) is not null) continue;   // resolves → fine
-                            if (EngineImplicit.IsImplicit(target)) continue;        // engine-implicit (PlayerRef 000014 / Player 000007): the index can't resolve these hardcoded forms, but they are real, never dangling — same precise exemption the dialogue lints use (HCBR: was 531/531 false dangling → 000014)
-                            ownerVarExempt ??= UntypedOwnerVariableData(body);      // #207: an UntypedOwner's VariableData word is a RequiredRank int (esp. -1 → FFFFFFFF), not a reference
+                            if (EngineImplicit.IsImplicit(target)) continue;        // engine-implicit (PlayerRef 000014 / Player 000007): the index can't resolve these hardcoded forms, but they are real, never dangling — the same exemption the dialogue lints use
+                            ownerVarExempt ??= UntypedOwnerVariableData(body);      // an UntypedOwner's VariableData word is a RequiredRank int (esp. -1 → FFFFFFFF), not a reference
                             if (ownerVarExempt.TryGetValue(target, out int rank) && rank > 0) { ownerVarExempt[target] = rank - 1; continue; }
                             totalDangling++;
-                            Bump(bySource, plugin);                                                   // #344: the SOURCE axis, on every mode
+                            Bump(bySource, plugin);                                                   // the SOURCE axis, on every mode
                             if (histogram is not null) { BumpTarget(histogram, target); continue; }   // counts_only=: tally, list nothing
                             if (danglingBudget > 0)
                             {
@@ -313,7 +308,7 @@ public static class ErrorCheck
                 }
             }
             // The plugin enumeration itself faulting (a record that throws on top-level enumeration rather than on a
-            // link walk) is NAMED per-plugin and the sweep continues — never the MCP layer's opaque transport error (Q3).
+            // link walk) is NAMED per-plugin and the sweep continues — never the MCP layer's opaque transport error.
             catch (Exception ex)
             {
                 scanError = (scanError is null ? "" : scanError + "; ")
@@ -341,7 +336,7 @@ public static class ErrorCheck
             if (!IsBaseMaster(plugin)) SweepActivePlugin(plugin);
 
         // --- off-order files (the pre-enable verify lane): the file's OWN overlay, links resolved against the active
-        //     order PLUS the file's own records. Same fault-isolation contract as the active loop (Q3).
+        //     order PLUS the file's own records. Same fault-isolation contract as the active loop.
         var offOrderScanned = new List<string>();
         if (offOrder is { Count: > 0 })
         {
@@ -369,8 +364,8 @@ public static class ErrorCheck
                     // Pass 1 — the file's OWN FormKeys: a link into a record this same file defines is satisfied the
                     // moment the plugin is enabled, so it must not read as dangling (the patch-links-its-own-new-record
                     // case). An enumeration abort leaves a PARTIAL set — named below, and pass 2 aborts the same way.
-                    // Deliberately NOT record-scoped (#282): a link into a record the file defines is satisfied whether
-                    // or not that record is inside the caller's scope, so scoping this set would manufacture dangling refs.
+                    // Deliberately NOT record-scoped: a link into a record the file defines is satisfied whether or not
+                    // that record is inside the caller's scope, so scoping this set would manufacture dangling refs.
                     var selfKeys = new HashSet<FormKey>();
                     if (wantDangling)
                     {
@@ -385,11 +380,11 @@ public static class ErrorCheck
                         {
                             try
                             {
-                                if (recordScope is not null && !recordScope.Matches(rec.FormKey, rec)) continue;   // #282
+                                if (recordScope is not null && !recordScope.Matches(rec.FormKey, rec)) continue;
                                 examined.Add(name);
-                                if (DeletedRecordRule.HasNoLiveBody(rec)) continue;   // #279 — same rule as the active pass above
+                                if (DeletedRecordRule.HasNoLiveBody(rec)) continue;   // same rule as the active pass above
                                 if (rec is not IFormLinkContainerGetter flc) continue;
-                                Dictionary<FormKey, int>? ownerVarExempt = null;   // #207 (see UntypedOwnerVariableData)
+                                Dictionary<FormKey, int>? ownerVarExempt = null;   // see UntypedOwnerVariableData
                                 foreach (var link in flc.EnumerateFormLinks())
                                 {
                                     var target = link.FormKey;
@@ -397,10 +392,10 @@ public static class ErrorCheck
                                     if (view.ResolveWinner(target) is not null) continue;
                                     if (selfKeys.Contains(target)) continue;            // defined by this very file
                                     if (EngineImplicit.IsImplicit(target)) continue;
-                                    ownerVarExempt ??= UntypedOwnerVariableData(rec);   // #207: RequiredRank int mis-exposed as a FormLink
+                                    ownerVarExempt ??= UntypedOwnerVariableData(rec);   // RequiredRank int mis-exposed as a FormLink
                                     if (ownerVarExempt.TryGetValue(target, out int rank) && rank > 0) { ownerVarExempt[target] = rank - 1; continue; }
                                     totalDangling++;
-                                    Bump(bySource, name);                                                     // #344: the SOURCE axis, keyed by the off-order FILE (which can itself be a base master — see BaseMastersSwept below)
+                                    Bump(bySource, name);                                                     // the SOURCE axis, keyed by the off-order FILE (which can itself be a base master — see BaseMastersSwept below)
                                     if (histogram is not null) { BumpTarget(histogram, target); continue; }   // counts_only=
                                     if (danglingBudget > 0)
                                     {
@@ -443,16 +438,16 @@ public static class ErrorCheck
         }
 
         // Phase 2 — the base-game masters LAST, on what the rest of the order left. Their dangling refs are vanilla
-        // leftovers rather than anything a load order introduced, so spending the caller's limit= on them first made mod findings
-        // unreachable; spending it on them LAST costs nothing when the budget is ample and costs only baseline noise
-        // when it is not. An off-order file swept in the same call was listed above them, which is the pre-enable
-        // verify lane's whole point — and reaching this phase at all with an off-order file present means the caller
-        // NAMED a base master in plugins=, since an unscoped sweep has no off-order files.
+        // leftovers rather than anything a load order introduced, so spending the caller's limit= on them first makes
+        // mod findings unreachable; spending it on them LAST costs nothing when the budget is ample and costs only
+        // baseline noise when it is not. An off-order file swept in the same call is listed above them, which is the
+        // pre-enable verify lane's whole point — and reaching this phase at all with an off-order file present means
+        // the caller NAMED a base master in plugins=, since an unscoped sweep has no off-order files.
         foreach (var plugin in targets)
             if (IsBaseMaster(plugin)) SweepActivePlugin(plugin);
 
         // Reports are BUILT in budget-phase order but READ in load order: which section comes first is a load-order
-        // fact, and encoding the phase in it would make the fix visible as a reordered report for no reason.
+        // fact, and leaving the phase order visible would reorder the report for no reason the reader can see.
         if (reports.Count > 1 && targets.Any(IsBaseMaster))
         {
             var position = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -461,32 +456,31 @@ public static class ErrorCheck
             reports = reports.OrderBy(p => position.TryGetValue(p.Plugin, out var i) ? i : int.MaxValue).ToList();
         }
 
-        // #344 — the baseline split, derived from the ONE source tally so "is this plugin baseline" is asked in exactly
-        // one place. The swept SUBSET below is not (BaselineDangling > 0): a swept baseline that came back CLEAN is a
-        // different fact from a sweep that never looked at one, and a render that conflates them says "0 of N are
+        // The baseline split, derived from the ONE source tally so "is this plugin baseline" is asked in exactly one
+        // place. The swept SUBSET below is deliberately not (BaselineDangling > 0): a swept baseline that came back
+        // CLEAN is a different fact from a sweep that never looked at one, and conflating them says "0 of N are
         // vanilla" about an order whose vanilla was never in scope.
         int baselineDangling = bySource is null ? 0 : bySource.Where(kv => IsBaseMaster(kv.Key)).Sum(kv => kv.Value);
-        // WHICH base masters this sweep actually looked at — the swept SUBSET, not a yes/no. A render that says
-        // "N of M come from the base-game masters" has to name the ones it counted, and naming all five over a sweep
-        // that touched one states a figure about four plugins it never opened (round-1 review, two reviewers).
-        // Built from `examined`, so it covers both lanes at once: an off-order base master swept as a FILE counts (its
-        // findings land in the same tally, and asking only the active targets would let BaselineDangling be positive
-        // while this said no baseline was swept), and a base master whose every record a record scope filtered out does
-        // NOT count — the sweep opened it but examined nothing in it (round-2 review). In Mutagen's own order, so the
-        // render is stable across sweeps.
+        // WHICH base masters this sweep actually looked at — the swept SUBSET, not a yes/no. A render saying "N of M
+        // come from the base-game masters" has to name the ones it counted; naming all five over a sweep that touched
+        // one states a figure about four plugins it never opened. Built from `examined`, so it covers both lanes at
+        // once: an off-order base master swept as a FILE counts (its findings land in the same tally, and asking only
+        // the active targets would let BaselineDangling be positive while this said no baseline was swept), and a base
+        // master whose every record a record scope filtered out does NOT count — the sweep opened it but examined
+        // nothing in it. In Mutagen's own order, so the render is stable across sweeps.
         var baseSwept = BaseMasterNames.Where(examined.Contains).ToList();
         // Whether the sweep had any NON-base plugin in scope at all. A render cannot get this by comparing
-        // PluginsScanned against the swept-base count: the two measure different things and diverge whenever a
-        // base master is in targets but contributes nothing to `examined` — a record scope that filters it out,
-        // or a name repeated in plugins= (Aaron's PR #360 review). The layer that resolved the targets is the
-        // layer that knows, so it states the fact rather than leaving a subtraction to stand in for it.
+        // PluginsScanned against the swept-base count: the two measure different things and diverge whenever a base
+        // master is in targets but contributes nothing to `examined` — a record scope that filters it out, or a name
+        // repeated in plugins=. The layer that resolved the targets is the layer that knows, so it states the fact
+        // rather than leaving a subtraction to stand in for it.
         bool nonBaseInScope = targets.Any(t => !IsBaseMaster(t));
 
-        // What the budget dropped, by plugin, is NOT computed here any more. It was `bySource` minus what the
-        // reports listed — the BUDGET's omission — and the render then dropped more without either sentence
-        // knowing. HousecarlMcp.CheckAccounting now subtracts against what the RESPONSE emitted, which covers both
-        // truncators at once and is the one place either is claimed (#361). Everything it needs is below:
-        // DanglingBySource is the per-plugin truth, and the reports carry what the budget admitted.
+        // What the budget dropped, by plugin, is deliberately NOT computed here: computed as `bySource` minus what the
+        // reports listed it covers only the BUDGET's omission, and the render can drop more without either sentence
+        // knowing. HousecarlMcp.CheckAccounting subtracts against what the RESPONSE emitted, which covers both
+        // truncators at once and is the one place either is claimed. Everything it needs is below: DanglingBySource is
+        // the per-plugin truth, and the reports carry what the budget admitted.
 
         return new ErrorCheckResult(reports, targets.Count + offOrderScanned.Count, totalDangling, totalMissing,
                                     totalUnscannable, view.ExcludedPlugins, null, offOrderScanned,
@@ -496,7 +490,7 @@ public static class ErrorCheck
                                     baselineDangling, baseSwept, nonBaseInScope, limit);
     }
 
-    /// <summary>The off-order file's record stream, type-scoped when the caller asked for one (#282) — the overlay
+    /// <summary>The off-order file's record stream, type-scoped when the caller asked for one — the overlay
     /// counterpart of <c>RecordsIn</c>'s getter-type filter, so a <c>type=</c> scope costs nothing per skipped record on
     /// this lane either.</summary>
     static IEnumerable<IMajorRecordGetter> OffOrderRecords(ISkyrimModGetter ov, SweepScope? scope)
@@ -519,7 +513,7 @@ public static class ErrorCheck
     }
 
     /// <summary>Every FormKey carried in an <see cref="IUntypedOwnerGetter.VariableData"/> slot in <paramref name="body"/>,
-    /// as a MULTISET (FormKey → occurrence count) — the FormKeys the dangling sweep must NOT flag (#207).
+    /// as a MULTISET (FormKey → occurrence count) — the FormKeys the dangling sweep must NOT flag.
     ///
     /// <para>WHY (Mutagen 0.53.1, confirmed at source — <c>ExtraDataBinaryCreateTranslation.GetBinaryOwner</c> +
     /// <c>RecordTypeInfoCacheReader.IsOfRecordType</c>): a container / leveled-list item's ownership is a COED block — an
@@ -528,9 +522,9 @@ public static class ErrorCheck
     /// in a MASTER and the overlay carries no link cache — which is EVERY override this sweep reads — that resolution
     /// throws <c>LinkCacheMissingException</c> and the arm falls back to <see cref="IUntypedOwnerGetter"/>, which exposes
     /// BOTH words as <c>FormLink&lt;ISkyrimMajorRecordGetter&gt;</c>. <c>EnumerateFormLinks</c> then walks the second word;
-    /// for the common faction case it is a rank, and a rank of -1 (0xFFFFFFFF → FFFFFF:&lt;self&gt;) resolves to nothing and
-    /// was reported as a false dangling reference — the same COED reads correctly (as FactionOwner + RequiredRank) only
-    /// when the owner faction lives in the very plugin being parsed.</para>
+    /// for the common faction case it is a rank, and a rank of -1 (0xFFFFFFFF → FFFFFF:&lt;self&gt;) resolves to nothing, so
+    /// without this exemption it reads as a dangling reference. The same COED reads correctly (as FactionOwner +
+    /// RequiredRank) only when the owner faction lives in the very plugin being parsed.</para>
     ///
     /// <para>So we drop ONLY that second (VariableData) word from the scan. The owner form itself
     /// (<see cref="IUntypedOwnerGetter.OwnerData"/> — the FIRST word) is still checked, so a genuinely broken owner still
@@ -583,15 +577,15 @@ public sealed record PluginErrors(
 
 /// <summary>The result of <see cref="ErrorCheck.Run"/>: the per-plugin reports (only plugins WITH findings; clean
 /// plugins are counted in <paramref name="PluginsScanned"/> but omitted), the sweep totals, whether the dangling list
-/// was capped at the caller's limit, the plugins the index build excluded as unparseable, and — on a Q3 scope error —
+/// was capped at the caller's limit, the plugins the index build excluded as unparseable, and — on a scope error —
 /// a recoverable <see cref="Error"/> with no reports.
-/// <para><paramref name="FilterNote"/> (#282) names every narrowing the caller applied and states that the totals above
+/// <para><paramref name="FilterNote"/> names every narrowing the caller applied and states that the totals above
 /// are for that narrowed scope; null when nothing was narrowed. <paramref name="Classes"/> is the finding-class filter
 /// that was in force — the render reads it to print an EXCLUDED class as "not checked" instead of as a zero (a class
 /// nobody looked for must not read as a class that came back clean). <paramref name="Histogram"/> is the
 /// dangling-by-target-plugin tally, present ONLY under <paramref name="CountsOnly"/> (null = not computed, never "none
 /// found"), under which <paramref name="Reports"/> carries only plugins whose records could not be read.</para>
-/// <para>#344 — the SOURCE axis. <paramref name="DanglingBySource"/> tallies every dangling ref by the plugin it came
+/// <para>The SOURCE axis. <paramref name="DanglingBySource"/> tallies every dangling ref by the plugin it came
 /// FROM (never limit-capped; null = the link walk did not run, never "none found"), the decomposition the
 /// target-keyed <paramref name="Histogram"/> cannot give. <paramref name="BaselineDangling"/> is how many of
 /// <paramref name="TotalDangling"/> came from a base-game master (<see cref="ErrorCheck.BaseMasters"/>) — vanilla
@@ -599,10 +593,10 @@ public sealed record PluginErrors(
 /// masters this sweep actually looked at (empty = none, so "0 baseline findings" and "no baseline was swept" stay
 /// distinguishable; a render must name this subset rather than <see cref="ErrorCheck.BaseMasters"/>, which would
 /// attribute a count to plugins the sweep never opened).</para>
-/// <para>Which plugins LOST entries is no longer a field here: it is a fact about the RESPONSE, not about the sweep,
-/// and it is computed in the render's accounting against what that response emitted. Carried on the result it could
-/// only ever report the listing budget's own omissions, so a plugin whose entries the budget listed and max_chars
-/// then dropped appeared in no sentence at all.</para></summary>
+/// <para>Which plugins LOST entries is deliberately not a field here: it is a fact about the RESPONSE, not about the
+/// sweep, and it is computed in the render's accounting against what that response emitted. Carried on the result it
+/// could only ever report the listing budget's own omissions, leaving a plugin whose entries the budget listed and
+/// max_chars then dropped in no sentence at all.</para></summary>
 public sealed record ErrorCheckResult(
     IReadOnlyList<PluginErrors> Reports,
     int PluginsScanned,
@@ -616,7 +610,7 @@ public sealed record ErrorCheckResult(
     ErrorFindingClass Classes = ErrorFindingClass.All,
     IReadOnlyList<SweepCount>? Histogram = null,
     bool CountsOnly = false,
-    string? Epoch = null,   // the swept INDEXED build's fingerprint (SPEC §2.1.1). Stamped on success and on refusals decided against a captured build (membership/locate); null on parse-level refusals that consulted none. OffOrderScanned files are located OUTSIDE the index — their content is not under this fingerprint (the renders qualify the stamp when any were swept; PR #305 review)
+    string? Epoch = null,   // the swept INDEXED build's fingerprint. Stamped on success and on refusals decided against a captured build (membership/locate); null on parse-level refusals that consulted none. OffOrderScanned files are located OUTSIDE the index — their content is not under this fingerprint, so the renders qualify the stamp when any were swept
     IReadOnlyList<SweepCount>? DanglingBySource = null,
     int BaselineDangling = 0,
     IReadOnlyList<string>? BaseMastersSwept = null,

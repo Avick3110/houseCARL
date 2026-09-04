@@ -2,9 +2,8 @@ namespace HousecarlCore;
 
 // ======================================================================
 //  Mo2ModMeta — read the Nexus update-cache fields MO2 writes into each
-//  mod's meta.ini (mods\<Folder>\meta.ini). MO2 has ALREADY paid the Nexus
-//  API cost to learn these; houseCARL just reads its cache — no network,
-//  squarely in the MO2-static-read lane (like Mo2Instance / Mo2LoadOrder).
+//  mod's meta.ini (mods\<Folder>\meta.ini). Reads MO2's cache only; no
+//  network.
 //
 //  The [General] fields that drive "is there an update":
 //      modid=12604               (the Nexus mod id; 0/absent ⇒ not a Nexus mod)
@@ -16,7 +15,7 @@ namespace HousecarlCore;
 //  MO2's own rule (what its update flag shows): an update is available when
 //  newestVersion is set, non-empty, and != version (and != ignoredVersion).
 //  We report the RAW fields and let the caller apply that rule, so the
-//  reasoning is visible, never a hidden boolean (Q3).
+//  reasoning stays visible rather than collapsing into a hidden boolean.
 //
 //  Format is QSettings-ini (same quirks Mo2Instance documents): a value may
 //  be wrapped @ByteArray(...), @Invalid() means unset, backslashes are
@@ -26,12 +25,10 @@ namespace HousecarlCore;
 //
 //  That same [installedFiles] section ALSO records the exact Nexus FILE id(s)
 //  MO2 installed (1\fileid=..., 2\fileid=..., a size= count key in any order),
-//  which is the join key for a FILE-level currency check — "is the file I have
-//  still a current file, or did Nexus retire it to OLD_VERSION/ARCHIVED?" —
-//  immune to the multi-file-page confusion a mod-level version compare falls
-//  into (a Nexus page hosts many independently-versioned files). A FOMOD /
-//  merged / hand-installed mod has size=0 with no fileid, so the check must
-//  degrade LOUDLY there rather than guess (Q3).
+//  the join key for a FILE-level currency check — a Nexus page hosts many
+//  independently-versioned files, so a mod-level version compare is not
+//  enough. A FOMOD / merged / hand-installed mod has size=0 with no fileid,
+//  so the check must say so rather than guess.
 // ======================================================================
 
 /// <summary>The Nexus update-cache fields from one mod's meta.ini. <see cref="ModId"/> is 0 when the mod has no Nexus
@@ -67,7 +64,7 @@ public static class Mo2ModMeta
     /// file(s) MO2 recorded as installed for this mod. A mod can have several (<c>1\fileid</c>, <c>2\fileid</c>, …); a
     /// FOMOD/manual install has <c>size=0</c> and none (⇒ empty list). Scoped to the section (a stray <c>fileid=</c>
     /// elsewhere is ignored) and tolerant of the <c>size=</c> / <c>N\modid</c> siblings and any key ordering. Empty,
-    /// never null, so the caller can treat "no fileids" as the loud no-fileid-fallback case, not a crash.</summary>
+    /// never null, so the caller can handle "no fileids" as a case rather than a crash.</summary>
     static IReadOnlyList<int> ReadInstalledFileIds(string[] lines)
     {
         List<(int idx, int fileId)>? found = null;

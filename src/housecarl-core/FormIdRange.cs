@@ -3,12 +3,10 @@ namespace HousecarlCore;
 /// <summary>
 /// The single home for Skyrim FormID numeric-range facts — the engine-reserved object-ID floor, the ESL/light-master
 /// window, and the 24-bit object-ID ceiling/mask. Every piece of product code that GUARDS or MASKS a FormID's object
-/// ID reads THESE constants rather than restating the hex, so a change lands in one place — the "one shared home"
-/// discipline <see cref="EngineImplicit"/> set for the engine-implicit forms, applied to numeric ranges. Values are
-/// pinned empirically (Mutagen 0.53.1) by the generator probes: <c>FormIdFloorProbe</c> (the 0x800 floor / the
-/// allocate-from-zero bug) and <c>EslFormIdProbe</c> (the 0x800–0xFFF ESL window). These are hard engine facts, not
-/// tuning knobs — the value of consolidation is that the SAME number can't be quietly changed in one guard and left
-/// stale in another (the drift the PlayerRef whitelist hit before it was single-sourced).
+/// ID reads THESE constants rather than restating the hex, so a change lands in one place — the same "one shared home"
+/// discipline <see cref="EngineImplicit"/> uses for the engine-implicit forms. These are hard engine facts (checked
+/// against Mutagen 0.53.1), not tuning knobs; consolidating them keeps the SAME number from being changed in one
+/// guard and left stale in another.
 /// </summary>
 public static class FormIdRange
 {
@@ -26,7 +24,7 @@ public static class FormIdRange
     public const uint EslWindowFloor = EngineReservedFloor;
 
     /// <summary>The light-master (ESL) object-ID window CEILING, INCLUSIVE (0xFFF). With the floor that is a 2048-ID
-    /// window; an object ID &gt; this in a light-flagged master throws <c>FormIDCompactionOutOfBounds</c> (EslFormIdProbe).
+    /// window; an object ID &gt; this in a light-flagged master throws <c>FormIDCompactionOutOfBounds</c>.
     /// <c>RemapEngine.EslCeiling</c> aliases this.</summary>
     public const uint EslWindowCeiling = 0xFFF;
 
@@ -69,14 +67,12 @@ public static class FormIdRange
     /// xEdit copy the grammar references treat as always legal) keeps only its <c>YYY</c>. Getting the light-vs-full split
     /// wrong inverts every resolve verdict, so both consumers read it here rather than restating the hex.
     ///
-    /// <para>VERIFIED against DSD's own parser (SkyHorizon3/SSE-Dynamic-String-Distributor, <c>src/Utils.cpp</c>
+    /// <para>Matches DSD's own parser (SkyHorizon3/SSE-Dynamic-String-Distributor, <c>src/Utils.cpp</c>
     /// <c>getRuntimeFormID</c>: <c>(raw &amp; 0xFFF)</c> when the named plugin <c>IsLight()</c>, else <c>(raw &amp; 0xFFFFFF)</c>).
-    /// DSD's authority is the NAMED PLUGIN's light flag; this token-prefix rule (0xFE top byte ⇒ light) produces the
-    /// IDENTICAL local id for every shape DSD emits — the <c>FExxxYYY</c> full-runtime copy and the 0x-/bare-hex full forms.
-    /// The ONE divergence is a bare ≤6-hex token that carries a light index but no 0xFE prefix (e.g. <c>800123</c>): DSD
-    /// masks it to 0x123 via the flag, this rule keeps 0x800123. DSD never EMITS that shape (its export trims ESL to
-    /// ≤0xFFF), so it can only arise from a hand-authored config — the documented Wave-1 residual; a plugin-flag mask would
-    /// close it (a possible refinement, deliberately not adopted under the locked plan).</para></summary>
+    /// DSD keys off the NAMED PLUGIN's light flag; this token-prefix rule (0xFE top byte ⇒ light) produces the
+    /// IDENTICAL local id for every shape DSD emits. The ONE divergence is a bare ≤6-hex token carrying a light index
+    /// but no 0xFE prefix (e.g. <c>800123</c>): DSD masks it to 0x123 via the flag, this rule keeps 0x800123. DSD never
+    /// EMITS that shape (its export trims ESL to ≤0xFFF), so it can only arise from a hand-authored config.</para></summary>
     public static uint LocalObjectId(uint runtimeFormId) =>
         (runtimeFormId & 0xFF000000) == LightMasterIndexPrefix
             ? runtimeFormId & LightObjectIdMask       // FExxxYYY light runtime FormID → the 12-bit local id (YYY)

@@ -2,8 +2,8 @@ namespace HousecarlCore;
 
 // ======================================================================
 //  Mo2Instance — derive the four load-order roots from ONE path: the MO2
-//  instance folder, read out of its ModOrganizer.ini (launch-arc item 3,
-//  2026-06-02). The user configures a single "where is your MO2?" path;
+//  instance folder, read out of its ModOrganizer.ini.
+//  The user configures a single "where is your MO2?" path;
 //  ProfileDir / ModsDir / DataDir are derived, and the ACTIVE profile is
 //  auto-detected — no hand-typed profile name, and a profile switch is
 //  picked up by re-reading this file (LoadOrderService's freshness check).
@@ -16,14 +16,13 @@ namespace HousecarlCore;
 //      [Settings]
 //      base_directory=...            (OPTIONAL — absent ⇒ the instance dir IS the base)
 //
-//  Two Qt/QSettings quirks, both MEASURED against Aaron's real file (the
-//  kind of thing the "measure, don't assume" discipline exists for):
+//  Two Qt/QSettings quirks:
 //    • Values stored as QByteArray are wrapped @ByteArray(...) — but a plain
 //      QString value (gameName) is NOT. So we unwrap WHEN PRESENT, per value,
 //      never assume it. @Invalid() means "unset".
 //    • Backslashes inside a value are doubled (\\). We unescape \\ → \. We do
 //      NOT attempt the full Qt escape grammar — a path/profile name only ever
-//      carries \\, and anything exotic just fails the existence check loud (Q3).
+//      carries \\, and anything exotic fails the existence check loud.
 //
 //  Derivation (base = base_directory if set+real, else the instance dir):
 //      ModsDir      = base\mods
@@ -31,8 +30,8 @@ namespace HousecarlCore;
 //      DataDir      = <gamePath>\Data
 //      OverwriteDir = base\overwrite   (MO2's overwrite layer — tool outputs land here; NOT required to exist)
 //
-//  Q3: a missing/empty piece is NAMED in the problem list and the resolve
-//  FAILS — never a silently-empty or half-derived path set.
+//  A missing or empty piece is NAMED in the problem list and the resolve
+//  FAILS — never a silently empty or half-derived path set.
 // ======================================================================
 
 /// <summary>The four load-order roots derived from an MO2 instance folder, plus the active profile name + game root.
@@ -56,8 +55,8 @@ public static class Mo2Instance
     /// <summary>The ModOrganizer.ini path for an instance folder (the file the freshness check stats for a profile switch).</summary>
     public static string IniPath(string instanceDir) => Path.Combine(instanceDir, IniFileName);
 
-    /// <summary>Derive the load-order roots from an instance folder, or THROW (Q3, a clear actionable message naming what's
-    /// missing) if it isn't a usable MO2 instance. Use <see cref="Validate"/> when you want the problems without an exception.</summary>
+    /// <summary>Derive the load-order roots from an instance folder, or THROW with a message naming what is missing if
+    /// it isn't a usable MO2 instance. Use <see cref="Validate"/> when you want the problems without an exception.</summary>
     public static Mo2InstancePaths Resolve(string instanceDir)
     {
         var problems = new List<string>();
@@ -77,7 +76,7 @@ public static class Mo2Instance
     }
 
     /// <summary>Validate a candidate instance folder for the setup tool: never throws; returns whether it's usable, the
-    /// derived paths (null if not), and the specific problems (Q3) to show the user so they can fix the path.</summary>
+    /// derived paths (null if not), and the specific problems to show the user so they can fix the path.</summary>
     public static (bool ok, Mo2InstancePaths? paths, IReadOnlyList<string> problems) Validate(string instanceDir)
     {
         var problems = new List<string>();
@@ -126,9 +125,9 @@ public static class Mo2Instance
         if (string.IsNullOrWhiteSpace(gamePath)) problems?.Add($"{IniFileName} has no gamePath (MO2 doesn't know where the game is)");
 
         // base_directory SET but pointing at a missing folder is its own problem: we still fall back to the instance dir
-        // (below), but silently doing so would point every downstream "mods/profiles missing" message at the WRONG root
-        // (Q3 — never a silently-degraded mode). Absent base_directory (the common portable case) stays quiet: it's the
-        // documented default, not a misconfiguration.
+        // (below), but silently doing so would point every downstream "mods/profiles missing" message at the WRONG
+        // root. Absent base_directory (the common portable case) stays quiet: it's the documented default, not a
+        // misconfiguration.
         if (!string.IsNullOrWhiteSpace(baseDir) && !Directory.Exists(baseDir))
             problems?.Add($"{IniFileName} sets base_directory='{baseDir}' but that folder doesn't exist — falling back to the instance dir for mods/ + profiles/");
 
@@ -152,8 +151,8 @@ public static class Mo2Instance
                   && Directory.Exists(modsDir) && Directory.Exists(dataDir);
         if (!ok) return null;
 
-        // Overwrite is derived like mods/profiles (base-relative, the portable default measured on Aaron's real ini)
-        // but never gates validity — a missing folder just means no overwrite-provided plugins.
+        // Overwrite is derived like mods/profiles (base-relative, the portable default) but never gates validity —
+        // a missing folder just means no overwrite-provided plugins.
         return new Mo2InstancePaths(instanceDir, profile!, profileDir, modsDir, dataDir, gamePath!, Path.Combine(basePath, "overwrite"));
     }
 

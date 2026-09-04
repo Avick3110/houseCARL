@@ -12,16 +12,15 @@ namespace HousecarlCore;
 /// <c>"MagicSkill = Destruction"</c>, <c>"BasicStats.Damage &gt;= 50"</c>, <c>"Archetype.ActorValue = Infamy"</c>.
 /// Multiple predicates are ANDed (the wire is <c>where: string[]</c>).</para>
 ///
-/// <para><b>By construction (cornerstone §3).</b> The extraction is NOT a per-field table — it is the read
-/// engine's own proven path-walk: each predicate pulls its candidate's value through the internal
-/// <see cref="ReadEngine.ReadLeaf"/> (the same <c>ParseSegment</c>/<c>ResolveProperty</c>/<c>StepIntoElement</c>
-/// navigation the read tools and the round-trip oracle drive), then compares the round-trippable token. So the
-/// set of fields you can FILTER on IS the set of fields houseCARL can READ — every type, every depth, no
-/// hand-kept list. The comparison vocabulary is fixed by the token forms <see cref="ReadEngine"/> emits (the
-/// faithful inverse of the write engine's Coerce): enum NAME, invariant numeric round-trip, <c>True</c>/<c>False</c>,
-/// <c>XXXXXX:Plugin.esp</c> FormKey.</para>
+/// <para><b>By construction (cornerstone).</b> The extraction is NOT a per-field table — it is the read engine's
+/// own path-walk: each predicate pulls its candidate's value through the internal
+/// <see cref="ReadEngine.ReadLeaf"/> (the same navigation the read tools drive), then compares the
+/// round-trippable token. So the set of fields you can FILTER on IS the set of fields houseCARL can READ — every
+/// type, every depth, no hand-kept list. The comparison vocabulary is fixed by the token forms
+/// <see cref="ReadEngine"/> emits (the inverse of the write engine's Coerce): enum NAME, invariant numeric
+/// round-trip, <c>True</c>/<c>False</c>, <c>XXXXXX:Plugin.esp</c> FormKey.</para>
 ///
-/// <para><b>Q3 — no silent wrong answer.</b> A value predicate's natural failure mode is a wrong field path that
+/// <para><b>No silent wrong answer.</b> A value predicate's natural failure mode is a wrong field path that
 /// reads no value on every candidate and looks like a true "0 matches." This type ACCOUNTS for why each
 /// candidate didn't match (per-predicate value-read vs no-value counts) so the scan can fail LOUD when a path
 /// is read-blind everywhere (<see cref="AccountingNote"/>), and a numeric operator pointed at a non-numeric
@@ -30,11 +29,11 @@ namespace HousecarlCore;
 ///
 /// <para>Scope: the value operators take scalar-leaf paths only (incl. a concrete bracketed element like
 /// <c>Keywords[0]</c>). A whole LIST leaf (<c>Keywords</c>, <c>Effects</c>) reads as a no-value container summary,
-/// so a value predicate on a list path is surfaced by the Q3 accounting, never silently matched — list→FormID
+/// so a value predicate on a list path is surfaced by the accounting, never silently matched — list→FormID
 /// membership is <c>references=</c>'s job. The PRESENCE operators (<c>exists</c>/<c>missing</c>) are the exception:
 /// they DO match a carried substruct/list leaf (present and non-empty), the "which records carry a VMAD/Effects"
-/// query (#197). The MEMBERSHIP operators (<c>formid in</c>/<c>formid not in</c> a supplied list — #226) are the
-/// other non-leaf case: they test the record's IDENTITY against a pre-parsed FormKey set, no read walk at all.
+/// query. The MEMBERSHIP operators (<c>formid in</c>/<c>formid not in</c> a supplied list) are the other non-leaf
+/// case: they test the record's IDENTITY against a pre-parsed FormKey set, no read walk at all.
 /// A wildcard over a list (<c>Effects[*].Magnitude &gt; 50</c>) is a deliberate future extension.</para>
 /// </summary>
 public sealed class FieldPredicateSet
@@ -49,9 +48,9 @@ public sealed class FieldPredicateSet
     /// <see cref="Exists"/>/<see cref="Missing"/> are PRESENCE tests that take NO operand — true iff the path
     /// resolves to a present, NON-EMPTY value (a scalar OR a carried substruct/list) / its complement. They are the
     /// only operators that MATCH a no-value container leaf: the "which records CARRY a VirtualMachineAdapter /
-    /// Effects / Conditions" query (#197), which the value operators (needing a scalar leaf) cannot express.
+    /// Effects / Conditions" query, which the value operators (needing a scalar leaf) cannot express.
     /// <see cref="In"/>/<see cref="NotIn"/> are IDENTITY-membership tests against a supplied FormID list — the
-    /// reconciliation subtraction "every record except these already-claimed ones" (#226). They take the pseudo-path
+    /// reconciliation subtraction "every record except these already-claimed ones". They take the pseudo-path
     /// <c>formid</c> (the record's own identity, not a body leaf — deliberately outside the read walk, matching the
     /// read cleave where identity sits beside Fields) and a list operand: inline comma-separated FormIDs, or
     /// <c>@&lt;absolute path&gt;</c> naming a file of them. Restricted to <c>formid</c> at parse (a named refusal on any
@@ -63,8 +62,8 @@ public sealed class FieldPredicateSet
     /// at parse, so a non-numeric operand under <c>&gt;</c>/<c>&lt;</c> fails the whole call before any scan).
     /// <paramref name="FormIds"/> is the pre-parsed membership set for <see cref="Op.In"/>/<see cref="Op.NotIn"/>
     /// (file already read + every token validated at parse — the scan never does IO), null for every other op.
-    /// <paramref name="Artifact"/> is non-null when the list came from a §2.1.1 result ARTIFACT: the epoch
-    /// obligation the consuming scan must check against the build it captures (see <see cref="ArtifactDemands"/>).</summary>
+    /// <paramref name="Artifact"/> is non-null when the list came from a result ARTIFACT: the epoch obligation the
+    /// consuming scan must check against the build it captures (see <see cref="ArtifactDemands"/>).</summary>
     sealed record Predicate(string Text, string[] PathSegments, string PathDisplay, Op Op, string Operand, double NumericOperand,
                             HashSet<FormKey>? FormIds = null, ArtifactDemand? Artifact = null,
                             string[]? LinkPath = null, string? LinkPathDisplay = null,
@@ -72,10 +71,10 @@ public sealed class FieldPredicateSet
 
     /// <summary>The identity pseudo-paths a predicate may name instead of a body leaf. <c>editorid</c> reads the
     /// record's EditorID (always available off the early EDID subrecord — never a reflection walk, and live even on
-    /// records whose deep body Mutagen can't parse). <c>winner</c> is the §2.2 PROVENANCE term: it reads the
-    /// record's load-order RESOLUTION (which plugin wins it), not its content — evaluated via the resolution the
-    /// consuming scan binds (<see cref="BindResolution"/>), so it forces winner resolution over the scanned scope
-    /// (the declared §3.2(c) cost class). <c>formid</c> stays what it was: the membership ops' identity path.</summary>
+    /// records whose deep body Mutagen can't parse). <c>winner</c> is the PROVENANCE term: it reads the record's
+    /// load-order RESOLUTION (which plugin wins it), not its content — evaluated via the resolution the consuming
+    /// scan binds (<see cref="BindResolution"/>), so it forces winner resolution over the whole scanned scope.
+    /// <c>formid</c> is the membership ops' identity path.</summary>
     enum PseudoPath { None, EditorId, Winner, FormId }
 
     readonly IReadOnlyList<Predicate> _predicates;
@@ -87,17 +86,17 @@ public sealed class FieldPredicateSet
     long _scanned;
     string? _fatal;
 
-    // Resolution bindings (W2): the `winner` provenance term and the `->` link step read the record's RESOLUTION
+    // Resolution bindings: the `winner` provenance term and the `->` link step read the record's RESOLUTION
     // (winner plugin; a linked target's winner body), which only the consuming scan's captured view can supply.
-    // Bound by the call site AFTER its own Capture() (so the predicate and the answer read the same build);
-    // evaluating an unbound term is a FatalError, never a silent non-match (Q3).
+    // Must be bound by the call site AFTER its own Capture(), so the predicate and the answer read the same build;
+    // evaluating an unbound term is a FatalError, never a silent non-match.
     Func<FormKey, string?>? _winnerOf;
     Func<FormKey, IMajorRecordGetter?>? _fetchWinnerBody;
-    // Link-step targets recur across candidates — fetch once per scan. Unbounded BY DESIGN for the set's
-    // lifetime (one call): magnitude is the DISTINCT link-target population of the scanned scope, which for
-    // realistic link paths (Perks, Effects, Keywords) is hundreds-to-low-thousands of record getters — small
-    // beside the scan itself. A pathological whole-order high-fan-out path is bounded by the same scope the
-    // grammar already requires (types=/plugins=) — noted per the PR #307 round-3 review.
+    // Link-step targets recur across candidates — fetch once per scan. Unbounded by design for the set's lifetime
+    // (one call): magnitude is the DISTINCT link-target population of the scanned scope, which for realistic link
+    // paths (Perks, Effects, Keywords) is hundreds-to-low-thousands of record getters, small beside the scan
+    // itself. A pathological whole-order high-fan-out path is bounded by the scope the grammar already requires
+    // (types= / plugins=).
     readonly Dictionary<FormKey, IMajorRecordGetter?> _targetCache = new();
 
     /// <summary>Whether any predicate needs the scan's resolution context (<c>winner</c> term or a <c>-&gt;</c>
@@ -110,10 +109,9 @@ public sealed class FieldPredicateSet
     public bool NeedsBodyResolution => _predicates.Any(p => p.LinkPath is not null);
 
     /// <summary>Whether any predicate reads record BODY content (a leaf walk or a link step) — false when every
-    /// term is header/resolution-only (`editorid`, `winner`, `formid` membership). The scan's deleted-record
-    /// guard keys on this (review fold): a deleted record has no live body for the CONTENT filters, but its
-    /// EditorID and its winner resolution are real facts — a header-only predicate set must still see it, exactly
-    /// as the 1.x `editorid_contains=` deliberately did.</summary>
+    /// term is header/resolution-only (`editorid`, `winner`, `formid` membership). The scan's deleted-record check
+    /// keys on this: a deleted record has no live body for the CONTENT filters, but its EditorID and its winner
+    /// resolution are real facts, so a header-only predicate set must still see it.</summary>
     public bool NeedsLiveBody => _predicates.Any(p => p.LinkPath is not null || p.Pseudo == PseudoPath.None);
 
     /// <summary>Bind the scan's resolution context: <paramref name="winnerOf"/> answers "which plugin wins this
@@ -141,14 +139,14 @@ public sealed class FieldPredicateSet
     /// (never a silent skip). Null while the predicate is well-typed.</summary>
     public string? FatalError => _fatal;
 
-    /// <summary>The epoch obligations this predicate set carries (SPEC §2.1.1): one per <c>in</c>/<c>not in</c>
-    /// list that came from a result ARTIFACT (vs a plain formid-list file, which claims nothing). The consuming
-    /// scan compares each against the build it captures — AFTER its own Capture(), so the check and the answer
-    /// read the same build — and refuses loud on mismatch, naming both epochs. Empty for plain-list predicates.</summary>
+    /// <summary>The epoch obligations this predicate set carries: one per <c>in</c>/<c>not in</c> list that came
+    /// from a result ARTIFACT (vs a plain formid-list file, which claims nothing). The consuming scan compares each
+    /// against the build it captures — AFTER its own Capture(), so the check and the answer read the same build —
+    /// and refuses loud on mismatch, naming both epochs. Empty for plain-list predicates.</summary>
     public IReadOnlyList<ArtifactDemand> ArtifactDemands =>
         _predicates.Where(p => p.Artifact is not null).Select(p => p.Artifact!).ToList();
 
-    /// <summary>Candidate bodies tested so far — the denominator the Q3 accounting reports against.</summary>
+    /// <summary>Candidate bodies tested so far — the denominator the accounting reports against.</summary>
     public long Scanned => _scanned;
 
     // ======================================================================
@@ -158,9 +156,9 @@ public sealed class FieldPredicateSet
     //  the remainder. 'contains' is a whitespace-delimited word operator.
     // ======================================================================
 
-    /// <summary>Parse the wire <c>where</c> list into an evaluable set, or return the FIRST parse error (so a
-    /// malformed predicate refuses the whole call before scanning — Q3). An empty list is a parse error: a
-    /// caller passing <c>where</c> at all means to filter.</summary>
+    /// <summary>Parse the wire <c>where</c> list into an evaluable set, or return the FIRST parse error, so a
+    /// malformed predicate refuses the whole call before scanning. An empty list is a parse error: a caller
+    /// passing <c>where</c> at all means to filter.</summary>
     public static (FieldPredicateSet? Set, string? Error) Parse(IReadOnlyList<string> where)
     {
         var list = new List<Predicate>(where.Count);
@@ -236,10 +234,9 @@ public sealed class FieldPredicateSet
         //    consumed the operator positionally, so that's fine.)
         var operand = text.Substring(after).Trim();
 
-        // LINK STEP (§2.2, the P3 '->' term — W2): 'Left->Right' reads Right on the record(s) the candidate's
-        // Left path points AT (their load-order-winner bodies, from the same captured view the scan answers
-        // from), ANY-match over the reached targets. Exactly ONE step: chaining arrows is refused — a longer
-        // chain is the walk construct's job, not a predicate's.
+        // LINK STEP: 'Left->Right' reads Right on the record(s) the candidate's Left path points AT (their
+        // load-order-winner bodies, from the same captured view the scan answers from), ANY-match over the reached
+        // targets. Exactly ONE step: chaining arrows is refused — a longer chain is the walk construct's job.
         string[]? linkSegs = null;
         string? linkDisplay = null;
         var arrow = path.IndexOf("->", StringComparison.Ordinal);
@@ -262,9 +259,8 @@ public sealed class FieldPredicateSet
         if (segs.Length == 0)
             return (null, $"predicate '{raw}': '{path}' is not a usable field path.");
 
-        // Pseudo-path classification (W2): 'editorid' (the record's EditorID — a first-class term, so the old
-        // editorid_contains= parameter dissolves into this grammar), 'winner' (the §2.2 PROVENANCE term — which
-        // plugin WINS the record, resolution not content), 'formid' (the membership ops' identity path, as ever).
+        // Pseudo-path classification: 'editorid' (the record's EditorID), 'winner' (the provenance term — which
+        // plugin WINS the record, resolution not content), 'formid' (the membership ops' identity path).
         var pseudo = segs.Length == 1 && !path.Contains('[')
             ? (path.Equals("editorid", StringComparison.OrdinalIgnoreCase) ? PseudoPath.EditorId
                : path.Equals("winner", StringComparison.OrdinalIgnoreCase) ? PseudoPath.Winner
@@ -283,8 +279,8 @@ public sealed class FieldPredicateSet
         if (pseudo == PseudoPath.EditorId && op is Op.Gt or Op.Ge or Op.Lt or Op.Le or Op.Has)
             return (null, $"predicate '{raw}': 'editorid' is a text term — use = != contains startswith exists missing in 'not in' (got '{OpStr(op)}').");
 
-        // A presence op (exists/missing) takes NO operand — a trailing value is a mistake, refused loud (Q3, never
-        // silently ignored). Every other op REQUIRES an operand.
+        // A presence op (exists/missing) takes NO operand — a trailing value is a mistake, refused loud rather than
+        // silently ignored. Every other op REQUIRES an operand.
         if (op is Op.Exists or Op.Missing)
         {
             if (pseudo is PseudoPath.Winner or PseudoPath.FormId)
@@ -299,12 +295,11 @@ public sealed class FieldPredicateSet
 
         // The membership ops (in / not in). On the identity path 'formid' the list must be FormIDs and the test is
         // the record's own identity (or, behind a link step, each reached target's identity) — the artifact @file
-        // re-entry lane rides this form. On any OTHER path (W2 generalization) the list entries are compared
-        // against the LEAF's token with the same equality vocabulary '=' uses (FormKey-canonical / numeric /
-        // case-insensitive string), so \"Race in [XXXXXX:A.esm, YYYYYY:B.esm]\" keeps exactly the listed races.
-        // Either way the operand (inline list or @file) is fully parsed + validated HERE, so a bad token, an
-        // unreadable file, or an empty list refuses the whole call before any scan (Q3) and the per-record test
-        // does no IO.
+        // re-entry lane rides this form. On any OTHER path the list entries are compared against the LEAF's token
+        // with the same equality vocabulary '=' uses (FormKey-canonical / numeric / case-insensitive string), so
+        // \"Race in [XXXXXX:A.esm, YYYYYY:B.esm]\" keeps exactly the listed races. Either way the operand (inline
+        // list or @file) is fully parsed and validated HERE, so a bad token, an unreadable file, or an empty list
+        // refuses the whole call before any scan and the per-record test does no IO.
         if (op is Op.In or Op.NotIn)
         {
             if (pseudo == PseudoPath.Winner)
@@ -334,7 +329,7 @@ public sealed class FieldPredicateSet
     /// but entries are arbitrary VALUE tokens (enum names, numbers, FormKeys) — validated only for non-emptiness.
     /// When every entry parses as a FormKey the pre-parsed set rides along for the fast identity-canonical test
     /// (a FormLink leaf against a big artifact list must not be O(n) per record). An @file target may be a plain
-    /// token list or a §2.1.1 artifact (identity column = formids — useful against a FormLink leaf), with the
+    /// token list or a result artifact (identity column = formids — useful against a FormLink leaf), with the
     /// artifact's epoch demand carried exactly like the formid form.</summary>
     static (IReadOnlyList<string>? Members, HashSet<FormKey>? Keys, ArtifactDemand? Artifact, string? Error) ParseValueList(string raw, string operand)
     {
@@ -387,10 +382,10 @@ public sealed class FieldPredicateSet
     /// grammar: FormIDs separated by commas and/or newlines — NEVER bare spaces, because a plugin filename can
     /// contain them (<c>123456:My Mod.esp</c>) — with optional surrounding brackets and quotes stripped per token,
     /// so a pasted JSON array (<c>["123456:A.esp", "234567:B.esp"]</c>) parses as-is. Every token must be a valid
-    /// FormID and the set must be non-empty; any violation names itself and refuses the call (Q3).
-    /// <para>An <c>@file</c> whose target is a §2.1.1 result ARTIFACT (line 1 = manifest) yields its IDENTITY
-    /// column as the list instead of raw tokens, and hands back the artifact's epoch obligation — the scan-once
-    /// re-entry lane. A plain list file stays exactly what it was (no manifest, no epoch claim).</para></summary>
+    /// FormID and the set must be non-empty; any violation names itself and refuses the call.
+    /// <para>An <c>@file</c> whose target is a result ARTIFACT (line 1 = manifest) yields its IDENTITY column as
+    /// the list instead of raw tokens, and hands back the artifact's epoch obligation. A plain list file carries
+    /// no manifest and no epoch claim.</para></summary>
     static (HashSet<FormKey>?, ArtifactDemand?, string?) ParseFormIdList(string raw, string operand)
     {
         string content;
@@ -415,9 +410,9 @@ public sealed class FieldPredicateSet
                 var aset = new HashSet<FormKey>();
                 foreach (var tok in tokens!)
                 {
-                    // Error rows were already excluded by ReadIdentity (they carry raw failed inputs, not record
-                    // identities — PR #306 re-review), so a non-FormID here is a GENUINE mismatch: server-written
-                    // success rows always carry valid formids.
+                    // ReadIdentity already excludes error rows (they carry raw failed inputs, not record
+                    // identities), so a non-FormID here is a genuine mismatch: server-written success rows always
+                    // carry valid formids.
                     try { aset.Add(FormKey.Factory(tok)); }
                     catch (Exception ex)
                     {
@@ -474,7 +469,7 @@ public sealed class FieldPredicateSet
     /// so a filterable path is exactly a readable path. On a numeric-operator-vs-non-numeric-field mismatch sets
     /// <see cref="FatalError"/> and returns false (the scan aborts and surfaces it on the first value-bearing
     /// candidate). All predicates are read for their accounting even when an earlier one already disqualifies the
-    /// AND, so the Q3 no-value signal is correct per predicate.</summary>
+    /// AND, so the no-value signal is correct per predicate.</summary>
     public bool Matches(IMajorRecordGetter body)
     {
         if (_fatal is not null) return false;
@@ -488,7 +483,7 @@ public sealed class FieldPredicateSet
             bool sat;
             if (p.LinkPath is not null)
             {
-                // LINK STEP (W2): collect the candidate's links under the LEFT path, resolve each target's winner
+                // LINK STEP: collect the candidate's links under the LEFT path, resolve each target's winner
                 // body from the bound view, evaluate the predicate's own (right) side on each — ANY-match. Targets
                 // are cached across candidates (the same perk/spell recurs), and a per-target fault feeds the
                 // accounting, never a throw out of the scan.
@@ -514,8 +509,8 @@ public sealed class FieldPredicateSet
     }
 
     /// <summary>How one predicate's evaluation on one record resolved: a DEFINITE verdict (the value was read and
-    /// compared, or an identity/presence test decided), or one of the no-verdict classes the Q3 accounting keys on
-    /// (mirrors the leaf-note vocabulary: no-such-field / container / read-fault / genuinely-unset).</summary>
+    /// compared, or an identity/presence test decided), or one of the no-verdict classes the accounting keys on.
+    /// Mirrors the leaf-note vocabulary: no-such-field / container / read-fault / genuinely-unset.</summary>
     enum EvalKind { Definite, NoField, Container, Unreadable, Unset }
 
     /// <summary>Evaluate one predicate's own (non-link) side against one record. Shared by the top-level test and
@@ -523,7 +518,7 @@ public sealed class FieldPredicateSet
     /// <see cref="_fatal"/> on a typed predicate error (numeric op vs non-numeric field, unbound winner term).</summary>
     (bool Satisfied, EvalKind Kind) EvalCore(Predicate p, IMajorRecordGetter body)
     {
-        // The provenance term (§2.2 `winner`): reads the record's RESOLUTION off the bound view — never its body.
+        // The `winner` provenance term: reads the record's RESOLUTION off the bound view — never its body.
         if (p.Pseudo == PseudoPath.Winner)
         {
             if (_winnerOf is null)
@@ -546,10 +541,10 @@ public sealed class FieldPredicateSet
                 bool present = !string.IsNullOrEmpty(eid);
                 return (p.Op == Op.Exists ? present : !present, EvalKind.Definite);
             }
-            // A null EditorID is a DEFINITE verdict either way, but the polarity must be right per op (review
-            // finding: a blanket non-match silently dropped every no-EditorID record from '!=' — a record with
-            // no EditorID is unambiguously NOT EQUAL to any operand, and NOT IN any list). The positive ops
-            // (=, contains, startswith, in) keep the 1.x editorid_contains= semantics: no EditorID never matches.
+            // A null EditorID is a DEFINITE verdict either way, but the polarity must be right per op: a record
+            // with no EditorID is unambiguously NOT EQUAL to any operand and NOT IN any list, so a blanket
+            // non-match would silently drop every such record from '!='. The positive ops (=, contains,
+            // startswith, in) keep the older editorid_contains= semantics: no EditorID never matches.
             bool ok = p.Op switch
             {
                 Op.Eq => eid is not null && string.Equals(eid, p.Operand, StringComparison.OrdinalIgnoreCase),
@@ -564,7 +559,7 @@ public sealed class FieldPredicateSet
         }
 
         // Identity-membership ops (in / not in) on 'formid': a pure FormKey set test — no body leaf is read.
-        // Identity is always present, so the Q3 no-value accounting can never false-alarm on it.
+        // Identity is always present, so the no-value accounting can never false-alarm on it.
         if (p.Pseudo == PseudoPath.FormId)
         {
             bool member = p.FormIds!.Contains(body.FormKey);
@@ -575,11 +570,11 @@ public sealed class FieldPredicateSet
 
         // Presence ops (exists/missing) are the ONE case where a no-value CONTAINER leaf is a MATCH, not a miss:
         // they test whether the path resolves to a present, non-empty value (a scalar OR a carried
-        // substruct/list), the "which records carry a VMAD/Effects/Conditions" query the value ops can't express
-        // (#197). Accounting stays Q3-honest: a DEFINITE verdict (Present or Absent) counts as read, so "exists
-        // returns 0 because the field is genuinely absent on all" is a true zero (no false alarm); only a
-        // no-such-field or a read-fault is a no-value residue, so a mistyped exists= path still fails LOUD.
-        // NoField/Unreadable match NEITHER op — an unjudgeable record is asserted neither present nor absent.
+        // substruct/list), the "which records carry a VMAD/Effects/Conditions" query the value ops can't express.
+        // The accounting stays honest: a DEFINITE verdict (Present or Absent) counts as read, so "exists returns 0
+        // because the field is genuinely absent on all" is a true zero; only a no-such-field or a read-fault counts
+        // as no-value, so a mistyped exists= path still fails LOUD. NoField/Unreadable match NEITHER op — an
+        // unjudgeable record is asserted neither present nor absent.
         if (p.Op is Op.Exists or Op.Missing)
         {
             switch (ClassifyPresence(leaf))
@@ -593,13 +588,12 @@ public sealed class FieldPredicateSet
 
         if (!leaf.HasValue)
         {
-            // Classify WHY there was no value, so the Q3 accounting can distinguish a MISTYPED path (no such
-            // field anywhere) from a VALID-but-unset field (the path reads fine; there simply are no values in
-            // this scope) — the two look identical in a bare "0 matches", and conflating them sent a reporter
-            // hunting a non-bug (HCBR-2026-07-12: 'Prompt' is a real INFO field, just unset on all 531 scanned).
-            // Reason vocabulary is ReadLeaf's own notes: "(no field …" = mistyped/wrong-type; a leading '[' =
-            // a container/list summary; "(unreadable …" = a Mutagen-parse FAULT (must NOT read as "unset" — that
-            // would confidently assert a valid empty field where the truth is a read fault, Q3); anything else
+            // Classify WHY there was no value, so the accounting can distinguish a MISTYPED path (no such field
+            // anywhere) from a VALID-but-unset field (the path reads fine; there simply are no values in this
+            // scope). The two look identical in a bare "0 matches" and conflating them sends a user hunting a
+            // non-bug. Reason vocabulary is ReadLeaf's own notes: "(no field …" = mistyped/wrong-type; a leading
+            // '[' = a container/list summary; "(unreadable …" = a Mutagen-parse FAULT, which must NOT read as
+            // "unset" (that would assert a valid empty field where the truth is a read fault); anything else
             // (absent / null link / unresolved string) = a genuinely-unset valid field.
             var note = leaf.Note ?? "";
             if (note.StartsWith("(no field", StringComparison.Ordinal)) return (false, EvalKind.NoField);
@@ -608,7 +602,7 @@ public sealed class FieldPredicateSet
             return (false, EvalKind.Unset);
         }
 
-        // Generalized membership (in / not in on a LEAF path — W2): the leaf's token against the member list,
+        // Generalized membership (in / not in on a LEAF path): the leaf's token against the member list,
         // '='-vocabulary equality per entry. A FormKey leaf against an all-FormKey list uses the pre-parsed set
         // (O(1) — the artifact-list case must not be linear per record).
         if (p.Op is Op.In or Op.NotIn)
@@ -626,7 +620,7 @@ public sealed class FieldPredicateSet
         return (satisfied, EvalKind.Definite);
     }
 
-    /// <summary>The `-&gt;` link step on one candidate: links under the LEFT path → each target's winner body (from
+    /// <summary>The <c>-&gt;</c> link step on one candidate: links under the LEFT path → each target's winner body (from
     /// the bound view, cached across candidates) → <see cref="EvalCore"/> on each — satisfied iff ANY target
     /// satisfies. No-verdict classification: a left-path miss reuses the leaf-note vocabulary; links that all fail
     /// to resolve/judge report Unreadable (the filter cannot judge this candidate — never a silent non-match
@@ -670,8 +664,8 @@ public sealed class FieldPredicateSet
 
     /// <summary>The three-state presence verdict for a leaf under <c>exists</c>/<c>missing</c>: a DEFINITE
     /// Present/Absent, or an unjudgeable NoField (the path is not a field on this record) / Unreadable (a Mutagen
-    /// read fault). Only Present/Absent decide a match; NoField/Unreadable match NEITHER op and feed the Q3
-    /// accounting, so a mistyped presence path still fails loud (never a silent "0 matches").</summary>
+    /// read fault). Only Present/Absent decide a match; NoField/Unreadable match NEITHER op and feed the
+    /// accounting, so a mistyped presence path still fails loud rather than reading as a silent "0 matches".</summary>
     enum Presence { Present, Absent, NoField, Unreadable }
 
     /// <summary>Map a leaf read to its presence verdict. A round-trippable scalar is Present. A container/substruct
@@ -700,9 +694,9 @@ public sealed class FieldPredicateSet
                 return CompareHas(p, token, flags);
 
             case Op.Gt or Op.Ge or Op.Lt or Op.Le:
-                // A [Flags] enum compares on its underlying numeric value — so `>= 65536` no longer ERRORS on a
-                // field that renders as "Body". Every other leaf compares on its numeric token, exactly as before
-                // (a non-numeric, non-flags field is still the fast typed FatalError — Q3).
+                // A [Flags] enum compares on its underlying numeric value, so `>= 65536` works on a field that
+                // renders as "Body". Every other leaf compares on its numeric token; a non-numeric, non-flags
+                // field is the fast typed FatalError.
                 double tv;
                 if (flags is { } fnum) tv = fnum.Bits;
                 else if (!TryNum(token, out tv))
@@ -734,7 +728,7 @@ public sealed class FieldPredicateSet
     /// bits free — so a multi-slot BodyTemplate still matches the one slot asked for, the case <c>=</c> (exact
     /// value) and the range ops miss. On a [Flags] enum the operand is a bit value (decimal or <c>0x</c> hex) or a
     /// flag NAME; on a plain integer leaf it must be a bit value. A non-bitmask field, an unresolvable operand, or
-    /// a zero mask is a typed error — never a silent non-match (Q3).</summary>
+    /// a zero mask is a typed error — never a silent non-match.</summary>
     static (bool satisfied, string? error) CompareHas(Predicate p, string token, ReadEngine.FlagBits? flags)
     {
         ulong leafBits, opBits;
@@ -795,7 +789,7 @@ public sealed class FieldPredicateSet
     }
 
     // ======================================================================
-    //  Q3 ACCOUNTING — the loud "wrong path ≠ true zero" surface.
+    //  ACCOUNTING — the loud "wrong path ≠ true zero" surface.
     // ======================================================================
 
     /// <summary>The line(s) appended to the result header so a value predicate's natural failure mode (a wrong
@@ -822,7 +816,7 @@ public sealed class FieldPredicateSet
                 // four keep the loud marker "yielded no readable value on any" (distinct from the SOFT "had no readable
                 // value on" for a >half-but-not-all miss), then diverge on the actionable reason.
                 const string loud = "yielded no readable value on any of";
-                long unset = _noValue[k] - _noField[k] - _container[k] - _unreadable[k];   // the residue: genuinely-unset valid fields
+                long unset = _noValue[k] - _noField[k] - _container[k] - _unreadable[k];   // what is left: genuinely-unset valid fields
                 string reason;
                 if (_noField[k] == _scanned)
                     reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — it is NOT A FIELD on these records " +

@@ -2,10 +2,8 @@ namespace HousecarlCore;
 
 /// <summary>
 /// The shared runtime name-surgery primitives — the <c>I…Getter → X</c> and <c>…BinaryOverlay</c> strips that
-/// map a runtime reflection type back toward its corpus catalog name. Before this, the same two folk-rules were
-/// copied by hand across <c>WriteEngine</c> (ConcreteOf, RunShow) and <c>WriteProof</c> (CatalogName,
-/// PrimaryRecordCatalog, StripOverlay) — a name-resolution bug fixed in one copy wouldn't be caught by the others
-/// (baseline review S4). Now the string surgery lives once.
+/// map a runtime reflection type back toward its corpus catalog name. <c>WriteEngine</c> and <c>WriteProof</c> both
+/// resolve names this way and must agree, so the string surgery lives here once rather than being copied.
 ///
 /// This is deliberately NOT unified with the emit-time <c>CorpusGenerator.CatalogName</c>/<c>Normalize</c>: the
 /// generator qualifies nested enums by DeclaringType and runs before the catalog exists, so its needs differ
@@ -19,8 +17,7 @@ public static class RecordNaming
         name.EndsWith("BinaryOverlay", StringComparison.Ordinal) ? name[..^"BinaryOverlay".Length] : name;
 
     /// <summary>The Loqui getter-interface convention: <c>INpcGetter → Npc</c>. Strips the leading <c>I</c> and the
-    /// trailing <c>Getter</c> only when BOTH are present; any other name passes through unchanged (so callers that
-    /// already guarded on the shape, and callers that pass a non-interface name, both behave as before).</summary>
+    /// trailing <c>Getter</c> only when BOTH are present; any other name passes through unchanged.</summary>
     public static string StripGetterInterface(string name) =>
         name.StartsWith("I", StringComparison.Ordinal) && name.EndsWith("Getter", StringComparison.Ordinal)
             ? name[1..^6] : name;
