@@ -1912,7 +1912,9 @@ public static class RecordsTools
             if (o.Error is not null) sb.Append(o.FormKey).Append("  error=").Append(o.Error).Append('\n');
             else
             {
-                sb.Append(o.FormKey).Append("  ").Append(o.Record!.Type)
+                sb.Append(o.FormKey);
+                if (o.RuntimeFormId is { } runtime) sb.Append("  runtime=").Append(runtime);
+                sb.Append("  ").Append(o.Record!.Type)
                   .Append("  ").Append(o.Record.EditorId ?? "<no editorid>")
                   .Append("  source=").Append(o.SourcePlugin ?? "?");
                 if (o.WinnerPlugin is not null) sb.Append("  winner=").Append(o.WinnerPlugin).Append("  depth=").Append(o.OverrideDepth);
