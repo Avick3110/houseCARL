@@ -21,10 +21,11 @@ public static class ApplyTools
          "Edit fields on one or many records and write the result to a NEW patch plugin (originals untouched by " +
          "default). ONE surface: what to change (ops=, or the bundle=/assignments= copy zip) x WHERE it lands (the " +
          "LANE: a new patch | into= an existing one | in_place=\"X.esp\" | dry_run) x how it reads back (TRANSPORT).\n\n" +
-         "A FormID is 'XXXXXX:Plugin.esp' — 6 hex digits, a colon, the defining master's filename. The RUNTIME " +
-         "form the game, the console and the logs print is accepted too: eight hex digits and no plugin name, " +
-         "'FExxxYYY' for a light plugin or 'XX######' for a full one, with or without a leading 0x, resolved " +
-         "against the CURRENT load order. Every edit " +
+         "A FormID is 'XXXXXX:Plugin.esp' — 6 hex digits, a colon, the defining master's filename. On ops[].formid " +
+         "(and from=) the RUNTIME form the game, the console and the logs print is accepted too: eight hex digits " +
+         "and no plugin name, 'FExxxYYY' for a light plugin or 'XX######' for a full one, with or without a leading " +
+         "0x, resolved against the CURRENT load order. A field VALUE takes the 'XXXXXX:Plugin.esp' form only. " +
+         "Every edit " +
          "resolves the record's load-order WINNER and overrides it into the patch; all edits land in ONE reviewable " +
          ".esp, whose master header spans every plugin the edits reference (cross-master merge, derived not declared).\n\n" +
          "OPS. ops= is the edit list — {formid, field_path, op?, value?, values?, key?, entries?, compose?, " +

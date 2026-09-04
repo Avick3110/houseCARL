@@ -150,10 +150,15 @@ public sealed class LoadOrderResolver : IDisposable
         /// index, so it is the only extra fact the runtime-FormID tables need.</summary>
         public readonly bool[] Light;
 
-        /// <summary>Active plugins whose light flag could NOT be read, because the file could not be opened at all.
-        /// Their kind decides every runtime index AFTER them, so a runtime FormID cannot be answered while one is in
-        /// the order — named here so the refusal can say which plugin, rather than guessing from the extension.</summary>
-        public readonly IReadOnlyList<string> LightFlagUnknown;
+        /// <summary>The FIRST active plugin whose kind could not be read, because the file could not be opened and
+        /// its extension does not settle it (a .esl is light whatever the header says). Its kind decides every runtime
+        /// slot from its own position onward, so a runtime FormID landing there or later cannot be answered — but one
+        /// landing BEFORE it is unaffected, which is why the position is kept rather than a bare flag. -1 when every
+        /// plugin's kind is known.</summary>
+        public readonly int FirstUnknownKind;
+
+        /// <summary>That plugin's filename, so a refusal can name it. Null when <see cref="FirstUnknownKind"/> is -1.</summary>
+        public readonly string? FirstUnknownKindName;
 
         /// <summary>The runtime address tables, built on first use (a load order that never sees a runtime FormID
         /// never pays for them) and thrown away with this snapshot, so they refresh with the index.</summary>
@@ -162,10 +167,11 @@ public sealed class LoadOrderResolver : IDisposable
         public IndexSnapshot(Dictionary<FormKey, (int winner, int count)> index, Dictionary<FormKey, int[]> overriders,
                              List<string> loadFailures, HashSet<int> excluded, HashSet<int> unopenable,
                              Dictionary<string, string> excludedPlugins, int maxDepth, string epoch,
-                             bool[] light, IReadOnlyList<string> lightFlagUnknown)
+                             bool[] light, int firstUnknownKind, string? firstUnknownKindName)
         {
             Index = index; Overriders = overriders; LoadFailures = loadFailures; Excluded = excluded; Unopenable = unopenable;
-            ExcludedPlugins = excludedPlugins; MaxDepth = maxDepth; Epoch = epoch; Light = light; LightFlagUnknown = lightFlagUnknown;
+            ExcludedPlugins = excludedPlugins; MaxDepth = maxDepth; Epoch = epoch; Light = light;
+            FirstUnknownKind = firstUnknownKind; FirstUnknownKindName = firstUnknownKindName;
             Slots = new Lazy<RuntimeSlots>(() => RuntimeSlots.Build(light));
         }
     }
@@ -539,7 +545,8 @@ public sealed class LoadOrderResolver : IDisposable
         var unopenable = new HashSet<int>();                          // the could-not-be-OPENED subset
         var excludedPlugins = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var light = new bool[_paths.Length];
-        var lightUnknown = new List<string>();
+        int firstUnknownKind = -1;
+        string? firstUnknownKindName = null;
         int maxDepth = 0;
 
         for (int i = 0; i < _paths.Length; i++)
@@ -550,7 +557,10 @@ public sealed class LoadOrderResolver : IDisposable
             {
                 Exclude(i, $"could not be opened — {Concise(ex)}", failures, excluded, excludedPlugins);
                 unopenable.Add(i);   // cannot serve as a master overlay either; the write path must skip it
-                lightUnknown.Add(_names[i]);   // its kind decides every runtime index after it, and we cannot read it
+                // The header is unreadable, so only the extension can settle whether the game loads this one into
+                // the light block. A .esl always does; anything else is unknown, and the runtime tables say so.
+                light[i] = ModKey.FromFileName(_names[i]).Type == ModType.Light;
+                if (!light[i] && firstUnknownKind < 0) { firstUnknownKind = i; firstUnknownKindName = _names[i]; }
                 continue;
             }
 
@@ -597,7 +607,7 @@ public sealed class LoadOrderResolver : IDisposable
             index,
             overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),  // trim List overhead → int[]
             failures, excluded, unopenable, excludedPlugins, maxDepth, ComputeEpoch(_names, _paths, _mtimes, excludedPlugins),
-            light, lightUnknown);
+            light, firstUnknownKind, firstUnknownKindName);
     }
 
     /// <summary>The epoch fingerprint: a compact, deterministic identity for ONE index build, derived from the
@@ -686,12 +696,6 @@ public sealed class LoadOrderResolver : IDisposable
                 $"{RuntimeFormId.Format(value)} is a dynamic form — the game creates FF...... FormIDs while playing and " +
                 "they exist only in a save game, so no plugin defines one.");
 
-        if (s.LightFlagUnknown.Count > 0)
-            throw new FormatException(
-                $"a runtime FormID cannot be resolved this session: '{s.LightFlagUnknown[0]}' could not be opened, so " +
-                "whether it is light — and therefore every index after it — is unknown; address the record as " +
-                "'XXXXXX:Plugin.esp' instead.");
-
         var slots = s.Slots.Value;
         if (RuntimeFormId.IsLight(value))
         {
@@ -702,6 +706,7 @@ public sealed class LoadOrderResolver : IDisposable
                     $"{RuntimeFormId.Format(value)} names light index 0x{slot:X3}, which no active plugin occupies " +
                     $"(the load order has {slots.LightCount} light plugin(s)) — the plugin may be inactive; read an " +
                     "inactive plugin with 'XXXXXX:Plugin.esp'.");
+            EnsureKindKnownUpTo(s, p, value);
             return FormKey.Factory($"{value & FormIdRange.LightObjectIdMask:X6}:{_names[p]}");
         }
 
@@ -712,15 +717,30 @@ public sealed class LoadOrderResolver : IDisposable
                 $"{RuntimeFormId.Format(value)} names load index 0x{idx:X2}, which no active plugin occupies " +
                 $"(the load order has {slots.FullCount} full plugin(s); light plugins are addressed as FExxxYYY) — " +
                 "the plugin may be inactive; read an inactive plugin with 'XXXXXX:Plugin.esp'.");
+        EnsureKindKnownUpTo(s, fp, value);
         return FormKey.Factory($"{value & FormIdRange.ObjectIdMask:X6}:{_names[fp]}");
     }
 
-    /// <summary>The runtime FormID the game, the console and the logs print for this record, or null when its plugin
-    /// is not active in this build (nothing in the order addresses it) or its kind could not be read.</summary>
+    /// <summary>Refuse when a plugin whose kind could not be read sits at or before the slot just resolved: its kind
+    /// decides where everything from its own position onward lands, so the answer would be a guess. A slot before it
+    /// is unaffected and answers normally.</summary>
+    static void EnsureKindKnownUpTo(IndexSnapshot s, int pluginIndex, uint value)
+    {
+        if (s.FirstUnknownKind < 0 || pluginIndex < s.FirstUnknownKind) return;
+        throw new FormatException(
+            $"{RuntimeFormId.Format(value)} cannot be resolved this session: '{s.FirstUnknownKindName}' could not be " +
+            "opened, so whether the game loads it as a light plugin — and therefore where everything from it onward " +
+            "sits — is unknown; address the record as 'XXXXXX:Plugin.esp' instead.");
+    }
+
+    /// <summary>The runtime FormID the game, the console and the logs print for this record, or null when the order
+    /// gives it no address: its plugin is not active, a plugin whose kind could not be read sits at or before it (see
+    /// <see cref="IndexSnapshot.FirstUnknownKind"/>), or it sits past the last runtime slot.</summary>
     string? RuntimeFormIdFor(IndexSnapshot s, FormKey fk)
     {
-        if (fk.IsNull || s.LightFlagUnknown.Count > 0) return null;
+        if (fk.IsNull) return null;
         if (!_nameToIdx.TryGetValue(fk.ModKey.FileName.ToString(), out int p)) return null;
+        if (s.FirstUnknownKind >= 0 && p >= s.FirstUnknownKind) return null;
         int slot = s.Slots.Value.SlotOfPlugin[p];
         if (slot < 0) return null;
         return RuntimeFormId.Format(RuntimeFormId.Compose(s.Light[p], slot, fk.ID));
