@@ -312,11 +312,11 @@ public static class MergeServiceGuardProbe
                 var rendered = WriteTools.RenderMerge(o);
                 Check(rendered.Contains("WARNING") && rendered.Contains("HcMgDep.esp") && rendered.Contains("HcMgOvr.esp"),
                     "WARN both warnings reach the rendered user output");
-                // The pass's own coverage, stated by the pass — a dependent that only DECLARES a donor as a master is
-                // invisible here, and the sentence has to say so whether the list came back empty or full.
-                Check(rendered.Contains("it reads record links and record identity, NOT declared masters")
-                      && rendered.Contains("only lists a donor as a master"),
-                    "WARN the identify-pass line states what the pass does NOT read");
+                // The pass's own coverage, stated by the pass. Declared masters are read now; runtime config files are
+                // not, and the sentence has to name what is left out whether the lists came back empty or full.
+                Check(rendered.Contains("it reads record links, record identity and declared masters, NOT runtime config files")
+                      && rendered.Contains("only names a donor in such a file"),
+                    "WARN the identify-pass line states what the pass does and does NOT read");
                 // "Not read" is not the same fact as "and here is what that costs" — the loss is stated as well as the
                 // gap in coverage, on every merge rather than only when the referencer list came back populated.
                 //

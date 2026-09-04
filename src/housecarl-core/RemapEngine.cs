@@ -60,6 +60,17 @@ public static class RemapEngine
     /// the repoint path, which would report a false success. <paramref name="Record"/> is the overridden FormKey.</summary>
     public sealed record ExternalOverride(string Plugin, FormKey Record, string RecordType);
 
+    /// <summary>One plugin OUTSIDE the transform set that DECLARES a plugin in it as a master while referencing and
+    /// overriding none of its records — a third kind of dependent, found in the header rather than in the records.
+    ///
+    /// <para>A normal shape for a compat patch that exists to be load-ordered, or one whose overrides were trimmed
+    /// later. It is invisible to a walk over record links and record identity, and it breaks the moment the donor is
+    /// deactivated: the game refuses to load a plugin missing a master. Reported ONLY when the plugin is neither a
+    /// referencer nor an overrider — every referencer declares the donor as a master too, so listing them all would
+    /// just repeat the referencer list under a new heading.</para></summary>
+    /// <param name="Declared">Which plugins of the transform set it lists as masters.</param>
+    public sealed record MasterDeclarer(string Plugin, IReadOnlyList<string> Declared);
+
     /// <summary>Why the identify pass could not read a plugin through. Two causes with two different remedies:
     /// <see cref="Unopenable"/> is a file that would not open at all — almost always another program holding it, and
     /// closing that program fixes the run; <see cref="EnumerationFault"/> is a file that opened and then threw part
@@ -76,7 +87,11 @@ public static class RemapEngine
     /// order (the opt-in-rewrite set), the external OVERRIDERS (detect and warn, not repointable), how many plugins
     /// were scanned THROUGH (a plugin whose scan faulted is not one of them), and the fault accounting — a record
     /// whose link walk threw is counted and sampled, and a plugin that could not be read through is named, with its
-    /// cause and reason, in <see cref="UnscannablePlugins"/>; neither is ever silently skipped.</summary>
+    /// cause and reason, in <see cref="UnscannablePlugins"/>; neither is ever silently skipped.
+    ///
+    /// <para><see cref="MasterDeclarers"/> is the third dependent kind, read from headers rather than records: plugins
+    /// that DECLARE a transform-set plugin as a master while referencing and overriding none of its records. Only
+    /// those the record walk did not already find are listed — see <see cref="MasterDeclarer"/>.</para></summary>
     public sealed record IdentifyResult(
         IReadOnlyList<ExternalRef> Refs,
         IReadOnlyList<string> ExternalPlugins,
@@ -85,7 +100,8 @@ public static class RemapEngine
         IReadOnlyList<string> UnscannableSamples,
         IReadOnlyList<ExternalOverride> Overrides,
         IReadOnlyList<string> ExternalOverriders,
-        IReadOnlyList<UnscannablePlugin>? UnscannablePlugins = null)
+        IReadOnlyList<UnscannablePlugin>? UnscannablePlugins = null,
+        IReadOnlyList<MasterDeclarer>? MasterDeclarers = null)
     {
         /// <summary>True when at least one plugin OUTSIDE the transform set references a remapped FormKey — the
         /// signal the default new-plugin path must not pass silently: fail loud and offer the opt-in rewrite.</summary>
@@ -118,6 +134,7 @@ public static class RemapEngine
         int scanned = 0, unscannable = 0;
         var unscannableSamples = new List<string>();
         var unscannablePlugins = new List<UnscannablePlugin>();   // plugins whose scan faulted — NOT counted as scanned
+        var declarers = new List<MasterDeclarer>();               // plugins declaring a transform-set plugin as a master
         // PluginNames CAN list a filename more than once in a degenerate order; scanning a name twice would
         // double-count + double-list it. A real MO2 VFS yields unique filenames, so this is belt-and-braces — but
         // it keeps the result correct regardless (the listing is, by contract, DISTINCT).
@@ -130,6 +147,23 @@ public static class RemapEngine
             if (!scannedNames.Add(plugin)) continue;                     // a duplicate name in the order — scan and list it once, never double-count
             bool pluginListed = false;
             bool pluginListedOverride = false;
+
+            // The HEADER read, before the records: a plugin that merely LISTS a plugin in the transform set as a
+            // master is a dependent no walk over links and identity can see, and it loses a master the moment the
+            // donor is deactivated. Its own try, because a header that will not read means the file will not open at
+            // all — the record scan would fail the same way, and the plugin is named as unopenable rather than
+            // silently counted as declaring nothing.
+            List<string> declares;
+            try { declares = view.DeclaredMasters(plugin).Where(transformSet.Contains).ToList(); }
+            catch (Exception ex)
+            {
+                unscannable++;
+                var headerInner = (ex as PluginUnreadableException)?.InnerException ?? ex;
+                unscannablePlugins.Add(new UnscannablePlugin(plugin, UnscannableCause.Unopenable,
+                                                             $"{headerInner.GetType().Name}: {headerInner.Message}"));
+                continue;
+            }
+            if (declares.Count > 0) declarers.Add(new MasterDeclarer(plugin, declares));
 
             try
             {
@@ -197,7 +231,14 @@ public static class RemapEngine
             }
         }
 
-        return new IdentifyResult(refs, externalPlugins, scanned, unscannable, unscannableSamples, overrides, externalOverriders, unscannablePlugins);
+        // DECLARER-ONLY: a referencer or an overrider necessarily declares the donor as a master too, so the new
+        // category is the plugins the record walk did NOT already find — the dependents that were invisible.
+        var alreadyFound = new HashSet<string>(externalPlugins, StringComparer.OrdinalIgnoreCase);
+        alreadyFound.UnionWith(externalOverriders);
+        var declarerOnly = declarers.Where(d => !alreadyFound.Contains(d.Plugin)).ToList();
+
+        return new IdentifyResult(refs, externalPlugins, scanned, unscannable, unscannableSamples, overrides, externalOverriders,
+                                  unscannablePlugins, declarerOnly);
     }
 
     // ======================================================================
