@@ -17,7 +17,7 @@ Code comments call the first two of these the cornerstones. A design question th
 
 ## How to work
 
-1. **Branch first.** `main` is read-only. Work in a worktree at `.claude/worktrees/<name>` on branch `claude/<name>`. Check `git branch --show-current` before the first edit.
+1. **Branch first.** `main` is read-only. Work in a worktree at `.claude/worktrees/<name>` on branch `claude/<name>`, and run every command from inside it: a build, test, or review run from the primary checkout reads `main`, not your branch. Check `git branch --show-current` before the first edit.
 2. **Build and test.**
    ```
    dotnet build housecarl.sln -c Release
@@ -25,7 +25,7 @@ Code comments call the first two of these the cornerstones. A design question th
    dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll ci-all
    ```
    Tests drive the built server. How to write one: [standards/TESTING.md](standards/TESTING.md).
-3. **Commit small.** One change per commit, plain imperative subject under 72 characters.
+3. **Commit small.** One change per commit, plain imperative subject under 72 characters. Temp files go in the session's own scratchpad directory; the shared temp directory, under any spelling, is where parallel sessions overwrite each other.
 4. **Open the PR.** A paragraph saying what changed and why, `Closes #N` for the issue, and a line under `## Unreleased` in `plugin/CHANGELOG.md` if a user would notice the change. Run one review pass (`/code-review`) and fix what is real. Aaron then reviews; his findings come from a fresh agent reading the PR blind, so a finding can be wrong. Fold what is real; refute the rest in a reply on the PR with the reason, and Aaron decides. He merges on his word with `gh pr merge <N> --rebase --delete-branch`; then remove the worktree.
 5. **Write plainly.** Comments are one line saying what. Commit messages, PR bodies, and issues use ordinary words: bug, test, review, fix. No project jargon, no lore.
 
