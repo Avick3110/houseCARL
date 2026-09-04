@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
@@ -50,7 +51,9 @@ public sealed class WinnerScanCoverageTests
             var baseMod = new SkyrimMod(baseKey, SkyrimRelease.SkyrimSE);
             var mgef = baseMod.MagicEffects.AddNew(); mgef.EditorID = "HcWsEffect";
             Mgef = mgef.FormKey;
-            var quest = baseMod.Quests.AddNew(); quest.EditorID = "HcWsQuest";
+            // ANAM present, no objectives: the quest's own CK parity passes, so a missing parity verdict in these
+            // tests can only be the file lock leaking into the parity channel.
+            var quest = baseMod.Quests.AddNew(); quest.EditorID = "HcWsQuest"; quest.NextAliasID = 0;
             Quest = quest.FormKey;
             var basePath = Path.Combine(mods, "BaseMod", BaseName);
             baseMod.BeginWrite.ToPath(basePath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
@@ -163,12 +166,107 @@ public sealed class WinnerScanCoverageTests
 
         var open = world.Svc.ValidateDialogue(world.Quest);
         Assert.Single(open.Topics);
-        Assert.DoesNotContain(open.InputIssues, i => i.Message.Contains(ScanWorld.HeldName, StringComparison.OrdinalIgnoreCase));
+        Assert.Empty(open.ScanGaps);
 
         using var hold = HeldOpen.Hold(world.HeldPath);
         var locked = world.Svc.ValidateDialogue(world.Quest);
 
         Assert.Empty(locked.Topics);
-        Assert.Contains(locked.InputIssues, i => i.Message.Contains(ScanWorld.HeldName, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(locked.ScanGaps, g => g.Contains(ScanWorld.HeldName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ---- the renders one line above each note, which must not assert a definitive negative ----------
+
+    static string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
+
+    static SweepFamilySelection DialogueSel()
+    {
+        Assert.True(SweepFamilySelection.TryParse(new[] { "dialogue" }, out var sel, out var err), err);
+        return sel!;
+    }
+
+    /// <summary>Paging over a scan that lost a plugin to a lock: the header must not tell the caller their filter
+    /// matches nothing at any offset, because the lock is why the total is zero.</summary>
+    [Fact]
+    public void ThePagedHeaderDoesNotBlameTheFilterWhenAPluginWasUnread()
+    {
+        using var world = new ScanWorld();
+        using var hold = HeldOpen.Hold(world.HeldPath);
+
+        var locked = world.Svc.CrossQuery("Weapon", null, null, false, null, null, 50, offset: 10);
+        string header = Wire.RenderCrossQuery(world.Svc, locked, null, 40_000, false, false, 0, null, out _)
+                            .Split('\n')[0];
+
+        Assert.Equal(0, locked.Total);
+        Assert.DoesNotContain("check the filter", header);
+        Assert.Contains(ScanWorld.HeldName, header, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The chain render must not say the effect is carried by nothing when the carrier it would have found
+    /// is in the plugin it could not read.</summary>
+    [Fact]
+    public void TheEffectChainRenderDoesNotClaimNoCarrierWhenAPluginWasUnread()
+    {
+        using var world = new ScanWorld();
+        using var hold = HeldOpen.Hold(world.HeldPath);
+
+        string text = Wire.RenderEffectChain(world.Svc.ResolveEffectChain(world.Mgef, null, 50), 40_000);
+
+        Assert.DoesNotContain("is applied by no SPEL/ENCH/ALCH/SCRL/INGR in the active order", text);
+        Assert.Contains("could read", text);
+        Assert.Contains(ScanWorld.HeldName, text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The seed render must not say the quest owns no topics when a plugin it could not read owns one.</summary>
+    [Fact]
+    public void TheQuestSeedRenderDoesNotClaimTheQuestOwnsNoTopics()
+    {
+        using var world = new ScanWorld();
+        using var hold = HeldOpen.Hold(world.HeldPath);
+
+        var sweep = new CheckSweep(DialogueSel(), Dialogue: world.Svc.CheckDialogue(new[] { Fid(world.Quest) }, 1000));
+        string text = Wire.RenderCheck(sweep, 40_000);
+
+        Assert.DoesNotContain("owns NO dialogue topics", text);
+        Assert.Contains("could read", text);
+        Assert.Contains(ScanWorld.HeldName, text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The file lock is not a CK-parity failure: it must stay out of the parity channel, so a quest whose
+    /// ANAM and objective FNAMs are fine still gets its parity verdict in both transports.</summary>
+    [Fact]
+    public void TheQuestParityVerdictSurvivesAPluginItCouldNotRead()
+    {
+        using var world = new ScanWorld();
+        using var hold = HeldOpen.Hold(world.HeldPath);
+
+        var locked = world.Svc.ValidateDialogue(world.Quest);
+        Assert.Empty(locked.InputIssues);
+        Assert.Contains(locked.ScanGaps, g => g.Contains(ScanWorld.HeldName, StringComparison.OrdinalIgnoreCase));
+
+        var sweep = new CheckSweep(DialogueSel(), Dialogue: world.Svc.CheckDialogue(new[] { Fid(world.Quest) }, 1000));
+        Assert.Contains("quest CK-parity: OK", Wire.RenderCheck(sweep, 40_000));
+        using var doc = JsonDocument.Parse(JsonWire.RenderCheck(sweep, 40_000));
+        var seedObj = FindSeed(doc.RootElement);
+        Assert.Empty(seedObj.GetProperty("input_issues").EnumerateArray());
+        Assert.Contains(seedObj.GetProperty("scan_gaps").EnumerateArray(),
+                        g => g.GetString()!.Contains(ScanWorld.HeldName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>The first object in the json response that carries a seed's findings.</summary>
+    static JsonElement FindSeed(JsonElement e)
+    {
+        if (e.ValueKind == JsonValueKind.Object)
+        {
+            if (e.TryGetProperty("input_issues", out _)) return e;
+            foreach (var p in e.EnumerateObject())
+                if (FindSeed(p.Value) is { ValueKind: JsonValueKind.Object } hit) return hit;
+        }
+        else if (e.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in e.EnumerateArray())
+                if (FindSeed(item) is { ValueKind: JsonValueKind.Object } hit) return hit;
+        }
+        return default;
     }
 }
