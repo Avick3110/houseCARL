@@ -394,7 +394,7 @@ public static class WriteProof
         var readDefects = new List<string>();       // a getter-readable value the reader genuinely could not emit (a real defect)
         var overrideNotCarried = new List<string>();// getter-readable but Mutagen's override doesn't carry it (write-time-managed; same residual class write-proof names for Worldspace) — NOT a defect
         var noReadInstance = new List<string>();    // no populated instance to read (coverage residual, not a defect)
-        var unreadable = new List<string>();        // Mutagen-unparseable record, fault-isolated + named (Q3)
+        var unreadable = new List<string>();        // Mutagen-unparseable record, fault-isolated and named, never skipped
 
         foreach (var (typeName, pool) in pools)
         {

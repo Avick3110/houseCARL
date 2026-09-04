@@ -35,7 +35,7 @@ public static class ResolveHarness
         using var resolver = LoadOrderResolver.Build(paths);
         sw.Stop();
         var afterBuild = ResolveProbe.Mem();
-        using var session = resolver.OpenSession();   // Option B: body fetches below open plugins on demand, disposed at exit
+        using var session = resolver.OpenSession();   // Body fetches below open plugins on demand; the session closes them at exit
         Console.WriteLine();
         Console.WriteLine($"BUILD: {sw.Elapsed.TotalSeconds:N1}s  | plugins {resolver.PluginCount:N0} | records {resolver.RecordCount:N0} | " +
                           $"conflicts {resolver.ConflictCount:N0} ({(resolver.RecordCount > 0 ? 100.0 * resolver.ConflictCount / resolver.RecordCount : 0):N1}%) | max depth {resolver.MaxDepth}");
