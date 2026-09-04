@@ -1,10 +1,8 @@
 using System.Runtime.CompilerServices;
 
-// The proof harness (housecarl-generator) drives the SERVICE-layer scan logic (LoadOrderService.CrossQuery
-// via the ForGuard seam) in its CI regression guards — the first CI coverage of the mcp layer (the follow-up
-// logged at PR #23: the winner-vs-source guard could only reach the core's RecordsIn, not the service loop).
-// Declaring the harness a friend keeps the guard on the REAL product path without widening the public surface.
+// The generator's CI checks drive the service-layer scan logic (LoadOrderService.CrossQuery via the ForGuard
+// seam), so they need friend access rather than a widened public surface.
 [assembly: InternalsVisibleTo("housecarl-generator")]
 
-// The xUnit test project (W7) drives the same service/tool seams the probe harness did.
+// The xUnit tests drive the same service/tool seams.
 [assembly: InternalsVisibleTo("housecarl-mcp-tests")]

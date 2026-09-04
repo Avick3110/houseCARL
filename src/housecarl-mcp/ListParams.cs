@@ -4,23 +4,16 @@ using System.Text.Json.Serialization;
 namespace HousecarlMcp;
 
 /// <summary>
-/// The shared reader behind every 2.0 typed list input (SPEC §5.1's <c>@file</c> convention): an inline JSON array,
-/// a bare <c>"@&lt;absolute path&gt;"</c>, or the one-element <c>["@&lt;path&gt;"]</c> spelling that matches how
-/// <c>formids=</c> writes it.
-///
-/// <para>ONE implementation, deliberately: the convention has to read the same on <c>apply</c>'s <c>ops=</c>, its
-/// <c>assignments=</c> zip, and <c>create</c>'s <c>records=</c>, and a second copy is how the three drift. It also
-/// keeps the STRICTNESS in one place — every lane deserializes with <see cref="Strict"/>, so an undeclared member is
-/// refused BY NAME inline too, where the SDK's own binder silently DROPS one (in a large generated batch a
-/// misspelled member would otherwise surface as a downstream refusal pointing away from the typo).</para>
-///
-/// <para>Lifted out of <c>ApplyTools</c> in W3 PR 2 unchanged — the wording of every refusal is what
-/// <c>apply-guard</c> pins, and this move is not the place to reword any of it.</para>
+/// The shared reader behind every typed list input: an inline JSON array, a bare <c>"@&lt;absolute path&gt;"</c>,
+/// or the one-element <c>["@&lt;path&gt;"]</c> spelling that matches how <c>formids=</c> writes it. One
+/// implementation so the convention reads the same on every lane, and one place for the strictness: every lane
+/// deserializes with <see cref="Strict"/>, so an undeclared member is refused BY NAME, where the SDK's own binder
+/// would silently drop it and surface the typo as an unrelated downstream refusal.
 /// </summary>
 internal static class ListParams
 {
     /// <summary>Read a list parameter: inline array | "@path" | ["@path"]. Every failure (unreadable, not JSON, not
-    /// an array, empty, a null element, an undeclared member) names itself and its element (Q3).
+    /// an array, empty, a null element, an undeclared member) names itself and its element.
     /// <paramref name="shape"/> is the element shape as the caller writes it, e.g.
     /// <c>{formid, field_path, op?, …}</c> — it appears verbatim in the refusals.</summary>
     internal static (T[]? Items, string? Error) Read<T>(JsonElement el, string param, string shape)
@@ -116,18 +109,12 @@ internal static class ListParams
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
 
-    /// <summary>The §5.3 vocabulary correction for a rejected element member. The alias layer rewrites TOP-LEVEL
-    /// arguments only (<see cref="ToolCallShim"/> works off the published schema, and these members are inside a
-    /// list value), so a caller carrying 1.x habits — <c>verb</c>, <c>from_plugin</c>, <c>operations</c> — gets the
-    /// strict reader's unmapped-member refusal with no way to learn the new word. That refusal is correct and stays;
-    /// this appends the one-hop correction to it.
-    /// <para>Matched on the member name AND the DECLARING TYPE, both of which STJ already quotes. The type half is
-    /// load-bearing, not belt-and-braces: the same word means different things per shape — <c>verb</c> is a rename
-    /// on an op but a LEGAL member on a <see cref="NestedSet"/>, and <c>op</c> is legal on an op but a mistake in
-    /// two different ways on a nested set and on an <see cref="Assignment"/>. Matching the name alone would answer
-    /// a stray <c>op</c> inside an assignment by lecturing about `compose=`, a construct that caller never used
-    /// (PR #310 round-5 review). Unmatched pairs simply get no hint — the refusal still names the member and its
-    /// type.</para></summary>
+    /// <summary>Append a one-hop vocabulary correction to a rejected element member's refusal. The alias layer
+    /// rewrites top-level arguments only, so a caller carrying 1.x habits has no other way to learn the new word.
+    /// <para>Matched on the member name AND the declaring type, both of which STJ already quotes. The type half is
+    /// load-bearing: the same word is a different mistake — or no mistake — per shape, so matching the name alone
+    /// would answer a stray <c>op</c> inside an assignment by lecturing about a construct that caller never used.
+    /// Unmatched pairs get no hint; the refusal still names the member and its type.</para></summary>
     static string ElementVocabularyHint(string stjMessage)
     {
         foreach (var (old, declaringType, correction) in ElementRenames)
@@ -164,7 +151,7 @@ internal static class ListParams
         ("source_formid", "ApplyOp", "an op's source record is from="),
         ("source_plugin", "ApplyOp", "an op's source pole is from_source="),
 
-        // ---- W3 PR 2: housecarl_create's record specs + their field ops -------------------------------------
+        // ---- housecarl_create's record specs + their field ops ----------------------------------------------
         // The 1.x batch element spelled its field list `operations` and each op's verb `verb`; both are the same
         // renames the op level took, so they get the same corrections in this shape's own words.
         ("operations", "CreateRecordSpec", "a record spec's field list is now ops — ops=[{field_path, value}] (the §5.1 name, the same word " + ToolNames.Apply + " takes)"),

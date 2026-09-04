@@ -6,65 +6,32 @@ using ModelContextProtocol.Server;
 namespace HousecarlMcp;
 
 /// <summary>
-/// The tool-argument binding shim (HCBR-2026-06-11-01) — a call-tool filter that runs BEFORE the SDK binds a
-/// call's JSON arguments to the tool method's parameters, closing the one layer where houseCARL's named-error
-/// (Q3) discipline could not reach: a malformed argument SHAPE used to throw inside SDK binding, which the SDK
-/// genericizes to "An error occurred invoking '&lt;tool&gt;'." — an opaque dead end the live audit agent could not
-/// self-correct from (it abandoned the documented query path; see the bug report's transcripts).
+/// A call-tool filter that runs BEFORE the SDK binds a call's JSON arguments to the tool method's parameters.
+/// Without it a malformed argument shape throws inside SDK binding and the SDK genericizes it to
+/// "An error occurred invoking '&lt;tool&gt;'." — an opaque dead end a caller cannot self-correct from.
 ///
-/// Its moves, all schema-driven off the tool's own published InputSchema (so every current and future tool
-/// parameter is covered by construction — no per-tool wiring):
-/// <list type="number">
-/// <item><b>Resolve obvious aliases</b> — a parameter named by a known alternate spelling of a declared one is
-/// renamed to the canonical parameter, so a first-guess miss BINDS instead of costing a round-trip (#221).
-/// Two sources, both conservative by construction (a declared parameter is never treated as an alias, an
-/// explicitly-supplied canonical is never clobbered, a well-formed call is byte-identical): the permanent
-/// underscore/case normalization bridge (<c>form_id</c> for <c>formid</c>), and — during the 2.0 build only —
-/// <see cref="AliasTable"/>, the SPEC §5.3 old → new dictionary that lets each build wave land its renames
-/// non-breaking (old spellings bind on renamed tools, new spellings on not-yet-renamed ones). The published
-/// schema still advertises only the canonical name.</item>
-/// <item><b>Correct retired lane spellings by name</b> — 1.x's <c>in_place=true</c> + <c>target="X.esp"</c>
-/// pair, sent to a tool whose 2.0 <c>in_place</c> is the STRING naming the overwritten file (SPEC §5.2), is
-/// auto-mapped when complete and answered with a naming correction when bare — never a generic type error.
-/// Dormant on every tool whose <c>in_place</c> is still the 1.x bool. See <see cref="LaneCorrections"/>.</item>
-/// <item><b>Coerce obvious intent</b> — a bare string where an array is declared becomes a one-element array
-/// (the live failing shape: <c>plugins="A.esp"</c>); quoted numbers/booleans become numbers/booleans; a bare
-/// number where a string is declared becomes its text. Anything else is left for binding to judge.</item>
-/// <item><b>Refuse missing REQUIRED parameters by name</b> — the audit's <c>{}</c> call gets
-/// "required parameter missing: formids", not the generic text.</item>
-/// <item><b>Name a mistyped parameter</b> — an argument whose JSON kind can't bind to its declared schema type
-/// (e.g. an object where a number is declared) is refused BEFORE binding, naming the offender, its expected
-/// type, and the kind received (#222) — so the caller never has to bisect a byte-offset binding error across
-/// the whole argument list.</item>
-/// <item><b>Name what still fails</b> — if binding still throws (an uncoercible shape), the exception passes
-/// through this filter on its way to the SDK's catch (which sits ABOVE the filter pipeline and would genericize
-/// it — measured: AIFunctionMcpServerTool.InvokeAsync doesn't catch; McpServerImpl's outermost wrapper does).
-/// Catching it HERE instead returns a named error carrying the real exception text plus each received
-/// argument's JSON kind, so the caller can fix and retry. (With every tool body wrapped in <see cref="Guard"/>,
-/// what reaches this catch is the pre-body machinery — argument binding — which is what makes the
-/// "could not be bound" wording honest.)</item>
-/// </list>
+/// Every pass is driven off the tool's own published InputSchema, so all current and future parameters are
+/// covered without per-tool wiring. In order: rename an alias to the declared parameter it names; correct the
+/// retired in-place lane spellings; coerce an unambiguous shape (a bare string for an array, a quoted
+/// number/bool); refuse a missing required parameter, an undeclared one, or a kind that cannot bind — each by
+/// name. Anything that still throws is caught here rather than above, where the SDK would genericize it.
 /// </summary>
 internal static class ToolCallShim
 {
     /// <summary>The filter. Registered on the server in Program.cs via WithRequestFilters → AddCallToolFilter.</summary>
     public static McpRequestFilter<CallToolRequestParams, CallToolResult> LenientArguments => next => async (request, cancellationToken) =>
     {
-        // MatchedPrimitive is resolved by the SDK BEFORE filters run. An unknown tool name normally passes
-        // through to the SDK's own specific unknown-tool error — EXCEPT a RETIRED name (W2 PR 2, the
-        // tool-NAME lane): the 8 reads housecarl_records absorbed answer with their successor call shape
-        // instead of a dead end. Dormant while those tools stay registered (a registered name resolves and
-        // never reaches this check); load-bearing the moment one is unregistered (2.0.0's clean cut).
+        // MatchedPrimitive is resolved by the SDK before filters run, so this check only ever sees a name the
+        // server does not register — a retired one answers with its successor call shape.
         var p = request.Params;
         if (request.MatchedPrimitive is not McpServerTool && AliasTable.RetiredToolHint(p?.Name) is { } retiredRedirect)
             return NamedError(retiredRedirect);
-        var received = DescribeArgs(p?.Arguments);   // what the caller ACTUALLY sent — captured before coercion rewrites
-                                                     // the dictionary, so the failure message never shows a coerced shape
-                                                     // as if the caller had sent it (review #1 finding 2)
+        var received = DescribeArgs(p?.Arguments);   // captured before coercion rewrites the dictionary, so a
+                                                     // failure never reports a coerced shape as the caller's own
         try
         {
-            // The shim's own pre-processing runs inside the same safety net as the call (review #1 finding 4):
-            // a throw from coercion/required-check must also come back named, never the SDK generic.
+            // The pre-processing runs inside the same try as the call: a throw from coercion or a refusal pass
+            // must also come back named, never as the SDK generic.
             if (p is not null && request.MatchedPrimitive is McpServerTool tool)
             {
                 var schema = tool.ProtocolTool.InputSchema;
@@ -77,11 +44,9 @@ internal static class ToolCallShim
             }
             return await next(request, cancellationToken);
         }
-        // A REAL request cancellation belongs to the SDK's special-casing — but ONLY a real one (the SDK's own
-        // test): an OperationCanceledException with a live request token (e.g. an internal HttpClient timeout)
-        // would be genericized above, so it gets named here instead (review #1 finding 1). McpException is the
-        // protocol surface (e.g. the unknown-tool path) whose handling must stay the SDK's. Everything else
-        // below this filter would otherwise surface as the opaque generic text (Q3's dead end) — name it.
+        // A real request cancellation stays the SDK's, and so does McpException (the protocol surface). But an
+        // OperationCanceledException with a live request token — an internal HttpClient timeout, say — is not a
+        // cancellation, so it gets named here rather than genericized above.
         catch (Exception ex) when (ex is not McpException &&
                                    !(ex is OperationCanceledException && cancellationToken.IsCancellationRequested))
         {
@@ -95,28 +60,17 @@ internal static class ToolCallShim
         }
     };
 
-    /// <summary>Rename an argument keyed by a known alternate spelling of a declared parameter to that canonical
-    /// parameter, so a first-guess miss binds instead of costing a round-trip (#221). Two sources, tried in order:
-    /// <list type="number">
-    /// <item>the permanent underscore/case <see cref="Normalize"/> bridge (<c>form_id</c> → <c>formid</c>) —
-    /// exactly-one-match conservative, as ever (zero or ambiguous → left for <see cref="UnknownParameters"/>);</item>
-    /// <item><see cref="AliasTable"/> — the SPEC §5.3 old → new dictionary (2.0 build scaffolding). Its candidates
-    /// are tried in the entry's priority order; the FIRST candidate the tool declares decides. If that candidate is
-    /// already supplied the entry deliberately stops (no fall-through to a lower-priority candidate — the caller
-    /// already used the spelling's primary meaning, and reinterpreting the stray onto a different axis is how a
-    /// wrong guess binds silently); the stray is left for <see cref="UnknownParameters"/> to name.</item>
-    /// </list>
-    /// Conservative by construction either way: only a key the schema does NOT declare is considered, and a declared
-    /// parameter is never touched — so a tool's real <c>plugin=</c> stays its own, an explicit canonical value is
-    /// never clobbered, and a well-formed call is byte-identical. Runs BEFORE <see cref="CoerceObviousShapes"/> so
-    /// the renamed value is then shape-coerced (a bare-string <c>plugin</c> → <c>plugins</c> → a one-element array)
-    /// as usual.</summary>
+    /// <summary>Rename an argument keyed by an alternate spelling of a declared parameter to the canonical one, so
+    /// a first-guess miss binds instead of costing a round-trip. Two sources in order: the underscore/case
+    /// <see cref="Normalize"/> bridge (exactly one match, else left alone), then <see cref="AliasTable"/>, whose
+    /// first declared candidate decides. Only a key the schema does NOT declare is ever considered and an
+    /// explicitly supplied canonical is never clobbered, so a well-formed call is byte-identical. Must run before
+    /// <see cref="CoerceObviousShapes"/> so the renamed value is still shape-coerced.</summary>
     internal static void ResolveAliases(CallToolRequestParams p, JsonElement schema)
     {
         if (p.Arguments is not { Count: > 0 } args) return;
         if (schema.ValueKind != JsonValueKind.Object) return;
-        // Respect an explicit opt-in to extra properties (mirrors UnknownParameters): if a tool accepts free-form
-        // args, an undeclared key may be intentional data — never rewrite it. None of houseCARL's tools do today.
+        // If a tool opts into free-form args, an undeclared key may be intentional data — never rewrite it.
         if (schema.TryGetProperty("additionalProperties", out var ap) && ap.ValueKind != JsonValueKind.False) return;
         if (!schema.TryGetProperty("properties", out var props) || props.ValueKind != JsonValueKind.Object) return;
 
@@ -130,13 +84,10 @@ internal static class ToolCallShim
             bool Supplied(string declaredName) => args.ContainsKey(declaredName)              // caller already supplied the canonical — don't clobber
                 || (rewritten is not null && rewritten.ContainsKey(declaredName));            // an earlier rename already produced it
 
-            // A TABLE rename must never fire into a guaranteed kind mismatch: renaming types=["A","B"]
-            // onto a string-typed type= would produce a type error about a key the caller never sent, and
-            // lose the supported-parameter list that would have corrected them. An incompatible stray stays
-            // put for UnknownParameters to name under the caller's OWN spelling. The bridge (source 1) is
-            // deliberately NOT gated: an underscore/case variant names the RIGHT parameter, so the rename
-            // must proceed even for an unbindable value — TypeMismatches then names the real fault (the
-            // value), where an unknown-parameter refusal would deny a parameter that exists.
+            // A table rename must never fire into a guaranteed kind mismatch: it would report a type error
+            // about a key the caller never sent. An incompatible stray stays put under the caller's own
+            // spelling. The bridge is deliberately NOT gated this way — it names the right parameter, so the
+            // rename proceeds even for an unbindable value and TypeMismatches names the real fault.
             bool CanBind(JsonElement value, JsonElement propSchema)
             {
                 var types = DeclaredTypes(propSchema);
@@ -154,7 +105,7 @@ internal static class ToolCallShim
                 if (target is null) target = prop.Name; else { ambiguous = true; break; }
             }
 
-            // Source 2 — the §5.3 table: first declared candidate decides; declared-but-supplied stops the entry.
+            // Source 2 — the table: first declared candidate decides; declared-but-supplied stops the entry.
             if (target is null && !ambiguous && AliasTable.RenameFor(nkey) is { } entry)
             {
                 foreach (var candidate in entry.Candidates)
@@ -164,7 +115,7 @@ internal static class ToolCallShim
                     foreach (var prop in props.EnumerateObject())
                         if (Normalize(prop.Name) == candidate) { declared = prop.Name; declaredSchema = prop.Value; break; }
                     if (declared is null) continue;                    // candidate not on this tool — try the next
-                    if (!CanBind(kv.Value, declaredSchema)) continue;  // the value's kind says the caller didn't mean this one — try the next (an array plugin= is the scan scope, not the string pole) — judged BEFORE the supplied-stop, so a kind the candidate couldn't take never stops the entry
+                    if (!CanBind(kv.Value, declaredSchema)) continue;  // wrong kind for this candidate — judged BEFORE the supplied-stop, so a candidate that couldn't take the value never stops the entry
                     if (Supplied(declared)) break;                     // primary (kind-compatible) meaning already in use — stop the entry
                     target = declared;
                     break;
@@ -204,12 +155,9 @@ internal static class ToolCallShim
         if (rewritten is not null) p.Arguments = rewritten;
     }
 
-    /// <summary>One value against one property schema: the coerced element, or null to leave it alone.
-    /// <para>Internal rather than private so a guard can assert the coerced VALUE. Over the wire against an
-    /// unconfigured server only "it bound and the body ran" is observable, so a coercion that dropped the
-    /// caller's value — wrapping into an empty array instead of a one-element one — passed every wire arm.
-    /// That is a silent wrong answer (the whole load order swept instead of the one plugin asked for), so
-    /// the value is asserted here directly.</para></summary>
+    /// <summary>One value against one property schema: the coerced element, or null to leave it alone. Internal
+    /// rather than private so a test can assert the coerced value directly — over the wire only "it bound" is
+    /// observable, which a coercion that dropped the value would also satisfy.</summary>
     internal static JsonElement? Coerce(JsonElement value, JsonElement propSchema)
     {
         var declared = DeclaredTypes(propSchema);
@@ -220,11 +168,9 @@ internal static class ToolCallShim
             var s = value.GetString() ?? "";
             if (declared.Contains("array"))
             {
-                // A string-ENCODED JSON array first — the verified live Claude Code shape (#36): the client
-                // serializes array arguments into a JSON STRING ("[\"a\",\"b\"]") even though the published
-                // schema correctly declares the array. Parse it as the array it spells; only an unambiguous
-                // parse is taken — anything else (including a bare string that merely starts with '[') falls
-                // through to the one-element wrap below, so no previously-working shape changes meaning.
+                // A string-encoded JSON array first: clients do serialize array arguments into a JSON string
+                // ("[\"a\",\"b\"]") despite the schema declaring an array. Only an unambiguous parse is taken;
+                // anything else, including a bare string starting with '[', falls through to the wrap below.
                 var t = s.TrimStart();
                 if (t.StartsWith('['))
                 {
@@ -265,48 +211,32 @@ internal static class ToolCallShim
         return set;
     }
 
-    /// <summary>The 1.x → 2.0 lane-spelling correction (SPEC §5.2(1); 2.0 build scaffolding like
-    /// <see cref="AliasTable"/>): on a tool whose <c>in_place</c> is the 2.0 STRING (the name of the file being
-    /// overwritten), model priors and 1.x callers WILL still send the old bool spelling — <c>in_place=true</c>,
-    /// usually paired with <c>target="X.esp"</c>. A bool against a string declaration would otherwise fall to
-    /// <see cref="TypeMismatches"/>' generic wording (and the stray <c>target</c> to <see cref="UnknownParameters"/>),
-    /// costing round-trips the §5.2 charter says this exact shape must not cost:
-    /// <list type="bullet">
-    /// <item>the COMPLETE old pair (<c>in_place=true</c> + a string <c>target</c> the tool does not declare) is
-    /// auto-mapped — <c>in_place := target's value</c>, <c>target</c> dropped — so old callers keep WORKING;</item>
-    /// <item>a BARE <c>in_place=true</c> is refused with the naming correction ("name the file:
-    /// in_place=\"X.esp\""), never a type error;</item>
-    /// <item>a bare <c>in_place=false</c> meant (and still means) the default lane — the key is dropped;
-    /// <c>false</c> WITH a stray <c>target</c> is contradictory and refused by name, not guessed at;</item>
-    /// <item>a stray <c>target="X.esp"</c> with NO <c>in_place</c> at all (PR #304 review F2) is refused
-    /// with the same naming correction — it must NEVER be silently renamed onto <c>in_place</c>, because
-    /// that would engage the opt-in overwrite lane from a call that never spelled it (1.x refuses this
-    /// exact shape too: "target= is only meaningful with in_place=true").</item>
-    /// </list>
-    /// The quoted spellings <c>"true"</c>/<c>"false"</c> are treated identically (a file literally named "true"
-    /// does not exist; binding it silently would be the Q3 sin). DORMANT on every tool whose <c>in_place</c> is
-    /// still the 1.x bool (declared boolean → the whole pass is a no-op), so today's surface is byte-identical.
-    /// Runs after <see cref="ResolveAliases"/>/<see cref="CoerceObviousShapes"/> (which never produce these shapes:
-    /// <c>target</c> does not rename onto a supplied <c>in_place</c>, and string-declared values are not coerced)
-    /// and BEFORE the refusal passes, so the correction outranks the generic messages.</summary>
+    /// <summary>Correct the old in-place lane spelling on a tool whose <c>in_place</c> is the string naming the
+    /// file being overwritten. The complete old pair (<c>in_place=true</c> plus an undeclared string
+    /// <c>target</c>) is auto-mapped; a bare <c>in_place=true</c>, or a stray <c>target</c> with no
+    /// <c>in_place</c>, is refused with a naming correction — never silently renamed, since that would engage the
+    /// opt-in overwrite lane from a call that never spelled it. A bare <c>in_place=false</c> is the default lane
+    /// and drops; <c>false</c> with a <c>target</c> is contradictory and refused. Quoted <c>"true"</c>/
+    /// <c>"false"</c> count as the bools, never as a filename. Dormant where <c>in_place</c> is still a bool.
+    /// Must run before the refusal passes so the correction outranks their generic wording.</summary>
     internal static CallToolResult? LaneCorrections(CallToolRequestParams p, JsonElement schema)
     {
         if (p.Arguments is not { Count: > 0 } args) return null;
         if (schema.ValueKind != JsonValueKind.Object ||
             !schema.TryGetProperty("properties", out var props) || props.ValueKind != JsonValueKind.Object) return null;
 
-        // The pass concerns exactly one declared parameter: a STRING-typed in_place (the 2.0 spelling).
+        // The pass concerns exactly one declared parameter: a string-typed in_place.
         if (!props.TryGetProperty("in_place", out var inPlaceSchema)) return null;
         var declared = DeclaredTypes(inPlaceSchema);
-        if (!declared.Contains("string") || declared.Contains("boolean")) return null;   // 1.x bool (or polymorphic) → dormant
+        if (!declared.Contains("string") || declared.Contains("boolean")) return null;   // bool (or polymorphic) → dormant
 
-        // The old pair's target= — only a stray (undeclared) key counts; a tool's own target is its own.
+        // Only a stray (undeclared) target= counts; a tool that declares its own target keeps it.
         bool hasStrayTargetKey = args.ContainsKey("target") && !props.TryGetProperty("target", out _);
 
         if (!args.TryGetValue("in_place", out var val))
         {
-            // No in_place at all: a stray target= alone is 1.x's half of the pair — refuse with the naming
-            // correction rather than let it near the lane (or fall to a plain unknown that teaches nothing).
+            // No in_place at all: a stray target= is half the old pair — refuse with the naming correction
+            // rather than let it near the lane.
             if (!hasStrayTargetKey) return null;
             return NamedError(
                 $"error: {p.Name}: target= was 1.x's in-place spelling and does not select the lane by itself — " +
@@ -322,7 +252,7 @@ internal static class ToolCallShim
         };
         if (boolish is null) return null;                                                // a real file name (or another mistake) — not this pass's
 
-        // The stray target='s value — a string names the file; anything else stays null (correction path).
+        // A string target= names the file; anything else stays null and takes the correction path.
         string? targetFile = null;
         if (hasStrayTargetKey && args.TryGetValue("target", out var tv) && tv.ValueKind == JsonValueKind.String)
             targetFile = tv.GetString();
@@ -330,14 +260,14 @@ internal static class ToolCallShim
         if (boolish == true && targetFile is { Length: > 0 })
         {
             var rewritten = new Dictionary<string, JsonElement>(args);
-            rewritten["in_place"] = Parse(JsonSerializer.Serialize(targetFile));         // the complete 1.x pair → the 2.0 spelling
+            rewritten["in_place"] = Parse(JsonSerializer.Serialize(targetFile));         // the complete old pair → the current spelling
             rewritten.Remove("target");
             p.Arguments = rewritten;
             return null;
         }
         if (boolish == false && !hasStrayTargetKey)
         {
-            var rewritten = new Dictionary<string, JsonElement>(args);                   // 1.x "default lane" spelling → absent, the 2.0 default
+            var rewritten = new Dictionary<string, JsonElement>(args);                   // the old default-lane spelling → absent, which is the default
             rewritten.Remove("in_place");
             p.Arguments = rewritten;
             return null;
@@ -351,10 +281,9 @@ internal static class ToolCallShim
               "to overwrite: in_place=\"X.esp\". Fix the arguments and retry.");
     }
 
-    /// <summary>Schema-required parameters absent from the call → a named refusal (Q3), or null to proceed.
-    /// An EXPLICIT JSON <c>null</c> for a required parameter counts as missing too (unless the schema itself declares
-    /// null legal): the SDK binds it and the tool body NullReferences into the generic "internal houseCARL failure"
-    /// misdirection (2026-06-12 hunt, proven over stdio on nexus_mod) — name the parameter instead.</summary>
+    /// <summary>Schema-required parameters absent from the call get a named refusal; null to proceed. An explicit
+    /// JSON <c>null</c> counts as missing unless the schema declares null legal, because the SDK binds it and the
+    /// tool body then NullReferences into a misleading internal-failure message.</summary>
     static CallToolResult? MissingRequired(CallToolRequestParams p, JsonElement schema)
     {
         if (schema.ValueKind != JsonValueKind.Object ||
@@ -380,18 +309,11 @@ internal static class ToolCallShim
             $"{(p.Arguments is { Count: > 0 } a ? string.Join(", ", a.Keys) : "(none)")}. Add the missing argument{plural} and retry.");
     }
 
-    /// <summary>Schema-UNDECLARED arguments in the call → a named refusal listing the offenders and the tool's
-    /// supported parameters, or null to proceed. THE root-cause fix for HCBR-2026-07-12: an argument a tool does
-    /// not declare (<c>expand=</c>, <c>path=</c>, <c>field=</c>) is SILENTLY IGNORED by the SDK binder, so the
-    /// call runs with that intent dropped and no correction reaches the caller — the agent, getting a normal
-    /// (un-expanded) result, concluded the capability was missing and hand-rolled a workaround instead of
-    /// discovering the real knob (<c>depth=</c>). A silently-ignored argument is a silent tool-surface failure
-    /// (Q3); naming it — with the supported list — turns the dead end into a self-correction, exactly as
-    /// <see cref="MissingRequired"/> does for the absent-required case. Schema-driven off the tool's own
-    /// InputSchema, so every current and future parameter is covered by construction. Skipped when a tool's schema
-    /// opts into free-form args (<c>additionalProperties</c> not <c>false</c>); none of houseCARL's tools do today,
-    /// but the check does not assume it. Runs AFTER <see cref="CoerceObviousShapes"/> (which only ever rewrites
-    /// DECLARED keys) and <see cref="MissingRequired"/>, so a well-formed call is byte-identical to before.</summary>
+    /// <summary>Undeclared arguments get a named refusal listing the offenders and the tool's supported
+    /// parameters; null to proceed. Without it the SDK binder silently ignores an undeclared argument, so the
+    /// call runs with that intent dropped and nothing tells the caller. Skipped when a tool's schema opts into
+    /// free-form args. Must run after <see cref="CoerceObviousShapes"/>, which only rewrites declared
+    /// keys.</summary>
     internal static CallToolResult? UnknownParameters(CallToolRequestParams p, JsonElement schema)
     {
         if (p.Arguments is not { Count: > 0 } args) return null;
@@ -400,8 +322,8 @@ internal static class ToolCallShim
         if (schema.TryGetProperty("additionalProperties", out var ap) && ap.ValueKind != JsonValueKind.False) return null;
         if (!schema.TryGetProperty("properties", out var props) || props.ValueKind != JsonValueKind.Object) return null;
 
-        // For the §5.3 ⤳ dissolution hints: the declared names, normalized — the gate that scopes each hint to
-        // tools whose build wave has actually landed the replacement grammar (see AliasTable.Dissolutions).
+        // The declared names, normalized: the gate that scopes each migration hint to tools that actually
+        // carry the replacement grammar (see AliasTable.Dissolutions).
         var declaredNormalized = new HashSet<string>(StringComparer.Ordinal);
         foreach (var prop in props.EnumerateObject()) declaredNormalized.Add(Normalize(prop.Name));
 
@@ -417,8 +339,7 @@ internal static class ToolCallShim
 
         var supported = props.EnumerateObject().Select(prop => prop.Name).ToList();
         string plural = unknown.Count == 1 ? "" : "s";
-        // Only nudge toward depth= on a tool that actually HAS it (the read tools) — a depth-less tool would
-        // point at a knob that doesn't exist. The supported list is printed either way, so the nudge is a bonus.
+        // Only nudge toward depth= on a tool that declares it; the supported list is printed either way.
         string knobHint = supported.Contains("depth")
             ? " (a wrong/guessed parameter often means the real knob is one of the above, e.g. depth= to expand a list/substruct)"
             : "";
@@ -428,20 +349,12 @@ internal static class ToolCallShim
             $"the call would otherwise run with that intent silently dropped — fix the name{knobHint} and retry.");
     }
 
-    /// <summary>Declared arguments whose JSON kind cannot bind to their declared schema type → a named refusal
-    /// listing each offender with its expected type(s) and the kind received, or null to proceed. THE fix for
-    /// #222: a wrong-TYPE argument (e.g. an object where a number is declared, or a string where a boolean is)
-    /// otherwise threw inside the SDK binder as a bare <c>JsonException … Path: $ | BytePositionInLine: 34</c> —
-    /// a byte offset with NO parameter name, which the catch below could only pass through with the full received
-    /// list, forcing the caller to bisect which argument was wrong. This catches the common kind-mismatch class
-    /// BEFORE binding and names it in the same style as <see cref="MissingRequired"/> / <see cref="UnknownParameters"/>.
-    /// Runs AFTER <see cref="CoerceObviousShapes"/> (so an obvious-intent shape — a bare string for an array, a
-    /// quoted number/bool — is fixed, never flagged) and judges ONLY keys the schema declares with a concrete
-    /// type: an untyped/polymorphic property (empty <see cref="DeclaredTypes"/>) is left for binding, an unknown
-    /// key is <see cref="UnknownParameters"/>' to report, and an explicit JSON null is left alone (optional-unset
-    /// for a non-required parameter; the required-null case is <see cref="MissingRequired"/>'s). So a well-formed
-    /// call is byte-identical to before, and anything this can't foresee (e.g. a non-integral number for an
-    /// integer parameter) still falls to the named catch.</summary>
+    /// <summary>Declared arguments whose JSON kind cannot bind to their declared schema type get a named refusal
+    /// naming each offender, its expected types and the kind received; null to proceed. The SDK binder would
+    /// otherwise throw a JsonException carrying a byte offset and no parameter name. Must run after
+    /// <see cref="CoerceObviousShapes"/> so an obvious-intent shape is fixed rather than flagged, and judges only
+    /// keys declared with a concrete type — untyped properties are left for binding, unknown keys are
+    /// <see cref="UnknownParameters"/>' and an explicit null is <see cref="MissingRequired"/>'s.</summary>
     static CallToolResult? TypeMismatches(CallToolRequestParams p, JsonElement schema)
     {
         if (p.Arguments is not { Count: > 0 } args) return null;
