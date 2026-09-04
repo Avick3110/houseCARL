@@ -38,6 +38,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
   replay resolves an EditorID against such a plugin now refuses by name rather than replaying against a lookup
   table it knows is short; a record the layer addresses by FormID is unaffected.
 
+- **`housecarl_bsa_repack` reports how many files it packed, and says which it left out.** BSArch archives
+  only files under a subfolder, so loose files sitting at the source folder's root were dropped and the tool
+  still reported a plain "packed <name>". The source is now counted before the pack: the success line says
+  "packed N file(s) into <name>", and root-level files get a sentence naming how many were left out and what
+  to do about them. The produced archive's own file count is checked against the source the same way
+  `housecarl_bsa_list` and `housecarl_bsa_extract` check theirs; a disagreement refuses with both numbers and
+  leaves any existing archive untouched.
+
 - **`housecarl_compact_plugin` and `housecarl_merge_plugins` name a plugin they could not read.** The
   external-reference pass that runs before a renumber used to skip a plugin it could not open while still
   counting it as scanned, so a plugin held open by xEdit, MO2 or the running game could make the pass report
