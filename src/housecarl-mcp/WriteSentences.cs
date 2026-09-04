@@ -334,10 +334,10 @@ internal static class WriteSentences
     /// never fetches, places or judges. The absent-reads clause is load-bearing — <c>from_source=</c> can read a
     /// record out of a mod MO2 does not load, and <c>asset_status</c> answers only for the mods it does, so a path
     /// only that mod provides reads back absent and "absent" would otherwise be taken for "nothing to place".</summary>
-    [MustState("does NOT place them", ToolNames.BulkPlaceAsset)]
+    [MustState("does NOT place them", ToolNames.Place)]
     internal const string CopyAssetPathsHeader =
         "asset paths the copied records reference (this call does NOT place them — check each with " +
-        ToolNames.AssetStatus + ", then place what you keep with " + ToolNames.BulkPlaceAsset + "; a path only the mod you " +
+        ToolNames.AssetStatus + ", then place what you keep with " + ToolNames.Place + "; a path only the mod you " +
         "read FROM provides reads as absent in asset_status if MO2 does not load that mod, and is still placed by " +
         "naming it in source_provider=):";
 

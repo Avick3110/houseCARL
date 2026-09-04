@@ -1,0 +1,243 @@
+using System.ComponentModel;
+using System.Text;
+using System.Text.Json.Serialization;
+using ModelContextProtocol.Server;
+using Mutagen.Bethesda.Plugins;
+using HousecarlCore;
+
+namespace HousecarlMcp;
+
+/// <summary>housecarl_place — the S2 write tool. One call places any number of chosen file copies as winning
+/// overrides in ONE houseCARL-owned MO2 mod folder, the write counterpart to housecarl_asset_status. One destination
+/// is a set of one: there is no single-vs-bulk split in the schema. It writes the source it is handed and
+/// auto-resolves only when exactly one copy exists; which copy is correct is the caller's judgement, never the
+/// tool's. Source bytes are read in process (a loose file, or one BSA entry through Mutagen — no BSArch), the write
+/// is crash-atomic, and a placement never wins on write: the response always states the current winner and the
+/// required MO2 enable + sort.</summary>
+[McpServerToolType]
+public static class PlaceTools
+{
+    [McpServerTool(Name = ToolNames.Place, Title = "Place chosen file copies so they win MO2's VFS"),
+     Description(
+         "Place chosen copies of files — ANY Data-relative file (a mesh, texture, script, sound, interface, etc.) — into " +
+         "ONE NEW houseCARL-owned MO2 mod folder, so the copy YOU pick wins the virtual file system. The WRITE " +
+         "counterpart to " + ToolNames.AssetStatus + " (which reports which copy currently wins). ONE surface: WHERE the " +
+         "bytes land (assets=) x WHOSE copy to read (the SOURCE pole) x WHICH folder it goes in (the LANE) x how it " +
+         "reads back (TRANSPORT). One file is a set of one — the same call shape places forty.\n\n" +
+         "assets= is the SET OF DESTINATIONS, each member { path? | formid?, kind?, source?, source_provider? }. Give a " +
+         "member EITHER path (a Data-relative destination) OR formid (an NPC's 'XXXXXX:Plugin.esp', whose FaceGen paths " +
+         "houseCARL computes): with a formid and NO kind BOTH the head mesh and the face tint are placed; kind='mesh' or " +
+         "'tint' narrows it to one. All members land in ONE reviewable mod folder.\n\n" +
+         "SOURCE — whose copy to read. source_provider= names it: " + AssetSourceChoice.WinnerToken + " (the sigil is part " +
+         "of the token) for the current VFS winner, or a provider's NAME ALONE — a mod folder, 'overwrite', 'Data', or a " +
+         "BSA filename — matched exactly. " + WriteSentences.PlaceSourceNameReachesUnticked + " Set it once for the whole " +
+         "set, or per member. source= is PER MEMBER (a source names ONE file, and a set of destinations is many): a " +
+         "DATA-RELATIVE path resolved through the VFS, a full loose file path, '<archive.bsa path>|<entry inside>', or " +
+         "just a '.bsa' path (the entry is taken to be the destination — a quick way to pull ONE file out of a BSA as a " +
+         "loose override). A source path DIFFERENT from the destination is a RENAME: the bytes of one file land under " +
+         "another file's name, which is how a baked FaceGen head is carried onto a different NPC's FormID path. With no " +
+         "source=, the DESTINATION path is resolved instead: the sole provider, or the one source_provider= names, " +
+         "REFUSING (and listing the providers) when several contend and none was named — it will not guess which is " +
+         "correct.\n\n" +
+         "LANE — patch= names the NEW mod folder (default 'houseCARL_Assets'; auto-suffixed if taken); into= adds to an " +
+         "EXISTING houseCARL patch folder instead, so calls accumulate in one mod.\n\n" +
+         "A malformed member (bad FormID, bad kind, neither or both of formid and path) refuses the WHOLE call with " +
+         "per-member reasons and places nothing; a source that is ambiguous, absent or unreadable is a PER-MEMBER error " +
+         "and the rest still place. The write is crash-atomic and originals are never touched. IMPORTANT (and reported " +
+         "back): the placed copies do NOT win on write — you must ENABLE the new mod in MO2 and SORT it above the " +
+         "current winner.")]
+    public static string Place(
+        LoadOrderService svc,
+        [Description("SELECT: the destinations, all placed into ONE mod folder. Each: { formid?: 'XXXXXX:Plugin.esp', kind?: 'mesh'|'tint' (omit with formid to place BOTH FaceGen files), path?: 'meshes/...', source?: '<loose path>' | '<archive.bsa>|<entry>' | '<archive.bsa>' | '<Data-relative path>', source_provider?: 'SomeMod' | 'X - Textures.bsa' | '" + AssetSourceChoice.WinnerToken + "' }. Set-valued at every size — one destination is a set of one. Each member's own description says what it takes.")]
+            PlaceTarget[] assets,
+        [Description("SOURCE: whose copy to read, for EVERY member that does not name its own. " + AssetSourceChoice.WinnerToken + " for whichever copy currently wins the VFS, or the provider's NAME ALONE — a mod folder, 'overwrite', 'Data', or a BSA filename like 'X - Textures.bsa' — matched exactly, without " + ToolNames.AssetStatus + "'s ' (loose)' / ' (BSA)' annotation. A bare name ALWAYS means a provider of that name. Omitted = the sole provider, refused if more than one contends.")]
+            string? source_provider = null,
+        [Description("Which FaceGen file every formid= member places, when the member does not say: 'mesh' (the head .nif) or 'tint' (the face .dds). Omit to place BOTH. Ignored by path= members.")]
+            string? kind = null,
+        [Description("LANE: base name for the NEW houseCARL mod folder the files land in (default 'houseCARL_Assets'); auto-suffixed if taken, so a prior folder is never clobbered.")]
+            string? patch = null,
+        [Description("LANE: filename of an EXISTING houseCARL patch mod to place into instead of a fresh folder (accumulate across calls). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
+            string? into = null,
+        [Description("TRANSPORT: character ceiling on the per-destination list. Past it, trailing rows are dropped with an explicit notice (never silent); the WRITE is unaffected, and the accounting line and the enable+sort instruction always render. 0 = the server default (~80k).")]
+            int max_chars = 0) => Guard.Tool(ToolNames.Place, () =>
+    {
+        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        if (assets is null || assets.Length == 0)
+            return "error: assets is empty. Pass one or more { path|formid, kind?, source?, source_provider? } destinations.";
+
+        // Malformed members refuse the WHOLE call (all-or-nothing, like create); placement-time issues
+        // (ambiguous/absent/unreadable source) are per-member (the resolver isn't consulted until the place loop).
+        var all = new List<PlaceRequest>();
+        var problems = new List<string>();
+        var door = svc.OpenWriteFormIdDoor();
+        for (int i = 0; i < assets.Length; i++)
+        {
+            var a = assets[i];
+            var reqs = MapTarget(door.Parse, a, source_provider, kind, $"assets[{i}]: ", out var err);
+            if (err is not null) problems.Add(err); else all.AddRange(reqs!);
+        }
+        if (problems.Count > 0)
+            return $"error: refused — {problems.Count} malformed destination(s); nothing placed:\n  - " + string.Join("\n  - ", problems);
+
+        return PlaceWire.Render(svc.PlaceAssets(all, patch, into), max_chars > 0 ? max_chars : 80_000);
+    });
+
+    /// <summary>Map one destination to its placement request(s): path → one request; formid+kind → one request (the
+    /// computed FaceGen path); formid with NO kind → BOTH mesh+tint. Exactly one of formid/path is required. The
+    /// set-level pole and slot fill in for a member that names neither. A both-expansion forbids a single
+    /// loose/entry source (it can't serve two different files) — only a FULLY-QUALIFIED '.bsa' source (entry derived
+    /// per slot) or auto-resolve. Every bad input is a NAMED error returned via <paramref name="error"/>, never a
+    /// silent skip.</summary>
+    static List<PlaceRequest>? MapTarget(Func<string?, FormKey> parseFormId, PlaceTarget t,
+                                         string? setProvider, string? setKind, string where, out string? error)
+    {
+        error = null;
+        bool hasFormid = !string.IsNullOrWhiteSpace(t.Formid);
+        bool hasPath = !string.IsNullOrWhiteSpace(t.Path);
+        if (hasFormid == hasPath) { error = $"{where}provide exactly one of formid or path."; return null; }
+
+        var src = NullIfBlank(t.Source);
+        var prov = NullIfBlank(t.SourceProvider) ?? NullIfBlank(setProvider);
+
+        if (hasPath)
+            return new List<PlaceRequest> { new(t.Path!.Trim(), src, prov) };
+
+        FormKey fk;
+        try { fk = parseFormId(t.Formid); }
+        catch (Exception ex) { error = FormIdDoor.Sentence(ex, where, $"{where}bad formid '{t.Formid}' ({ex.Message}). Expected 'XXXXXX:Plugin.esp'."); return null; }
+
+        var slot = ParseSlot(NullIfBlank(t.Kind) ?? NullIfBlank(setKind), out var slotErr);
+        if (slotErr is not null) { error = $"{where}{slotErr}"; return null; }
+
+        if (slot is { } s)                                            // explicit mesh|tint → one file
+            return new List<PlaceRequest> { new(FaceGenPath.For(fk, s), src, prov) };
+
+        // kind omitted at both levels → both mesh + tint.
+        // Trim quotes exactly as the service does before it routes, or a quoted spaced BSA name ends in '"' not '.bsa'
+        // and is wrongly refused. FULLY-QUALIFIED matches that routing: a RELATIVE '.bsa' is a Data-relative asset
+        // path, and one such path cannot serve two slots — accepting it would hand both slots the same file.
+        var srcProbe = src?.Trim('"');
+        bool srcOkForBoth = srcProbe is null
+            || (srcProbe.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase)
+                && srcProbe.IndexOf('|') < 0
+                && Path.IsPathFullyQualified(srcProbe));
+        if (!srcOkForBoth)
+        {
+            error = $"{where}with formid and no kind (placing BOTH mesh and tint), an explicit source= must be a FULL '.bsa' path — each slot's entry is then derived. Any single file path names ONE file and cannot serve both slots, so for a loose file, a BSA entry, or a Data-relative path set kind= mesh or tint. {WriteSentences.PlaceBothSlotsPoleConstraint}.";
+            return null;
+        }
+        var reqs = new List<PlaceRequest>(2);
+        foreach (var (_, rel) in FaceGenPath.Both(fk)) reqs.Add(new PlaceRequest(rel, src, prov));
+        return reqs;
+    }
+
+    /// <summary>Parse the FaceGen slot token. Null/blank ⇒ null (unspecified — both files). A bad token is a named
+    /// error. Lenient synonyms for the two file kinds.</summary>
+    static FaceGenSlot? ParseSlot(string? kind, out string? error)
+    {
+        error = null;
+        var k = kind?.Trim().ToLowerInvariant();
+        if (string.IsNullOrEmpty(k)) return null;
+        switch (k)
+        {
+            case "mesh": case "nif": case "geom": case "facegeom": return FaceGenSlot.Mesh;
+            case "tint": case "dds": case "facetint": case "texture": return FaceGenSlot.Tint;
+            default: error = $"kind '{kind}' is not valid — use 'mesh' (the head .nif) or 'tint' (the face .dds)."; return null;
+        }
+    }
+
+    static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+}
+
+/// <summary>Renders a <see cref="PlaceOutcome"/> through the shared batch skeleton: the count and mod folder as the
+/// header, the discovery caveats as the alarms block, one capped row per destination (its source and the current VFS
+/// winner to sort above, or a per-destination error), then the §2.1 accounting and the explicit "this does not win
+/// until you enable + sort the mod in MO2" instruction. Those last two sit OUTSIDE the cap on purpose: a truncated
+/// list must still say how much it dropped and what the caller has to do next.</summary>
+static class PlaceWire
+{
+    public static string Render(PlaceOutcome o, int cap)
+    {
+        if (o.Error is not null) return "error: " + o.Error;
+
+        int placed = 0;
+        foreach (var r in o.Results) if (r.Placed) placed++;
+        int failed = o.Results.Count - placed;
+        var modFolder = o.ModFolder is null ? null : Path.GetFileName(o.ModFolder);
+
+        var header = new StringBuilder()
+            .Append("placed ").Append(placed).Append(" of ").Append(o.Results.Count).Append(" asset(s)")
+            .Append(failed > 0 ? $" ({failed} failed)" : "")
+            .Append(modFolder is null ? "" : $"\nmod folder: {modFolder}").ToString();
+
+        int rendered = 0;
+        var body = BatchRender.Render(
+            header, o.Results, "asset(s)", cap,
+            sb => { foreach (var w in o.Warnings) sb.Append("[!] discovery: ").Append(w).Append('\n'); },
+            (sb, r) => { rendered++; AppendResult(sb, r, modFolder); });
+
+        var sb2 = new StringBuilder(body).Append('\n');
+        sb2.Append("\ntotal=").Append(o.Results.Count).Append(" rendered=").Append(rendered)
+           .Append(" placed=").Append(placed).Append(" failed=").Append(failed)
+           .Append(" truncated=").Append(rendered < o.Results.Count ? "true" : "false").Append('\n');
+
+        if (o.LeftoverFolder is not null)
+            sb2.Append("note: the fresh folder at '").Append(o.LeftoverFolder)
+               .Append("' holds a partial result — delete it or retry with into=.\n");
+
+        if (placed > 0)
+        {
+            bool anyContended = false;
+            foreach (var r in o.Results) if (r.Placed && r.CurrentWinner is not null) { anyContended = true; break; }
+            sb2.Append("\nIMPORTANT — \"wrote it\" is not \"it wins\": the placed file(s) do NOT win the VFS yet. Enable the mod '")
+               .Append(modFolder ?? "(the new folder)").Append("' in MO2");
+            sb2.Append(anyContended
+                ? " and SORT it (left pane) ABOVE the current winner(s) listed above. Only then does the placed copy win.\n"
+                : ". Nothing else provided these path(s), so once enabled the placed copy wins (sort it above any mod you later add that also provides them).\n");
+        }
+
+        return sb2.ToString().TrimEnd('\n');
+    }
+
+    static void AppendResult(StringBuilder sb, PlaceResult r, string? modFolder)
+    {
+        if (!r.Placed) { sb.Append("  FAIL  ").Append(r.AssetPath).Append("  ").Append(r.Error).Append('\n'); return; }
+
+        sb.Append("  OK    ").Append(r.AssetPath).Append("  (").Append(r.Bytes).Append(" bytes from ").Append(r.SourceDesc).Append(")\n");
+        // Bytes served out of a mod MO2 does not load look like any other placement on the line above, so say so on
+        // their own line. This is about the SOURCE; the destination's enable+sort is the block below the list.
+        if (r.SourceOffOrderProvider is { } offOrder)
+            sb.Append("        ").Append(WriteSentences.PlaceSourceOffOrder(offOrder, r.SourceOffOrderOwnerEnabled)).Append('\n');
+        // Name the destination folder rather than saying "the mod": the off-order line above can put a SECOND mod in
+        // scope, and it ends by saying enabling THAT one is not required.
+        sb.Append(r.CurrentWinner is not null
+            ? $"        currently wins the VFS: {r.CurrentWinner} — sort the new mod ABOVE it\n"
+            : $"        nothing else provides this path — once '{modFolder ?? "(the new folder)"}' is enabled, the placed copy wins\n");
+    }
+}
+
+/// <summary>One destination off the wire. A FormID (+ optional slot) or a Data-relative path, plus the optional
+/// per-member source and source-provider pole; either pole may instead be given once for the whole set, and the
+/// member's own value wins.</summary>
+public sealed record PlaceTarget
+{
+    [JsonPropertyName("formid"), Description("The NPC's FormID 'XXXXXX:Plugin.esp' — houseCARL computes the FaceGen path. Omit kind to place BOTH the mesh and the tint. Provide this OR path.")]
+    public string? Formid { get; init; }
+
+    [JsonPropertyName("kind"), Description("With formid: 'mesh' (head .nif) or 'tint' (face .dds). Omit to take the call's kind=, or BOTH if that is omitted too. Ignored with path.")]
+    public string? Kind { get; init; }
+
+    [JsonPropertyName("path"), Description("A Data-relative destination path (e.g. 'meshes/actors/...'), instead of formid. Provide this OR formid. A drive-rooted or '..'-escaping path is rejected.")]
+    public string? Path { get; init; }
+
+    [JsonPropertyName("source"), Description("The copy to place: a Data-relative path (resolved through the VFS; different from the destination = a rename), a full loose file path, '<archive.bsa>|<entry>', or a '.bsa' path. Omit to resolve the destination path through the VFS. With formid and no kind, an explicit source must be a FULLY-QUALIFIED '.bsa' path (a relative one is a Data-relative asset path, and one path cannot serve both slots).")]
+    public string? Source { get; init; }
+
+    [JsonPropertyName("source_provider"), Description("Whose copy to read for a VFS-resolved source, for THIS destination — overriding the call's source_provider=: "
+        + AssetSourceChoice.WinnerToken + " for the current VFS winner, or the provider's NAME ALONE (a mod folder, 'overwrite', "
+        + "'Data', or a BSA filename) — not asset_status's ' (loose)' / ' (BSA)' annotation. A bare name always means a provider "
+        + "of that name. Applies BOTH with a Data-relative source= (whose copy to read it FROM) and with NO source= at all "
+        + "(whose copy of the DESTINATION path to place) — in the second case it is what resolves the contention an omitted "
+        + "source is otherwise refused for. Not valid with an on-disk source.")]
+    public string? SourceProvider { get; init; }
+}

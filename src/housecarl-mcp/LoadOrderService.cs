@@ -1492,7 +1492,7 @@ public sealed class LoadOrderService : IDisposable
         "  • The default lane (a NEW mod folder, originals untouched) stays the recommended way — this is the explicit opt-in.\n" +
         "Re-call the SAME edit with acknowledge=true to proceed.";
 
-    // ---- place an asset so the correct copy wins the VFS (housecarl_place_asset) ----
+    // ---- place assets so the correct copies win the VFS (housecarl_place) ----
 
     /// <summary>Place one or more assets into a new houseCARL-owned MO2 mod folder so the correct copy can win the
     /// VFS. For each request: resolve its current providers (auto-resolving a source when none was named — a sole
@@ -6825,7 +6825,7 @@ public sealed class LoadOrderService : IDisposable
                 catch (Exception ex)
                 {
                     assets = new NpcAssetOutcome(Array.Empty<CarriedAsset>(), Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(),
-                        new[] { $"asset carry skipped — the asset layer could not be built ({ex.Message}); carry the facegen pair with {ToolNames.PlaceAsset} and verify in-game." }, false, false);
+                        new[] { $"asset carry skipped — the asset layer could not be built ({ex.Message}); carry the facegen pair with {ToolNames.Place} and verify in-game." }, false, false);
                 }
                 return outcome with { Assets = assets };
             }
@@ -9018,7 +9018,7 @@ public sealed record NifSetResult(
         => new(rel, edited, providers, ambiguous, report, null, false, null, true, editedIsWinner, null, inPlacePath, null, warnings, profileName);
 }
 
-/// <summary>One asset to PLACE (housecarl_place_asset / bulk). <see cref="AssetPath"/> is the resolved Data-relative
+/// <summary>One asset to PLACE (housecarl_place). <see cref="AssetPath"/> is the resolved Data-relative
 /// DESTINATION (the tool computes it from a FormID+slot for FaceGen, or takes a raw path). <see cref="Source"/> is the
 /// copy to place — a Data-relative path resolved through the VFS, a fully-qualified loose file path,
 /// "&lt;archive.bsa&gt;|&lt;entry&gt;", or a fully-qualified ".bsa" path (entry := AssetPath); null/blank ⇒ the VFS lane
@@ -9048,7 +9048,7 @@ public sealed record PlaceResult(string AssetPath, bool Placed, long Bytes, stri
         => new(assetPath, false, 0, null, currentWinner, error);
 }
 
-/// <summary>The outcome of place_asset / bulk_place_asset. <see cref="Error"/> non-null ⇒ the whole call was rejected
+/// <summary>The outcome of housecarl_place. <see cref="Error"/> non-null ⇒ the whole call was rejected
 /// before any placement (unconfigured, an into= folder houseCARL doesn't own, the asset layer wouldn't build). Else
 /// <see cref="Results"/> is per-asset; <see cref="ModFolder"/> is the houseCARL mod the placed files landed in (null when
 /// none placed); <see cref="Warnings"/> carries the asset-discovery caveats; <see cref="LeftoverFolder"/> names a

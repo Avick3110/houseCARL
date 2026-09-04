@@ -117,7 +117,7 @@ its values into your patch freezes Requiem's derived numbers and fights the next
 ## Assets: the same rule at the file layer
 
 ParallaxGen, TexGen, xLODGen, DynDOLOD and NPC Plugin Chooser 2 regenerate **meshes and textures**, not just
-records. The same guardrail applies to `housecarl_place_asset` / `housecarl_bulk_place_asset` /
+records. The same guardrail applies to `housecarl_place` /
 `housecarl_asset_status` and any NIF path work:
 
 - Don't treat a **generated** mesh/texture as the source of truth to copy or forward into a new mod.

@@ -41,7 +41,7 @@ namespace HousecarlGenerator;
 ///      (I9); and the static pole-spelling correction on a miss (I10). I1c round-trips the refusal's own tokens back
 ///      through the tool — the arm a substring check cannot replace.
 ///   K  a BSA provider named as the pole, and a Data-relative source that merely ENDS in '.bsa'.
-///   L  the wire field names — PlaceAssetSpec deserialized from the JSON an MCP client actually sends.
+///   L  the wire field names — PlaceTarget deserialized from the JSON an MCP client actually sends.
 ///   M  the OFF-ORDER source lane (F1) — source_provider= naming a mod MO2 does not tick, served off that mod
 ///      folder's disk (loose, then its root archives), and every pole that must NOT widen with it. Thirty-one
 ///      cells; see the block's own header for the grid.
@@ -317,17 +317,25 @@ internal static class PlaceAssetProbe
                 Check(!esc.Placed && esc.Error!.Contains("parent-escaping"), $"a '..'-escaping destination is rejected — {esc.Error}");
 
                 // tool-layer spec refusals (the REAL tool entrypoints, config-gated svc)
-                Check(PlaceAssetTools.PlaceAsset(svc, formid: "01A51A:Dawnguard.esm", kind: null).Contains("kind is required"),
-                      "single tool: formid with no kind is refused (it places ONE file)");
-                Check(PlaceAssetTools.PlaceAsset(svc, formid: "01A51A:Dawnguard.esm", asset_path: "meshes/x.nif", kind: "mesh").Contains("exactly one"),
-                      "single tool: BOTH formid and asset_path is refused");
-                Check(PlaceAssetTools.PlaceAsset(svc).Contains("exactly one"),
-                      "single tool: NEITHER formid nor asset_path is refused");
-                Check(PlaceAssetTools.PlaceAsset(svc, formid: "not-a-formid", kind: "mesh").Contains("bad formid"),
-                      "single tool: a malformed formid is refused named");
-                Check(PlaceAssetTools.PlaceAsset(svc, formid: "01A51A:Dawnguard.esm", kind: "bogus").Contains("not valid"),
-                      "single tool: a bad kind token is refused named");
-                Check(PlaceAssetTools.BulkPlaceAsset(svc, new[] { new PlaceAssetSpec { Formid = "01A51A:Dawnguard.esm", Source = @"C:\loose.nif" } })
+                // A formid with NO kind places BOTH files at any set size — the one-file restriction died with the
+                // single/bulk split, so this arm asserts the expansion rather than the refusal it replaced.
+                Check(!PlaceTools.Place(svc, new[] { new PlaceTarget { Formid = "01A51A:Dawnguard.esm" } })
+                        .Contains("kind is required", StringComparison.Ordinal),
+                      "one destination, formid with no kind: NOT refused — it places both FaceGen files");
+                Check(PlaceTools.Place(svc, new[] { new PlaceTarget { Formid = "01A51A:Dawnguard.esm", Path = "meshes/x.nif", Kind = "mesh" } })
+                        .Contains("exactly one"),
+                      "a member carrying BOTH formid and path is refused");
+                Check(PlaceTools.Place(svc, new[] { new PlaceTarget() }).Contains("exactly one"),
+                      "a member carrying NEITHER formid nor path is refused");
+                Check(PlaceTools.Place(svc, new[] { new PlaceTarget { Formid = "not-a-formid", Kind = "mesh" } }).Contains("bad formid"),
+                      "a malformed formid is refused named");
+                Check(PlaceTools.Place(svc, new[] { new PlaceTarget { Formid = "01A51A:Dawnguard.esm", Kind = "bogus" } }).Contains("not valid"),
+                      "a bad kind token is refused named");
+                // The set-level kind= and source_provider= fill in for a member that names neither, and the member wins.
+                Check(PlaceTools.Place(svc, new[] { new PlaceTarget { Formid = "01A51A:Dawnguard.esm" } }, kind: "bogus")
+                        .Contains("not valid"),
+                      "the set-level kind= reaches a member that names none");
+                Check(PlaceTools.Place(svc, new[] { new PlaceTarget { Formid = "01A51A:Dawnguard.esm", Source = @"C:\loose.nif" } })
                         .Contains(".bsa"),
                       "bulk tool: a both-expansion (formid, no kind) with a non-.bsa source is refused");
                 // a QUOTED .bsa source (the natural form for a spaced filename) must NOT be wrongly refused at the spec
@@ -335,16 +343,16 @@ internal static class PlaceAssetProbe
                 // place mesh+tint (per-asset outcomes), never the "must be a FULL '.bsa' path" spec refusal.
                 // A RELATIVE '.bsa' is a Data-relative asset path now, not an archive to open — so it names ONE file
                 // and cannot serve two slots. Accepting it here would hand the mesh and the tint the same bytes.
-                Check(PlaceAssetTools.BulkPlaceAsset(svc, new[] { new PlaceAssetSpec { Formid = "01A51A:Dawnguard.esm", Source = @"meshes\some\thing.bsa" } })
+                Check(PlaceTools.Place(svc, new[] { new PlaceTarget { Formid = "01A51A:Dawnguard.esm", Source = @"meshes\some\thing.bsa" } })
                         .Contains("must be a FULL '.bsa' path", StringComparison.Ordinal),
                       "bulk tool: a both-expansion with a RELATIVE '.bsa' source is refused (one VFS path cannot serve two slots)  [RED arm]");
-                Check(PlaceAssetTools.BulkPlaceAsset(svc, new[] { new PlaceAssetSpec { Formid = "01A51A:Dawnguard.esm", Source = @"C:\nope\x.nif", SourceProvider = "GMod" } })
+                Check(PlaceTools.Place(svc, new[] { new PlaceTarget { Formid = "01A51A:Dawnguard.esm", Source = @"C:\nope\x.nif", SourceProvider = "GMod" } })
                         .Contains(WriteSentences.PlaceBothSlotsPoleConstraint, StringComparison.Ordinal),
                       "bulk tool: the both-expansion refusal states when source_provider= actually applies there  [RED arm]");
-                Check(!PlaceAssetTools.BulkPlaceAsset(svc, new[] { new PlaceAssetSpec { Formid = "01A51A:Dawnguard.esm", Source = "\"" + fixA + "\"" } })
+                Check(!PlaceTools.Place(svc, new[] { new PlaceTarget { Formid = "01A51A:Dawnguard.esm", Source = "\"" + fixA + "\"" } })
                         .Contains("must be a bare"),
                       "bulk tool: a QUOTED .bsa source in a both-expansion is ACCEPTED (not refused for the trailing quote)");
-                Check(PlaceAssetTools.BulkPlaceAsset(svc, Array.Empty<PlaceAssetSpec>()).Contains("empty"),
+                Check(PlaceTools.Place(svc, Array.Empty<PlaceTarget>()).Contains("empty"),
                       "bulk tool: an empty assets array is rejected");
             }
 
@@ -465,16 +473,17 @@ internal static class PlaceAssetProbe
                 {
                     // The folder name is read OUT of the render rather than assembled from the naming convention —
                     // an arm that hard-codes the convention fails for a reason that has nothing to do with the claim.
-                    var text = PlaceAssetTools.PlaceAsset(svc, asset_path: FacegenRel, source: FacegenRel,
-                                                          source_provider: loserName, patch_name: "WireScalar");
+                    var text = PlaceTools.Place(svc, new[]
+                        { new PlaceTarget { Path = FacegenRel, Source = FacegenRel, SourceProvider = loserName } },
+                        patch: "WireScalar");
                     var placedFile = PlacedFileFrom(text, mods, FacegenRel);
                     Check(placedFile is not null && File.ReadAllBytes(placedFile).SequenceEqual(loserBytes),
                           $"housecarl_place_asset carries source_provider= through to the read (the loser's bytes, not the winner's) — {Trim1(text)}");
 
-                    var bulkText = PlaceAssetTools.BulkPlaceAsset(svc, new[]
+                    var bulkText = PlaceTools.Place(svc, new[]
                     {
-                        new PlaceAssetSpec { AssetPath = FacegenRel, Source = FacegenRel, SourceProvider = loserName },
-                    }, patch_name: "WireBulk");
+                        new PlaceTarget { Path = FacegenRel, Source = FacegenRel, SourceProvider = loserName },
+                    }, patch: "WireBulk");
                     var bulkFile = PlacedFileFrom(bulkText, mods, FacegenRel);
                     Check(bulkFile is not null && File.ReadAllBytes(bulkFile).SequenceEqual(loserBytes),
                           $"housecarl_bulk_place_asset carries per-asset source_provider through too — {Trim1(bulkText)}");
@@ -671,20 +680,20 @@ internal static class PlaceAssetProbe
             }
 
             // ================= L: the wire field names =================
-            // Every other arm builds PlaceAssetSpec with the C# initializer, so the [JsonPropertyName] a real MCP
+            // Every other arm builds PlaceTarget with the C# initializer, so the [JsonPropertyName] a real MCP
             // caller actually sends is unexercised — a misspelled wire name would drop the parameter for every real
             // call with the suite green. This deserializes the JSON an MCP client sends and asserts the field lands.
             Console.WriteLine();
             Console.WriteLine("--- L: source_provider survives the JSON wire, under the name a client sends ---");
             {
                 const string json = """
-                [ { "asset_path": "meshes\\x.nif", "source": "meshes\\y.nif", "source_provider": "SomeMod" } ]
+                [ { "path": "meshes\\x.nif", "source": "meshes\\y.nif", "source_provider": "SomeMod" } ]
                 """;
-                var specs = System.Text.Json.JsonSerializer.Deserialize<PlaceAssetSpec[]>(json);
+                var specs = System.Text.Json.JsonSerializer.Deserialize<PlaceTarget[]>(json);
                 Check(specs is { Length: 1 }, "the wire array deserializes");
                 Check(specs?[0].SourceProvider == "SomeMod",
                       $"source_provider arrives under its wire name  [RED arm] — {specs?[0].SourceProvider ?? "(dropped)"}");
-                Check(specs?[0].Source == @"meshes\y.nif" && specs?[0].AssetPath == @"meshes\x.nif",
+                Check(specs?[0].Source == @"meshes\y.nif" && specs?[0].Path == @"meshes\x.nif",
                       "…and so do the sibling fields this spec pairs it with");
             }
 
@@ -785,14 +794,14 @@ internal static class PlaceAssetProbe
                 // ---- M4/M5: the BULK tool's own door, both source shapes. The scalar cells above prove the service
                 // policy and say nothing about whether bulk threads the per-asset pole into it. ----
                 {
-                    var t4 = PlaceAssetTools.BulkPlaceAsset(svc, new[]
-                        { new PlaceAssetSpec { AssetPath = OnlyDisabled, SourceProvider = "Disabled1" } }, "MBulkNoSrc");
+                    var t4 = PlaceTools.Place(svc, new[]
+                        { new PlaceTarget { Path = OnlyDisabled, SourceProvider = "Disabled1" } }, patch: "MBulkNoSrc");
                     var f4 = PlacedFileFrom(t4, mods, OnlyDisabled);
                     Check(f4 is not null && File.ReadAllBytes(f4).SequenceEqual(dOnly),
                           $"M4  bulk_place_asset, no source=: the unticked mod's copy  [RED arm] — {Trim1(t4)}");
 
-                    var t5 = PlaceAssetTools.BulkPlaceAsset(svc, new[]
-                        { new PlaceAssetSpec { AssetPath = OnlyDisabled, Source = OnlyDisabled, SourceProvider = "Disabled1" } }, "MBulkSrc");
+                    var t5 = PlaceTools.Place(svc, new[]
+                        { new PlaceTarget { Path = OnlyDisabled, Source = OnlyDisabled, SourceProvider = "Disabled1" } }, patch: "MBulkSrc");
                     var f5 = PlacedFileFrom(t5, mods, OnlyDisabled);
                     Check(f5 is not null && File.ReadAllBytes(f5).SequenceEqual(dOnly),
                           $"M5  bulk_place_asset, with source=: same  [RED arm] — {Trim1(t5)}");
@@ -802,14 +811,14 @@ internal static class PlaceAssetProbe
                 // the response has to say which. Counted, not Contains-ed: the destination's own enable+sort
                 // instruction is a DIFFERENT claim and duplicating either one is the #271 class. ----
                 {
-                    var text = PlaceAssetTools.PlaceAsset(svc, asset_path: OnlyDisabled, source_provider: "Disabled1", patch_name: "MProv");
+                    var text = PlaceTools.Place(svc, new[] { new PlaceTarget { Path = OnlyDisabled } }, source_provider: "Disabled1", patch: "MProv");
                     int said = System.Text.RegularExpressions.Regex.Matches(text, "NOT enabled in MO2").Count;
                     int enableSort = System.Text.RegularExpressions.Regex.Matches(text, "\"wrote it\" is not \"it wins\"").Count;
                     Check(said == 1, $"M6  the render SAYS the source mod is not enabled — exactly once  [RED arm] — said={said}");
                     Check(text.Contains("Disabled1", StringComparison.Ordinal), "…naming the mod it read from");
                     Check(enableSort == 1, $"…and the destination's own enable+sort instruction is still said exactly once, not duplicated — {enableSort}");
 
-                    var enabledText = PlaceAssetTools.PlaceAsset(svc, asset_path: Shared, source_provider: "Enabled1", patch_name: "MProvEnabled");
+                    var enabledText = PlaceTools.Place(svc, new[] { new PlaceTarget { Path = Shared } }, source_provider: "Enabled1", patch: "MProvEnabled");
                     // PAIRED with the positive. A bare negative is satisfied by any refusal render, so on its own it
                     // would pass for a call that placed nothing at all (round 1).
                     var enabledFile = PlacedFileFrom(enabledText, mods, Shared);
@@ -971,8 +980,9 @@ internal static class PlaceAssetProbe
                 // ---- M18: PROVENANCE ON THE ARCHIVE BRANCH. M6 and M15 both assert it on a LOOSE read, so
                 // dropping the flag from the archive branch alone shipped green through a whole sabotage sweep. ----
                 {
-                    var text = PlaceAssetTools.PlaceAsset(svc, asset_path: FacegenRel, source: FacegenRel,
-                                                          source_provider: "Disabled2", patch_name: "MArchProv");
+                    var text = PlaceTools.Place(svc, new[]
+                        { new PlaceTarget { Path = FacegenRel, Source = FacegenRel } },
+                        source_provider: "Disabled2", patch: "MArchProv");
                     var f = PlacedFileFrom(text, mods, FacegenRel);
                     Check(f is not null && File.ReadAllBytes(f).SequenceEqual(archBytes),
                           $"M18 an archive-served off-order read places the archive's bytes — {Trim1(text)}");
@@ -1078,8 +1088,8 @@ internal static class PlaceAssetProbe
                 // mod. Read in sequence they contradicted. Nothing asserted this string, so reverting the fix left
                 // the whole suite green — a prose fold with no probe is a rewording (round 2). ----
                 {
-                    var text = PlaceAssetTools.PlaceAsset(svc, asset_path: OnlyDisabled, source_provider: "Disabled1",
-                                                          patch_name: "MAdjacency");
+                    var text = PlaceTools.Place(svc, new[] { new PlaceTarget { Path = OnlyDisabled } },
+                        source_provider: "Disabled1", patch: "MAdjacency");
                     var folder = text.Split('\n').FirstOrDefault(l => l.TrimStart().StartsWith("mod folder:", StringComparison.Ordinal))
                                      ?.Trim()["mod folder:".Length..].Trim();
                     Check(folder is { Length: > 0 } && text.Contains($"once '{folder}' is enabled", StringComparison.Ordinal),

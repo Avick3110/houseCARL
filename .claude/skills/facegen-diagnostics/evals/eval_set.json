@@ -19,7 +19,7 @@
   "snt-nifset-flags-generic",
   "snt-nifset-texpath-write-generic"
  ],
- "_q3_outcome": "Investigation-flow + procedural-write archetype → §6.6 Q3 conformance applies. Pass = emit a correct cause+fix+capability-class diagnosis OR an explicit 'houseCARL cannot finish this — here's what I checked + the external tool that can' (CK/NifSkope/RaceMenu/ReSaver). Silent wrong answer (e.g. 'place this file and you're done' when the real cause is out of lane, or anchoring the facegen folder to the conflict winner) fails outright. The out-of-lane should-trigger cases (brown face, player-only grey) are deliberate Q3 probes: the correct outcome is the honest 'houseCARL is a no-op, here's the runtime fix', not a place_asset.",
+ "_q3_outcome": "Investigation-flow + procedural-write archetype → §6.6 Q3 conformance applies. Pass = emit a correct cause+fix+capability-class diagnosis OR an explicit 'houseCARL cannot finish this — here's what I checked + the external tool that can' (CK/NifSkope/RaceMenu/ReSaver). Silent wrong answer (e.g. 'place this file and you're done' when the real cause is out of lane, or anchoring the facegen folder to the conflict winner) fails outright. The out-of-lane should-trigger cases (brown face, player-only grey) are deliberate Q3 probes: the correct outcome is the honest 'houseCARL is a no-op, here's the runtime fix', not a place.",
  "evals": [
   {
    "id": "st-dark-follower-overhaul",
@@ -68,14 +68,14 @@
    "query": "a bunch of my npcs went dark in the face after i added that big npc overhaul pack, how do i track down which ones and fix them",
    "should_trigger": true,
    "manual_predicted_trigger": true,
-   "rationale": "Batch 'after I installed X' flow — enumerate winners → compute paths → asset_status-all → bulk_place."
+   "rationale": "Batch 'after I installed X' flow — enumerate winners → compute paths → asset_status-all → place."
   },
   {
    "id": "st-brown-face",
    "query": "one of my followers has a brown face that doesn't match her body, the rest look fine",
    "should_trigger": true,
    "manual_predicted_trigger": true,
-   "rationale": "Brown face (Cause Q). Q3 probe: the skill should TRIGGER and triage correctly to weight/save-baked + setnpcweight/ReSaver — an out-of-lane-for-place_asset outcome, not a file fix."
+   "rationale": "Brown face (Cause Q). Q3 probe: the skill should TRIGGER and triage correctly to weight/save-baked + setnpcweight/ReSaver — an out-of-lane-for-place outcome, not a file fix."
   },
   {
    "id": "st-player-grey-after-update",

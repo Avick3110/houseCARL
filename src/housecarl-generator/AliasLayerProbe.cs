@@ -37,7 +37,7 @@ public static class AliasLayerProbe
         var records20   = Schema("""{"formids":{"type":["array","null"]},"types":{"type":["array","null"]},"plugins":{"type":["array","null"]},"source":{"type":["string","null"]},"where":{"type":["array","null"]},"fields_source":{"type":["string","null"]}}""");
         var readToday   = Schema("""{"formid":{"type":"string"},"depth":{"type":["integer","null"]}}""", required: """["formid"]""");
         var batchToday  = Schema("""{"formids":{"type":"array"}}""", required: """["formids"]""");
-        var placeAsset  = Schema("""{"formid":{"type":["string","null"]},"asset_path":{"type":["string","null"]},"source":{"type":["string","null"]},"patch_name":{"type":["string","null"]},"into":{"type":["string","null"]}}""");
+        var place20     = Schema("""{"assets":{"type":"array"},"source_provider":{"type":["string","null"]},"kind":{"type":["string","null"]},"patch":{"type":["string","null"]},"into":{"type":["string","null"]}}""", required: """["assets"]""");
         var write20     = Schema("""{"formids":{"type":"array"},"ops":{"type":["array","null"]},"patch":{"type":["string","null"]},"in_place":{"type":["string","null"]},"acknowledge":{"type":["boolean","null"]}}""", required: """["formids"]""");
         var writeToday  = Schema("""{"formid":{"type":"string"},"operations":{"type":["array","null"]},"patch_name":{"type":["string","null"]},"in_place":{"type":["boolean","null"]},"target":{"type":["string","null"]}}""", required: """["formid"]""");
         var nifSet20    = Schema("""{"paths":{"type":"array"},"element":{"type":["string","null"]},"op":{"type":["string","null"]},"in_place":{"type":["string","null"]}}""", required: """["paths"]""");
@@ -64,14 +64,15 @@ public static class AliasLayerProbe
         failures += Check("B #221 preserved: plugin= renames to plugins= on a plugins-only tool",
             Has(b, "plugins", "\"Synthetic.esp\"") && !b.Arguments!.ContainsKey("plugin"), Dump(b));
 
-        // ---- C: the place_asset exception — its source= is a file-path operand (the copy to place),
-        //      NOT the version pole, so a stray plugin= must NOT silently become a path; it stays for
-        //      UnknownParameters to name.
-        var c = P("housecarl_place_asset", ("plugin", "\"Some.esp\""), ("asset_path", "\"textures/t.dds\""));
-        ToolCallShim.ResolveAliases(c, placeAsset);
-        failures += Check("C exception: plugin= is NOT renamed to place_asset's source=",
+        // ---- C: housecarl_place declares NO top-level source= — a source is a member of assets=, and it is a
+        //      file path rather than the version pole. The exception row that used to keep plugin= off it is gone
+        //      with the parameter, so the row is schema-gated off instead, and plugin= stays for UnknownParameters
+        //      to name. Both halves are asserted: nothing renamed, and the refusal names what the caller typed.
+        var c = P("housecarl_place", ("plugin", "\"Some.esp\""), ("assets", "[]"));
+        ToolCallShim.ResolveAliases(c, place20);
+        failures += Check("C place declares no top-level source=, so plugin= binds to nothing",
             c.Arguments!.ContainsKey("plugin") && !c.Arguments!.ContainsKey("source"), Dump(c));
-        var cRefusal = ToolCallShim.UnknownParameters(c, placeAsset);
+        var cRefusal = ToolCallShim.UnknownParameters(c, place20);
         failures += Check("C2 …and is then refused by name", Text(cRefusal).Contains("unknown parameter") && Text(cRefusal).Contains("plugin"),
             Text(cRefusal));
 

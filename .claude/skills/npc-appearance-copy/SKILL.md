@@ -14,7 +14,7 @@ Copying an NPC's appearance is three operations, not one, and they use three gen
 |---|---|---|
 | The link-bearing appearance (head parts, hair colour, head texture, worn armor) and everything they pull in | `housecarl_copy` | These are *records*. They have to be duplicated under new FormIDs or the result masters the donor. |
 | The inline appearance (tints, morphs, skin lighting, weight) | `housecarl_apply`'s `bundle=`/`assignments=` copy zip | These are values on the record itself. Nothing to walk, nothing to duplicate. |
-| The baked FaceGen mesh + tint, and the textures they reference | `housecarl_bulk_place_asset` | These are *files*, decided by the MO2 VFS, not by load order. |
+| The baked FaceGen mesh + tint, and the textures they reference | `housecarl_place` | These are *files*, decided by the MO2 VFS, not by load order. |
 
 **The cost of that split, stated up front:** three calls means three refusal surfaces and a window where the plugin exists and its files do not. An NPC whose record copied but whose FaceGen did not is exactly the dark-face bug. The flow below is not finished at the patch — it is finished at the placement, and if the placement refuses you say so rather than reporting a successful copy.
 
@@ -112,7 +112,7 @@ The readback's asset block looks like this, and it is a list to act on rather th
 
 ```
 asset paths the copied records reference (this call does NOT place them — check each with
-housecarl_asset_status, then place what you keep with housecarl_bulk_place_asset; a path only the
+housecarl_asset_status, then place what you keep with housecarl_place; a path only the
 mod you read FROM provides reads as absent in asset_status if MO2 does not load that mod, and is
 still placed by naming it in source_provider=):
   - textures\actors\character\...\hair.dds
@@ -125,7 +125,7 @@ still placed by naming it in source_provider=):
 **Place the pair under the new FormID:**
 
 ```
-housecarl_bulk_place_asset(assets = [
+housecarl_place(assets = [
   { formid: "<the NEW FormID>", kind: "mesh",
     source: "<the DONOR's FaceGen mesh path>", source_provider: "<the donor's mod>" },
   { formid: "<the NEW FormID>", kind: "tint",
