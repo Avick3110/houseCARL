@@ -321,13 +321,44 @@ public sealed class LoadOrderService : IDisposable
     /// <see cref="AssetResolver.Capture"/> for the whole batch, so every path and the build-level BsaFailures /
     /// ReadIncomplete caveat describe a single build. A drive-rooted or '..'-escaping path is a per-path recoverable
     /// error, never a batch failure.</summary>
-    public AssetStatusData AssetStatus(IReadOnlyList<string> relPaths)
+    public AssetStatusData AssetStatus(
+        IReadOnlyList<string> relPaths,
+        IReadOnlyList<string>? under = null,
+        int limit = 0,
+        int offset = 0)
     {
         lock (_gate)
         {
             var view = Assets.Capture();                          // reentrant gate; build/refresh the asset resolver once for the batch
-            var results = new List<AssetPathResult>(relPaths.Count);
-            foreach (var raw in relPaths)
+            var notes = new List<string>();
+            var selected = new List<string>(relPaths);            // explicit paths first, in the order given, never deduped
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var p in relPaths)
+                try { seen.Add(AssetResolver.ValidateRelPath((p ?? "").Trim())); } catch (ArgumentException) { /* a bad explicit path answers per-path below */ }
+
+            foreach (var raw in under ?? Array.Empty<string>())
+            {
+                var sel = (raw ?? "").Trim();
+                if (sel.Length == 0) { notes.Add("under: an empty selector was skipped — pass a Data-relative directory or glob."); continue; }
+                try
+                {
+                    var matched = AssetGlob.Select(view, sel);
+                    // A selector that matched nothing is said out loud: read as a silent no-op it looks identical to a
+                    // folder no enabled mod provides, and a typo would then read as a clean sweep.
+                    if (matched.Count == 0)
+                        notes.Add($"under '{sel}' matched no file in the active load order — check the spelling, or nothing enabled provides that folder.");
+                    foreach (var m in matched) if (seen.Add(m)) selected.Add(m);
+                }
+                catch (ArgumentException ex) { notes.Add($"under '{sel}': {ex.Message}"); }
+            }
+
+            // Page over the SELECTED set and resolve only the window, so a 15k-file sweep pays for what it renders.
+            var total = selected.Count;
+            var start = Math.Min(Math.Max(offset, 0), total);
+            var window = selected.Skip(start).Take(limit > 0 ? limit : int.MaxValue).ToList();
+
+            var results = new List<AssetPathResult>(window.Count);
+            foreach (var raw in window)
             {
                 var p = (raw ?? "").Trim();
                 try
@@ -343,7 +374,8 @@ public sealed class LoadOrderService : IDisposable
                 }
                 catch (ArgumentException ex) { results.Add(new AssetPathResult(p, null, ex.Message)); }   // bad path → per-path note, never a batch failure
             }
-            return new AssetStatusData(results, view.BsaFailures, view.ReadIncomplete, _assetWarnings, _profileName);
+            return new AssetStatusData(results, view.BsaFailures, view.ReadIncomplete, _assetWarnings, _profileName,
+                                       notes, total, start);
         }
     }
 
@@ -8619,13 +8651,24 @@ public sealed record AssetPathResult(string RelPath, AssetHit? Hit, string? Erro
 /// build-level caveats — <see cref="BsaFailures"/> (archives that couldn't be read) and <see cref="ReadIncomplete"/>
 /// (an Exists=false answer may be wrong because a BSA failed to read) — and <see cref="Warnings"/> from archive
 /// discovery (e.g. a Skyrim.ini that couldn't be found, so base-game BSAs weren't scanned). <see cref="ProfileName"/>
-/// names the active profile the answer describes.</summary>
+/// names the active profile the answer describes.
+/// <para><see cref="SelectorNotes"/> carries what each <c>under=</c> directory / glob selector had to say for itself
+/// (a selector that matched nothing, or was rejected), <see cref="Total"/> is how many paths the whole selection named
+/// before paging, and <see cref="Offset"/> where the rendered window starts. A negative <see cref="Total"/> means
+/// nothing paged — the results ARE the selection.</para></summary>
 public sealed record AssetStatusData(
     IReadOnlyList<AssetPathResult> Results,
     IReadOnlyList<string> BsaFailures,
     bool ReadIncomplete,
     IReadOnlyList<string> Warnings,
-    string ProfileName);
+    string ProfileName,
+    IReadOnlyList<string>? SelectorNotes = null,
+    int Total = -1,
+    int Offset = 0)
+{
+    /// <summary>How many paths the selection named — <see cref="Results"/>'s own count when nothing paged.</summary>
+    public int Selected => Total < 0 ? Results.Count : Total;
+}
 
 /// <summary>One provider of an SKSE-layer file: the mod / "overwrite" / "Data" / BSA-filename, and whether it's a "loose" file or
 /// a "BSA" entry. The winner-first-then-losers ordering lives in <see cref="SkseFileEntry.Providers"/>.</summary>
