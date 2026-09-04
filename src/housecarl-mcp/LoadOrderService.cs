@@ -2316,7 +2316,19 @@ public sealed class LoadOrderService : IDisposable
             var defining = fk.ModKey.FileName.ToString();
             if (view.ExcludedPlugins.TryGetValue(defining, out var dWhy))
                 return ReadOutcome.Fail(fk, $"FormID {fk} is not resolvable: its plugin '{defining}' was excluded from this session: {dWhy}");
-            return ReadOutcome.Fail(fk, $"FormID {fk} is not present in the load order ({view.PluginCount} plugins).");
+            // "not present" has two opposite causes and the same sentence used to serve both. Whether the plugin is
+            // in the order is an O(1) index hit, so say which one it is: a missing plugin is a load-order problem,
+            // a present plugin with no such record is a wrong ID (commonly an ESL-flagged edition, whose records are
+            // compacted into 0x800+).
+            if (view.ContainsPlugin(defining))
+                return ReadOutcome.Fail(fk,
+                    $"Plugin '{defining}' IS in the load order, but defines no record {fk.ID:X6} — and no other plugin overrides it either. " +
+                    $"The FormID is wrong for the installed edition of '{defining}' (an ESL-flagged edition compacts its records into 0x800+). " +
+                    $"List what it actually defines with housecarl_records plugins={{\"names\": [\"{defining}\"], \"defined_in\": true}}.");
+            var absence = view.ExplainAbsence(defining) is { } dCause ? " " + dCause : view.NameSuggestion(defining);
+            return ReadOutcome.Fail(fk,
+                $"FormID {fk} is not present in the load order ({view.PluginCount} plugins): its plugin '{defining}' is not in the order " +
+                "(names match the plugin FILENAME incl. .esp/.esm, case-insensitively)." + absence);
         }
 
         var source = plugin ?? winner.Value.WinnerPlugin;
