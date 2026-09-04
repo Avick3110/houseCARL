@@ -248,6 +248,17 @@ public sealed class RuntimeFormIdTests
         RefusedNothingWritten(w, outcome.Error);
     }
 
+    /// <summary>The same door parses the target too — a well-formed token there is declined in the refusal's own
+    /// words, not wrapped in the "bad target formid" sentence a malformed one gets.</summary>
+    [Fact]
+    public void CopyNpcAppearanceRefusesARuntimeTargetFormIdAndNamesThePluginForm()
+    {
+        using var w = new World();
+        var outcome = w.Svc.CopyNpcAppearance(World.Fid(w.FullWeapon), null, null, Runtime(w), null, null, null, null);
+        RefusedNothingWritten(w, outcome.Error);
+        Assert.DoesNotContain("bad target formid", outcome.Error);
+    }
+
     [Fact]
     public void PlaceAssetRefusesARuntimeFormIdAndNamesThePluginForm()
     {
