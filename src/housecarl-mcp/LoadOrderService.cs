@@ -3649,11 +3649,11 @@ public sealed class LoadOrderService : IDisposable
         if (offset > 0 && groupBy is not null)
             return CrossQueryOutcome.Fail("group_by= aggregates ALL matches into a count table (never capped by limit=), so offset= has nothing to page — drop offset=, or drop group_by= for per-match rows.");
 
-        // where_source= (#233) chooses which BODY the body filters (where=/references=/editorid_contains=) decide the
-        // match on: 'scoped' (default) = the body the scan streams (the scoped plugin's own under plugins=, else the
-        // winner); 'winner' = the live load-order WINNER regardless of scan scope. Validated up front (Q3, like
-        // group_by): an unknown value refuses before any scan. It retargets the MATCH only — winner_fields=
-        // independently governs DISPLAY, so 'match on the winner, show the scoped origin' stays expressible.
+        // where_source= chooses which body the body filters decide the match on: 'scoped' (default) is the body the
+        // scan streams — the scoped plugin's own under plugins=, else the winner — and 'winner' is the live
+        // load-order winner regardless of scan scope. Validated up front, so an unknown value refuses before any
+        // scan. It retargets the MATCH only; winner_fields= independently governs display, so "match on the winner,
+        // show the scoped origin" stays expressible.
         bool whereWinner = false;
         if (whereSource is not null)
         {
@@ -3664,17 +3664,17 @@ public sealed class LoadOrderService : IDisposable
         }
         if (whereWinner && !bodyFilter)
             return CrossQueryOutcome.Fail("where_source=winner retargets the body filters (where=/references=/editorid_contains=) onto the live load-order winner, but none of those was given — add a body filter, or drop where_source= (a bare type=/plugins= scope already reports each match's winner).");
-        // Under a type=-ONLY scope the scan already streams the WINNER body, so where_source=winner is already
-        // satisfied — accept it (refusing a correct request is hostile) but SAY so, never a silent no-op (Q3). Only the
-        // scoped-body stream (plugins=) needs the per-match winner re-fetch.
+        // Under a type=-only scope the scan already streams the winner body, so where_source=winner is already
+        // satisfied: accept it, but say so rather than silently no-op. Only the scoped-body stream (plugins=) needs
+        // the per-match winner re-fetch.
         bool whereWinnerActive = whereWinner && hasPlugins;
         string? whereSourceNote = (whereWinner && !hasPlugins)
             ? "note: where_source=winner is redundant here — a type=-only scan already reads the load-order winner, so the match used the winner regardless."
             : null;
 
-        // group_by= aggregates matches into a count table. Validated up front (an unknown key refuses BEFORE any scan,
-        // Q3). group_by=type needs the matched body to name the type, so it requires a body-bearing scope (type= or
-        // plugins=); winner/defined_in are derivable from the FormKey alone and work with conflicts_only= too.
+        // group_by= aggregates matches into a count table, validated up front so an unknown key refuses before any
+        // scan. group_by=type needs the matched body to name the type, so it requires a body-bearing scope; winner
+        // and defined_in are derivable from the FormKey alone and work with conflicts_only= too.
         if (groupBy is not null)
         {
             groupBy = groupBy.Trim().ToLowerInvariant();
@@ -3686,8 +3686,8 @@ public sealed class LoadOrderService : IDisposable
         var refSet = hasReferences ? new HashSet<FormKey>(references!) : null;
         bool multiTarget = references is { Count: >= 2 };
 
-        // where= → the field-value predicate set. Parsed up front so a malformed predicate refuses the call BEFORE
-        // any scan (Q3). The predicate reuses the read engine's path-walk, so its reach == the read surface's reach.
+        // where= becomes the field-value predicate set, parsed up front so a malformed predicate refuses the call
+        // before any scan. The predicate reuses the read engine's path walk, so its reach is the read surface's.
         FieldPredicateSet? predicate = null;
         if (hasWhere)
         {
@@ -3696,11 +3696,10 @@ public sealed class LoadOrderService : IDisposable
             predicate = set;
         }
 
-        // §2.1.1 artifact re-entry: every artifact-backed list input (a references=@artifact expansion passed in,
-        // or a where=["formid in @artifact"] predicate) carries the epoch its rows were captured at. Checked HERE,
-        // against the view this scan will answer from — not at the tool layer, where a freshness rebuild between
-        // check and scan would let a stale artifact through. Mismatch refuses LOUD naming both epochs, and the
-        // refusal is stamped: it consulted this build to compare (PR #305 refusal contract).
+        // Artifact re-entry: every artifact-backed list input carries the epoch its rows were captured at. Checked
+        // HERE against the view this scan will answer from, not at the tool layer, where a freshness rebuild between
+        // check and scan would let a stale artifact through. A mismatch refuses loudly naming both epochs, and the
+        // refusal is stamped because it consulted this build to compare.
         foreach (var demand in (artifactDemands ?? Array.Empty<ArtifactDemand>()).Concat(
                      predicate?.ArtifactDemands ?? (IReadOnlyList<ArtifactDemand>)Array.Empty<ArtifactDemand>()))
             if (demand.Epoch != view.Epoch)
@@ -3725,20 +3724,19 @@ public sealed class LoadOrderService : IDisposable
         var sources = new List<string?>();                                    // parallel to keys: the plugin whose body matched (null ⇒ winner), so the render displays the SAME body it filtered
         List<string?>? matched = multiTarget ? new() : null;                  // parallel to keys: which target(s) each hit referenced (multi-target references= un-merge); null when 0/1 target
         List<RecordSummary>? prefilled = (hasType || hasPlugins || hasFormidSet) ? new() : null;   // parallel to keys; null = renderer fills lazily
-        // OrdinalIgnoreCase so case-variant spellings of the SAME plugin — a master listed as `ccBGSSSE025-AdvDSGS.esm`
-        // in one plugin's masters and `ccbgssse025-advdsgs.esm` in another's — merge into ONE group instead of splitting
-        // the count (#248). Plugin filenames are case-insensitive identifiers everywhere else in houseCARL (and in the
-        // game); first-seen casing becomes the display key. Harmless for group_by=type (record type names never differ
-        // only by case), so this one comparer correctly covers all three keys (winner / type / defined_in).
+        // OrdinalIgnoreCase so case-variant spellings of the SAME plugin — a master listed one way in one plugin's
+        // masters and another way in another's — merge into one group instead of splitting the count. Plugin
+        // filenames are case-insensitive identifiers everywhere else, and first-seen casing becomes the display key.
+        // Harmless for group_by=type, since record type names never differ only by case, so one comparer covers all
+        // three keys.
         Dictionary<string, int>? groups = groupBy is not null ? new(StringComparer.OrdinalIgnoreCase) : null;   // group_by= aggregation (bumped per match, over ALL matches — not limit-capped)
         int total = 0;
-        int unscannable = 0;                                                  // records whose body tests THREW (Mutagen-unparseable content) — excluded + accounted, never silent (Q3)
+        int unscannable = 0;                                                  // records whose body tests threw (Mutagen-unparseable content) — excluded and accounted, never silent
         var unscannableSamples = new List<string>();
 
         HashSet<FormKey>? setFilter = hasFormidSet ? new HashSet<FormKey>(formidSet!) : null;
-        // The set-alone branch also owns conflicts_only + formidSet (its in-loop touching-count test): routing
-        // that pair to the index-only else-branch dropped every parsed body filter silently (review F1 — the
-        // predicate/references/editorid_contains were never evaluated, a Q3 silent wrong answer).
+        // The set-alone branch also owns conflicts_only combined with formidSet, via its in-loop touching-count
+        // test: routing that pair to the index-only else-branch would drop every parsed body filter silently.
         if (!hasType && !hasPlugins && hasFormidSet)                          // the formid set ALONE is the universe: per-key winner fetch
         {
             LoadOrderResolver.OverlaySession? setSession = null;
@@ -3760,7 +3758,7 @@ public sealed class LoadOrderService : IDisposable
                 {
                     if (!seenSet.Add(fk)) continue;
                     var w = view.ResolveWinner(fk);
-                    if (w is null) continue;                                  // not in the order — a clean non-match for a SCAN (per-item errors are the formids= list lane's shape)
+                    if (w is null) continue;                                  // not in the order — a clean non-match for a scan; per-item errors belong to the formids= list lane
                     try
                     {
                         var body = view.GetRecord(setSession, w.Value.WinnerPlugin, fk);
@@ -3821,20 +3819,19 @@ public sealed class LoadOrderService : IDisposable
         }
         else if (hasType || hasPlugins)                                       // a body-bearing scope: stream + filter in hand
         {
-            // RecordsIn / WinnerRecordsOfType are LAZY iterators: ScopeIndices (a plugin not in the order) and
-            // EnumerateMajorRecords(throwIfUnknown) throw on ENUMERATION, not on creation — so the try must wrap the
-            // foreach, not just the assignment, or the clean Q3 message escapes as a generic framework error.
+            // RecordsIn and WinnerRecordsOfType are lazy iterators: their throws happen on ENUMERATION, not on
+            // creation, so the try must wrap the foreach rather than just the assignment, or the clean message
+            // escapes as a generic framework error.
             var seen = new HashSet<FormKey>();
-            // where_source=winner (#233): the match decides on the live WINNER body, fetched via this ONE session
-            // (Option B — one session for every per-match winner fetch, not one per record). Opened only when the
-            // scan streams SCOPED bodies (plugins=); a type=-only scan already yields the winner. Disposed with the
-            // scan. W2: the `->` link-step predicate shares the session for its target-body fetches.
+            // Under where_source=winner the match decides on the live winner body, fetched via this ONE session —
+            // one session for every per-match winner fetch, not one per record. Opened only when the scan streams
+            // scoped bodies, since a type=-only scan already yields the winner, and disposed with the scan. The
+            // `->` link-step predicate shares the session for its target-body fetches.
             LoadOrderResolver.OverlaySession? winnerSession =
                 (whereWinnerActive || predicate is { NeedsBodyResolution: true }) ? resolver.OpenSession() : null;
-            // W2 resolution binding: the `winner` provenance term and the `->` link step read the view's
-            // RESOLUTION (winner name; a target's winner body) — bound off the SAME captured view the scan
-            // answers from, so a predicate can never judge against a different build than the rows (the
-            // Capture() discipline extended to the predicate layer).
+            // The `winner` provenance term and the `->` link step read the view's resolution — a winner name, or a
+            // target's winner body — bound off the SAME captured view the scan answers from, so a predicate can
+            // never judge against a different build than the rows.
             predicate?.BindResolution(
                 fk => view.ResolveWinner(fk)?.WinnerPlugin,
                 predicate.NeedsBodyResolution
@@ -3846,29 +3843,27 @@ public sealed class LoadOrderService : IDisposable
                     : null);
             try
             {
-                // Carry the SOURCE plugin per record so the render shows the body the scan filtered (not the winner):
-                // plugins= → the scoped plugin's filename; type= → null (⇒ the winner, the WinnerRecordsOfType body).
+                // Carry the source plugin per record so the render shows the body the scan filtered rather than the
+                // winner: plugins= gives the scoped plugin's filename, type= gives null, meaning the winner.
                 IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string? source)> stream =
                     hasPlugins ? view.RecordsIn(plugins!, types).Select(x => (fk: x.fk, depth: x.depth, body: x.body, source: (string?)x.source))  // the scoped plugin's own body
                                : view.WinnerRecordsOfType(types!).Select(x => (fk: x.fk, depth: x.depth, body: x.body, source: (string?)null));    // the load-order winner's body
                 foreach (var (fk, depth, body, source) in stream)
                 {
-                    if (setFilter is not null && !setFilter.Contains(fk)) continue;   // formids×scan: the identity intersection, cheapest first
+                    if (setFilter is not null && !setFilter.Contains(fk)) continue;   // the identity intersection, cheapest first
                     if (conflictsOnly && depth <= 1) continue;
-                    // defined_in=: keep only records whose ORIGIN FormKey is a scoped plugin (a DEFINITION here, not
-                    // an override this plugin merely touches). A FormKey test — no body needed, so it runs before the try.
+                    // defined_in= keeps only records whose origin FormKey is a scoped plugin — a definition, not an
+                    // override this plugin merely touches. A FormKey test needing no body, so it runs before the try.
                     if (definedIn && !scopedModKeys!.Contains(fk.ModKey)) continue;
-                    // where_source=winner de-dups UP FRONT: the winner verdict is FK-intrinsic, so any scoped copy of
-                    // a FK gives the same answer — resolve the winner ONCE, and the FIRST scoped copy in stream order
-                    // supplies the display source for winner_fields=false. (The scoped path keeps its de-dup AFTER the
-                    // filters, so its source is the first scoped plugin whose OWN body passed — a different rule, below.)
+                    // where_source=winner de-dups up front: the winner verdict is FormKey-intrinsic, so any scoped
+                    // copy gives the same answer, and the first scoped copy in stream order supplies the display
+                    // source. The scoped path instead de-dups AFTER the filters — a different rule, below.
                     if (whereWinnerActive && !seen.Add(fk)) continue;
-                    // PER-RECORD FAULT ISOLATION (HCBR-2026-06-09-03): the body tests lazily parse subrecord
-                    // content (references= walks Effects etc. via Mutagen's EnumerateFormLinks), so ONE record
-                    // Mutagen can't parse used to abort the WHOLE call as an opaque transport error — the
-                    // scan-level twin of the PKCU index-build fix. Such a record is excluded and ACCOUNTED in
-                    // the response (never a silent skip, never a guessed match — Q3). The winner re-fetch below
-                    // is inside the try too, so a winner Mutagen can't parse is accounted the same way.
+                    // Per-record fault isolation: the body tests lazily parse subrecord content, so one record
+                    // Mutagen cannot parse would otherwise abort the whole call as an opaque transport error. Such a
+                    // record is excluded and accounted for in the response, never silently skipped and never guessed
+                    // as a match. The winner re-fetch below is inside the try too, so an unparseable winner is
+                    // accounted the same way.
                     try
                     {
                         // The body the FILTERS decide on: the live winner (where_source=winner) or the streamed body.
@@ -3876,7 +3871,7 @@ public sealed class LoadOrderService : IDisposable
                         if (whereWinnerActive)
                         {
                             var w = view.ResolveWinner(fk);
-                            if (w is null) continue;                              // FK came from the order — winner must exist (defensive)
+                            if (w is null) continue;                              // the key came from the order, so a winner must exist; defensive
                             var wb = view.GetRecord(winnerSession!, w.Value.WinnerPlugin, fk);
                             if (wb is null)
                             {
@@ -3887,25 +3882,22 @@ public sealed class LoadOrderService : IDisposable
                             }
                             filterBody = wb;
                         }
-                        // DELETED records carry no body to scan (#276; the rule + its full rationale now live in
-                        // DeletedRecordRule, shared with check_errors and the compact/merge scan — #279): the
-                        // CONTENT filters cannot match one, so exclude it as a clean non-match here, before the
-                        // scan touches its body — which, on the references= arm, is also what stops the reported
-                        // crash on an engine-authored deleted record's residual body (the where= arm's leaf read
-                        // isolates its own faults, so it is excluded on the semantic ground alone — see
-                        // DeletedRecordRule). editorid_contains= stays live: EditorID reads from the
-                        // record's early EDID subrecord, before the deep body parse that can throw.
-                        // W2 (PR #307 review): the guard keys on whether the predicates actually READ body
-                        // content — the header/resolution-only terms (`editorid`, `winner`, formid membership)
-                        // must see deleted records exactly as editorid_contains= below deliberately does.
+                        // Deleted records carry no body to scan (the rule lives in DeletedRecordRule, shared with the
+                        // error check and the compact/merge scan): the content filters cannot match one, so it is
+                        // excluded as a clean non-match before the scan touches its body — which on the references=
+                        // arm is also what avoids crashing on an engine-authored deleted record's leftover body.
+                        // editorid_contains= stays live, because EditorID reads from the record's early EDID
+                        // subrecord, before the deep body parse that can throw. The check keys on whether the
+                        // predicates actually READ body content: the header- and resolution-only terms must see
+                        // deleted records exactly as editorid_contains= does.
                         if (DeletedRecordRule.HasNoLiveBody(filterBody)
                             && (refSet is not null || predicate is { NeedsLiveBody: true })) continue;
                         if (!string.IsNullOrEmpty(editoridContains)
                             && (filterBody.EditorID is null || filterBody.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
                             continue;
-                        // references= (LIST, OR semantics): a record matches if it links to ANY target. One
-                        // EnumerateFormLinks pass collects the intersection so a multi-target lookup can be un-merged
-                        // (matches=<which target(s)>) — the same single pass, membership-in-a-set instead of ==.
+                        // references= is a list with OR semantics: a record matches if it links to ANY target. One
+                        // EnumerateFormLinks pass collects the intersection, so a multi-target lookup can be
+                        // un-merged into which targets each row hit.
                         List<FormKey>? hitTargets = null;
                         if (refSet is not null)
                         {
@@ -3913,34 +3905,34 @@ public sealed class LoadOrderService : IDisposable
                             var hitSet = new HashSet<FormKey>();
                             foreach (var l in flc.EnumerateFormLinks()) if (refSet.Contains(l.FormKey)) hitSet.Add(l.FormKey);
                             if (hitSet.Count == 0) continue;
-                            if (multiTarget && groups is null) hitTargets = references!.Where(hitSet.Contains).Distinct().ToList();   // in input order; only the match-line path consumes it (group_by ignores it)
+                            if (multiTarget && groups is null) hitTargets = references!.Where(hitSet.Contains).Distinct().ToList();   // in input order; only the match-line path consumes it
                         }
-                        if (predicate is not null && !predicate.Matches(filterBody))    // value filter — same in-hand body (winner under where_source=winner), no extra fetch
+                        if (predicate is not null && !predicate.Matches(filterBody))    // value filter on the same in-hand body, no extra fetch
                         {
-                            if (predicate.FatalError is not null) break;          // numeric op vs non-numeric field — abort + surface (Q3)
+                            if (predicate.FatalError is not null) break;          // e.g. a numeric op against a non-numeric field — abort and surface it
                             continue;
                         }
-                        // De-dup (a FK can recur across scoped plugins). Under the SCOPED path this runs AFTER the
-                        // filters, so under plugins=[A,B] the source recorded for a shared FK is the FIRST scoped plugin
-                        // (in plugins= array order) whose body PASSED the filters. Under where_source=winner the FK was
-                        // already de-duped up front (the winner verdict is FK-intrinsic), so this is a no-op there.
+                        // De-dup, since a key can recur across scoped plugins. On the scoped path this runs AFTER the
+                        // filters, so the source recorded for a shared key is the first scoped plugin, in plugins=
+                        // order, whose own body passed. Under where_source=winner the key was already de-duped up
+                        // front, so this is a no-op there.
                         if (!whereWinnerActive && !seen.Add(fk)) continue;
                         total++;
-                        if (groups is not null)                                   // group_by=: aggregate over ALL matches, no keys/prefill, no limit cap
+                        if (groups is not null)                                   // group_by=: aggregate over all matches, no keys or prefill, no limit cap
                         {
                             var gk = groupBy == "type" ? RecordNaming.StripOverlay(filterBody.GetType().Name)
                                    : groupBy == "defined_in" ? fk.ModKey.FileName.ToString()
                                    : view.ResolveWinner(fk)?.WinnerPlugin ?? "?";  // "winner"
                             groups[gk] = groups.GetValueOrDefault(gk) + 1;
                         }
-                        else if (total > offset && keys.Count < limit)            // in-hand body → fill the summary for free (offset= skips the first N matches — total already counts this one)
+                        else if (total > offset && keys.Count < limit)            // in-hand body → fill the summary for free; offset= skips the first N matches, and total already counts this one
                         {
                             keys.Add(fk);
-                            sources.Add(source);                                  // scoped plugin (the winner_fields=false display body); null ⇒ winner. where_source=winner keeps the scoped source so 'match on winner, show origin' works.
-                            matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);   // parallel to keys (multi-target only)
-                            // winner= off the SAME view the scan runs on — a rebuild landing mid-scan can no longer
-                            // make a row's winner reflect a newer build than the depth beside it (HCBR-2026-06-11-02).
-                            // Summary type/editorid come from filterBody (the body that MATCHED — the winner under where_source=winner).
+                            sources.Add(source);                                  // the scoped plugin's display body; null means the winner. where_source=winner keeps the scoped source so "match on winner, show origin" works.
+                            matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);   // parallel to keys, multi-target only
+                            // The winner comes off the SAME view the scan runs on, so a rebuild landing mid-scan
+                            // cannot make a row's winner reflect a newer build than the depth beside it. Type and
+                            // editorid come from the body that MATCHED.
                             prefilled!.Add(new RecordSummary(fk, RecordNaming.StripOverlay(filterBody.GetType().Name), filterBody.EditorID,
                                                              view.ResolveWinner(fk)?.WinnerPlugin ?? "?", depth, null));
                         }
@@ -3954,49 +3946,49 @@ public sealed class LoadOrderService : IDisposable
                 }
             }
             catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); } // plugin not in order / unknown type
-            // Anything else escaping the stream itself still gets a NAMED failure — the MCP layer's generic
-            // "An error occurred invoking …" must never be the terminal diagnostic for a data failure (Q3).
+            // Anything else escaping the stream still gets a named failure: the MCP layer's generic "An error
+            // occurred invoking …" must never be the terminal diagnostic for a data failure.
             catch (Exception ex) { return CrossQueryOutcome.Fail($"scan aborted: {ex.GetType().Name}: {ex.Message}"); }
             finally { winnerSession?.Dispose(); }
-            if (predicate?.FatalError is not null) return CrossQueryOutcome.Fail(predicate.FatalError); // typed predicate error — fail fast, named (Q3)
+            if (predicate?.FatalError is not null) return CrossQueryOutcome.Fail(predicate.FatalError); // typed predicate error — fail fast, named
         }
-        else                                                                  // conflicts_only alone — index keys only; NO body fetch
+        else                                                                  // conflicts_only alone — index keys only, no body fetch
         {
-            // Summaries here would each need a winner-body fetch; leaving them to the renderer (which stops at
-            // max_chars) means a big limit with a small max_chars doesn't fetch bodies it will never show.
-            // group_by= here can only be winner/defined_in (type was refused up front — no body to name the type).
+            // Summaries here would each need a winner-body fetch; leaving them to the renderer, which stops at
+            // max_chars, means a big limit with a small max_chars does not fetch bodies it will never show.
+            // group_by= here can only be winner or defined_in — type was refused up front, with no body to name it.
             foreach (var fk in view.ConflictKeys())
             {
-                if (setFilter is not null && !setFilter.Contains(fk)) continue;   // formids×scan on the index-only branch
+                if (setFilter is not null && !setFilter.Contains(fk)) continue;   // the identity intersection on the index-only branch
                 total++;
                 if (groups is not null)
                 {
-                    // group_by=winner here does an index-level ResolveWinner PER conflict key — a resolve, not a body
-                    // parse, and unavoidable for the aggregate (the non-group path defers winner= to the renderer, which
-                    // only fetches the capped rows). Intentional under accuracy-over-perf; don't "optimize" it away.
+                    // group_by=winner here does an index-level ResolveWinner per conflict key — a resolve, not a body
+                    // parse, and unavoidable for the aggregate, since the non-group path defers the winner to the
+                    // renderer, which only fetches the capped rows. Deliberate: accuracy over speed.
                     var gk = groupBy == "defined_in" ? fk.ModKey.FileName.ToString() : view.ResolveWinner(fk)?.WinnerPlugin ?? "?";
                     groups[gk] = groups.GetValueOrDefault(gk) + 1;
                 }
                 else if (total > offset && keys.Count < limit) { keys.Add(fk); sources.Add(null); }   // no scoped plugin → display the winner; offset= skips the first N
             }
         }
-        // Unscannable accounting (Q3): name the count, the first few offenders with the reason, and what a caller can
-        // still do — these records are invisible to the body filters, not "0 matches" silence. Two causes flow here:
-        // Mutagen could not parse a body, OR (under where_source=winner) a winner body the index named did not
-        // re-resolve on fetch — the note must not mislabel the second as a parse failure. "instance(s)" and the
-        // per-copy skip because under plugins= a FormKey is tested once per scoped plugin: a failing copy is skipped
-        // where it occurs while another plugin's copy of the same FK can still match (PR #27 review).
+        // Unscannable accounting: name the count, the first few offenders with the reason, and what a caller can
+        // still do — these records are invisible to the body filters, which is not the same as "0 matches". Two
+        // causes flow here: Mutagen could not parse a body, or under where_source=winner a winner body the index
+        // named did not re-resolve on fetch, and the note must not mislabel the second as a parse failure. It says
+        // "instance(s)" and "where the failure occurred" because under plugins= a FormKey is tested once per scoped
+        // plugin, so a failing copy is skipped where it occurs while another plugin's copy can still match.
         string? scanNote = unscannable == 0 ? null
             : $"note: {unscannable} record instance(s) could not be scanned and were skipped where the failure occurred "
               + "(Mutagen could not parse their content, or — under where_source=winner — a winner body the index named did not re-resolve on fetch; another plugin's copy of the same FormKey can still match): "
               + string.Join("; ", unscannableSamples)
               + (unscannable > unscannableSamples.Count ? $"; and {unscannable - unscannableSamples.Count} more" : "")
               + $". Inspect one with {ToolNames.Records} formids=[the FormID] (per-field fault isolation applies).";
-        // group_by= aggregation isn't limit-capped (cheap), so Capped is a match-line concern only.
+        // group_by= aggregation is not limit-capped, so Capped is a match-line concern only.
         var groupRows = groups?.Select(kv => new GroupCount(kv.Key, kv.Value))
                               .OrderByDescending(g => g.Count).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
-        // Capped = matches exist BEYOND the returned window (total > offset + rows) — the matches offset= skipped
-        // were asked to be skipped, so they don't make a full window read as capped.
+        // Capped means matches exist BEYOND the returned window: the matches offset= skipped were asked to be
+        // skipped, so they must not make a full window read as capped.
         return new CrossQueryOutcome(keys, prefilled, total, groups is null && total > offset + keys.Count, null,
                                      predicate?.AccountingNote(), sources, scanNote,
                                      matched, groupRows, groupBy, definedIn ? string.Join(", ", plugins!) : null, offset,
@@ -4004,15 +3996,15 @@ public sealed class LoadOrderService : IDisposable
                { Epoch = view.Epoch, Pin = new ViewPin(resolver, view) };
     }
 
-    // ---- W2 PR 2: the OFF-ORDER scan completed (the read_plugin_file reach, full grammar) ---------------
+    // ---- the off-order scan ----------------------------------------------------------------------------
 
-    /// <summary>The off-order scan, completed (W2 PR 2): the FILE's own records are the universe, with the same
-    /// filter grammar the in-order scan runs — multi-type, the full where= predicate set (its `winner` and `-&gt;`
-    /// terms bound to the ACTIVE view's resolution — declared: provenance is an active-order question even when
-    /// the bodies come from the file), references=, a plugins= scope (keep file records those ACTIVE plugins also
-    /// touch), defined_in (records the file itself DEFINES), group_by, exact windows, artifact-fed identity sets.
-    /// Returns the same outcome shape the in-order scan renders, sources naming the file on every row; the
-    /// caller declares the file's content outside the epoch fingerprint (the standing coverage rule).</summary>
+    /// <summary>The off-order scan: the file's own records are the universe, with the same filter grammar the
+    /// in-order scan runs — multi-type, the full where= predicate set, references=, a plugins= scope keeping file
+    /// records those active plugins also touch, defined_in for records the file itself defines, group_by, windows,
+    /// and artifact-fed identity sets. The predicate's `winner` and `-&gt;` terms bind to the ACTIVE view's
+    /// resolution: provenance is an active-order question even when the bodies come from the file. Returns the same
+    /// outcome shape the in-order scan renders, with sources naming the file on every row; the caller declares the
+    /// file's content outside the epoch fingerprint.</summary>
     public CrossQueryOutcome OffOrderQuery(PoleInfo pole, IReadOnlyList<string>? typeSet,
         IReadOnlyList<FormKey>? references, string? editoridContains, IReadOnlyList<string>? scopePlugins,
         bool definedIn, IReadOnlyList<string>? where, int limit, string? groupBy, int offset,
@@ -4094,9 +4086,9 @@ public sealed class LoadOrderService : IDisposable
         {
             if (predicate is not null)
             {
-                // The provenance/link terms read the ACTIVE order's resolution — a `winner` term over an
-                // off-order file asks "who wins this key in MY order", and a `->` target resolves to its live
-                // winner body. Declared semantics, same binding discipline as the in-order scan.
+                // The provenance and link terms read the ACTIVE order's resolution: a `winner` term over an
+                // off-order file asks who wins this key in the active order, and a `->` target resolves to its live
+                // winner body. Same binding discipline as the in-order scan.
                 session = (predicate.NeedsBodyResolution ? resolver.OpenSession() : null);
                 var sess = session;
                 predicate.BindResolution(
@@ -4185,13 +4177,13 @@ public sealed class LoadOrderService : IDisposable
                { Epoch = view.Epoch, Pin = new ViewPin(resolver, view) };
     }
 
-    // ---- effect-chain resolver (housecarl_effect_chain — gap 2026-06-08) --------------------------------
+    // ---- effect-chain resolver -------------------------------------------------------------------------
 
-    /// <summary>Resolve which SPEL/ENCH/ALCH/SCRL/INGR apply a MagicEffect, each with the magnitude/area/duration from
-    /// the MATCHING effect entry (housecarl_effect_chain). Thin wiring over the core: resolve the optional type-narrow
-    /// (each must be one of the five effect-bearing records — a non-member is refused loud, never a silent empty scan),
-    /// then drive <see cref="EffectChain.Resolve"/> (Q3 typed-match gate → winner-body scan). All the logic + the Q3
-    /// teeth live in core so the self-contained guard drives this same path on synthetic plugins.</summary>
+    /// <summary>Resolve which SPEL/ENCH/ALCH/SCRL/INGR apply a MagicEffect, each with the magnitude, area and
+    /// duration from the matching effect entry. Thin wiring over the core: resolve the optional type-narrow — each
+    /// must be one of the five effect-bearing records, and a non-member is refused loudly rather than yielding a
+    /// silent empty scan — then drive <see cref="EffectChain.Resolve"/>. All the logic lives in the core so a test
+    /// can drive this same path on synthetic plugins.</summary>
     public EffectChainResult ResolveEffectChain(FormKey mgef, IReadOnlyList<string>? typesNarrow, int limit)
     {
         IReadOnlyList<Type> scope;
@@ -4201,7 +4193,7 @@ public sealed class LoadOrderService : IDisposable
             foreach (var ts in typesNarrow)
             {
                 IReadOnlyList<Type> resolved;
-                try { resolved = ResolveTypeFilter(ts.Trim()); }              // unknown type → named Q3 error (same as cross_plugin_query)
+                try { resolved = ResolveTypeFilter(ts.Trim()); }              // unknown type → named error, as on the scan
                 catch (ArgumentException ex) { return EffectChainResult.Fail(ex.Message); }
                 foreach (var t in resolved)
                 {
@@ -4219,20 +4211,20 @@ public sealed class LoadOrderService : IDisposable
         return EffectChain.Resolve(Resolver, mgef, scope, limit);
     }
 
-    // ---- integrity sweep (housecarl_check_errors — audit A1) --------------------------------------------
+    // ---- integrity sweep -------------------------------------------------------------------------------
 
-    /// <summary>Sweep the active order (or the given <paramref name="plugins"/> scope) for record integrity errors —
-    /// dangling FormLinks, missing masters, and parse failures (housecarl_check_errors). Thin wiring over the
-    /// core <see cref="ErrorCheck.Run"/>, which holds all the scan logic + Q3 teeth so the self-contained guard drives
-    /// this same path over synthetic plugins. Read-only; composes existing primitives, no new dependency.
-    /// <para>A scope name NOT in the active order is resolved on disk by the shared plugin-locate contract
-    /// (<see cref="LocatePluginFileOnDisk"/> — enabled, disabled, AND unlisted mod folders) and swept OFF-ORDER: its
-    /// own overlay, links resolved against the active order + the file's own records. This is the pre-enable verify
-    /// lane (HCBR-2026-07-14-02 gap 3) — the pre-ship dangling-ref sweep of a patch houseCARL just wrote, BEFORE the
-    /// MO2 refresh puts it in plugins.txt. A name found nowhere, or in several folders, still fails loud (Q3).</para>
-    /// <para>#282 — the record-scope / class-filter / counts-only knobs are parsed here (a bad FormID, an unknown record
-    /// type, or an unrecognized finding class refuses the call BEFORE any sweep runs) and handed to the core as typed
-    /// values, so the self-contained guard drives the same narrowing the tool does.</para></summary>
+    /// <summary>Sweep the active order, or the given <paramref name="plugins"/> scope, for record integrity errors:
+    /// dangling FormLinks, missing masters and parse failures. Thin wiring over the core
+    /// <see cref="ErrorCheck.Run"/>, which holds all the scan logic so a test can drive this same path over
+    /// synthetic plugins. Read-only.
+    /// <para>A scope name NOT in the active order is resolved on disk by the shared plugin-locate contract —
+    /// enabled, disabled and unlisted mod folders — and swept off-order against its own overlay, with links resolved
+    /// against the active order plus the file's own records. That is the pre-enable verify lane: the dangling-ref
+    /// sweep of a patch houseCARL just wrote, before an MO2 refresh puts it in plugins.txt. A name found nowhere, or
+    /// in several folders, still fails loudly.</para>
+    /// <para>The record-scope, class-filter and counts-only knobs are parsed here — a bad FormID, an unknown record
+    /// type or an unrecognized finding class refuses the call before any sweep runs — and handed to the core as
+    /// typed values.</para></summary>
     public ErrorCheckResult CheckErrors(IReadOnlyList<string>? plugins, int limit,
                                         IReadOnlyList<string>? formids = null, string? editoridContains = null,
                                         string? type = null, IReadOnlyList<string>? findings = null,
@@ -4243,9 +4235,9 @@ public sealed class LoadOrderService : IDisposable
         if (!SweepFindings.TryParseErrorClasses(findings, out var classes, out var classErr))
             return ErrorCheckResult.Fail(classErr!);
 
-        // ONE resolver + ONE view for the whole call (PR #305 re-review): the scope gate, the refusal stamps, and
-        // the sweep below all name the same build — passing the PROPERTY down would let the core re-gate/refresh
-        // and capture an adjacent build, making a refusal stamp N while the sweep stamped N+1.
+        // One resolver and one view for the whole call: the scope check, the refusal stamps and the sweep below all
+        // name the same build. Passing the property down would let the core re-gate and capture an adjacent build,
+        // so a refusal could stamp one build while the sweep stamped the next.
         var resolver = Resolver;
         var viewAll = resolver.Capture();
 
