@@ -113,9 +113,12 @@ jobs:
       # -PluginTreeOnly assembles dist/housecarl (skills + plugin files) and skips the server
       # publish, setup exe and zip — none of which the validator reads.
       - name: Assemble the plugin tree
+        id: assemble
         if: ${{ !cancelled() }}
         run: ./scripts/build-plugin.ps1 -PluginTreeOnly
 
+      # Skipped when the assembly failed: step 0 wipes dist/, so validating after a failed assemble
+      # would report a missing manifest and bury the real error.
       - name: Validate the plugin package (claude plugin validate --strict)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         run: claude plugin validate ./dist/housecarl --strict
