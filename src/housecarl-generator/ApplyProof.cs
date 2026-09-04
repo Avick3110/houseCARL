@@ -8,20 +8,20 @@ using HousecarlCore;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// MCP §8.4 Beat C build proof — exercise the PUBLIC write cleave (<see cref="WritePatchBuilder.Apply"/>) that the
-/// MCP <c>housecarl_set_field</c> / <c>housecarl_bulk_apply</c> tools call, so the proof transfers to the server BY
-/// CONSTRUCTION (same code path). Five checks, each driven through the cleave against a real, large load order:
+/// Build proof for the PUBLIC write cleave (<see cref="WritePatchBuilder.Apply"/>) that the <c>housecarl_set_field</c>
+/// and <c>housecarl_bulk_apply</c> tools call. It must drive the same code path the tools do, or it proves nothing
+/// about them. Five checks, each against a real, large load order:
 ///
 ///   A — FLAT Set (one weapon's Damage), fresh single-master patch; value reads back; source byte-untouched.
 ///   B — MULTI-edit one patch (two weapons in ONE call) = the bulk_apply shape; both land in one .esp.
-///   C — into=/EXTEND (Aaron's 1.0 requirement): write A's patch, then EXTEND it with a 2nd record; reopen → BOTH
-///       present (the multi-session / handoff lever — file is the state, no server-held accumulation).
+///   C — into=/EXTEND: write A's patch, then EXTEND it with a 2nd record; reopen → BOTH present. The file is the
+///       state; nothing accumulates in the server between calls.
 ///   D — CROSS-MASTER through the cleave (a vanilla leveled list + a cross-master weapon entry) → patch header
 ///       carries ≥2 masters (the cleave routes through the proven multi-master WritePatch).
-///   E — PRE-FLIGHT REJECT: a bad edit refuses the WHOLE call with NO file written (Q3 — no partial patches).
+///   E — PRE-FLIGHT REJECT: a bad edit refuses the WHOLE call with NO file written — no partial patches.
 ///
-/// Every write only ever touches its own output .esp; the vanilla masters + referenced mods are SHA-checked
-/// unchanged. Patches are left in write-output/apply-proof/ for Aaron to open in xEdit.
+/// Every write only ever touches its own output .esp; the vanilla masters and referenced mods are SHA-checked
+/// unchanged. Patches are left in write-output/apply-proof/ to open in xEdit.
 ///
 /// Run: dotnet run --project src/housecarl-generator apply-proof [maxPlugins]
 /// </summary>
@@ -112,7 +112,7 @@ public static class ApplyProof
                 ok ? $"2 ops, masters [{string.Join(",", o.Masters)}], both-land={YN(both)} src-untouched={YN(srcOk)}" : o.Error ?? ""));
         }
 
-        // ============================== C — into= / EXTEND (Aaron's 1.0 requirement) ==============================
+        // ============================== C — into= / EXTEND ==============================
         {
             var outPath = Path.Combine(outDir, "houseCARL_ApplyProof_C.esp");
             ushort w1 = (ushort)(dmg1 + 9), w2 = (ushort)(dmg2 + 9);

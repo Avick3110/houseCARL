@@ -9,21 +9,19 @@ using HousecarlCore;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// MCP step (Beat C de-risk) — prove the MULTI-MASTER write path BEFORE building set_field/bulk_apply on it.
+/// Prove the MULTI-MASTER write path that set_field/bulk_apply are built on.
 ///
-/// The standalone <c>patch</c> harness opens ONE plugin, so it can only ever hand the serializer one known master
-/// (the "single-master limit"). That was always an artifact of one-plugin-open, not a wall: the write-proof
-/// serializes cross-master refs byte-identical-to-native by handing the writer the FULL master set. This mode
-/// prototypes the real MCP write path and proves the central modding case Aaron named — a MERGE patch:
+/// The standalone <c>patch</c> harness opens ONE plugin, so it can only ever hand the serializer one known master.
+/// That limit is an artifact of opening one plugin, not of the writer: given the FULL master set, cross-master refs
+/// serialize byte-identical to native. This mode builds the central case, a MERGE patch:
 ///
 ///   build the load-order resolver (every plugin held open as an overlay)
 ///   → take a leveled list DEFINED in a vanilla master (so the only cross-master refs are the ones we add)
-///   → MERGE one weapon entry from each of N distinct mods into it (struct-element Add-from-parts, Phase-6 shape)
+///   → MERGE one weapon entry from each of N distinct mods into it (struct-element Add-from-parts)
 ///   → serialize with the resolver's FULL overlay set as known masters (WriteEngine's multi-master WritePatch)
 ///   → emit ONE reviewable .esp whose header lists EVERY referenced master; sources stay byte-untouched (SHA-checked).
 ///
-/// Aaron opens it in xEdit and confirms the masters + the merged entries. This is the empirical gate that turns the
-/// "inherited fail-loud boundary" into a CLOSED capability the write tools then ride.
+/// The output is checked in xEdit by hand for the masters and the merged entries.
 ///
 /// Run: dotnet run --project src/housecarl-generator multimaster-patch [maxPlugins]
 /// </summary>
@@ -96,7 +94,7 @@ public static class MultiMasterProof
         foreach (var it in crossItems) Console.WriteLine($"      + {it}   (adds master {it.ModKey.FileName})");
         Console.WriteLine();
 
-        // ---- BUILD the Add-entry requests (struct-element Add-from-parts — the proven Phase-6 composition shape). ----
+        // ---- BUILD the Add-entry requests (struct-element Add-from-parts). ----
         var reqs = crossItems.Select(it => new WriteRequest
         {
             RecordType = "LeveledItem",
@@ -114,7 +112,7 @@ public static class MultiMasterProof
             }
         }).ToList();
 
-        // ---- PRE-FLIGHT every request (Q3): refuse to write if ANY rejects. ----
+        // ---- PRE-FLIGHT every request: refuse to write if ANY rejects. ----
         var rulebook = CorpusRulebook.Load();
         var rejects = reqs.Select(r => rulebook.Validate(r)).Where(x => x is not null).ToList();
         if (rejects.Count > 0)
@@ -145,7 +143,7 @@ public static class MultiMasterProof
         catch (Exception ex) { Console.Error.WriteLine($"error: could not override {baseFk} — {ex.Message}"); return 1; }
         foreach (var r in reqs) WriteEngine.ApplyVerb(ov, r);
 
-        // ---- WRITE with the FULL known-master set (the multi-master capability). Time it (measure-first). ----
+        // ---- WRITE with the FULL known-master set, timed. ----
         var sww = Stopwatch.StartNew();
         try { WriteEngine.WritePatch(patchMod, session.AllMasters(), outPath); }
         catch (Exception ex)

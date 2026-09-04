@@ -8,22 +8,22 @@ using HousecarlCore;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// Capability-arc remove-record build proof — exercise <see cref="WritePatchBuilder.RemoveRecords"/>, the core the MCP
-/// <c>housecarl_remove_record</c> tool calls, so the proof transfers to the server BY CONSTRUCTION (same code path, the
-/// way <see cref="ApplyProof"/> proves the edit cleave). Each check SEEDS a patch carrying real override(s)
-/// (the records a removal can target), then removes through the core and re-reads from disk:
+/// Build proof for <see cref="WritePatchBuilder.RemoveRecords"/>, the core the <c>housecarl_remove_record</c> tool
+/// calls. It must drive the same code path the tool does, or it proves nothing about it. Each check SEEDS a patch
+/// carrying real override(s) — the only records a removal can target — then removes through the core and re-reads
+/// from disk:
 ///
 ///   R1 — FLAT, selective: a patch carries two weapon overrides; remove ONE → it's gone, the OTHER survives, sources
 ///        byte-untouched (proves selective whole-record removal + the present-check finds carried records).
 ///   R2 — NESTED: a patch carries a nested-group override (a Cell — no flat SkyrimGroup&lt;T&gt;); remove it through the
-///        real into= flow (RemoveRecords re-opens from disk) → gone (the load-bearing nested proof vs a real, large load order).
+///        real into= flow (RemoveRecords re-opens from disk) → gone.
 ///   R3 — CLEAN-MASTERS: a patch carries ONE override (header lists its master[s]); remove it → 0 records AND an empty
-///        master header (the record-level auto-prune — removing the last referencer drops the master, probe Q5).
-///   R4 — REJECT (Q3): remove a FormKey the patch does NOT carry → refused, NOTHING written (the patch byte-unchanged),
-///        the carried record still present (no silent no-op; the present-check refuses loud).
+///        master header — removing the last referencer drops the master.
+///   R4 — REJECT: remove a FormKey the patch does NOT carry → refused, NOTHING written (the patch byte-unchanged),
+///        the carried record still present. No silent no-op; the present-check refuses loud.
 ///
 /// Every original master/mod the seed touched is SHA-checked unchanged. Patches are left in write-output/remove-proof/
-/// for Aaron to open in xEdit.  Run: dotnet run --project src/housecarl-generator remove-proof [maxPlugins]
+/// to open in xEdit.  Run: dotnet run --project src/housecarl-generator remove-proof [maxPlugins]
 /// </summary>
 public static class RemoveProof
 {
@@ -131,9 +131,9 @@ public static class RemoveProof
         }
 
         // ===================== R3 — CLEAN-MASTERS + Skyrim.esm BASELINE (single override → emptied; baseline pinned) =====================
-        // Removing the patch's only record empties it. Mutagen's derivation still STRIPS unreferenced masters (clean-masters)
-        // — but Skyrim.esm is force-included on every write (Aaron 2026-06-02: every plugin must carry it), so an emptied
-        // patch retains exactly [Skyrim.esm], not []. (Non-baseline clean-masters is shown lean in apply-proof's headers.)
+        // Removing the patch's only record empties it. Mutagen's derivation still STRIPS unreferenced masters — but every
+        // plugin must carry Skyrim.esm, which the write force-includes, so an emptied patch retains exactly [Skyrim.esm],
+        // not [].
         {
             var outPath = Path.Combine(outDir, "houseCARL_RemoveProof_R3.esp");
             var shaBefore = ShaNames(nameToPath, fkA.ModKey.FileName);
@@ -155,7 +155,7 @@ public static class RemoveProof
                 $"before: {cBefore} rec / [{string.Join(",", mBefore)}]  ->  after: {cAfter} rec / [{string.Join(",", mAfter)}]  (Skyrim.esm + Update.esm baseline retained)"));
         }
 
-        // ===================== R4 — REJECT not-carried (Q3, no silent no-op, no write) =====================
+        // ===================== R4 — REJECT not-carried (no silent no-op, no write) =====================
         {
             var outPath = Path.Combine(outDir, "houseCARL_RemoveProof_R4.esp");
             var seed = WritePatchBuilder.Apply(resolver, rulebook, new[]
