@@ -45,6 +45,18 @@ jobs:
       - name: Build the whole solution (Release)
         run: dotnet build housecarl.sln --configuration Release
 
+      # The two tracked THIRD-PARTY-NOTICES.txt copies are generated from the server publish output, so a
+      # dependency bump changes what they should say. Nothing else in CI publishes the server, so this step
+      # does it (Release, win-x64, framework-dependent - the same shape build-plugin.ps1 publishes) and
+      # regenerates into memory. The step goes red if either tracked copy differs from what now ships.
+      # It publishes into dist/, which the plugin-tree assembly step below wipes on its way past.
+      - name: Notices — the tracked copies match what ships
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          dotnet publish src/housecarl-mcp -c Release -r win-x64 --self-contained false -o dist/notices-check/server
+          ./scripts/generate-notices.ps1 -PublishDir dist/notices-check/server -Check
+
       # Nearly all CI probes run IN ONE PROCESS via `ci-all` (CI optimization Phase 2A+2B): the big Mutagen
       # assembly loads + JITs once and the schema corpus is reflected once (memoized) instead of ~21x —
       # collapsing ~12 min of per-probe cold starts. The runner runs EVERY probe even if one fails and emits a
