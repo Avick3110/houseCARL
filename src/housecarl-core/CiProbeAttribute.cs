@@ -17,9 +17,9 @@ public sealed class CiProbeAttribute : Attribute
     public string Name { get; }
 
     /// <summary>
-    /// True when CI runs this verb as its OWN workflow step rather than inside <c>ci-all</c>. The one case is
-    /// freshness-capture-guard, whose deferral arm needs a cold process. Standalone verbs are dispatchable and
-    /// counted, but are not roster rows and do not run in <c>ci-all</c>.
+    /// True when CI runs this verb as its OWN workflow step rather than inside <c>ci-all</c> — for a check that
+    /// needs a cold process. Standalone verbs are dispatchable and counted, but are not roster rows and do not run
+    /// in <c>ci-all</c>.
     /// </summary>
     public bool Standalone { get; init; }
 }

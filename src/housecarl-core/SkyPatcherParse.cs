@@ -4,14 +4,14 @@ namespace HousecarlCore;
 
 /// <summary>
 /// Structural parser for a SkyPatcher patch line — the catalog-FREE tokenizer spine of the
-/// SkyPatcher distributor subsystem (plan: dev/plans/SKYPATCHER_DISTRIBUTOR_TOOL_PLAN_2026-07-08.md,
-/// Wave 0a). It turns one line of a <c>Data/SKSE/Plugins/SkyPatcher/&lt;type&gt;/&lt;file&gt;.ini</c>
+/// SkyPatcher distributor subsystem. It turns one line of a
+/// <c>Data/SKSE/Plugins/SkyPatcher/&lt;type&gt;/&lt;file&gt;.ini</c>
 /// into a typed model WITHOUT knowing what any key MEANS. That semantic layer — filter vs operation,
 /// operation shape, field mapping, CLEAN/COLLECTION/HARD tractability — is the <b>catalog</b>, built
-/// on top of this in Wave 0b. Keeping the two apart is deliberate: the tokenizer is pure, universal
+/// on top of this. Keeping the two apart is deliberate: the tokenizer is pure, universal
 /// grammar mechanics and can't drift when the (hand-modeled) catalog changes.
 ///
-/// <para><b>Grammar</b> (from the skypatcher-authoring reference, grammar-core.md §3–4):</para>
+/// <para><b>Grammar</b> (from the skypatcher-authoring reference):</para>
 /// <code>
 ///   line         := ';' comment | blank | patch
 ///   patch        := segment ( ':' segment )*
@@ -24,16 +24,16 @@ namespace HousecarlCore;
 ///   compound     := part ( '~' part )*            (mgefsToAdd=Form~Mag~Dur~Area)
 /// </code>
 ///
-/// <para><b>Address (0a boundary).</b> Only the unambiguous <c>Plugin.esp|FormID</c> form is resolved
+/// <para><b>Address boundary.</b> Only the unambiguous <c>Plugin.esp|FormID</c> form is resolved
 /// here. A bare identifier is left un-addressed because an EditorID (<c>filterByWeapons=IronSword</c>)
 /// and an enum scalar (<c>armorType=heavy</c>) are lexically identical — telling them apart needs the
-/// catalog's knowledge of whether the key is form-valued. So EditorID resolution waits for the Wave-1
-/// overlay engine (the Wave-0b catalog classifies keys; it does not resolve values).</para>
+/// catalog's knowledge of whether the key is form-valued. EditorID resolution therefore belongs to the
+/// overlay engine; the catalog classifies keys, it does not resolve values.</para>
 ///
-/// <para><b>Q3 — no silent failure.</b> A malformed segment (no <c>=</c>, empty key) is captured as a
+/// <para><b>No silent failure.</b> A malformed segment (no <c>=</c>, empty key) is captured as a
 /// loud <see cref="SkyPatcherLine.Note"/> and the segment is still surfaced — never dropped silently.</para>
 ///
-/// <para><b>KNOWN LIMITATION (Wave-1 empirical item).</b> Line splitting on <c>:</c> is naive, matching
+/// <para><b>KNOWN LIMITATION.</b> Line splitting on <c>:</c> is naive, matching
 /// the documented "<c>:</c> separates every segment" — a rename literal that itself contains a colon
 /// (<c>fullName=~Sword: Reforged~</c>) would be over-split. The same applies to the <c>,</c> item split:
 /// a name-literal containing a comma (<c>fullName=~Amulet of Mara, Blessed~</c>) is over-split into two
@@ -49,10 +49,11 @@ public static class SkyPatcherParse
     public static SkyPatcherLine ParseLine(string raw)
     {
         raw ??= "";
-        // A stray U+FEFF (BOM) is treated as whitespace ANYWHERE in the line (even mid-line, when a concatenated fragment lacks a trailing newline - review finding #10): real shipped INIs carry one not only at the
-        // file start but MID-FILE at a line start (Wave-1 crux finding — a BOM'd file concatenated
-        // onto another), and it would otherwise ride into the key. U+FEFF is never a legal key/value
-        // character, so replacing it with a space is lossless (the edge/segment trims absorb it).
+        // A stray U+FEFF (BOM) is treated as whitespace ANYWHERE in the line, including mid-line when a
+        // concatenated fragment lacks a trailing newline: real shipped INIs carry one not only at the file
+        // start but MID-FILE at a line start (a BOM'd file concatenated onto another), and it would
+        // otherwise ride into the key. U+FEFF is never a legal key/value character, so replacing it with a
+        // space is lossless — the edge and segment trims absorb it.
         var trimmed = raw.Replace('\uFEFF', ' ').Trim();
 
         if (trimmed.Length == 0)
@@ -60,7 +61,7 @@ public static class SkyPatcherParse
 
         // Documented behavior: a comment line begins with ';'. (Trailing inline comments are NOT stripped
         // here — SkyPatcher value tokens don't contain ';', but stripping mid-line risks eating a value, so
-        // that stays a Wave-1 empirical question rather than a silent guess.)
+        // it stays unverified rather than a silent guess.)
         if (trimmed[0] == ';')
             return new SkyPatcherLine(raw, SkyPatcherLineKind.Comment, Array.Empty<SkyPatcherSegment>(), null);
 
@@ -68,7 +69,7 @@ public static class SkyPatcherParse
         // '[Vernaccus]' human label above the real lines). It carries no key=value segment and cannot
         // target or mutate a record, so it is INERT — no segments, no note. Without this it parsed as a
         // malformed no-'=' Patch, and the overlay then warned it as a possible unresolved filter AND
-        // counted it (issue #180). A real patch line always leads with a key, never '[', so the whole-line
+        // counted it. A real patch line always leads with a key, never '[', so the whole-line
         // bracket wrap is an unambiguous label. Every downstream consumer keys off Patch, so a Label line
         // is skipped and uncounted everywhere, and its physical position is preserved for later real lines.
         if (trimmed.Length >= 2 && trimmed[0] == '[' && trimmed[^1] == ']')
@@ -115,9 +116,9 @@ public static class SkyPatcherParse
     {
         var lines = new List<SkyPatcherLine>();
         if (string.IsNullOrEmpty(text)) return lines;
-        // A UTF-8 BOM decoded into the text rides into the FIRST line's first key otherwise —
-        // real shipped INIs carry one (Wave-1 crux finding: '﻿' + 'filterByKeywordsOr'
-        // classified Unknown), so it is stripped exactly at position 0, nowhere else.
+        // A UTF-8 BOM decoded into the text otherwise rides into the FIRST line's first key and makes it
+        // classify Unknown — real shipped INIs carry one — so it is stripped exactly at position 0,
+        // nowhere else.
         if (text[0] == '\uFEFF') text = text[1..];
         // Split on any newline flavor; keep empties so line indices track the source file.
         foreach (var raw in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
@@ -170,7 +171,7 @@ public static class SkyPatcherParse
     /// <summary>
     /// Resolve the unambiguous <c>Plugin.esp|FormID</c> address form. Returns null for anything else
     /// (a scalar, an enum value, or a bare EditorID — EditorID vs scalar can't be told apart without
-    /// knowing whether the key is form-valued, so it's deferred to the Wave-1 overlay engine).
+    /// knowing whether the key is form-valued, so it's deferred to the overlay engine).
     /// </summary>
     public static FormAddress? TryParseAddress(string token)
     {
@@ -205,11 +206,11 @@ public enum SkyPatcherLineKind
     /// <summary>An INI-style section/label line — a trimmed line wrapped in '[' … ']' (e.g. a converter's
     /// '[NpcName]' human label). INERT: it carries no key=value operation, so it holds no segments and no
     /// note, and every consumer (which all key off <see cref="Patch"/>) skips it — it is neither a patch
-    /// line nor a malformed one (issue #180). Appended last so the earlier members keep their ordinals.</summary>
+    /// line nor a malformed one. Appended last so the earlier members keep their ordinals.</summary>
     Label,
 }
 
-/// <summary>One parsed SkyPatcher line. <see cref="Note"/> carries any loud parse warning (Q3).</summary>
+/// <summary>One parsed SkyPatcher line. <see cref="Note"/> carries any loud parse warning.</summary>
 public sealed record SkyPatcherLine(
     string Raw,
     SkyPatcherLineKind Kind,
@@ -218,7 +219,7 @@ public sealed record SkyPatcherLine(
 
 /// <summary>
 /// One <c>key=value</c> segment. Whether this is a filter or an operation — and, for operations, its
-/// shape and field mapping — is the catalog's job (Wave 0b); the tokenizer only carries key + values.
+/// shape and field mapping — is the catalog's job; the tokenizer only carries key + values.
 /// <see cref="RawValue"/> is null only for a malformed no-'=' segment.
 /// </summary>
 public sealed record SkyPatcherSegment(
@@ -239,13 +240,13 @@ public sealed record SkyPatcherValue(
     FormAddress? Address);
 
 /// <summary>
-/// A resolved form address. Wave 0a only produces the FormID form (<see cref="Plugin"/> + <see cref="FormId"/>);
-/// <see cref="EditorId"/> is reserved for the Wave-1 overlay engine, which knows which keys are form-valued.
+/// A resolved form address. The tokenizer only produces the FormID form (<see cref="Plugin"/> + <see cref="FormId"/>);
+/// <see cref="EditorId"/> is reserved for the overlay engine, which knows which keys are form-valued.
 /// </summary>
 public sealed record FormAddress(string? Plugin, uint? FormId, string? EditorId)
 {
     /// <summary>True when this is the <c>Plugin.esp|FormID</c> form.</summary>
     public bool IsFormId => Plugin is not null && FormId is not null;
-    /// <summary>True when this addresses a form by EditorID (Wave 0b).</summary>
+    /// <summary>True when this addresses a form by EditorID.</summary>
     public bool IsEditorId => EditorId is not null;
 }

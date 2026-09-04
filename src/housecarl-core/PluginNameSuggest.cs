@@ -2,11 +2,9 @@ namespace HousecarlCore;
 
 /// <summary>
 /// Nearest-plugin-name suggestion for a MISSED plugin lookup — the "did you mean …?" the tool surface appends when a
-/// plugins= / lookup= / FormID-plugin value matches no plugin in the load order (HCBR-2026-06-25 ergonomics note). A
-/// near-miss is an easy slip — an apostrophe dropped ("Sanguines Trade…" for "Sanguine's Trade…"), the MOD FOLDER name
-/// passed where the .esp FILENAME was wanted ("Sanguine's Trade - An Economy Mod" for "…Mod.esp") — and a flat "not in
-/// the load order" used to cost several dead-end calls before the exact filename was found by a broad query. This points
-/// at the nearest real filename(s) instead.
+/// plugins= / lookup= / FormID-plugin value matches no plugin in the load order. The common slips are a dropped
+/// apostrophe ("Sanguines Trade…" for "Sanguine's Trade…") and the MOD FOLDER name passed where the .esp FILENAME was
+/// wanted ("Sanguine's Trade - An Economy Mod" for "…Mod.esp").
 ///
 /// PURE + ALLOCATION-LIGHT and run ONLY on the rare miss path (never hot), so a plain O(query·candidate) Levenshtein over
 /// the whole name list is fine. Ranking, best first:
@@ -14,8 +12,8 @@ namespace HousecarlCore;
 ///   • PREFIX                     (candidate starts with the query, or their extension-stripped stems do) — partial typed name
 ///   • SUBSTRING                  (one contains the other) — a fragment of the real name
 ///   • EDIT DISTANCE within a length-scaled threshold — typos / apostrophe slips
-/// Anything clearing none of these is NOT offered (Q3-adjacent: a wrong "did you mean" is worse than none), and matches
-/// are de-duplicated + capped so the message stays short.
+/// Anything clearing none of these is NOT offered — a wrong "did you mean" is worse than none — and matches are
+/// de-duplicated + capped so the message stays short.
 /// </summary>
 public static class PluginNameSuggest
 {

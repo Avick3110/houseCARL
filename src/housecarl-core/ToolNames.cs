@@ -9,9 +9,7 @@ namespace HousecarlCore;
 /// <para><c>const</c>, not <c>static readonly</c>: these are spliced into attribute arguments, which
 /// must be constant expressions.</para>
 ///
-/// <para>Produced once by <c>scripts/tool-names/</c> -- the one-shot migration record of how this file
-/// and the rewritten call sites were derived. Those scripts are not a maintenance path and are not
-/// re-run. A new tool's constant is added BY HAND, one line; the completeness test holds this set
+/// <para>A new tool's constant is added BY HAND, one line; the completeness test holds this set
 /// against the declared tools and fails until it is.
 /// Rationale: <c>docs/decisions/0004-tool-names-are-compile-time-constants.md</c>.</para>
 /// </summary>

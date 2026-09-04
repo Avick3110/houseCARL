@@ -3,20 +3,19 @@ using Mutagen.Bethesda.Plugins;
 namespace HousecarlCore;
 
 /// <summary>
-/// The SkyPatcher INI-vs-INI CONFLICT detector (Wave 2 of the distributor subsystem; plan
-/// dev/plans/SKYPATCHER_DISTRIBUTOR_TOOL_PLAN_2026-07-08.md §3.2.4): group SET-class operations by
+/// The SkyPatcher INI-vs-INI CONFLICT detector: group SET-class operations by
 /// (target record, target field) across one type folder's ordered, game-visible line union and flag
 /// the places two files write the SAME field of the SAME target with DIFFERENT values — the
-/// later-sorted file wins (grammar §2 "Conflict resolution"), which is exactly the collision class a
-/// modder can't see without reading every INI.
+/// later-sorted file wins, which is exactly the collision class a modder can't see without reading
+/// every INI.
 ///
-/// <para><b>Report-only (locked v1 call, plan §8).</b> The detector names the collision, the entries
-/// in apply order, and the winner; WHICH value should win is the judgment half that stays with the
-/// agent — a tool that auto-decides merges would be a silent-wrong-answer machine (Q3).</para>
+/// <para><b>Report-only.</b> The detector names the collision, the entries in apply order, and the
+/// winner; WHICH value should win stays with the agent — a tool that auto-decided merges would be
+/// returning silently wrong answers.</para>
 ///
 /// <para><b>What counts as a conflict.</b> Only SET-class semantics (a literal last-write-wins field
 /// write: set / self-copy / vector-component / colour-channel / model path / flagBool / dict-set /
-/// Teaches). Add/remove/mult/collection ops ACCUMULATE by design (grammar §2) and are not conflicts;
+/// Teaches). Add/remove/mult/collection ops ACCUMULATE by design and are not conflicts;
 /// HARD ops have no static value to compare. Targets: the line's PRIMARY filter tokens (FormID
 /// normalized through the one <see cref="SkyPatcherOverlay.TryFormKey"/> recognizer; EditorIDs
 /// case-folded), or BROAD ("every record of the type") when the line has no bare primary filter —
@@ -25,13 +24,13 @@ namespace HousecarlCore;
 /// collision is real then depends on those filters, and the report says so rather than guessing
 /// either way.</para>
 ///
-/// <para><b>Intra-file dead writes (ITM-class; Aaron-widened from the PR #168 review's open call).</b>
+/// <para><b>Intra-file dead writes (ITM-class).</b>
 /// The same pass also reports the SINGLE-file cousin: an earlier SET whose EVERY target a later line
 /// of the same file unconditionally re-covers. The dead write is dead weight REGARDLESS of value —
 /// same-value twice is the purest form (a write that changes nothing), xEdit's ITM smell at the INI
 /// layer — so unlike cross-file conflicts there is no different-values gate. The kill rule is strict
-/// so a DEAD verdict is never hedged (this review-fold shape replaced a looser per-token rule that
-/// could call a still-live line removable): ALL of the write's targets must be re-covered — a
+/// so a DEAD verdict is never hedged; a looser per-token rule would call a still-live line
+/// removable. ALL of the write's targets must be re-covered — a
 /// multi-target line partially overwritten stays live for the rest, and a BROAD write is covered
 /// only by a later broad (a following explicit line leaves it live for every other record) — and
 /// only UNCONDITIONAL later writes kill (a conditional overwriter may not fire, so its victim is not
@@ -143,10 +142,10 @@ public static class SkyPatcherConflicts
             }
         }
 
-        // ---- group by field, then by target token in ONE forward pass (review fold: the per-token
-        //      re-scan was O(tokens × events) — quadratic exactly when most lines target distinct
-        //      records, the common shape). Broad events keep their own group (the broad-vs-broad
-        //      view) AND append to every explicit token's group (broad collides with everything).
+        // ---- group by field, then by target token in ONE forward pass; a per-token re-scan would be
+        //      O(tokens × events), quadratic exactly when most lines target distinct records — the
+        //      common shape. Broad events keep their own group (the broad-vs-broad view) AND append
+        //      to every explicit token's group, because broad collides with everything.
         foreach (var fieldGroup in events.GroupBy(e => e.field, StringComparer.Ordinal))
         {
             var byToken = new Dictionary<string, List<(int seq, string file, int line, string op, string value, bool conditional)>>(StringComparer.OrdinalIgnoreCase);
@@ -166,8 +165,8 @@ public static class SkyPatcherConflicts
         //      re-covers EVERY target of an earlier write. A file's lines are contiguous in apply
         //      order (files apply whole, in filename sort), so same-file coverage needs only that
         //      file's own events — walked BACKWARD with a running token → nearest-unconditional-
-        //      coverer map: O(events × targets-per-event), not the per-token re-scan the conflict
-        //      pass's review fold removed. Only unconditional writes enter the map (a conditional
+        //      coverer map: O(events × targets-per-event), not a per-token re-scan. Only
+        //      unconditional writes enter the map (a conditional
         //      overwriter may not fire, so it kills nothing); broad coverage is tracked separately
         //      (broad covers every explicit token; nothing but broad covers broad). ----
         foreach (var fileFieldGroup in events.GroupBy(e => (e.file, e.field)))
@@ -231,7 +230,7 @@ public static class SkyPatcherConflicts
 
     /// <summary>The one bare-primary test — a filter segment that NAMES records outright (primary
     /// kind, no Excluded/other connective). Shared by the conflict/ITM grouping and the layer no-op
-    /// scan's target collection so the two can't silently diverge (review finding).</summary>
+    /// scan's target collection so the two recognisers can't silently diverge.</summary>
     public static bool IsBarePrimary(SkyPatcherKeyClass cls)
         => cls.Role == SkyPatcherKeyRole.Filter
            && cls.Filter!.Kind == SkyPatcherFilterKind.Primary && (cls.Connective ?? "") == "";
@@ -306,10 +305,9 @@ public static class SkyPatcherConflicts
     };
 
     /// <summary>The accumulating / stateful / collection semantics — order matters but nothing is
-    /// silently dropped, so they are NOT conflicts (grammar §2). Together with
-    /// <see cref="SetClassSemantics"/> this must cover EVERY <see cref="SkyPatcherOpSemantic"/> member —
-    /// the conflicts guard pins that partition, so a future semantic can't silently default to
-    /// "accumulating" and make the detector under-report (review finding).</summary>
+    /// silently dropped, so they are NOT conflicts. Together with <see cref="SetClassSemantics"/>
+    /// this must cover EVERY <see cref="SkyPatcherOpSemantic"/> member; a new semantic left out of
+    /// both defaults to "accumulating" and makes the detector under-report.</summary>
     internal static readonly IReadOnlySet<SkyPatcherOpSemantic> AccumulatingSemantics = new HashSet<SkyPatcherOpSemantic>
     {
         SkyPatcherOpSemantic.Mult, SkyPatcherOpSemantic.AddNumeric, SkyPatcherOpSemantic.FlagsSet,
