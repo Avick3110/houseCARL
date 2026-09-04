@@ -95,7 +95,11 @@ public sealed class MasterDeclarerScanTests : IDisposable
 
     /// <summary>The category's claim is "declares a donor and references none of its records". A plugin the pass
     /// could not read through had no records walked, so it may not be put in that list — it is named, with its
-    /// reason, in the unscannable accounting instead.</summary>
+    /// reason, in the unscannable accounting instead.
+    ///
+    /// <para>The CAUSE is asserted, not merely the presence of an entry: a held-open file is a file that will not
+    /// open, and the report's remedy for that cause is "close the program holding it". Reported as an enumeration
+    /// fault instead, the same plugin is told that closing programs will not help.</para></summary>
     [Fact]
     public void APluginThePassCouldNotReadIsNotCalledADeclarer()
     {
@@ -104,7 +108,9 @@ public sealed class MasterDeclarerScanTests : IDisposable
         var id = Identify(resolver);
 
         Assert.Empty(id.MasterDeclarers!);
-        Assert.NotEmpty(id.UnscannablePlugins!);
+        var bad = Assert.Single(id.UnscannablePlugins!);
+        Assert.Equal(_declarerKey.FileName.String, bad.Plugin, StringComparer.OrdinalIgnoreCase);
+        Assert.Equal(RemapEngine.UnscannableCause.Unopenable, bad.Cause);
     }
 
     /// <summary>Detection is only half of it: the merge report has to NAME the plugin and what it declares, because
