@@ -14,8 +14,10 @@ namespace HousecarlGenerator;
 /// pre-release gate: a single colon-space inside the unquoted description ("...the records themselves:
 /// distributing...") made YAML read a nested mapping, threw, and dropped name+description. It passed PR review
 /// and CI green because CI never validated the plugin PACKAGE — only `claude plugin validate --strict` (a
-/// manual, rig-time step) caught it. This guard turns that manual catch into a by-construction CI gate, so this
-/// class is caught at PR time, not at release (the manual --strict stays as belt-and-suspenders — see INV1).
+/// manual, rig-time step) caught it. CI now runs the real `claude plugin validate --strict` on the assembled
+/// dist/housecarl tree, so this guard is no longer the only cover for that class. It stays for the one thing the
+/// validator cannot see: the Codex umbrella skill ships at the package ROOT (dist/codex), outside the plugin tree
+/// the validator reads, so its frontmatter is guarded here or nowhere.
 ///
 /// Self-contained, in the corpus-hygiene-guard pattern: it reads the REAL shipped artifacts from the repo
 /// (every .claude/skills/*/SKILL.md, the Codex umbrella plugin/codex/housecarl/SKILL.md, and the manifest
@@ -29,8 +31,9 @@ namespace HousecarlGenerator;
 ///          --- ... --- fenced block parses as a YAML mapping with a non-empty `name` and `description`. The parse
 ///          uses a real YAML parser (YamlDotNet) — a FAITHFUL PROXY for, not byte-identical to, the harness's own
 ///          (JS) YAML parser: it reliably catches the colon-space class (RED-proven below), but the residual risk
-///          is a false-NEGATIVE (YamlDotNet accepts what the real loader would drop), which is why the manual
-///          --strict stays the belt-and-suspenders. (RED: the literal colon-space description that dropped
+///          is a false-NEGATIVE (YamlDotNet accepts what the real loader would drop). For the 14 bundled skills
+///          the CI `claude plugin validate --strict` step closes that residual; for the Codex umbrella skill it
+///          does not, and this is the only check. (RED: the literal colon-space description that dropped
 ///          dialogue-authoring; a frontmatter missing `description`; a file with no fence at all.)
 ///   INV2 — THE PLUGIN MANIFEST PARSES + CARRIES name/version. plugin.json is valid JSON with a non-empty
 ///          string name + version (the single source of truth the build stamps). (RED: a manifest missing
