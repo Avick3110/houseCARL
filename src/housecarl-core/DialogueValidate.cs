@@ -106,6 +106,12 @@ public sealed record DialogueValidationReport(
     /// for those input kinds). Empty for a DIAL input and for a gap-free record.</summary>
     public IReadOnlyList<DialogueIssue> InputIssues { get; init; } = Array.Empty<DialogueIssue>();
 
+    /// <summary>Plugins the topic fan-out could not read, one sentence each. NOT a finding about the input record,
+    /// so deliberately not in <see cref="InputIssues"/>: that is the CK-parity channel, and a file lock is not a
+    /// parity failure. It bounds what the report covers — a report carrying one lists fewer topics than the order
+    /// really holds, so no render may state "owns none" over it.</summary>
+    public IReadOnlyList<string> ScanGaps { get; init; } = Array.Empty<string>();
+
     /// <summary>The SEQ staleness/coverage lint, set only for a Start-Game-Enabled QUEST input; null otherwise
     /// (a non-SGE quest, or a DIAL input — a topic isn't a quest, so a .seq isn't its concern).</summary>
     public SeqLintFinding? SeqLint { get; init; }
@@ -331,13 +337,13 @@ public static class DialogueValidate
                 var questGaps = DialogueCkParity.MissingQuestDefaults(quest)
                     .Select(g => GapIssue("Quest", fk, g)).ToList();
                 // A plugin the fan-out could not read may own topics of this quest, so the topic list below it is
-                // incomplete — a Problem, because a clean pass over a short list is the misleading answer here.
-                foreach (var u in unreadable)
-                    questGaps.Add(new DialogueIssue(DialogueIssueSeverity.Problem,
-                        $"{u.Message} Any topic of this quest that plugin owns is missing from this report."));
+                // incomplete. Its own carrier, not the parity channel: a file lock is not a CK-parity failure.
+                var scanGaps = unreadable
+                    .Select(u => $"{u.Message} Any topic of this quest that plugin owns is missing from this report.")
+                    .ToList();
 
                 return new DialogueValidationReport(fk, "quest", quest.EditorID ?? "", win.Value.WinnerPlugin, topics)
-                    { ReadIncomplete = av.ReadIncomplete, SeqLint = seqLint, InputIssues = questGaps };
+                    { ReadIncomplete = av.ReadIncomplete, SeqLint = seqLint, InputIssues = questGaps, ScanGaps = scanGaps };
             }
 
             // DLVW / DLBR inputs: a RECORD-LEVEL CK-parity check — these carry no INFO list, so there is no topic
