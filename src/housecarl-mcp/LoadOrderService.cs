@@ -1645,28 +1645,27 @@ public sealed class LoadOrderService : IDisposable
         return (view.PluginCount, view.RecordCount, view.ConflictCount, view.MaxDepth, view.LoadFailures, view.Epoch);
     }
 
-    /// <summary>Diagnostic snapshot for housecarl_load_order_status: the CURRENT enabled/disabled composition (read fresh
-    /// from the profile text files — cheap, no folder walk, so a just-toggled mod/plugin shows immediately), plus the
-    /// resolver's resolved-plugin count + Q3 warnings from its last build, plus a staleness flag if the profile files
-    /// changed since that build (Q3 — never present a stale picture as current). Forces the lazy resolver build.</summary>
+    /// <summary>Diagnostic snapshot for housecarl_load_order_status: the current enabled/disabled composition, read
+    /// fresh from the profile text files (cheap, no folder walk, so a just-toggled mod or plugin shows immediately),
+    /// plus the resolver's resolved-plugin count and warnings from its last build, plus a staleness flag if the
+    /// profile files changed since that build. Forces the lazy resolver build.</summary>
     public LoadOrderStatusData StatusData()
     {
-        // The view AND the per-build fields beside it (warnings / staleness / profile dir) are snapshotted under ONE
-        // gate hold (2026-06-12 hunt F6): they used to be read outside the gate after Capture() returned, so a
-        // concurrent freshness rebuild landing in that gap could compose one status line from TWO adjacent builds —
-        // the count from one, the warnings beside it from another. The fresh composition stays OUTSIDE the gate by
-        // design (it is documented as always-current and is not judged against the resolver's build).
+        // The view AND the per-build fields beside it (warnings, staleness, profile dir) are snapshotted under ONE gate
+        // hold: read outside the gate, a concurrent freshness rebuild could compose one status line from two adjacent
+        // builds — the count from one, the warnings from another. The fresh composition stays outside the gate
+        // deliberately: it is always current and is not judged against the resolver's build.
         LoadOrderResolver.IndexView view; IReadOnlyList<string> warnings; bool profileChanged; string profileDir; string profileName; string? instanceDir;
         lock (_gate)
         {
-            view = Resolver.Capture();                             // force build/refresh; ONE build for count + exclusions (HCBR-2026-06-11-02)
+            view = Resolver.Capture();                             // force build/refresh; one build for count + exclusions
             warnings = _orderWarnings;
             profileChanged = ProfileFilesChanged();
             profileDir = _profileDir;
-            profileName = _profileName;                            // captured under the SAME gate (hunt F6) — one snapshot, never re-derived at render
+            profileName = _profileName;                            // captured under the same gate — one snapshot, never re-derived at render
             instanceDir = _instanceDir;                            // the configured MO2 instance folder; null ⇒ explicit-paths / unconfigured mode
         }
-        var comp = Mo2LoadOrder.ReadComposition(profileDir);       // FRESH composition (always current)
+        var comp = Mo2LoadOrder.ReadComposition(profileDir);       // fresh composition (always current)
         return new LoadOrderStatusData(
             comp, warnings, view.PluginCount, _maxPlugins, profileChanged, profileDir, profileName, instanceDir, view.ExcludedPlugins,
             view.Epoch);
@@ -1676,15 +1675,15 @@ public sealed class LoadOrderService : IDisposable
     /// lastNexusUpdate fields in every managed mod's meta.ini — with NO network (MO2 already paid the API cost). The
     /// cheap local pre-filter for update triage: it names which mods MO2 already learned a newer version for, plus the
     /// raw fields so the caller can verify online. Enabled/disabled comes from the ACTIVE profile. Config-gated and uses
-    /// the same lazy path derivation as the other reads; a missing mods folder is NAMED, never a silent empty (Q3).
+    /// the same lazy path derivation as the other reads; a missing mods folder is named, never a silent empty.
     /// Only Nexus-linked mods (a real modid) become entries; hand-installed mods / separators are counted, not listed.</summary>
     public UpdateCacheData UpdateCache()
     {
         string modsDir, profileDir; string? instanceDir;
         lock (_gate)
         {
-            if (!_configured) throw NotConfigured();               // fresh install → the tool surfaces the trained prompt
-            EnsurePathsDerived();                                  // instance mode: derive _modsDir/_profileDir from the ini (throws Q3 if unusable)
+            if (!_configured) throw NotConfigured();               // fresh install → the tool surfaces the prompt for the MO2 path
+            EnsurePathsDerived();                                  // instance mode: derive _modsDir/_profileDir from the ini (throws if unusable)
             modsDir = _modsDir; profileDir = _profileDir; instanceDir = _instanceDir;
         }
 
@@ -1725,59 +1724,56 @@ public sealed class LoadOrderService : IDisposable
         return new UpdateCacheData(modsDir, instanceDir, entries, Array.Empty<string>(), untracked);
     }
 
-    /// <summary>Inspect a NAMED profile's enabled/disabled composition WITHOUT switching to it (9.2: "can't inspect an
-    /// inactive profile") — INSTANCE MODE ONLY. The profiles root is the PARENT of the active profile's dir, so MO2's
-    /// base_directory redirect is honored by construction (the active ProfileDir already incorporates it) and a stale
-    /// active-profile dir doesn't matter — every profile is a sibling folder there. Reads with the cheap text-only
-    /// <see cref="Mo2LoadOrder.ReadComposition"/>, NOT <see cref="Mo2LoadOrder.Build"/> (Build walks every enabled mod
-    /// folder — thousands of dir enumerations) — so inspecting an inactive profile never builds the record index and never
-    /// changes the active profile. EXPLICIT-paths mode has no profiles root (the dir is configured arbitrarily), so a named
-    /// read REFUSES LOUD there rather than enumerate a non-profiles folder. A <paramref name="requested"/> name matching no
-    /// profile is reported with the available names (Q3 — never a silently-empty composition); a null/blank name returns
-    /// just the available list (the discovery affordance on the default status). Case-insensitive name match.</summary>
+    /// <summary>Inspect a named profile's enabled/disabled composition without switching to it. Instance mode only.
+    /// The profiles root is the parent of the active profile's dir, so MO2's base_directory redirect is honored by
+    /// construction and every profile is a sibling folder there. Reads with the cheap text-only
+    /// <see cref="Mo2LoadOrder.ReadComposition"/>, not <see cref="Mo2LoadOrder.Build"/>, which walks every enabled mod
+    /// folder — so inspecting an inactive profile never builds the record index and never changes the active profile.
+    /// Explicit-paths mode has no profiles root, so a named read refuses loudly there rather than enumerate an
+    /// arbitrary folder. A <paramref name="requested"/> name matching no profile is reported with the available names,
+    /// never as a silently-empty composition; a null or blank name returns just the available list. Case-insensitive
+    /// name match.</summary>
     public NamedProfileResult NamedProfileComposition(string? requested)
     {
         string? instanceDir; string profilesRoot;
         lock (_gate)
         {
-            if (!_configured) throw NotConfigured();              // fresh install → the tool returns the trained prompt
-            EnsurePathsDerived();                                 // instance mode: derive the ACTIVE ProfileDir (cheap ini read; throws Q3 if the instance is unusable)
+            if (!_configured) throw NotConfigured();              // fresh install → the tool returns the prompt for the MO2 path
+            EnsurePathsDerived();                                 // instance mode: derive the active ProfileDir (cheap ini read; throws if the instance is unusable)
             instanceDir = _instanceDir;
             profilesRoot = instanceDir is null ? "" : (Path.GetDirectoryName(_profileDir.TrimEnd('\\', '/')) ?? "");
         }
 
         var name = string.IsNullOrWhiteSpace(requested) ? null : requested.Trim();
-        if (instanceDir is null)                                  // explicit-paths mode — no profiles root (refuse loud; the tool renders the named-mode-only message)
+        if (instanceDir is null)                                  // explicit-paths mode — no profiles root; the tool renders the instance-mode-only message
             return new NamedProfileResult(InstanceMode: false, AvailableProfiles: Array.Empty<string>(), RequestedName: name, ResolvedProfileDir: null, Composition: null, Warnings: Array.Empty<string>());
 
-        var available = ListProfiles(profilesRoot);              // directory listing OUTSIDE the gate (like StatusData's ReadComposition) — no lock held over I/O
-        if (name is null)                                        // no name → the discovery list only (default-status affordance)
+        var available = ListProfiles(profilesRoot);              // directory listing outside the gate — no lock held over I/O
+        if (name is null)                                        // no name → the discovery list only
             return new NamedProfileResult(true, available, null, null, null, Array.Empty<string>());
 
         var match = available.FirstOrDefault(p => string.Equals(p, name, StringComparison.OrdinalIgnoreCase));
-        if (match is null)                                       // named profile not found → Q3: report it WITH the available names, never an empty composition
+        if (match is null)                                       // named profile not found → report it with the available names, never an empty composition
             return new NamedProfileResult(true, available, name, null, null, Array.Empty<string>());
 
         var dir = Path.Combine(profilesRoot, match);
-        var warnings = new List<string>();                       // surface read notes (e.g. a missing modlist.txt) — so a 0-mods inspected profile isn't silently mistaken for empty (Q3)
+        var warnings = new List<string>();                       // read notes (e.g. a missing modlist.txt), so a 0-mod profile is not mistaken for empty
         var comp = Mo2LoadOrder.ReadComposition(dir, warnings);  // cheap text parse of THAT profile's loadorder/modlist/plugins — no index build, no switch
         return new NamedProfileResult(true, available, match, dir, comp, warnings);
     }
 
-    /// <summary>The USABLE profile names under <paramref name="profilesRoot"/> — each MO2 profile is one subfolder, and a
-    /// profile that's been opened at least once has a loadorder.txt (the same validity signal <see cref="Mo2Instance"/> uses
-    /// for the ACTIVE profile). Folders WITHOUT one — a never-opened profile, or a stray non-profile dir — are skipped, so
-    /// the list never OFFERS (and a name match never LANDS ON) a folder that would read back as an all-zero composition
-    /// (Q3: don't present an uninitialized folder as an empty profile). Sorted case-insensitively. Never throws — an
-    /// unreadable/absent root yields an empty list, so the caller surfaces "no profiles" honestly rather than failing the
-    /// whole status read.</summary>
+    /// <summary>The usable profile names under <paramref name="profilesRoot"/>: each MO2 profile is one subfolder, and
+    /// a profile opened at least once has a loadorder.txt. Folders without one — a never-opened profile, or a stray
+    /// directory — are skipped, so the list never offers a folder that would read back as an all-zero composition.
+    /// Sorted case-insensitively. Never throws: an unreadable or absent root yields an empty list, so the caller says
+    /// "no profiles" rather than failing the whole status read.</summary>
     static IReadOnlyList<string> ListProfiles(string profilesRoot)
     {
         if (profilesRoot.Length == 0) return Array.Empty<string>();
         try
         {
             return Directory.EnumerateDirectories(profilesRoot)
-                .Where(d => File.Exists(Path.Combine(d, "loadorder.txt")))   // an opened MO2 profile has loadorder.txt — skip stray/never-opened folders (Q3, accuracy over the per-folder stat)
+                .Where(d => File.Exists(Path.Combine(d, "loadorder.txt")))   // an opened MO2 profile has loadorder.txt — skip stray/never-opened folders
                 .Select(d => Path.GetFileName(d.TrimEnd('\\', '/')))
                 .Where(n => !string.IsNullOrEmpty(n))
                 .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
@@ -1786,20 +1782,20 @@ public sealed class LoadOrderService : IDisposable
         catch { return Array.Empty<string>(); }                  // root vanished / access denied — empty, not a thrown status read
     }
 
-    /// <summary>True if any of the three MO2 profile files' mtimes DIFFERS from the last build's baseline — the user
-    /// toggled mods/plugins, re-sorted, or RESTORED A BACKUP since, so the resolver's resolved set is behind the live
-    /// profile. Compared by value (!=), like the resolver's own plugin sweep: a restored backup carries an OLDER
-    /// mtime, which an is-newer comparison was blind to (hunt F8). Caller holds <see cref="_gate"/>.</summary>
+    /// <summary>True if any of the three MO2 profile files' mtimes differs from the last build's baseline — the user
+    /// toggled mods or plugins, re-sorted, or restored a backup, so the resolver's set is behind the live profile.
+    /// Compared by value (!=), like the resolver's own plugin sweep: a restored backup carries an OLDER mtime, which
+    /// an is-newer comparison would miss. Caller holds <see cref="_gate"/>.</summary>
     bool ProfileFilesChanged()
     {
-        if (_profileDir.Length == 0) return false;                 // guard seam / not yet derived — nothing to compare against
+        if (_profileDir.Length == 0) return false;                 // test seam / not yet derived — nothing to compare against
         for (int i = 0; i < ProfileFileNames.Length; i++)
             if (SafeMtime(Path.Combine(_profileDir, ProfileFileNames[i])) != _profileMtimes[i]) return true;
         return false;
     }
 
     /// <summary>The three profile files' current mtimes, in <see cref="ProfileFileNames"/> order — the freshness
-    /// baseline a build records. Stat BEFORE the read it baselines (TOCTOU). Caller holds <see cref="_gate"/>.</summary>
+    /// baseline a build records. Stat BEFORE the read it baselines. Caller holds <see cref="_gate"/>.</summary>
     DateTime[] StatProfileFiles()
     {
         var m = new DateTime[ProfileFileNames.Length];
@@ -1812,67 +1808,64 @@ public sealed class LoadOrderService : IDisposable
         try { return File.GetLastWriteTimeUtc(path); } catch { return DateTime.MinValue; }
     }
 
-    /// <summary>To-do #6 — LAZY freshness, run on each tool call once the snapshot exists. Two signals, both cheap-mtime:
-    /// (1) instance mode — did the user SWITCH PROFILES (ModOrganizer.ini changed)? then re-derive the roots + re-resolve
-    /// against the new profile (<see cref="RederiveIfIniChanged"/>). (2) did the ACTIVE profile's files change (a toggle /
-    /// re-sort)? then CHEAPLY re-resolve, paying the ~12s deep re-index ONLY when the resolved order actually changed — so a
-    /// no-plugin toggle, or a change that nets back to the same order, costs ~nothing. NEVER fires BETWEEN tool calls (no
-    /// watcher / no loop), so an actively-sorting/switching user can't make the server thrash. Caller holds <see cref="_gate"/>;
-    /// <see cref="_resolver"/> is non-null.</summary>
+    /// <summary>Lazy freshness, run on each tool call once the snapshot exists. Two mtime signals: in instance mode,
+    /// whether the user switched profiles (ModOrganizer.ini changed), which re-derives the roots and re-resolves
+    /// against the new profile; otherwise whether the active profile's files changed, which re-resolves cheaply and
+    /// pays the deep re-index only when the resolved order actually changed, so a no-plugin toggle costs almost
+    /// nothing. It never fires between tool calls — there is no watcher and no loop — so an actively-sorting user
+    /// cannot make the server thrash. Caller holds <see cref="_gate"/>; <see cref="_resolver"/> is non-null.</summary>
     void RefreshOnProfileChange()
     {
-        if (RederiveIfIniChanged()) return;                      // instance mode: a profile SWITCH already re-derived + re-resolved
+        if (RederiveIfIniChanged()) return;                      // instance mode: a profile switch already re-derived and re-resolved
         if (!ProfileFilesChanged()) return;                      // nothing touched the active profile → nothing to do
         ReResolve();
     }
 
     /// <summary>Instance mode only: if ModOrganizer.ini changed since we last read it AND the user switched profiles (or
     /// moved the game path), re-derive ProfileDir/ModsDir/DataDir + the active profile and re-resolve against the new
-    /// profile. This is how a mid-session profile switch is followed — lazily, on the NEXT tool call, by the SAME cheap-mtime
-    /// model as the per-profile-file check. Returns true iff it handled a switch (caller then skips the per-file check).
+    /// profile. This is how a mid-session profile switch is followed — lazily, on the next tool call, by the same cheap
+    /// mtime model as the per-profile-file check. Returns true iff it handled a switch (caller then skips the per-file check).
     /// Tolerates a transient/invalid read (MO2 mid-write): keeps the last good set and retries next call. Caller holds the gate.</summary>
     bool RederiveIfIniChanged()
     {
         if (_instanceDir is null) return false;                  // explicit/override mode — no ini to watch
         var ini = Mo2Instance.IniPath(_instanceDir);
         if (!File.Exists(ini)) return false;                     // missing/mid-replace → keep last good, retry next call
-        var iniMtime = SafeMtime(ini);                           // stat BEFORE the read (TOCTOU): an ini write during/after TryResolve is caught next call
-        if (iniMtime == _iniMtime) return false;                 // compared by VALUE — a restored-backup ini (OLDER mtime) is a change too (hunt F8)
+        var iniMtime = SafeMtime(ini);                           // stat BEFORE the read: an ini write during/after TryResolve is caught next call
+        if (iniMtime == _iniMtime) return false;                 // compared by value — a restored-backup ini carries an older mtime and is a change too
         if (!Mo2Instance.TryResolve(_instanceDir, out var p) || p is null) return false;   // mid-write/invalid → keep last good, retry next call
         _iniMtime = iniMtime;                                    // advance only on a clean read
         bool switched = !PathEq(p.ProfileDir, _profileDir) || !PathEq(p.ModsDir, _modsDir) || !PathEq(p.DataDir, _dataDir)
                         || !PathEq(p.OverwriteDir, _overwriteDir);
         if (!switched) return false;                             // ini touched but nothing we resolve from changed
         _profileDir = p.ProfileDir; _modsDir = p.ModsDir; _dataDir = p.DataDir; _profileName = p.ProfileName; _overwriteDir = p.OverwriteDir;
-        System.Threading.Interlocked.Increment(ref _gameRootsGen);   // the game roots moved → the runtime memo re-probes (PR #210 review #1)
+        System.Threading.Interlocked.Increment(ref _gameRootsGen);   // the game roots moved → the runtime memo re-probes
         InvalidateClassParents();                                // the mods tree may have moved — drop the cached hierarchy with it
         ReResolve();                                             // a new profile ⇒ the order differs ⇒ ReResolve deep-re-indexes
         return true;
     }
 
-    /// <summary>The cheap re-read against the CURRENT profile roots: re-list the winning plugin paths from the text files,
-    /// and pay the ~12s deep re-index ONLY when the resolved set/order actually changed. Caller holds the gate;
+    /// <summary>The cheap re-read against the current profile roots: re-list the winning plugin paths from the text
+    /// files, and pay the deep re-index only when the resolved set or order actually changed. Caller holds the gate;
     /// <see cref="_resolver"/> is non-null. Used by both freshness signals (active-profile change + profile switch).</summary>
     void ReResolve()
     {
-        var profileMtimes = StatProfileFiles();                  // stat BEFORE the read (TOCTOU): a write during the re-read is caught next call, not missed
+        var profileMtimes = StatProfileFiles();                  // stat BEFORE the read: a write during the re-read is caught next call, not missed
         var order = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir);
         var paths = order.OrderedPaths;
         if (_maxPlugins > 0 && paths.Count > _maxPlugins) paths = paths.Take(_maxPlugins).ToList();
 
         if (paths.Count > 0 && !paths.SequenceEqual(_resolvedPaths, StringComparer.OrdinalIgnoreCase))
         {
-            // The active set/order genuinely changed → re-take the snapshot (the ~12s deep re-index). Build FIRST so the
-            // old snapshot survives if it throws; only then dispose + swap. Guarded on `_resolver is not null`: an
-            // ASSET-only query (Phase 2) can drive this re-resolve before any record index exists — it must NOT pay the
-            // heavy build here (the record getter builds fresh against these paths on its own next call). The record
-            // path always has a non-null _resolver when it reaches here, so its behaviour is unchanged.
-            InvalidateAssetResolver();   // the active-mod/archive set changed → the asset resolver rebuilds lazily
+            // The active set or order genuinely changed → re-take the snapshot (the deep re-index). Build FIRST so the
+            // old snapshot survives if it throws, and only then dispose and swap. Guarded on `_resolver is not null`:
+            // an asset-only query can drive this re-resolve before any record index exists, and must not pay the heavy
+            // build here — the record getter builds fresh against these paths on its own next call.
+            InvalidateAssetResolver();   // the active mod/archive set changed → the asset resolver rebuilds lazily
             if (_resolver is not null)
             {
-                // The rebuild must carry the explainer too, or a profile change (the very act that creates an unticked
-                // plugin) would silently drop every refusal back to the flat not-found — the exact "armed the reported
-                // lane, missed its twin" mistake #270 kept making.
+                // The rebuild must carry the explainer too, or a profile change — the very act that creates an
+                // unticked plugin — would silently drop every refusal back to the flat not-found.
                 var rebuilt = LoadOrderResolver.Build(paths, ExplainPluginAbsence);
                 _resolver.Dispose();
                 _resolver = rebuilt;
@@ -1883,81 +1876,75 @@ public sealed class LoadOrderService : IDisposable
         }
         else if (paths.Count > 0)
         {
-            // The profile was touched but the resolved PLUGIN order is identical (e.g. a no-plugin mod toggled) — no deep
-            // re-index. But a plugin-less toggle still changes the loose roots / active-archive set, so the asset resolver
-            // is dropped to rebuild; just advance the freshness baseline so the staleness flag clears.
+            // The profile was touched but the resolved plugin order is identical (e.g. a no-plugin mod toggled), so no
+            // deep re-index. A plugin-less toggle still changes the loose roots and active-archive set, so the asset
+            // resolver is dropped to rebuild; the freshness baseline advances so the staleness flag clears.
             InvalidateAssetResolver();
             _orderWarnings = order.Warnings;
             _profileMtimes = profileMtimes;
         }
-        // paths.Count == 0 → almost certainly a transient mid-write read; keep the last good snapshot and DON'T advance the
-        // baseline, so the next tool call re-checks and self-recovers once MO2 finishes writing.
+        // paths.Count == 0 is almost certainly a transient mid-write read: keep the last good snapshot and do NOT
+        // advance the baseline, so the next tool call re-checks and recovers once MO2 finishes writing.
     }
 
-    /// <summary>Instance mode: on the first resolver build, read ModOrganizer.ini and derive ProfileDir/ModsDir/DataDir +
-    /// the active profile — throwing a clear Q3 message (naming what's missing) if the configured instance isn't usable.
-    /// Explicit mode (paths already set) and re-derives (paths already non-empty) are no-ops. Stamps the ini-read baseline
-    /// so the profile-switch check has a reference point. Caller holds the gate.</summary>
+    /// <summary>Instance mode: on the first resolver build, read ModOrganizer.ini and derive ProfileDir, ModsDir,
+    /// DataDir and the active profile, throwing a message naming what is missing if the instance is not usable.
+    /// Explicit mode and re-derives (paths already non-empty) are no-ops. Stamps the ini-read baseline so the
+    /// profile-switch check has a reference point. Caller holds the gate.</summary>
     void EnsurePathsDerived()
     {
         if (_instanceDir is null) return;                        // explicit mode — roots configured directly
         if (_profileDir.Length > 0) return;                      // already derived (a prior build / SetInstance); RederiveIfIniChanged owns later updates
-        var iniMtime = SafeMtime(Mo2Instance.IniPath(_instanceDir));   // stat BEFORE the read (TOCTOU): an ini write during/after Resolve is caught next call
-        var p = Mo2Instance.Resolve(_instanceDir);               // throws (Q3) naming the missing piece if not a usable instance
+        var iniMtime = SafeMtime(Mo2Instance.IniPath(_instanceDir));   // stat BEFORE the read: an ini write during/after Resolve is caught next call
+        var p = Mo2Instance.Resolve(_instanceDir);               // throws, naming the missing piece, if this is not a usable instance
         _profileDir = p.ProfileDir; _modsDir = p.ModsDir; _dataDir = p.DataDir; _profileName = p.ProfileName; _overwriteDir = p.OverwriteDir;
         _iniMtime = iniMtime;
-        InvalidateClassParents();                                // _modsDir just gained a value — a cache built before derivation is baseline-only (hunt F1)
+        InvalidateClassParents();                                // _modsDir just gained a value — a cache built before derivation is baseline-only
     }
 
     static bool PathEq(string a, string b) =>
         string.Equals(a.TrimEnd('\\', '/'), b.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Whether houseCARL has an MO2 location to resolve against. False on a fresh install with no config — the
-    /// server still runs; every tool returns the trained prompt until <see cref="SetInstance"/> is called.</summary>
+    /// <summary>Whether houseCARL has an MO2 location to resolve against. False on a fresh install with no config: the
+    /// server still runs, and every tool asks for the path until <see cref="SetInstance"/> is called.</summary>
     public bool IsConfigured { get { lock (_gate) { return _configured; } } }
 
     /// <summary>The active profile name (instance mode: ModOrganizer.ini selected_profile; explicit mode: the profile folder
     /// name); "" when unconfigured. For the status surface.</summary>
     public string ProfileName { get { lock (_gate) { return _profileName; } } }
 
-    /// <summary>The game install directory the load order points at — DataDir's PARENT (DataDir = gamePath\Data), the same
-    /// derivation the asset-discovery path uses — or null when it isn't derivable. The compile rider's auto-detect HINT: the
-    /// CK installs its compiler at &lt;gamePath&gt;\Papyrus Compiler\PapyrusCompiler.exe (6.2). NULL-SAFE by contract — it is
-    /// best-effort plumbing, so a failure here must fall through to the forcing prompt, NEVER throw and abort the compile:
-    /// returns null when unconfigured (no _configured guard would otherwise hit EnsurePathsDerived's NotConfigured throw),
-    /// when the instance is unusable (EnsurePathsDerived throws naming the missing piece — the rider's own config gate
-    /// reports that; here it's just "no hint"), or when DataDir hasn't been derived yet. Takes <see cref="_gate"/> like the
-    /// other derived-root reads; works in explicit mode too (DataDir is set directly, EnsurePathsDerived no-ops).</summary>
+    /// <summary>The game install directory the load order points at — DataDir's parent, since DataDir is
+    /// gamePath\Data — or null when it is not derivable. Used as the compile lane's auto-detect hint, because the CK
+    /// installs its compiler at &lt;gamePath&gt;\Papyrus Compiler\PapyrusCompiler.exe. Null-safe by contract: this is
+    /// best-effort plumbing, so a failure here must fall through to the prompt rather than throw and abort the
+    /// compile. It returns null when unconfigured, when the instance is unusable, or when DataDir has not been derived
+    /// yet. Works in explicit mode too, where DataDir is set directly.</summary>
     public string? GameDirOrNull()
     {
         lock (_gate)
         {
             if (!_configured) return null;
             try { EnsurePathsDerived(); }
-            catch { return null; }                                  // unusable instance → no hint (Q3: the rider's config gate names the real problem)
+            catch { return null; }                                  // unusable instance → no hint; the caller's own config check names the real problem
             return _dataDir.Length > 0 ? Path.GetDirectoryName(_dataDir.TrimEnd('\\', '/')) : null;
         }
     }
 
-    /// <summary>The game directories to search for the Creation Kit's compiler, in PRIORITY ORDER — the compile rider's
-    /// auto-detect hints (6.2). [0] = the load order's OWN game dir (<see cref="GameDirOrNull"/>): correct when MO2 points
-    /// straight at a real, CK-equipped install. Then the GameFinder/Mutagen-located real Skyrim SE install(s): in the common
-    /// MO2 "Stock Game" setup (Aaron 2026-06-17) the load order points at a COPY that has NEITHER the CK nor the vanilla
-    /// script sources — both live in the Steam install — so the located install is the one that actually hits. De-duplicated,
-    /// nulls dropped. BEST-EFFORT + NULL-SAFE end to end: the locator reads the registry/Steam, so a miss or a throw just
-    /// yields fewer hints (the forcing prompt then names what was checked), it NEVER aborts the compile.
-    /// <para>LOAD-BEARING (do NOT "simplify"): the compile rider derives the vanilla SOURCE folder from the RESOLVED
-    /// COMPILER's own game dir (<see cref="CompileTools.BuildImports"/>), NOT from these hints and NOT from the data dir — so
-    /// once the compiler resolves to the Steam install, its sibling Data\Source\Scripts is used, never the Stock Game copy's
-    /// (which usually has none). Keying sources off the data dir would re-break exactly the Stock-Game case this fixes.</para></summary>
-    // InstalledGameRuntime's memo: the resolved exe re-validated by a cheap mtime stat per call; a probed MISS is
-    // session-stable (no re-paying the GameLocator registry/Steam walk per tool call for a permanently-null answer).
-    // _gameRootsGen is the memo's INVALIDATION signal (PR #210 review finding #1): every site that re-points the game
-    // roots (SetInstance, RederiveIfIniChanged's switch) bumps it, and a memo cached at an older generation re-probes —
-    // otherwise an instance switch could keep adjudicating version-LOCKED plugins against the PREVIOUS install's exe
-    // (a silently wrong PASS/FAIL), or stay stuck at a prior instance's null forever. A lock-free Interlocked counter,
-    // NOT a locked reset: the bump sites hold _gate, and taking _runtimeGate under _gate would invert the
-    // _runtimeGate → _gate order InstalledGameRuntime establishes (deadlock), so the roots side never takes _runtimeGate.
+    /// <summary>The game directories to search for the Creation Kit's compiler, in priority order. [0] is the load
+    /// order's own game dir (<see cref="GameDirOrNull"/>), correct when MO2 points straight at a real CK-equipped
+    /// install; then the located real Skyrim SE install, because in an MO2 "Stock Game" setup the load order points at
+    /// a copy that has neither the CK nor the vanilla script sources. De-duplicated, nulls dropped. Best-effort and
+    /// null-safe end to end: the locator reads the registry and Steam, so a miss or a throw yields fewer hints and
+    /// never aborts the compile.
+    /// <para>Load-bearing: the compile lane derives the vanilla SOURCE folder from the RESOLVED COMPILER's own game
+    /// dir, not from these hints and not from the data dir, so once the compiler resolves to the Steam install its
+    /// sibling Data\Source\Scripts is used rather than the Stock Game copy's, which usually has none.</para></summary>
+    // InstalledGameRuntime's memo: the resolved exe is re-validated by a cheap mtime stat per call, and a probed miss
+    // is generation-stable so a permanently-null answer does not re-pay the locator walk on every tool call.
+    // _gameRootsGen is the invalidation signal: every site that re-points the game roots bumps it, and a memo cached at
+    // an older generation re-probes — otherwise an instance switch would keep adjudicating version-locked plugins
+    // against the previous install's exe. A lock-free Interlocked counter, not a locked reset: the bump sites hold
+    // _gate, and taking _runtimeGate under _gate would invert the _runtimeGate-then-_gate order below and deadlock.
     readonly object _runtimeGate = new();
     int _gameRootsGen;
     int _runtimeGen = -1;   // generation the memo was cached at; -1 = never probed
@@ -1965,15 +1952,13 @@ public sealed class LoadOrderService : IDisposable
     DateTime _runtimeExeMtime;
 
     /// <summary>The INSTALLED game runtime version — the dotted file version of the SkyrimSE.exe the load order runs
-    /// (e.g. "1.6.1170.0") — or null when it can't be resolved. This is what turns a version-LOCKED SKSE plugin's
-    /// compat list from "verify against your game version" into PASS/FAIL (native-pairing audit §4d + skse_inventory's
-    /// locked diagnostic). Candidates are exactly <see cref="CompilerGameDirHints"/> — load-order game dir first (an
-    /// MO2 "Stock Game" setup launches THAT copy's exe, and downgrade patchers rewrite it in place, so its version is
-    /// the truth), located install as fallback — one shared derivation, never a re-typed copy. BEST-EFFORT + NULL-SAFE
-    /// end to end: a miss degrades the finding wording, never fails a tool. Memoized: the resolved exe is re-validated
-    /// by mtime per call; a full miss is cached for the session. Residual, documented: if MO2 launches an exe that is
-    /// neither in the load-order game dir nor the located install, the read can describe a different binary — the
-    /// renders name the version they adjudicated against so a wrong baseline is visible, not silent.</summary>
+    /// (e.g. "1.6.1170.0") — or null when it cannot be resolved. This is what turns a version-locked SKSE plugin's
+    /// compat list from "verify against your game version" into PASS/FAIL. Candidates are exactly
+    /// <see cref="CompilerGameDirHints"/>, load-order game dir first: an MO2 "Stock Game" setup launches that copy's
+    /// exe and downgrade patchers rewrite it in place, so its version is the truth. Best-effort and null-safe: a miss
+    /// degrades the finding wording rather than failing a tool. Memoized, with the resolved exe re-validated by mtime
+    /// per call. Known residual: if MO2 launches an exe that is in neither location, this can describe a different
+    /// binary, so the renders name the version they adjudicated against.</summary>
     public string? InstalledGameRuntime()
     {
         lock (_runtimeGate)
@@ -2017,13 +2002,13 @@ public sealed class LoadOrderService : IDisposable
         if (GameDirOrNull() is { } loadOrderGameDir) hints.Add(loadOrderGameDir);
         try
         {
-            // The bundled GameFinder locator (Steam/GOG/Xbox), via Mutagen — finds the REAL Skyrim SE install (App 489830),
-            // where the Creation Kit + sources live, regardless of where MO2's load order points.
+            // The bundled GameFinder locator (Steam/GOG/Xbox) via Mutagen: finds the real Skyrim SE install, where the
+            // Creation Kit and sources live, regardless of where MO2's load order points.
             if (new Mutagen.Bethesda.Installs.GameLocator().TryGetGameDirectory(
                     Mutagen.Bethesda.GameRelease.SkyrimSE, out var dir) && !string.IsNullOrWhiteSpace(dir.Path))
                 hints.Add(NormalizeGameDir(dir.Path));
         }
-        catch { /* GameFinder / registry hiccup → just the load-order hint (best-effort; the prompt still names it) */ }
+        catch { /* locator / registry hiccup → just the load-order hint; the prompt still names it */ }
         return hints.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
@@ -2035,20 +2020,19 @@ public sealed class LoadOrderService : IDisposable
         return Path.GetFileName(t).Equals("Data", StringComparison.OrdinalIgnoreCase) ? (Path.GetDirectoryName(t) ?? t) : t;
     }
 
-    /// <summary>Point houseCARL at an MO2 instance folder — first-run setup AND switching between instances ("jump around").
-    /// VALIDATES it (<see cref="Mo2Instance.Resolve"/> throws a clear Q3 message if it isn't usable — nothing is changed or
-    /// persisted on failure), then re-points the live service (derives the roots + active profile, drops the cached resolver
-    /// so the next tool call rebuilds against the new instance) and PERSISTS the choice to the user config file so it
-    /// survives a restart. Returns the derived paths + whether the persist succeeded, for the tool's confirmation.</summary>
+    /// <summary>Point houseCARL at an MO2 instance folder — first-run setup and switching between instances. Validates
+    /// it (<see cref="Mo2Instance.Resolve"/> throws a clear message if it is not usable, and nothing is changed or
+    /// persisted on failure), re-points the live service (deriving the roots and active profile and dropping the cached
+    /// resolver so the next tool call rebuilds), and persists the choice so it survives a restart. Returns the derived
+    /// paths and whether the persist succeeded.</summary>
     public (Mo2InstancePaths paths, bool persisted, string? persistError, string? persistNote) SetInstance(string instanceDir)
     {
-        // The ini baseline is statted BEFORE Resolve reads the instance (hunt F7 — this was the one stamp-AFTER-the-read
-        // in the file: an MO2 ini write landing between Resolve's read and the stamp was absorbed into the baseline and
-        // its profile switch stayed invisible forever). Statting first makes a during/after-read write show as a changed
-        // mtime on the next call — the same TOCTOU discipline every other baseline here follows.
+        // The ini baseline is statted BEFORE Resolve reads the instance: an MO2 ini write landing between the read and
+        // the stamp would otherwise be absorbed into the baseline and its profile switch would stay invisible for the
+        // process lifetime. Same discipline as every other baseline here.
         var iniMtime = SafeMtime(Mo2Instance.IniPath(instanceDir.Trim()));
-        var paths = Mo2Instance.Resolve(instanceDir);            // throws (Q3) if not a usable MO2 instance — the tool renders the reason
-        lock (_writeGate)                                        // hunt F2: an instance switch waits for any in-flight write — never tears one across instances
+        var paths = Mo2Instance.Resolve(instanceDir);            // throws if not a usable MO2 instance — the tool renders the reason
+        lock (_writeGate)                                        // an instance switch waits for any in-flight write, so one can never tear across instances
         lock (_gate)
         {
             _instanceDir = paths.InstanceDir;
@@ -2057,46 +2041,46 @@ public sealed class LoadOrderService : IDisposable
             _iniMtime = iniMtime;
             _configured = true;
             _resolver?.Dispose(); _resolver = null;              // force a rebuild against the new instance on the next query
-            _assetResolver?.Dispose(); _assetResolver = null;    // the asset resolver rebuilds against the new instance too (Phase 2)
+            _assetResolver?.Dispose(); _assetResolver = null;    // the asset resolver rebuilds against the new instance too
             _resolvedPaths = Array.Empty<string>();
             _profileMtimes = new DateTime[ProfileFileNames.Length];   // unset — the next build records fresh baselines against the new profile
             _orderWarnings = Array.Empty<string>();
-            InvalidateClassParents();                            // every sibling cache drops on a switch — the hierarchy too (PR #47 review)
-            System.Threading.Interlocked.Increment(ref _gameRootsGen);   // new instance = possibly a different game install — the runtime memo must re-probe, never adjudicate B's locked plugins against A's exe (PR #210 review #1)
+            InvalidateClassParents();                            // every sibling cache drops on a switch — the hierarchy too
+            System.Threading.Interlocked.Increment(ref _gameRootsGen);   // a new instance may be a different game install — the runtime memo must re-probe rather than adjudicate against the old exe
         }
         var (persisted, persistError, persistNote) = PersistInstanceDir(paths.InstanceDir);
         return (paths, persisted, persistError, persistNote);
     }
 
-    /// <summary>Persist the chosen instance dir through the shared <see cref="UserConfigStore"/> (read-modify-write), so it
-    /// survives a restart AND coexists with any saved tool paths — the store never clobbers the other concern's field.
-    /// Best-effort + HONEST (Q3): a write failure (e.g. a read-only data dir) is reported, not swallowed — the session
-    /// still works, but the user is told the choice won't survive a restart. <c>note</c> carries a corrupt-file recovery
-    /// (hunt F3 — the prior file was backed up; other saved settings were lost), rendered even on success.</summary>
+    /// <summary>Persist the chosen instance dir through the shared <see cref="UserConfigStore"/> (read-modify-write) so
+    /// it survives a restart and coexists with any saved tool paths — the store never clobbers the other field. A write
+    /// failure is reported rather than swallowed: the session still works, but the user is told the choice will not
+    /// survive a restart. <c>note</c> carries a corrupt-file recovery, rendered even on success.</summary>
     (bool ok, string? error, string? note) PersistInstanceDir(string instanceDir)
         => _store.Update(c => c.Mo2InstanceDir = instanceDir);
 
-    /// <summary>The trained prompt shown while unconfigured: tells houseCARL to ask the user which MO2 instance to use (not
-    /// silently pick among several) and call the setup tool. Tools RETURN this (so the client SEES it) via <see cref="ConfigPromptOrNull"/>; the <see cref="Resolver"/>
-    /// getter also THROWS it as a backstop. The two must say the same thing, hence one shared string.</summary>
+    /// <summary>The prompt shown while unconfigured: ask the user which MO2 instance to use rather than silently
+    /// picking among several, then call the setup tool. Tools return it via <see cref="ConfigPromptOrNull"/> and the
+    /// <see cref="Resolver"/> getter throws it as a backstop, so both must say the same thing — hence one
+    /// string.</summary>
     const string NotConfiguredText =
         "houseCARL has no Mod Organizer 2 instance configured yet. Ask the user which MO2 instance folder to use — the " +
         "folder that contains ModOrganizer.ini (for a Wabbajack / portable list, that's the list's install folder). You " +
         "may help locate it, but do NOT silently pick one when more than one MO2 install exists: list the candidates you " +
         "found and let the user choose. State which folder you're using, then call " + ToolNames.SetMo2Instance + " with that path.";
 
-    /// <summary>Tools call this FIRST: returns the trained prompt (a normal result string the client SEES) when
-    /// unconfigured, else null (proceed). Preferred over letting <see cref="Resolver"/> throw — the MCP framework
-    /// genericizes a thrown exception to "An error occurred invoking '…'", so a THROW never delivers the guidance to the
-    /// client, but a returned string does (measured 2026-06-02 during the server-driven proof).</summary>
+    /// <summary>Tools call this FIRST: returns the unconfigured prompt as a normal result string when unconfigured,
+    /// else null. Preferred over letting <see cref="Resolver"/> throw, because the MCP framework rewrites a thrown
+    /// exception to a generic "An error occurred invoking '…'", so a throw never delivers the guidance to the
+    /// client.</summary>
     public string? ConfigPromptOrNull() { lock (_gate) { return _configured ? null : NotConfiguredText; } }
 
     static InvalidOperationException NotConfigured() => new(NotConfiguredText);
 
     /// <summary>Resolve + read one record (the read_record primitive). Reads the WINNER's body by default, or a
     /// named <paramref name="plugin"/>'s version; with <paramref name="conflictTree"/> also returns the ordered
-    /// touching-plugin list. Honest, recoverable errors (Q3): not-in-order, plugin-doesn't-touch, fetch
-    /// inconsistency — never a silent empty result.</summary>
+    /// touching-plugin list. Recoverable named errors — not-in-order, plugin-doesn't-touch, fetch inconsistency —
+    /// never a silent empty result.</summary>
     public ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
                                    bool resolveNames = false, Dictionary<FormKey, ResolvedRef>? linkMemo = null,
                                    string? containerHint = ReadEngine.DepthExpandHint)
@@ -2104,80 +2088,62 @@ public sealed class LoadOrderService : IDisposable
         var resolver = Resolver;
         var view = resolver.Capture();
         return ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint)
-               with { Epoch = view.Epoch, Pin = new ViewPin(resolver, view) };   // stamped + pinned HERE, off the view actually read
+               with { Epoch = view.Epoch, Pin = new ViewPin(resolver, view) };   // stamped and pinned here, off the view actually read
     }
 
-    /// <summary>Layer B unit C2 — the on-demand whole-topic dialogue-graph validator (housecarl_validate_dialogue):
-    /// resolve <paramref name="fk"/> to its load-order winner and, when it is a dialogue topic (DIAL) validate that
-    /// topic's whole graph, or when a quest (QUST) fan out to EVERY topic the quest owns — all against the resolved
-    /// load-order winners (what the game actually sees). The on-demand counterpart of the per-create voice (unit B)
-    /// + result-script (unit C1) teeth, auditing existing INFOs the create-time checks never re-touch. The whole
-    /// Skyrim-typed walk (winner resolution, the DIAL/QUST branch, the graph + per-INFO checks) lives in CORE
-    /// (<see cref="DialogueValidate"/>), so the service stays Mutagen.Skyrim-free exactly like the voice/script
-    /// enrichers — here it just hands core the live record resolver + the VFS asset resolver. NEVER throws over a
-    /// verify step: a mid-run resolve/asset failure rides <see cref="DialogueValidationReport.CheckError"/>, and a
-    /// not-in-order / not-a-DIAL-or-QUST input is a NAMED <see cref="DialogueValidationReport.Error"/> (Q3).</summary>
-    // EPOCH: deliberately NOT stamped (PR #305 third round, named not silent) — the report is one build's answer
-    // (core pins a view) but many of its verdicts come off the ASSET substrate, outside the record fingerprint.
-    // Measured on the live order (check-differential --only-epoch): one 235-topic quest took 26 verdicts by reading
-    // files through the VFS — the .pex chain behind each result script — and a voiced, start-game-enabled quest adds
-    // the .fuz checks and the .seq lint, whose staleness verdict is a FILE MTIME comparison no record fingerprint
-    // expresses at all. This comment used to name the dialogue-fold wave (W3) as the owner of an honest stamp; W3
-    // has landed without one, because an honest stamp means deciding what an epoch MEANS across two substrates,
-    // which is design work rather than a fold. That decision is issue #396. Until it lands, no stamp: a record
-    // fingerprint here would claim freshness for verdicts it does not describe.
+    /// <summary>The on-demand whole-topic dialogue-graph validator: resolve <paramref name="fk"/> to its load-order
+    /// winner and, when it is a dialogue topic (DIAL), validate that topic's whole graph; when it is a quest (QUST),
+    /// fan out to every topic the quest owns. Everything is judged against the resolved winners, which is what the
+    /// game sees. The Skyrim-typed walk lives in the core (<see cref="DialogueValidate"/>) so this assembly stays free
+    /// of Mutagen.Skyrim; here it just hands core the record resolver and the VFS asset resolver. It never throws over
+    /// a verify step: a mid-run resolve or asset failure rides
+    /// <see cref="DialogueValidationReport.CheckError"/>, and a not-in-order or wrong-type input is a named
+    /// <see cref="DialogueValidationReport.Error"/>.</summary>
+    // No epoch is stamped: the report is one build's answer, but many of its verdicts come off the ASSET substrate,
+    // outside the record fingerprint — the .pex chain behind each result script, the .fuz checks, and the .seq
+    // staleness verdict, which is a file-mtime comparison no record fingerprint expresses. A record fingerprint here
+    // would claim freshness for verdicts it does not describe.
     public DialogueValidationReport ValidateDialogue(FormKey fk) => DialogueValidate.Run(Resolver, Assets, fk);
 
-    /// <summary>The merged <c>check</c> surface's DIALOGUE family: <see cref="ValidateDialogue"/> over a seed list,
-    /// tallied for one section of a merged response (SPEC §6.1, classes 1-7). A thin call: the family's own
-    /// grammar — the seed parse, the cost-refusal, the seed budget and the tally — lives in
-    /// <see cref="DialogueSweep"/>, because a new family's logic landing here is what CLAUDE.md §8's
-    /// don't-append-a-new-domain rule names.</summary>
+    /// <summary>The merged <c>check</c> surface's dialogue family: <see cref="ValidateDialogue"/> over a seed list,
+    /// tallied for one section of a merged response. Deliberately thin — the family's own grammar (seed parse,
+    /// cost refusal, seed budget, tally) lives in <see cref="DialogueSweep"/> rather than in this file.</summary>
     public DialogueCheckResult CheckDialogue(IReadOnlyList<string>? seeds, int limit, bool countsOnly = false)
         => DialogueSweep.Run(ValidateDialogue, seeds, limit, countsOnly);
 
-    /// <summary>The read body, answered entirely off ONE captured view (HCBR-2026-06-11-02): excluded-check, winner,
-    /// and touching-plugin list all describe the SAME build — a freshness rebuild landing mid-read can no longer make
-    /// a record's reported winner disagree with its own TOUCHING LIST. (The body fetch reads the file on disk through
-    /// the session; a mid-read file edit surfaces as the existing named fetch-inconsistency error, never torn values.
-    /// The review-#1 residue is CLOSED by PR #305's fold + re-review fold: every <see cref="ReadOutcome"/> — single
-    /// read, batch item, cross-query detail row — carries the <see cref="ViewPin"/> it was answered from, and the
-    /// render's conflict-tree fill (<see cref="ResolveTreePinned"/>) reads through it, so one rendered response's
-    /// tree, touching list, and epoch stamp all name the same build. What Option B still leaves open, uniformly and
-    /// by design: bodies are fetched from disk at fill time, so a file edited mid-render surfaces as the named
-    /// fetch-inconsistency error — never as a silently re-resolved winner.)</summary>
+    /// <summary>The read body, answered entirely off ONE captured view: the excluded-check, the winner and the
+    /// touching-plugin list all describe the same build, so a freshness rebuild landing mid-read cannot make a
+    /// record's reported winner disagree with its own touching list. Every <see cref="ReadOutcome"/> — single read,
+    /// batch item, cross-query detail row — carries the <see cref="ViewPin"/> it was answered from, and the render's
+    /// conflict-tree fill reads through it, so one response's tree, touching list and epoch stamp all name the same
+    /// build. Bodies are still fetched from disk at fill time, so a file edited mid-render surfaces as the named
+    /// fetch-inconsistency error rather than a silently re-resolved winner.</summary>
     ReadOutcome ResolveRead(LoadOrderResolver resolver, LoadOrderResolver.IndexView view,
                             FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth,
                             bool resolveNames = false, Dictionary<FormKey, ResolvedRef>? linkMemo = null,
                             string? containerHint = ReadEngine.DepthExpandHint)
     {
-        // An explicitly-requested plugin that was EXCLUDED this session (unparseable/unopenable) → say so (Q3),
-        // rather than fall through to a misleading "does not define this record".
+        // An explicitly-requested plugin excluded this session (unparseable or unopenable) is said so, rather than
+        // falling through to a misleading "does not define this record".
         if (plugin is not null && view.ExcludedPlugins.TryGetValue(plugin, out var pWhy))
             return ReadOutcome.Fail(fk, $"Plugin '{plugin}' was excluded from this session: {pWhy}");
 
-        // An explicitly-requested plugin that is NOT IN THE ORDER AT ALL is its own failure mode (HCBR-2026-06-11-02
-        // wave (a)): GetRecord returns null for it, and falling through would render the FALSE "does not define this
-        // record" — which reads as "my write was lost" and invites re-issuing the ops (duplicate list Adds into the
-        // patch). Name the true condition + the working verify paths instead. Aaron-decided Option A: houseCARL does
-        // NOT read disabled plugins off disk (non-winner content masquerading as load-order truth is the Q3 hazard).
+        // A plugin not in the order at all is its own failure mode: GetRecord returns null for it, and falling
+        // through would render a false "does not define this record", which reads as "my write was lost" and invites
+        // re-issuing the ops — duplicating list Adds into the patch. Name the true condition and the verify paths
+        // instead. houseCARL does not read disabled plugins off disk: non-winner content presented as load-order
+        // truth is the hazard.
         if (plugin is not null && !view.ContainsPlugin(plugin))
         {
-            // AbsenceClause subsumes the did-you-mean: it states the CAUSE when there is one (the plugin is installed
-            // but unticked / its mod is off) and falls back to the suggester when there isn't, so a real installed
-            // plugin is never answered with a spelling guess (#271).
-            // ExplainAbsence, NOT AbsenceClause: the latter returns a non-empty string for a typo too (the did-you-mean),
-            // so its length cannot tell "a cause was stated" from "a spelling was guessed" — and only the first should
-            // change the tail below.
+            // ExplainAbsence, not AbsenceClause: the latter returns a non-empty string for a typo too (the
+            // did-you-mean), so its length cannot distinguish "a cause was stated" from "a spelling was guessed",
+            // and only the first should change the tail below.
             var cause = view.ExplainAbsence(plugin);
             var why = cause is not null ? " " + cause : view.NameSuggestion(plugin);
-            // Only ONE sentence of the legacy tail actually contradicts a stated cause: the posture line ("does not open
-            // disabled plugins off disk"), which fights the explainer's raw-read pointer. Round 1 dropped the whole
-            // paragraph with it — and houseCARL writes its own patches into an UNLISTED mod folder, which the explainer
-            // now explains, so the freshly-written-patch case (the commonest reason to hit this refusal at all) lost the
-            // readback verify path that is the only way to check a write without touching MO2. The write-verify
-            // guidance is a fact about the tool, not a guess about the cause, so it is now unconditional; only the
-            // contradicting posture line and the cause-guessing sentence are conditional (review of PR #274, round 2).
+            // The write-verify guidance is a fact about the tool, not a guess about the cause, so it is
+            // unconditional — the freshly-written-patch case is the commonest reason to hit this refusal, and the
+            // read-back is the only way to check a write without touching MO2. Only the posture line ("does not open
+            // disabled plugins off disk"), which would contradict a stated cause, is conditional.
             var verify = $" To verify a write BEFORE enabling, use the write call's own read-back (readback=true " +
                          $"returns the whole written record). If a prior write into '{plugin}' reported success, the edits " +
                          "DID land — do not re-issue them (re-running list Adds would duplicate entries).";
@@ -2194,7 +2160,7 @@ public sealed class LoadOrderService : IDisposable
         var winner = view.ResolveWinner(fk);
         if (winner is null)
         {
-            // If the record's defining plugin was excluded, that's WHY it's missing — name it (Q3), not a bare "not present".
+            // If the record's defining plugin was excluded, that is why it is missing — name it, not a bare "not present".
             var defining = fk.ModKey.FileName.ToString();
             if (view.ExcludedPlugins.TryGetValue(defining, out var dWhy))
                 return ReadOutcome.Fail(fk, $"FormID {fk} is not resolvable: its plugin '{defining}' was excluded from this session: {dWhy}");
@@ -2202,16 +2168,16 @@ public sealed class LoadOrderService : IDisposable
         }
 
         var source = plugin ?? winner.Value.WinnerPlugin;
-        using var session = resolver.OpenSession();                       // opens the source plugin; disposed at return (Option B)
-        var rec = view.GetRecord(session, source, fk);                    // excluded-check pinned to the SAME view the winner came from (hunt F5 discipline)
+        using var session = resolver.OpenSession();                       // opens the source plugin; disposed at return
+        var rec = view.GetRecord(session, source, fk);                    // excluded-check pinned to the same view the winner came from
         if (rec is null)
         {
             if (plugin is null)
                 return ReadOutcome.Fail(fk, $"Winner '{winner.Value.WinnerPlugin}' did not yield {fk} on fetch — a load-order inconsistency.");
-            // §4.2 (W2): an untouched record under a named pole refuses NAMING THE ACTUAL TOUCHERS — a bare
-            // "does not define" reads as "my write was lost"; the touching list is the actionable fact.
-            // (?? is belt-and-braces here — the non-null winner above proves the fk is in the index — but the
-            // nullable-return shape became a real NRE on the off-order sibling, so the same guard applies.)
+            // An untouched record under a named plugin refuses by naming the actual touchers: a bare "does not
+            // define" reads as "my write was lost", and the touching list is the actionable fact. The ?? is
+            // defensive — the non-null winner above proves the fk is in the index — but the nullable return became
+            // a real NRE on the off-order sibling, so the guard stays.
             var touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
             return ReadOutcome.Fail(fk,
                 $"Plugin '{plugin}' does not touch {fk} — it has no version of this record. " +
@@ -2219,8 +2185,8 @@ public sealed class LoadOrderService : IDisposable
         }
 
         var record = ReadEngine.ReadFields(rec, fields, depth, containerHint);   // materialise while the session (overlay) is open
-        record = AnnotateOwnedChildContent(record, rec, view, fk, out var childFields);   // #342 cheap tier — index only, DISPLAY-ONLY
-        if (resolveNames) record = AnnotateLinks(record, view, session, linkMemo ?? new());   // P7: identity of every FormLink token, DISPLAY-ONLY (same open session)
+        record = AnnotateOwnedChildContent(record, rec, view, fk, out var childFields);   // cheap tier — index only, display-only
+        if (resolveNames) record = AnnotateLinks(record, view, session, linkMemo ?? new());   // identity of every FormLink token, display-only, on the same open session
         var touching = conflictTree ? view.TouchingPlugins(fk) : null;
         return new ReadOutcome(fk, record, source, winner.Value.WinnerPlugin, winner.Value.OverrideDepth, touching, null)
                { OwnedChildFields = childFields };
