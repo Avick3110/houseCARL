@@ -1,28 +1,14 @@
 namespace HousecarlMcp;
 
-/// <summary>The server-managed results directory for AUTO-SPILLED §2.1.1 artifacts (a caller-named
-/// <c>to_file=</c> target never comes here). Decisions this class pins (Phase-4 detail the SPEC delegated):
-///
-/// <list type="bullet">
-/// <item><b>Location:</b> <c>&lt;HOUSECARL_DATA_DIR&gt;\results</c> — the plugin's own persistent data folder,
-/// falling back to the server binary's folder when the env var is absent (the same resolution Program.cs uses for
-/// user config, so results live beside the config that produced them, never inside the MO2 instance).</item>
-/// <item><b>Naming:</b> <c>&lt;tool&gt;_&lt;utc yyyyMMdd-HHmmss&gt;_&lt;epoch&gt;.jsonl</c> (tool minus the
-/// <c>housecarl_</c> prefix; epoch = the build fingerprint the result was read from) — sortable by time, and the
-/// epoch is visible in a directory listing before a single file is opened. A same-second collision appends a
-/// counter rather than overwriting: artifacts are immutable once written.</item>
-/// <item><b>Prune-by-age at write:</b> spilled artifacts older than <see cref="PruneAfterDays"/> days are deleted
-/// (best-effort, per-file) each time a new spill is written — no daemon, no timer, no state; write time is the one
-/// moment the server is already touching the directory. 7 days: an artifact outlives any working session that
-/// produced it, while a stale one is already refusing epoch-checked re-entry long before it's pruned. Only
-/// <c>*.jsonl</c> in THIS directory is ever touched.</item>
-/// </list></summary>
+/// <summary>The server-managed directory for auto-spilled result artifacts; a caller-named <c>to_file=</c>
+/// target never comes here. Files are named <c>&lt;tool&gt;_&lt;utc stamp&gt;_&lt;epoch&gt;.jsonl</c> and are
+/// immutable once written — a same-second collision gets a counter, never an overwrite.</summary>
 static class ResultsStore
 {
     public const int PruneAfterDays = 7;
 
-    /// <summary>The results directory (created on demand). Overridable for tests via
-    /// <see cref="OverrideDirForTests"/> — production resolution is env-var → binary folder.</summary>
+    /// <summary>The results directory (created on demand). Resolution is HOUSECARL_DATA_DIR, else the server
+    /// binary's folder — the same order Program.cs uses for user config, so results sit beside it.</summary>
     public static string Dir
     {
         get
@@ -38,18 +24,15 @@ static class ResultsStore
     public static string? OverrideDirForTests;
 
     /// <summary>Reserve a fresh artifact path for an auto-spill from <paramref name="tool"/> at build
-    /// <paramref name="epoch"/>, pruning old spills on the way (the write-time prune). The reservation is ATOMIC —
-    /// the file is CREATED (empty) here with <c>FileMode.CreateNew</c>, not merely probed with File.Exists, because
-    /// parallel tool calls are a normal client pattern and a check-then-write race would hand two same-second
-    /// spills the same path, one silently overwriting the other (PR #306 review). The Writer's temp-then-move
-    /// replaces the empty reservation wholesale; a spill that later FAILS deletes its reservation via
-    /// <see cref="Release"/>. A same-second collision gets a counter suffix.</summary>
+    /// <paramref name="epoch"/>, pruning old spills on the way. The reservation must stay atomic — the file is
+    /// created empty with <c>FileMode.CreateNew</c> rather than probed with File.Exists, because parallel tool
+    /// calls would otherwise hand two same-second spills the same path. A failed spill releases its reservation
+    /// via <see cref="Release"/>.</summary>
     public static string NextPath(string tool, string epoch)
     {
         var dir = Dir;
-        // Best-effort here: if the directory cannot be created, the Writer's Save on the returned path produces
-        // the NAMED write failure, which flows into the response as the failed-spill warning — a throw here would
-        // instead surface as a generic tool error and eat the (valid, truncated) response entirely.
+        // Best-effort: a throw here would surface as a generic tool error and eat the valid truncated response.
+        // Letting it through lets Save name the write failure, which reaches the caller as a spill warning.
         try { Directory.CreateDirectory(dir); Prune(dir); } catch (Exception) { }
         var shortTool = tool.StartsWith("housecarl_", StringComparison.Ordinal) ? tool["housecarl_".Length..] : tool;
         var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
@@ -67,19 +50,16 @@ static class ResultsStore
         }
     }
 
-    /// <summary>Delete a reservation whose spill FAILED — best-effort (the failure is already named in the
-    /// response; an empty leftover would otherwise linger until the age prune).</summary>
+    /// <summary>Delete a reservation whose spill failed, best-effort — the failure is already named in the
+    /// response, and the empty leftover would otherwise linger until the age prune.</summary>
     public static void Release(string path)
     {
         try { File.Delete(path); } catch (Exception) { }
     }
 
-    /// <summary>Delete spilled artifacts older than <see cref="PruneAfterDays"/> days — and orphaned Writer temps
-    /// (<c>*.jsonl.tmp-*</c>) on the same clock: a failed Save deletes its own temp best-effort, but a crash
-    /// mid-write can still strand one, and full-size strays in the server's own data dir are exactly what this
-    /// hygiene pass exists for (PR #306 review). Best-effort per file — a locked or vanished file is skipped,
-    /// never fatal (pruning is hygiene, not correctness; epoch-checked re-entry is what protects against
-    /// staleness).</summary>
+    /// <summary>Delete spilled artifacts older than <see cref="PruneAfterDays"/> days, plus orphaned Writer temps
+    /// (<c>*.jsonl.tmp-*</c>) a crash mid-write can strand. Best-effort per file — pruning is hygiene, not
+    /// correctness; epoch-checked re-entry is what protects against stale artifacts.</summary>
     static void Prune(string dir)
     {
         var cutoff = DateTime.UtcNow.AddDays(-PruneAfterDays);
