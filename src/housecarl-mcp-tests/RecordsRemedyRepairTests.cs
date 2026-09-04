@@ -61,6 +61,15 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
     }
 
     [Fact]
+    public void TheOffOrderScansEverythingLaneDropsItToo_ThreeLanesOneRule()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, source: Plugin(W.OldName), max_chars: 12,
+                                     project: Form("everything"));
+        Assert.Contains("max_chars", r);
+        Assert.DoesNotContain("project.fields=", r);
+    }
+
+    [Fact]
     public void TheFieldsFormStillNamesItsSelector_TheVocabularyIsPerFormNotPerTool()
     {
         var r = RecordsTools.Records(Svc, formids: AllWeaponIds, max_chars: 220,
@@ -107,6 +116,22 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
         Assert.Contains("BRACKETS", r);
         Assert.Contains("'Effects'", r);
         Assert.DoesNotContain("check the field name against the record's schema", r);
+    }
+
+    [Fact]
+    public void APresenceOperatorGetsTheSameDiagnosis_TheOperatorDoesNotDecideWhyThePathMissed()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, where: new[] { "Effects.Data.Magnitude exists" });
+        Assert.Contains("BRACKETS", r);
+        Assert.DoesNotContain("check the field name against the record's schema", r);
+    }
+
+    [Fact]
+    public void AMixedScanWhereOnlySomeTypesCarryTheListStillGetsTheBracketAdvice()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "SPEL", "WEAP" }, where: new[] { "Effects.Data.Magnitude > 0" });
+        Assert.Contains("BRACKETS", r);
+        Assert.Contains("on the rest the path is not a field at all", r);
     }
 
     [Fact]

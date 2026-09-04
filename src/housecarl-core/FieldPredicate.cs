@@ -608,7 +608,7 @@ public sealed class FieldPredicateSet
             {
                 case Presence.Present: return (p.Op == Op.Exists, EvalKind.Definite);
                 case Presence.Absent: return (p.Op == Op.Missing, EvalKind.Definite);
-                case Presence.NoField: return (false, EvalKind.NoField);
+                case Presence.NoField: return (false, ClassifyNoField(leaf.Note ?? ""));   // same path, same diagnosis, whatever the operator
                 default: return (false, EvalKind.Unreadable);
             }
         }
@@ -845,14 +845,17 @@ public sealed class FieldPredicateSet
                 const string loud = "yielded no readable value on any of";
                 long unset = _noValue[k] - _noField[k] - _container[k] - _unreadable[k];   // what is left: genuinely-unset valid fields
                 string reason;
-                if (_listHop[k] == _scanned)
+                if (_noField[k] == _scanned && _listHop[k] > 0)
                 {
                     // The deeper, more specific path must not get the vaguer advice: this is a missing bracket, not
-                    // a mistyped name, and the schema is the wrong place to send the caller.
+                    // a mistyped name, and the schema is the wrong place to send the caller. One list hop is enough
+                    // to say so — on a mixed scan the other types simply have no such field, which is stated too.
                     var owner = _listHopOwner[k];
                     reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — the path steps THROUGH " +
                              (owner is not null ? $"'{owner}', which is a list/dict, " : "a list/dict ") +
-                             "with a dotted segment, which dead-ends. Index the element with BRACKETS (e.g. " +
+                             $"with a dotted segment, which dead-ends (on {_listHop[k]:N0} of them" +
+                             (_listHop[k] == _scanned ? "" : "; on the rest the path is not a field at all") +
+                             "). Index the element with BRACKETS (e.g. " +
                              (owner is not null ? $"'{owner}[0]. …'" : "'Effects[0].Data.Magnitude'") +
                              "); a wildcard over a list is not supported. For list->FormID membership use references=.";
                 }
