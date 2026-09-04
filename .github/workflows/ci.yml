@@ -84,51 +84,9 @@ jobs:
           if ([int]$c.executed -eq 0) { throw "The guard suite selected ZERO tests. The filter excludes everything it should not." }
           if ([int]$c.failed -ne 0) { throw "$($c.failed) guard test(s) failed." }
 
-      # The residue countdown (ADR 0003, docs/decisions/): how much of the OLD
-      # harness is left. This prints the MEASUREMENT, not the committed baseline file. Printing the file was
-      # the first shape, and it was only honest for the two gated numbers: probeLines is deliberately
-      # ungated, so a legal in-place guard edit moves it and CI would have gone on printing the stale figure
-      # as though it had been measured. Re-running the derivation costs about a second and cannot drift,
-      # which a second copy of the derivation written in yaml would. W7 is not complete while these are
-      # above zero.
-      - name: Residue countdown — what is left in the old probe harness
-        if: ${{ !cancelled() }}
-        run: dotnet test src/housecarl-mcp-tests --configuration Release --no-build --filter "FullyQualifiedName~HarnessResidueTests" --logger "console;verbosity=detailed" --logger "trx;LogFileName=residue.trx"
-
-      # Same measured hazard as the guard step's floor above, and it bites this step for its own reason: the
-      # whole job here is to PRINT a measurement. Rename or split HarnessResidueTests — a plausible conversion-PR
-      # edit — and this filter matches nothing, `dotnet test` exits 0, and the countdown silently stops being
-      # reported with no signal in the log that a measurement disappeared. The gate itself survives (these are
-      # tier=unit, so the guard step still runs them), so what goes quiet is the report rather than the guard —
-      # but quiet-and-green is precisely the shape the step above rejects, so it gets the same floor, read off
-      # this run's own trx.
-      - name: Residue countdown — the run was not empty (a filter that matches nothing exits 0)
-        if: ${{ !cancelled() }}
-        shell: pwsh
-        run: |
-          $trx = Get-ChildItem -Recurse -Filter residue.trx src/housecarl-mcp-tests/TestResults |
-                 Sort-Object LastWriteTime | Select-Object -Last 1
-          if (-not $trx) { throw "No residue.trx was produced - the countdown step did not run to completion." }
-          $c = ([xml](Get-Content $trx.FullName)).TestRun.ResultSummary.Counters
-          "residue.trx: total=$($c.total) executed=$($c.executed) passed=$($c.passed) failed=$($c.failed)"
-          if ([int]$c.executed -eq 0) { throw "The residue countdown selected ZERO tests, so the measurement above was never made. Its filter no longer matches HarnessResidueTests." }
-          if ([int]$c.failed -ne 0) { throw "$($c.failed) residue countdown test(s) failed." }
-
-      # freshness-capture-guard runs as its OWN cold process: its deferral arm needs a write slow enough to
-      # straddle a fixed ~100ms sleep — only true in a cold process. The warm ci-all runner finishes the write
-      # too fast to land that race, so it is carved out here (cold). See FreshnessCaptureProbe's own summary.
-      #
-      # A step like this one is outside the reflected roster, which is how a guard could go unrun or uncounted
-      # with everything green. The block below is therefore GENERATED from the [CiProbe(…, Standalone = true)]
-      # attributes and held byte-equal by CiWorkflowGuardStepTests: flag a guard Standalone and its step is
-      # owed here; hand-edit, delete or respell one and the test is red naming it. That is the sanctioned way
-      # to give a guard its own CI step. A guard invocation hand-added to a workflow OUTSIDE this block is
-      # outside the residue countdown's reach — the countdown claims completeness over this path, not over
-      # arbitrary shell.
-      # >>> generated: standalone CI guard steps — do not hand-edit
-      # Rendered from CiAll.StandaloneProbeNames. `if: !cancelled()` so one red run still shows whether these
-      # passed — the same "report every failure" posture as the ci-all runner itself.
-      - name: CI guard (standalone, own cold process) — freshness-capture-guard
+      # freshness-capture-guard runs as its own cold process: its deferral arm needs a write slow enough to
+      # straddle a fixed ~100ms sleep, which only holds in a cold process. The warm ci-all runner finishes the
+      # write too fast to land that race, so this probe is carved out here and ci-all does not run it.
+      - name: Probe — freshness-capture-guard (own cold process)
         if: ${{ !cancelled() }}
         run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll freshness-capture-guard
-      # <<< generated: standalone CI guard steps
