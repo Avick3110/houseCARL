@@ -139,48 +139,6 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         Assert.Contains(d.SelectorNotes, n => n.Contains("parent-escaping", StringComparison.Ordinal));
     }
 
-    /// <summary>A selector that normalizes to nothing — "/", "\", "//" — names the Data root, and enumerating it
-    /// sweeps every loose file and every archive table in the order. It is refused for the same reason an unanchored
-    /// glob is, in one plain sentence.</summary>
-    [Fact]
-    public void ASelectorThatNamesNoDirectoryIsRefusedTheSameWayAnUnanchoredGlobIs()
-    {
-        foreach (var root in new[] { "/", @"\", "//" })
-        {
-            var d = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { root });
-
-            Assert.Empty(d.Results);
-            var note = Assert.Single(d.SelectorNotes!);
-            Assert.Contains("anchored under a directory", note, StringComparison.Ordinal);
-        }
-    }
-
-    /// <summary>"./meshes" and "meshes" are the same folder. Left in, a "." segment survives into the loose walk but
-    /// never matches a BSA table entry, so the archive-only files drop out of the sweep without a word.</summary>
-    [Fact]
-    public void ADotSegmentSelectsTheSameSetAsThePlainSpellingIncludingArchiveOnlyFiles()
-    {
-        var plain = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { "meshes" });
-        var dotted = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { "./meshes" });
-
-        Assert.Equal(AssetSelectWorld.FaceGeomFiles, plain.Selected);
-        Assert.Equal(Paths(plain), Paths(dotted));
-        // The BSA-only file is in both, not just the loose lane's answer.
-        Assert.Contains(Paths(dotted), p => Leaf(p) == "0005.nif");
-        Assert.Empty(dotted.SelectorNotes ?? Array.Empty<string>());
-    }
-
-    /// <summary>A refusal reads as one plain sentence — no .NET exception furniture trailing off the end of it.</summary>
-    [Fact]
-    public void ARefusedSelectorReadsAsOnePlainSentenceWithNoParameterSuffix()
-    {
-        var d = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { @"**\*.nif", @"C:\Windows", @"meshes\..\secrets" });
-
-        var text = AssetWire.Render(d, 80_000);
-        Assert.DoesNotContain("(Parameter", text, StringComparison.Ordinal);
-        Assert.All(d.SelectorNotes!, n => Assert.DoesNotContain("(Parameter", n, StringComparison.Ordinal));
-    }
-
     /// <summary>The window pages, and the accounting says how much of the selection it left behind and where the next
     /// page starts.</summary>
     [Fact]
@@ -192,7 +150,8 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         Assert.Equal(2, page.Results.Count);
 
         var text = AssetWire.Render(page, 80_000);
-        Assert.Contains("[accounting] total=5 rendered=2 capped=3 truncated=0 offset=1 remaining=2", text);
+        // skipped= is what offset stepped over, capped= what limit left behind: two different causes, counted apart.
+        Assert.Contains("[accounting] total=5 rendered=2 skipped=1 capped=2 truncated=0 offset=1 remaining=2", text);
         Assert.Contains("offset=3 for the next page", text);
 
         // The pages tile the selection: page 2 continues where page 1 stopped.
@@ -246,7 +205,100 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
     {
         var text = AssetTools.AssetStatus(_w.Svc, new[] { _w.Rel("0001.nif") });
 
-        Assert.Contains("[accounting] total=1 rendered=1 capped=0 truncated=0 offset=0 remaining=0 notes=0", text);
+        Assert.Contains("[accounting] total=1 rendered=1 skipped=0 capped=0 truncated=0 offset=0 remaining=0 notes=0", text);
+    }
+
+    /// <summary>A caller that walks the sweep by the accounting line's OWN advice sees every path exactly once. The
+    /// next offset has to count what was RENDERED, not what was resolved: under a max_chars cut the two differ, and
+    /// counting the resolved window steps the caller straight over the paths the cap never showed it.</summary>
+    [Fact]
+    public void WalkingBySuccessiveNextPageOffsetsRendersEveryPathExactlyOnce()
+    {
+        var all = Paths(_w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir }));
+        var seen = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in all) seen[p] = 0;
+
+        // limit=3 resolves three paths a page; max_chars=500 renders fewer than three of them.
+        int offset = 0;
+        for (int page = 0; page < 20; page++)
+        {
+            var text = AssetWire.Render(
+                _w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir }, limit: 3, offset: offset), 500);
+            foreach (var p in all) if (text.Contains(p, StringComparison.Ordinal)) seen[p]++;
+
+            var next = System.Text.RegularExpressions.Regex.Match(text, @"re-call with offset=(\d+)");
+            if (!next.Success) break;
+            var advanced = int.Parse(next.Groups[1].Value);
+            Assert.True(advanced > offset, $"the advice must move forward, got offset={advanced} from offset={offset}");
+            offset = advanced;
+        }
+
+        Assert.All(all, p => Assert.Equal(1, seen[p]));
+    }
+
+    /// <summary>A selector that normalizes to nothing — "/", "\", "//" — names the Data root, and enumerating it
+    /// sweeps every loose file and every archive table in the order. It is refused for the same reason an unanchored
+    /// glob is, in one plain sentence.</summary>
+    [Fact]
+    public void ASelectorThatNamesNoDirectoryIsRefusedTheSameWayAnUnanchoredGlobIs()
+    {
+        foreach (var root in new[] { "/", @"\", "//" })
+        {
+            var d = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { root });
+
+            Assert.Empty(d.Results);
+            var note = Assert.Single(d.SelectorNotes!);
+            Assert.Contains("anchored under a directory", note, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>"./meshes" and "meshes" are the same folder. Left in, a "." segment survives into the loose walk but
+    /// never matches a BSA table entry, so the archive-only files drop out of the sweep without a word.</summary>
+    [Fact]
+    public void ADotSegmentSelectsTheSameSetAsThePlainSpellingIncludingArchiveOnlyFiles()
+    {
+        var plain = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { "meshes" });
+        var dotted = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { "./meshes" });
+
+        Assert.Equal(AssetSelectWorld.FaceGeomFiles, plain.Selected);
+        Assert.Equal(Paths(plain), Paths(dotted));
+        // The BSA-only file is in both, not just the loose lane's answer.
+        Assert.Contains(Paths(dotted), p => Leaf(p) == "0005.nif");
+        Assert.Empty(dotted.SelectorNotes ?? Array.Empty<string>());
+    }
+
+    /// <summary>A refusal reads as one plain sentence — no ".NET" exception furniture trailing off the end of it.</summary>
+    [Fact]
+    public void ARefusedSelectorReadsAsOnePlainSentenceWithNoParameterSuffix()
+    {
+        var d = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { @"**\*.nif", @"C:\Windows", @"meshes\..\secrets" });
+
+        var text = AssetWire.Render(d, 80_000);
+        Assert.DoesNotContain("(Parameter", text, StringComparison.Ordinal);
+        Assert.All(d.SelectorNotes!, n => Assert.DoesNotContain("(Parameter", n, StringComparison.Ordinal));
+    }
+
+    /// <summary>The accounting block is priced INSIDE max_chars: room for its widest spelling is held back before the
+    /// paths render, rather than appended past the cap once they have used all of it.</summary>
+    [Fact]
+    public void TheAccountingBlockIsPricedInsideMaxCharsRatherThanAppendedPastIt()
+    {
+        var d = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir });
+        int reserve = AssetWire.AccountingReserve(d);
+
+        foreach (var cap in new[] { 400, 900, 1200, 1600, 80_000 })
+        {
+            var text = AssetWire.Render(d, cap);
+            int at = text.IndexOf("\n\n[accounting]", StringComparison.Ordinal);
+            Assert.True(at >= 0, $"max_chars={cap} dropped the accounting block");
+            // What the block actually writes fits the room reserved for it, so subtracting that room from max_chars
+            // before the body renders is enough to hold the whole response inside the cap.
+            Assert.True(text.Length - at <= reserve,
+                        $"max_chars={cap} wrote {text.Length - at} chars through a reserve of {reserve}");
+        }
+
+        // A cap that can hold the whole answer holds the accounting too, block and all.
+        Assert.True(AssetWire.Render(d, 2_000).Length <= 2_000);
     }
 
     /// <summary>Both select forms empty is a refusal that names both, since either one alone is a legal call.</summary>
