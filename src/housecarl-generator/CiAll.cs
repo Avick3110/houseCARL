@@ -138,9 +138,7 @@ public static class CiAll
     public static IReadOnlyList<(string Name, Type Host, bool Standalone)> RosterIn(IReadOnlyList<Assembly> assemblies) =>
         Discover(assemblies).Select(e => (e.Name, e.Host, e.Standalone)).ToArray();
 
-    /// <summary>Each roster verb with the type hosting its entry point. The residue countdown reads this to
-    /// count rows PER FILE, which is what lets a conversion PR delete its own baseline key instead of editing
-    /// a shared total.</summary>
+    /// <summary>Each roster verb with the type hosting its entry point.</summary>
     public static IReadOnlyList<(string Name, Type Host)> ProbeHosts =>
         _probeHosts ??= All().Where(e => !e.Standalone).Select(e => (e.Name, e.Host)).ToArray();
 
@@ -152,8 +150,8 @@ public static class CiAll
 
     static (string Name, Type Host)[]? _standaloneProbeHosts;
 
-    /// <summary>Every CI probe's name, for the unknown-mode refusal's list and did-you-mean (Program.cs), and
-    /// for the residue countdown's row count. Sorted by name — the order <c>ci-all</c> runs them in.</summary>
+    /// <summary>Every CI probe's name, for the unknown-mode refusal's list and did-you-mean (Program.cs).
+    /// Sorted by name — the order <c>ci-all</c> runs them in.</summary>
     public static IReadOnlyList<string> ProbeNames => _probeNames ??= ProbeHosts.Select(p => p.Name).ToArray();
 
     static string[]? _probeNames;
@@ -163,11 +161,6 @@ public static class CiAll
         _standaloneProbeNames ??= StandaloneProbeHosts.Select(p => p.Name).ToArray();
 
     static string[]? _standaloneProbeNames;
-
-    /// <summary>Every type hosting a CI guard of either kind.</summary>
-    public static IReadOnlyList<Type> GuardTypes => _guardTypes ??= All().Select(e => e.Host).Distinct().ToArray();
-
-    static Type[]? _guardTypes;
 
     /// <summary>
     /// Dispatch a single CI guard by name — roster or standalone. Program.cs routes local single-probe runs
