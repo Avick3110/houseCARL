@@ -6,8 +6,8 @@ namespace HousecarlCore;
 
 /// <summary>One created Cell's STRUCTURAL-SHELL note: its kind (interior vs exterior) and the world content houseCARL
 /// does NOT author for it (lighting / terrain / water / navmesh — Creation-Kit work). The cell RECORD is valid and
-/// correctly placed (block math proven); this carries the Q3 honesty that "created" ≠ "looks right in game" — the same
-/// shape as the dialogue voice report's "this line will be SILENT" surface.</summary>
+/// correctly placed; this says that "created" is not the same as "looks right in game", the same shape as the
+/// dialogue voice report's "this line will be SILENT" surface.</summary>
 public sealed record CellShell(FormKey Cell, string EditorId, bool Interior, IReadOnlyList<string> MustProvide);
 
 /// <summary>The structural-shell report for one create call: one entry per created Cell. <see cref="IsEmpty"/> when the
@@ -15,7 +15,7 @@ public sealed record CellShell(FormKey Cell, string EditorId, bool Interior, IRe
 /// (the cell IS written; this only says what the author must still provide).</summary>
 public sealed record CellShellReport(IReadOnlyList<CellShell> Cells)
 {
-    /// <summary>The shell check itself could not run (the patch wouldn't re-open) — surfaced, never a silent skip (Q3).
+    /// <summary>The shell check itself could not run (the patch wouldn't re-open) — surfaced, never a silent skip.
     /// The create ALREADY SUCCEEDED when this is set; it means "I couldn't enumerate the created cells", not "the write
     /// failed". Null on a clean run.</summary>
     public string? CheckError { get; init; }
@@ -24,9 +24,9 @@ public sealed record CellShellReport(IReadOnlyList<CellShell> Cells)
     public static readonly CellShellReport Empty = new(Array.Empty<CellShell>());
 }
 
-/// <summary>Post-write structural-shell report for created cells (the coordinate-keyed §4-(b) create teeth — Aaron
-/// 2026-06-20: a created cell is a structural SHELL; houseCARL does NOT author world content). Sibling to
-/// <see cref="VoiceCheck"/>: the overlay re-open lives in core so the service needs no Mutagen.Skyrim dependency.</summary>
+/// <summary>Post-write structural-shell report for created cells: a created cell is a structural SHELL; houseCARL does
+/// NOT author world content. Sibling to <see cref="VoiceCheck"/>: the overlay re-open lives in core so the service
+/// needs no Mutagen.Skyrim dependency.</summary>
 public static class CellShellCheck
 {
     /// <summary>The catalog name (RecordNaming.StripGetterInterface of ICellGetter) the create flow stamps on a created
@@ -67,10 +67,9 @@ public static class CellShellCheck
         finally { (patch as IDisposable)?.Dispose(); }
     }
 
-    /// <summary>The world content houseCARL does NOT author for a freshly-created cell — fixed by kind. A STANDING list
-    /// (the dialogue "declare the un-done set as a standing warning" pattern), NOT a field-state check: setting a
-    /// LightingTemplate FormLink is not authoring the lit scene, so the caveat holds regardless of which cell fields the
-    /// same call set — keeping the boundary honest without crying wolf about specific fields.</summary>
+    /// <summary>The world content houseCARL does NOT author for a freshly-created cell — fixed by kind. A STANDING list,
+    /// NOT a field-state check: setting a LightingTemplate FormLink is not authoring the lit scene, so the caveat holds
+    /// regardless of which cell fields the same call set.</summary>
     static IReadOnlyList<string> MustProvide(bool interior) => interior
         ? new[]
         {

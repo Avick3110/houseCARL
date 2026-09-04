@@ -8,18 +8,17 @@ namespace HousecarlCore;
 /// <summary>
 /// SEQ-file builder — the start-game-enabled-quest "sequence" file (<c>Data\SEQ\&lt;plugin&gt;.seq</c>) the engine reads to
 /// actually START a plugin's Start-Game-Enabled quests. Ticking the SGE flag alone does NOTHING: without the .seq the quest
-/// — and any dialogue or world change gated on it — silently never runs (the exact silent-failure class houseCARL refuses,
-/// Q3). The CK writes this file on save; xEdit's "Create SEQ file" does the same; this is houseCARL's data-layer equivalent.
+/// — and any dialogue or world change gated on it — silently never runs. The CK writes this file on save; xEdit's
+/// "Create SEQ file" does the same; this is houseCARL's data-layer equivalent.
 ///
-/// Format (empirically pinned against 145 real .seq files in a live load order): a FLAT array of 4-byte LITTLE-ENDIAN
-/// FormIDs, no header or footer, one per SGE quest. Each FormID is the plugin-LOCAL, master-relative ON-DISK form: high
-/// byte = the quest's slot in the plugin's master list (a plugin's OWN/new records sit at the slot AFTER its last master,
-/// i.e. high byte = master count), low 3 bytes = the object id. That is the SAME master-INDEX encoding Mutagen writes into
-/// the record header on disk — NEVER the runtime 0xFE light-space / load-order address (the ESL ground-truth work pinned
-/// "master-index on disk, never 0xFE" over 1.55M real records). So the file is LOAD-ORDER-INDEPENDENT: computable wholly at
-/// author time with no runtime-FormID bridge, and it ships with the mod. houseCARL writes the plugin and its .seq together,
-/// so the encoding is never stale — the one way real .seq files DO go wrong (a master added/removed, or an ESL compaction/
-/// merge, after the .seq was generated, which shifts the slot) cannot happen when both are emitted in the same act.
+/// Format: a FLAT array of 4-byte LITTLE-ENDIAN FormIDs, no header or footer, one per SGE quest. Each FormID is the
+/// plugin-LOCAL, master-relative ON-DISK form: high byte = the quest's slot in the plugin's master list (a plugin's
+/// OWN/new records sit at the slot AFTER its last master, i.e. high byte = master count), low 3 bytes = the object id.
+/// That is the SAME master-INDEX encoding Mutagen writes into the record header on disk — NEVER the runtime 0xFE
+/// light-space / load-order address. So the file is LOAD-ORDER-INDEPENDENT: computable wholly at author time with no
+/// runtime-FormID bridge, and it ships with the mod. houseCARL writes the plugin and its .seq together, so the encoding
+/// is never stale — the one way real .seq files DO go wrong (a master added/removed, or an ESL compaction/merge, after
+/// the .seq was generated, which shifts the slot) cannot happen when both are emitted in the same act.
 /// </summary>
 public static class SeqFile
 {
@@ -61,7 +60,7 @@ public static class SeqFile
     /// (DELETED quests excluded — a removed record never starts, the same skip the dialogue validator applies to deleted
     /// lines), and build the .seq bytes from their on-disk FormIDs in the plugin's own record order. Read-only; holds NO
     /// handle past the <c>using</c> (the at-rest discipline every houseCARL overlay open follows). THROWS on an unreadable
-    /// plugin — the caller surfaces it (Q3); never a silent empty .seq for a plugin that didn't open.</summary>
+    /// plugin — the caller surfaces it; never a silent empty .seq for a plugin that didn't open.</summary>
     public static SeqBuild Build(string pluginPath)
     {
         using var mod = SkyrimMod.CreateFromBinaryOverlay(pluginPath, SkyrimRelease.SkyrimSE);
@@ -92,7 +91,7 @@ public static class SeqFile
     /// <summary>Whether a .seq's raw bytes (a flat array of 4-byte little-endian on-disk FormIDs — the layout
     /// <see cref="Serialize"/> writes) contain <paramref name="onDiskFormId"/> — the membership check the staleness
     /// lint runs against an EXISTING .seq. A trailing partial chunk (a truncated/malformed .seq) is ignored, never
-    /// guessed (Q3).</summary>
+    /// guessed.</summary>
     public static bool SeqContains(ReadOnlySpan<byte> seqBytes, uint onDiskFormId)
     {
         for (int i = 0; i + 4 <= seqBytes.Length; i += 4)
@@ -105,11 +104,11 @@ public static class SeqFile
     /// FormID is NOT listed in that <c>.seq</c> — the quests the stale <c>.seq</c> would silently fail to start on a fresh
     /// save. EMPTY ⇒ the <c>.seq</c> is consistent with the plugin (or the plugin has no SGE quests). This is the exact
     /// condition an in-place master-prune creates: dropping a master shifts every own record's master-index slot, so each
-    /// SGE quest's on-disk FormID moves and the shipped <c>.seq</c> no longer lists it (Heisen §3 gap-4 — Update.esm pruned
-    /// → 0x02000806 became 0x01000806). Reuses <see cref="Build"/> (the same SGE enumeration + on-disk-FormID encoding the
+    /// SGE quest's on-disk FormID moves and the shipped <c>.seq</c> no longer lists it (e.g. Update.esm pruned →
+    /// 0x02000806 becomes 0x01000806). Reuses <see cref="Build"/> (the same SGE enumeration + on-disk-FormID encoding the
     /// author-time <c>.seq</c> write uses) and <see cref="SeqContains"/>, so the write-time flag and a <c>write_seq</c>
-    /// regen can never disagree about which quests a <c>.seq</c> must list. Read-only; opens + disposes the overlay
-    /// (Option B). The CALLER decides to warn (auto-flag, Aaron 2026-07-04) — this never mutates the <c>.seq</c>.</summary>
+    /// regen can never disagree about which quests a <c>.seq</c> must list. Read-only; opens + disposes the overlay.
+    /// The CALLER decides to warn — this never mutates the <c>.seq</c>.</summary>
     public static IReadOnlyList<SeqQuest> UncoveredSgeQuests(string pluginPath, ReadOnlySpan<byte> existingSeqBytes)
     {
         var build = Build(pluginPath);                       // SGE quests + their current on-disk FormIDs, off the written plugin

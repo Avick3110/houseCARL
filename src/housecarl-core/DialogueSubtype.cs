@@ -3,47 +3,25 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlCore;
 
-// ======================================================================
-//  DialogueSubtype — the DialogTopic subtype MARKER (SNAM) authority.
+// DialogueSubtype — the authority for a DialogTopic's SNAM subtype marker.
 //
-//  THE BUG THIS EXISTS FOR (issue #131, community report by matashina):
-//  A DialogTopic (DIAL) carries its subtype in TWO independent places —
-//    • DATA\Subtype : a numeric enum (Mutagen's DialogTopic.SubtypeEnum; the game index, e.g. Hello = 79)
-//    • SNAM         : a 4-character text marker (RecordType, e.g. "HELO")
-//  The engine buckets topics by the SNAM MARKER. A NEWLY-AUTHORED topic with a blank marker (0000) is the
-//  #131 load CTD — the engine walks an invalid topic list. Mutagen writes SNAM verbatim from the field and
-//  does NOT derive it from Subtype (confirmed by decompiling DialogTopicBinaryWriteTranslation), so a create
-//  that sets only Subtype leaves SNAM at 0000 — a byte-valid plugin that crashes. This is one of the
-//  Creation-Kit bookkeeping jobs a raw insert skips (see the dialogue-authoring skill).
+// A DIAL carries its subtype twice: DATA\Subtype, a numeric enum (Mutagen's DialogTopic.SubtypeEnum,
+// e.g. Hello = 79), and SNAM, a 4-character text marker (e.g. "HELO"). The engine buckets topics by the
+// SNAM marker, and Mutagen writes SNAM verbatim from the field rather than deriving it from Subtype — so a
+// create that sets only Subtype leaves SNAM at 0000, a byte-valid plugin the engine can crash on at load.
+// A blank marker on a new/own topic is that load CTD; on an override it is often tolerated (the base
+// record's marker plausibly still applies) but still malformed, and the wording here says exactly that.
 //
-//  A NOTE ON SEVERITY (found in review, not universal): a blank marker is not ALWAYS a guaranteed crash — a
-//  blank-SNAM *override* of an existing topic has been observed shipping in a working, actively-played mod
-//  (the base record's marker plausibly still applies). So the accurate claim is: a blank marker is malformed,
-//  and on a NEW/own topic it is the #131 load CTD; on an override it may be tolerated but is still wrong. The
-//  wording across the code + validator + skill reflects that, rather than claiming a universal crash.
-//
-//  WHY THE TABLE IS SOURCED FROM xEdit, NOT DERIVED:
-//  The name↔marker mapping is NOT a blind echo (Hello→HELO, Goodbye→GBYE, but Custom→CUST) and Mutagen does
-//  NOT model it. Nor can it be scraped from vanilla: Bethesda's own DATA\Subtype numbers are unreliable
-//  (many HELO topics ship with DATA≠79), which is exactly why xEdit marks DATA\Subtype cpIgnore and treats
-//  SNAM as the REQUIRED master field (it even defaults SNAM to CUST). So the authoritative index→marker table
-//  below is taken from xEdit's own record-format definition — the community's canonical spec — and
-//  cross-checked against the clean vanilla signals (Custom/Scene/Hello/Goodbye/Idle).
-//
-//  PROVENANCE (by construction, not by hand): the table is the join of the two enums in xEdit's
-//  Core/wbDefinitionsTES5.pas (repo TES5Edit/TES5Edit, branch dev-4.1.6):
-//    • the DATA\Subtype index→name wbEnum ({0}'Custom' … {102}'LeaveWaterBreath'), and
-//    • wbSubtypeNamesEnum (4-char signature → name),
-//  matched by subtype NAME. Each row pairs Mutagen's OWN SubtypeEnum name (empty only for index 3, which
-//  Mutagen's enum skips — xEdit's 'Custom?') with the marker, and dialogue-subtype-marker-guard asserts
-//  Enum.Parse(name)==index for every named row, so the row order is machine-verified — a transposition can't
-//  pass CI silently. Mutagen's SubtypeEnum integer values equal these indices, so the lookup key is simply
-//  (int)DialogTopic.Subtype.
-// ======================================================================
+// The table below is sourced from xEdit's record definition, not derived: the name↔marker mapping is not a
+// blind echo (Custom→CUST but ShootBow→FIWE), Mutagen does not model it, and it cannot be scraped from
+// vanilla because Bethesda's own DATA\Subtype numbers are unreliable (many HELO topics ship with DATA≠79) —
+// which is why xEdit ignores DATA\Subtype and treats SNAM as the required master field. Rows are the join of
+// xEdit's DATA\Subtype index→name enum and its 4-char-signature→name enum, matched by subtype name.
+// Mutagen's SubtypeEnum integer values equal these indices, so the lookup key is (int)DialogTopic.Subtype.
 
 /// <summary>The outcome of <see cref="DialogueSubtype.NormalizeMarker"/>: whether it filled the marker, left an
 /// author's explicit marker alone, or could not model one for the subtype (the last is a defect the caller must
-/// surface LOUDLY, never ship silently — Q3).</summary>
+/// surface loudly, never ship silently).</summary>
 public enum MarkerFill
 {
     /// <summary>The marker was already non-blank — an explicit value is never overridden. Nothing changed.</summary>
@@ -51,21 +29,21 @@ public enum MarkerFill
     /// <summary>The marker was blank and has been filled from the subtype (the marker is in the out param).</summary>
     Filled,
     /// <summary>The marker was blank AND no marker is modeled for the subtype (an out-of-range enum value that got
-    /// past pre-flight). NOTHING was filled — the caller MUST warn/refuse, never leave this silent (Q3).</summary>
+    /// past pre-flight). NOTHING was filled — the caller MUST warn/refuse, never leave this silent.</summary>
     Unmodeled,
 }
 
 /// <summary>The authority for a DialogTopic's SNAM subtype marker — the 4-char tag the game buckets topics by.
-/// A blank marker is malformed (a load CTD on a new topic — issue #131), so the create path auto-fills it from
+/// A blank marker is malformed (a load CTD on a new topic), so the create path auto-fills it from
 /// the topic's <c>Subtype</c> and the on-demand validator escalates a blank one to a Problem. Both read the marker
 /// through THIS type so the write side and the check side can never disagree.</summary>
 public static class DialogueSubtype
 {
     /// <summary>Subtype index (== <c>(int)DialogTopic.Subtype</c> == xEdit DATA\Subtype index) → (Mutagen enum name,
-    /// 4-char SNAM marker), from xEdit's canonical definition (see file header for provenance). Contiguous 0..102;
-    /// every Marker is a real 4-char signature Bethesda uses (<c>HIT_</c> keeps its trailing underscore). Name is
-    /// Mutagen's own <see cref="DialogTopic.SubtypeEnum"/> member name, empty ("") only for index 3 which Mutagen's
-    /// enum omits (xEdit's 'Custom?'). The guard asserts Enum.Parse(Name)==index for every named row.</summary>
+    /// 4-char SNAM marker). Contiguous 0..102; every Marker is a real 4-char signature Bethesda uses
+    /// (<c>HIT_</c> keeps its trailing underscore). Name is Mutagen's own <see cref="DialogTopic.SubtypeEnum"/>
+    /// member name, empty ("") only for index 3 which Mutagen's enum omits. A CI check asserts
+    /// Enum.Parse(Name)==index for every named row, so a transposed row cannot pass silently.</summary>
     static readonly (string Name, string Marker)[] Table =
     {
         ("Custom", "CUST"),                          //   0
@@ -173,11 +151,11 @@ public static class DialogueSubtype
         ("LeaveWaterBreath", "LWBS"),                // 102
     };
 
-    /// <summary>The number of subtype indices the table covers (0..<see cref="Count"/>-1). Pinned by the guard.</summary>
+    /// <summary>The number of subtype indices the table covers (0..<see cref="Count"/>-1).</summary>
     public static int Count => Table.Length;
 
-    /// <summary>Mutagen's SubtypeEnum name for a row, or "" for index 3 (which Mutagen's enum omits). For the guard's
-    /// name↔index machine-check — a transposition of any named row makes Enum.Parse(name)!=index and fails CI.</summary>
+    /// <summary>Mutagen's SubtypeEnum name for a row, or "" for index 3 (which Mutagen's enum omits). Exists for the
+    /// name↔index machine-check: a transposed named row makes Enum.Parse(name)!=index and fails CI.</summary>
     public static string NameAt(int index) => index >= 0 && index < Table.Length ? Table[index].Name : "";
 
     /// <summary>The 4-char SNAM marker for a subtype index (== <c>(int)DialogTopic.Subtype</c>), or null if the
@@ -190,15 +168,15 @@ public static class DialogueSubtype
 
     /// <summary>True when a topic's SNAM marker is empty/default (0000) OR whitespace-only — the malformed "no real
     /// marker" state. The single home for this test so the create path and the validator agree on what "no marker"
-    /// means (Q3). Whitespace is treated as blank (it renders invisibly and buckets to a tag no real topic uses).</summary>
+    /// means. Whitespace counts as blank: it renders invisibly and buckets to a tag no real topic uses.</summary>
     public static bool IsBlankMarker(RecordType marker)
     {
         var s = marker.Type;
         return string.IsNullOrEmpty(s) || string.IsNullOrWhiteSpace(s) || s.All(c => c == '\0');
     }
 
-    /// <summary>Auto-fill a topic's SNAM marker from its <c>Subtype</c> when it is blank — the create-path fix for
-    /// #131. Reports WHICH of three things happened so the caller can be honest (Q3): <see cref="MarkerFill.Filled"/>
+    /// <summary>Auto-fill a topic's SNAM marker from its <c>Subtype</c> when it is blank, on the create path.
+    /// Reports WHICH of three things happened so the caller can be honest: <see cref="MarkerFill.Filled"/>
     /// (was blank, now set — <paramref name="marker"/> carries the tag, for the "report it" op),
     /// <see cref="MarkerFill.AlreadySet"/> (a non-blank marker the author set — NEVER overridden, the escape hatch
     /// stays theirs), or <see cref="MarkerFill.Unmodeled"/> (blank AND no marker modeled for the subtype — an
@@ -214,7 +192,7 @@ public static class DialogueSubtype
         return MarkerFill.Filled;
     }
 
-    /// <summary>Edit-path intent-following (#131, F1): force a topic's SNAM marker to MATCH its current <c>Subtype</c>,
+    /// <summary>Edit-path intent-following: force a topic's SNAM marker to MATCH its current <c>Subtype</c>,
     /// overwriting a stale one. Unlike <see cref="NormalizeMarker"/> (which only fills a BLANK marker, for create),
     /// this is called by the edit lane ONLY after a call that SET <c>Subtype</c> and did NOT set <c>SubtypeName</c> —
     /// so the change actually takes effect (the engine buckets by SNAM, so a stale marker makes a Subtype edit a

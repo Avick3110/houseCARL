@@ -7,58 +7,33 @@ using Mutagen.Bethesda.Skyrim;
 namespace HousecarlCore;
 
 // ======================================================================
-//  DialogueValidate — the ON-DEMAND whole-topic dialogue-graph validator
-//  (nested-dialogue plan §3.6, Layer B unit C part C2; the on-demand counterpart of the per-create
-//   VoiceCheck (unit B) + DialogueScriptCheck (unit C1)). Where those run at CREATE time over the lines a
-//   single call just wrote, THIS runs on demand over a WHOLE topic resolved against the LOAD-ORDER WINNERS —
-//   what the game actually sees — and audits EVERY existing INFO in the topic, not just freshly-created ones.
-//   That closes unit B's deferred edit-path voice/script audit gap (the WriteTools edit-path note repoints here).
+//  DialogueValidate — the on-demand whole-topic dialogue-graph validator. Where VoiceCheck and
+//  DialogueScriptCheck run at CREATE time over the lines one call just wrote, this runs on demand over a
+//  whole topic resolved against the LOAD-ORDER WINNERS and audits every existing INFO.
 //
-//  WHAT IT CHECKS (per topic, on the RESOLVED WINNING DialogTopic record plus — for the INFO ORDER — every touching
-//  plugin's child list). NOTE THE CORRECTED MODEL (#275, 2026-07-27): the in-game INFO set is NOT the winning topic's
-//  Responses. The "DIAL-wins-wholesale" model (winner's child list is authoritative, so a line no other plugin
-//  re-lists is DROPPED) was recorded Aaron-confirmed 2026-06-19 and is FALSE — measured live, a topic whose winner
-//  carries ONE INFO plays EIGHT, and the line that misfired was not in the winner's list at all. Every touching
-//  plugin's INFOs MERGE; non-relisting drops nothing, it REORDERS (DialogueInfoOrder carries the model + evidence).
-//  The per-INFO checks below still walk the WINNING topic's child list — that is the set whose bodies this validator
-//  audits — while the effective ORDER is the merge:
-//    • Quest wiring — DialogTopic.Quest set and resolving to a real QUST (an unowned topic may never present).
-//    • Branch wiring — if DialogTopic.Branch is set, it must resolve to a real DLBR (an unset Branch is normal).
-//    • INFO.LinkTo conversation chain — the REAL topic→next-topic hand-off; a set link to a missing DIAL is a broken chain.
-//    • Dangling PNAM — a SET PreviousDialog that resolves to no INFO. ABSENCE is NOT flagged: vanilla leaves PNAM empty
-//      and selects intra-topic by Conditions, not by a previous-link chain (empirically confirmed; the §3.6 "PNAM chain
-//      in response order" model was wrong for the existing corpus, so that check was dropped — review fold 2026-06-19).
-//    • Category / Subtype — surfaced as facts (what the game will use), not judged.
-//    • INFO CK-parity — a live INFO missing the FavorLevel (CNAM) or response-Flags (ENAM) subrecord the CK writes
-//      unconditionally (the CK-editor-crash shape DialogueCkParity fills on create). WARN, via the SHARED presence
-//      probe the create path fills through — so the fill side and this check side can't drift.
-//    • Voice + result-script — the existing per-INFO VoiceCheck.CheckInfo + DialogueScriptCheck.CheckInfo run over every
-//      LIVE INFO (reused verbatim, so the create-path and the validator can never drift). DELETED INFOs (a removed line)
-//      are skipped, not validated.
+//  The in-game INFO set is NOT just the winning topic's Responses: every touching plugin's INFOs MERGE, so a
+//  line no later plugin re-lists is not dropped, it is REORDERED (DialogueInfoOrder carries the model). The
+//  per-INFO body checks here still walk the WINNING topic's child list, so an INFO another plugin contributes
+//  but this winner does not re-list is not body-checked — a clean pass means "every line this winner lists is
+//  sound", not "every line in this topic is". The effective ORDER view is the merge across all of them.
 //
-//  BOUNDARY (Q3): the per-INFO body checks above walk the WINNING topic's child list, so an INFO another plugin
-//  contributes but this winner does not re-list is NOT body-checked here. It is NOT dropped from the game, though — it
-//  still plays, and it DOES appear in the effective-order view, which merges every touching plugin's list. So a clean
-//  pass means "every line this winner lists is sound", NOT "every line in this topic is". The footer names this scope.
+//  Per-INFO checks: quest wiring, branch wiring, the INFO.LinkTo topic→next-topic chain, a SET-but-dangling
+//  PNAM, INFO CK-parity (CNAM/ENAM), and the reused VoiceCheck/DialogueScriptCheck. Category/Subtype are
+//  surfaced as facts, not judged. Deleted INFOs are skipped. PNAM ABSENCE is never flagged — vanilla leaves it
+//  empty and selects intra-topic by Conditions, not by a previous-link chain.
 //
-//  WHAT IT DELIBERATELY CANNOT CHECK (grill-rev C2 — the validator is the ONLY non-advisory enforcement, so it
-//  must NAME the gaps, never let "checks passed" read as "this will play"): the CTDA conditions that gate when a
-//  line fires are semantic and only the game evaluates them; lip-sync accuracy + audio content are out of the
-//  data layer. Both are declared as standing limits the render surfaces loudly (Q3). The ONE permanent CK-parity
-//  boundary: DIAL Priority (PNAM) — a non-nullable float with no "unset" signal to read off a finished winning
-//  record (the create path distinguishes author-set-0 from unset via the author's op list, which the validator
-//  does not have), so flagging its absence would false-positive every legitimately-priority-0 topic. The REST of
-//  the CK-parity family IS checked: INFO CNAM/ENAM per live INFO (S1, in ValidateTopic); DLVW DNAM/ENAM and DLBR
-//  TNAM as their OWN input kinds (a DialogView / DialogBranch FormID is a record-level CK-parity check — no
-//  topic graph to walk); QUST ANAM/objective FNAM once per QUEST input (InputIssues, never repeated per topic).
+//  Standing limits the render must state rather than let "checks passed" read as "this will play": CTDA
+//  conditions are semantic and only the game evaluates them, and lip-sync/audio content is outside the data
+//  layer. DIAL Priority (PNAM) is a permanent CK-parity boundary — a non-nullable float with no "unset" signal
+//  on a finished record, so flagging its absence would false-positive every legitimately-priority-0 topic. The
+//  rest of the CK-parity family is checked: INFO CNAM/ENAM per live INFO, DLVW DNAM/ENAM and DLBR TNAM as
+//  their own input kinds, QUST ANAM/objective FNAM once per quest input.
 //
-//  RESOLUTION SCOPE (Aaron 2026-06-19): LOAD-ORDER-AWARE, like every other houseCARL read — it validates what
-//  the active load order resolves (the modlist-author's "does this play in THIS list" view). An isolated
-//  mod-author "master-closure" scope (validate within {plugin + its masters} only) is a recognised, deliberately
-//  DEFERRED cross-tool capability (post-1.3), not a C2 knob — see memory project_parked_and_planned_work.
+//  Resolution scope is load-order-aware, like every other houseCARL read: it validates what the active order
+//  resolves. Validating within {plugin + its masters} only is a deliberately deferred capability.
 //
-//  NEVER THROWS over a verify step: a per-topic walk is defensive, and the service wraps the whole run so a
-//  resolve/asset failure rides DialogueValidationReport.CheckError, surfaced never silently swallowed (Q3).
+//  Never throws over a verify step: the whole run is wrapped so a resolve/asset failure rides
+//  DialogueValidationReport.CheckError rather than being silently swallowed.
 // ======================================================================
 
 /// <summary>How serious a graph finding is. <see cref="Problem"/> = a broken link (a Quest/Branch/LinkTo/PNAM pointing
@@ -67,8 +42,8 @@ namespace HousecarlCore;
 /// <see cref="TopicValidation"/> fields, so the issue list is only ever things worth a second look.</summary>
 public enum DialogueIssueSeverity { Problem, Warning }
 
-/// <summary>One whole-topic graph finding: its <see cref="Severity"/> and a human-readable <see cref="Message"/>
-/// that names the offending FormKey + what is wrong (Q3 — never a bare "invalid").</summary>
+/// <summary>One whole-topic graph finding: its <see cref="Severity"/> and a <see cref="Message"/> that names the
+/// offending FormKey and what is wrong — never a bare "invalid".</summary>
 public sealed record DialogueIssue(DialogueIssueSeverity Severity, string Message);
 
 /// <summary>One topic's whole-graph validation: identity (<see cref="Topic"/>, <see cref="TopicEditorId"/>,
@@ -76,10 +51,9 @@ public sealed record DialogueIssue(DialogueIssueSeverity Severity, string Messag
 /// LinkTo/dangling-PNAM), and the reused per-INFO voice (<see cref="VoiceLines"/> / <see cref="VoiceUndetermined"/>) +
 /// result-script (<see cref="ScriptFindings"/>) verdicts over every LIVE INFO. <see cref="InfoCount"/> counts INFO
 /// records (one INFO may carry several spoken rows, or none) — NOT spoken lines. <see cref="ConditionedInfoCount"/>
-/// feeds the standing CTDA limit (grill-rev C2). <see cref="DeletedInfoCount"/> = INFOs skipped as removed (deleted).
-/// <see cref="FragmentInfoCount"/> = live INFOs carrying a result-script fragment — lines that run Papyrus code
-/// which CAN surface in Papyrus.log (on an error or an explicit trace), where a plain voiced line has no code path
-/// that ever can (item 8).</summary>
+/// feeds the standing CTDA limit. <see cref="DeletedInfoCount"/> = INFOs skipped as removed (deleted).
+/// <see cref="FragmentInfoCount"/> = live INFOs carrying a result-script fragment — lines that run Papyrus code, so
+/// they can surface in Papyrus.log on an error or an explicit trace, where a plain voiced line never can.</summary>
 public sealed record TopicValidation(
     FormKey Topic, string TopicEditorId, string WinnerPlugin,
     int InfoCount, int ConditionedInfoCount, int DeletedInfoCount, int FragmentInfoCount,
@@ -89,23 +63,22 @@ public sealed record TopicValidation(
     IReadOnlyList<VoiceUndetermined> VoiceUndetermined,
     IReadOnlyList<ScriptBindingFinding> ScriptFindings)
 {
-    /// <summary>The EFFECTIVE, merged INFO order for this topic — the sequence the game walks top-to-bottom,
-    /// merged across every touching plugin's child list (#275, xEdit INOA parity). Null only when the merge could
-    /// not be built (the topic resolved to no touching plugins). This is the one view that shows a pure REORDER,
-    /// which changes which line plays while leaving every field identical — see <see cref="DialogueInfoOrder"/>.</summary>
+    /// <summary>The effective, merged INFO order for this topic — the sequence the game walks top-to-bottom, merged
+    /// across every touching plugin's child list (xEdit INOA parity). Null only when the merge could not be built
+    /// (the topic resolved to no touching plugins). This is the one view that shows a pure REORDER, which changes
+    /// which line plays while leaving every field identical — see <see cref="DialogueInfoOrder"/>.</summary>
     public InfoOrderView? InfoOrder { get; init; }
 }
 
-/// <summary>The SEQ staleness/coverage lint result for a QUEST-input validation (item 7); null for a non-SGE quest
-/// or a DIAL input. A Start-Game-Enabled quest needs a <c>.seq</c> that LISTS it (by its on-disk FormID) and is NEWER
-/// than its defining plugin, or it is dormant on a fresh save — its dialogue never shows. <see cref="SeqContainsQuest"/>
-/// and <see cref="SeqNewerThanPlugin"/> are null when undeterminable (the winning <c>.seq</c> is inside a BSA, or
+/// <summary>The SEQ staleness/coverage lint result for a QUEST-input validation; null for a non-SGE quest or a DIAL
+/// input. A Start-Game-Enabled quest needs a <c>.seq</c> that LISTS it (by its on-disk FormID) and is NEWER than its
+/// defining plugin, or it is dormant on a fresh save — its dialogue never shows. <see cref="SeqContainsQuest"/> and
+/// <see cref="SeqNewerThanPlugin"/> are null when undeterminable (the winning <c>.seq</c> is inside a BSA, or
 /// unreadable — <see cref="Note"/> says why); <see cref="OnDiskFormId"/> is the 4-byte value a <c>.seq</c> must
 /// contain for this quest (0 when it couldn't be computed). The check keys off <see cref="DefiningPlugin"/>;
-/// <see cref="WinnerPlugin"/> is the plugin whose record the game actually reads (the load-order winner) — when it
-/// differs from the defining plugin, an override is in play and the render softens a not-covered verdict to an
-/// ambiguity (the override may be the plugin that flags SGE and needs its own .seq) rather than a confident
-/// "dormant" against the defining plugin (Q3).</summary>
+/// <see cref="WinnerPlugin"/> is the plugin whose record the game actually reads. When they differ an override is in
+/// play, and the render must soften a not-covered verdict to an ambiguity rather than assert "dormant" against the
+/// defining plugin — the override may itself be the plugin that flags SGE and needs its own .seq.</summary>
 public sealed record SeqLintFinding(
     bool QuestIsSge, string DefiningPlugin, string WinnerPlugin, uint OnDiskFormId,
     bool SeqExists, bool? SeqContainsQuest, bool? SeqNewerThanPlugin, string? Note);
@@ -114,7 +87,7 @@ public sealed record SeqLintFinding(
 /// (<see cref="Input"/>, <see cref="InputKind"/> = "topic"/"quest"/"view"/"branch"/"error",
 /// <see cref="InputEditorId"/>) and the per-topic validations. A top-level recoverable miss (the FormID isn't in
 /// the order, or resolves to none of the four input types) is a NAMED <see cref="Error"/>; a mid-run throw is
-/// surfaced on <see cref="CheckError"/> — both honest, never a silent empty pass (Q3).
+/// surfaced on <see cref="CheckError"/> — never a silent empty pass.
 /// <see cref="ReadIncomplete"/> carries the asset-layer caveat (a BSA that failed to read, so an "absent"
 /// voice/.pex may merely be unscanned). <see cref="InputIssues"/> carries INPUT-LEVEL findings that belong to the
 /// input record itself, not to any one topic: the QUST ANAM/objective-FNAM CK-parity gaps (checked once — a
@@ -133,16 +106,16 @@ public sealed record DialogueValidationReport(
     /// for those input kinds). Empty for a DIAL input and for a gap-free record.</summary>
     public IReadOnlyList<DialogueIssue> InputIssues { get; init; } = Array.Empty<DialogueIssue>();
 
-    /// <summary>The SEQ staleness/coverage lint (item 7), set only for a Start-Game-Enabled QUEST input; null
-    /// otherwise (a non-SGE quest, or a DIAL input — a topic isn't a quest, so a .seq isn't its concern).</summary>
+    /// <summary>The SEQ staleness/coverage lint, set only for a Start-Game-Enabled QUEST input; null otherwise
+    /// (a non-SGE quest, or a DIAL input — a topic isn't a quest, so a .seq isn't its concern).</summary>
     public SeqLintFinding? SeqLint { get; init; }
 
     /// <summary>The FormID isn't in the active order, or resolves to none of the four input types (DIAL, QUST,
-    /// DLVW, DLBR) — a recoverable, named error the tool renders as guidance (Q3), not a thrown failure.</summary>
+    /// DLVW, DLBR) — a recoverable, named error the tool renders as guidance, not a thrown failure.</summary>
     public static DialogueValidationReport ForError(FormKey fk, string error) =>
         new(fk, "error", null, null, Array.Empty<TopicValidation>()) { Error = error };
 
-    /// <summary>The validate threw mid-run (a resolve/asset failure) — surfaced, never silently swallowed (Q3).</summary>
+    /// <summary>The validate threw mid-run (a resolve/asset failure) — surfaced, never silently swallowed.</summary>
     public static DialogueValidationReport ForCheckError(FormKey fk, string err) =>
         new(fk, "error", null, null, Array.Empty<TopicValidation>()) { CheckError = err };
 }
@@ -152,10 +125,9 @@ public static class DialogueValidate
     /// <summary>The type filter for the quest fan-out scan — every winning DialogTopic (DIAL) in the order.</summary>
     static readonly Type[] DialTypes = { typeof(IDialogTopicGetter) };
 
-    /// <summary>The ONE home for rendering a <see cref="CkParityGap"/> as a validator finding — "{noun} {fk} is
-    /// missing the {Subrecord} subrecord — {Detail}", always a Warning (every member of the family is a CK-editor /
-    /// byte-parity shape the game itself tolerates). All four gap surfaces (per-INFO, quest InputIssues, DLVW,
-    /// DLBR) go through this, so a wording or severity change is one edit, never four drifting copies.</summary>
+    /// <summary>The one home for rendering a <see cref="CkParityGap"/> as a validator finding, always a Warning —
+    /// every member of the family is a CK-editor / byte-parity shape the game itself tolerates. All four gap
+    /// surfaces (per-INFO, quest InputIssues, DLVW, DLBR) go through this so they cannot drift apart.</summary>
     static DialogueIssue GapIssue(string noun, FormKey fk, CkParityGap gap) =>
         new(DialogueIssueSeverity.Warning, $"{noun} {fk} is missing the {gap.Subrecord} subrecord — {gap.Detail}");
 
@@ -168,14 +140,12 @@ public static class DialogueValidate
     /// <c>Resolve</c> closure (each INFO's Speaker → NPC → VoiceType, and the topic's Quest) + the asset view off
     /// the live resolvers, and opens ONE overlay session for the run. NEVER throws: a recoverable miss (not in the
     /// order, or none of the four input types) is a NAMED <see cref="DialogueValidationReport.Error"/>; a mid-run
-    /// throw rides <see cref="DialogueValidationReport.CheckError"/> (Q3 — surfaced, never a silent empty pass).</summary>
-    /// <summary>The effective merged INFO order (#275) for a set of topics, off an ALREADY-CAPTURED view + open
-    /// session — one build for the whole batch. This is the engine entry the records info_order PROJECT form
-    /// consumes (the §6.1 F1 split: class 8 of validate_dialogue, an ordered sequence render, not a findings
-    /// list); Run's own per-topic order rides the same code. Per topic: every touching plugin's child list is
-    /// loaded in ONE typed DIAL pass per plugin (never a per-(topic,plugin) whole-overlay scan), unreadable
-    /// contributors are CARRIED as data (Complete/BaselineTrusted honesty gates — never a silent drop), and the
-    /// merge itself runs on plain data after the overlays are gone.</summary>
+    /// throw rides <see cref="DialogueValidationReport.CheckError"/>, never a silent empty pass.</summary>
+    /// <summary>The effective merged INFO order for a set of topics, off an ALREADY-CAPTURED view and open
+    /// session — one build for the whole batch, shared with Run's own per-topic order. Per topic, every touching
+    /// plugin's child list is loaded in ONE typed DIAL pass per plugin (never a per-(topic,plugin) whole-overlay
+    /// scan), unreadable contributors are CARRIED as data rather than silently dropped (the Complete /
+    /// BaselineTrusted gates), and the merge runs on plain data after the overlays are gone.</summary>
     public static Dictionary<FormKey, InfoOrderView> InfoOrders(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, IReadOnlyCollection<FormKey> topicFks)
     {
@@ -206,10 +176,10 @@ public static class DialogueValidate
             }
         }
 
-        // Keyed plugin-name -> topic -> lines, with the OUTER dictionary case-insensitive to match
-        // wantedIn and TouchingPlugins. A single flat (string, FormKey) tuple key compares its string
-        // ORDINALLY, so a plugin whose name reached the store and the lookup with different casing would
-        // miss — dropping that plugin from that topic's merge with no note (PR #293 re-review).
+        // Keyed plugin-name -> topic -> lines, with the OUTER dictionary case-insensitive to match wantedIn and
+        // TouchingPlugins. A flat (string, FormKey) tuple key would compare its string ORDINALLY, so a plugin
+        // whose name reached the store and the lookup with different casing would miss — silently dropping that
+        // plugin from the topic's merge.
         var lines = new Dictionary<string, Dictionary<FormKey, IReadOnlyList<InfoLine>>>(
             StringComparer.OrdinalIgnoreCase);
         foreach (var (plugin, wanted) in wantedIn)
@@ -234,21 +204,20 @@ public static class DialogueValidate
                     unread.Add(p);                  // the index says it TOUCHES this topic — see below
             }
 
-            // RecordsIn swallows an overlay it cannot open (catch/continue), where the GetRecord path this
-            // replaced would have thrown into Run's named CheckError. So a plugin moved or locked by
-            // MO2/xEdit mid-call now vanishes SILENTLY — and if the drop leaves one contributor the render
-            // would claim "single plugin, nothing merges here" for a genuinely contested topic, hiding the
-            // very reorder this exists to surface. Carry the absentees so the note states it (Q3).
-            // Built UNCONDITIONALLY — including when NOTHING read. Gating on groups.Count > 0 leaves
-            // InfoOrder null on a total drop, and the render then returns before it can say anything,
-            // which is the same silence one layer down. Safe: TouchingPlugins never yields an empty list,
-            // so no groups implies unread is non-empty implies Complete is false, and the incomplete
-            // render branch reads only counts — it never indexes ContributingPlugins.
+            // RecordsIn swallows an overlay it cannot open, so a plugin moved or locked by MO2/xEdit mid-call
+            // vanishes silently — and if that drop leaves one contributor the render would claim "single plugin,
+            // nothing merges here" for a genuinely contested topic, hiding the very reorder this exists to
+            // surface. Carry the absentees so the note can state it.
+            // Built UNCONDITIONALLY, including when nothing read: gating on groups.Count > 0 would leave
+            // InfoOrder null on a total drop and the render would return before saying anything. Safe because
+            // TouchingPlugins never yields an empty list, so no groups implies unread is non-empty implies
+            // Complete is false, and the incomplete render branch reads only counts — it never indexes
+            // ContributingPlugins.
             //
-            // originIsDefiningPlugin — the move baseline is the first contributing group with a NON-EMPTY
-            // list, so it is trustworthy only if no unread plugin sits BEFORE that plugin in load order.
-            // Testing merely `touching[0] is unread` is too weak: a first plugin that read but carries an
-            // empty child list contributes no baseline, so an unread SECOND plugin still shifts it.
+            // The move baseline is the first contributing group with a NON-EMPTY list, so it is trustworthy only
+            // if no unread plugin sits BEFORE that plugin in load order. Testing `touching[0] is unread` is too
+            // weak: a first plugin that read but carries an empty child list contributes no baseline, so an
+            // unread SECOND plugin still shifts it.
             int firstWithLines = groups.FindIndex(g => g.Item2.Count > 0);
             string? baselinePlugin = firstWithLines >= 0 ? groups[firstWithLines].Item1 : null;
             bool baselineTrusted = unread.Count == 0
@@ -266,7 +235,7 @@ public static class DialogueValidate
         try
         {
             var view = resolver.Capture();                       // pin ONE index build for the whole validation
-            using var session = resolver.OpenSession();          // one set of overlays, disposed at run end (Option B)
+            using var session = resolver.OpenSession();          // one set of overlays, disposed at run end
             var av = assets.Capture();                           // …and ONE asset build, so presence + ReadIncomplete agree
 
             // Load-order winner resolver for each INFO's Speaker → NPC → VoiceType and the topic's Quest. Cached for
@@ -322,7 +291,7 @@ public static class DialogueValidate
                 // on-demand validate, not a hot path). Each scanned body is FULLY walked by ValidateTopic before the
                 // scan iterator advances (and disposes that overlay) — the WinnerRecordsOfType consume-before-advance
                 // contract.
-                // SEQ staleness/coverage lint (item 7): keyed on the QUEST input, independent of its topics — a
+                // SEQ staleness/coverage lint: keyed on the QUEST input, independent of its topics — a
                 // start-game-enabled quest needs a .seq that lists it, or it (and all its dialogue) stays dormant.
                 var seqLint = CheckSeq(view, av, fk, quest, win.Value.WinnerPlugin);
 
@@ -346,9 +315,9 @@ public static class DialogueValidate
 
                 // Quest-level CK-parity gaps (ANAM / objective FNAM) — checked ONCE on the winning quest record and
                 // surfaced as InputIssues, never per topic (a multi-topic quest would repeat the same quest gap N
-                // times). The absence probes are DialogueCkParity's — the SAME ones ApplyQuestDefaults fills through,
-                // so fill and check can't drift (Q3). S2 byte-parity → Warning. PRESENCE only: the validator never
-                // judges the ANAM VALUE (an edited quest's ANAM is a legitimate CK high-water mark).
+                // times). The absence tests are DialogueCkParity's — the same ones ApplyQuestDefaults fills
+                // through, so fill and check cannot drift. Byte-parity, so Warning. PRESENCE only: the validator
+                // never judges the ANAM VALUE (an edited quest's ANAM is a legitimate CK high-water mark).
                 var questGaps = DialogueCkParity.MissingQuestDefaults(quest)
                     .Select(g => GapIssue("Quest", fk, g)).ToList();
 
@@ -358,8 +327,9 @@ public static class DialogueValidate
 
             // DLVW / DLBR inputs: a RECORD-LEVEL CK-parity check — these carry no INFO list, so there is no topic
             // graph/voice/script surface to walk; the finding set IS the CK-parity gaps (the same subrecords
-            // DialogueCkParity fills on create, via the SAME shared presence predicates — no drift, Q3). Topics
-            // stays empty; the render names the narrower scope so a clean pass never reads as a graph validation.
+            // DialogueCkParity fills on create, via the same shared presence predicates, so they cannot drift).
+            // Topics stays empty; the render names the narrower scope so a clean pass never reads as a graph
+            // validation.
             if (body is IDialogViewGetter dlvw)
             {
                 var gaps = DialogueCkParity.MissingViewDefaults(dlvw)
@@ -394,8 +364,7 @@ public static class DialogueValidate
     /// NOTE on PNAM (DialogResponses.PreviousDialog): vanilla Skyrim leaves it EMPTY and selects among a topic's INFOs
     /// by their Conditions, NOT by a previous-link chain — so absence is the universal norm and is never flagged; only
     /// a SET-but-unresolvable PNAM is reported. The real conversation chain is INFO.LinkTo (topic → next topic), checked
-    /// here for dangling targets. (Empirically confirmed 2026-06-19 against the live load order — the §3.6 "PNAM chain
-    /// in response order" model was wrong for the existing corpus, so that check was dropped.)
+    /// here for dangling targets.
     ///
     /// References are vetted by <paramref name="inOrder"/> first (a cheap O(1) index lookup — a dangling/missing target,
     /// the common breakage, costs no body fetch); only a PRESENT target pays <paramref name="resolve"/> to name a wrong
@@ -409,17 +378,16 @@ public static class DialogueValidate
         var voiceUndet = new List<VoiceUndetermined>();
         var scriptFindings = new List<ScriptBindingFinding>();
 
-        // Text-encoding lint (item 1): flag non-ASCII in the player-facing strings — the topic Name (once), each
-        // INFO Prompt, and each spoken response Text — because the CK/Papyrus user-facing text surface is
-        // effectively Windows-1252/ASCII, so an em-dash, ellipsis, or smart quote renders as in-game mojibake.
-        // WARN only (a heuristic — HTML/Ultralight UIs render Unicode fine) and REPORT-ONLY (this validator never
-        // mutates; it suggests the ASCII substitute, never performs it).
+        // Text-encoding lint: flag non-ASCII in the player-facing strings — the topic Name, each INFO Prompt, and
+        // each spoken response Text — because the CK/Papyrus user-facing text surface is effectively
+        // Windows-1252/ASCII, so an em-dash, ellipsis, or smart quote renders as in-game mojibake. WARN only (a
+        // heuristic — HTML/Ultralight UIs render Unicode fine) and report-only: this validator never mutates.
         CheckEncoding(topic.Name?.String, $"DialogTopic.Name ({edid})", issues);
 
         // Classify a SET reference: cheap-existence first (a dangling/missing target needs no body fetch), then a body
         // fetch ONLY for the rarer present-but-wrong-type case (so the message names what it actually is). Returns null
-        // when the reference is fine, else the clause describing what's wrong — sharper than one "doesn't resolve":
-        // "missing or disabled" vs "resolves to a Weapon" (Q3), and it skips most full-plugin enumerations.
+        // when the reference is fine, else the clause describing what's wrong — "missing or disabled" vs "resolves to a
+        // Weapon", sharper than one "doesn't resolve", and it skips most full-plugin enumerations.
         string? BadRef(FormKey target, string expects, Func<IMajorRecordGetter, bool> isExpected)
         {
             if (!inOrder(target)) return $"is not in the active load order ({expects} missing or disabled)";
@@ -443,15 +411,12 @@ public static class DialogueValidate
             issues.Add(new(DialogueIssueSeverity.Problem,
                 $"DialogTopic.Branch points at {branchFk.Value}, which {bwhy} — the branch wiring is broken."));
 
-        // --- BNAM absent on a Custom topic (Track B #2): a Custom (player-authored) topic with NO Branch back-link
-        //     is byte-valid and plays fine in game, but the Creation Kit's Dialogue Views editor auto-wraps a
-        //     branch-less topic in a "container branch" and then null-derefs rendering the flowchart (a CKPE
-        //     FlowchartX64 crash; Heisen §3 gap-3a — the fix that reopened the views editor was BNAM on every topic,
-        //     including non-starting LinkTo targets, + the DLVW DNAM/ENAM bytes the create path now auto-fills).
-        //     Unlike those byte fields, BNAM is AUTHOR-SUPPLIED (the owning DLBR — houseCARL cannot reliably derive
-        //     which branch a topic belongs to), so this is a WARN, not an auto-fill: a heads-up to wire the topic to
-        //     its branch before opening the CK, harmless at runtime. Gated on Custom because the branch-less crash is
-        //     the player-topic/dialogue-views case; system subtypes (Hello/Goodbye/combat) don't live in views.
+        // --- BNAM absent on a Custom topic: a Custom (player-authored) topic with NO Branch back-link is byte-valid
+        //     and plays fine in game, but the Creation Kit's Dialogue Views editor auto-wraps a branch-less topic in
+        //     a container branch and then null-derefs rendering the flowchart (a CKPE FlowchartX64 crash). BNAM is
+        //     AUTHOR-SUPPLIED — houseCARL cannot reliably derive which branch a topic belongs to — so this is a WARN
+        //     rather than an auto-fill. Gated on Custom because the crash is the player-topic / dialogue-views case;
+        //     system subtypes (Hello/Goodbye/combat) don't live in views.
         if (topic.Subtype == DialogTopic.SubtypeEnum.Custom && branchFk is null)
             issues.Add(new(DialogueIssueSeverity.Warning,
                 "DialogTopic.Branch (BNAM) is unset on this Custom topic — it plays fine in game, but the Creation "
@@ -459,16 +424,14 @@ public static class DialogueValidate
                 + "rendering the flowchart (FlowchartX64). Set Branch to the owning DialogBranch (DLBR) before opening "
                 + "this topic in the CK."));
 
-        // --- SNAM subtype marker: a blank one (0000) is malformed (#131) — the engine buckets topics by this 4-char
-        //     marker. Severity is scoped by whether the WINNING record ORIGINATES here or is an OVERRIDE (F3):
-        //       • OWN/new topic (the winner defines the FormKey — winner == the FormKey's defining master): a blank
-        //         marker is the #131 LOAD CTD → Problem.
-        //       • OVERRIDE of a topic defined in a master: the base record's marker plausibly still applies — a
-        //         blank-SNAM override has been observed shipping in a working, actively-played mod — so it's malformed
-        //         but not a confirmed crash → Warning (don't cry "guaranteed CTD" over working content). See
-        //         DialogueSubtype's header for the live counterexample that falsified the universal claim.
-        //     The blank test is DialogueSubtype's (shared with the create-path auto-fill so they can't drift), and the
-        //     expected marker is named so the fix is a copy-paste, never a bare "invalid" (Q3).
+        // --- SNAM subtype marker: a blank one (0000) is malformed — the engine buckets topics by this 4-char marker.
+        //     Severity is scoped by whether the winning record originates here or is an override:
+        //       • Own/new topic (winner == the FormKey's defining master): a blank marker is a load CTD → Problem.
+        //       • Override of a topic defined in a master: the base record's marker plausibly still applies, and a
+        //         blank-SNAM override has been observed shipping in a working, actively-played mod — malformed but
+        //         not a confirmed crash → Warning. Don't cry "guaranteed CTD" over working content.
+        //     The blank test is DialogueSubtype's, shared with the create-path auto-fill so they can't drift, and the
+        //     expected marker is named so the fix is a copy-paste rather than a bare "invalid".
         if (DialogueSubtype.IsBlankMarker(topic.SubtypeName))
         {
             var expected = DialogueSubtype.MarkerFor((int)topic.Subtype);
@@ -486,17 +449,15 @@ public static class DialogueValidate
                     + $"and this plugin DEFINES the topic, so a blank marker is a load CTD on load (#131); the record is malformed. {fix}"));
         }
 
-        // Static condition lints (item 4) need the owning quest's reference-alias IDs — resolved ONCE here off the
-        // load-order WINNER quest (an alias index in a condition is quest-relative, so it's the owning quest's set
-        // that decides whether the index is live). NULL when the quest is unset or unresolvable (already surfaced
-        // above): when we can't read the alias set we SKIP the alias-index lints rather than guess (Q3 — never a
-        // false "dead alias" against a quest we couldn't read). Non-alias condition lints don't need this and run
-        // regardless.
+        // Static condition lints need the owning quest's reference-alias IDs — resolved ONCE here off the load-order
+        // WINNER quest, because an alias index in a condition is quest-relative, so it's the owning quest's set that
+        // decides whether the index is live. NULL when the quest is unset or unresolvable (already surfaced above):
+        // then the alias-index lints are SKIPPED rather than guessed, never a false "dead alias" against a quest we
+        // couldn't read. Non-alias condition lints don't need this and run regardless.
         HashSet<uint>? ownerAliasIds = null;
-        // The EditorIDs of the globals in the owning quest's TextDisplayGlobals list — the set a `<Global=X>` dialogue-text
-        // tag must name to render in game (item: the <Global=X>/TextDisplayGlobals lint). NULL when the owning quest is
-        // unresolvable (unset or not in the order): then we SKIP the tag lint rather than guess (Q3 — never a false
-        // "not in TextDisplayGlobals" against a quest we couldn't read), exactly as the alias-index lints skip.
+        // The EditorIDs of the globals in the owning quest's TextDisplayGlobals list — the set a `<Global=X>`
+        // dialogue-text tag must name to render in game. NULL when the owning quest is unresolvable, and then the tag
+        // lint is skipped rather than guessed, exactly as the alias-index lints skip.
         HashSet<string>? ownerTextGlobals = null;
         string ownerQuestLabel = "the owning quest";
         if (questFk is { } ownerFk && resolve(ownerFk) is IQuestGetter ownerQuest)
@@ -513,8 +474,8 @@ public static class DialogueValidate
         }
 
         // --- Per-INFO walk over the topic's LIVE INFOs. A deleted INFO is a REMOVED line — skip it entirely (don't
-        //     count it, chain it, or voice/script-check it; tally it for an honest "N skipped" note, Q3). InfoCount is
-        //     INFO RECORDS, not spoken rows (one INFO can carry several DialogResponse rows, or none).
+        //     count it, chain it, or voice/script-check it), but tally it so the render can say "N skipped".
+        //     InfoCount is INFO RECORDS, not spoken rows (one INFO can carry several DialogResponse rows, or none).
         int infoCount = 0, conditioned = 0, deleted = 0, fragmentInfos = 0;
         foreach (var info in topic.Responses)
         {
@@ -524,30 +485,27 @@ public static class DialogueValidate
             // CK-parity subrecords (INFO CNAM/ENAM): a winning INFO missing the FavorLevel (CNAM) or response-Flags
             // (ENAM) subrecord that Mutagen omits when unset is the shape that crashes the Creation Kit when this
             // topic is opened in the dialogue editor (the game itself tolerates it → WARN, matching the BNAM lint).
-            // The absence probe is DialogueCkParity's — the SAME one the create path FILLS through — so a create that
-            // populates the subrecord and this check that flags its absence can never drift (Q3). Real CK/xEdit-authored
-            // INFOs always carry both, so this fires only on a bare-authored record; houseCARL's own create tools
-            // auto-fill it. (The rest of the CK-parity family lives elsewhere: DLVW DNAM/ENAM and DLBR TNAM are their
-            // own input kinds, QUST ANAM/objective FNAM rides the quest input's InputIssues, and DIAL PNAM is the one
-            // permanent boundary — a non-nullable float with no "unset" signal. See the header's CANNOT-CHECK note.)
+            // The absence test is DialogueCkParity's — the SAME one the create path fills through — so the fill and
+            // this check can never drift. Real CK/xEdit-authored INFOs always carry both, so this fires only on a
+            // bare-authored record. (The rest of the CK-parity family lives elsewhere: DLVW DNAM/ENAM and DLBR TNAM
+            // are their own input kinds, QUST ANAM/objective FNAM rides the quest input's InputIssues, and DIAL PNAM
+            // is the one permanent boundary — a non-nullable float with no "unset" signal.)
             foreach (var gap in DialogueCkParity.MissingInfoDefaults(info))
                 issues.Add(GapIssue("INFO", info.FormKey, gap));
 
-            // Fragment-presence tally (item 8): does this line carry a result-script FRAGMENT (a code path that can
-            // surface in Papyrus.log)? Via the single fragment-presence home, so this never drifts from the per-INFO
-            // HasFragment the script check sets.
+            // Does this line carry a result-script fragment (a code path that can surface in Papyrus.log)? Via the
+            // single fragment-presence home, so this never drifts from the per-INFO HasFragment the script check sets.
             if (DialogueScriptCheck.HasResultFragment(info)) fragmentInfos++;
 
-            // Text-encoding lint (item 1) — this line's player-facing strings: its menu Prompt and each spoken row.
+            // Text-encoding lint over this line's player-facing strings: its menu Prompt and each spoken row.
             CheckEncoding(info.Prompt?.String, $"INFO {info.FormKey} Prompt", issues);
             int rnum = 0;
             foreach (var resp in info.Responses)
                 CheckEncoding(resp.Text?.String, $"INFO {info.FormKey} response {++rnum} text", issues);
 
-            // <Global=X> text-replacement lint: a `<Global=X>` tag in a Prompt/response renders as `[...]` in game unless
-            // X names a global in the owning quest's TextDisplayGlobals (Heisen §3 non-gap). A silent failure — the record
-            // is byte-valid and the tag just fails to substitute — so it's a WARN. Skipped when the owning quest is
-            // unresolvable (ownerTextGlobals null — never guessed, Q3).
+            // A `<Global=X>` tag in a Prompt/response renders as `[...]` in game unless X names a global in the owning
+            // quest's TextDisplayGlobals. A silent failure — the record is byte-valid and the tag just fails to
+            // substitute — so it's a WARN. Skipped, never guessed, when the owning quest is unresolvable.
             if (ownerTextGlobals is not null)
                 CheckGlobalTags(info, ownerTextGlobals, ownerQuestLabel, issues);
 
@@ -571,9 +529,9 @@ public static class DialogueValidate
             if (info.Conditions.Count > 0)
             {
                 conditioned++;
-                // Static condition (CTDA) well-formedness lints (item 4) — the data-layer-decidable, true-positive
-                // subset. They catch MALFORMED conditions; they do NOT (and cannot) evaluate whether a well-formed
-                // one passes — that stays the running game's job (the standing CTDA limit, restated in the render).
+                // Static condition (CTDA) well-formedness lints — the data-layer-decidable, true-positive subset.
+                // They catch MALFORMED conditions; they do not and cannot evaluate whether a well-formed one passes,
+                // which stays the running game's job (the standing CTDA limit, restated in the render).
                 CheckConditions(info, ownerAliasIds, ownerQuestLabel, inOrder, resolve, issues);
             }
 
@@ -589,19 +547,17 @@ public static class DialogueValidate
             issues, voiceLines, voiceUndet, scriptFindings);
     }
 
-    /// <summary>SEQ staleness/coverage lint (item 7) for a QUEST input: if the quest is Start-Game-Enabled, does its
-    /// DEFINING plugin have a <c>.seq</c> that LISTS it (by its on-disk FormID) and is NEWER than the plugin? An SGE
-    /// quest with a missing / non-listing / stale <c>.seq</c> is dormant on a fresh save — its dialogue never shows
-    /// (the silent-failure class houseCARL refuses, Q3). Returns null for a non-SGE quest (no <c>.seq</c> needed, no
-    /// lint). Fault-isolated: any IO/parse failure yields a NAMED note rather than a throw, so a SEQ-check failure
-    /// can't sink the whole validation. The winning <c>.seq</c> is resolved via the VFS (loose beats BSA); a
-    /// BSA-resident <c>.seq</c> has no loose path, so its contents + mtime are undeterminable here — surfaced as a
-    /// note, never a false "OK" or a false "stale" (Q3). The check keys off the DEFINING plugin, which is correct for
-    /// the common case (a quest authored SGE in its own plugin) and for a vanilla override that keeps SGE (the base
-    /// .seq already lists it). It carries <paramref name="winnerPlugin"/> too, so the render can SOFTEN to an
-    /// ambiguity note rather than assert a confident "dormant" against the defining plugin when the WINNING record is
-    /// an override (winner != defining) — that override may itself be the plugin that flags SGE and would need its
-    /// OWN .seq (Q3 — don't falsely attribute the gap to the wrong plugin).</summary>
+    /// <summary>SEQ staleness/coverage lint for a QUEST input: if the quest is Start-Game-Enabled, does its DEFINING
+    /// plugin have a <c>.seq</c> that LISTS it (by its on-disk FormID) and is NEWER than the plugin? An SGE quest with
+    /// a missing / non-listing / stale <c>.seq</c> is dormant on a fresh save — its dialogue never shows. Returns null
+    /// for a non-SGE quest (no <c>.seq</c> needed, no lint). Fault-isolated: any IO/parse failure yields a NAMED note
+    /// rather than a throw, so a SEQ-check failure can't sink the whole validation. The winning <c>.seq</c> is
+    /// resolved via the VFS (loose beats BSA); a BSA-resident <c>.seq</c> has no loose path, so its contents and mtime
+    /// are undeterminable here and are surfaced as a note, never a false "OK" or a false "stale". The check keys off
+    /// the DEFINING plugin, which is correct for a quest authored SGE in its own plugin and for a vanilla override
+    /// that keeps SGE (the base .seq already lists it). It carries <paramref name="winnerPlugin"/> too so the render
+    /// can soften to an ambiguity rather than assert "dormant" against the defining plugin when the winning record is
+    /// an override — that override may itself be the plugin that flags SGE and would need its own .seq.</summary>
     internal static SeqLintFinding? CheckSeq(LoadOrderResolver.IndexView view, AssetResolver.AssetView av,
         FormKey fk, IQuestGetter quest, string winnerPlugin)
     {
@@ -637,8 +593,8 @@ public static class DialogueValidate
     }
 
     /// <summary>A 4-char SubtypeName marker as text, or "&lt;none&gt;" for the empty/default RecordType — so a
-    /// missing marker reads as a fact, never as a blank (Q3). The blank test is <see cref="DialogueSubtype.IsBlankMarker"/>
-    /// (shared with the create-path auto-fill and the Problem escalation, so all three agree on "no marker").</summary>
+    /// missing marker reads as a fact, never as a blank. The blank test is <see cref="DialogueSubtype.IsBlankMarker"/>,
+    /// shared with the create-path auto-fill and the Problem escalation so all three agree on "no marker".</summary>
     static string DescribeSubtypeName(RecordType rt) => DialogueSubtype.IsBlankMarker(rt) ? "<none>" : rt.Type;
 
     /// <summary>A nullable FormLink's target as a real FormKey, or null when the link is unset OR explicitly Null
@@ -646,8 +602,8 @@ public static class DialogueValidate
     /// same way.</summary>
     static FormKey? NonNull(FormKey? fk) => fk is { } v && !v.IsNull ? v : null;
 
-    /// <summary>The common non-ASCII offenders with a known ASCII substitute, for the encoding lint's suggestion
-    /// (item 1). Any OTHER non-ASCII char is still flagged, just without a substitution.</summary>
+    /// <summary>The common non-ASCII offenders with a known ASCII substitute, for the encoding lint's suggestion.
+    /// Any OTHER non-ASCII char is still flagged, just without a substitution.</summary>
     static readonly IReadOnlyDictionary<char, string> AsciiSubstitute = new Dictionary<char, string>
     {
         ['—'] = "-",    // em dash
@@ -660,11 +616,11 @@ public static class DialogueValidate
         ['•'] = "*",    // bullet
     };
 
-    /// <summary>Text-encoding lint (item 1): if <paramref name="s"/> carries any non-ASCII char (&gt; 0x7F), add ONE
-    /// WARNING for this <paramref name="locus"/> naming the offending char(s) and the ASCII substitute where known.
-    /// The CK/Papyrus user-facing surface is effectively Windows-1252/ASCII, so these usually render as in-game
-    /// mojibake. WARN, never blocks (heuristic); REPORT-ONLY (the validator is read-only — it never rewrites the
-    /// string). A bare "invalid" is never emitted: the message names exactly which characters and what to use (Q3).</summary>
+    /// <summary>Text-encoding lint: if <paramref name="s"/> carries any non-ASCII char (&gt; 0x7F), add ONE WARNING
+    /// for this <paramref name="locus"/> naming the offending char(s) and the ASCII substitute where known. The
+    /// CK/Papyrus user-facing surface is effectively Windows-1252/ASCII, so these usually render as in-game mojibake.
+    /// WARN, never blocks (heuristic), and report-only — the validator never rewrites the string. The message names
+    /// exactly which characters and what to use, never a bare "invalid".</summary>
     static void CheckEncoding(string? s, string locus, List<DialogueIssue> issues)
     {
         if (string.IsNullOrEmpty(s)) return;
@@ -685,18 +641,17 @@ public static class DialogueValidate
     /// variants — <c>&lt;Global.Time=X&gt;</c>, <c>&lt;Global.Hour12=X&gt;</c>, <c>&lt;Global.Minutes=X&gt;</c> — where
     /// the modifier sits BEFORE the <c>=</c> and the EditorID after it (CK wiki: Text Replacement). Those name a global
     /// that ALSO must be in the quest's TextDisplayGlobals, so the lint must catch a missing one there too — a plain
-    /// <c>&lt;Global=</c> anchor would silently skip them (the exact <c>[...]</c> failure this lint exists to catch).
+    /// <c>&lt;Global=</c> anchor would silently skip them, which is the exact failure this lint exists to catch.
     /// Case-insensitive on the tag word.</summary>
     static readonly Regex GlobalTagRx = new(@"<Global(?:\.\w+)?=([^<>]+)>", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary><c>&lt;Global=X&gt;</c> text-replacement lint: scan this INFO's player-facing strings (menu Prompt +
     /// each spoken response) for <c>&lt;Global=X&gt;</c> tags and WARN on any X that is NOT the EditorID of a global in
-    /// the owning quest's <see cref="IQuestGetter.TextDisplayGlobals"/> — such a tag renders as <c>[...]</c> in game
-    /// (the global is never substituted; a SILENT failure the record's byte-validity hides — Heisen §3 non-gap). WARN
-    /// and report-only (the validator never rewrites); one WARN per distinct missing name per INFO (a name repeated in
-    /// the line is not nagged twice). The caller invokes this only when the owning quest resolved, so
+    /// the owning quest's <see cref="IQuestGetter.TextDisplayGlobals"/> — such a tag renders as <c>[...]</c> in game,
+    /// a silent failure the record's byte-validity hides. WARN and report-only (the validator never rewrites); one
+    /// WARN per distinct missing name per INFO. The caller invokes this only when the owning quest resolved, so
     /// <paramref name="ownerTextGlobals"/> is the real set — possibly EMPTY, which correctly means every tag is
-    /// uncovered — never a guess (Q3).</summary>
+    /// uncovered — never a guess.</summary>
     static void CheckGlobalTags(IDialogResponsesGetter info, HashSet<string> ownerTextGlobals, string ownerQuestLabel, List<DialogueIssue> issues)
     {
         var flagged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // one WARN per distinct missing name per INFO
@@ -722,28 +677,27 @@ public static class DialogueValidate
     // resolve — are exempted from condition lints 1 + 3 so a standard player-state gate validates clean. The precise
     // set + rationale live in the ONE shared home (EngineImplicit), also used by the check_errors integrity sweep.
 
-    /// <summary>Static condition-lint suite (item 4) over one INFO's <c>Conditions</c> (CTDA rows) — the
-    /// data-layer-decidable subset the §4 design decision (A-iii) authorises. Every lint here is a TRUE-positive
-    /// STRUCTURAL defect (a malformed condition), never a behavioural guess: houseCARL still cannot EVALUATE whether
-    /// a well-formed condition passes — only the running game can (the standing CTDA limit, restated in the render).
-    /// All emit WARNING, never block: a dead gate misfires that one line, it doesn't break the topic's chain, and a
-    /// few load-order shapes are legitimately edge-y, so it's an advisory the author confirms (roadmap §3 item 4).
+    /// <summary>Static condition-lint suite over one INFO's <c>Conditions</c> (CTDA rows) — the data-layer-decidable
+    /// subset. Every lint here is a TRUE-positive STRUCTURAL defect (a malformed condition), never a behavioural
+    /// guess: houseCARL cannot EVALUATE whether a well-formed condition passes — only the running game can (the
+    /// standing CTDA limit, restated in the render). All emit WARNING, never block: a dead gate misfires that one
+    /// line, it doesn't break the topic's chain, and a few load-order shapes are legitimately edge-y.
     ///
     /// The lints (each decidable from the record + the form index alone):
     ///   1. Run On a specific Reference with NO reference set — the gate evaluates against nothing.
     ///   2. A DEAD ALIAS INDEX — Run On:QuestAlias, or a GetIsAliasRef / GetInCurrentLocAlias param, naming an alias
     ///      ID the OWNING quest does not define. SKIPPED (never guessed) when the owning quest is unknown (ownerAliasIds null).
     ///   3. A DANGLING form parameter — any condition-function form target (a plain FormLink, or a FORM-mode
-    ///      FormLinkOrIndex) pointing at a form not in the active load order. GENERIC, BY CONSTRUCTION (reflection over
-    ///      the Data arm's properties), so it covers EVERY function Mutagen models, not a hand-listed subset
-    ///      (cornerstone-consistent). The Run On Reference slot is excluded (lint 1 owns it), so an unused/parked
+    ///      FormLinkOrIndex) pointing at a form not in the active load order. Generic by construction (reflection over
+    ///      the Data arm's properties), so it covers EVERY function Mutagen models, not a hand-listed subset —
+    ///      cornerstone-consistent. The Run On Reference slot is excluded (lint 1 owns it), so an unused/parked
     ///      Reference is never mis-flagged; alias/package-data-mode FLOIs are gated out (see the per-condition note).
     ///   4. A DANGLING global comparison value — a ConditionGlobal compared against a GLOB not in the load order.
     ///   5. GetIsID pointed at a PLACED reference instead of a base object — GetIsID compares the run-on actor's BASE
     ///      form, so a placed-instance FormID can never match as intended.
     ///
-    /// DELIBERATELY NOT LINTED (semantic, not structural — flagging them would be a behavioural guess that risks the
-    /// false positives A-iii's honesty forbids, so they stay the author's call / the standing limit): Run On
+    /// DELIBERATELY NOT LINTED (semantic, not structural — flagging them would be a behavioural guess that risks
+    /// false positives, so they stay the author's call under the standing limit): Run On
     /// Subject-vs-Target INTENT (a player-shaped function left on Subject), the faction-rank gate VALUE (&lt; 0 vs == 0),
     /// and intra-topic Info-variant ORDERING (a specific line shadowed by a generic sibling). Scope is INFO conditions
     /// (the dialogue surface); a quest's own DialogConditions/alias conditions are out of this pass.</summary>
@@ -763,8 +717,8 @@ public static class DialogueValidate
             // INDEX. On the binary OVERLAY the validator reads (CreateFromBinaryOverlay), an index-mode FLOI's .Link
             // is a BOGUS low FormKey synthesised from the index bytes — NOT null — so reading it as a form would
             // false-flag a perfectly well-formed alias-mode gate (e.g. "run-on actor has the perk held by quest-alias
-            // N"), the A-iii / Q3 worst case. Mirror the proven write-side gate (WriteEngine's condition scan +
-            // ReadEngine.EmitFloi): treat an FLOI as a form ONLY when UseAliases AND UsePackageData are both false.
+            // N"). Mirrors the write-side gate (WriteEngine's condition scan and ReadEngine.EmitFloi): treat an FLOI
+            // as a form ONLY when UseAliases and UsePackageData are both false.
             bool floiIsForm = !data.UseAliases && !data.UsePackageData;
 
             // 1. Run On a specific Reference but none / a missing one is set — the function runs against nothing.
@@ -778,7 +732,7 @@ public static class DialogueValidate
                         $"INFO {info.FormKey} condition #{n} ({fn}) Run On reference {refKey} is not in the active load order — the gate evaluates against nothing."));
             }
 
-            // 2. Dead alias index — only when the owning quest's alias set is known (else skip, never guess, Q3).
+            // 2. Dead alias index — only when the owning quest's alias set is known; else skip, never guess.
             if (ownerAliasIds is not null)
             {
                 if (data.RunOnType == Condition.RunOnType.QuestAlias && BadAlias(data.RunOnTypeIndex, ownerAliasIds))
@@ -805,8 +759,8 @@ public static class DialogueValidate
                 // Branch 1 (plain FormLink) is defensive: on a ConditionData arm the ONLY plain FormLink is the
                 // (skipped) run-on Reference — every function TARGET is the FormLinkOrIndex union (branch 2). A FLOI
                 // is read via its .Link, not as an IFormLinkGetter, so it never falls into branch 1 and bypasses the
-                // mode gate (proven by COND-ALIAS-FLOI: green with the gate on). Branch 1 has no index mode anyway,
-                // so it needs no gate; it correctly handles a plain-FormLink param should any arm ever carry one.
+                // mode gate. Branch 1 has no index mode anyway, so it needs no gate; it correctly handles a
+                // plain-FormLink param should any arm ever carry one.
                 FormKey? paramFk =
                     v is IFormLinkGetter fl && !fl.IsNull ? fl.FormKey
                     : floiIsForm && WriteEngine.IsFormLinkOrIndex(p.PropertyType) ? WriteEngine.ReadFloiFormKey(v) : null;
@@ -837,7 +791,7 @@ public static class DialogueValidate
     static bool BadAlias(int idx, HashSet<uint> ownerAliasIds) => idx < 0 || !ownerAliasIds.Contains((uint)idx);
 
     /// <summary>The dead-alias-index warning (lint 2), worded so it names the function, the offending index, and the
-    /// owning quest — never a bare "invalid" (Q3).</summary>
+    /// owning quest — never a bare "invalid".</summary>
     static DialogueIssue AliasIssue(FormKey infoFk, int n, string fn, int idx, string verb, string aliasKind, string ownerQuestLabel) =>
         new(DialogueIssueSeverity.Warning,
             $"INFO {infoFk} condition #{n} ({fn}) {verb} {ownerQuestLabel}'s {aliasKind} #{idx}, but that quest defines no alias with that ID — the gate evaluates against nothing.");
