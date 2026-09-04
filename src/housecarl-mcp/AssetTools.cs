@@ -50,27 +50,20 @@ static class AssetWire
 {
     public static string Render(AssetStatusData d, int cap)
     {
-        var sb = new StringBuilder();
-        sb.Append("asset status — profile '").Append(d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)")
-          .Append("'  (").Append(d.Results.Count).Append(" path").Append(d.Results.Count == 1 ? "" : "s").Append(" queried)\n");
+        var header = new StringBuilder("asset status — profile '")
+            .Append(d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)")
+            .Append("'  (").Append(d.Results.Count).Append(" path").Append(d.Results.Count == 1 ? "" : "s")
+            .Append(" queried)").ToString();
 
-        // Alarms come before the per-path list so a long batch cannot truncate them away.
-        AppendReadFailures(sb, d.BsaFailures, cap);
-        AppendDiscoveryWarnings(sb, d.Warnings, cap);
-
-        int shown = 0;
-        foreach (var r in d.Results)
-        {
-            if (sb.Length >= cap)
+        return BatchRender.Render(
+            header, d.Results, "path(s)", cap,
+            // Alarms come before the per-path list so a long batch cannot truncate them away.
+            sb =>
             {
-                sb.Append("\n  ... [").Append(d.Results.Count - shown)
-                  .Append(" more path(s) omitted at max_chars=").Append(cap).Append("; raise max_chars to see all]\n");
-                break;
-            }
-            AppendPath(sb, r, d.ReadIncomplete, d.Warnings.Count > 0);
-            shown++;
-        }
-        return sb.ToString().TrimEnd('\n');
+                BatchRender.AppendReadFailures(sb, d.BsaFailures, "an asset", cap);
+                BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, cap);
+            },
+            (sb, r) => AppendPath(sb, r, d.ReadIncomplete, d.Warnings.Count > 0));
     }
 
     static void AppendPath(StringBuilder sb, AssetPathResult r, bool readIncomplete, bool discoveryIncomplete)
@@ -116,36 +109,6 @@ static class AssetWire
         if (hit.Ambiguous)
             sb.Append("  note: more than one source provides this — the winner above is the precedence call (loose " +
                       "beats BSA; among BSAs the latest-loaded plugin wins). Verify only if that's unexpected.\n");
-    }
-
-    /// <summary>The BSAs that could not be read this build, each named with its owning plugin and the reason. An asset
-    /// present only in one of these is indistinguishable from a truly absent one, so an "ABSENT" below is
-    /// authoritative only when this list is empty.</summary>
-    static void AppendReadFailures(StringBuilder sb, IReadOnlyList<string> failures, int cap)
-    {
-        if (failures.Count == 0) return;
-        sb.Append("\n[!] ").Append(failures.Count).Append(" archive(s) could NOT be read this build — an asset present " +
-                  "only in these may read as ABSENT below:\n");
-        int shown = 0;
-        foreach (var f in failures)
-        {
-            if (sb.Length >= cap) { sb.Append("  ... [").Append(failures.Count - shown).Append(" more omitted at max_chars=").Append(cap).Append("]\n"); break; }
-            sb.Append("  - ").Append(f).Append('\n'); shown++;
-        }
-    }
-
-    /// <summary>Archive-discovery warnings, e.g. a Skyrim.ini whose [Archive] base-archive list could not be found, so
-    /// the vanilla base BSAs are not in the scan and an "ABSENT" for a base-game asset must not be over-trusted.</summary>
-    static void AppendDiscoveryWarnings(StringBuilder sb, IReadOnlyList<string> warnings, int cap)
-    {
-        if (warnings.Count == 0) return;
-        sb.Append("\n[!] discovery (").Append(warnings.Count).Append("):\n");
-        int shown = 0;
-        foreach (var w in warnings)
-        {
-            if (sb.Length >= cap) { sb.Append("  ... [").Append(warnings.Count - shown).Append(" more omitted at max_chars=").Append(cap).Append("]\n"); break; }
-            sb.Append("  - ").Append(w).Append('\n'); shown++;
-        }
     }
 
     static string Kind(HousecarlCore.AssetKind k) => k == HousecarlCore.AssetKind.Bsa ? "BSA" : "loose";

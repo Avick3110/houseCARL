@@ -266,33 +266,24 @@ static class NifWire
 {
     public static string Render(NifInspectBatchData d, HashSet<string> want, IReadOnlyList<string> unknownSections, int cap)
     {
-        var sb = new StringBuilder();
-        sb.Append("nif inspect — profile '").Append(d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)")
-          .Append("'  (").Append(d.Results.Count).Append(" mesh").Append(d.Results.Count == 1 ? "" : "es").Append(")\n");
-
-        // The alarms come first and once, at batch level, so a long batch cannot truncate them away.
-        AppendReadFailures(sb, d.BsaFailures, cap);
-        AppendDiscoveryWarnings(sb, d.Warnings, cap);
-        if (unknownSections.Count > 0)
-            sb.Append("\n[!] unrecognized section(s) ignored: ").Append(string.Join(", ", unknownSections))
-              .Append("  (").Append(NifTools.KnownSectionsHint).Append(")\n");
+        var header = new StringBuilder("nif inspect — profile '")
+            .Append(d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)")
+            .Append("'  (").Append(d.Results.Count).Append(" mesh").Append(d.Results.Count == 1 ? "" : "es")
+            .Append(')').ToString();
 
         bool readIncomplete = d.BsaFailures.Count > 0, discoveryIncomplete = d.Warnings.Count > 0;
-        int shown = 0;
-        foreach (var r in d.Results)
-        {
-            // shown > 0: the first mesh always renders its core answer even when the alarms alone exhausted the cap.
-            // max_chars bounds the batch tail and detail lists, never a single-path call's own answer.
-            if (shown > 0 && sb.Length >= cap)
+        return BatchRender.Render(
+            header, d.Results, "mesh(es)", cap,
+            // The alarms come first and once, at batch level, so a long batch cannot truncate them away.
+            sb =>
             {
-                sb.Append("\n… [").Append(d.Results.Count - shown)
-                  .Append(" more mesh(es) omitted at max_chars=").Append(cap).Append("; raise max_chars to see all]\n");
-                break;
-            }
-            AppendMesh(sb, r, want, cap, readIncomplete, discoveryIncomplete);
-            shown++;
-        }
-        return sb.ToString().TrimEnd('\n');
+                BatchRender.AppendReadFailures(sb, d.BsaFailures, "a mesh", cap);
+                BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, cap);
+                if (unknownSections.Count > 0)
+                    sb.Append("\n[!] unrecognized section(s) ignored: ").Append(string.Join(", ", unknownSections))
+                      .Append("  (").Append(NifTools.KnownSectionsHint).Append(")\n");
+            },
+            (sb, r) => AppendMesh(sb, r, want, cap, readIncomplete, discoveryIncomplete));
     }
 
     /// <summary>One mesh's block: the path line, then either its named error with the provider chain where there is
@@ -638,37 +629,12 @@ static class NifWire
     static bool Cut(StringBuilder sb, int cap, int remaining)
     {
         if (sb.Length < cap) return false;
-        sb.Append("  … [").Append(Math.Max(remaining, 0)).Append(" more omitted at max_chars=").Append(cap).Append("; raise max_chars to see all]\n");
+        BatchRender.AppendCut(sb, remaining, "", cap);
         return true;
     }
 
     static string Fmt(float f) => f.ToString("0.#######", System.Globalization.CultureInfo.InvariantCulture);
 
-    /// <summary>The BSAs that could not be read this build. A mesh present only in one of these is indistinguishable
-    /// from a truly absent one, so this is surfaced before the answer.</summary>
-    static void AppendReadFailures(StringBuilder sb, IReadOnlyList<string> failures, int cap)
-    {
-        if (failures.Count == 0) return;
-        sb.Append("\n[!] ").Append(failures.Count).Append(" archive(s) could NOT be read this build — a mesh present only in these may read as ABSENT:\n");
-        int shown = 0;
-        foreach (var f in failures)
-        {
-            if (sb.Length >= cap) { sb.Append("  ... [").Append(failures.Count - shown).Append(" more omitted]\n"); break; }
-            sb.Append("  - ").Append(f).Append('\n'); shown++;
-        }
-    }
-
-    static void AppendDiscoveryWarnings(StringBuilder sb, IReadOnlyList<string> warnings, int cap)
-    {
-        if (warnings.Count == 0) return;
-        sb.Append("\n[!] discovery (").Append(warnings.Count).Append("):\n");
-        int shown = 0;
-        foreach (var w in warnings)
-        {
-            if (sb.Length >= cap) { sb.Append("  ... [").Append(warnings.Count - shown).Append(" more omitted]\n"); break; }
-            sb.Append("  - ").Append(w).Append('\n'); shown++;
-        }
-    }
 }
 
 /// <summary>Renders <see cref="NifSetResult"/>: the resolution — which copy was edited, and the provider chain — then
