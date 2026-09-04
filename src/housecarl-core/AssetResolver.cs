@@ -464,8 +464,10 @@ public sealed class AssetResolver : IDisposable
 
     IReadOnlyCollection<string> EnumerateUnder(string prefix, Snapshot snap)
     {
-        var pre = NormalizeQueryPath(prefix);                    // drive-root / '..' rejected loud, backslash-normalized
-        var withSep = pre + "\\";                                // match a SUBTREE, not a sibling whose name starts with 'pre'
+        var pre = NormalizeQueryPath(prefix).TrimEnd('\\');      // drive-root / '..' rejected loud, backslash-normalized
+        // Match a SUBTREE, not a sibling whose name starts with 'pre'. An empty prefix is the Data root, where every
+        // entry is under it and the separator test would exclude them all.
+        var withSep = pre.Length == 0 ? "" : pre + "\\";
         var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // loose: recurse each root's copy of the prefix dir (set-UNION across roots — the per-path winner is decided later).
