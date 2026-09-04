@@ -1,4 +1,3 @@
-using System.Text;
 using HousecarlCore;
 
 namespace HousecarlGenerator;
@@ -29,12 +28,12 @@ internal static class BsaExtractProbe
         {
             ("scripts", new[]
             {
-                ("main.pex",   Bytes("PEX-main", 40)),
-                ("helper.pex", Bytes("PEX-help", 4096)),
+                ("main.pex",   BsaBuilder.Bytes("PEX-main", 40)),
+                ("helper.pex", BsaBuilder.Bytes("PEX-help", 4096)),
             }),
             (@"sound\voice\test.esp\femalecommoner", new[]
             {
-                ("hello_000012ab_1.fuz", Bytes("FUZ-audio", 1)),   // 1-byte body — smallest edge
+                ("hello_000012ab_1.fuz", BsaBuilder.Bytes("FUZ-audio", 1)),   // 1-byte body — smallest edge
             }),
         };
 
@@ -46,7 +45,7 @@ internal static class BsaExtractProbe
             Console.WriteLine("--- 1: uncompressed round-trip via BsaArchive.Unpack (Mutagen) ---");
             foreach (uint version in new uint[] { 105, 104 })
             {
-                var bsa = Write(work, $"round-{version}.bsa", BuildBsa(version, FHasFolderNames | FHasFileNames, folders));
+                var bsa = Write(work, $"round-{version}.bsa", BsaBuilder.Build(version, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames, folders));
                 var dest = Path.Combine(work, $"round-{version}");
                 var r = BsaArchive.Unpack(bsa, dest);
                 Check(r.Ran && r.Success, $"v{version}: extract Success ({r.Raw})");
@@ -61,9 +60,9 @@ internal static class BsaExtractProbe
             // ---- 3) path-traversal safety ----
             Console.WriteLine();
             Console.WriteLine("--- 3: path traversal ---");
-            var evil = BuildBsa(105, FHasFolderNames | FHasFileNames, new (string, (string, byte[])[])[]
+            var evil = BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames, new (string, (string, byte[])[])[]
             {
-                ("..", new[] { ("escape.txt", Bytes("nope", 8)) }),
+                ("..", new[] { ("escape.txt", BsaBuilder.Bytes("nope", 8)) }),
             });
             var evilDest = Path.Combine(work, "evil-dest");
             var er = BsaArchive.Unpack(Write(work, "evil.bsa", evil), evilDest);
@@ -72,9 +71,8 @@ internal static class BsaExtractProbe
             Check(!File.Exists(Path.Combine(work, "escape.txt")), "nothing written outside the destination");
 
             // ---- 3b) header/reader file-count mismatch -> loud (the #217 silent-empty/short-extract guard) ----
-            var good = BuildBsa(105, FHasFolderNames | FHasFileNames, folders);   // 3 real files
-            var lie = (byte[])good.Clone();
-            BitConverter.GetBytes(1u).CopyTo(lie, 20);                            // header @20 now lies: "1 file"
+            var good = BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames, folders);   // 3 real files
+            var lie = BsaBuilder.WithDeclaredFileCount(good, 1);                   // header @20 now lies: "1 file"
             var lr = BsaArchive.Unpack(Write(work, "count-lie.bsa", lie), Path.Combine(work, "count-out"));
             Check(!lr.Success, $"lying header count -> no silent success ({(lr.Ran ? lr.Raw : lr.RunError)})");
 
@@ -94,18 +92,6 @@ internal static class BsaExtractProbe
         return fail == 0 ? 0 : 1;
     }
 
-    const uint FHasFolderNames = 0x0001;
-    const uint FHasFileNames = 0x0002;
-
-    /// <summary>Deterministic per-file body (varying content + length), so a mis-mapped name/offset is caught.</summary>
-    static byte[] Bytes(string tag, int len)
-    {
-        var seed = Encoding.ASCII.GetBytes(tag);
-        var b = new byte[len];
-        for (int i = 0; i < len; i++) b[i] = (byte)(seed[i % seed.Length] ^ (i * 31 + 7));
-        return b;
-    }
-
     static string Write(string dir, string name, byte[] bytes) { var p = Path.Combine(dir, name); File.WriteAllBytes(p, bytes); return p; }
 
     static bool AllBytesCorrect(string dest, (string Folder, (string Name, byte[] Data)[] Files)[] folders)
@@ -120,68 +106,4 @@ internal static class BsaExtractProbe
         return true;
     }
 
-    /// <summary>Author a byte-exact uncompressed BSA (folder+file names present, little-endian) — the standard
-    /// header -> folder records -> folder blocks -> file-name block -> file data layout Mutagen's reader parses.</summary>
-    static byte[] BuildBsa(uint version, uint archiveFlags, (string Folder, (string Name, byte[] Data)[] Files)[] folders)
-    {
-        int frSize = version == 105 ? 24 : 16;
-        uint folderCount = (uint)folders.Length;
-        uint fileCount = (uint)folders.Sum(f => f.Files.Length);
-        uint totalFolderNameLen = (uint)folders.Sum(f => f.Folder.Length + 1);
-        uint totalFileNameLen = (uint)folders.SelectMany(f => f.Files).Sum(x => x.Name.Length + 1);
-
-        long folderRecordsEnd = 36 + (long)folderCount * frSize;
-        var blockSizes = folders.Select(f => 1L + (f.Folder.Length + 1) + f.Files.Length * 16L).ToArray();
-        long nameBlockStart = folderRecordsEnd + blockSizes.Sum();
-        long fileDataStart = nameBlockStart + totalFileNameLen;
-
-        using var ms = new MemoryStream();
-        using var bw = new BinaryWriter(ms, Encoding.ASCII);
-
-        bw.Write(0x00415342u);          // "BSA\0"
-        bw.Write(version);
-        bw.Write(36u);                  // folder-records offset
-        bw.Write(archiveFlags);
-        bw.Write(folderCount);
-        bw.Write(fileCount);
-        bw.Write(totalFolderNameLen);
-        bw.Write(totalFileNameLen);
-        bw.Write(0u);                   // file (content-type) flags
-
-        long blockOffset = folderRecordsEnd;
-        for (int i = 0; i < folders.Length; i++)
-        {
-            bw.Write(0UL);                                           // hash
-            bw.Write((uint)folders[i].Files.Length);
-            if (frSize == 24) { bw.Write(0u); bw.Write((ulong)(blockOffset + totalFileNameLen)); }
-            else bw.Write((uint)(blockOffset + totalFileNameLen));
-            blockOffset += blockSizes[i];
-        }
-
-        long dataCursor = fileDataStart;
-        var dataOrder = new List<byte[]>();
-        foreach (var (folder, files) in folders)
-        {
-            var fn = Encoding.ASCII.GetBytes(folder);
-            bw.Write((byte)(fn.Length + 1));   // bzstring length INCLUDING the null
-            bw.Write(fn);
-            bw.Write((byte)0);
-            foreach (var (_, data) in files)
-            {
-                bw.Write(0UL);                 // file name hash
-                bw.Write((uint)data.Length);   // size field — uncompressed, no toggle bit
-                bw.Write((uint)dataCursor);    // absolute data offset
-                dataCursor += data.Length;
-                dataOrder.Add(data);
-            }
-        }
-
-        foreach (var (_, files) in folders)
-            foreach (var (name, _) in files) { bw.Write(Encoding.ASCII.GetBytes(name)); bw.Write((byte)0); }
-
-        foreach (var d in dataOrder) bw.Write(d);
-
-        bw.Flush();
-        return ms.ToArray();
-    }
 }
