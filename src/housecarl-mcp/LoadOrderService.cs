@@ -6435,9 +6435,13 @@ public sealed class LoadOrderService : IDisposable
         catch (Exception ex) { return WritePatchBuilder.MergeOutcome.Fail($"'{outName}' is not a valid plugin filename ({ex.Message})."); }
         if (outKey.Type == ModType.Light)
             return WritePatchBuilder.MergeOutcome.Fail(
+                // The reason is what the merge does NOT do, not a claim about where the donors' ids are. A single
+                // already-light donor's ids are all inside the window by definition, so "a merge keeps the ids in the
+                // full range" was false on exactly the path a rename made ordinary.
                 $"refused — '{outName}' has the .esl extension, which the game engine force-treats as a LIGHT master regardless " +
-                "of the header flag, but a merge keeps the donors' object ids in the full range (ids above 0xFFF would be misread " +
-                "in game). Merge to a '.esp' instead, then run " + ToolNames.CompactPlugin + " on it to make it light (the tools compose). Nothing was written.");
+                "of the header flag, but a merge does not renumber into the light range: it keeps each donor's object ids where " +
+                "they already are, and an id above 0xFFF would be misread in game. Merge to a '.esp' instead, then run " +
+                ToolNames.CompactPlugin + " on it to make it light — that renumbers the ids into the light window (the tools compose). Nothing was written.");
         if (donorsRaw.Any(d => string.Equals(d, outName, StringComparison.OrdinalIgnoreCase)))
             return WritePatchBuilder.MergeOutcome.Fail($"the output '{outName}' cannot also be a donor — name a NEW plugin file.");
 

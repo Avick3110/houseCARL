@@ -8,7 +8,8 @@ namespace HousecarlGenerator;
 /// DLC strings in the game-Data BSA once redirected) is exercised by the manual strings-resolve-probe against
 /// real DLC + Skyrim - Interface.bsa; THIS guard locks the two decision pieces most likely to silently regress
 /// under a refactor:
-///   FolderHasOwnStrings(path) — does the plugin's OWN folder carry a strings source (loose Strings\ or a .bsa)?
+///   FolderHasOwnStrings(path) — does the plugin's OWN folder carry a strings source FOR THIS PLUGIN (a loose table
+///                              matching its name, or a .bsa beside it that embeds one)?
 ///                              true ⇒ keep the unchanged folder-adjacent default open; false ⇒ redirect to game-Data.
 ///   ComputeDataDir(nameToIdx, paths) — the game-Data fallback target = the resolved Skyrim.esm's directory.
 ///
@@ -34,22 +35,39 @@ public static class StringsDecisionProbe
             fails += Check("bare folder (.esm only) → no own strings (redirect)",
                 LoadOrderResolver.FolderHasOwnStrings(Path.Combine(bare, "Cleaned.esm")) == false);
 
-            // (b) folder WITH a loose Strings\ ⇒ has own strings ⇒ keep default.
+            // (b) a loose Strings\ carrying a table for THIS plugin ⇒ has own strings ⇒ keep default.
             var loose = MkFolder(root, "loose", esp: "Mod.esp");
             Directory.CreateDirectory(Path.Combine(loose, "Strings"));
-            fails += Check("loose Strings\\ → has own strings (no redirect)",
+            File.WriteAllText(Path.Combine(loose, "Strings", "Mod_English.STRINGS"), "x");
+            fails += Check("loose Strings\\ with this plugin's table → has own strings (no redirect)",
                 LoadOrderResolver.FolderHasOwnStrings(Path.Combine(loose, "Mod.esp")) == true);
 
-            // (c) folder WITH a .bsa (may embed strings) ⇒ has own strings ⇒ keep default. The check the bug needs
-            //     most: a localized mod whose strings live in its OWN bsa must NOT be redirected away from them.
+            // (b2) #369: a Strings\ folder is shared by every plugin beside it, so an EMPTY one — and one holding only
+            //      a NEIGHBOUR's tables — is not this plugin's source and must not suppress the redirect.
+            var emptyLoose = MkFolder(root, "loose-empty", esp: "Mod.esp");
+            Directory.CreateDirectory(Path.Combine(emptyLoose, "Strings"));
+            fails += Check("empty Strings\\ → no own strings (redirect)",
+                LoadOrderResolver.FolderHasOwnStrings(Path.Combine(emptyLoose, "Mod.esp")) == false);
+
+            var neighbour = MkFolder(root, "loose-neighbour", esp: "Mod.esp");
+            Directory.CreateDirectory(Path.Combine(neighbour, "Strings"));
+            File.WriteAllText(Path.Combine(neighbour, "Strings", "Mod_extras_English.STRINGS"), "x");
+            fails += Check("Strings\\ holding only a NEIGHBOUR's table → no own strings (redirect)",
+                LoadOrderResolver.FolderHasOwnStrings(Path.Combine(neighbour, "Mod.esp")) == false);
+
+            // (c) an UNREADABLE .bsa beside the plugin ⇒ "has own" ⇒ keep default. It may hold the tables and nothing
+            //     here can rule that out, so the redirect is not taken past a source that was never ruled out. (An
+            //     archive that PARSES is asked whether it embeds this plugin's tables — see LocalizedStringsSourceTests,
+            //     which authors real archives both ways.)
             var bsa = MkFolder(root, "bsa", esp: "Mod.esp");
             File.WriteAllText(Path.Combine(bsa, "Mod.bsa"), "x");
-            fails += Check(".bsa present → has own strings (no redirect)",
+            fails += Check("unreadable .bsa present → has own strings (no redirect)",
                 LoadOrderResolver.FolderHasOwnStrings(Path.Combine(bsa, "Mod.esp")) == true);
 
             // (d) BOTH ⇒ has own strings.
             var both = MkFolder(root, "both", esp: "M.esp");
             Directory.CreateDirectory(Path.Combine(both, "Strings"));
+            File.WriteAllText(Path.Combine(both, "Strings", "M_English.STRINGS"), "x");
             File.WriteAllText(Path.Combine(both, "M.bsa"), "x");
             fails += Check("Strings\\ + .bsa → has own strings (no redirect)",
                 LoadOrderResolver.FolderHasOwnStrings(Path.Combine(both, "M.esp")) == true);
