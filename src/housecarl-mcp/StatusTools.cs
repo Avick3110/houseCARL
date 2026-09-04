@@ -40,7 +40,9 @@ public static class StatusTools
         [Description("Optional. Max characters before name lists are cut with an explicit notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.LoadOrderStatus, () =>
     {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        // The server line goes ahead of the config prompt, not after it: an unconfigured server is exactly the stale
+        // staged install this line exists to catch, and that answer returns before anything else renders.
+        if (svc.ConfigPromptOrNull() is { } prompt) return StatusWire.ServerLine + prompt;
         var data = svc.StatusData();
         var logs = StatusWire.LogFolders(tools);                 // resolved Papyrus/crash log dirs (pure — no persist)
         var profiles = svc.NamedProfileComposition(profile);     // available-profile discovery + inactive-profile inspection: text parse only, no index build, no switch
@@ -61,10 +63,9 @@ public static class ServerBuild
             is [System.Reflection.AssemblyInformationalVersionAttribute a, ..] && !string.IsNullOrWhiteSpace(a.InformationalVersion)
             ? a.InformationalVersion : null;
 
-    /// <summary>What the status line prints: the version, or a sentence naming the absent attribute.</summary>
+    /// <summary>What the status line prints: the version, or one short clause saying where to read it instead.</summary>
     public static string Line { get; } =
-        Version ?? "unstamped build — this binary carries no informational version, so houseCARL cannot name its own build; " +
-                   "read the version off housecarl-mcp.exe's file properties instead.";
+        Version ?? "(no build stamp; read the exe's file properties)";
 }
 
 /// <summary>Renders <see cref="LoadOrderStatusData"/>: a header line per category, then the name lists (disabled mods,
@@ -72,6 +73,10 @@ public static class ServerBuild
 /// single mod/plugin verdict.</summary>
 static class StatusWire
 {
+    /// <summary>The running server's own build, so an installed-build-vs-source check never leaves the tool surface.
+    /// Public because the unconfigured answer returns before <see cref="Render"/> runs and prints this itself.</summary>
+    public static string ServerLine => "server:   " + ServerBuild.Line + "\n";
+
     public static string Render(LoadOrderStatusData d, IReadOnlyList<LogFolderView> logs, NamedProfileResult profiles, string? lookup, int cap)
     {
         var c = d.Composition;
@@ -82,8 +87,7 @@ static class StatusWire
 
         var sb = new StringBuilder();
         sb.Append("load order status — profile '").Append(d.ProfileName).Append("'\n");
-        // The running server's own build, so an installed-build-vs-source check never leaves the tool surface.
-        sb.Append("server:   ").Append(ServerBuild.Line).Append('\n');
+        sb.Append(ServerLine);
         // The resolved MO2 instance; null means explicit-paths mode, where the three roots are set directly and there
         // is no MO2 instance folder.
         sb.Append("instance: ").Append(d.InstanceDir ?? "explicit-paths mode (no MO2 instance configured)").Append('\n');
