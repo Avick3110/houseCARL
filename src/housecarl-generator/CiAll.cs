@@ -37,8 +37,7 @@ public static class CiAll
     /// </summary>
     /// <remarks>
     /// A guard's assembly has to reference housecarl-core to see the attribute at all, and this project
-    /// references every houseCARL project, so the closure is the whole population. It is not taken on trust:
-    /// CiProbeRosterTests derives the same population from the repo's project list and holds the two equal.
+    /// references every houseCARL project, so the closure is the whole population.
     /// </remarks>
     public static IReadOnlyList<Assembly> GuardAssemblies => _guardAssemblies ??= DiscoverAssemblies();
 
