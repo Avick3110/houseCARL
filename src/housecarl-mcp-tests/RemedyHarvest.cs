@@ -36,25 +36,12 @@ public sealed class RemedyHarvest
     /// read back off the artifact rather than out of the response.</summary>
     public const string ArtifactLane = "artifact";
 
-    /// <summary>
-    /// Every lane housecarl_records renders, DERIVED from the product's own format vocabulary plus the
-    /// artifact lane. A format the product gains is in this list the day it lands, and every consumer of the
-    /// list gets its rows without being edited.
-    /// </summary>
-    public static readonly string[] Lanes =
-        Enum.GetNames<Wire.QueryFormat>().Select(n => n.ToLowerInvariant()).Append(ArtifactLane).ToArray();
+    // The format= keywords Wire.CrossQueryFormat accepts, plus the artifact lane.
+    public static readonly string[] Lanes = { "text", "json", "dense", ArtifactLane };
 
     /// <summary>
-    /// HOW ONE LANE IS HARVESTED — the one home for the discriminant. The artifact lane's rows are read off
-    /// the file the call spilled. Every other lane is decided by the RESPONSE rather than by the lane's name:
-    /// a response that parses as a JSON document is walked for its strings, and one that does not is read
-    /// line by line.
-    ///
-    /// <para>Asking the response is what keeps this from drifting. <c>dense</c> is named like a text lane and
-    /// is a JSON render (<c>JsonWire.RenderCrossQueryDense</c>), so a discriminant keyed on the name
-    /// <c>"json"</c> narrows dense from every string in the document to only the lines already matching
-    /// <see cref="RemedyLine"/> — a strict narrowing, which goes green either way. A format the product gains
-    /// is harvested for what it is on the day it lands.</para>
+    /// The artifact lane's rows are read off the file the call spilled. Every other response is walked as a
+    /// JSON document if it parses as one, and otherwise read line by line.
     /// </summary>
     public static List<string> HarvestLane(string lane, string response, string? artifactPath)
     {
