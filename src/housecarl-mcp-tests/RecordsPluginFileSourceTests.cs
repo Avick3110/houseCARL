@@ -57,6 +57,7 @@ public sealed class RecordsPluginFileSourceTests : RecordsTestBase
         Served(r, "OUT-OF-LOAD-ORDER", "NOT active — that mod folder is switched OFF in MO2 — switch it on, then re-sort");
         var subject = Assert.Single(r.Split('\n'), l => l.Contains("OUT-OF-LOAD-ORDER", StringComparison.Ordinal));
         Assert.Equal(1, CountOf(subject, "switch it on"));
+        Assert.Equal(1, CountOf(subject, "'OldMod'"));
     }
 
     [Fact]
