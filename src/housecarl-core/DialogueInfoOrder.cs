@@ -4,16 +4,16 @@ using Mutagen.Bethesda.Skyrim;
 namespace HousecarlCore;
 
 // ======================================================================
-//  DialogueInfoOrder — the EFFECTIVE, MERGED INFO order of a dialogue topic (#275)
+//  DialogueInfoOrder — the EFFECTIVE, MERGED INFO order of a dialogue topic
 //  (xEdit INOM/INOA parity: the sequence the game walks top-to-bottom when picking which line plays.)
 //
-//  WHY THIS EXISTS. A topic's lines are ordered, and the game plays the FIRST INFO whose conditions pass.
-//  When two lines both pass, POSITION decides the outcome — so a pure reorder is a behaviour change with no
-//  field delta anywhere. No single record holds that order: each plugin's DIAL carries only ITS OWN child
-//  list, and the effective sequence is the MERGE of every touching plugin's list in load order.
+//  WHY THIS EXISTS. A topic's lines are ordered, and the game plays the FIRST INFO whose conditions pass. When two
+//  lines both pass, POSITION decides the outcome — so a pure reorder is a behaviour change with no field delta
+//  anywhere. No single record holds that order: each plugin's DIAL carries only ITS OWN child list, and the
+//  effective sequence is the MERGE of every touching plugin's list in load order.
 //
-//  THE MODEL (derived from xEdit's TwbGroupRecord.Sort/ProcessDIAL — the community's reference implementation
-//  of engine behaviour — and confirmed twice empirically, see below):
+//  THE MODEL (xEdit's TwbGroupRecord.Sort/ProcessDIAL is the reference implementation of the engine behaviour;
+//  confirmed empirically against a live load order):
 //
 //    for each touching plugin, in LOAD ORDER:
 //      for each INFO in THAT plugin's child list, in ITS order:
@@ -24,43 +24,20 @@ namespace HousecarlCore;
 //                      PNAM present, unresolvable -> HEAD
 //                      PNAM resolves to T         -> immediately AFTER T (T placed first if absent, cycle-guarded)
 //
-//  EMPIRICAL CONFIRMATION (2026-07-28, run against a live load order). HirelingQuestTopic1 (0BCC84:Skyrim.esm):
-//  Skyrim.esm lists 8 INFOs; USSEP re-lists 6, each carrying its PNAM, and they do not move (the after-target arm
-//  doing its job); two further plugins each re-list ONLY 01A18E, the "you can't afford me" refusal. The winning
-//  copy of 01A18E carries a PRESENT-ZERO PNAM — the "I am first" marker — so it is placed at the HEAD and the
-//  refusal correctly leads the topic. The merged order is 8 lines while the winning DIAL's own child list holds
-//  exactly ONE, which is the load-bearing observation: see WHAT THIS CORRECTS below.
-//
-//  WHAT THIS RECORD DOES *NOT* SHOW, stated because an earlier version of this comment claimed it did. It is NOT
-//  a live reproduction of the reported hireling bug. Predicting from the model by hand, before running it, gave
-//  the refusal at the TAIL (evicted by the two re-lists, no PNAM assumed) — the reported shape. The live run
-//  falsified that: those re-lists carry the zero marker, so the line is pinned first and this topic is healthy on
-//  this order. The tail-append arm is real and guard-pinned (REORDER-TO-TAIL), but it is NOT demonstrated by this
-//  record here; a live instance needs a load order that actually carries the defect. Do not cite 0BCC84 as a
-//  reproduction. (The falsified prediction is also what produced the PNAM-ZERO mis-measurement below.)
-//
-//  WHAT THIS CORRECTS. The prior "DIAL-wins-wholesale" model (the winning topic's Responses IS the in-game INFO
-//  set, so a line no other plugin re-lists is DROPPED) is FALSE and is superseded here. In the case above the
-//  winning topic carries ONE INFO while the game plays EIGHT, and the line that misfired is not in the winner's
-//  list at all — it could not have fired if non-relisted lines were dropped. Non-relisting drops NOTHING; it
-//  REORDERS. (That model was recorded Aaron-confirmed 2026-06-19; superseded on the evidence above, #275.)
+//  NON-RELISTING DROPS NOTHING, IT REORDERS. The winning topic's Responses is NOT the in-game INFO set: a topic
+//  whose winner lists ONE INFO can play eight, including lines that appear in no override's list at all. Any model
+//  in which the winner's child list is authoritative wholesale is wrong.
 //
 //  THE PNAM-ZERO AXIS. "PNAM absent" and "PNAM present but zero" place at OPPOSITE ENDS (tail vs head), and the
-//  reader DOES tell them apart — measured against a real on-disk zero PNAM, and confirmed live 2026-07-28, where
-//  the winning copy of INFO 01A18E (under topic 0BCC84 — a DIAL has no PreviousDialog of its own; its PNAM
-//  subrecord is the topic Priority float) carries the zero marker and is correctly placed FIRST. Recorded the OTHER WAY
-//  for four review rounds, and the validator shipped a standing footer caveat about a blind spot that does not
-//  exist. The error was in the measurement, not the model: the guard authored its fixture through Mutagen's
-//  WRITER, which emits no subrecord for a null link, so the "round trip" never contained a zero PNAM and the arm
-//  measured the writer. Standing lesson: a round-trip test measures the round trip — to measure ONE end, you must
-//  construct the other end's output directly, which the arm now does by byte-patching the fixture.
+//  reader DOES tell them apart — see PnamZeroIsDistinguishable, which is the fidelity ceiling of the whole merge.
+//  A present-zero PNAM is the "I am first" marker and is the common real-world shape, not an edge case.
 //
 //  INPUT IS PLAIN DATA (InfoLine), not record getters — deliberately. The caller projects each plugin's child list
 //  while it still holds the body (overlay bodies are consume-before-advance), so this merge can run after every
 //  overlay is gone, and a batched loader can pull many topics from ONE typed scan per plugin instead of an
 //  unindexed whole-overlay lookup per (topic, plugin). It also makes the merge testable without a load order.
 //
-//  PURE + NEVER THROWS: a deterministic in-memory merge with no I/O. Malformed input (a self-referencing PNAM, a
+//  PURE AND NEVER THROWS: a deterministic in-memory merge with no I/O. Malformed input (a self-referencing PNAM, a
 //  PNAM cycle, a chain past the depth ceiling) DEGRADES to a stated placement and is reported on the view's Note —
 //  never an exception, never a silent guess.
 // ======================================================================
@@ -71,7 +48,7 @@ namespace HousecarlCore;
 public sealed record InfoLine(FormKey Info, FormKey? PreviousDialog, bool Deleted);
 
 /// <summary>Which PNAM arm decided this line's position AT THE MOMENT IT WAS PLACED. Surfaced so a reader can see
-/// WHY a line sits where it does, not just that it does (Q3: the merge is explainable, never a bare list).
+/// WHY a line sits where it does, not just that it does — the merge is explainable, never a bare list.
 ///
 /// It is a record of the placement DECISION, not a standing claim about the final list: a later plugin can evict and
 /// re-place other lines around this one, so an <see cref="AfterTarget"/> line need not still sit immediately after
@@ -93,11 +70,10 @@ public enum InfoPlacement
     /// or a chain past the depth ceiling. Placed at the head because that is what the model does with an unusable
     /// link, and unlike <see cref="HeadFirstMarker"/> this one IS worth a second look.
     ///
-    /// NOT cycle members, despite the obvious guess (measured; the claim was in this doc twice and false both
-    /// times). A cycle's inner frame does take the head arm, but the OUTER frame for that same FormKey overwrites
-    /// the placement with <see cref="AfterTarget"/> when it returns, because the recursion did place the target.
-    /// So no cycle member survives as HeadUnresolvable and none is annotated — cycles surface through the view's
-    /// Note, which names the members for that reason.</summary>
+    /// NOT cycle members, despite the obvious guess. A cycle's inner frame does take the head arm, but the OUTER
+    /// frame for that same FormKey overwrites the placement with <see cref="AfterTarget"/> when it returns, because
+    /// the recursion did place the target. So no cycle member survives as HeadUnresolvable and none is annotated —
+    /// cycles surface through the view's Note, which names the members for that reason.</summary>
     HeadUnresolvable,
 
     /// <summary>PNAM resolved — placed immediately after its target.</summary>
@@ -120,7 +96,7 @@ public sealed record InfoOrderEntry(
 
 /// <summary>The effective merged INFO order for one topic: the <see cref="Order"/> the game walks top-to-bottom,
 /// the <see cref="ContributingPlugins"/> whose child lists fed the merge (load order), the <see cref="Moved"/> lines
-/// (worst displacement first), and <see cref="Note"/> — a Q3 caveat when part of the merge DEGRADED on malformed or
+/// (worst displacement first), and <see cref="Note"/> — a caveat when part of the merge DEGRADED on malformed or
 /// oversized input (null when it ran clean).
 /// <see cref="Contested"/> is the whole point of the view: with one contributing plugin the effective order IS
 /// that plugin's list and there is nothing to reconcile.</summary>
@@ -153,7 +129,7 @@ public sealed record InfoOrderView(
 
     /// <summary>Every touching plugin's list made it into the merge. When false the order is built from FEWER
     /// lists than the load order has, so neither it nor a "nothing merges here" reading of it is authoritative —
-    /// the render must not state either as fact (Q3).</summary>
+    /// the render must not state either as fact.</summary>
     public bool Complete => UnreadContributors.Count == 0;
 }
 
@@ -161,20 +137,13 @@ public static class DialogueInfoOrder
 {
     /// <summary>Whether Mutagen's read surface distinguishes a PNAM subrecord that is ABSENT from one that is
     /// PRESENT-but-zero. The two place at OPPOSITE ENDS (tail vs head), so this is the fidelity ceiling of the whole
-    /// merge.
+    /// merge. TRUE: a PNAM subrecord PRESENT with value zero reads back distinctly from an ABSENT one, so the
+    /// "I am first" marker is visible and such a line is correctly placed at the HEAD.
     ///
-    /// MEASURED TRUE (2026-07-27): a PNAM subrecord PRESENT with value zero reads back distinctly from an ABSENT
-    /// one, so the "I am first" marker is visible and such a line is correctly placed at the HEAD.
-    ///
-    /// Recorded FALSE for four review rounds, with a standing validator caveat built on it. The error was in the
-    /// MEASUREMENT: the guard built its fixture with Mutagen's WRITER, which emits no subrecord for a null link, so
-    /// the round trip never contained a zero PNAM and the arm measured the writer's capability, not the reader's.
-    /// Live 1.9.4-dev against the real load order exposed it — 0BCC84's winning copy carries a zero PNAM and was
-    /// placed FIRST, which the recorded flag said could not happen.
-    ///
-    /// PINNED BY <c>dialogue-info-order-guard</c> against a BYTE-PATCHED fixture carrying the on-disk shape real
-    /// (CK / xEdit-filled) plugins have — so the arm exercises the READER, and a Mutagen bump that loses the
-    /// distinction fails CI instead of silently changing every computed order.</summary>
+    /// Anything re-verifying this must construct the zero PNAM ON DISK — by byte-patching a fixture into the shape
+    /// real CK / xEdit-filled plugins carry. A Mutagen round trip cannot measure it: the WRITER emits no subrecord
+    /// for a null link, so the fixture never contains a zero PNAM and the test measures the writer, not the reader.
+    /// A Mutagen bump that loses the distinction must fail CI rather than silently change every computed order.</summary>
     public static bool PnamZeroIsDistinguishable => true;
 
     /// <summary>Move analysis is O(n·m) over a topic's line count; past this many lines it is skipped and said to be
@@ -251,7 +220,7 @@ public static class DialogueInfoOrder
         // Skipped when the baseline itself is untrustworthy: originIdx is the FIRST CONTRIBUTING group, so if the
         // DEFINING plugin is one that could not be read, the baseline silently becomes a later plugin's list and
         // every "moved" verdict is measured against the wrong thing. A spurious moved set is worse than none —
-        // the render states it as fact and names the defining plugin (Q3).
+        // the render states it as fact and names the defining plugin.
         var movedKeys = originIdx is null || order.Count > MaxMoveAnalysisLines || !originIsDefiningPlugin
             ? new HashSet<FormKey>()
             : RelativeOrderChanges(order, originIdx);
@@ -278,8 +247,8 @@ public static class DialogueInfoOrder
     }
 
     /// <summary>The DEGRADATION note: what part of this merge did not run cleanly, and on what input. Null when the
-    /// merge was fully determined. Each clause names a concrete malformation so the reader can act on it (Q3) —
-    /// these are data problems in the plugins, not tool limits.</summary>
+    /// merge was fully determined. Each clause names a concrete malformation so the reader can act on it — these are
+    /// data problems in the plugins, not tool limits.</summary>
     static string? BuildNote(MergeState state, int lineCount, bool haveOrigin,
                              IReadOnlyList<string>? unreadContributors, bool originIsDefiningPlugin)
     {
@@ -288,9 +257,9 @@ public static class DialogueInfoOrder
             parts.Add("the plugin that DEFINES this topic is among those that could not be read, so the baseline " +
                       "for \"which lines moved\" would be a later plugin's list — move analysis was SKIPPED rather " +
                       "than measured against the wrong order");
-        // A plugin the index says TOUCHES this topic whose child list could not be read. Q3: the merge below is
-        // built from FEWER lists than the load order actually has, so the order — and any "single plugin, nothing
-        // merges" reading of it — is NOT authoritative. Never silently absorbed into a clean-looking result.
+        // A plugin the index says TOUCHES this topic whose child list could not be read: the merge below is built
+        // from FEWER lists than the load order actually has, so the order — and any "single plugin, nothing merges"
+        // reading of it — is NOT authoritative. Never silently absorbed into a clean-looking result.
         if (unreadContributors is { Count: > 0 })
             parts.Add($"{unreadContributors.Count} plugin(s) that TOUCH this topic could not be read " +
                       $"({string.Join(", ", unreadContributors)}) — their lines are MISSING from the order below, " +
@@ -325,8 +294,8 @@ public static class DialogueInfoOrder
     /// <see cref="MaxChainDepth"/> both take the HeadUnresolvable arm. A CYCLE does not, despite taking that arm in
     /// its inner frame — the outer frame for the same FormKey overwrites the placement with AfterTarget on return,
     /// so cycles are reported on the Note (with their members named) rather than annotated per line. The final
-    /// insert index is clamped because the recursion can mutate the list under this frame — the self-reference case
-    /// reached a negative-length insert before the explicit guard was added.</summary>
+    /// insert index MUST stay clamped: the recursion can mutate the list under this frame, and a self-reference
+    /// otherwise reaches a negative insert index.</summary>
     static void Place(MergeState state, InfoLine line, string plugin, int depth)
     {
         var order = state.Order;
@@ -348,10 +317,9 @@ public static class DialogueInfoOrder
             return;
         }
 
-        // PNAM present with value ZERO — the "I am first" marker. LOAD-BEARING, not dead: the reader DOES see
-        // this (PnamZeroIsDistinguishable, measured; pinned by the guard's PNAM-ZERO-AXIS arm against a
-        // byte-patched fixture) and it is the COMMON real-world shape. Deleting this branch would silently move
-        // every marked line from the head to the tail — the exact regression this whole change exists to prevent.
+        // PNAM present with value ZERO — the "I am first" marker. LOAD-BEARING, not dead: the reader does see this
+        // (PnamZeroIsDistinguishable) and it is the common real-world shape. Deleting this branch would silently
+        // move every marked line from the head to the tail.
         if (prev.Value.IsNull)
         {
             Head(InfoPlacement.HeadFirstMarker);
@@ -437,9 +405,9 @@ public static class DialogueInfoOrder
     /// <summary>Count PNAM cycles as a property of the DATA, over the final placed line set — not as a by-product
     /// of the recursion. The placement-time signal (the cycle guard tripping) only fires when a target is not yet
     /// placed, so a cycle whose members were BOTH already placed by an earlier plugin — e.g. plugin A lists a and b
-    /// unlinked, then plugin B re-lists both pointing at each other — went entirely undetected and the report read
-    /// clean on unsatisfiable input (PR #293 re-review). Each line has at most ONE PNAM edge, so this is a walk over
-    /// a functional graph: follow each unvisited chain and count a cycle when it re-enters the current walk.
+    /// unlinked, then plugin B re-lists both pointing at each other — goes entirely undetected there and the report
+    /// reads clean on unsatisfiable input. Each line has at most ONE PNAM edge, so this is a walk over a functional
+    /// graph: follow each unvisited chain and count a cycle when it re-enters the current walk.
     /// Self-edges are excluded — those are reported as self-references, and would otherwise be counted twice.</summary>
     static (int Count, List<FormKey> Members) CountPnamCycles(
         IReadOnlyList<FormKey> order, IReadOnlyDictionary<FormKey, Placed> placed)

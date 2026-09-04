@@ -5,21 +5,21 @@ using Mutagen.Bethesda.Skyrim;
 namespace HousecarlCore;
 
 /// <summary>
-/// The effect-chain resolver (housecarl_effect_chain — gap 2026-06-08): given a MagicEffect (MGEF), find every
-/// record that APPLIES it and the magnitude/area/duration of the matching effect entry. It collapses the hand-trace
+/// The effect-chain resolver: given a MagicEffect (MGEF), find every record that APPLIES it and the
+/// magnitude/area/duration of the matching effect entry. It collapses the hand-trace
 /// "cross_plugin_query references=&lt;MGEF&gt; type=SPEL → read each hit's Effects[].Data → keep the entry whose
 /// BaseEffect is the MGEF, then repeat for ENCH/ALCH/SCRL/INGR" into one call. The inverse-by-magnitude of
 /// references=: that says WHICH carriers reference the effect; this says which entry, and at what strength.
 ///
-/// Two seams, mirroring the where= predicate (<see cref="FieldPredicate"/> ← <c>ValuePredicateProbe</c>):
-///   • <see cref="Match"/> — PURE over an in-hand body (no resolver, no I/O), so the regression guard tests the real
-///     matcher directly against a known-magnitude fixture.
-///   • <see cref="Resolve"/> — the end-to-end service path (Q3 typed-match gate → winner-body scan → assemble),
-///     drivable from a <see cref="LoadOrderResolver"/> built over synthetic plugins, so the guard covers the gate too.
+/// Two seams, mirroring the where= predicate (<see cref="FieldPredicate"/>):
+///   • <see cref="Match"/> — PURE over an in-hand body (no resolver, no I/O), so a test can drive the real matcher
+///     directly against a known-magnitude fixture.
+///   • <see cref="Resolve"/> — the end-to-end service path (typed-match gate → winner-body scan → assemble),
+///     drivable from a <see cref="LoadOrderResolver"/> built over synthetic plugins, so the gate is covered too.
 ///
 /// Scope is the five records the library models with an <c>Effects</c> list — Spell/ObjectEffect/Ingestible/
 /// Scroll/Ingredient (SPEL/ENCH/ALCH/SCRL/INGR). That is EVERY effect-bearing record by construction, not a chosen
-/// subset (cornerstone §3): the element type is the SAME <see cref="IEffectGetter"/> across all five, so once
+/// subset: the element type is the SAME <see cref="IEffectGetter"/> across all five, so once
 /// <see cref="EffectsOf"/> hands back the list, extraction is uniform and the only per-type code is the switch that
 /// reaches the list.
 /// </summary>
@@ -40,8 +40,8 @@ public static class EffectChain
 
     /// <summary>The carrier's Effects list if <paramref name="body"/> is one of the five effect-bearing records, else
     /// null. An explicit switch over the known set — NOT reflection: type-safe, and a sixth effect-bearing record in a
-    /// future library version is then a deliberate, surfaced boundary (the guard's MATCH-ALL arm would catch the
-    /// new type's absence) rather than a silent reflective guess that might mis-read an unrelated "Effects" member.</summary>
+    /// future library version is then a deliberate, surfaced boundary a CI check catches, rather than a silent
+    /// reflective guess that might mis-read an unrelated "Effects" member.</summary>
     public static IReadOnlyList<IEffectGetter>? EffectsOf(IMajorRecordGetter body) => body switch
     {
         ISpellGetter s => s.Effects,
@@ -54,7 +54,7 @@ public static class EffectChain
 
     /// <summary>The effect entries of <paramref name="body"/> whose BaseEffect is <paramref name="mgef"/>, each with
     /// its magnitude/area/duration. Empty if the body carries no effects or none reference the MGEF. An effect with an
-    /// unset BaseEffect (FormKey.Null) is skipped — never matched, never throws. Pure: the guard's ground truth.</summary>
+    /// unset BaseEffect (FormKey.Null) is skipped — never matched, never throws. Pure.</summary>
     public static IReadOnlyList<EffectHit> Match(IMajorRecordGetter body, FormKey mgef)
     {
         var effects = EffectsOf(body);
@@ -78,19 +78,19 @@ public static class EffectChain
     /// <see cref="LoadOrderResolver.Capture"/>; per-record fault isolation (one Mutagen-unparseable body is excluded +
     /// accounted, never aborts the call, never a silent skip); holds nothing.
     ///
-    /// Q3 GATE FIRST (the gap's explicit ask — never a silent "0 carriers" on a bad target): the FormID must resolve
+    /// The typed-match gate runs FIRST, so a bad target never reads as a silent "0 carriers": the FormID must resolve
     /// to a MagicEffect. An absent FormID or a non-MGEF (a WEAP, an NPC_, …) fails loud with the actual type named; a
     /// VALID-but-unused MGEF returns a clean zero result (Error null) so the caller can tell "no carriers" from "bad
     /// id" by the absence of an error and the resolved <see cref="EffectChainResult.MgefEditorId"/> in the header.</summary>
     public static EffectChainResult Resolve(LoadOrderResolver resolver, FormKey mgef, IReadOnlyList<Type> scope, int limit)
     {
         var view = resolver.Capture();
-        // Post-capture refusals are STAMPED (PR #305 review): "not in the load order" / "not an MGEF" are answers
-        // ABOUT this build — the same refusal contract read_record's stamped refusals follow. Only the service's
-        // pre-capture type-narrow gate refuses without an epoch.
+        // Post-capture refusals are STAMPED: "not in the load order" / "not an MGEF" are answers ABOUT this build,
+        // the same refusal contract read_record's stamped refusals follow. Only the service's pre-capture
+        // type-narrow gate refuses without an epoch.
         EffectChainResult FailStamped(string msg) => EffectChainResult.Fail(msg) with { Epoch = view.Epoch };
 
-        // --- Q3 typed-match gate: the target must be an MGEF. Cheap — one winner-body fetch off this view. ---
+        // --- typed-match gate: the target must be an MGEF. Cheap — one winner-body fetch off this view. ---
         var w = view.ResolveWinner(mgef);
         if (w is null)
             return FailStamped(
@@ -141,7 +141,7 @@ public static class EffectChain
             }
         }
         // Anything escaping the stream itself (a bad scope type, a build fault) gets a NAMED failure — never the
-        // MCP layer's generic "An error occurred invoking …" as the terminal diagnostic for a data failure (Q3).
+        // MCP layer's generic "An error occurred invoking …" as the terminal diagnostic for a data failure.
         catch (Exception ex) { return FailStamped($"scan aborted: {ex.GetType().Name}: {ex.Message}"); }
 
         string? scanNote = unscannable == 0 ? null
@@ -162,12 +162,12 @@ public sealed record EffectChainRow(
     int EffectIndex, int EffectCount, float Magnitude, int Area, int Duration);
 
 /// <summary>The result of <see cref="EffectChain.Resolve"/>: the resolved MGEF (+ its editorid, the typed-match proof
-/// for the header), the carrier rows (capped at the caller's limit), the TRUE total, the capped flag, an optional Q3
-/// scan note, and — on the Q3 gate — a recoverable <see cref="Error"/> with no rows.</summary>
+/// for the header), the carrier rows (capped at the caller's limit), the TRUE total, the capped flag, an optional
+/// scan note, and — on the typed-match gate — a recoverable <see cref="Error"/> with no rows.</summary>
 public sealed record EffectChainResult(
     FormKey Mgef, string MgefEditorId, IReadOnlyList<EffectChainRow> Rows,
     int Total, bool Capped, string? Error, string? ScanNote,
-    string? Epoch = null)   // the build's fingerprint (SPEC §2.1.1) — success AND every post-capture refusal; null only on the service's pre-capture type-narrow gate
+    string? Epoch = null)   // the build's fingerprint — set on success and on every post-capture refusal; null only on the service's pre-capture type-narrow gate
 {
     public bool Success => Error is null;
     public static EffectChainResult Fail(string error) =>
