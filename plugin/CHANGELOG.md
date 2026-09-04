@@ -143,6 +143,28 @@ saying it sets an expectation their install may contradict. Say what is known, a
   the write floor, and renaming an already-light plugin — a single-donor merge — has ids that are all inside the light
   window anyway. The refusal now says what the merge does not do (it never constrains object ids to the light window)
   and points at `housecarl_compact_plugin`, which does.
+- **A record that resolves nowhere now says whether its PLUGIN is in the load order.** One sentence used to serve
+  two opposite causes — a plugin that is not installed, and an installed plugin that has no such record — so telling
+  them apart took a second call. A present plugin is now named as present, with the wrong-edition cause (an
+  ESL-flagged edition compacts its records into 0x800+) and the call that lists what it does define; an absent one
+  keeps the load-order explanation it always had. The same repair reaches the unresolved-link annotation, which used
+  to assert `target not in the active order` when the plugin usually is.
+
+- **A `where=` predicate whose path hops through a list is now told to use brackets instead of to check the
+  schema.** `where=["Effects.Data.Magnitude > 0"]` is a correct field reached by a path missing its brackets, and it
+  was reported as a mistyped field name. The accounting note now names the collection it dead-ended on and the
+  bracketed spelling. `where=`'s own description also states that a wildcard over a list is not built.
+
+- **`housecarl_records` remedies now name levers the call actually accepts.** The `everything` form no longer
+  offers `project.fields=`, which that form refuses by name; a capped walk names `walk.max_nodes` rather than
+  `limit=`, which windows the seeds and would have changed nothing; `project.group_by='type'` without a
+  body-bearing scope refuses in this tool's own spelling; and a summary row labels the override depth
+  `override_depth=`, no longer colliding with `project.depth=`. `project.form='chain'` is described as the form it
+  now is, rather than as refused until it lands.
+
+- **`apply` and `create` name the file in every refusal about a list read from `@<path>`.** Two of the four
+  post-read refusals — an empty array and a null element — reported the parameter with nothing saying the content
+  came from disk.
 
 - **`housecarl_asset_status` under a `max_chars` its header and alarms already fill now renders the first path's
   answer instead of cutting to none.** `housecarl_nif_inspect` already did; both tools now render through one batch
