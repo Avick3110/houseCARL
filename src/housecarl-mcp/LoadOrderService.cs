@@ -7737,6 +7737,9 @@ public sealed class LoadOrderService : IDisposable
         var byEsp = OwnedFoldersHolding(espName)
             .Select(p => Path.GetDirectoryName(p)!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (byEsp.Count == 1) return byEsp[0];
+        // Known wrong for one class of caller: this arm and the folder catch-all below both say "pass into=", which a
+        // tool that declares no into= parameter cannot do — such a caller gets an unknown-parameter refusal instead.
+        // Unfixed here; the remedy needs the calling surface's own vocabulary, like laneClause below.
         if (byEsp.Count > 1)
             throw new InvalidOperationException(
                 $"cannot extend: {byEsp.Count} houseCARL folders carry '{espName}' — ambiguous, refusing to guess. " +
