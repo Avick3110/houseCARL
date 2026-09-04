@@ -28,29 +28,34 @@ static class ParentInHandProbe
         if (paths is null) return 1;
         Console.WriteLine($"parent-in-hand: {label} — {paths.Count} plugin(s)\n");
 
+        // A discarded warm-up sweep runs first. Without it the first timed pass alone pays the JIT of both
+        // enumerators and the cold file cache for every plugin, which is bigger than the difference being measured.
+        Sweep(paths, dataDir, new WarmupPass(), "warm-up");
+        Console.WriteLine("warm-up sweep done and discarded; every timing below is warm.\n");
+
         // ---- pass A: the flat walk BuildIndex runs today ------------------------------------------------------
         var flat = new FlatPass();
-        var passA = Sweep(paths, dataDir, flat);
+        var passA = Sweep(paths, dataDir, flat, "A");
 
         Console.WriteLine($"A. flat pass (today's BuildIndex walk)");
         Console.WriteLine($"   records          : {flat.Records:N0}");
         Console.WriteLine($"   wall             : {passA.Wall.TotalSeconds:N2} s");
         Console.WriteLine($"   retained after   : {passA.RetainedMb:N1} MB   (FormKey buffer only, as today)");
-        Console.WriteLine($"   plugins skipped  : {passA.Skipped}\n");
+        Console.WriteLine($"   plugins excluded : {passA.Skipped}\n");
 
         // ---- pass B: flat + containment, fused into the SAME open ---------------------------------------------
         var both = new FusedPass();
-        var passB = Sweep(paths, dataDir, both);
+        var passB = Sweep(paths, dataDir, both, "B");
 
         Console.WriteLine($"B. fused pass (flat walk + containment walk, one open per plugin)");
         Console.WriteLine($"   records          : {both.Records:N0}");
         Console.WriteLine($"   parents visited  : {both.Parents:N0}");
         Console.WriteLine($"   child->parent    : {both.Map.Count:N0} distinct children");
         Console.WriteLine($"   wall             : {passB.Wall.TotalSeconds:N2} s");
-        Console.WriteLine($"   retained after   : {passB.RetainedMb:N1} MB   (includes the child->parent map)");
-        Console.WriteLine($"   plugins skipped  : {passB.Skipped}");
-        Console.WriteLine($"   MARGINAL time    : {(passB.Wall - passA.Wall).TotalSeconds:N2} s " +
-                          $"({(passA.Wall.TotalSeconds > 0 ? (passB.Wall.TotalSeconds / passA.Wall.TotalSeconds) : 0):N2}x the flat pass)");
+        Console.WriteLine($"   retained after   : {passB.RetainedMb:N1} MB   (the child->parent map)");
+        Console.WriteLine($"   plugins excluded : {passB.Skipped}");
+        Console.WriteLine($"   MARGINAL time    : {(passB.Wall - passA.Wall).TotalSeconds:N2} s more than the flat pass " +
+                          $"(B in total is {(passA.Wall.TotalSeconds > 0 ? (passB.Wall.TotalSeconds / passA.Wall.TotalSeconds) : 0):N2}x A)");
         Console.WriteLine($"   MARGINAL memory  : {(passB.RetainedMb - passA.RetainedMb):N1} MB\n");
 
         // ---- pass C: the same map, packed --------------------------------------------------------------------
@@ -58,16 +63,29 @@ static class ParentInHandProbe
         // pays for two of those per entry. The index already has a dense plugin index, so pack (modIdx, id) into
         // one ulong and measure what the SAME map costs stored that way.
         var packed = new PackedPass();
-        var passC = Sweep(paths, dataDir, packed);
-        Console.WriteLine($"C. packed map only (ulong -> ulong, (modIdx<<32|id))");
+        var passC = Sweep(paths, dataDir, packed, "C");
+        Console.WriteLine($"C. packed map (ulong -> ulong, (modIdx<<32|id)); same work as B, map stored packed");
         Console.WriteLine($"   entries          : {packed.Map.Count:N0}");
-        Console.WriteLine($"   wall             : {passC.Wall.TotalSeconds:N2} s");
-        Console.WriteLine($"   retained after   : {passC.RetainedMb:N1} MB   ({passC.RetainedMb * 1024 * 1024 / Math.Max(1, packed.Map.Count):N0} B/entry)");
-        Console.WriteLine($"   without Cell.Temporary : {both.Map.Count - both.PerProperty.GetValueOrDefault("Cell.Temporary"):N0} entries\n");
+        Console.WriteLine($"   wall             : {passC.Wall.TotalSeconds:N2} s   (flat walk + containment walk, as B)");
+        Console.WriteLine($"   retained after   : {passC.RetainedMb:N1} MB   (map plus the small ModKey index; " +
+                          $"~{passC.RetainedMb * 1024 * 1024 / Math.Max(1, packed.Map.Count):N0} B/entry)\n");
 
-        Console.WriteLine("   per child-bearing property (children reached by the containment walk):");
-        foreach (var kv in both.PerProperty.OrderByDescending(k => k.Value))
-            Console.WriteLine($"     {kv.Key,-34} {kv.Value,10:N0}");
+        // ---- the descriptive breakdown, deliberately OUTSIDE the timed passes --------------------------------
+        // Per-property distinct counts and one live sample body per property. Both would distort the figures
+        // above — the sample pins a whole overlay graph, the counts need a second set per property — so they are
+        // collected in their own sweep whose time and memory are not reported.
+        var describe = new DescribePass();
+        Sweep(paths, dataDir, describe, "describe");
+
+        var temporary = describe.PerProperty.GetValueOrDefault("Cell.Temporary")?.Count ?? 0;
+        var nonTemporary = describe.PerProperty.Where(k => k.Key != "Cell.Temporary")
+                                               .SelectMany(k => k.Value).Distinct().Count();
+        Console.WriteLine($"   Cell.Temporary children : {temporary:N0} distinct");
+        Console.WriteLine($"   children reached by any OTHER property : {nonTemporary:N0} distinct\n");
+
+        Console.WriteLine("   per child-bearing property (distinct children reached by the containment walk):");
+        foreach (var kv in describe.PerProperty.OrderByDescending(k => k.Value.Count))
+            Console.WriteLine($"     {kv.Key,-34} {kv.Value.Count,10:N0}");
         Console.WriteLine();
 
         // ---- pass E: Mutagen's own context enumeration, which carries a Parent ---------------------------------
@@ -75,7 +93,7 @@ static class ParentInHandProbe
         // IModContext<IMajorRecordGetter>, whose IModContext.Parent is the containing record's context. If that is
         // populated, the containment map needs no custom walk at all — one enumeration replaces both passes.
         var ctx = new ContextPass();
-        var passE = Sweep(paths, dataDir, ctx);
+        var passE = Sweep(paths, dataDir, ctx, "E");
         Console.WriteLine($"E. Mutagen context enumeration (EnumerateMajorRecordContexts, no link cache)");
         Console.WriteLine($"   contexts         : {ctx.Contexts:N0}");
         Console.WriteLine($"   with a Parent    : {ctx.WithParent:N0}");
@@ -84,7 +102,7 @@ static class ParentInHandProbe
         Console.WriteLine($"   re-parented      : {ctx.Reparented:N0} (a later plugin put the same child under a DIFFERENT parent)");
         Console.WriteLine($"   wall             : {passE.Wall.TotalSeconds:N2} s");
         Console.WriteLine($"   retained after   : {passE.RetainedMb:N1} MB");
-        Console.WriteLine($"   plugins skipped  : {passE.Skipped}");
+        Console.WriteLine($"   plugins excluded : {passE.Skipped}");
         Console.WriteLine($"   vs the flat pass : {(passE.Wall - passA.Wall).TotalSeconds:N2} s more");
         Console.WriteLine("   edges the context walk hands over (child -> parent, by type):");
         foreach (var kv in ctx.Edges.Where(k => !k.Key.EndsWith("(no parent)", StringComparison.Ordinal))
@@ -94,17 +112,28 @@ static class ParentInHandProbe
 
         // ---- question 1: is the parent in hand on the child body itself? ---------------------------------------
         Console.WriteLine("D. is the parent in hand during the FLAT walk? (per child-bearing property)\n");
-        ReportParentInHand(both);
+        ReportParentInHand(describe);
 
         return 0;
     }
 
     // ---------------------------------------------------------------------------------------------------------
-    // The two passes. Both open one plugin at a time and dispose it, exactly as BuildIndex does, so the timings
-    // are comparable and neither holds the order open.
+    // The passes. Each opens one plugin at a time and disposes it, exactly as BuildIndex does, so the timings are
+    // comparable and none holds the order open. Each merges a plugin's work into its totals only after that
+    // plugin has walked to the end, so a mid-plugin throw excludes the plugin instead of half-counting it.
     // ---------------------------------------------------------------------------------------------------------
 
     interface IPass { void Plugin(ISkyrimModGetter ov); }
+
+    /// <summary>Touches both enumerators on every plugin so the timed passes never pay first-run cost.</summary>
+    sealed class WarmupPass : IPass
+    {
+        public void Plugin(ISkyrimModGetter ov)
+        {
+            foreach (var rec in ov.EnumerateMajorRecords()) { _ = rec.FormKey; }
+            foreach (var c in ov.EnumerateMajorRecordContexts()) { _ = c.Record.FormKey; }
+        }
+    }
 
     sealed class FlatPass : IPass
     {
@@ -121,42 +150,38 @@ static class ParentInHandProbe
     {
         public long Records, Parents;
         public readonly Dictionary<FormKey, FormKey> Map = new();
-        public readonly Dictionary<string, long> PerProperty = new(StringComparer.Ordinal);
-        // One live child body per property, kept for the "is the parent in hand" reflection report.
-        public readonly Dictionary<string, (IMajorRecordGetter parent, IMajorRecordGetter child)> Sample = new(StringComparer.Ordinal);
 
         public void Plugin(ISkyrimModGetter ov)
         {
             var keys = new List<FormKey>();
             foreach (var rec in ov.EnumerateMajorRecords()) keys.Add(rec.FormKey);
-            Records += keys.Count;
 
             // The containment pass. The parent TYPES are not a hand list either: they are the types
             // OwnedChildContent.Fields answers non-empty for, which is WriteEngine.ChildBearingProperties.
+            long parents = 0;
+            var staged = new List<(FormKey Child, FormKey Parent)>();
             foreach (var parent in ParentBodies(ov))
             {
-                Parents++;
+                parents++;
                 foreach (var field in OwnedChildContent.Fields(parent).Keys)
                 {
                     var p = parent.GetType().GetProperty(field, BindingFlags.Public | BindingFlags.Instance);
                     if (p is null) continue;
                     object? val;
                     try { val = p.GetValue(parent); } catch { continue; }
-                    long n = 0;
                     var seen = new HashSet<FormKey>();
                     foreach (var child in DirectChildren(val, 0))
                     {
                         if (!seen.Add(child.FormKey)) continue;   // a block struct can expose the same list twice
-                        Map[child.FormKey] = parent.FormKey;
-                        n++;
-                        if (!Sample.ContainsKey(Key(parent, field))) Sample[Key(parent, field)] = (parent, child);
+                        staged.Add((child.FormKey, parent.FormKey));
                     }
-                    if (n > 0) PerProperty[Key(parent, field)] = PerProperty.GetValueOrDefault(Key(parent, field)) + n;
                 }
             }
-        }
 
-        static string Key(IMajorRecordGetter parent, string field) => $"{Short(parent.GetType())}.{field}";
+            Records += keys.Count;
+            Parents += parents;
+            foreach (var (child, parent) in staged) Map[child] = parent;
+        }
     }
 
     /// <summary>The same containment walk as FusedPass, storing the map PACKED — one ulong per side, off a dense
@@ -168,7 +193,8 @@ static class ParentInHandProbe
 
         public void Plugin(ISkyrimModGetter ov)
         {
-            foreach (var rec in ov.EnumerateMajorRecords()) { }         // the flat walk still happens, as today
+            foreach (var rec in ov.EnumerateMajorRecords()) { _ = rec.FormKey; }   // the flat walk still happens, as today
+            var staged = new List<(FormKey Child, FormKey Parent)>();
             foreach (var parent in ParentBodies(ov))
                 foreach (var field in OwnedChildContent.Fields(parent).Keys)
                 {
@@ -176,8 +202,9 @@ static class ParentInHandProbe
                     if (p is null) continue;
                     object? val;
                     try { val = p.GetValue(parent); } catch { continue; }
-                    foreach (var child in DirectChildren(val, 0)) Map[Pack(child.FormKey)] = Pack(parent.FormKey);
+                    foreach (var child in DirectChildren(val, 0)) staged.Add((child.FormKey, parent.FormKey));
                 }
+            foreach (var (child, parent) in staged) Map[Pack(child)] = Pack(parent);
         }
 
         ulong Pack(FormKey k)
@@ -194,23 +221,28 @@ static class ParentInHandProbe
     {
         public long Contexts, WithParent, ParentIsRecord, Reparented;
         public readonly Dictionary<ulong, ulong> Map = new();
-        // childType -> parentType, or "(no parent)" / "(parent is not a record: X)" — what the walk actually hands over.
+        // childType -> parentType, or "(no parent)" / "(parent chain holds no record)" — what the walk hands over.
         public readonly Dictionary<string, long> Edges = new(StringComparer.Ordinal);
         readonly Dictionary<ModKey, int> _mods = new();
 
         public void Plugin(ISkyrimModGetter ov)
         {
+            long contexts = 0, withParent = 0, parentIsRecord = 0;
+            var edges = new Dictionary<string, long>(StringComparer.Ordinal);
+            var staged = new List<(FormKey Child, FormKey Parent)>();
+            void Bump(string k) => edges[k] = edges.GetValueOrDefault(k) + 1;
+
             foreach (var c in ov.EnumerateMajorRecordContexts())
             {
-                Contexts++;
+                contexts++;
                 var child = Short(c.Record.GetType());
                 var parent = (c as IModContext)?.Parent;
                 if (parent is null) { Bump($"{child} -> (no parent)"); continue; }
-                WithParent++;
+                withParent++;
                 if (parent.Record is IMajorRecordGetter pr)
                 {
-                    ParentIsRecord++;
-                    Put(c.Record.FormKey, pr.FormKey);
+                    parentIsRecord++;
+                    staged.Add((c.Record.FormKey, pr.FormKey));
                     Bump($"{child} -> {Short(pr.GetType())}");
                 }
                 else
@@ -221,13 +253,19 @@ static class ParentInHandProbe
                     while (up is not null && up.Record is not IMajorRecordGetter && hops++ < 6) up = up.Parent;
                     if (up?.Record is IMajorRecordGetter anc)
                     {
-                        ParentIsRecord++;
-                        Put(c.Record.FormKey, anc.FormKey);
+                        parentIsRecord++;
+                        staged.Add((c.Record.FormKey, anc.FormKey));
                         Bump($"{child} -> {Short(anc.GetType())} (via {hops} group hop(s))");
                     }
                     else Bump($"{child} -> (parent chain holds no record)");
                 }
             }
+
+            Contexts += contexts;
+            WithParent += withParent;
+            ParentIsRecord += parentIsRecord;
+            foreach (var kv in edges) Edges[kv.Key] = Edges.GetValueOrDefault(kv.Key) + kv.Value;
+            foreach (var (child, parent) in staged) Put(child, parent);
         }
 
         // Does a LATER plugin ever put the same child under a DIFFERENT parent? That is what decides whether one
@@ -239,12 +277,38 @@ static class ParentInHandProbe
             Map[ck] = pk;
         }
 
-        void Bump(string k) => Edges[k] = Edges.GetValueOrDefault(k) + 1;
-
         ulong Pack(FormKey k)
         {
             if (!_mods.TryGetValue(k.ModKey, out var i)) _mods[k.ModKey] = i = _mods.Count;
             return ((ulong)(uint)i << 32) | k.ID;
+        }
+    }
+
+    /// <summary>The descriptive pass: distinct children per child-bearing property, and one real (parent, child)
+    /// pair per property for the question-1 report. Never timed — the samples pin live overlay bodies, and the
+    /// per-property sets are extra memory, both of which would distort the passes above.</summary>
+    sealed class DescribePass : IPass
+    {
+        public readonly Dictionary<string, HashSet<FormKey>> PerProperty = new(StringComparer.Ordinal);
+        public readonly Dictionary<string, (IMajorRecordGetter Parent, IMajorRecordGetter Child)> Sample = new(StringComparer.Ordinal);
+
+        public void Plugin(ISkyrimModGetter ov)
+        {
+            foreach (var parent in ParentBodies(ov))
+                foreach (var field in OwnedChildContent.Fields(parent).Keys)
+                {
+                    var p = parent.GetType().GetProperty(field, BindingFlags.Public | BindingFlags.Instance);
+                    if (p is null) continue;
+                    object? val;
+                    try { val = p.GetValue(parent); } catch { continue; }
+                    var key = $"{Short(parent.GetType())}.{field}";
+                    foreach (var child in DirectChildren(val, 0))
+                    {
+                        if (!PerProperty.TryGetValue(key, out var set)) PerProperty[key] = set = new HashSet<FormKey>();
+                        set.Add(child.FormKey);
+                        if (!Sample.ContainsKey(key)) Sample[key] = (parent, child);
+                    }
+                }
         }
     }
 
@@ -288,7 +352,7 @@ static class ParentInHandProbe
 
     sealed record PassResult(TimeSpan Wall, double RetainedMb, int Skipped);
 
-    static PassResult Sweep(IReadOnlyList<string> paths, string? dataDir, IPass pass)
+    static PassResult Sweep(IReadOnlyList<string> paths, string? dataDir, IPass pass, string name)
     {
         GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
         var before = GC.GetTotalMemory(true);
@@ -298,9 +362,20 @@ static class ParentInHandProbe
         {
             ISkyrimModGetter ov;
             try { ov = LoadOrderResolver.OpenOverlay(path, dataDir); }
-            catch { skipped++; continue; }
+            catch (Exception ex)
+            {
+                skipped++;
+                Console.WriteLine($"   ! {name}: cannot open {Path.GetFileName(path)} — {ex.Message} (plugin excluded)");
+                continue;
+            }
+            // A pass merges a plugin's work only when the plugin walks to the end, so a throw here excludes that
+            // plugin from the totals rather than half-counting it. The reason is printed, never swallowed.
             try { pass.Plugin(ov); }
-            catch { skipped++; }
+            catch (Exception ex)
+            {
+                skipped++;
+                Console.WriteLine($"   ! {name}: {Path.GetFileName(path)} threw — {ex.Message} (plugin excluded)");
+            }
             finally { (ov as IDisposable)?.Dispose(); }
         }
         sw.Stop();
@@ -315,38 +390,45 @@ static class ParentInHandProbe
     // the caller nothing but the child body, so if the child body does not name its parent, the parent is not
     // available at that moment by any means.
     // ---------------------------------------------------------------------------------------------------------
-    static void ReportParentInHand(FusedPass pass)
+    static void ReportParentInHand(DescribePass pass)
     {
         var props = ChildBearingSurface();
-        foreach (var (key, count) in props.Select(k => (k, pass.PerProperty.GetValueOrDefault(k))).OrderBy(t => t.k))
+        foreach (var (key, count) in props.Select(k => (k, pass.PerProperty.GetValueOrDefault(k)?.Count ?? 0)).OrderBy(t => t.k))
         {
             if (!pass.Sample.TryGetValue(key, out var s))
             {
                 Console.WriteLine($"   {key,-34} no sample in this order (0 children seen) — not measured");
                 continue;
             }
-            var hits = ParentNamingMembers(s.child, s.parent.FormKey).ToList();
-            var verdict = hits.Count > 0 ? "YES — " + string.Join(", ", hits) : "NO";
+            var hits = ParentNamingMembers(s.Child, s.Parent.FormKey, out var unreadable).ToList();
+            // An unreadable body must never masquerade as a clean "NO" — that is the answer being measured.
+            var verdict = hits.Count > 0 ? "YES — " + string.Join(", ", hits)
+                        : unreadable > 0 ? $"NO among the readable members ({unreadable} member(s) would not read)"
+                        : "NO";
             Console.WriteLine($"   {key,-34} {verdict}");
-            Console.WriteLine($"      sample child {s.child.FormKey} ({Short(s.child.GetType())}) under parent {s.parent.FormKey}; {count:N0} children of this kind in the order");
+            Console.WriteLine($"      sample child {s.Child.FormKey} ({Short(s.Child.GetType())}) under parent {s.Parent.FormKey}; {count:N0} distinct children of this kind in the order");
         }
     }
 
-    /// <summary>Every member of the child's own body whose value is, or resolves to, the parent's FormKey.</summary>
-    static IEnumerable<string> ParentNamingMembers(IMajorRecordGetter child, FormKey parent)
+    /// <summary>Every member of the child's own body whose value is, or resolves to, the parent's FormKey, plus a
+    /// count of the members that would not read at all.</summary>
+    static IEnumerable<string> ParentNamingMembers(IMajorRecordGetter child, FormKey parent, out int unreadable)
     {
+        var hits = new List<string>();
+        unreadable = 0;
         foreach (var p in child.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
             if (p.GetIndexParameters().Length > 0) continue;
             object? v;
-            try { v = p.GetValue(child); } catch { continue; }
+            try { v = p.GetValue(child); } catch { unreadable++; continue; }
             switch (v)
             {
-                case IFormLinkGetter fl when fl.FormKey == parent: yield return $"{p.Name} (FormLink)"; break;
-                case IMajorRecordGetter mr when mr.FormKey == parent: yield return $"{p.Name} (record)"; break;
-                case FormKey fk when fk == parent: yield return $"{p.Name} (FormKey)"; break;
+                case IFormLinkGetter fl when fl.FormKey == parent: hits.Add($"{p.Name} (FormLink)"); break;
+                case IMajorRecordGetter mr when mr.FormKey == parent: hits.Add($"{p.Name} (record)"); break;
+                case FormKey fk when fk == parent: hits.Add($"{p.Name} (FormKey)"); break;
             }
         }
+        return hits;
     }
 
     /// <summary>The child-bearing property surface, by construction — every concrete Mutagen record type that has
@@ -396,9 +478,11 @@ static class ParentInHandProbe
             return null;
         }
         var order = Mo2LoadOrder.Build(p.ProfileDir, p.ModsDir, p.DataDir, p.OverwriteDir);
-        dataDir = LoadOrderResolver.ComputeDataDir(
-            order.OrderedPaths.Select((x, i) => (x, i)).ToDictionary(t => Path.GetFileName(t.x), t => t.i, StringComparer.OrdinalIgnoreCase),
-            order.OrderedPaths.ToArray());
+        // Last copy of a duplicate filename wins, the same rule LoadOrderResolver.Build uses; ToDictionary would
+        // throw on an order that resolves two paths to one filename.
+        var nameToIdx = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < order.OrderedPaths.Count; i++) nameToIdx[Path.GetFileName(order.OrderedPaths[i])] = i;
+        dataDir = LoadOrderResolver.ComputeDataDir(nameToIdx, order.OrderedPaths.ToArray());
         label = $"live MO2 instance {instanceDir} (profile {p.ProfileName})";
         return order.OrderedPaths;
     }
