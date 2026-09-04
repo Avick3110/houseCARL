@@ -96,10 +96,11 @@ public static class PapyrusSourceRoots
     /// <summary>True iff <paramref name="dir"/> exists and holds at least one top-level <c>.psc</c>. Enumerates
     /// lazily and returns on the FIRST hit, so the check costs one directory entry on a populated folder rather than
     /// a full listing — this runs once per loose root, and a big modlist has thousands.
-    /// <para>The explicit <c>EndsWith(".psc")</c> re-check covers the Windows 8.3 short-name rule, under which a
-    /// three-character extension pattern can also match longer extensions on a volume with 8.3 name generation
-    /// enabled. It costs one string compare, and the failure it prevents — a non-source folder widening every
-    /// compile's import path — is silent.</para>
+    /// <para>The explicit <c>EndsWith(".psc")</c> re-check is cheap insurance, not a proven necessity: under the
+    /// Windows 8.3 short-name rule a three-character extension pattern can also match longer extensions, but only on
+    /// a volume with 8.3 name generation enabled, and the quirk did not reproduce on this machine. The re-check
+    /// stays because it costs one string compare and the failure it would let through — a non-source folder widening
+    /// every compile's import path — is silent.</para>
     /// Any I/O failure (denied, vanished mid-walk) reads as "no sources" — best-effort by design.</summary>
     public static bool HasSources(string dir)
     {

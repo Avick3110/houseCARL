@@ -93,8 +93,11 @@ public static class WriteVerbs
     ///
     /// <para><b>The tail is load-bearing.</b> <c>BulkOp.verb</c> appends a parenthetical gloss straight onto this
     /// recital, so the gloss describes whichever verb sits LAST here — <c>CopyFrom</c> today, by position alone.
-    /// Appending a ninth verb, or reordering, silently moves the gloss onto a different verb. The other sites are
-    /// position-independent (one appends after a full stop, one reads <c>"op is " + AllRecital + ". "</c>).</para></summary>
+    /// Appending a ninth verb, or reordering, silently moves the gloss onto a different verb. A CI check pins the
+    /// tail token against the verb the gloss describes, and no shipped input schema carries the glossed recital
+    /// today, so a mis-gloss is latent rather than user-visible — do not add a second ad-hoc guard for it. The
+    /// other sites are position-independent (one appends after a full stop, one reads
+    /// <c>"op is " + AllRecital + ". "</c>).</para></summary>
     public const string AllRecital = "Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge | CopyFrom";
 
     /// <summary>The verbs that work on <paramref name="shape"/>, each with the slot it consumes and the phrase a
