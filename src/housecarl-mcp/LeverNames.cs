@@ -9,13 +9,15 @@ namespace HousecarlMcp;
 /// </summary>
 public sealed class LeverNames
 {
-    private LeverNames(string fields, string depth, string winnerFields, string? slimScan, string batchSelection)
+    private LeverNames(string fields, string depth, string winnerFields, string? slimScan, string batchSelection,
+                       bool hasFieldSelector = true)
     {
         Fields = fields;
         Depth = depth;
         WinnerFields = winnerFields;
         SlimScan = slimScan;
         BatchSelection = batchSelection;
+        HasFieldSelector = hasFieldSelector;
     }
 
     /// <summary>How this caller spells the field selector, including the '=' — "fields=" or "project.fields=".</summary>
@@ -49,7 +51,18 @@ public sealed class LeverNames
     /// <summary>This vocabulary as spoken by a call that passed NOTHING to slim rows with. The scan truncation
     /// notice drops its "drop …" clause entirely and keeps the two levers that are real on such a call — a lower
     /// limit= and a higher max_chars.</summary>
-    public LeverNames WithNothingToDrop() => new(Fields, Depth, WinnerFields, null, BatchSelection);
+    public LeverNames WithNothingToDrop() => new(Fields, Depth, WinnerFields, null, BatchSelection, HasFieldSelector);
+
+    /// <summary>False when the FORM being rendered has no field selector at all, so a truncation notice must not
+    /// tell the caller to narrow with one. The vocabulary is a function of (tool, form), not of the tool alone:
+    /// housecarl_records' 'everything' form refuses project.fields= by name, so naming it as a remedy sends the
+    /// caller straight into that refusal. See <see cref="WithoutFieldSelector"/>.</summary>
+    public bool HasFieldSelector { get; }
+
+    /// <summary>This vocabulary as spoken by a form that HAS no field selector. <see cref="Fields"/> keeps its
+    /// spelling for the sites that name the tool's selector statically; the truncation notices consult
+    /// <see cref="HasFieldSelector"/> and drop their "narrow with …" clause instead.</summary>
+    public LeverNames WithoutFieldSelector() => new(Fields, Depth, WinnerFields, SlimScan, BatchSelection, false);
 
     /// <summary>What a batch's truncation notice tells the caller to do to put fewer records in the response.
     /// The one lever whose name depends on the SELECTION LANE rather than on the tool: hand-named rows are
@@ -59,7 +72,7 @@ public sealed class LeverNames
     /// <summary>This vocabulary as spoken on a SCAN-derived body lane: the rows came from a scan, so the lever
     /// that puts fewer of them in the response is limit=, not a formids list the caller never wrote. Every other
     /// lever is unchanged — the selection lane is a third axis, not a different tool.</summary>
-    public LeverNames OnScanSelection() => new(Fields, Depth, WinnerFields, SlimScan, "lower limit=");
+    public LeverNames OnScanSelection() => new(Fields, Depth, WinnerFields, SlimScan, "lower limit=", HasFieldSelector);
 
     /// <summary>The hint appended to a collapsed container cell ("[list: 3 item(s)]"), naming the knob that
     /// expands it. Threaded as ReadEngine's containerHint.</summary>

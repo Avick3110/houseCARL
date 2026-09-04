@@ -194,7 +194,9 @@ static class Wire
                 truncated = true;
                 sb.Append("... [truncated: rendered ").Append(rendered).Append(" of ").Append(outcomes.Count)
                   .Append(" records before hitting max_chars=").Append(cap)
-                  .Append("; ").Append(lv.BatchSelection).Append(", pass ").Append(lv.Fields).Append(" to slim each, or raise max_chars]\n");
+                  .Append("; ").Append(lv.BatchSelection)
+                  .Append(lv.HasFieldSelector ? $", pass {lv.Fields} to slim each," : ",")   // a form with no field selector must not be told to narrow with one
+                  .Append(" or raise max_chars]\n");
                 break;
             }
             sb.Append('\n');
@@ -954,7 +956,8 @@ static class Wire
             {
                 sb.Append("  ... [truncated: showing ").Append(i).Append(" of ").Append(r.Fields.Count)
                   .Append(" field lines at max_chars=").Append(cap)
-                  .Append("; narrow with ").Append(lv.Fields).Append(", lower ").Append(lv.Depth).Append(", or raise max_chars]\n");
+                  .Append(lv.HasFieldSelector ? $"; narrow with {lv.Fields}, lower " : "; lower ")
+                  .Append(lv.Depth).Append(", or raise max_chars]\n");
                 break;
             }
             var f = r.Fields[i];

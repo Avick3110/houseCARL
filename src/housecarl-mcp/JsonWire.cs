@@ -249,7 +249,8 @@ static class JsonWire
             {
                 w.WriteStartObject();
                 w.WriteString("path", "…");   // …
-                w.WriteString("note", $"[truncated at max_chars: {i} of {r.Fields.Count} fields shown; narrow with {lv.Fields}, lower {lv.Depth}, or raise max_chars]");
+                var narrow = lv.HasFieldSelector ? $"narrow with {lv.Fields}, " : "";   // the form may have no field selector to narrow with
+                w.WriteString("note", $"[truncated at max_chars: {i} of {r.Fields.Count} fields shown; {narrow}lower {lv.Depth}, or raise max_chars]");
                 w.WriteEndObject();
                 break;
             }

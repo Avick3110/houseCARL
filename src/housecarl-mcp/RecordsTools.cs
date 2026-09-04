@@ -244,6 +244,9 @@ public static class RecordsTools
         int depth = project?.depth is { } d && d > 0 ? d : 1;
         var projFields = form is "fields" or "delta" or "tree" ? project?.fields : null;
         bool resolveNames = project?.resolve_names ?? false;
+        // The lever vocabulary is a function of (tool, FORM), not of the tool alone: the 'everything' form refuses
+        // project.fields= by name, so a truncation notice there must not offer it as the way to narrow.
+        var formLevers = form == "everything" ? LeverNames.Records.WithoutFieldSelector() : LeverNames.Records;
 
         // ---- SOURCE: the pole grammar (source = the subject; versus = the comparison reference) ----
         // ParsePole has no transport in scope, so its refusals take their shape here.
@@ -582,19 +585,19 @@ public static class RecordsTools
             SpillState? spill2 = null;
             if (wantFile)
             {
-                var (s, aerr) = Artifacts.WriteBatch(outcomes, toFile!, "to_file", Echo(), LeverNames.Records);
+                var (s, aerr) = Artifacts.WriteBatch(outcomes, toFile!, "to_file", Echo(), formLevers);
                 if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch2) : "error: " + aerr;
                 spill2 = SpillState.Spilled(s!, manifestOnly: true);
             }
             string Render2(SpillState? sp, out bool trunc) => form == "summary"
                 ? RenderRecordsSummary(winOutcomes, json, headerLine, envelope, max_chars, sp, out trunc)
-                : json ? JsonWire.RenderBatch(winOutcomes, max_chars, sp, out trunc, envelope, LeverNames.Records)
-                       : headerLine + "\n" + Wire.RenderBatch(winOutcomes, max_chars, sp, out trunc, LeverNames.Records);
+                : json ? JsonWire.RenderBatch(winOutcomes, max_chars, sp, out trunc, envelope, formLevers)
+                       : headerLine + "\n" + Wire.RenderBatch(winOutcomes, max_chars, sp, out trunc, formLevers);
             var rendered2 = Render2(spill2, out var truncated2);
             if (spill2 is null && truncated2)
             {
                 var path = ResultsStore.NextPath(ToolNames.Records, epoch2 ?? "none");
-                var (s, aerr) = Artifacts.WriteBatch(outcomes, path, "ceiling", Echo(), LeverNames.Records);
+                var (s, aerr) = Artifacts.WriteBatch(outcomes, path, "ceiling", Echo(), formLevers);
                 if (aerr is not null) ResultsStore.Release(path);
                 rendered2 = Render2(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
@@ -1217,7 +1220,7 @@ public static class RecordsTools
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
                 // These bodies were selected by a scan, not a formids list, so the batch notice's selection
                 // clause must name limit= — the knob that actually windows this response.
-                var evLevers = LeverNames.Records.OnScanSelection();
+                var evLevers = formLevers.OnScanSelection();
                 string RenderEv(SpillState? sp, out bool trunc) => json
                     ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, evLevers)
                     : headerLine + "\n" + Wire.RenderBatch(bodies, max_chars, sp, out trunc, evLevers);
