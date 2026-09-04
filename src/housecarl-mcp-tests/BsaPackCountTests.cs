@@ -34,8 +34,8 @@ public sealed class BsaPackCountTests : IDisposable
         File.WriteAllText(path, "x");
     }
 
-    static BsaPackResult Packed(int packed, IReadOnlyList<string> rootSkipped) =>
-        new(true, packed, packed, rootSkipped, "", null, null);
+    static BsaPackResult Packed(int? packed, IReadOnlyList<string> rootSkipped) =>
+        new(true, packed, packed ?? 0, rootSkipped, "", null, null);
 
     [Fact]
     public void SubfolderedSourceCountsEveryFileUnderAFolder()
@@ -80,6 +80,15 @@ public sealed class BsaPackCountTests : IDisposable
 
         Assert.Contains("2 file(s) at the source folder's root were NOT archived", report);
         Assert.Contains("subfolder", report);
+    }
+
+    [Fact]
+    public void AnUncountableArchiveFormatReportsNoCount()
+    {
+        var report = BsaTools.PackReport(Packed(null, Array.Empty<string>()), "Test.ba2", @"C:\mods\Test.ba2", "-fo4", compress: false);
+
+        Assert.DoesNotContain("file(s) into", report);
+        Assert.Contains("not counted or checked against the source", report);
     }
 
     [Fact]

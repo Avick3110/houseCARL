@@ -148,7 +148,7 @@ public static class BsaTools
         if (!r.Ran) return Refuse("error: " + r.RunError);
         if (r.CountError is { } mismatch) return Refuse("error: " + mismatch);
         if (!r.Success)
-            return Refuse($"repack FAILED: no .bsa written at '{archive}'. Raw BSArch output:\n" + r.Raw);
+            return Refuse($"repack FAILED: no .bsa written at '{archive}'. Raw BSArch output:\n" + r.Raw + RootSkipNote(r.RootSkipped));
 
         return PackReport(r, name, archive, fmtFlag, compress);
     });
@@ -158,13 +158,21 @@ public static class BsaTools
     internal static string PackReport(HousecarlCore.BsaPackResult r, string name, string archive, string fmtFlag, bool compress)
     {
         var sb = new StringBuilder();
-        sb.Append("packed ").Append(r.Packed).Append(" file(s) into ").Append(name)
+        sb.Append("packed ");
+        if (r.Packed is { } packed) sb.Append(packed).Append(" file(s) into ");
+        sb.Append(name)
           .Append(" (").Append(fmtFlag.TrimStart('-')).Append(compress ? ", compressed" : ", uncompressed").Append(") → ").Append(archive).Append('\n');
         sb.Append("(a new houseCARL mod folder — enable it in MO2 to use the archive.)");
-        if (r.RootSkipped.Count > 0)
-            sb.Append('\n').Append(r.RootSkipped.Count)
-              .Append(" file(s) at the source folder's root were NOT archived — BSArch packs only files under a subfolder, so move them into one and repack if they belong in the archive.");
+        if (r.Packed is null)
+            sb.Append("\nhouseCARL reads file counts from .bsa headers only, so this archive's contents were not counted or checked against the source.");
+        sb.Append(RootSkipNote(r.RootSkipped));
         if (compress) sb.Append("\nNOTE: compressed — any sounds/voices in it will not work in-game (BSArch limitation).");
         return sb.ToString();
     }
+
+    /// <summary>The sentence naming the source-root files BSArch dropped, or empty when there were none.</summary>
+    static string RootSkipNote(IReadOnlyList<string> rootSkipped) =>
+        rootSkipped.Count == 0 ? ""
+            : $"\n{rootSkipped.Count} file(s) at the source folder's root were NOT archived — BSArch packs only files " +
+              "under a subfolder, so move them into one and repack if they belong in the archive.";
 }
