@@ -3,18 +3,12 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// The harvest's lane discriminant, pinned. <see cref="RemedyHarvest.HarvestLane"/> decides how a response is
-/// read; getting that wrong narrows a wrong-lever grid's subject set, which goes green either way.
-/// </summary>
+/// <summary><see cref="RemedyHarvest.HarvestLane"/> reads a response by what it is, not by the lane's name.</summary>
 [Trait("tier", "unit")]
 public sealed class RemedyHarvestTests
 {
-    /// <summary>
-    /// A JSON render is walked as a document whatever its lane is called. <c>dense</c> is the live case — a
-    /// text-sounding name on a <c>JsonWire</c> render — and a discriminant keyed on the name "json" dropped
-    /// every dense sentence that carried no <see cref="RemedyHarvest.RemedyLine"/> keyword.
-    /// </summary>
+    /// <summary>Every lane walks a JSON render as a document, so a sentence carrying no remedy keyword is
+    /// still harvested.</summary>
     [Fact]
     public void EveryLaneReadsAJsonRenderAsADocument_NotOnlyTheLaneNamedJson()
     {
