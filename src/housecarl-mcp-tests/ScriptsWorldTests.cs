@@ -7,8 +7,7 @@ namespace HousecarlMcpTests;
 
 /// <summary>
 /// The Papyrus fixture's own proofs: that <see cref="ScriptsWorld"/> is what it claims to be, so the arms
-/// built on it can assert findings without also proving their fixture. What each arm rests on, and the
-/// ADR 0003 rule-2 overlap that lasts until the probe is deleted:
+/// built on it can assert findings without also proving their fixture. What each arm rests on:
 /// <c>docs/architecture/test-project-fixtures.md</c>.
 /// </summary>
 [Collection("scripts")]

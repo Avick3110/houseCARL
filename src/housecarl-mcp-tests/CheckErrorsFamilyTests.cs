@@ -21,8 +21,8 @@ namespace HousecarlMcpTests;
 /// <para>Every PARTIAL the audit found stays on this list because the covered half belongs to another family
 /// (scripts or dialogue) — each such test says so in its own comment.</para>
 ///
-/// <para><b>Converted-from: CheckErrorsProbe</b> — the marker <c>HarnessResidueTests</c>' one-way-conversion guard
-/// requires. <c>CheckErrorsProbe.cs</c> is deleted in the same commit that lands the last fact below.</para>
+/// <para><b>Converted-from: CheckErrorsProbe</b>. <c>CheckErrorsProbe.cs</c> is deleted in the same commit
+/// that lands the last fact below.</para>
 /// </summary>
 [Trait("tier", "integration")]
 [Collection("check-errors")]

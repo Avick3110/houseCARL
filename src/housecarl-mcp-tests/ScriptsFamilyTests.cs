@@ -22,10 +22,10 @@ namespace HousecarlMcpTests;
 /// committed) rather than composed from memory of the source — the wording a merged accounting produces is not
 /// always what the old single-family probe assumed.</para>
 ///
-/// <para><b>Converted-from: ScriptPropertyCheckProbe</b> — the marker <c>HarnessResidueTests</c>' one-way-conversion
-/// guard requires. <c>ScriptPropertyCheckProbe.cs</c> is deleted in the same commit that lands the last fact
-/// below — the commit that ENDS the ADR-0003 rule-2 overlap <c>docs/architecture/test-project-fixtures.md</c>
-/// declared (the scripts family briefly living in both the probe harness and this one).</para>
+/// <para><b>Converted-from: ScriptPropertyCheckProbe</b>. <c>ScriptPropertyCheckProbe.cs</c> is deleted in
+/// the same commit that lands the last fact below — the commit that ends the overlap
+/// <c>docs/architecture/test-project-fixtures.md</c> describes, where the scripts family lived in both the
+/// probe harness and this one.</para>
 /// </summary>
 [Collection("scripts")]
 [Trait("tier", "integration")]

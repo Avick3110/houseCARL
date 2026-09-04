@@ -112,17 +112,15 @@ off the built server, to prove the fixture is reachable through the live surface
 spins its **own** server process: the shared `ServerFixture` is deliberately unconfigured and every stdio
 test in the run reads "the body ran" off its config prompt, so configuring it would retune all of them.
 
-### ADR 0003 rule 2 — the scripts family was briefly in both harnesses; the overlap is closed
+### The scripts family was briefly in both harnesses; the overlap is closed
 
 For the length of PR 1, `ScriptsWorldTests` drove `ValidateScripts` and `housecarl_check
 findings=["scripts"]` while `ScriptPropertyCheckProbe.cs` still guarded the same family in `ci-all`; one
-probe arm (PEX-ROUNDTRIP) was re-homed here. No family was converted then, so no `Converted-from:` marker
-was owed and the mechanical guard — which is decidable only on that marker — had nothing to check.
+probe arm (PEX-ROUNDTRIP) was re-homed here.
 
-**#486 PR 2 closed it**, in the commit that landed the epoch and scripts family facts and retired two probes:
-`ScriptPropertyCheckProbe.cs` is deleted,
-`ScriptsFamilyTests.cs` carries the `Converted-from: ScriptPropertyCheckProbe` marker, and the file's
-`harness-residue-baseline.json` key is gone. The scripts family now lives in one harness.
+**#486 PR 2 closed it**, in the commit that landed the epoch and scripts family facts and retired two
+probes: `ScriptPropertyCheckProbe.cs` is deleted and `ScriptsFamilyTests.cs` carries the
+`Converted-from: ScriptPropertyCheckProbe` marker. The scripts family now lives in one harness.
 
 ## `HeldOpen` — the file-lock harness
 
