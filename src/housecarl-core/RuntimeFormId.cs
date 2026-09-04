@@ -12,14 +12,20 @@ namespace HousecarlCore;
 /// <see cref="LoadOrderResolver"/>; every tool door goes through <c>IndexView.ParseFormId</c> rather than doing
 /// its own arithmetic.</para>
 /// </summary>
+/// <summary>What the order can say about one record's runtime address: the eight-hex <see cref="FormId"/> the game
+/// prints, or — when there is no unambiguous one — a <see cref="Note"/> saying why. Both null means the order gives
+/// the record no runtime address at all (its plugin is not active in this build), which lanes render as nothing.</summary>
+public readonly record struct RuntimeAddress(string? FormId, string? Note);
+
 public static class RuntimeFormId
 {
-    /// <summary>The high-byte signature of a DYNAMIC runtime FormID (0xFF000000). The game creates these while
-    /// playing and they live only in a save game, so no plugin defines one.</summary>
-    public const uint DynamicPrefix = 0xFF000000;
+    /// <summary>The high-byte signature of a DYNAMIC runtime FormID. The game creates these while playing and they
+    /// live only in a save game, so no plugin defines one. The number lives in <see cref="FormIdRange"/>.</summary>
+    public const uint DynamicPrefix = FormIdRange.DynamicIndexPrefix;
 
-    /// <summary>The high-byte mask that isolates a runtime FormID's index byte.</summary>
-    public const uint IndexByteMask = 0xFF000000;
+    /// <summary>The high-byte mask that isolates a runtime FormID's index byte — from
+    /// <see cref="FormIdRange.IndexByteMask"/>, the one home for the split.</summary>
+    public const uint IndexByteMask = FormIdRange.IndexByteMask;
 
     /// <summary>How many hex digits a runtime FormID has, once an optional <c>0x</c> is stripped.</summary>
     public const int Digits = 8;
@@ -44,17 +50,32 @@ public static class RuntimeFormId
     public static bool IsDynamic(uint value) => (value & IndexByteMask) == DynamicPrefix;
 
     /// <summary>The 12-bit light index of an <see cref="IsLight"/> token — which light plugin it addresses.</summary>
-    public static uint LightIndex(uint value) => (value >> 12) & 0xFFF;
+    public static uint LightIndex(uint value) => (value >> FormIdRange.LightIndexShift) & FormIdRange.LightIndexMask;
 
     /// <summary>The load index of a full-plugin token — which non-light plugin it addresses.</summary>
-    public static uint LoadIndex(uint value) => value >> 24;
+    public static uint LoadIndex(uint value) => value >> FormIdRange.FullIndexShift;
 
     /// <summary>The eight-hex spelling, the way the console and the logs print it.</summary>
     public static string Format(uint value) => value.ToString("X8", CultureInfo.InvariantCulture);
 
-    /// <summary>Build the runtime FormID of a record: its plugin's runtime slot plus the record's local id.</summary>
-    public static uint Compose(bool light, int slot, uint localId)
-        => light
-            ? FormIdRange.LightMasterIndexPrefix | ((uint)slot << 12) | (localId & FormIdRange.LightObjectIdMask)
-            : ((uint)slot << 24) | (localId & FormIdRange.ObjectIdMask);
+    /// <summary>Build the runtime FormID of a record: its plugin's runtime slot plus the record's local id. False
+    /// when a LIGHT plugin's record sits above the ESL window (<see cref="FormIdRange.AboveEslWindow"/>) — the
+    /// plugin was flagged light but never compacted, so masking it into the 12-bit window would print the same
+    /// eight digits as its in-window neighbour and read back to that other record. There is no unambiguous answer,
+    /// so there is no composed value; the caller says why instead (<see cref="OutOfWindowNote"/>).</summary>
+    public static bool TryCompose(bool light, int slot, uint localId, out uint value)
+    {
+        if (light && FormIdRange.AboveEslWindow(localId)) { value = 0; return false; }
+        value = light
+            ? FormIdRange.LightMasterIndexPrefix | ((uint)slot << FormIdRange.LightIndexShift) | (localId & FormIdRange.LightObjectIdMask)
+            : ((uint)slot << FormIdRange.FullIndexShift) | (localId & FormIdRange.ObjectIdMask);
+        return true;
+    }
+
+    /// <summary>The one sentence a lane prints where the runtime FormID would have gone, when
+    /// <see cref="TryCompose"/> refused it.</summary>
+    public static string OutOfWindowNote(string plugin, uint localId) =>
+        $"no runtime FormID: '{plugin}' is flagged light but not compacted, and this record's object ID " +
+        $"0x{localId:X6} is above the ESL window ceiling 0x{FormIdRange.EslWindowCeiling:X3}, so the form the " +
+        "game prints for it names another record too — address it as 'XXXXXX:Plugin.esp'.";
 }

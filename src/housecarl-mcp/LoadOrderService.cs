@@ -2234,7 +2234,7 @@ public sealed class LoadOrderService : IDisposable
         if (resolveNames) record = AnnotateLinks(record, view, session, linkMemo ?? new());   // identity of every FormLink token, display-only, on the same open session
         var touching = conflictTree ? view.TouchingPlugins(fk) : null;
         return new ReadOutcome(fk, record, source, winner.Value.WinnerPlugin, winner.Value.OverrideDepth, touching, null)
-               { OwnedChildFields = childFields, RuntimeFormId = view.RuntimeFormIdOf(fk) };
+               { OwnedChildFields = childFields }.WithRuntime(view.RuntimeAddressOf(fk));
     }
 
     /// <summary>resolve_names (P7): annotate every field whose <see cref="FieldValue.Token"/> is a form reference (a
@@ -2353,7 +2353,8 @@ public sealed class LoadOrderService : IDisposable
             return new RecordSummary(fk, "?", null, w.Value.WinnerPlugin, w.Value.OverrideDepth,
                 $"winner '{w.Value.WinnerPlugin}' did not yield {fk} on fetch");
         return new RecordSummary(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
-                                 w.Value.WinnerPlugin, w.Value.OverrideDepth, null);
+                                 w.Value.WinnerPlugin, w.Value.OverrideDepth, null)
+               .WithRuntime(view.RuntimeAddressOf(fk));
     }
 
     // ---- pinned per-match fills ------------------------------------------------------------------------
@@ -3199,9 +3200,9 @@ public sealed class LoadOrderService : IDisposable
             }
             var record = ReadEngine.ReadFields(bodyToRead!, fields, depth, containerHint);
             if (resolveNames) record = AnnotateLinks(record, view, session, overlayLinkMemo ??= new Dictionary<FormKey, ResolvedRef>());
-            var ok = new ReadOutcome(fk, record, winner.Value.WinnerPlugin, winner.Value.WinnerPlugin,
-                                     winner.Value.OverrideDepth, null, null)
-                     with { Epoch = view.Epoch, Pin = pin, RuntimeFormId = view.RuntimeFormIdOf(fk) };
+            var ok = (new ReadOutcome(fk, record, winner.Value.WinnerPlugin, winner.Value.WinnerPlugin,
+                                      winner.Value.OverrideDepth, null, null)
+                      with { Epoch = view.Epoch, Pin = pin }).WithRuntime(view.RuntimeAddressOf(fk));
             replayMemo[fk] = ok; outcomes.Add(ok);
         }
         return outcomes;
@@ -3851,7 +3852,8 @@ public sealed class LoadOrderService : IDisposable
                             sources.Add(null);                                // the winner body is what matched and displays
                             matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);
                             prefilled?.Add(new RecordSummary(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
-                                                             w.Value.WinnerPlugin, w.Value.OverrideDepth, null));
+                                                             w.Value.WinnerPlugin, w.Value.OverrideDepth, null)
+                                           .WithRuntime(view.RuntimeAddressOf(fk)));
                         }
                     }
                     catch (Exception ex)
@@ -3982,7 +3984,8 @@ public sealed class LoadOrderService : IDisposable
                             // cannot make a row's winner reflect a newer build than the depth beside it. Type and
                             // editorid come from the body that MATCHED.
                             prefilled!.Add(new RecordSummary(fk, RecordNaming.StripOverlay(filterBody.GetType().Name), filterBody.EditorID,
-                                                             view.ResolveWinner(fk)?.WinnerPlugin ?? "?", depth, null));
+                                                             view.ResolveWinner(fk)?.WinnerPlugin ?? "?", depth, null)
+                                           .WithRuntime(view.RuntimeAddressOf(fk)));
                         }
                     }
                     catch (Exception ex)
@@ -4207,7 +4210,8 @@ public sealed class LoadOrderService : IDisposable
                         sources.Add(pole.Plugin);
                         matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);
                         prefilled.Add(new RecordSummary(fk, RecordNaming.StripOverlay(rec.GetType().Name), rec.EditorID,
-                                                        w?.WinnerPlugin ?? "(not in the active order)", w?.OverrideDepth ?? 0, null));
+                                                        w?.WinnerPlugin ?? "(not in the active order)", w?.OverrideDepth ?? 0, null)
+                                      .WithRuntime(view.RuntimeAddressOf(fk)));
                     }
                 }
                 catch (Exception ex)
@@ -8485,6 +8489,15 @@ public sealed record ReadOutcome(
     /// when). Carried per outcome because the light index moves whenever the order does.</summary>
     public string? RuntimeFormId { get; init; }
 
+    /// <summary>Why this record has no runtime FormID, when the order can address the plugin but not the record —
+    /// today, a light-flagged plugin that was never compacted. Rendered where the form would have gone, so the
+    /// answer is never a silently missing field.</summary>
+    public string? RuntimeFormIdNote { get; init; }
+
+    /// <summary>Carry a resolved runtime address onto this outcome — the one place the two halves are set, so a
+    /// lane cannot keep one and drop the other.</summary>
+    public ReadOutcome WithRuntime(RuntimeAddress a) => this with { RuntimeFormId = a.FormId, RuntimeFormIdNote = a.Note };
+
     /// <summary>The resolver and view this outcome was answered from, carried beside <see cref="Epoch"/> so the
     /// render's conflict-tree fill reads the same build the stamp names. Internal render plumbing.</summary>
     internal LoadOrderService.ViewPin? Pin { get; init; }
@@ -8542,7 +8555,18 @@ public sealed record GroupCount(string Key, int Count);
 
 /// <summary>A compact, header-only record summary (no field dump) — the per-match line cross_plugin_query emits
 /// by default. <see cref="Error"/> non-null ⇒ the winner couldn't be summarised (named, recoverable).</summary>
-public sealed record RecordSummary(FormKey FormKey, string Type, string? EditorId, string Winner, int OverrideDepth, string? Error);
+public sealed record RecordSummary(FormKey FormKey, string Type, string? EditorId, string Winner, int OverrideDepth, string? Error)
+{
+    /// <summary>The runtime FormID of this row's record in the build that answered — the same identity the detail
+    /// lanes print, so a scan row a modder takes to the console carries the form the console wants.</summary>
+    public string? RuntimeFormId { get; init; }
+
+    /// <summary>Why the row has no runtime FormID — see <see cref="ReadOutcome.RuntimeFormIdNote"/>.</summary>
+    public string? RuntimeFormIdNote { get; init; }
+
+    /// <summary>Carry a resolved runtime address onto this row; the one place the two halves are set.</summary>
+    public RecordSummary WithRuntime(RuntimeAddress a) => this with { RuntimeFormId = a.FormId, RuntimeFormIdNote = a.Note };
+}
 
 /// <summary>One enumerate/read row from a raw plugin-file read: a record the file DEFINES or OVERRIDES, as its
 /// FormKey + type + EditorID. NOT a load-order winner — the FILE's own record.</summary>
