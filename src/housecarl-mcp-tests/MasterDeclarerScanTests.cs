@@ -133,14 +133,17 @@ public sealed class MasterDeclarerScanTests : IDisposable
         Assert.Contains("record identity and declared masters", rendered);
     }
 
-    /// <summary>A plugin declaring nothing in the transform set is not a dependent of it at all.</summary>
+    /// <summary>A plugin declaring nothing IN THE TRANSFORM SET is not a dependent of it at all — the filter over the
+    /// declared master list, not the empty-header case. The scanned plugin here declares a real master
+    /// (HcDeclTarget.esp) that the transform set does not contain, so a pass that reported every declared master
+    /// would name it and this arm would fail; a plugin declaring nothing at all cannot tell the two apart.</summary>
     [Fact]
-    public void AnUnrelatedPluginIsNotADeclarer()
+    public void APluginDeclaringAMasterOutsideTheTransformSetIsNotADeclarer()
     {
-        using var resolver = LoadOrderResolver.Build(new[] { _targetPath, _declarerPath });
+        using var resolver = LoadOrderResolver.Build(new[] { _targetPath, _declarerPath, _referencerPath });
         var id = RemapEngine.IdentifyExternalReferencers(
             resolver, new HashSet<FormKey> { _weaponKey },
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { _declarerKey.FileName.String },
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { _referencerKey.FileName.String },
             readDeclaredMasters: true);
 
         Assert.Empty(id.MasterDeclarers!);
