@@ -67,16 +67,16 @@ Write-Host ("Building houseCARL v{0}" -f $Version) -ForegroundColor Green
 # Clean the WHOLE package root, not just dist/housecarl: stale package-root extras (codex/,
 # START-HERE.txt, a previous setup exe) would otherwise survive into the zip - a stale nested
 # codex/codex/ subtree did exactly that at the 1.2.2 build.
-Step '0/10' 'Clean dist/ (package root)'
+Step '0/11' 'Clean dist/ (package root)'
 if (Test-Path $PkgRoot) { Remove-Item $PkgRoot -Recurse -Force }
 New-Item -ItemType Directory -Path $DistRoot -Force | Out-Null
 
-# Steps 1-3 build the SERVER half of the tree. -PluginTreeOnly skips them: nothing the plugin
+# Steps 1-4 build the SERVER half of the tree. -PluginTreeOnly skips them: nothing the plugin
 # validator reads comes out of them, and they are the slow part (corpus reflection + two publishes).
 if (-not $PluginTreeOnly) {
 
   # ---- 1. regenerate the rulebook (corpus.json + mutagen-reference shards, in sync by construction)
-  Step '1/10' 'Regenerate corpus.json (generator)'
+  Step '1/11' 'Regenerate corpus.json (generator)'
   # Explicit absolute args make this CWD-independent (Program.cs defaults are relative to CWD).
   dotnet run --project $GenProj -c Release -- $GeneratedDir $RefDir
   if ($LASTEXITCODE -ne 0) { throw "generator failed (exit $LASTEXITCODE)" }
@@ -86,7 +86,7 @@ if (-not $PluginTreeOnly) {
   # ---- 2. publish the server (framework-dependent; trimming OFF) -------------
   # -p:Version stamps the plugin.json version into the exe, which ServerInfo reports over MCP
   # (one version home; an unstamped dev build says 0.0.0-dev).
-  Step '2/10' 'Publish server (Release, win-x64, framework-dependent)'
+  Step '2/11' 'Publish server (Release, win-x64, framework-dependent)'
   dotnet publish $McpProj -c Release -r win-x64 --self-contained false -p:Version=$Version -o $ServerDir
   if ($LASTEXITCODE -ne 0) { throw "publish failed (exit $LASTEXITCODE)" }
   $Exe = Join-Path $ServerDir 'housecarl-mcp.exe'
@@ -95,14 +95,22 @@ if (-not $PluginTreeOnly) {
   # strip dev-only appsettings.json (carries absolute dev paths - must not ship)
   Get-ChildItem $ServerDir -Filter 'appsettings*.json' -ErrorAction SilentlyContinue | Remove-Item -Force
 
-  # ---- 3. corpus beside the exe (the proven #1 requirement) ------------------
+  # ---- 3. generated notices regions from the publish output ------------------
+  # THIRD-PARTY-NOTICES.txt names every third-party component in server/ with its version, and names the
+  # Mutagen release its corresponding-source line points at. Both are written here from the publish just
+  # made, so neither can drift from what ships; the licence texts stay hand-authored. Both tracked copies
+  # (repo root and plugin/) are rewritten from one string, so they stay byte-identical.
+  Step '3/11' 'Write the generated notices regions from the publish output'
+  & (Join-Path $PSScriptRoot 'generate-notices.ps1') -PublishDir $ServerDir -RepoRoot $RepoRoot
+
+  # ---- 4. corpus beside the exe (the proven #1 requirement) ------------------
   # Reads survive without it via a reflection fallback, but writes + type-filtered queries need it.
-  Step '3/10' 'Copy corpus.json beside the exe'
+  Step '4/11' 'Copy corpus.json beside the exe'
   Copy-Item $CorpusSrc (Join-Path $ServerDir 'corpus.json') -Force
 }
 
-# ---- 4. bundle the 13 skills (exclude evals/ + _CORPUS_STATUS.md; KEEP all .jsonl) ----
-Step '4/10' 'Bundle skills'
+# ---- 5. bundle the 13 skills (exclude evals/ + _CORPUS_STATUS.md; KEEP all .jsonl) ----
+Step '5/11' 'Bundle skills'
 New-Item -ItemType Directory -Path $SkillsDir -Force | Out-Null
 foreach ($s in $Skills) {
   $src = Join-Path $RepoRoot ".claude\skills\$s"
@@ -113,8 +121,8 @@ foreach ($s in $Skills) {
 Get-ChildItem $SkillsDir -Directory -Recurse -Filter 'evals' | Remove-Item -Recurse -Force
 Get-ChildItem $SkillsDir -File -Recurse -Filter '_CORPUS_STATUS.md' | Remove-Item -Force
 
-# ---- 5. plugin source files ------------------------------------------------
-Step '5/10' 'Copy plugin files'
+# ---- 6. plugin source files ------------------------------------------------
+Step '6/11' 'Copy plugin files'
 Copy-Item (Join-Path $PluginSrc '.claude-plugin') $DistRoot -Recurse -Force   # -> dist/housecarl/.claude-plugin/plugin.json
 foreach ($f in @('.mcp.json','LICENSE','THIRD-PARTY-NOTICES.txt','README.md','CHANGELOG.md')) {
   Copy-Item (Join-Path $PluginSrc $f) (Join-Path $DistRoot $f) -Force
@@ -128,12 +136,12 @@ if ($PluginTreeOnly) {
   return
 }
 
-# ---- 6. package-root extras (START-HERE note + local marketplace.json) -----
+# ---- 7. package-root extras (START-HERE note + local marketplace.json) -----
 # These live in the PACKAGE ROOT (dist/), beside - not inside - dist/housecarl/, so the leak-check's
-# excluded-file scan (scoped to dist/housecarl) leaves them out, while the dev-path scan (step 8) still
+# excluded-file scan (scoped to dist/housecarl) leaves them out, while the dev-path scan (step 9) still
 # covers them. Source: packaging/ (tracked). START-HERE.txt is version-stamped from plugin.json;
 # marketplace.json is the local CLI-install descriptor (`claude plugin marketplace add <this folder>`).
-Step '6/10' 'Package-root extras (START-HERE.txt + marketplace.json + codex umbrella)'
+Step '7/11' 'Package-root extras (START-HERE.txt + marketplace.json + codex umbrella)'
 $startHere = (Get-Content (Join-Path $PackagingSrc 'START-HERE.txt') -Raw) -replace '\{\{VERSION\}\}', $Version
 if ($startHere -match '\{\{') { throw "START-HERE.txt has an unresolved {{token}} after substitution" }
 [System.IO.File]::WriteAllText((Join-Path $PkgRoot 'START-HERE.txt'), $startHere, (New-Object System.Text.UTF8Encoding($false)))
@@ -147,7 +155,7 @@ Copy-Item (Join-Path $PackagingSrc 'marketplace.json') (Join-Path $MpDir 'market
 $CodexSrc = Join-Path $PluginSrc 'codex'
 if (Test-Path $CodexSrc) { Copy-Item $CodexSrc (Join-Path $PkgRoot 'codex') -Recurse -Force }
 
-# ---- 7. publish the setup utility into dist/ (beside the plugin) -----------
+# ---- 8. publish the setup utility into dist/ (beside the plugin) -----------
 # houseCARL-Setup.exe: the no-CLI desktop installer a user double-clicks. It copies the plugin into
 # ~/.claude/skills/housecarl/ (desktop auto-loads the skills) and registers the MCP server in
 # ~/.claude.json (desktop spawns it per session). It ships in the PACKAGE ROOT (dist\), beside - not
@@ -157,15 +165,15 @@ if (Test-Path $CodexSrc) { Copy-Item $CodexSrc (Join-Path $PkgRoot 'codex') -Rec
 # framework-dependent SERVER needs (.NET Runtime + ASP.NET Core Runtime - separate installers on
 # Windows) and say exactly which is missing. Trimming is safe HERE (setup uses only the
 # System.Text.Json DOM, no reflection serialization) - the server's trimming ban is untouched.
-Step '7/10' 'Publish the setup utility (houseCARL-Setup.exe) into dist/'
+Step '8/11' 'Publish the setup utility (houseCARL-Setup.exe) into dist/'
 dotnet publish $SetupProj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=true -p:EnableCompressionInSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o $PkgRoot
 if ($LASTEXITCODE -ne 0) { throw "setup-utility publish failed (exit $LASTEXITCODE)" }
 $SetupExe = Join-Path $PkgRoot 'houseCARL-Setup.exe'
 if (-not (Test-Path $SetupExe)) { throw "setup utility not produced at $SetupExe" }
 Write-Host ("houseCARL-Setup.exe: {0:N2} MB" -f ((Get-Item $SetupExe).Length / 1MB))
 
-# ---- 8. leak-check ---------------------------------------------------------
-Step '8/10' 'Leak-check assembled tree'
+# ---- 9. leak-check ---------------------------------------------------------
+Step '9/11' 'Leak-check assembled tree'
 $leaks = @()
 $leaks += Get-ChildItem $DistRoot -Recurse -Force -Filter 'appsettings*.json'
 $leaks += Get-ChildItem $DistRoot -Recurse -Force -Filter '_CORPUS_STATUS.md'
@@ -192,11 +200,11 @@ if ($pathLeaks.Count -gt 0) {
 }
 Write-Host "leak-check clean." -ForegroundColor Green
 
-# ---- 9. pack the shippable zip ---------------------------------------------
+# ---- 10. pack the shippable zip ---------------------------------------------
 # One zip, single 'houseCARL/' root (so unzipping never scatters files), built from dist/ via the
 # .NET zip API (Compress-Archive can't set a custom root). Lands in release/ - outside dist/, so it
 # never includes itself. FileMode::Create overwrites a same-version zip in place.
-Step '9/10' 'Pack release zip'
+Step '10/11' 'Pack release zip'
 New-Item -ItemType Directory -Path $ReleaseDir -Force | Out-Null
 $ZipPath = Join-Path $ReleaseDir ("houseCARL-{0}.zip" -f $Version)
 Add-Type -AssemblyName System.IO.Compression
@@ -218,8 +226,8 @@ $zipCheck.Dispose()
 $ZipMB = [math]::Round((Get-Item $ZipPath).Length / 1MB, 2)
 Write-Host ("packed {0} entries -> {1} ({2} MB)" -f $ZipEntryCount, $ZipPath, $ZipMB) -ForegroundColor Green
 
-# ---- 10. summary -----------------------------------------------------------
-Step '10/10' 'Summary'
+# ---- 11. summary -----------------------------------------------------------
+Step '11/11' 'Summary'
 $fileCount  = (Get-ChildItem $DistRoot -Recurse -Force -File).Count
 $totalMB    = (Get-ChildItem $DistRoot -Recurse -Force -File | Measure-Object Length -Sum).Sum / 1MB
 $skillCount = (Get-ChildItem $SkillsDir -Directory).Count

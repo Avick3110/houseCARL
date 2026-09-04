@@ -13,6 +13,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **`THIRD-PARTY-NOTICES.txt` lists what the plugin actually bundles.** The component tables are now written
+  by the build from the publish output, so the names and versions in the file are the ones in `server/`. The
+  file no longer lists five packages that do not ship (`System.Threading.Tasks.Extensions`,
+  `Microsoft.Win32.Registry`, `Microsoft.NETCore.Platforms`, `System.Security.AccessControl`,
+  `System.Security.Principal.Windows`), and the entries are ordered by name. The licence texts and the
+  corresponding-source release and commit stay hand-authored; see the markers in the file for which parts
+  are which.
+
 - **`housecarl_compact_plugin` and `housecarl_merge_plugins` name a plugin they could not read.** The
   external-reference pass that runs before a renumber used to skip a plugin it could not open while still
   counting it as scanned, so a plugin held open by xEdit, MO2 or the running game could make the pass report
