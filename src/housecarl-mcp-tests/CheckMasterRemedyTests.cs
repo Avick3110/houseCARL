@@ -244,16 +244,4 @@ public sealed class CheckMasterRemedyTests : IClassFixture<CheckMasterRemedyFixt
         Assert.DoesNotContain(InstallRemedy, section);
         Assert.DoesNotContain(EnableRemedy, section);
     }
-
-    /// <summary>The one home: <c>read_plugin_file</c>'s advisory and this remedy decide the same master the
-    /// same way, because they call the same splitter. Driven over the same fixture, so a divergence is a
-    /// disagreement about THIS install rather than about two.</summary>
-    [Fact]
-    public void TheReadPluginFileAdvisoryAndTheCheckRemedyAgreeOnWhichMasterIsWhich()
-    {
-        var o = Svc.ReadPluginFile(W.PatchName, null, null, null, null, 1, null, 1000);
-
-        Assert.Equal(new[] { W.AbsentName }, o.MissingMasters);
-        Assert.Equal(new[] { W.GhostName }, o.InactiveMasters);
-    }
 }

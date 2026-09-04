@@ -339,7 +339,7 @@ public static class InPlaceProbe
             // The CREATE lane shares this user mod's acknowledgement (keyed off the resolved path, recorded by the edit
             // above) AND stamps the SAME editedInPlace marker via the SAME helper: a create-in-place here must NOT re-prompt
             // (edit's ack covers it — the cross-lane handshake share, end-to-end) and must keep generated=true absent.
-            var createIP = svc.CreateRecords("Keyword", "HcIP_InstKw", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: UserName, inPlace: true, acknowledge: false);
+            var createIP = svc.CreateOne("Keyword", "HcIP_InstKw", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: UserName, inPlace: true, acknowledge: false);
             bool createShared = createIP.Success && createIP.InPlace && !createIP.NeedsAcknowledge;
             string meta2 = File.Exists(userMeta) ? File.ReadAllText(userMeta) : "";
             bool createNoGenerated = !meta2.Replace(" ", "").Contains("generated=true", StringComparison.OrdinalIgnoreCase) && meta2.Contains("editedInPlace=");
@@ -431,12 +431,12 @@ public static class InPlaceProbe
             using (var r = LoadOrderResolver.Build(new[] { masterPath, userK }))
             {
                 var svc = LoadOrderService.ForGuard(r, new UserConfigStore(Path.Combine(tmpDir, "K.user.json")));
-                var first = svc.CreateRecords("Keyword", "HcIP_KwA", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: UserName, inPlace: true, acknowledge: false);
+                var first = svc.CreateOne("Keyword", "HcIP_KwA", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: UserName, inPlace: true, acknowledge: false);
                 red = first.NeedsAcknowledge && !first.Success;
                 untouched = File.ReadAllBytes(userK).AsSpan().SequenceEqual(before);
-                var ack = svc.CreateRecords("Keyword", "HcIP_KwA", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: UserName, inPlace: true, acknowledge: true);
+                var ack = svc.CreateOne("Keyword", "HcIP_KwA", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: UserName, inPlace: true, acknowledge: true);
                 green = ack.Success && ack.InPlace;
-                var again = svc.CreateRecords("Keyword", "HcIP_KwB", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: UserName, inPlace: true, acknowledge: false);
+                var again = svc.CreateOne("Keyword", "HcIP_KwB", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: UserName, inPlace: true, acknowledge: false);
                 noReprompt = again.Success && !again.NeedsAcknowledge;
             }
             bool pass = red && untouched && green && noReprompt;
@@ -449,9 +449,9 @@ public static class InPlaceProbe
             var userL = FreshUser(tmpDir, "L", userPristine);
             using var r = LoadOrderResolver.Build(new[] { masterPath, userL, highPath });
             var svc = LoadOrderService.ForGuard(r, new UserConfigStore(Path.Combine(tmpDir, "L.user.json")));
-            var noTarget = svc.CreateRecords("Keyword", "HcIP_K", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: null, inPlace: true, acknowledge: true);
-            var withInto = svc.CreateRecords("Keyword", "HcIP_K", Array.Empty<BulkOp>(), null, "somepatch", false, null, null, null, target: UserName, inPlace: true, acknowledge: true);
-            var targetNoFlag = svc.CreateRecords("Keyword", "HcIP_K", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: UserName, inPlace: false, acknowledge: false);
+            var noTarget = svc.CreateOne("Keyword", "HcIP_K", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: null, inPlace: true, acknowledge: true);
+            var withInto = svc.CreateOne("Keyword", "HcIP_K", Array.Empty<BulkOp>(), null, "somepatch", false, null, null, null, target: UserName, inPlace: true, acknowledge: true);
+            var targetNoFlag = svc.CreateOne("Keyword", "HcIP_K", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: UserName, inPlace: false, acknowledge: false);
             bool pass = !noTarget.Success && (noTarget.Error?.Contains("requires target=") ?? false)
                      && !withInto.Success && (withInto.Error?.Contains("mutually exclusive") ?? false)
                      && !targetNoFlag.Success && (targetNoFlag.Error?.Contains("only meaningful with in_place") ?? false);
@@ -811,7 +811,7 @@ public static class InPlaceProbe
             {
                 var svc = LoadOrderService.ForGuard(r, new UserConfigStore(StoreFor("LOCJ")));
                 svc.Stats();
-                var o = svc.CreateRecords("Keyword", "HcIP_LocKw", Array.Empty<BulkOp>(), null, null, false, null, null, null,
+                var o = svc.CreateOne("Keyword", "HcIP_LocKw", Array.Empty<BulkOp>(), null, null, false, null, null, null,
                                           target: LocName, inPlace: true, acknowledge: true);
                 bool spent = new UserConfigStore(StoreFor("LOCJ")).IsInPlaceAcknowledged(locJ);
                 bool clause = o.Error?.Contains(LocalizedTargetUnsupportedException.RemedyDefaultLane, StringComparison.Ordinal) ?? false;
@@ -917,15 +917,15 @@ public static class InPlaceProbe
                 {
                     var svc = LoadOrderService.ForGuard(r, new UserConfigStore(StoreCo("COD")));
                     var ops = new[] { new BulkOp { FieldPath = "Keywords", Verb = "Add", Value = "000ABC:NotInOrder.esp" } };
-                    gateFirst = svc.CreateRecords("Weapon", "HcIP_CoDWeap", ops, null, null, false, null, null, null,
+                    gateFirst = svc.CreateOne("Weapon", "HcIP_CoDWeap", ops, null, null, false, null, null, null,
                                                   target: UserName, inPlace: true, acknowledge: false).NeedsAcknowledge;
-                    var o = svc.CreateRecords("Weapon", "HcIP_CoDWeap", ops, null, null, false, null, null, null,
+                    var o = svc.CreateOne("Weapon", "HcIP_CoDWeap", ops, null, null, false, null, null, null,
                                               target: UserName, inPlace: true, acknowledge: true);
                     // Named for the same reason as CO-C's: this refusal comes from the serialize itself, the furthest
                     // point a call can reach and still leave the file byte-intact.
                     refused = !o.Success && (o.Error?.Contains("in place after create failed") ?? false);
                     spent = new UserConfigStore(StoreCo("COD")).IsInPlaceAcknowledged(userD);
-                    var next = svc.CreateRecords("Keyword", "HcIP_CoDKw", Array.Empty<BulkOp>(), null, null, false, null, null, null,
+                    var next = svc.CreateOne("Keyword", "HcIP_CoDKw", Array.Empty<BulkOp>(), null, null, false, null, null, null,
                                                  target: UserName, inPlace: true, acknowledge: false);
                     reprompts = next.NeedsAcknowledge && !next.Success;
                     untouched = File.ReadAllBytes(userD).AsSpan().SequenceEqual(before);

@@ -47,6 +47,18 @@ public sealed class RecordsPluginFileSourceTests : RecordsTestBase
         Assert.Equal("55", field.GetProperty("value").GetString());
     }
 
+    /// <summary>The FILENAME lane's not-active cause. A plugin addressed by NAME out of a switched-off mod names
+    /// the mod folder's state and its remedy, and says each once — the twin of <c>RecordsOffOrderPathTests.FactB4</c>,
+    /// whose path lane has no mod folder in its label to lean on.</summary>
+    [Fact]
+    public void APluginNamedOutOfASwitchedOffModSaysThatModFolderIsOff()
+    {
+        var r = OffOrderFields();
+        Served(r, "OUT-OF-LOAD-ORDER", "NOT active — that mod folder is switched OFF in MO2 — switch it on, then re-sort");
+        var subject = Assert.Single(r.Split('\n'), l => l.Contains("OUT-OF-LOAD-ORDER", StringComparison.Ordinal));
+        Assert.Equal(1, CountOf(subject, "switch it on"));
+    }
+
     [Fact]
     public void AnOffOrderFileReadInJsonStampsTheOffOrderArmOnItsSourceEnvelope()
     {

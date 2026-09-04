@@ -285,7 +285,7 @@ internal static class DialogueCkParityGuardProbe
 
             // ---- DLVW-AUTOFILL: create a bare DialogView → written DNAM=00, ENAM=00000000, both reported. ----
             {
-                var o = svc.CreateRecords("DialogView", "HcCkpView", Array.Empty<BulkOp>(), "HcCkpView", null);
+                var o = svc.CreateOne("DialogView", "HcCkpView", Array.Empty<BulkOp>(), "HcCkpView", null);
                 var (dnam, enam) = o.Success ? ReadView(o.OutputPath, o.Created[0].FormKey) : (null, null);
                 bool dnamReported = o.Success && o.Created[0].Ops.Any(op => op.Label.Contains("DNAM", StringComparison.OrdinalIgnoreCase));
                 bool enamReported = o.Success && o.Created[0].Ops.Any(op => op.Label.Contains("ENAM", StringComparison.OrdinalIgnoreCase));
@@ -296,7 +296,7 @@ internal static class DialogueCkParityGuardProbe
             // ---- DLVW-DNAM-WINS: an explicit DNAM=FF is not overridden to 00 (ENAM still auto-fills to 00000000). ----
             {
                 var ops = new[] { new BulkOp { FieldPath = "DNAM", Verb = "Set", Value = "FF" } };
-                var o = svc.CreateRecords("DialogView", "HcCkpViewDnam", ops, "HcCkpViewDnam", null);
+                var o = svc.CreateOne("DialogView", "HcCkpViewDnam", ops, "HcCkpViewDnam", null);
                 var (dnam, enam) = o.Success ? ReadView(o.OutputPath, o.Created[0].FormKey) : (null, null);
                 Check(o.Success && dnam == "FF" && enam == "00000000",
                     $"DLVW-DNAM-WINS explicit DNAM=FF kept (not overridden to 00), ENAM still filled — {(o.Success ? $"dnam={dnam} enam={enam}" : "err=[" + o.Error + "]")}");
@@ -321,7 +321,7 @@ internal static class DialogueCkParityGuardProbe
 
             // ---- DLBR-TNAM-AUTOFILL: create a bare DialogBranch → written Category=Player (TNAM), REPORTED. ----
             {
-                var o = svc.CreateRecords("DialogBranch", "HcCkpBr", Array.Empty<BulkOp>(), "HcCkpBr", null);
+                var o = svc.CreateOne("DialogBranch", "HcCkpBr", Array.Empty<BulkOp>(), "HcCkpBr", null);
                 var (cat, _) = o.Success ? ReadBranch(o.OutputPath, o.Created[0].FormKey) : (null, null);
                 bool reported = o.Success && o.Created[0].Ops.Any(op => op.Label.Contains("Category (TNAM", StringComparison.OrdinalIgnoreCase));
                 Check(o.Success && cat == DialogBranch.CategoryType.Player && reported,
@@ -331,7 +331,7 @@ internal static class DialogueCkParityGuardProbe
             // ---- DLBR-TNAM-WINS: an explicit Category=Command is NOT overridden to Player. ----
             {
                 var ops = new[] { new BulkOp { FieldPath = "Category", Verb = "Set", Value = "Command" } };
-                var o = svc.CreateRecords("DialogBranch", "HcCkpBrCmd", ops, "HcCkpBrCmd", null);
+                var o = svc.CreateOne("DialogBranch", "HcCkpBrCmd", ops, "HcCkpBrCmd", null);
                 var (cat, _) = o.Success ? ReadBranch(o.OutputPath, o.Created[0].FormKey) : (null, null);
                 Check(o.Success && cat == DialogBranch.CategoryType.Command,
                     $"DLBR-TNAM-WINS explicit Category=Command kept (not overridden to Player) — {(o.Success ? $"category={cat}" : "err=[" + o.Error + "]")}");
@@ -345,7 +345,7 @@ internal static class DialogueCkParityGuardProbe
             //      from the bug (absent → engine reads TopLevel → the branch is published to the player's dialogue
             //      menu, which is the whole defect). Assert the round-tripped Flags is NON-NULL *and* zero. ----
             {
-                var o = svc.CreateRecords("DialogBranch", "HcCkpBrFl", Array.Empty<BulkOp>(), "HcCkpBrFl", null);
+                var o = svc.CreateOne("DialogBranch", "HcCkpBrFl", Array.Empty<BulkOp>(), "HcCkpBrFl", null);
                 var (_, flags) = o.Success ? ReadBranch(o.OutputPath, o.Created[0].FormKey) : (null, null);
                 bool reported = o.Success && o.Created[0].Ops.Any(op => op.Label.Contains("Flags (DNAM", StringComparison.OrdinalIgnoreCase));
                 Check(o.Success && flags is not null && flags == default(DialogBranch.Flag) && reported,
@@ -357,7 +357,7 @@ internal static class DialogueCkParityGuardProbe
             //      would hide dialogue that is supposed to show (the #212 defect inverted). Category still auto-fills. ----
             {
                 var ops = new[] { new BulkOp { FieldPath = "Flags", Verb = "Set", Value = "TopLevel" } };
-                var o = svc.CreateRecords("DialogBranch", "HcCkpBrTop", ops, "HcCkpBrTop", null);
+                var o = svc.CreateOne("DialogBranch", "HcCkpBrTop", ops, "HcCkpBrTop", null);
                 var (cat, flags) = o.Success ? ReadBranch(o.OutputPath, o.Created[0].FormKey) : (null, null);
                 Check(o.Success && flags == DialogBranch.Flag.TopLevel && cat == DialogBranch.CategoryType.Player,
                     $"DLBR-DNAM-WINS explicit Flags=TopLevel kept (not overridden to 0), Category still filled — {(o.Success ? $"flags={flags} category={cat}" : "err=[" + o.Error + "]")}");
@@ -366,7 +366,7 @@ internal static class DialogueCkParityGuardProbe
             // ---- DIAL-PNAM-AUTOFILL: create a Custom topic with no Priority → written Priority=50 (PNAM), REPORTED. ----
             {
                 var ops = new[] { new BulkOp { FieldPath = "Subtype", Verb = "Set", Value = "Custom" } };
-                var o = svc.CreateRecords("DialogTopic", "HcCkpPnam", ops, "HcCkpPnam", null);
+                var o = svc.CreateOne("DialogTopic", "HcCkpPnam", ops, "HcCkpPnam", null);
                 var prio = o.Success ? ReadTopicPriority(o.OutputPath, o.Created[0].FormKey) : (float?)null;
                 bool reported = o.Success && o.Created[0].Ops.Any(op => op.Label.Contains("Priority (PNAM", StringComparison.OrdinalIgnoreCase));
                 Check(o.Success && prio == 50f && reported,
@@ -381,7 +381,7 @@ internal static class DialogueCkParityGuardProbe
                     new BulkOp { FieldPath = "Subtype", Verb = "Set", Value = "Custom" },
                     new BulkOp { FieldPath = "Priority", Verb = "Set", Value = "10" },
                 };
-                var o10 = svc.CreateRecords("DialogTopic", "HcCkpPnam10", ops10, "HcCkpPnam10", null);
+                var o10 = svc.CreateOne("DialogTopic", "HcCkpPnam10", ops10, "HcCkpPnam10", null);
                 var prio10 = o10.Success ? ReadTopicPriority(o10.OutputPath, o10.Created[0].FormKey) : (float?)null;
 
                 var ops0 = new[]
@@ -389,7 +389,7 @@ internal static class DialogueCkParityGuardProbe
                     new BulkOp { FieldPath = "Subtype", Verb = "Set", Value = "Custom" },
                     new BulkOp { FieldPath = "Priority", Verb = "Set", Value = "0" },
                 };
-                var o0 = svc.CreateRecords("DialogTopic", "HcCkpPnam0", ops0, "HcCkpPnam0", null);
+                var o0 = svc.CreateOne("DialogTopic", "HcCkpPnam0", ops0, "HcCkpPnam0", null);
                 var prio0 = o0.Success ? ReadTopicPriority(o0.OutputPath, o0.Created[0].FormKey) : (float?)null;
                 bool zeroNotReported = o0.Success && !o0.Created[0].Ops.Any(op => op.Label.Contains("Priority (PNAM", StringComparison.OrdinalIgnoreCase));
                 Check(o10.Success && prio10 == 10f && o0.Success && prio0 == 0f && zeroNotReported,
@@ -398,7 +398,7 @@ internal static class DialogueCkParityGuardProbe
 
             // ---- QUST-ANAM-EMPTY: create an alias-less Quest → written NextAliasID=0 (ANAM), REPORTED. ----
             {
-                var o = svc.CreateRecords("Quest", "HcCkpQ", Array.Empty<BulkOp>(), "HcCkpQ", null);
+                var o = svc.CreateOne("Quest", "HcCkpQ", Array.Empty<BulkOp>(), "HcCkpQ", null);
                 var (nextId, _) = o.Success ? ReadQuest(o.OutputPath, o.Created[0].FormKey) : (null, 0);
                 bool reported = o.Success && o.Created[0].Ops.Any(op => op.Label.Contains("NextAliasID (ANAM", StringComparison.OrdinalIgnoreCase));
                 Check(o.Success && nextId == 0u && reported,

@@ -95,19 +95,13 @@ public sealed class CheckMasterTickedButAbsentFixture : IDisposable
 }
 
 /// <summary>
-/// A declared master that is ticked in <c>plugins.txt</c> but has no on-disk copy is reported — by BOTH
-/// surfaces that classify declared masters — and it is reported as NOT INSTALLED.
+/// A declared master that is ticked in <c>plugins.txt</c> but has no on-disk copy is reported, and it is
+/// reported as NOT INSTALLED.
 ///
 /// <para>Whether a master will load is two facts, not one: the profile has to list it as active AND the
 /// install has to provide a file. A stale tick asserts the first with the second false, so a filter testing
 /// only the active half drops the name before anything looks for the file and the plugin's refs into it
 /// dangle with nothing said.</para>
-///
-/// <para><b>Two surfaces, one fixture.</b> <see cref="LoadOrderService.ReadPluginFile"/> decides
-/// unsatisfied-ness from the COMPOSITION it just parsed; <c>housecarl_check</c>'s errors family decides it
-/// from the BUILT active order, which drops a listed name the install does not provide. Different derivations
-/// of the same question, so both run over one install and a divergence is a disagreement about this instance
-/// rather than about two.</para>
 ///
 /// <para>Driven through <see cref="CheckTools.CheckTool"/> because it is the method the MCP server publishes
 /// and binds arguments into; the stdio <c>ServerFixture</c> runs an unconfigured server that answers before
@@ -127,37 +121,9 @@ public sealed class CheckMasterTickedButAbsentTests : IClassFixture<CheckMasterT
     static string? LineWith(string response, string prefix) =>
         response.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.StartsWith(prefix, StringComparison.Ordinal));
 
-    /// <summary>The ENGINE half. <c>ReadPluginFile</c>'s advisory splits declared masters into the two
-    /// shortfalls; a ticked-but-absent one belongs in the INSTALL list. The union is asserted first so a name
-    /// dropped from both is distinguishable from a name filed under the wrong remedy.</summary>
-    [Fact]
-    public void ReadPluginFileNamesATickedButAbsentMasterAsMissing_NotInNeitherList()
-    {
-        var o = Svc.ReadPluginFile(W.PatchName, null, null, null, null, 1, null, 1000);
-
-        Assert.Null(o.Error);
-        Assert.Contains(W.AbsentName, o.Masters);
-        // The union first: the failure this guards against is a name reported in neither list.
-        Assert.Contains(W.AbsentName, o.MissingMasters.Concat(o.InactiveMasters));
-        // And it is the INSTALL case — no copy exists anywhere, so "enable it" would be a remedy that cannot work.
-        Assert.Equal(new[] { W.AbsentName }, o.MissingMasters);
-        Assert.Empty(o.InactiveMasters);
-    }
-
-    /// <summary>The satisfied master stays out of both lists — without this the test above would pass over an
-    /// advisory that listed every declared master as unsatisfied.</summary>
-    [Fact]
-    public void ReadPluginFileLeavesTheForceLoadedMasterOutOfBothShortfalls()
-    {
-        var o = Svc.ReadPluginFile(W.PatchName, null, null, null, null, 1, null, 1000);
-
-        Assert.DoesNotContain("Skyrim.esm", o.MissingMasters);
-        Assert.DoesNotContain("Skyrim.esm", o.InactiveMasters);
-    }
-
-    /// <summary>The LIVE half, over the same install: <c>housecarl_check</c>'s missing-master remedy names the
-    /// ticked-but-absent master on the INSTALL line. Its derivation differs — the built active order drops a
-    /// listed name nothing provides, so the name arrives at the splitter already unsatisfied.</summary>
+    /// <summary><c>housecarl_check</c>'s missing-master remedy names the ticked-but-absent master on the INSTALL
+    /// line: the built active order drops a listed name nothing provides, so the name arrives at the splitter
+    /// already unsatisfied, and no copy exists anywhere, so "enable it" would be a remedy that cannot work.</summary>
     [Fact]
     public void TheCheckRemedyNamesTheTickedButAbsentMasterOnTheInstallLine()
     {
@@ -167,6 +133,9 @@ public sealed class CheckMasterTickedButAbsentTests : IClassFixture<CheckMasterT
         Assert.NotNull(install);
         Assert.Contains(W.AbsentName, install);
         Assert.Contains("[install them", install);
+        // The satisfied master stays out — without this the assertion above would pass over a remedy that named
+        // every declared master as unsatisfied.
+        Assert.DoesNotContain("Skyrim.esm", install);
         // Nothing in this install is merely disabled, so the enable line must not be printed at all.
         Assert.Null(LineWith(text, EnableRemedy));
     }
