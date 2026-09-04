@@ -1,45 +1,33 @@
 namespace HousecarlMcp;
 
-/// <summary>
-/// The runtime bridge between houseCARL's external-tool RIDERS (compile, BSA, log access) and the user-supplied paths they
-/// need. Singleton. Sits on <see cref="UserConfigStore"/> (the saved paths, shared with the MO2-instance setting) and
-/// <see cref="ToolBridge"/> (the catalog, validation, auto-detect, and the trained missing-dependency prompt).
-///
-/// Resolution order for a dependency (<see cref="Resolve"/>): (1) a path the user SAVED via housecarl_set_tool_path wins;
-/// (2) else AUTO-DETECT a canonical home and, on a hit, persist it silently so we probe once; (3) else null — the caller
-/// fires the forcing function (<see cref="RequireOrPrompt"/>), which returns the trained prompt so the AI reliably asks the
-/// user and is handed the exact resolving call. This is Q3 pointed at external deps: a RETURNED string reaches the client,
-/// where a throw would be genericized away — the same lesson the MO2 not-configured prompt proved (2026-06-02).
-///
-/// Step 1 builds + proves this bridge; the riders (compile, BSA) call <see cref="RequireOrPrompt"/> as they land.
-/// </summary>
+/// <summary>Resolves the user-supplied paths to external tools (compile, BSA, log access). Sits on
+/// <see cref="UserConfigStore"/> for the saved paths and <see cref="ToolBridge"/> for the catalog, validation,
+/// auto-detect and the missing-dependency prompt. Resolution order: a saved path wins, else auto-detect a canonical
+/// home and persist the hit so we probe once, else null and the caller returns the prompt string rather than
+/// throwing — a returned string reaches the client, a throw is genericized away.</summary>
 public sealed class ToolPathResolver
 {
     readonly UserConfigStore _store;
 
     public ToolPathResolver(UserConfigStore store) => _store = store;
 
-    /// <summary>The path the user SAVED for a dependency, or null if unset. Pure read (no probe, no persist) — for a status
-    /// surface or a "what's configured" question.</summary>
+    /// <summary>The path the user saved for a dependency, or null if unset. Pure read: no probe, no persist.</summary>
     public string? Saved(ToolDependency dep)
     {
         var paths = _store.Load().ToolPaths;
         return paths is not null && paths.TryGetValue(ToolBridge.Info(dep).Key, out var p) ? p : null;
     }
 
-    /// <summary>For a status / diagnostic surface (housecarl_load_order_status' log-folder section): where a dependency
-    /// resolves right now — saved-and-valid → auto-detected canonical home → unset — WITHOUT persisting (unlike
-    /// <see cref="Resolve"/>), so a ReadOnly status read never writes config. Thin wrapper over the pure
-    /// <see cref="ToolBridge.Inspect"/>, supplying the user's saved path. The optional <paramref name="gameDirHints"/>
-    /// feed the compiler's game-dir-anchored auto-detect (the status log deps that call this pass none).</summary>
+    /// <summary>Where a dependency resolves right now — saved-and-valid, else auto-detected home, else unset —
+    /// without persisting, unlike <see cref="Resolve"/>, so a read-only status surface never writes config.
+    /// <paramref name="gameDirHints"/> anchor the compiler's auto-detect.</summary>
     public (string? path, ToolPathSource source) Inspect(ToolDependency dep, IReadOnlyList<string>? gameDirHints = null)
         => ToolBridge.Inspect(dep, Saved(dep), gameDirHints);
 
-    /// <summary>Resolve a dependency to a usable path: saved → else auto-detect (persist on hit) → else null. A saved path
-    /// that no longer validates (tool moved/uninstalled) is treated as unset, so it re-detects or re-prompts rather than
-    /// failing opaquely downstream. The optional <paramref name="gameDirHints"/> (the active load order's game dir, then the
-    /// located real Steam install) anchor the compiler's auto-detect; persisting the hit is what makes "detect once, reuse
-    /// across instances" work (6.2/7.1) — the saved path is checked FIRST on every later call, regardless of active instance.</summary>
+    /// <summary>Resolve a dependency to a usable path: saved, else auto-detect and persist the hit, else null. A saved
+    /// path that no longer validates (tool moved or uninstalled) is treated as unset so it re-detects or re-prompts
+    /// rather than failing opaquely downstream. The saved path is checked first on every later call regardless of the
+    /// active instance, which is what makes a detected path reusable across instances.</summary>
     public string? Resolve(ToolDependency dep, IReadOnlyList<string>? gameDirHints = null)
     {
         var saved = Saved(dep);
@@ -48,20 +36,18 @@ public sealed class ToolPathResolver
         var found = ToolBridge.Probe(dep, gameDirHints);
         if (found is not null)
         {
-            // Persist the auto-detected home so we only probe once. This silent persist is the ONE path where a
-            // corrupt-config recovery would otherwise vanish for good (the file is rewritten clean, so no later
-            // Update re-reports it) — route the note to stderr, the same channel as the boot log (PR #51 review).
+            // Persist the auto-detected home so we only probe once. A corrupt-config recovery noticed here is
+            // reported nowhere else — the file is rewritten clean, so no later Update repeats it — hence stderr.
             var r = Save(dep, found);
             if (r.persistNote is not null) Console.Error.WriteLine("houseCARL user config recovered: " + r.persistNote);
         }
         return found;
     }
 
-    /// <summary>Validate + SAVE a user-supplied path for a dependency (the housecarl_set_tool_path body). The path is
-    /// trimmed of surrounding quotes and made absolute. On a validation failure NOTHING is saved (Q3) and the reason is
-    /// returned; on success it's written to the shared user.json (coexisting with the MO2 instance setting).
-    /// <c>persistNote</c> carries a corrupt-file recovery (hunt F3 — the prior file was backed up; other saved settings
-    /// were lost), rendered even on success.</summary>
+    /// <summary>Validate and save a user-supplied path for a dependency. The path is trimmed of surrounding quotes and
+    /// made absolute. On a validation failure nothing is saved and the reason is returned; on success it is written to
+    /// the shared user.json alongside the MO2 instance setting. <c>persistNote</c> carries a corrupt-file recovery (the
+    /// prior file was backed up and other saved settings were lost) and is rendered even on success.</summary>
     public (bool ok, string? error, bool persisted, string? persistError, string? persistNote, string resolved) Save(ToolDependency dep, string rawPath)
     {
         var path = (rawPath ?? "").Trim().Trim('"');
@@ -76,11 +62,9 @@ public sealed class ToolPathResolver
         return (true, null, persisted, persistError, persistNote, path);
     }
 
-    /// <summary>The forcing function a rider calls: out <paramref name="path"/> is the resolved path when available and the
-    /// return is null (proceed); otherwise the return is the trained prompt string for the rider to RETURN to the client
-    /// (so the AI surfaces the ask + the resolving call) and path is null. Exactly one of the two is non-null. The optional
-    /// <paramref name="gameDirHints"/> (trailing, so the BSArch riders that don't have any keep calling with two args) feed
-    /// the compiler's game-dir-anchored auto-detect AND the prompt's "looked here" note when every candidate missed.</summary>
+    /// <summary>Exactly one of the two outputs is non-null: <paramref name="path"/> is the resolved path and the return
+    /// is null (proceed), or the return is the prompt string for the caller to return to the client and path is null.
+    /// <paramref name="gameDirHints"/> feed the compiler's auto-detect and the prompt's "looked here" note.</summary>
     public string? RequireOrPrompt(ToolDependency dep, out string? path, IReadOnlyList<string>? gameDirHints = null)
     {
         path = Resolve(dep, gameDirHints);

@@ -6,16 +6,11 @@ using Mutagen.Bethesda.Pex;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// houseCARL decompile rider — housecarl_decompile_script. Reconstructs Papyrus source (.psc) from a compiled
-/// .pex over Mutagen's PexFile model via <see cref="HousecarlCore.PapyrusDecompiler"/> (gate-proven: 100.0%
-/// structuring, 98.80% exact recompile round-trips across 10,189 provable pairs — dev/review bulk-gate doc,
-/// 2026-06-12). Needs NO external tool: Mutagen reads the pex natively. The .psc lands in a reviewable
-/// houseCARL patch-mod folder (originals untouched), under the SE-canonical Source\Scripts layout so
-/// decompile → edit → housecarl_compile_script composes naturally. Q3 discipline end to end: a function the
-/// engine can't prove fails LOUD inside the file (named reason + raw bytecode) and in the result; an
-/// unreadable pex names the file; an existing target is REFUSED, never overwritten.
-/// </summary>
+/// <summary>Reconstructs Papyrus source (.psc) from a compiled .pex over Mutagen's PexFile model via
+/// <see cref="HousecarlCore.PapyrusDecompiler"/>; no external tool is needed. The .psc lands in a houseCARL patch-mod
+/// folder under the SE-canonical Source\Scripts layout, so decompile, edit and recompile compose. A function the
+/// engine cannot prove is emitted as a loud failure comment with its raw bytecode; an existing target is refused,
+/// never overwritten.</summary>
 [McpServerToolType]
 public static class DecompileTools
 {
@@ -57,7 +52,7 @@ public static class DecompileTools
             return $"error: '{Path.GetFileName(pex)}' is not a .pex compiled script.";
         pex = Path.GetFullPath(pex);
 
-        // 3) read the pex via Mutagen. Unreadable = the known Mutagen-delta class — fail loud naming the file.
+        // 3) read the pex via Mutagen. An unreadable one fails loud naming the file.
         PexFile pexFile;
         try { pexFile = PexFile.CreateFromFile(pex, GameCategory.Skyrim); }
         catch (Exception ex)
@@ -68,9 +63,8 @@ public static class DecompileTools
         if (pexFile.Objects.Count == 0)
             return $"error: '{Path.GetFileName(pex)}' contains no script objects — no output was written.";
 
-        // 4) output folder (folder-per-patch, Source\Scripts subdir) — resolved BEFORE the hierarchy build so a
-        //    folder-resolution error costs nothing, and the instance paths are derived before the cached walk
-        //    (defense in depth for hunt F1; the service also self-derives now).
+        // 4) output folder (folder-per-patch, Source\Scripts subdir) — resolved before the hierarchy build so a
+        //    folder-resolution error costs nothing and the instance paths are derived before the cached walk.
         LoadOrderService.RiderFolder rf;
         try { rf = svc.ResolveDecompiledSourceFolder(patch_name, into); }
         catch (InvalidOperationException ex) { return "error: " + ex.Message; }
@@ -85,8 +79,8 @@ public static class DecompileTools
         try { HousecarlCore.PapyrusClassParents.AddFromPexFolder(edges, Path.GetDirectoryName(pex)!); }
         catch { /* fewer edges, never fatal */ }
 
-        // A refused decompile leaves no orphan: a genuinely-empty fresh folder is deleted, one holding partial .psc
-        // output is kept and named, an into= reuse is left alone (hunt H2, Aaron's delete-if-empty).
+        // A refused decompile leaves no orphan: an empty fresh folder is deleted, one holding partial .psc output is
+        // kept and named, and an into= reuse is left alone.
         string Refuse(string msg)
         {
             var left = svc.RemoveOrNameRiderResidue(rf);
@@ -94,7 +88,7 @@ public static class DecompileTools
                 : msg + $" The freshly created mod folder at '{left}' still holds partial output — delete it or retry with into=.";
         }
 
-        // 6) decompile + write (the guard-probed seam).
+        // 6) decompile + write.
         var o = WriteObjects(pexFile, edges, rf.OutputDir);
         if (o.UnnamedObject)
             return Refuse($"error: '{Path.GetFileName(pex)}' carries an unnamed script object. " +
@@ -104,7 +98,7 @@ public static class DecompileTools
                    "Move/delete it, or pass a different patch_name= (or into= another patch folder). " +
                    (o.Written.Count > 0 ? $"Already written this call: {string.Join(", ", o.Written)}." : "Nothing was written."));
 
-        // 7) render — Q3: totals, failures, and every degraded mode named.
+        // 7) render: totals, failures, and every degraded mode named.
         var outSb = new StringBuilder();
         outSb.Append("decompile ").Append(o.FunctionsFailed == 0 ? "OK" : "PARTIAL").Append(": ")
              .Append(Path.GetFileName(pex)).Append(" → ").Append(string.Join(", ", o.Written)).Append('\n');
@@ -124,16 +118,14 @@ public static class DecompileTools
         return outSb.ToString();
     });
 
-    /// <summary>The decompile-and-write outcome — the seam the decompile-guard probe drives directly.</summary>
+    /// <summary>The decompile-and-write outcome.</summary>
     public sealed record DecompileOutcome(
         List<string> Written, string? ExistingTarget, bool UnnamedObject,
         int FunctionsTotal, int FunctionsFailed, int OptimizerHints, List<string> Failures);
 
     /// <summary>Decompile every object in <paramref name="pexFile"/> and write one .psc per object into
-    /// <paramref name="outDir"/>, filename = the OBJECT's name (the compiler's filename==ScriptName rule).
-    /// NEVER overwrites: an existing target stops the call with that path reported and the file untouched.
-    /// Optimizer-compiled inputs get a loud header note in the .psc itself. Exposed as the decompile-guard
-    /// probe's seam (the BuildImports pattern).</summary>
+    /// <paramref name="outDir"/>, named for the object, because the compiler requires filename == ScriptName. Never
+    /// overwrites: an existing target stops the call with that path reported and the file untouched.</summary>
     public static DecompileOutcome WriteObjects(
         PexFile pexFile, IReadOnlyDictionary<string, string>? edges, string outDir)
     {
@@ -160,13 +152,10 @@ public static class DecompileTools
                   "; compiler will not reproduce the original .pex byte-for-byte (the optimizer's output is not its form).\n"
                   + r.Source
                 : r.Source;
-            // CreateNew = atomic create-or-fail: "never overwrites" holds even against a file that
-            // appeared between the cheap check above and this write. The collision catch wraps the
-            // CONSTRUCTOR ONLY: once the create succeeded the file exists BECAUSE WE MADE IT, so a
-            // write-phase IOException (disk full, device error) caught here would mis-report as
-            // "already exists" over our own partial file — it must propagate with its true name
-            // (PR #47 review #2). A CreateNew-constructor IOException with the file present is a
-            // collision by API contract.
+            // CreateNew is atomic create-or-fail, so "never overwrites" holds even against a file that appeared
+            // between the cheap check above and this write. The catch wraps the CONSTRUCTOR ONLY: once the create
+            // succeeded the file exists because we made it, so a write-phase IOException (disk full, device error)
+            // caught here would mis-report as "already exists" over our own partial file and must propagate instead.
             FileStream fs;
             try { fs = new FileStream(target, FileMode.CreateNew, FileAccess.Write); }
             catch (IOException) when (File.Exists(target))
@@ -181,11 +170,10 @@ public static class DecompileTools
         return new(written, null, false, totalFns, failedFns, optimizerHints, failures);
     }
 
-    /// <summary>A PexFile view carrying ONE object, so multi-object pex files emit one .psc per object while
-    /// reusing <see cref="HousecarlCore.PapyrusDecompiler.DecompileFile"/> unchanged. Single-object files (the
-    /// Skyrim norm) pass through as-is. The USER-FLAG TABLE must ride along: it maps bit→name per FILE, and
-    /// the engine resolves every Hidden/Conditional through it — a fresh PexFile's table is empty and would
-    /// silently drop the flags (PR #47 review must-fix; Conditional is functional, not cosmetic).</summary>
+    /// <summary>A PexFile view carrying one object, so a multi-object pex emits one .psc per object while reusing
+    /// <see cref="HousecarlCore.PapyrusDecompiler.DecompileFile"/> unchanged; a single-object file passes through
+    /// as-is. The user-flag table must be copied across: it maps bit to name per file and the engine resolves every
+    /// Hidden/Conditional through it, so an empty table would silently drop those flags.</summary>
     static PexFile SingleObjectView(PexFile pex, PexObject obj)
     {
         if (pex.Objects.Count == 1) return pex;

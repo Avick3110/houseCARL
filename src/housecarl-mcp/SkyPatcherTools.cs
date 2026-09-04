@@ -6,16 +6,10 @@ using Mutagen.Bethesda.Plugins;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// houseCARL's SkyPatcher DISTRIBUTOR-layer readers (Wave 2 of the distributor subsystem; plan
-/// dev/plans/SKYPATCHER_DISTRIBUTOR_TOOL_PLAN_2026-07-08.md — reader-only scope, locked 2026-07-09).
-/// Read-only. The record tools answer what the PLUGINS say; these answer what the SkyPatcher INI layer
-/// DOES to those records at load: <c>housecarl_skypatcher_layer</c> is the whole-layer inventory +
-/// INI-vs-INI conflict report. One record's TRUE post-SkyPatcher state — the ordered, stateful replay —
-/// had its own tool until the 1.x cut; it is the overlay SOURCE pole on <c>housecarl_records</c> now.
-/// Authoring stays with the skypatcher-authoring skill; this reader is its verifier (a typo'd op
-/// classifies Unknown loud; the computed post-state confirms an authored INI does what was intended).
-/// </summary>
+/// <summary>Read-only view of the SkyPatcher distributor layer. The record tools answer what the plugins say; this
+/// answers what the SkyPatcher INI layer does to those records at load: a whole-layer inventory plus the INI-vs-INI
+/// conflict report. One record's computed post-SkyPatcher state is the overlay source pole on
+/// <c>housecarl_records</c> instead. Authoring stays with the skypatcher-authoring skill; this is its verifier.</summary>
 [McpServerToolType]
 public static class SkyPatcherTools
 {
@@ -51,8 +45,8 @@ public static class SkyPatcherTools
     });
 }
 
-/// <summary>Renders the SkyPatcher reader DTOs as compact, scannable text — bounded by max_chars with
-/// explicit cut notices (Q3 — never silent truncation), caveats always rendered.</summary>
+/// <summary>Renders the SkyPatcher reader DTOs as text, bounded by max_chars with explicit cut notices; the caveats
+/// are always rendered.</summary>
 static class SkyPatcherWire
 {
     // ---- housecarl_skypatcher_layer ------------------------------------------------------------------
@@ -70,8 +64,8 @@ static class SkyPatcherWire
         sb.Append("SkyPatcher layer — profile '").Append(d.ProfileName).Append("' — ")
           .Append(folders.Count).Append(" type folder(s), ").Append(files).Append(" INI(s) (")
           .Append(applied).Append(" applied), ").Append(lines).Append(" patch line(s)");
-        if (appliedLines != lines) sb.Append(" (").Append(appliedLines).Append(" in applied files)");   // files vs lines units — don't let a gated file's lines read as live
-        int deadWrites = d.Itms.Sum(m => m.Entries.Count);   // entries ARE the dead writes — exact units
+        if (appliedLines != lines) sb.Append(" (").Append(appliedLines).Append(" in applied files)");   // a gated file's lines must not read as live
+        int deadWrites = d.Itms.Sum(m => m.Entries.Count);   // one entry per dead write, not one per finding
         sb.Append(", ").Append(d.Conflicts.Count).Append(" set-conflict(s); ITM: ")
           .Append(deadWrites).Append(" intra-file dead write(s), ")
           .Append(d.Duplicates.Count).Append(" cross-INI duplicate(s), ")
@@ -127,7 +121,7 @@ static class SkyPatcherWire
                     var e = c.Entries[i];
                     sb.Append("      ").Append(Path.GetFileName(e.File)).Append(':').Append(e.Line)
                       .Append("  ").Append(e.Op).Append('=').Append(e.Value)
-                      .Append(i == c.Entries.Count - 1 ? "   ← WINS (last in apply order)" : "")   // by INDEX — value-equal entries must not both claim the win
+                      .Append(i == c.Entries.Count - 1 ? "   ← WINS (last in apply order)" : "")   // by index: value-equal entries must not both claim the win
                       .Append(e.Conditional ? "   [conditional — the line carries further filters]" : "")
                       .Append('\n');
                 }

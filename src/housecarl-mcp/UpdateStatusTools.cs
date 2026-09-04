@@ -4,13 +4,9 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// houseCARL's LOCAL mod-update reader (no network). Reads MO2's OWN Nexus update cache — the modid / version /
-/// newestVersion fields MO2 writes into each mod's meta.ini — and reports which installed mods MO2 already believes have
-/// a newer version. This is the cheap FIRST pass of update triage: it narrows a big modlist to the handful worth
-/// verifying online (housecarl_nexus_check_updates), reading only files MO2 has already populated. Works fully offline;
-/// it does NOT touch Nexus and does NOT modify anything. Sits in the MO2-static-read lane beside housecarl_load_order_status.
-/// </summary>
+/// <summary>The local mod-update reader: reads the modid / version / newestVersion fields MO2 writes into each mod's
+/// meta.ini and reports which installed mods MO2 already believes have a newer version. Offline and read-only — it
+/// never contacts Nexus.</summary>
 [McpServerToolType]
 public static class UpdateStatusTools
 {
@@ -36,9 +32,9 @@ public static class UpdateStatusTools
     });
 }
 
-/// <summary>Renders <see cref="UpdateCacheData"/>: a summary line, then the mods MO2 has a newer version cached for
-/// (the actionable set), then the ignored set. Current / never-checked mods are counted, not listed (the point is the
-/// FILTER). Every render ends with the Q3 honesty note — this is MO2's cached view, not a live Nexus check.</summary>
+/// <summary>Renders <see cref="UpdateCacheData"/>: a summary line, the mods MO2 has a newer version cached for, then
+/// the ignored set. Current and never-checked mods are counted, not listed. Every render ends with the note that this
+/// is MO2's cached view, not a live Nexus check.</summary>
 static class UpdateStatusWire
 {
     public static string Render(UpdateCacheData d, int cap)
@@ -96,9 +92,8 @@ static class UpdateStatusWire
             if (e.Enabled == false) sb.Append("  [disabled]");
             sb.Append("  [id ").Append(e.ModId).Append("]  installed v").Append(e.Installed ?? "?")
               .Append(" · MO2 cached v").Append(e.Newest ?? "?");
-            // Surface the exact installed file id(s): the join key for a FILE-level live check (housecarl_nexus_check_updates
-            // 'id#fileid' form) — the way to clear the multi-file-page false positive this cached diff can't tell from a real
-            // update. A FOMOD/manual mod has none, and that's stated (Q3 — the file-level check can't run there, don't imply it can).
+            // The installed file ids are the join key for a file-level live check ('id#fileid'), which is what clears
+            // the multi-file-page false positive. A FOMOD or manual mod has none, and that is stated rather than implied.
             if (e.InstalledFileIds.Count > 0)
                 sb.Append("  · verify: ").Append(e.ModId).Append('#')
                   .Append(string.Join("#", e.InstalledFileIds));   // '#' joins fileids — ',' separates ENTRIES in the check grammar

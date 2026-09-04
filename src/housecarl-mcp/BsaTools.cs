@@ -4,13 +4,10 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// houseCARL BSA riders — list / extract / repack Bethesda .bsa archives by driving BSArch (via
-/// <see cref="HousecarlCore.BsaArchive"/>; Mutagen has no archive surface). All three ride the external-tool bridge: the
-/// BSArch path comes from <see cref="ToolPathResolver"/> (auto-prompts via the forcing function if unset — BSArch ships
-/// with xEdit). Reading a file INSIDE an archive = extract it, then read it (BSArch has no per-file extract). Extract +
-/// repack land their output in a reviewable houseCARL mod folder (folder-per-patch; originals untouched).
-/// </summary>
+/// <summary>List, extract and repack Bethesda .bsa archives via <see cref="HousecarlCore.BsaArchive"/>. Repack drives
+/// BSArch, whose path comes from <see cref="ToolPathResolver"/> and prompts if unset. BSArch has no per-file extract,
+/// so reading one file inside an archive means extracting the archive first. Extract and repack write into a new
+/// houseCARL mod folder; originals are untouched.</summary>
 [McpServerToolType]
 public static class BsaTools
 {
@@ -70,8 +67,7 @@ public static class BsaTools
         if (managed)
         {
             if (svc.ConfigPromptOrNull() is { } cfg) return cfg;   // need ModsDir for the default managed folder
-            // Extract keeps its own #49 residue contract (the "left at X" message below) — out of H2's delete-if-empty
-            // scope, which Aaron set to repack/compile/decompile. Just take the output dir.
+            // Extract names the folder it left behind on failure rather than deleting it, unlike repack below.
             try { target = svc.ResolvePatchModFolder(Path.GetFileNameWithoutExtension(archive) + " (extracted)", into: null, "houseCARL_Extract").OutputDir; }
             catch (InvalidOperationException ex) { return "error: " + ex.Message; }
         }
@@ -83,7 +79,7 @@ public static class BsaTools
         string residue = managed ? $"\nThe freshly created mod folder was left at '{target}' — delete it or retry into it." : "";
         var r = HousecarlCore.BsaArchive.Unpack(archive, target);
         if (!r.Ran) return "error: " + r.RunError + residue;   // archive couldn't be opened/read
-        if (!r.Success)                                          // path-traversal refusal or a mid-extract error (Q3)
+        if (!r.Success)                                          // path-traversal refusal or a mid-extract error
             return "extract FAILED: " + r.Raw + residue;
 
         var sb = new StringBuilder();
@@ -134,8 +130,8 @@ public static class BsaTools
         catch (InvalidOperationException ex) { return "error: " + ex.Message; }
         var folder = rf.OutputDir;
 
-        // On any post-allocation failure: a genuinely-empty fresh folder is deleted (no orphan), a partial .bsa is
-        // kept and named, a reused into= folder is left alone — hunt H2 (Aaron's delete-if-empty).
+        // On any post-allocation failure: an empty fresh folder is deleted, a partial .bsa is kept and named, and a
+        // reused into= folder is left alone.
         string Refuse(string msg)
         {
             var left = svc.RemoveOrNameRiderResidue(rf);
@@ -144,7 +140,7 @@ public static class BsaTools
         }
 
         var archive = Path.Combine(folder, name);
-        // Unknown format tokens REFUSE (Q3): a typo like 'fo4dd' must not silently pack -sse.
+        // An unknown format token refuses: a typo like 'fo4dd' must not silently pack -sse.
         var fmtFlag = HousecarlCore.BsaArchive.TryFormatFlag(format);
         if (fmtFlag is null)
             return Refuse($"error: unknown format '{format}'. Legal tokens: {HousecarlCore.BsaArchive.FormatTokens}.");
