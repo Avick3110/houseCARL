@@ -255,7 +255,7 @@ public static class WireNamesProbe
                 blind.Count == 0, blind, redArm: true);
         }
 
-        // INV4/INV5's teeth, on a SYNTHETIC wire set. These arms once ran against PlaceAssetSpec's real
+        // INV4/INV5's teeth, on a SYNTHETIC wire set. These arms once ran against PlaceTarget's real
         // member names, which made them a frozen copy of the surface: correctly renaming a member would
         // have failed them, and the failure would have pointed at the checker rather than at the rename.
         // Reading real names is INV4-GREEN and INV5-GREEN's job, across all nine types; these arms only

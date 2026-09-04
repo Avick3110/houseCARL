@@ -104,24 +104,24 @@ internal static class F1MeasureProbe
 
         // ================= MEASUREMENT 1 — place_asset / bulk_place_asset =================
         Say("M1a  place_asset, source_provider=<disabled mod>, NO source=",
-            PlaceAssetTools.PlaceAsset(svc, null, null, faceRel, null, DonorFolder, "M1a", null));
+            PlaceTools.Place(svc, new[] { new PlaceTarget { Path = faceRel } }, source_provider: DonorFolder, patch: "M1a"));
 
         Say("M1b  place_asset, source_provider=<disabled mod>, WITH source= (same rel path)",
-            PlaceAssetTools.PlaceAsset(svc, null, null, faceRel, faceRel, DonorFolder, "M1b", null));
+            PlaceTools.Place(svc, new[] { new PlaceTarget { Path = faceRel, Source = faceRel } }, source_provider: DonorFolder, patch: "M1b"));
 
         Say("M1c  place_asset, source_provider=<disabled mod>, source= a path only its ROOT BSA has",
-            PlaceAssetTools.PlaceAsset(svc, null, null, faceRel, bsaOnlyRel, DonorFolder, "M1c", null));
+            PlaceTools.Place(svc, new[] { new PlaceTarget { Path = faceRel, Source = bsaOnlyRel } }, source_provider: DonorFolder, patch: "M1c"));
 
         Say("M1d  bulk_place_asset, source_provider=<disabled mod>, NO source=",
-            PlaceAssetTools.BulkPlaceAsset(svc, new[]
-            { new PlaceAssetSpec { AssetPath = faceRel, SourceProvider = DonorFolder } }, "M1d", null));
+            PlaceTools.Place(svc, new[]
+            { new PlaceTarget { Path = faceRel, SourceProvider = DonorFolder } }, patch: "M1d"));
 
         Say("M1e  bulk_place_asset, source_provider=<disabled mod>, WITH source=",
-            PlaceAssetTools.BulkPlaceAsset(svc, new[]
-            { new PlaceAssetSpec { AssetPath = faceRel, Source = faceRel, SourceProvider = DonorFolder } }, "M1e", null));
+            PlaceTools.Place(svc, new[]
+            { new PlaceTarget { Path = faceRel, Source = faceRel, SourceProvider = DonorFolder } }, patch: "M1e"));
 
         Say("M1f  place_asset, source_provider= a name NOTHING has anywhere (control)",
-            PlaceAssetTools.PlaceAsset(svc, null, null, faceRel, faceRel, "NoSuchModAnywhere", "M1f", null));
+            PlaceTools.Place(svc, new[] { new PlaceTarget { Path = faceRel, Source = faceRel } }, source_provider: "NoSuchModAnywhere", patch: "M1f"));
 
         // ================= MEASUREMENT 2 — copy with from_source naming the disabled donor =================
         var seeds = new[] { "HeadParts", "HairColor", "HeadTexture", "WornArmor" };
@@ -144,9 +144,9 @@ internal static class F1MeasureProbe
         if (newKey is { } nk)
         {
             Say("M2b  the successor's ASSET carry — bulk_place_asset renaming the donor's facegen onto the clone",
-                PlaceAssetTools.BulkPlaceAsset(svc, new[]
+                PlaceTools.Place(svc, new[]
                 {
-                    new PlaceAssetSpec { Formid = nk.ToString(), Kind = "mesh", Source = faceRel, SourceProvider = DonorFolder },
+                    new PlaceTarget { Formid = nk.ToString(), Kind = "mesh", Source = faceRel, SourceProvider = DonorFolder },
                 }, null, Path.GetFileName(newPatch!)));
             var carried = Directory.EnumerateFiles(newPatchFolder!, "*.nif", SearchOption.AllDirectories)
                                    .FirstOrDefault(f => f.Contains("facegeom", StringComparison.OrdinalIgnoreCase));
@@ -273,14 +273,14 @@ internal static class F1MeasureProbe
         // The name a skill reading the readback would reach for: the mod holding the plugin the RECORD came
         // from, which is the FIRST arm. The FaceGen is not there.
         Say("C  the carry naming DisabledA — the mod of the arm the RECORD came from",
-            PlaceAssetTools.BulkPlaceAsset(svc, new[]
-            { new PlaceAssetSpec { Formid = nk.ToString(), Kind = "mesh", Source = faceRel, SourceProvider = "DisabledA" } },
-              null, Path.GetFileName(newPatch!)));
+            PlaceTools.Place(svc, new[]
+            { new PlaceTarget { Formid = nk.ToString(), Kind = "mesh", Source = faceRel, SourceProvider = "DisabledA" } },
+              into: Path.GetFileName(newPatch!)));
 
         Say("D  the carry naming DisabledB — the mod that DEFINES the NPC and ships the FaceGen",
-            PlaceAssetTools.BulkPlaceAsset(svc, new[]
-            { new PlaceAssetSpec { Formid = nk.ToString(), Kind = "mesh", Source = faceRel, SourceProvider = "DisabledB" } },
-              null, Path.GetFileName(newPatch!)));
+            PlaceTools.Place(svc, new[]
+            { new PlaceTarget { Formid = nk.ToString(), Kind = "mesh", Source = faceRel, SourceProvider = "DisabledB" } },
+              into: Path.GetFileName(newPatch!)));
 
         var newFace = Directory.EnumerateFiles(newFolder!, "*.nif", SearchOption.AllDirectories)
                                .FirstOrDefault(f => f.Contains("facegeom", StringComparison.OrdinalIgnoreCase));

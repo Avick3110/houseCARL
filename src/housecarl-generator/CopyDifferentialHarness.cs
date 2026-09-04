@@ -225,11 +225,11 @@ public static class CopyDifferentialHarness
         // The ancestor carries assets ITSELF; the successor's carry is a separate call, which this harness
         // makes standing in for the skill — the same stand-in fixture 3 declares, and the reason both are
         // FLOW-level claims. What F1 changed is what that call can now reach.
-        var placed = PlaceAssetTools.BulkPlaceAsset(svc, new[]
+        var placed = PlaceTools.Place(svc, new[]
         {
-            new PlaceAssetSpec { Formid = newKey.Value.ToString(), Kind = "mesh", Source = meshRel, SourceProvider = "DonorMod" },
-            new PlaceAssetSpec { Formid = newKey.Value.ToString(), Kind = "tint", Source = tintRel, SourceProvider = "DonorMod" },
-            new PlaceAssetSpec { AssetPath = HarvestedRel, Source = HarvestedRel, SourceProvider = "DonorMod" },
+            new PlaceTarget { Formid = newKey.Value.ToString(), Kind = "mesh", Source = meshRel, SourceProvider = "DonorMod" },
+            new PlaceTarget { Formid = newKey.Value.ToString(), Kind = "tint", Source = tintRel, SourceProvider = "DonorMod" },
+            new PlaceTarget { Path = HarvestedRel, Source = HarvestedRel, SourceProvider = "DonorMod" },
         }, null, Path.GetFileName(newPatch!));
         Check(!placed.StartsWith("error") && !placed.Contains("FAIL", StringComparison.Ordinal),
             $"the successor's carry places all three from the switched-off donor — {First(placed)}");
@@ -384,11 +384,11 @@ public static class CopyDifferentialHarness
 
         // The successor names the DONOR's provider. That is the whole divergence: the ancestor reads the VFS
         // winner, and on a contested path the winner's bytes are not the ones the copied records were baked from.
-        var placed = PlaceAssetTools.BulkPlaceAsset(svc, new[]
+        var placed = PlaceTools.Place(svc, new[]
         {
-            new PlaceAssetSpec { Formid = newKey.Value.ToString(), Kind = "mesh", AssetPath = null,
+            new PlaceTarget { Formid = newKey.Value.ToString(), Kind = "mesh", Path = null,
                                  Source = faceRel, SourceProvider = bsaProv.Source },
-        }, null, Path.GetFileName(newPatch));
+        }, into: Path.GetFileName(newPatch));
         Check(!placed.StartsWith("error"), $"…and places the facegen from the NAMED donor ({First(placed)})");
 
         // ---- records: a vanilla donor is a transplant in BOTH tools, so the patches should still match ----

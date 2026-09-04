@@ -20,7 +20,6 @@ public static class ToolNames
     public const string BsaExtract = "housecarl_bsa_extract";
     public const string BsaList = "housecarl_bsa_list";
     public const string BsaRepack = "housecarl_bsa_repack";
-    public const string BulkPlaceAsset = "housecarl_bulk_place_asset";
     public const string Check = "housecarl_check";
     public const string CompactPlugin = "housecarl_compact_plugin";
     public const string CompileScript = "housecarl_compile_script";
@@ -40,7 +39,7 @@ public static class ToolNames
     public const string NexusSearch = "housecarl_nexus_search";
     public const string NifInspect = "housecarl_nif_inspect";
     public const string NifSet = "housecarl_nif_set";
-    public const string PlaceAsset = "housecarl_place_asset";
+    public const string Place = "housecarl_place";
     public const string Records = "housecarl_records";
     public const string Remove = "housecarl_remove";
     public const string SetMo2Instance = "housecarl_set_mo2_instance";

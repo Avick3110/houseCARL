@@ -25,23 +25,20 @@ internal static class AliasTable
         new("formids", new[] { "formid" }),
 
         // plugin (whose-version) becomes source, never a {file, mod} form. On a tool declaring both source and
-        // plugins, source wins by order. place_asset is excepted: its source= is a file path, not the plugin
-        // pole, so a stray plugin= there must stay a named unknown rather than silently become a path.
-        // The four plugin spellings stay a full clique among themselves — callers pair them every way.
-        new("plugin",  new[] { "source", "plugins", "pluginname", "pluginnames" },
-            ExceptTools: new[] { (ToolNames.PlaceAsset, "source") }),
+        // plugins, source wins by order. The four plugin spellings stay a full clique among themselves — callers
+        // pair them every way. housecarl_place needed an exception while its source= was a top-level file path;
+        // it declares no top-level source= now (a source is a member of assets=), so the rows are schema-gated
+        // off there by construction and the exception is gone with the parameter.
+        new("plugin",  new[] { "source", "plugins", "pluginname", "pluginnames" }),
         // `source` is a candidate here so the row still has a route on a tool that declares no plugin spelling
         // at all; it goes last so a tool with a scope word keeps getting `plugins`.
-        new("plugins", new[] { "plugin", "pluginname", "pluginnames", "source" },
-            ExceptTools: new[] { (ToolNames.PlaceAsset, "source") }),
+        new("plugins", new[] { "plugin", "pluginname", "pluginnames", "source" }),
         // plugin_name becomes patch, else a plugin scope word. `patch` is suppressed on write_seq: there it names
         // the OUTPUT FOLDER, so plugin_name= would silently put the .seq in a folder named after the plugin.
-        // place_asset is excepted for the same reason as its siblings: source= there is a file path.
         // `source` goes last so a tool declaring both a scope word and the pole keeps getting the scope word.
         new("pluginname",  new[] { "patch", "plugins", "plugin", "pluginnames", "source" },
-            ExceptTools: new[] { (ToolNames.WriteSeq, "patch"), (ToolNames.PlaceAsset, "source") }),
-        new("pluginnames", new[] { "plugins", "plugin", "pluginname", "source" },
-            ExceptTools: new[] { (ToolNames.PlaceAsset, "source") }),
+            ExceptTools: new[] { (ToolNames.WriteSeq, "patch") }),
+        new("pluginnames", new[] { "plugins", "plugin", "pluginname", "source" }),
         // Reverse: the pole spelling on not-yet-renamed tools. nexus_mod is excepted — its mod= is a Nexus mod
         // ID, not the provider disambiguator, and the Nexus tools are not part of the rename.
         new("source", new[] { "plugin", "mod" },
@@ -90,12 +87,9 @@ internal static class AliasTable
         // target, since target= is the in-place filename on the write tools; it rides the hint below.
         new("target", new[] { "element" }),
 
-        // from_plugin and the mod= disambiguator both become source. Both carry the place_asset exception: its
-        // source= is a file path, not the plugin pole, so an unexcepted row would fire exactly where it is wrong.
-        new("fromplugin", new[] { "source" },
-            ExceptTools: new[] { (ToolNames.PlaceAsset, "source") }),
-        new("mod", new[] { "source" },
-            ExceptTools: new[] { (ToolNames.PlaceAsset, "source") }),
+        // from_plugin and the mod= disambiguator both become source.
+        new("fromplugin", new[] { "source" }),
+        new("mod", new[] { "source" }),
 
         // Set-valued file selection per substrate: paths. The per-tool spellings are disjoint, so schema-gating
         // picks the right one for the reverse row.
@@ -234,6 +228,13 @@ internal static class AliasTable
 
         ("housecarl_validate_dialogue",
          "split in two. The findings are " + ToolNames.Check + " findings=[\"dialogue\"] with seeds= taking the same DIAL / QUST / DLVW / DLBR FormIDs — graph and branch wiring, LinkTo and previous-link targets, .fuz files, result scripts, CK-parity subrecords, malformed conditions and the .seq check — and limit= caps how many SEEDS one call expands. The effective merged INFO order is " + ToolNames.Records + " project={\"form\": \"info_order\"} with the DIAL in formids=: it is an ordered sequence rather than a finding, and the sweep's dialogue boundary says so."),
+
+        // The S2 write fold. Both old names carry the destination-shape migration as well as the tool name: the
+        // set of destinations is one parameter now, and the single tool's "one file per call" restriction is gone.
+        ("housecarl_place_asset",
+         "absorbed into " + ToolNames.Place + ": one destination is a set of one — assets=[{path|formid, kind?, source?, source_provider?}] (asset_path= is the member's path=). A formid with NO kind now places BOTH FaceGen files, so kind= is no longer required. patch_name= is patch=, and source_provider=/kind= can also be given once for the whole set."),
+        ("housecarl_bulk_place_asset",
+         "absorbed into " + ToolNames.Place + ": assets= is unchanged in shape except asset_path= is path=, and source_provider=/kind= may now be given once for the whole set instead of per member. patch_name= is patch=; into= is unchanged."),
 
         ("housecarl_forward_record",
          "absorbed into " + ToolNames.Forward + ": from_plugin= is source= (an ACTIVE plugin — whose version to copy). patch_name= is patch=, full_readback= is readback=, and the target=+in_place=true pair is in_place=\"X.esp\". formids=, dry_run= and the into= replace-on-collision semantics are unchanged."),

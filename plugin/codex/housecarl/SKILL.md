@@ -52,7 +52,7 @@ Beyond the core workflow, reach for the right group. Depth for the specialist ar
 
 **Dialogue** — `housecarl_validate_dialogue`, `housecarl_write_seq` (the start-game-enabled quest `.seq`; `source=` takes the plugin's filename or an absolute path; `output_dir=` lands it in the mod's own `SEQ\` after an in-place edit). Depth: `dialogue-authoring`.
 
-**Assets / NIF / facegen** — `housecarl_asset_status` (which mod/BSA wins a Data-relative path), `housecarl_place_asset` / `housecarl_bulk_place_asset` (make a chosen copy win MO2's VFS), `housecarl_nif_inspect` / `housecarl_nif_set` (read/write mesh data values). Depth: `facegen-diagnostics`.
+**Assets / NIF / facegen** — `housecarl_asset_status` (which mod/BSA wins a Data-relative path), `housecarl_place` (make a chosen copy win MO2's VFS), `housecarl_nif_inspect` / `housecarl_nif_set` (read/write mesh data values). Depth: `facegen-diagnostics`.
 
 **Plugin operations** — `housecarl_compact_plugin` (ESL-renumber, carries FormID-keyed facegen/voice along), `housecarl_merge_plugins`, `housecarl_copy_npc_appearance` (standalone appearance, no donor master).
 

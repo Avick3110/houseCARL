@@ -2594,12 +2594,12 @@ public static class WriteSurfaceGuardProbe
         File.WriteAllText(Path.Combine(prof, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
 
         using var svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(root, "place-sentences.user.json")));
-        string Render(PlaceRequest req) => PlaceWire.Render(svc.PlaceAssets(new[] { req }, null, null));
+        string Render(PlaceRequest req) => PlaceWire.Render(svc.PlaceAssets(new[] { req }, null, null), 80_000);
         // The both-slots constraint is refused at the TOOL layer, before any outcome exists, so it is observed
         // through the tool rather than through PlaceWire — the sentence still has to reach a caller either way.
-        var bothSlots = PlaceAssetTools.BulkPlaceAsset(svc, new[]
+        var bothSlots = PlaceTools.Place(svc, new[]
         {
-            new PlaceAssetSpec { Formid = "000800:Dummy.esp", Source = Path.Combine(root, "w2-ondisk.nif") },
+            new PlaceTarget { Formid = "000800:Dummy.esp", Source = Path.Combine(root, "w2-ondisk.nif") },
         });
         return new List<string>
         {

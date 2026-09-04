@@ -77,7 +77,7 @@ it fall back?"*
 **ESL / ESPFE:** the on-disk filename never contains "FE". `FaceGenPath` renders the current (post-
 compaction) local id from Mutagen's FormKey, so it stays correct by construction — the folder is unchanged
 on eslification (same plugin file), only the filename tracks the renumbered local id. A freshly-eslified
-mod's loose facegen sits at the OLD names until renamed/regenerated; `place_asset` must target the NEW
+mod's loose facegen sits at the OLD names until renamed/regenerated; `place` must target the NEW
 (current-FormKey) name. (`<0x800` "hardcoded" injected records, which xEdit issue #848 can mislabel as
 "new": compute the path AND flag the condition rather than assert silently. Rare for NPC_.)
 
@@ -114,14 +114,14 @@ longer match. So a no-facegen override does NOT "always dark-face."
 
 A **separate, non-desync dark class** comes from broken/missing **skin-texture path** references (a mod
 overwrote/renamed the `.dds` a head `.nif` or record points to). FDF does **not** fix this. Keep it
-distinct: head-parts/facegen mismatch → tint-dropped-on-regen (FDF/`asset_status`/`place_asset`/CK domain);
+distinct: head-parts/facegen mismatch → tint-dropped-on-regen (FDF/`asset_status`/`place`/CK domain);
 broken skin texture → a texture-path problem (Cause R).
 
 ---
 
 ## 3. Cause taxonomy
 
-Fix layers: **houseCARL-file** (`asset_status`/`place_asset`) · **houseCARL-record**
+Fix layers: **houseCARL-file** (`asset_status`/`place`) · **houseCARL-record**
 (`read_record`/`set_field`/`create_record`) · **houseCARL-nif** (`nif_inspect` reads the `.nif`'s data
 values; `nif_set` writes the whitelisted ones — texture-slot paths, header string refs (material / `.tri` /
 xml), shape/node names, flags, alpha, partitions, scale — verified before landing) · **CK-instructed**
@@ -153,11 +153,11 @@ instructed.
 | **Q** | **Weight/scale-induced brown face** (runtime) | In-game weight ≠ the weight the tint was baked at (commonly from `setnpcweight`/`setscale`, baked into the save) | plain brown face matching nothing; `read_record` Weight | runtime/console (re-issue `setnpcweight`); save-baked → ReSaver |
 | **R** | **Broken/missing skin-texture path** (distinct dark class) | A mod overwrote/renamed the skin `.dds` a head `.nif`/record points to. If the broken ref is INSIDE the `.nif`, `nif_inspect` READS which slot/path is broken and `nif_set set_path` REWRITES it to a valid `.dds`; if the `.dds` itself is missing, that's a file fix (or the pixels, which stay opaque) | black face; **FDF does NOT fix it**; `asset_status` on the texture path / `read_record` HeadTexture (TXST) / `nif_inspect` the in-`.nif` skin slots | houseCARL-nif (`set_path`) and/or houseCARL-file |
 | **S** | **Template + "Use Traits" actor** (exclusion, not a defect) | NPC inherits appearance from a template ActorBase → has NO facegen of its own; facegen lives under the **template's** FormKey | `read_record` Template set AND `Configuration.TemplateFlags` includes `Traits` → recompute against the template's FormKey | n/a — redirect diagnosis |
-| **T** | **Runtime-distributed appearance (SPID/SkyPatcher) / `FFxxxxxx` NPCs** | Appearance applied at runtime, or on a dynamically-spawned actor → no pre-baked facegen; the plugin-winner record houseCARL sees ≠ the in-game face | recognize the scenario (SPID/SkyPatcher present; `FF` base id); houseCARL reads *plugin* records, can't see the distributed result | runtime-mod / report (not `place_asset`) |
+| **T** | **Runtime-distributed appearance (SPID/SkyPatcher) / `FFxxxxxx` NPCs** | Appearance applied at runtime, or on a dynamically-spawned actor → no pre-baked facegen; the plugin-winner record houseCARL sees ≠ the in-game face | recognize the scenario (SPID/SkyPatcher present; `FF` base id); houseCARL reads *plugin* records, can't see the distributed result | runtime-mod / report (not `place`) |
 | **U** | **RaceMenu/SKEE co-save state dropped — player-only grey** | SKEE skipped the actor's co-save → NiOverride sculpt/tint held only at runtime is dropped | **player** (+ a few RaceMenu-touched NPCs) grey, ordinary NPCs fine; appears after reload/update/crash | runtime-mod / report — houseCARL **no-op** |
 | **V** | **skee64.dll didn't load** (version mismatch / fatal error) | No runtime overlay/tint application runs (often after a Skyrim/Steam auto-update) | grey **player** face **plus all RaceMenu sliders/overlays gone game-wide** | runtime-mod / report — houseCARL **no-op** |
 | **W** | **Sculpt in `.jslot`/preset, never exported to facegen** | A `.jslot`/runtime sculpt holds the geometry/tint but no `.nif`/`.dds` was ever exported for the FormKey | an NPC built from a preset is grey though the modder "has the preset"; `asset_status` = facegen missing | partial: CK/RaceMenu-instructed to bake, then houseCARL-file |
-| **X** | **NiOverride runtime overlays expected on an NPC** | SKEE warpaint/body/face overlays are runtime-applied, not in the exported `.dds` unless baked | NPC missing warpaint/makeup, or wrong/grey in that region | runtime-mod / report (no-op for the overlay; tintmask `.dds` itself → `place_asset`) |
+| **X** | **NiOverride runtime overlays expected on an NPC** | SKEE warpaint/body/face overlays are runtime-applied, not in the exported `.dds` unless baked | NPC missing warpaint/makeup, or wrong/grey in that region | runtime-mod / report (no-op for the overlay; tintmask `.dds` itself → `place`) |
 
 ---
 
@@ -178,7 +178,7 @@ over the procedure, never claim to do it.**
 
 ### Fix B — Place the correct existing facegen as a winning loose override — **houseCARL-file**
 When a correct copy exists somewhere (mod or BSA) but loses VFS precedence (Cause D/E, and the file side of
-A/C/F/G). `asset_status` the two paths to see the current winner, then `place_asset`/`bulk_place_asset` to
+A/C/F/G). `asset_status` the two paths to see the current winner, then `place` to
 extract the correct entry (single-entry in-process BSA extract) and write it as a winning loose override
 into a fresh enable+sort MO2 mod. **Place BOTH `.nif` and `.dds` as a pair, from the SAME source mod.**
 
@@ -278,9 +278,9 @@ For Causes U–X. **U:** re-open `showracemenu`/`showlooksmenu player 1`, re-app
 OverlayFix or the SKEE cosave Load Crash Fix; read `skse64.log`. **V:** match SKSE↔Skyrim runtime↔RaceMenu
 versions; delete stray loose `CharGen.pex`/`NiOverride.pex`/`RaceMenu*.pex`; read `skse64.log`. **W:**
 instruct Sculpt→Export Head (writes to `Data\SKSE\Plugins\CharGen\`, **distinct** from the facegen VFS
-paths) or CK Ctrl+F4 — once the `.nif`/`.dds` exist, `place_asset` them. **X:** instruct the re-applying
+paths) or CK Ctrl+F4 — once the `.nif`/`.dds` exist, `place` them. **X:** instruct the re-applying
 overlay framework; if the *tintmask `.dds`* itself is the problem, that's the normal facegen-tint path
-(`place_asset` covers it). houseCARL has **no read or write** into the SKSE co-save / SKEE runtime state —
+(`place` covers it). houseCARL has **no read or write** into the SKSE co-save / SKEE runtime state —
 surfacing that limit IS the Q3-honest move.
 
 ---
@@ -297,7 +297,7 @@ surfacing that limit IS the Q3-honest move.
 | **Purple or bright-white face** | missing **texture file/path** | A referenced texture isn't found — a texture-asset problem, not facegen (dark face *has* a file, the wrong one). |
 | **Neck seam, face correctly colored but ≠ body** | I or J | I = `.nif` hardcodes vanilla skin — `nif_inspect` shows the slot-0/1 skin path and `nif_set set_path` rewrites it (the NPC Facegen Patcher edit, now at the data layer). J = record QNAM/TintLayers inconsistent (houseCARL-record). |
 | **Headless / floating parts / missing geometry** | M or H | Required head-part/hair mod disabled, or a HDPT doesn't resolve — report/install, or forward correct HeadParts. |
-| **NPC built from a RaceMenu preset is grey** | W (sculpt in `.jslot`, never exported) | The preset alone is not facegen. Instruct Export Head / Ctrl+F4; then `place_asset`. |
+| **NPC built from a RaceMenu preset is grey** | W (sculpt in `.jslot`, never exported) | The preset alone is not facegen. Instruct Export Head / Ctrl+F4; then `place`. |
 | **NPC missing warpaint/makeup overlay** specifically | X (NiOverride runtime overlay) | Overlays are runtime SKEE state, not facegen tint — out of lane for the overlay portion. |
 | **Shiny/oily face** | specular/ENB | **Not facegen.** Out of lane. |
 | **Ash-pile / disintegration** | death/disintegration script state | **Not facegen.** Out of lane. |
@@ -352,7 +352,7 @@ batch tool. You no longer guess the broken slot, and for a single mesh you no lo
 - **ESL/FE prefix:** filename never contains "FE"; compute from the current FormKey. Folder unchanged on
   eslification. A freshly-eslified mod's loose facegen sits at the OLD names until renamed.
 - **Beast/custom races:** identical path scheme. Common failure is a custom-race mod that never exported
-  facegen (Cause N) → `asset_status` no winner → CK bake, not `place_asset`.
+  facegen (Cause N) → `asset_status` no winner → CK bake, not `place`.
 - **Male/female:** NO separate folder or filename rule — sex affects which head parts/tint the CK bakes.
   Risk: `asset_status` "file wins" ≠ "file is the right sex" — but `nif_inspect`'s **shape names** often give
   it away (a `Male…`/`Female…` baked part, e.g. `MaleMouthHumanoidDefault` in the real Lucien read), so a

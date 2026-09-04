@@ -16,7 +16,7 @@ whether to make the right **file** win or forward the right **appearance** into 
 
 **What houseCARL CAN do:** report the VFS/file winner of a Data-relative path (`housecarl_asset_status`),
 place a correct copy as a winning loose override including single-entry in-process BSA extract
-(`housecarl_place_asset` / `housecarl_bulk_place_asset`), read the load-order-winning record + write
+(`housecarl_place`), read the load-order-winning record + write
 appearance edits into a new override plugin (`housecarl_read_record`, `housecarl_set_field`,
 `housecarl_create_record`, `housecarl_cross_plugin_query`, `housecarl_batch_record_detail`), and **read the
 data values *inside* the winning facegen `.nif`** (`housecarl_nif_inspect`) — its baked shape names, the
@@ -86,9 +86,9 @@ Rule these out before any tool call — each is out of houseCARL's lane and the 
 - **Shiny/oily face, ash-pile** → specular/ENB or script state. Not facegen.
 - **`FFxxxxxx` base id** (runtime-spawned) or **SPID/SkyPatcher-distributed appearance** → houseCARL reads
   *plugin* records, so the winner it sees may not be the in-game face (Cause T). Warn; route to FDF or
-  matching the distributed head parts, not `place_asset`. (DynDOLOD is object-LOD, not NPC appearance.)
+  matching the distributed head parts, not `place`. (DynDOLOD is object-LOD, not NPC appearance.)
 - **NPC built from a RaceMenu `.jslot` preset, facegen comes up missing** (Cause W) → the preset is not
-  facegen; instruct Sculpt→Export Head / Ctrl+F4. Once the `.nif`/`.dds` exist, `place_asset` can win them.
+  facegen; instruct Sculpt→Export Head / Ctrl+F4. Once the `.nif`/`.dds` exist, `place` can win them.
 
 ## The front door — resolve the NPC to a FormKey
 
@@ -157,17 +157,17 @@ record's appearance and the winning facegen files must come from the SAME source
 deliberately dumb about which copy is correct — *this skill decides*, then drives them with an **explicit
 `source=`** for a real desync fix (auto-resolve is a re-assert convenience, useful for sole-BSA→loose or to
 own the copy):
-- **Record winner is the intended appearance, wrong file wins** → **Fix B**: `place_asset` the correct
+- **Record winner is the intended appearance, wrong file wins** → **Fix B**: `place` the correct
   facegen as a winning loose override.
 - **The file is the intended appearance, a non-appearance plugin won the record** → **Fix C**: forward the
   appearance fields into a new override (houseCARL's editorial minimal set — `HeadParts, FaceMorph,
   FaceParts, TintLayers, HairColor, HeadTexture, TextureLighting`, + optional `WornArmor`).
 - Often **both** (Fix B + Fix C together).
 
-Placing both files of an NPC at once: `housecarl_bulk_place_asset` with `formid` and **no `kind`** expands
+Placing both files of an NPC at once: `housecarl_place` with `formid` and **no `kind`** expands
 to mesh+tint via the pure path transform (an explicit `source=` for that both-case must be a **bare `.bsa`**
-path — for a loose file or a `<bsa>|<entry>` source, set `kind=` and place the two separately). The single
-`housecarl_place_asset` **requires** `kind` (`mesh`/`tint`) with a `formid`. **Place both halves from the
+path — for a loose file or a `<bsa>|<entry>` source, set `kind=` and place the two separately). One
+destination is a set of one, so this is the same call whether you place one file or forty. **Place both halves from the
 SAME source mod** — a same-FormKey forward is safe by construction (the `.nif`'s embedded `.dds` path
 already resolves at the destination). A cross-FormKey / renumber / re-folder forward leaves the embedded
 FaceTint slot pointing at the *source* FormID — that fixup used to be a NifSkope escalation, but is now
@@ -206,7 +206,7 @@ the rendered appearance** (it reads no `.dds` pixels, judges no geometry, and do
 ## Batch flow ("a bunch of NPCs went dark after I installed X")
 
 Mirror Dark Face Issue Reporter at the VFS layer — **enumerate → compute-all → asset_status-all →
-bulk_place**:
+place**:
 1. `housecarl_cross_plugin_query` the suspect plugin's `NPC_` records (or query across the load order and
    filter to records whose **load-order winner** is X). **Dedupe to winners only.**
 2. `housecarl_batch_record_detail` for FormKey + defining master per NPC in one batch.
@@ -218,8 +218,8 @@ bulk_place**:
    `mesh_paths` = **the whole flagged subset in one call** (it batches like `asset_status`: results in input
    order, a per-path failure never aborts the rest — no sampling needed) separates "wrong content baked in"
    (shape names / tint path ≠ record → mode ii) from "genuinely absent" (asset_status already said so), so
-   you don't `bulk_place` a copy that was never the problem.
-5. `housecarl_bulk_place_asset` the correct copies into one fresh reviewable mod.
+   you don't `place` a copy that was never the problem.
+5. `housecarl_place` the correct copies into one fresh reviewable mod.
 
 **Boundary:** houseCARL can batch-detect and batch-relocate/rename existing correct facegen (covers Cause
 F/G — pure file-name/folder desyncs). If the batch reveals the facegen **exists nowhere** (true
@@ -247,7 +247,7 @@ missing/regenerate), the fix is **CK Ctrl+F4** — houseCARL cannot bake and mus
 - **Treating multi-provider / "Ambiguous" as a problem.** At a large modlist's scale, more than one source
   providing a path is the **common, healthy** case — present it neutrally; it's a "verify if unexpected"
   signal, not a detected fault.
-- **Reaching for `place_asset` on an out-of-lane cause.** Player-only grey (U/V), `.jslot` presets (W),
+- **Reaching for `place` on an out-of-lane cause.** Player-only grey (U/V), `.jslot` presets (W),
   NiOverride overlays (X), `FFxxxxxx`/SPID-distributed (T), brown/save-baked (Q) — name the real tool, don't
   place a file that does nothing.
 
@@ -257,7 +257,7 @@ A face-bug diagnosis lands on one of two honest outcomes, never a confident gues
 
 1. **A diagnosis with the cause, the fix, and its capability class** — "Cause A: `read_record` winner is
    Bijin, but `asset_status` shows the `.nif`/`.dds` won by a stale loose copy from a disabled mod. Fix B:
-   `place_asset` Bijin's pair as a winning override; then enable+sort and run the in-game `setnpcweight`
+   `place` Bijin's pair as a winning override; then enable+sort and run the in-game `setnpcweight`
    check." Name which winner is wrong and which fix moves which half.
 2. **An explicit "I can't fully resolve this — here's what I checked and what to do next"** — when the cause
    is out of lane (the file wins, the record looks right, and `nif_inspect` shows the mesh's shape names and

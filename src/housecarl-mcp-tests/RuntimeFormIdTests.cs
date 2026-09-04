@@ -260,19 +260,21 @@ public sealed class RuntimeFormIdTests
     }
 
     [Fact]
-    public void PlaceAssetRefusesARuntimeFormIdAndNamesThePluginForm()
+    public void PlaceRefusesARuntimeFormIdAndNamesThePluginForm()
     {
         using var w = new World();
-        var response = PlaceAssetTools.PlaceAsset(w.Svc, formid: Runtime(w), kind: "mesh");
+        var response = PlaceTools.Place(
+            w.Svc, new[] { new PlaceTarget { Formid = Runtime(w), Kind = "mesh" } });
         RefusedNothingWritten(w, response);
     }
 
+    /// <summary>The same door, on the member that expands to BOTH FaceGen files — the expansion happens after the
+    /// parse, so a runtime token must not reach it by omitting kind.</summary>
     [Fact]
-    public void BulkPlaceAssetRefusesARuntimeFormIdAndNamesThePluginForm()
+    public void PlaceRefusesARuntimeFormIdOnTheBothSlotsExpansionToo()
     {
         using var w = new World();
-        var response = PlaceAssetTools.BulkPlaceAsset(
-            w.Svc, new[] { new PlaceAssetSpec { Formid = Runtime(w), Kind = "mesh" } });
+        var response = PlaceTools.Place(w.Svc, new[] { new PlaceTarget { Formid = Runtime(w) } });
         RefusedNothingWritten(w, response);
     }
 
