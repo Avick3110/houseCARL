@@ -4,6 +4,7 @@ using Mutagen.Bethesda.Pex;
 namespace HousecarlMcpTests;
 
 /// <summary>Writes byte-valid single-object Skyrim <c>.pex</c> files with a chosen table of Auto properties.
+/// A copy, not a project reference on the generator's own writer: the test project must not depend on it.
 /// What the fixture uses it for: <c>docs/architecture/test-project-fixtures.md</c>.</summary>
 public static class PexWriter
 {
