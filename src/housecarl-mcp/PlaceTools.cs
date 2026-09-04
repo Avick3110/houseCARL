@@ -51,9 +51,9 @@ public static class PlaceTools
         LoadOrderService svc,
         [Description("SELECT: the destinations, all placed into ONE mod folder. Each: { formid?: 'XXXXXX:Plugin.esp', kind?: 'mesh'|'tint' (omit with formid to place BOTH FaceGen files), path?: 'meshes/...', source?: '<loose path>' | '<archive.bsa>|<entry>' | '<archive.bsa>' | '<Data-relative path>', source_provider?: 'SomeMod' | 'X - Textures.bsa' | '" + AssetSourceChoice.WinnerToken + "' } — or \"@<absolute path>\" to read that SAME array from a JSON file. Set-valued at every size — one destination is a set of one. A member the shape does not declare is refused BY NAME at its element, never silently dropped. Each member's own description says what it takes.")]
             JsonElement? assets = null,
-        [Description("SOURCE: whose copy to read, for EVERY member that does not name its own. " + AssetSourceChoice.WinnerToken + " for whichever copy currently wins the VFS, or the provider's NAME ALONE — a mod folder, 'overwrite', 'Data', or a BSA filename like 'X - Textures.bsa' — matched exactly, without " + ToolNames.AssetStatus + "'s ' (loose)' / ' (BSA)' annotation. A bare name ALWAYS means a provider of that name. Omitted = the sole provider, refused if more than one contends.")]
+        [Description("SOURCE: whose copy to read, for EVERY member that does not name its own. " + AssetSourceChoice.WinnerToken + " for whichever copy currently wins the VFS, or the provider's NAME ALONE — a mod folder, 'overwrite', 'Data', or a BSA filename like 'X - Textures.bsa' — matched exactly, without " + ToolNames.AssetStatus + "'s ' (loose)' / ' (BSA)' annotation. A bare name ALWAYS means a provider of that name. Note that a file inside an active mod's archive is listed (and reached) under the ARCHIVE's name, not the mod's — and an archive MO2 loads no plugin for is listed under neither, so it is reachable only as an on-disk source= path. A name the active order already provides files under is answered by the active order, so a mod folder of that same name is not consulted. Omitted = the sole provider, refused if more than one contends.")]
             string? source_provider = null,
-        [Description("Which FaceGen file every formid= member places, when the member does not say: 'mesh' (the head .nif) or 'tint' (the face .dds). Omit to place BOTH. Ignored by path= members.")]
+        [Description("Which FaceGen file every formid= member places, when the member does not say: 'mesh' (the head .nif) or 'tint' (the face .dds). Omit to place BOTH. Ignored by path= members. A member's own kind= only NARROWS this to the other slot — once set here, no member can widen back to both, so leave it omitted and set kind= per member when the set is mixed.")]
             string? kind = null,
         [Description("LANE: base name for the NEW houseCARL mod folder the files land in (default 'houseCARL_Assets'); auto-suffixed if taken, so a prior folder is never clobbered.")]
             string? patch = null,
@@ -98,17 +98,25 @@ public static class PlaceTools
         // (ambiguous/absent/unreadable source) are per-member (the resolver isn't consulted until the place loop).
         var all = new List<PlaceRequest>();
         var problems = new List<string>();
+        // Destinations the set-level pole was withheld from. Said on their row rather than dropped: the pole's own
+        // refusal sentence is that a pole which cannot apply is stated, never silently ignored.
+        var poleWithheld = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var door = svc.OpenWriteFormIdDoor();
         for (int i = 0; i < assets.Length; i++)
         {
             var a = assets[i];
-            var reqs = MapTarget(door.Parse, a, source_provider, kind, $"assets[{i}]: ", out var err);
-            if (err is not null) problems.Add(err); else all.AddRange(reqs!);
+            var reqs = MapTarget(door.Parse, a, source_provider, kind, $"assets[{i}]: ", out var err, out var withheld);
+            if (err is not null) problems.Add(err);
+            else
+            {
+                all.AddRange(reqs!);
+                if (withheld) foreach (var r in reqs!) poleWithheld.Add(r.AssetPath);
+            }
         }
         if (problems.Count > 0)
             return $"error: refused — {problems.Count} malformed destination(s); nothing placed:\n  - " + string.Join("\n  - ", problems);
 
-        return PlaceWire.Render(svc.PlaceAssets(all, patch, into), max_chars > 0 ? max_chars : 80_000);
+        return PlaceWire.Render(svc.PlaceAssets(all, patch, into), max_chars > 0 ? max_chars : 80_000, poleWithheld);
     }
 
     /// <summary>Map one destination to its placement request(s): path → one request; formid+kind → one request (the
@@ -116,11 +124,14 @@ public static class PlaceTools
     /// set-level pole and slot fill in for a member that names neither. A both-expansion forbids a single
     /// loose/entry source (it can't serve two different files) — only a FULLY-QUALIFIED '.bsa' source (entry derived
     /// per slot) or auto-resolve. Every bad input is a NAMED error returned via <paramref name="error"/>, never a
-    /// silent skip.</summary>
+    /// silent skip. <paramref name="poleWithheld"/> is true when a set-level pole existed but could not apply to this
+    /// member — the caller states it on the member's row rather than dropping it.</summary>
     static List<PlaceRequest>? MapTarget(Func<string?, FormKey> parseFormId, PlaceTarget t,
-                                         string? setProvider, string? setKind, string where, out string? error)
+                                         string? setProvider, string? setKind, string where, out string? error,
+                                         out bool poleWithheld)
     {
         error = null;
+        poleWithheld = false;
         bool hasFormid = !string.IsNullOrWhiteSpace(t.Formid);
         bool hasPath = !string.IsNullOrWhiteSpace(t.Path);
         if (hasFormid == hasPath) { error = $"{where}provide exactly one of formid or path."; return null; }
@@ -129,8 +140,10 @@ public static class PlaceTools
         // The set-level pole fills in only where it CAN apply. An on-disk source already names one exact copy and the
         // placer refuses a pole against it, so fanning the call's pole onto such a member would refuse it over input
         // the caller never wrote there. A member's OWN pole still reaches that refusal: the caller did write it.
-        var prov = NullIfBlank(t.SourceProvider)
-                   ?? (LoadOrderService.SourceTakesAProvider(src) ? NullIfBlank(setProvider) : null);
+        var ownProv = NullIfBlank(t.SourceProvider);
+        bool setApplies = LoadOrderService.SourceTakesAProvider(src);
+        poleWithheld = ownProv is null && !setApplies && NullIfBlank(setProvider) is not null;
+        var prov = ownProv ?? (setApplies ? NullIfBlank(setProvider) : null);
 
         if (hasPath)
             return new List<PlaceRequest> { new(t.Path!.Trim(), src, prov) };
@@ -189,7 +202,7 @@ public static class PlaceTools
 /// list must still say how much it dropped and what the caller has to do next.</summary>
 static class PlaceWire
 {
-    public static string Render(PlaceOutcome o, int cap)
+    public static string Render(PlaceOutcome o, int cap, IReadOnlySet<string>? poleWithheld = null)
     {
         if (o.Error is not null) return "error: " + o.Error;
 
@@ -207,7 +220,7 @@ static class PlaceWire
         var body = BatchRender.Render(
             header, o.Results, "asset(s)", cap,
             sb => { foreach (var w in o.Warnings) sb.Append("[!] discovery: ").Append(w).Append('\n'); },
-            (sb, r) => { rendered++; AppendResult(sb, r, modFolder); });
+            (sb, r) => { rendered++; AppendResult(sb, r, modFolder, poleWithheld?.Contains(r.AssetPath) == true); });
 
         var sb2 = new StringBuilder(body).Append('\n');
         sb2.Append("\ntotal=").Append(o.Results.Count).Append(" rendered=").Append(rendered)
@@ -232,11 +245,20 @@ static class PlaceWire
         return sb2.ToString().TrimEnd('\n');
     }
 
-    static void AppendResult(StringBuilder sb, PlaceResult r, string? modFolder)
+    static void AppendResult(StringBuilder sb, PlaceResult r, string? modFolder, bool poleWithheld)
     {
-        if (!r.Placed) { sb.Append("  FAIL  ").Append(r.AssetPath).Append("  ").Append(r.Error).Append('\n'); return; }
+        // An input the call carried but this destination could not use is SAID, not dropped: the pole's own refusal
+        // sentence is that a provider which cannot apply is stated, so withholding it silently would read as honoured.
+        void Withheld()
+        {
+            if (poleWithheld)
+                sb.Append("        note: set-level source_provider not applied: source is one exact file\n");
+        }
+
+        if (!r.Placed) { sb.Append("  FAIL  ").Append(r.AssetPath).Append("  ").Append(r.Error).Append('\n'); Withheld(); return; }
 
         sb.Append("  OK    ").Append(r.AssetPath).Append("  (").Append(r.Bytes).Append(" bytes from ").Append(r.SourceDesc).Append(")\n");
+        Withheld();
         // Bytes served out of a mod MO2 does not load look like any other placement on the line above, so say so on
         // their own line. This is about the SOURCE; the destination's enable+sort is the block below the list.
         if (r.SourceOffOrderProvider is { } offOrder)
@@ -269,7 +291,7 @@ public sealed record PlaceTarget
     [JsonPropertyName("source_provider"), Description("Whose copy to read for a VFS-resolved source, for THIS destination — overriding the call's source_provider=: "
         + AssetSourceChoice.WinnerToken + " for the current VFS winner, or the provider's NAME ALONE (a mod folder, 'overwrite', "
         + "'Data', or a BSA filename) — not asset_status's ' (loose)' / ' (BSA)' annotation. A bare name always means a provider "
-        + "of that name. Applies BOTH with a Data-relative source= (whose copy to read it FROM) and with NO source= at all "
+        + "of that name. " + WriteSentences.PlaceSourceNameReachesUnticked + " Applies BOTH with a Data-relative source= (whose copy to read it FROM) and with NO source= at all "
         + "(whose copy of the DESTINATION path to place) — in the second case it is what resolves the contention an omitted "
         + "source is otherwise refused for. Not valid with an on-disk source.")]
     public string? SourceProvider { get; init; }
