@@ -10,7 +10,8 @@
 #
 # Two kinds of member are listed and are not dead: one the language calls rather than
 # the code (Dispose, under a `using`), and a seam the CI guards drive from outside the
-# shipped process (the ForGuard pair).
+# shipped process (the ForGuard pair, and Stats, which the probes and tests build the
+# lazy index through and read the epoch and counters off).
 #
 #   scripts/find-unused-service-members.ps1
 #   scripts/find-unused-service-members.ps1 -Sites          # with the other-receiver uses
@@ -54,7 +55,7 @@ for ($i = $start; $i -lt $end; $i++) {
     $paramAt = -1
     for ($c = 0; $c -lt $head.Length; $c++) {
         if ($head[$c] -ne '(') { continue }
-        if ($head.Substring(0, $c) -match '[A-Za-z0-9_>]\s*$') { $paramAt = $c; break }
+        if ($head.Substring(0, $c) -match '[A-Za-z0-9_>]$') { $paramAt = $c; break }
         $depth = 1
         while (++$c -lt $head.Length -and $depth -gt 0) {
             if ($head[$c] -eq '(') { $depth++ } elseif ($head[$c] -eq ')') { $depth-- }
