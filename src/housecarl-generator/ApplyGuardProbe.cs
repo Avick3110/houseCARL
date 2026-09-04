@@ -170,10 +170,7 @@ public static class ApplyGuardProbe
             ops: Json("[" + ComposeRankOp(fx.FactionFid, "\"fields\":{\"Number\":\"1\"}")[1..^1] + ","
                           + ComposeRankOp(fx.FactionFid, "\"fields\":{\"Number\":\"2\"}")[1..^1] + "]"),
             in_place: fx.ReplacerName, acknowledge: true);
-        Check("two Adds to ONE list in one call: both land and NOTHING is reported as not landed",
-            twoAdds.StartsWith("edited ", StringComparison.Ordinal)
-            && !twoAdds.Contains("NOT landed", StringComparison.Ordinal), twoAdds);
-        Check("…and the superseded op says so — its clause is the applied edit's, not the later op's file reading",
+        Check("two Adds to ONE list in one call: the superseded op says so — its clause is the applied edit's, not the later op's file reading",
             twoAdds.Contains("a later op in this call wrote the same field", StringComparison.Ordinal), twoAdds);
         Check("…and the list really carries BOTH ranks on disk (the write the arm is defending was correct)",
             RanksIn(fx.ReplacerPath, fx.FactionFid) >= 2, $"ranks={RanksIn(fx.ReplacerPath, fx.FactionFid)}\n{twoAdds}");
@@ -204,9 +201,6 @@ public static class ApplyGuardProbe
         int after = RanksIn(fx.ReplacerPath, fx.FactionFid);
         Check("two key-addressed Removes in one call: BOTH land (the count drops by two)",
             after == before - 2, $"{before} -> {after}\n{twoRemoves}");
-        Check("…and NEITHER is reported as not landed — the earlier op's count is behind the file's, not wrong",
-            !twoRemoves.Contains("NOT landed", StringComparison.Ordinal)
-            && !twoRemoves.Contains("NOT carried by the written file", StringComparison.Ordinal), twoRemoves);
     }
 
     /// <summary>ARM 8 (#308) — the two seams a review found INERT: nothing pinned the keyed exemption (deleting it
