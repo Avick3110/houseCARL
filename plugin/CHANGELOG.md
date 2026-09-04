@@ -74,6 +74,20 @@ saying it sets an expectation their install may contradict. Say what is known, a
   as both a `limit=` and an `offset=` — counted off what was rendered, so following it stays paged and shows every path
   exactly once. Notes about `under=` selectors are cut at `max_chars` like the other alarm blocks, so a call carrying
   thousands of selectors cannot write megabytes of them.
+- **`housecarl_place_asset` and `housecarl_bulk_place_asset` are replaced by one tool, `housecarl_place`.** One call
+  places any number of files into one houseCARL mod folder: `assets=` is the set of destinations, each addressed by
+  `path=` or by an NPC `formid=`, each free to name its own `source=` and `source_provider=`, with `source_provider=`
+  and `kind=` also settable once for the whole set. A `formid` with no `kind` places both FaceGen files at any set
+  size, which the single tool refused. The new folder is named with `patch=`; `into=` extends an existing houseCARL
+  patch. Every response carries the counts it rendered. The two old names answer with the migration and place
+  nothing.
+
+- **Every file-placing lane's `into=` refusal now names the parameter that names the folder, and its own default
+  folder name.** `housecarl_place`, `housecarl_compile_script`, `housecarl_decompile_script`, `housecarl_nif_set`,
+  `housecarl_write_seq` and `housecarl_bsa_repack` each pass their own naming to the shared refusal, so a caller who
+  guessed a folder name that does not exist is told how to create it under a name they choose rather than only to
+  omit `into=`. On `housecarl_bsa_repack` the sentence names `patch_name=` and says that `patch=` there names the
+  archive instead.
 
 - **`housecarl_asset_status` under a `max_chars` its header and alarms already fill now renders the first path's
   answer instead of cutting to none.** `housecarl_nif_inspect` already did; both tools now render through one batch
