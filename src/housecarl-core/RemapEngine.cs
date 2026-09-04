@@ -60,11 +60,23 @@ public static class RemapEngine
     /// the repoint path, which would report a false success. <paramref name="Record"/> is the overridden FormKey.</summary>
     public sealed record ExternalOverride(string Plugin, FormKey Record, string RecordType);
 
+    /// <summary>Why the identify pass could not read a plugin through. Two causes with two different remedies:
+    /// <see cref="Unopenable"/> is a file that would not open at all — almost always another program holding it, and
+    /// closing that program fixes the run; <see cref="EnumerationFault"/> is a file that opened and then threw part
+    /// way through, which no amount of closing programs changes. Telling a modder to close xEdit for the second
+    /// sends them round a loop that never ends, so the cause is carried, never assumed.</summary>
+    public enum UnscannableCause { Unopenable, EnumerationFault }
+
+    /// <summary>One plugin the identify pass could not read through: its name, which of the two causes, and the
+    /// underlying reason. The reason is recorded here unconditionally — it never competes for the per-record sample
+    /// budget, because this is the fault that decides whether an in-place compaction may proceed at all.</summary>
+    public sealed record UnscannablePlugin(string Plugin, UnscannableCause Cause, string Reason);
+
     /// <summary>The identify-pass result: every external reference found, the DISTINCT referencing plugins in load
     /// order (the opt-in-rewrite set), the external OVERRIDERS (detect and warn, not repointable), how many plugins
     /// were scanned THROUGH (a plugin whose scan faulted is not one of them), and the fault accounting — a record
-    /// whose link walk threw is counted and sampled, and a plugin that could not be read at all is named in
-    /// <see cref="UnscannablePlugins"/>; neither is ever silently skipped.</summary>
+    /// whose link walk threw is counted and sampled, and a plugin that could not be read through is named, with its
+    /// cause and reason, in <see cref="UnscannablePlugins"/>; neither is ever silently skipped.</summary>
     public sealed record IdentifyResult(
         IReadOnlyList<ExternalRef> Refs,
         IReadOnlyList<string> ExternalPlugins,
@@ -73,7 +85,7 @@ public static class RemapEngine
         IReadOnlyList<string> UnscannableSamples,
         IReadOnlyList<ExternalOverride> Overrides,
         IReadOnlyList<string> ExternalOverriders,
-        IReadOnlyList<string>? UnscannablePlugins = null)
+        IReadOnlyList<UnscannablePlugin>? UnscannablePlugins = null)
     {
         /// <summary>True when at least one plugin OUTSIDE the transform set references a remapped FormKey — the
         /// signal the default new-plugin path must not pass silently: fail loud and offer the opt-in rewrite.</summary>
@@ -105,7 +117,7 @@ public static class RemapEngine
         var externalOverriders = new List<string>();      // distinct overriding plugins, load-order order
         int scanned = 0, unscannable = 0;
         var unscannableSamples = new List<string>();
-        var unscannablePlugins = new List<string>();     // plugins whose scan faulted — NOT counted as scanned
+        var unscannablePlugins = new List<UnscannablePlugin>();   // plugins whose scan faulted — NOT counted as scanned
         // PluginNames CAN list a filename more than once in a degenerate order; scanning a name twice would
         // double-count + double-list it. A real MO2 VFS yields unique filenames, so this is belt-and-braces — but
         // it keeps the result correct regardless (the listing is, by contract, DISTINCT).
@@ -163,14 +175,25 @@ public static class RemapEngine
                 }
                 scanned++;                                               // counted only once the whole plugin has been read through
             }
-            // The plugin enumeration itself faulting — a record that throws on top-level enumeration, or a file that
-            // cannot be opened at all — is counted per-plugin and the pass continues, never an opaque whole-pass
-            // abort. The plugin is NOT counted as scanned: its coverage is what the caller has to know about.
+            // The file could not be OPENED at all — the held-open case. Split from the enumeration fault below
+            // because the remedy differs: closing xEdit, MO2 or Skyrim fixes this one and nothing else.
+            // The reason is the INNER exception, since PluginUnreadableException's own message is the prose the
+            // renders write for themselves.
+            catch (PluginUnreadableException ex)
+            {
+                unscannable++;
+                var inner = ex.InnerException ?? ex;
+                unscannablePlugins.Add(new UnscannablePlugin(plugin, UnscannableCause.Unopenable, $"{inner.GetType().Name}: {inner.Message}"));
+            }
+            // The plugin opened and a record threw on TOP-LEVEL enumeration. Counted per-plugin and the pass
+            // continues, never an opaque whole-pass abort. The plugin is NOT counted as scanned: its coverage is
+            // what the caller has to know about. The reason is recorded unconditionally — a plugin-level fault
+            // never shares the per-record sample budget, so it can never be named without its reason.
             catch (Exception ex)
             {
                 unscannable++;
-                unscannablePlugins.Add(plugin);
-                if (unscannableSamples.Count < 5) unscannableSamples.Add($"{plugin} — record enumeration aborted: {ex.GetType().Name}: {ex.Message}");
+                unscannablePlugins.Add(new UnscannablePlugin(plugin, UnscannableCause.EnumerationFault,
+                                                             $"record enumeration aborted: {ex.GetType().Name}: {ex.Message}"));
             }
         }
 
