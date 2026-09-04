@@ -1,6 +1,6 @@
 using HousecarlGenerator;
 
-// houseCARL build-time schema generator (first-wave step 2).
+// houseCARL build-time schema generator.
 //
 // Reflects over the entire Mutagen.Bethesda.Skyrim type universe and emits a flat
 // type catalog (corpus.json + corpus.summary.md) covering literally every modeled
@@ -10,261 +10,249 @@ using HousecarlGenerator;
 //         An unrecognised FIRST argument is refused, not read as [outputDir] — so an output directory must be
 //         rooted, carry a separator, or be "." / "..". Anything else is a mode name, and an unknown one exits 2.
 
-// CI optimization Phase 2B: run EVERY CI probe in ONE process (the big Mutagen assembly loads + JITs once;
-// the schema corpus reflects once via CorpusGenerator's memoize). Replaces the per-probe ci.yml steps with one
-// invocation. See CiAll + dev/plans/CI_OPTIMIZATION_RESEARCH_2026-06-24.md.
+// Run EVERY CI probe in ONE process: the big Mutagen assembly loads and JITs once, and the schema corpus is
+// reflected once via CorpusGenerator's memoize, instead of once per probe. See CiAll.
 if (args.Length > 0 && args[0] == "ci-all") return CiAll.RunAll(args[1..]);
 
 // Single-probe runs of any CI guard — roster or standalone — dispatch through the reflected [CiProbe] set, so a
-// guard cannot be runnable locally yet missing from the CI run (the Q3 coverage-gap class). Only the
-// manual/exploratory probes below keep their own explicit dispatch.
+// guard cannot be runnable locally yet missing from the CI run. Only the manual/exploratory probes below keep
+// their own explicit dispatch.
 if (args.Length > 0 && CiAll.TryDispatch(args[0], args[1..], out var ciRc)) return ciRc;
 
-// PR 3b acceptance: the old copy_npc_appearance verb vs its 2.0 successor, over constructed MO2 instances.
-// Deliberately NOT in ci-all — the ancestor dies at 2.0, so this is acceptance evidence re-run on demand
-// (and after every fold that touches the copy path), not a standing guard.
+// The old copy_npc_appearance verb against its 2.0 successor, over constructed MO2 instances. Deliberately NOT
+// in ci-all: it is evidence re-run on demand after a change to the copy path, not a standing guard.
 if (args.Length > 0 && args[0] == "copy-differential") return CopyDifferentialHarness.Run(args[1..]);
 
 // Maintenance diagnostic: re-verify the mutable-collection whitelist on a Mutagen bump.
 if (args.Length > 0 && args[0] == "vocab") return Probe.RunVocab();
 
-// (The per-record `skypatcher-post-state` verb went with LoadOrderService.SkyPatcherPostState at #486 —
-//  the service member had no shipped caller after the 1.x cut. The layer verb below is unaffected.)
-
-// SkyPatcher Wave-2 harness: the whole-layer scan + INI-vs-INI conflict report off a LIVE MO2 instance,
-// rendered exactly as housecarl_skypatcher_layer returns it (the Wave-2 empirical artifact).
+// SkyPatcher harness: the whole-layer scan + INI-vs-INI conflict report off a LIVE MO2 instance, rendered
+// exactly as housecarl_skypatcher_layer returns it.
 if (args.Length > 0 && args[0] == "skypatcher-layer") return SkyPatcherHarness.RunLayer(args[1..]);
 
-// Index-build resilience (Nexus bug): feasibility probe — is group enumeration resumable past a parse throw?
+// Index-build resilience: is group enumeration resumable past a parse throw?
 if (args.Length > 0 && args[0] == "pkcu-probe") return PkcuProbe.Run(args[1..]);
 
-// Index-build resilience (Nexus bug): end-to-end proof the malformed plugin is isolated, not fatal.
+// Index-build resilience: end-to-end proof a malformed plugin is isolated, not fatal.
 if (args.Length > 0 && args[0] == "pkcu-fix-proof") return PkcuProbe.RunFixProof(args[1..]);
 
-// Index-build resilience (Nexus bug): real-scale proof — full MO2 order + 1 malformed plugin, only it excluded.
+// Index-build resilience at real scale: full MO2 order + 1 malformed plugin, only it excluded.
 if (args.Length > 0 && args[0] == "pkcu-scale-proof") return PkcuProbe.RunScaleProof(args[1..]);
 
-// Decompiler baseline hierarchy: emit vanilla-class-parents.json from the CK vanilla sources' own
-// ScriptName-extends headers (committed asset — vanilla sources don't exist on CI; regenerate on game updates).
+// Emit vanilla-class-parents.json from the CK vanilla sources' own ScriptName-extends headers. Committed asset:
+// vanilla sources do not exist on CI, so regenerate by hand on a game update.
 if (args.Length > 0 && args[0] == "class-parents") return ClassParentsEmitter.Run(args[1..]);
 
-// Localized-strings read fix (Heisen 2026-06-24): DLC master resolved to a strings-less mod folder reads Name EMPTY.
+// Localized-strings read: a DLC master resolved to a strings-less mod folder reads Name EMPTY.
 if (args.Length > 0 && args[0] == "strings-resolve-probe") return StringsResolveProbe.Run(args[1..]);
 
-// EXPLORATORY (#368): the MUTABLE strings-aware open + the mutate → WriteInPlace round-trip.
+// EXPLORATORY: the MUTABLE strings-aware open + the mutate-then-WriteInPlace round-trip.
 if (args.Length > 0 && args[0] == "repoint-strings-probe") return RepointStringsProbe.Run(args[1..]);
 if (args.Length > 0 && args[0] == "localized-write-probe") return LocalizedWriteProbe.Run(args[1..]);
 if (args.Length > 0 && args[0] == "localized-shape-sweep") return LocalizedShapeSweep.Run(args[1..]);
 
-// EXPLORATORY (F1): the disabled-mod asset source lane's two binding kickoff measurements.
+// EXPLORATORY: the disabled-mod asset source lane's two binding measurements.
 if (args.Length > 0 && args[0] == "f1-measure") return F1MeasureProbe.Run(args[1..]);
 
-// EXPLORATORY (F1): inventory I14 - does the successor reach a FaceGen beside the SECOND donor-side plugin?
+// EXPLORATORY: does the successor reach a FaceGen beside the SECOND donor-side plugin?
 if (args.Length > 0 && args[0] == "f1-i14") return F1MeasureProbe.RunI14(args[1..]);
 
-// One-shot verify (decision #1): confirm the xEdit 4-char signature reflection path.
+// One-shot verify: confirm the xEdit 4-char signature reflection path.
 if (args.Length > 0 && args[0] == "sig") return Probe.RunSig();
 
-// Step 4 write engine: build-start discovery of Mutagen's generic group-override surface.
+// Write engine: discovery of Mutagen's generic group-override surface.
 if (args.Length > 0 && args[0] == "write-api") return WriteDiagnosticsProbe.RunDiscovery(args[1..]);
 
-// Step 4 write engine: NPC-skills-by-name acceptance proof (nested dict-in-substruct Set).
+// Write engine: NPC-skills-by-name acceptance proof (nested dict-in-substruct Set).
 if (args.Length > 0 && args[0] == "npc-skills") return WriteDiagnosticsProbe.RunNpcSkillsProof(args[1..]);
 
-// Step 5 oracle: per-kind byte-identical cells (Path A engine vs Path B hand-written setter).
+// Oracle: per-kind byte-identical cells (Path A engine vs Path B hand-written setter).
 if (args.Length > 0 && args[0] == "oracle") return WriteOracle.Run(args[1..]);
 
-// Step 5 build-start confirm: polymorphic arm-swap instantiation mechanism.
+// Confirm the polymorphic arm-swap instantiation mechanism.
 if (args.Length > 0 && args[0] == "poly-probe") return WriteDiagnosticsProbe.RunPolyProbe(args[1..]);
 
 // Absent-substruct characterization: which navigate-into substructs lack a parameterless ctor (the tricky shapes).
 if (args.Length > 0 && args[0] == "substruct-probe") return WriteDiagnosticsProbe.RunSubstructProbe(args[1..]);
 
-// Wave 3 scout: recon Mutagen's nested-group override API (Cell/Placed*/INFO/Navmesh/Landscape) — the highest-risk unknown.
+// Recon Mutagen's nested-group override API (Cell/Placed*/INFO/Navmesh/Landscape).
 if (args.Length > 0 && args[0] == "nested-probe") return NestedProbe.RunNestedProbe(args[1..]);
 
-// STEP 0 scout (nested/dialogue plan §1.4, BLOCKING): can houseCARL ALLOCATE a brand-new record INTO a nested parent
-// by construction? Tests DuplicateIntoAsNewRecord (clone-a-sibling) + construct-and-Add-into-collection (new parent),
-// the FormID floor, and characterizes the coordinate-keyed §4-(b) seam. Throwaway recon, fail-loud per shape (Q3).
+// Can houseCARL ALLOCATE a brand-new record INTO a nested parent? Tests DuplicateIntoAsNewRecord (clone-a-sibling)
+// and construct-and-Add-into-collection (new parent), the FormID floor, and the coordinate-keyed cell seam.
+// Throwaway recon; each shape fails loud rather than degrading.
 if (args.Length > 0 && args[0] == "nested-create-probe") return NestedCreateProbe.RunProbe(args[1..]);
 
-// Nested-create build proof (Layer A): drive the REAL WritePatchBuilder.CreateRecords nested path — one-shot
-// topic+INFO, INFO into an existing topic, Placed into a cell (named collection), + the Q3 rejects (no-parent,
-// bad parent, ambiguous collection, forward sibling). Re-opens each patch from disk; Skyrim.esm byte-checked.
+// Nested-create build proof: drive the REAL WritePatchBuilder.CreateRecords nested path — one-shot topic+INFO,
+// INFO into an existing topic, Placed into a cell (named collection), plus the rejects (no-parent, bad parent,
+// ambiguous collection, forward sibling). Re-opens each patch from disk; Skyrim.esm byte-checked.
 if (args.Length > 0 && args[0] == "nested-create-proof") return NestedCreateProof.RunProof(args[1..]);
 
-// STEP 0 scout for the COORDINATE-KEYED §4-(b) seam (exterior/interior Cell + Placed-into-new-cell): round-trips a
-// constructed cell into find-or-built WorldspaceBlock/SubBlock (exterior, floor(grid/32|8)) and CellBlock/SubBlock
-// (interior, FormID digits), checks override is thin, block math vs vanilla, OFST regen, source byte-unchanged.
+// The COORDINATE-KEYED cell seam (exterior/interior Cell + Placed-into-new-cell): round-trips a constructed cell
+// into find-or-built WorldspaceBlock/SubBlock (exterior, floor(grid/32|8)) and CellBlock/SubBlock (interior,
+// FormID digits), checks the override is thin, the block math against vanilla, OFST regen, source byte-unchanged.
 if (args.Length > 0 && args[0] == "coord-cell-probe") return CoordCellProbe.RunProbe(args[1..]);
 
-// Wave 4 scout: recon Mutagen's IFormLinkOrIndex condition-target API — the form-vs-index discriminator (condition oracle), the wave-4 unknown.
+// Recon Mutagen's IFormLinkOrIndex condition-target API — the form-vs-index discriminator.
 if (args.Length > 0 && args[0] == "condition-probe") return ConditionProbe.RunConditionProbe(args[1..]);
 
-// Wave 5 scout: ModHeader mutable-root reachability (the header is a singleton property, not a group/record).
+// ModHeader mutable-root reachability — the header is a singleton property, not a group/record.
 if (args.Length > 0 && args[0] == "header-probe") return Wave5Probe.RunHeaderProbe(args[1..]);
 
-// Wave 5 scout: the PEX read->write round-trip GATE (project_pex_prefer_source_policy) — the wave-5 unknown.
+// The PEX read-to-write round-trip gate.
 if (args.Length > 0 && args[0] == "pex-probe") return Wave5Probe.RunPexProbe(args[1..]);
 
-// NOTE: coerce-audit + coerce-selftest are now CI guards carrying [CiProbe] (the ONE CI source of truth, dispatched
-// for single runs via CiAll.TryDispatch at the top of this file) — no separate dispatch here, by design.
+// coerce-audit and coerce-selftest carry [CiProbe] and dispatch via CiAll.TryDispatch at the top of this file,
+// so they get no separate dispatch here.
 
-// Step 7 write-surface census: corpus-derived reachability map of every writable leaf (the completeness scoreboard).
+// Write-surface census: corpus-derived reachability map of every writable leaf.
 if (args.Length > 0 && args[0] == "write-census") return WriteCensus.Run(args[1..]);
 
-// Wave 0 prove-today: the only-target-moved differ + byte-true drive across the reachable settable surface.
+// The only-target-moved differ + byte-true drive across the reachable settable surface.
 if (args.Length > 0 && args[0] == "write-proof") return WriteProof.RunProof(args[1..]);
 
-// Wave 2 real-patch dev harness: one concrete set_field -> a real reviewable .esp (Aaron xEdit-verifies).
+// Real-patch dev harness: one concrete set_field to a real .esp, checked in xEdit by hand.
 if (args.Length > 0 && args[0] == "patch") return WriteEngine.RunPatch(args[1..]);
 
 // Read-to-plan: resolve a record + print its fields/keywords (the minimum read to author a correct write).
 if (args.Length > 0 && args[0] == "show") return WriteEngine.RunShow(args[1..]);
 
-// Step 6 read surface: resolve a record + emit its fields as round-trippable tokens (inverse of Coerce).
+// Read surface: resolve a record and emit its fields as round-trippable tokens (inverse of Coerce).
 if (args.Length > 0 && args[0] == "read") return ReadEngine.RunRead(args[1..]);
 
-// Step 6 read-proof: read↔write round-trip oracle — read each value leaf, write the token back, assert no-op.
+// Read-proof: read each value leaf, write the token back, assert no-op.
 if (args.Length > 0 && args[0] == "read-proof") return WriteProof.RunReadProof(args[1..]);
 
-// Wave 4 capability lock: re-target one real condition target -> a reviewable .esp (Aaron xEdit-verifies the new target).
+// Re-target one real condition target to an .esp, with the new target checked in xEdit by hand.
 if (args.Length > 0 && args[0] == "condition-patch") return WriteEngine.RunConditionPatch(args[1..]);
 
-// MCP step §8.1: measure-first probe — on-demand vs held-index load-order resolution cost (the FIRST build action; gates fork §6-C).
+// Measure on-demand against held-index load-order resolution cost.
 if (args.Length > 0 && args[0] == "resolve-probe") return ResolveProbe.RunResolveProbe(args[1..]);
 
-// MCP step §8.3 beat 1: measure-first body-fetch probe — cost of resolving a conflict tree's bodies on demand (the one piece §8.1 left open).
+// Measure the cost of resolving a conflict tree's bodies on demand.
 if (args.Length > 0 && args[0] == "body-fetch-probe") return BodyFetchProbe.RunBodyFetchProbe(args[1..]);
 
-// MCP step §8.3: stand up + verify the net-new LoadOrderResolver (held RAM, tree correctness, body-fetch timing, freshness sweep).
+// Stand up and verify LoadOrderResolver: held RAM, tree correctness, body-fetch timing, freshness sweep.
 if (args.Length > 0 && args[0] == "resolve") return ResolveHarness.RunResolve(args[1..]);
 
-// MCP step (Beat C de-risk): prove the MULTI-MASTER write path — a real merge patch (leveled list + cross-master entries) -> reviewable .esp.
+// Prove the MULTI-MASTER write path: a real merge patch (leveled list + cross-master entries) to an .esp.
 if (args.Length > 0 && args[0] == "multimaster-patch") return MultiMasterProof.RunMultiMasterPatch(args[1..]);
 
-// MCP step (Beat C build): prove the PUBLIC write cleave the MCP set_field/bulk_apply/into= tools call (flat + multi + extend + cross-master + reject).
+// Prove the PUBLIC write cleave the set_field/bulk_apply/into= tools call (flat, multi, extend, cross-master, reject).
 if (args.Length > 0 && args[0] == "apply-proof") return ApplyProof.RunApplyProof(args[1..]);
 
-// MCP step §8.5: verify the TRUE active order read from MO2's static profile files (loadorder.txt + modlist.txt + plugins.txt).
+// Verify the TRUE active order read from MO2's static profile files (loadorder.txt + modlist.txt + plugins.txt).
 if (args.Length > 0 && args[0] == "mo2-order") return Mo2OrderHarness.RunMo2Order(args[1..]);
 
-// Capability arc scout (Remove + Create): AddNew/FormID allocation (Create) + write-path master derivation (clean-masters).
+// Remove + Create recon: AddNew/FormID allocation, and write-path master derivation (clean-masters).
 if (args.Length > 0 && args[0] == "remove-create-probe") return RemoveCreateProbe.RunProbe(args[1..]);
 
-// Capability arc scout #2 (remove-record): whole-record removal via mod.Remove(FormKey) — flat + nested + not-found semantics.
+// Remove-record recon: whole-record removal via mod.Remove(FormKey) — flat, nested, and not-found semantics.
 if (args.Length > 0 && args[0] == "remove-record-probe") return RemoveRecordProbe.RunProbe(args[1..]);
 
-// Capability arc remove-record proof: drive WritePatchBuilder.RemoveRecords (the core housecarl_remove_record calls) vs a real, large load order.
+// Drive WritePatchBuilder.RemoveRecords, the core housecarl_remove_record calls, against a real, large load order.
 if (args.Length > 0 && args[0] == "remove-proof") return RemoveProof.RunRemoveProof(args[1..]);
 
-// Capability arc scout #3 (Create — the LAST build): generic AddNew dispatch + FormID allocation + fields-via-ApplyVerb + the nested/abstract-T scope fork.
+// Create recon: generic AddNew dispatch, FormID allocation, fields-via-ApplyVerb, and the nested/abstract-T scope fork.
 if (args.Length > 0 && args[0] == "create-probe") return CreateProbe.RunProbe(args[1..]);
 
-// Capability arc create proof: drive WritePatchBuilder.CreateRecords (the core housecarl_create_record calls) vs a real, large load order.
+// Drive WritePatchBuilder.CreateRecords, the core housecarl_create_record calls, against a real, large load order.
 if (args.Length > 0 && args[0] == "create-proof") return CreateProof.RunCreateProof(args[1..]);
 
-// Master-baseline scout: how to FORCE Skyrim.esm onto every written plugin (Mutagen strips unreferenced masters) — Aaron-flagged bug.
+// How to FORCE Skyrim.esm onto every written plugin, given that Mutagen strips unreferenced masters.
 if (args.Length > 0 && args[0] == "master-probe") return MasterProbe.RunProbe(args[1..]);
 
-// Cleanup-gotcha / Option-B viability: prove a plain overlay LOCKS a plugin, Dispose() RELEASES it promptly, and open->read->dispose latency is invisible (de-risks the LOCKED Option-B fix).
+// Prove a plain overlay LOCKS a plugin, that Dispose() releases it promptly, and that open-read-dispose latency is invisible.
 if (args.Length > 0 && args[0] == "handle-probe") return HandleProbe.RunProbe(args[1..]);
 
-// Cleanup-gotcha / Option-B AT-REST proof: drive the REAL product code (resolver Build -> read via session -> create via write path) on temp copies and assert files are renamable at rest (zero handles held).
+// Drive the REAL product code (resolver Build, read via session, create via write path) on temp copies and assert the files are renamable at rest, i.e. no handles held.
 if (args.Length > 0 && args[0] == "atrest-probe") return AtRestProbe.RunProbe(args[1..]);
 
-// Active-patch write self-lock (Heisen bug 2026-06-08): EXPLORATORY — map the Windows file-sharing semantics of writing
-// into a patch whose own overlay is held by AllMasters() (direct vs temp+Replace vs release-then-write). Decides the fix.
+// Active-patch write self-lock, EXPLORATORY: map the Windows file-sharing semantics of writing into a patch whose
+// own overlay is held by AllMasters() — direct, temp+Replace, and release-then-write.
 if (args.Length > 0 && args[0] == "writelock-probe") return WriteLockProbe.RunProbe(args[1..]);
 
-// Active-patch write self-lock follow-up (PR #24 review): EXPLORATORY — prove Apply's Phase-1 winner-fetch opens a SECOND
-// overlay on the target (when re-editing an own override) that survives AllMastersExcept and still self-locks the serialize.
+// Active-patch write self-lock, EXPLORATORY: prove Apply's winner-fetch opens a SECOND overlay on the target when
+// re-editing an own override, one that survives AllMastersExcept and still self-locks the serialize.
 if (args.Length > 0 && args[0] == "writelock-apply-probe") return WriteLockProbe.RunApplyResidualProbe(args[1..]);
 
-// Active-patch write self-lock follow-up (PR #24 review #2): REAL-DATA proof that a NESTED record (PlacedObject, via the
-// link-cache context path) survives the re-edit-own-override case under the new "release overlay before serialize" invariant.
+// REAL-DATA proof that a NESTED record (PlacedObject, via the link-cache context path) survives the
+// re-edit-own-override case under the "release overlay before serialize" invariant.
 if (args.Length > 0 && args[0] == "writelock-nested-proof") return WriteLockProbe.RunNestedProof(args[1..]);
 
-// In-place write lane Wave 1: REAL-DATA proof of the NESTED own-override re-edit IN PLACE (the LinkCacheFor-on-a-foreign-
-// target overlay path), the one arm the self-contained guard can't synthesize. Needs Skyrim.esm; self-skips on the runner.
+// REAL-DATA proof of the NESTED own-override re-edit IN PLACE (the LinkCacheFor-on-a-foreign-target overlay path),
+// the one arm the self-contained guard cannot synthesize. Needs Skyrim.esm; self-skips on the runner.
 if (args.Length > 0 && args[0] == "inplace-nested-proof") return InPlaceProbe.RunNestedProof(args[1..]);
 
-// In-place write lane Wave 2: REAL-DATA proof of the NESTED own-override REMOVE IN PLACE (typed nested Remove + a real-data
-// WriteInPlace re-serialize on a foreign target). The remove counterpart of inplace-nested-proof. Needs Skyrim.esm; self-skips.
+// REAL-DATA proof of the NESTED own-override REMOVE IN PLACE (typed nested Remove plus a real-data WriteInPlace
+// re-serialize on a foreign target) — the remove counterpart of inplace-nested-proof. Needs Skyrim.esm; self-skips.
 if (args.Length > 0 && args[0] == "inplace-remove-nested-proof") return InPlaceProbe.RunRemoveNestedProof(args[1..]);
 
-// Perk references= crash (HCBR-2026-06-09-03): DIAGNOSIS — run Mutagen's EnumerateFormLinks over every PERK in a
-// real plugin, report which records throw and with what (the evidence the fix is designed from). Skips without Skyrim.esm.
+// Perk references= crash, DIAGNOSIS: run Mutagen's EnumerateFormLinks over every PERK in a real plugin and report
+// which records throw and with what. Skips without Skyrim.esm.
 if (args.Length > 0 && args[0] == "perk-refs-diagnose") return PerkRefsProbe.RunDiagnose(args[1..]);
 
-// Perk references= crash (HCBR-2026-06-09-03): REAL-DATA proof — the report's exact failing call (type=Perk references=)
-// over a live MO2 order through the service layer. Manual; needs --mo2 + --corpus (skips without).
+// Perk references= crash, REAL-DATA proof: the failing call (type=Perk references=) over a live MO2 order through
+// the service layer. Manual; needs --mo2 and --corpus, and skips without them.
 if (args.Length > 0 && args[0] == "perk-refs-proof") return PerkRefsProbe.RunProof(args[1..]);
 
-// Conflict-tree content diff (HCBR-2026-06-09-01): REAL-DATA proof — the report's exact repro (MM_RelentlessFury's
-// "(identical to winner)" false ITM) over a live MO2 order. Manual; needs --mo2 (skips without).
+// Conflict-tree content diff, REAL-DATA proof: the "(identical to winner)" false ITM over a live MO2 order.
+// Manual; needs --mo2, and skips without it.
 if (args.Length > 0 && args[0] == "conflict-diff-proof") return ConflictDiffProbe.RunProof(args[1..]);
 
-// FormID allocation floor (HCBR-2026-06-09-04): EXPLORATORY — pin the Mutagen NextFormID semantics (fresh-mod init,
-// the Iterate serialize recompute that seeds 0, CreateFromBinary rehydration, AddNew-from-0) the fix is designed from.
+// FormID allocation floor, EXPLORATORY: pin the Mutagen NextFormID semantics — fresh-mod init, the Iterate
+// serialize recompute that seeds 0, CreateFromBinary rehydration, AddNew-from-0.
 if (args.Length > 0 && args[0] == "formid-floor-probe") return FormIdFloorProbe.RunProbe(args[1..]);
 
-// ESL / FE-space FormID handling (HCBR-2026-06-15-01 item 5.1): EXPLORATORY — pin the referenced Mutagen version's small-master
-// semantics (legal object-ID range, IsSmallMaster→FE-space encode through our incantation, FE decode round-trip,
-// flag-tracking, index-independence) the guard + any §4 surface-call are built from.
+// ESL / FE-space FormID handling, EXPLORATORY: pin the referenced Mutagen version's small-master semantics —
+// legal object-ID range, IsSmallMaster to FE-space encode, FE decode round-trip, flag-tracking, index-independence.
 if (args.Length > 0 && args[0] == "esl-formid-probe") return EslFormIdProbe.RunProbe(args[1..]);
 
-// ESL ground-truth scan (HCBR-2026-06-15-01 item 5.1): EXPLORATORY — raw-byte scan of REAL plugins to settle
-// whether SSE stores light-master references in FE-space on disk (0xFE high byte) or by master-list index.
+// ESL ground-truth scan, EXPLORATORY: raw-byte scan of REAL plugins to settle whether SSE stores light-master
+// references in FE-space on disk (0xFE high byte) or by master-list index.
 if (args.Length > 0 && args[0] == "esl-real-scan") return EslFormIdProbe.RunRealScan(args[1..]);
 
-// IN-PLACE WRITE LANE, Wave 0 (design-gating, IN_PLACE_WRITE_LANE_PLAN §5.3/§9 STEP-2): MANUAL/REAL-DATA probe —
-// no-op re-serialize a sample of REAL plugins (counter-preserving, the §5.1-correct in-place shape) and measure the
-// whole-plugin byte divergence surface (identical / header-only / body / records-changed / unloadable), so fork #1's
-// round-trip accept/refuse threshold is calibrated on measured reality. Needs --mo2 <instance>; SKIPs without (a
-// synthetic fixture round-trips clean and would reveal nothing). Writes only to temp; read-only on the load order.
+// MANUAL/REAL-DATA probe: no-op re-serialize a sample of REAL plugins (counter-preserving, the correct in-place
+// shape) and measure the whole-plugin byte divergence surface — identical, header-only, body, records-changed,
+// unloadable — so the round-trip accept/refuse threshold is set from measured reality. Needs --mo2 <instance> and
+// SKIPs without one, because a synthetic fixture round-trips clean and would reveal nothing. Writes only to temp;
+// read-only on the load order.
 if (args.Length > 0 && args[0] == "roundtrip-probe") return RoundTripProbe.RunProbe(args[1..]);
 
-// COMPACT/MERGE Wave 1 (COMPACT_MERGE_PLAN §3/§4): EXPLORATORY mechanism pin — settle, self-contained, whether
-// RemapLinks changes a record's OWN identity or only its references, whether MajorRecord.FormKey is settable, and
-// which Mutagen affordance compact must use to renumber a record into the ESL range. Run before building RemapEngine.
+// Compact/merge, EXPLORATORY: settle, self-contained, whether RemapLinks changes a record's OWN identity or only
+// its references, whether MajorRecord.FormKey is settable, and which Mutagen affordance compact must use to
+// renumber a record into the ESL range.
 if (args.Length > 0 && args[0] == "remap-wave1-mech") return RemapWave1Probe.RunMechanism(args[1..]);
 
-// COMPACT/MERGE Wave 1 GATE (self-contained, CI-able) is a [CiProbe] guard, `remap-wave1-guard` —
-// it dispatches through CiAll.TryDispatch above (the ONE CI source of truth), so it is NOT listed here.
+// The self-contained compact/merge gate is a [CiProbe] guard, `remap-wave1-guard`, dispatched by CiAll.TryDispatch
+// above, so it is not listed here.
 
-// COMPACT/MERGE Wave 1 real-data run (MANUAL): ESL-compact a real plugin to a NEW P′ for Aaron to xEdit-verify, and
-// time the identify-pass over the live order. Needs --mo2 <inst> --plugin <Name.esp>; SKIPs without.
+// Compact/merge real-data run, MANUAL: ESL-compact a real plugin to a NEW one for checking in xEdit, and time the
+// identify-pass over the live order. Needs --mo2 <inst> --plugin <Name.esp>, and SKIPs without them.
 if (args.Length > 0 && args[0] == "remap-wave1-real") return RemapWave1Probe.RunReal(args[1..]);
 
-// COMPACT/MERGE Wave 2 (COMPACT_MERGE_PLAN §4): EXPLORATORY mechanism pin — settle, self-contained, whether the
-// recursive Duplicate-and-replace renumber closes the nested-record gap (cell/worldspace/topic children renumber +
-// round-trip on disk), and whether IMajorRecordGetterEnumerable is the by-construction recurse discriminator.
+// Compact/merge, EXPLORATORY: settle, self-contained, whether the recursive Duplicate-and-replace renumber closes
+// the nested-record gap (cell/worldspace/topic children renumber and round-trip on disk), and whether
+// IMajorRecordGetterEnumerable is the recurse discriminator.
 if (args.Length > 0 && args[0] == "remap-wave2-nested-mech") return RemapWave2NestedMechProbe.RunMechanism(args[1..]);
 
-// SKSE-plugin-layer visibility (gap 2026-06-08) MANUAL real-data harness: run housecarl_skse_inventory against a live
-// MO2 instance and print the render + timing (the CI skse-reader-guard pins the decode; this proves the full inventory).
+// MANUAL real-data harness: run housecarl_skse_inventory against a live MO2 instance and print the render and
+// timing. The CI skse-reader-guard pins the decode; this covers the full inventory.
 if (args.Length > 0 && args[0] == "skse-inventory-real") return SkseInventoryProbe.RunReal(args[1..]);
 
-// SKSE tier D (static peek, #199) needs no manual harness of its own — skse-inventory-real --peek --filter <dll>
-// drives the live peek.
+// The SKSE static peek needs no manual harness of its own — skse-inventory-real --peek --filter <dll> drives it.
 
-// SKSE config audit (tier B, #199) MANUAL real-data harness (the live gate: runs the whole audit against a live
-// MO2 instance and prints the audit + timing).
+// SKSE config audit, MANUAL real-data harness: the whole audit against a live MO2 instance, with timing.
 if (args.Length > 0 && args[0] == "skse-config-audit-real") return SkseConfigAuditProbe.RunReal(args[1..]);
 
-// Native-function pairing audit MANUAL real-data harness (the live gate: the whole audit against a live MO2
-// instance, render + timing).
+// Native-function pairing audit, MANUAL real-data harness: the whole audit against a live MO2 instance, with timing.
 if (args.Length > 0 && args[0] == "native-pairing-real") return NativePairingProbe.RunReal(args[1..]);
 
-// UNKNOWN MODE — refused, not silently taken as an output directory (2.0 tidy-up scar, W3 PR 3 housekeeping).
-// Every dispatch above matched nothing, and the corpus fallthrough below reads args[0] as the OUTPUT DIRECTORY. So a
-// mistyped probe name generated the whole corpus into a folder of that name and exited 0: two of them put 13.5 MB of
-// generated files in the working tree, which `git add -A` then nearly committed. A mode and a directory ARE
-// distinguishable — a directory is ROOTED or carries a SEPARATOR (or is "." / "..") — so anything else is refused BY
-// NAME, with the real modes listed and the near misses suggested (Q3: never a silent wrong action). Deliberately NOT
-// "…or it already exists": see IsDirectoryArgument, where that clause was removed after it let a mistyped mode write
-// into ./plugin (review [low] — this comment asserted it 25 lines above the one explaining why it is gone).
+// UNKNOWN MODE — refused, never silently taken as an output directory. Every dispatch above matched nothing, and
+// the corpus fallthrough below reads args[0] as the OUTPUT DIRECTORY, so a mistyped probe name would generate the
+// whole corpus into a folder of that name and exit 0. A mode and a directory are distinguishable — a directory is
+// ROOTED or carries a SEPARATOR (or is "." / "..") — so anything else is refused by name, with the real modes
+// listed and near misses suggested. See IsDirectoryArgument for why "…or it already exists" is not a third clause.
 if (args.Length > 0 && !IsDirectoryArgument(args[0]))
 {
     Console.Error.WriteLine($"unknown mode '{args[0]}' — nothing was generated and nothing was written.");
@@ -282,7 +270,7 @@ if (args.Length > 0 && !IsDirectoryArgument(args[0]))
     Console.Error.WriteLine("Other modes are the manual/exploratory harnesses declared in src/housecarl-generator/Program.cs");
     Console.Error.WriteLine("(they are not in the suggestion pool above — only the CI guards are).");
     // State the RULE, not just the intent: "pass a directory path" alone is advice a caller who typed one has
-    // already followed, and the accepted spellings are not guessable (reviews [low], twice).
+    // already followed, and the accepted spellings are not guessable.
     Console.Error.WriteLine("To GENERATE the corpus into a directory, pass a path that is ROOTED (C:\\…), carries a");
     Console.Error.WriteLine("SEPARATOR (./out), or is \".\" / \"..\" — a BARE name is always read as a mode, even if a");
     Console.Error.WriteLine("folder of that name exists (that clause is what let a mistyped mode write into ./plugin).");
@@ -292,11 +280,10 @@ if (args.Length > 0 && !IsDirectoryArgument(args[0]))
 
 // A mode name is a BARE token; an output directory is rooted or carries a separator.
 //
-// "…or it already exists as a directory" was the obvious third clause, and it reopened the exact hole this check
-// closes (review [low], then reproduced): `plugin`, `src`, `scripts`, `standards`, `release` and `generated` are all
-// real folders at the repo root, so a mistyped mode that collided with one still generated the whole corpus into it —
-// `dotnet run --project src/housecarl-generator plugin` put 7.6 MB into plugin/ while this very fix was being
-// written. An output directory can always be spelled with a separator; a mistyped mode cannot be spelled back.
+// Do not add "…or it already exists as a directory" as a third clause: `plugin`, `src`, `scripts`, `standards`,
+// `release` and `generated` are all real folders at the repo root, so a mistyped mode colliding with one would
+// generate the whole corpus into it. An output directory can always be spelled with a separator; a mistyped mode
+// cannot be spelled back.
 static bool IsDirectoryArgument(string a)
 {
     if (a.Length == 0) return false;
