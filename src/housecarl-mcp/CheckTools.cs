@@ -5,27 +5,22 @@ using ModelContextProtocol.Server;
 namespace HousecarlMcp;
 
 /// <summary>
-/// <c>housecarl_check</c> — the merged derived-findings sweep (SPEC §6.1): <c>housecarl_check_errors</c>,
-/// <c>housecarl_validate_scripts</c> and <c>housecarl_validate_dialogue</c>'s findings (its classes 1-7), with
-/// <c>findings=</c> selecting the taxonomy.
+/// <c>housecarl_check</c> — the merged derived-findings sweep: the error, script-binding and dialogue findings in
+/// one call, with <c>findings=</c> selecting the taxonomy.
 ///
-/// <para><b>Both ancestors stay registered.</b> That is the W2/W3 precedent (<c>housecarl_records</c> sits beside
-/// the eight reads it absorbs) and it is what makes the build waves land non-breaking: the alias rows for the old
-/// names are in <see cref="AliasTable"/> and are dormant by construction while the names still resolve. They
-/// activate at the 2.0.0 clean cut, when the ancestors are unregistered. No response carries deprecation prose.</para>
+/// <para>The single-family tools stay registered alongside it; the alias rows for their names are in
+/// <see cref="AliasTable"/> and stay dormant while those names still resolve. No response carries deprecation
+/// prose.</para>
 ///
-/// <para><b>What lives here and what does not.</b> This file holds the merged tool and the ORCHESTRATION a merged
-/// tool needs — which families to run, and what scope each of them can actually take. The per-family sweeps are
-/// the ancestors' own service calls, unchanged; the sweep families' renders are their transports'
-/// (<c>Wire.RenderCheck</c>, <c>JsonWire.RenderCheck</c>), where the section renderers they call already live, and
-/// the dialogue family's is <see cref="DialogueSweepRender"/>, beside the <c>DialogueWire</c> helpers IT is
-/// assembled out of. Both follow the same rule — a render lives with its helpers — which is why they land in
-/// different files.</para>
+/// <para>This file holds the merged tool and the orchestration it needs — which families to run, and what scope
+/// each can take. The per-family sweeps are the existing service calls, and each family's render lives with the
+/// helpers it is assembled out of: the sweep families' in their transports, the dialogue family's in
+/// <see cref="DialogueSweepRender"/>.</para>
 ///
-/// <para><b>The families do not share one scope.</b> The two sweep families take plugins and records; the dialogue
-/// family takes SEEDS (SPEC §6.1 F1.1), so <c>plugins=</c> / <c>exclude=</c> and friends narrow the first two and
-/// not the third. That is stated in the dialogue section rather than resolved by giving one parameter two meanings,
-/// and an unseeded dialogue call is refused on cost (F1.2) rather than widened to the whole order.</para>
+/// <para>The families do not share one scope. The two sweep families take plugins and records; the dialogue family
+/// takes seeds, so <c>plugins=</c> / <c>exclude=</c> and friends narrow the first two and not the third. The
+/// dialogue section says so rather than one parameter being given two meanings, and an unseeded dialogue call is
+/// refused on cost rather than widened to the whole order.</para>
 /// </summary>
 [McpServerToolType]
 public static class CheckTools
@@ -155,27 +150,23 @@ public static class CheckTools
         if (!SweepFamilySelection.TryParse(findings, out var selection, out var famErr)) return Wire.Refuse(json, "error: " + famErr);
         int lim = limit <= 0 ? 1000 : limit;
 
-        // WHAT EVERY FAMILY AGREES IS MALFORMED, CHECKED BEFORE ANY OF THEM IS DISPATCHED. These parameters were
-        // parsed inside the two SWEEP families' service entries, and those are called only where their family was
-        // selected — so a dialogue-only call never looked at them, and a blank plugins= entry was filtered out
-        // below before `noneInScope` could see it and the whole order was swept. Rendered through the normal
-        // refusal path rather than returned as a bare string, so format='json' still gets a document.
-        // See SweepSharedInput for the split: syntax refuses here, scope MATCHING stays family-local.
+        // What every family agrees is malformed, checked before any of them is dispatched — the sweep families
+        // parse these in their own service entries, which a dialogue-only call never reaches. Rendered through the
+        // normal refusal path rather than returned as a bare string, so format='json' still gets a document.
+        // See SweepSharedInput for the split: syntax refuses here, scope matching stays family-local.
         if (SweepSharedInput.Error(svc, plugins, type, formids, editorid_contains, exclude) is { } inputErr)
         {
             var refusal = new CheckSweep(selection, SharedInputError: inputErr);
             return json ? JsonWire.RenderCheck(refusal, max_chars, lim) : Wire.RenderCheck(refusal, max_chars, lim);
         }
 
-        // WHICH FAMILY CAN SWEEP WHICH PLUGIN. The errors family resolves a name that is not in the active order on
-        // disk and sweeps it off-order; the scripts family has no such lane and refuses such a name outright. On one
-        // plugins= list feeding both, that asymmetry is STATED per family rather than resolved by widening one
-        // family silently (capability growth, which belongs in an issue) or by refusing a call the errors family can
-        // answer. So the scripts family is handed the ACTIVE subset, and the response names what it left out.
+        // Which family can sweep which plugin. The errors family resolves a name not in the active order on disk and
+        // sweeps it off-order; the scripts family has no such lane. On one plugins= list feeding both, the scripts
+        // family is handed the ACTIVE subset and the response states per family what it left out, rather than one
+        // family being silently widened or a call the errors family can answer being refused.
         var active = new HashSet<string>(svc.ActivePluginNames, StringComparer.OrdinalIgnoreCase);
-        // The Where() is now a formality rather than a filter: a blank entry refused above, so nothing reaches
-        // here for it to drop. It stayed because the trim is what makes the active-set comparison honest, and a
-        // filter that can no longer discard anything is cheaper to keep than a second rule about whitespace.
+        // The Where() drops nothing in practice — a blank entry refused above — but the trim is what makes the
+        // active-set comparison honest.
         var named = (plugins ?? Array.Empty<string>()).Select(p => (p ?? "").Trim())
                                                       .Where(p => p.Length > 0).ToArray();
         var offOrder = named.Where(p => !active.Contains(p)).ToArray();
@@ -190,15 +181,15 @@ public static class CheckTools
             scripts = svc.ValidateScripts(activeNamed.Length > 0 ? activeNamed : null, lim, formids, editorid_contains,
                                           type, property_contains, SweepFindings.Tokens(selection.ScriptClasses),
                                           counts_only, exclude,
-                                          // A caller who named plugins and had EVERY one of them resolve off-order
-                                          // has given this family an empty scope. Passing null instead would widen it
-                                          // to the whole order — a 3800-plugin sweep the caller did not ask for.
+                                          // A caller whose every named plugin resolved off-order has given this
+                                          // family an empty scope; passing null instead would widen it to the whole
+                                          // order, a sweep the caller did not ask for.
                                           noneInScope: named.Length > 0 && activeNamed.Length == 0);
         DialogueCheckResult? dialogue = null;
         if (selection.Ran.Contains(SweepFamily.Dialogue))
-            // Its own scope, and NOT the plugins= list: this family selects records, not plugins (SPEC §6.1 F1.1).
-            // Handing it `plugins` would be a second meaning for one parameter; handing it nothing when the caller
-            // gave no seeds is the cost-refusal (F1.2), which DialogueSweep raises rather than widening to the order.
+            // Its own scope, not the plugins= list: this family selects records, not plugins, so handing it
+            // `plugins` would give one parameter a second meaning. With no seeds it raises the cost refusal rather
+            // than widening to the whole order.
             dialogue = svc.CheckDialogue(seeds, lim, counts_only);
 
         var sweep = new CheckSweep(selection, errors, scripts, offOrder, dialogue);
