@@ -38,15 +38,14 @@ public sealed class BsaPackReadBackTests : IDisposable
         return src;
     }
 
-    /// <summary>A packer that ignores BSArch and writes <paramref name="archive"/> at the scratch path. The write time is
-    /// stamped explicitly to get past the pack's own provenance gate: NTFS records a last-write time coarser than the
-    /// clock that gate's baseline is read from, so an instant write reads as stale (#522). Drop the stamp once that is
-    /// fixed — these tests are about the count read-back, not the gate.</summary>
-    static BsaPacker Writes(byte[] archive) => (_, _, tmpArchive, _, _, _) =>
+    /// <summary>A packer that ignores BSArch and writes <paramref name="archive"/> at the scratch path, reporting
+    /// <paramref name="exit"/> as the run's exit code. The write time is stamped explicitly to get past the pack's own
+    /// provenance gate, which an instant write reads as stale (#522); drop the stamp once that is fixed.</summary>
+    static BsaPacker Writes(byte[] archive, int exit = 0, string stderr = "") => (_, _, tmpArchive, _, _, _) =>
     {
         File.WriteAllBytes(tmpArchive, archive);
         File.SetLastWriteTimeUtc(tmpArchive, DateTime.UtcNow);
-        return ("", "", null);
+        return (exit, "", stderr, null);
     };
 
     [Fact]
@@ -82,6 +81,26 @@ public sealed class BsaPackReadBackTests : IDisposable
         var refusal = Assert.IsType<string>(result.CountError);
         Assert.Contains("2 file(s)", refusal);
         Assert.Contains("offers 3", refusal);
+        Assert.Equal("PRIOR ARCHIVE", File.ReadAllText(target));
+    }
+
+    /// <summary>A packer that exits non-zero has failed, whatever it left on disk — even a scratch whose header count
+    /// agrees with the source. The refusal names the exit code and what the packer printed.</summary>
+    [Fact]
+    public void PackRefusesAScratchFromANonZeroExit()
+    {
+        var src = ThreeFileSource();
+        var target = Path.Combine(_root, "Out.bsa");
+        File.WriteAllText(target, "PRIOR ARCHIVE");
+        var archive = BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames, Contents);
+
+        var result = BsaArchive.Pack("bsarch.exe", src, target, "-sse", compress: false,
+            packer: Writes(archive, exit: 1, stderr: "aborted at meshes/b.nif"));
+
+        Assert.False(result.Success);
+        var refusal = Assert.IsType<string>(result.RunError);
+        Assert.Contains("code 1", refusal);
+        Assert.Contains("aborted at meshes/b.nif", refusal);
         Assert.Equal("PRIOR ARCHIVE", File.ReadAllText(target));
     }
 }

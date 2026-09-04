@@ -12,7 +12,7 @@ namespace HousecarlGenerator;
 /// What it locks:
 ///   1. PACK PROVENANCE — "tmp exists and is non-empty" proved nothing about WHO made it: a stale scratch from a previous
 ///      run could ship as this run's archive. A stuck (undeletable) stale scratch now REFUSES loud before running; a
-///      fresh-run mtime baseline gates the move; a failing pack leaves any prior archive byte-untouched.
+///      pre-run clear plus a zero-exit run gates the move; a failing pack leaves any prior archive byte-untouched.
 ///   2. FORMAT REFUSAL — an unknown format token used to coerce silently to -sse; TryFormatFlag now returns null for
 ///      refusal (legal tokens keep their flags; the sse family defaults).
 /// </summary>
@@ -51,9 +51,10 @@ internal static class BsaContractProbe
                       "stuck stale scratch → loud refusal naming it (nothing packed)");
             }
             Check(File.ReadAllText(target) == "PRIOR ARCHIVE — must survive", "the prior archive is byte-untouched");
-            // unlocked stale: delete succeeds, stub packs nothing → honest failure, stale gone, target untouched
+            // unlocked stale: delete succeeds, stub exits non-zero and packs nothing → refusal naming the exit code
             var rp2 = BsaArchive.Pack(stub, packDir, target, "-sse", compress: false, timeoutMs: 30_000);
-            Check(rp2.Ran && !rp2.Success, "deletable stale + failing BSArch = honest failure (no stale shipped)");
+            Check(!rp2.Success && (rp2.RunError?.Contains("exited with code", StringComparison.OrdinalIgnoreCase) ?? false),
+                  "deletable stale + failing BSArch = refusal naming the exit code (no stale shipped)");
             Check(File.ReadAllText(target) == "PRIOR ARCHIVE — must survive", "the prior archive survives that path too");
 
             // ---- 2) format refusal ----
