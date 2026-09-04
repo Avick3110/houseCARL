@@ -19,8 +19,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `XX######` for a full one, with or without a leading `0x`. It is resolved against the load order as it
   stands at the call (the light index moves whenever the order does, so nothing is cached), and the answer
   names the plugin it resolved to. Every rendered record now carries its runtime FormID beside the
-  `XXXXXX:Plugin.esp` form — `runtime=` in the text lanes, `runtime_formid` in json — so a record read here
-  can be carried straight back to the console or xEdit. An index no active plugin occupies is refused by
+  `XXXXXX:Plugin.esp` form — `runtime=` in the text lanes, `runtime_formid` in json and in the scan's dense
+  columns and spilled artifacts — so a record read here can be carried straight back to the console or xEdit.
+  A record in a plugin flagged light but never compacted, whose object ID is above the ESL window, gets a
+  sentence saying so where the form would have been rather than a form that names its in-window neighbour
+  too. An index no active plugin occupies is refused by
   name, and so is an `FF` dynamic form, which exists only in a save game. The `XXXXXX:Plugin.esp` form is
   unchanged, and stays the way to read a plugin that is not active. A `where=` operand compared against a field
   holds numbers and enum names too, so it takes the plugin-qualified form only; the `formid in [...]` list takes
