@@ -472,6 +472,40 @@ public static class CompactServiceGuardProbe
                     $"(refused={!og.Success} named={namedGone} nothingWritten={nothingWritten}) [{og.Error}]");
             }
 
+            // ---- FOLDER-UNREADABLE (#371): the OTHER shape that resolves nowhere — a Strings folder beside the
+            //      plugin that houseCARL could not LIST. It refuses for the same reason, and its REMEDY cannot be the
+            //      same sentence: the folder is already there, so "place them in a Strings folder beside the plugin"
+            //      tells the caller to fill the very folder nothing could open. Fixtured with a real deny ACE, and
+            //      the deny is VERIFIED to bite before anything is asserted.
+            {
+                var locked = Path.Combine(root, "locked");
+                var ls = new LocalizedStringsFixture.Spec("LockedSrc", new ModKey("HcCsLocked", ModType.Plugin),
+                    "LOCKED NAME", "LOCKED DESC", StringsBeside: true);
+                var fx = LocalizedStringsFixture.Build(locked, new[] { ls });
+                var strings = Path.Combine(fx.Mods, ls.ModFolder, "Strings");
+                if (!LocalizedWriteGuardProbe.TryDenyListing(strings))
+                    Check(false, "FOLDER-UNREADABLE fixture: the deny-listing ACE did not take on this host — the cell cannot be built, so it FAILS rather than passing");
+                else
+                {
+                    try
+                    {
+                        var lockedStore = new UserConfigStore(Path.Combine(locked, "houseCARL.user.json"));
+                        using var lockedSvc = LoadOrderService.WithInstance(fx.Instance, 0, lockedStore);
+                        lockedSvc.Stats();
+
+                        var ol = lockedSvc.CompactPlugin(ls.Key.FileName.String);
+                        bool refused = !ol.Success && ol.Error is not null;
+                        bool remedyFits = refused
+                                          && ol.Error!.Contains("fix its permissions", StringComparison.Ordinal)
+                                          && !ol.Error.Contains("place them in a Strings folder", StringComparison.Ordinal);
+                        Check(refused && remedyFits,
+                            $"FOLDER-UNREADABLE refuses with the remedy for THIS shape — free the folder, not fill it " +
+                            $"(refused={refused} remedyFits={remedyFits}) [{ol.Error}]");
+                    }
+                    finally { LocalizedWriteGuardProbe.UndenyListing(strings); }
+                }
+            }
+
             // NEWFILE-NOTE, other direction: the SAME lane over a NON-localized source says nothing about localization.
             // Without this the note could be unconditional and the arm above would not notice.
             {

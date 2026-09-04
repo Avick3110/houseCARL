@@ -6338,7 +6338,12 @@ public sealed class LoadOrderService : IDisposable
     ///
     /// <para>It says houseCARL cannot FIND the tables, never that the plugin has none: MO2's VFS merges mod folders
     /// at runtime, so a plugin's strings can sit in an archive in another mod folder that no path walked here can
-    /// see. The remedy is written for that case, because it is the likely one.</para></summary>
+    /// see.</para>
+    ///
+    /// <para>Two shapes arrive here and the words differ per shape — what the read WILL be, and what to do about it.
+    /// Nothing found anywhere is fixed by putting the tables somewhere houseCARL can see; a Strings folder that is
+    /// there and would not list is fixed by freeing that folder, and telling its caller to place tables in it
+    /// describes a folder they already have.</para></summary>
     /// <param name="verb">The operation, as the report names it — "compact", "merge".</param>
     static string UnresolvableStringsRefusal(string name, LocalizedAssessment a, string verb)
     {
@@ -6352,12 +6357,20 @@ public sealed class LoadOrderService : IDisposable
         var consequence = a.Shape == LocalizedShape.StringsFolderUnreadable
             ? "houseCARL cannot tell what its text reads as, or an empty value from a real one"
             : "every name, description and message it carries reads back EMPTY";
+
+        // And so is the REMEDY. "Put the tables where houseCARL can see them" is the answer when nothing was found
+        // anywhere; told to a plugin whose Strings folder is already sitting there unreadable, it sends the caller to
+        // fill the one folder nothing could open. That shape needs the folder freed, not populated.
+        var remedy = a.Shape == LocalizedShape.StringsFolderUnreadable
+            ? $"Let houseCARL read the Strings folder beside '{name}' — close whatever is holding it open, or fix its "
+              + "permissions — and run this again."
+            : "Put this plugin's .STRINGS where houseCARL can see them — enable the mod that provides them, or place "
+              + "them in a Strings folder beside the plugin — and run this again.";
         return $"refused — houseCARL did not {verb} '{name}'. "
              + LocalizedTargetUnsupportedException.WhereTheTextIs(a) + " "
              + $"So {consequence}, and a {verb} writes whatever this read produced into a NEW plugin you keep, with "
-             + "nothing left in it to tell that text from a plugin that never had any. Put this plugin's .STRINGS "
-             + "where houseCARL can see them — enable the mod that provides them, or place them in a Strings folder "
-             + "beside the plugin — and run this again. Nothing was written.";
+             + "nothing left in it to tell that text from a plugin that never had any. "
+             + remedy + " Nothing was written.";
     }
 
     /// <summary>The in-place compaction's refusal, rendered per shape. The refusal decision is one fail-closed

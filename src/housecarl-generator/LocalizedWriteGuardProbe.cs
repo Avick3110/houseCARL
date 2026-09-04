@@ -631,7 +631,7 @@ public static class LocalizedWriteGuardProbe
     /// <summary>Deny LISTING on one directory for the current user, and say whether it actually bit. Deliberately not
     /// a deny-all: <c>Directory.Exists</c> reads the path's attributes, and denying that too would make the folder
     /// look ABSENT rather than unlistable — which is the wrong state to measure.</summary>
-    static bool TryDenyListing(string dir)
+    internal static bool TryDenyListing(string dir)
     {
         try
         {
@@ -654,7 +654,7 @@ public static class LocalizedWriteGuardProbe
     }
 
     /// <summary>Lift the deny again — always in a finally, or the temp tree cannot be cleaned up afterwards.</summary>
-    static void UndenyListing(string dir)
+    internal static void UndenyListing(string dir)
     {
         try
         {
