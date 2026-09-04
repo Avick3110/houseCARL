@@ -16,8 +16,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
 - **`housecarl_compact_plugin` and `housecarl_merge_plugins` name a plugin they could not read.** The
   external-reference pass that runs before a renumber used to skip a plugin it could not open while still
   counting it as scanned, so a plugin held open by xEdit, MO2 or the running game could make the pass report
-  a coverage it did not have. Such a plugin is now named in the report, with the remedy (close the program
-  holding it and run again), and is no longer counted in the scanned total.
+  a coverage it did not have. Such a plugin is now named in the report, with the reason it could not be read,
+  and is no longer counted in the scanned total. The two reasons get their own sentence: a plugin that could
+  not be OPENED gets the close-the-program-holding-it remedy; a plugin that opened and then faulted part way
+  through gets the exception it faulted with, and no advice to close programs that are holding nothing.
+
+- **`housecarl_compact_plugin` refuses the in-place lane when it could not read a plugin.** Compacting in
+  place — overwriting the target, or rewriting its referencers with `repoint_externals` — needs the
+  external-reference pass to have covered the order, and there is no backup and no review step in that lane.
+  A run whose pass could not read a plugin through is now refused, naming the plugin and the reason, before
+  anything is written and whatever `acknowledge` says; the remedy is to resolve that, or to compact into a new
+  plugin instead. The new-plugin lane is unchanged and still reports the same plugin as a note.
 
 - **`housecarl_records project={"form": "tree"}` states which plugins declare child records.** For a record
   whose type owns children — a cell's placed references, a topic's INFO lines, a worldspace's cells — the tree
