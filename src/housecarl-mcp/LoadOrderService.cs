@@ -6797,14 +6797,13 @@ public sealed class LoadOrderService : IDisposable
         return outcome;
     }
 
-    /// <summary>Layer B unit B — the on-disk voice (.fuz/.lip) presence check, run as a POST-WRITE step on a SUCCESSFUL
-    /// create (the service owns the live <see cref="Assets"/> resolver; the proven core create path stays asset-free and
-    /// untouched). Only fires when the call created ≥1 dialogue line (INFO): <see cref="VoiceCheck.Run"/> re-opens the
-    /// written patch read-only, computes each created voiced line's expected path, and checks the VFS — the report rides
-    /// back on <see cref="WritePatchBuilder.CreateOutcome.Voice"/>. NEVER fails the create (the write already succeeded);
-    /// a check failure is surfaced on the report's CheckError (Q3), and even a thrown Assets-build is caught here so a
-    /// dialogue create never regresses to an error outcome over a verify step. Caller holds <see cref="_writeGate"/>; the
-    /// reentrant Assets getter is safe there (PlaceAssets uses it the same way).</summary>
+    /// <summary>The on-disk voice (.fuz/.lip) presence check, run as a post-write step on a successful create, since
+    /// the service owns the live <see cref="Assets"/> resolver and the core create path stays asset-free. Only fires
+    /// when the call created at least one dialogue line: <see cref="VoiceCheck.Run"/> re-opens the written patch
+    /// read-only, computes each created voiced line's expected path, and checks the VFS, with the report riding back
+    /// on <see cref="WritePatchBuilder.CreateOutcome.Voice"/>. It never fails the create, which already succeeded: a
+    /// check failure is surfaced on the report's CheckError, and even a thrown asset-layer build is caught here.
+    /// Caller holds <see cref="_writeGate"/>, where the reentrant Assets getter is safe.</summary>
     WritePatchBuilder.CreateOutcome EnrichWithVoiceCheck(WritePatchBuilder.CreateOutcome outcome, LoadOrderResolver resolver)
     {
         bool anyInfo = false;
@@ -6818,14 +6817,13 @@ public sealed class LoadOrderService : IDisposable
         return report.IsEmpty ? outcome : outcome with { Voice = report };
     }
 
-    /// <summary>Layer B unit C — the per-create RESULT-SCRIPT binding check, run as a POST-WRITE step on a SUCCESSFUL
-    /// create (the service owns the live <see cref="Assets"/> resolver; the proven core create path stays asset-free and
-    /// untouched), exactly like <see cref="EnrichWithVoiceCheck"/>. Only fires when the call created ≥1 dialogue line
-    /// (INFO): <see cref="DialogueScriptCheck.Run"/> re-opens the written patch read-only, validates each created INFO's
-    /// VMAD result-script binding and checks its compiled `.pex` on disk — the report rides back on
-    /// <see cref="WritePatchBuilder.CreateOutcome.ScriptBinding"/>. NEVER fails the create (the write already succeeded);
-    /// a check failure is surfaced on the report's CheckError (Q3), and even a thrown Assets-build is caught here. Needs
-    /// no LoadOrderResolver — the binding lives wholly on the INFO + the on-disk `.pex` (no graph resolution).</summary>
+    /// <summary>The per-create result-script binding check, a post-write step on a successful create exactly like
+    /// <see cref="EnrichWithVoiceCheck"/>. Only fires when the call created at least one dialogue line:
+    /// <see cref="DialogueScriptCheck.Run"/> re-opens the written patch read-only, validates each created INFO's VMAD
+    /// result-script binding and checks its compiled `.pex` on disk, with the report riding back on
+    /// <see cref="WritePatchBuilder.CreateOutcome.ScriptBinding"/>. It never fails the create; a check failure is
+    /// surfaced on the report's CheckError. It needs no resolver, because the binding lives wholly on the INFO and
+    /// the on-disk `.pex`.</summary>
     WritePatchBuilder.CreateOutcome EnrichWithScriptCheck(WritePatchBuilder.CreateOutcome outcome)
     {
         bool anyInfo = false;
@@ -6839,13 +6837,14 @@ public sealed class LoadOrderService : IDisposable
         return report.IsEmpty ? outcome : outcome with { ScriptBinding = report };
     }
 
-    /// <summary>The coordinate-keyed §4-(b) teeth — the structural-SHELL report, a POST-WRITE step on a SUCCESSFUL
-    /// create exactly like <see cref="EnrichWithVoiceCheck"/>. Only fires when the call created ≥1 Cell:
-    /// <see cref="CellShellCheck.Run"/> re-opens the written patch read-only, reads each created cell's interior/exterior
-    /// kind, and lists the world content houseCARL does NOT author (lighting / terrain / water / navmesh — Aaron
-    /// 2026-06-20: no CK work) — the report rides back on <see cref="WritePatchBuilder.CreateOutcome.CellShell"/>. NEVER
-    /// fails the create (the cell IS written; this only says what the author must still provide); a check failure is
-    /// surfaced on the report's CheckError (Q3). Needs no resolver/assets — the kind comes off the written cell's flag.</summary>
+    /// <summary>The cell structural-shell report, a post-write step on a successful create exactly like
+    /// <see cref="EnrichWithVoiceCheck"/>. Only fires when the call created at least one cell:
+    /// <see cref="CellShellCheck.Run"/> re-opens the written patch read-only, reads each created cell's
+    /// interior/exterior kind, and lists the world content houseCARL does not author — lighting, terrain, water,
+    /// navmesh — with the report riding back on <see cref="WritePatchBuilder.CreateOutcome.CellShell"/>. It never
+    /// fails the create, since the cell IS written and this only says what the author must still provide; a check
+    /// failure is surfaced on the report's CheckError. It needs no resolver or assets: the kind comes off the written
+    /// cell's flag.</summary>
     WritePatchBuilder.CreateOutcome EnrichWithCellShell(WritePatchBuilder.CreateOutcome outcome)
     {
         bool anyCell = false;
@@ -6859,27 +6858,26 @@ public sealed class LoadOrderService : IDisposable
         return report.IsEmpty ? outcome : outcome with { CellShell = report };
     }
 
-    /// <summary>The CALLING tool's vocabulary for a create op, threaded down so a refusal never names a spelling the
-    /// caller cannot see (PR #311 review 6 [low]; the same rule as <c>origins</c>, <c>sourceParam</c>,
-    /// <c>offerModParam</c> and <c>InPlaceAgainHint</c>). <paramref name="Element"/> is the ops-list member word;
-    /// <paramref name="CopySubject"/> is how the copy refusal refers to what the caller asked for — the 2.0 surface
-    /// declares no <c>from_plugin</c>, so it can only have arrived via <c>op="CopyFrom"</c>.</summary>
+    /// <summary>The calling tool's vocabulary for a create op, threaded down so a refusal never names a spelling the
+    /// caller cannot see — the same rule as <c>origins</c>, <c>sourceParam</c> and <c>offerModParam</c>.
+    /// <paramref name="Element"/> is the ops-list member word; <paramref name="CopySubject"/> is how the copy refusal
+    /// refers to what the caller asked for.</summary>
     public readonly record struct CreateOpNaming(string Element, string CopySubject)
     {
-        /// <summary>1.x housecarl_create_record / housecarl_bulk_create — unchanged wording.</summary>
+        /// <summary>The wording for the tools that spell the member <c>op</c> and expose <c>from_plugin</c>.</summary>
         public static readonly CreateOpNaming Legacy = new("op", "CopyFrom / from_plugin");
     }
 
-    /// <summary>Map a wire field-op to a core <see cref="WriteRequest"/> for CREATE: RecordType is the create type (not
-    /// derived), and a create op carries NO formid (it sets a field on the new record, whose id is auto-allocated) — a
-    /// stray formid is refused loud (Q3) rather than silently ignored. Builds the composition <see cref="StructSpec"/> the
-    /// same way <see cref="MapEdit"/> does (so a created Spell's Effects / LeveledItem's Entries compose identically).</summary>
+    /// <summary>Map a wire field-op to a core <see cref="WriteRequest"/> for a create: RecordType is the create type
+    /// rather than derived, and a create op carries no formid because it sets a field on the new record, whose id is
+    /// auto-allocated — a stray formid is refused rather than silently ignored. Builds the composition
+    /// <see cref="StructSpec"/> the same way <see cref="MapEdit"/> does, so a created record's nested lists compose
+    /// identically.</summary>
     WriteRequest? MapCreateEdit(BulkOp op, int index, string recordType, CreateOpNaming naming, out string? error)
     {
         error = null;
-        // The caller's own element word (PR #311 review 6 [low]) — the same thread as `origins` one level up, for the
-        // same reason: `records[0]` was already the caller's spelling while `op[0]` was nobody's. On housecarl_create
-        // the member is ops=, so the navigational handle a caller must act on is ops[0].
+        // The caller's own element word, threaded down for the same reason as `origins` one level up: a refusal must
+        // name the handle the caller can act on, not one nobody wrote.
         var where = $"{naming.Element}[{index}]";
         if (!string.IsNullOrWhiteSpace(op.Formid))
         {
@@ -6901,10 +6899,9 @@ public sealed class LoadOrderService : IDisposable
 
         if (string.Equals(op.Verb, "CopyFrom", StringComparison.Ordinal) || !string.IsNullOrWhiteSpace(op.FromPlugin))
         {
-            // Named in the CALLING surface's vocabulary (PR #311 review 6 [low]). This is reachable from
-            // housecarl_create — the strict reader only gates undeclared MEMBERS and `op` is declared, so
-            // ops:[{op:"CopyFrom"}] arrives here — where the old text answered with `from_plugin`, a member
-            // CreateFieldOp does not declare and the caller therefore cannot remove.
+            // Named in the calling surface's vocabulary. This is reachable even from a tool that declares no
+            // from_plugin member, because the strict reader gates undeclared members and `op` is declared, so a
+            // CopyFrom verb arrives here and must not be answered with a member the caller cannot remove.
             error = $"{where}: {naming.CopySubject} copies from an EXISTING record's other version — it isn't valid when CREATING a record (there is no other version yet). Set the new field with value= / compose= instead.";
             return null;
         }
@@ -6917,14 +6914,15 @@ public sealed class LoadOrderService : IDisposable
     }
 
     /// <summary>Map a wire op to a core <see cref="WritePatchBuilder.PatchEdit"/>: parse the FormID, split the dotted
-    /// field path, and (if present) build the composition <see cref="StructSpec"/>. RecordType is NOT taken from the wire
-    /// — the cleave derives it from the resolved winner. Returns null + a named error (Q3) on any malformed input.</summary>
+    /// field path, and build the composition <see cref="StructSpec"/> when present. RecordType is deliberately not
+    /// taken from the wire — the engine derives it from the resolved winner. Returns null and a named error on any
+    /// malformed input.</summary>
     WritePatchBuilder.PatchEdit? MapEdit(BulkOp op, int index, out string? error, string? fromRecord = null, string? origin = null)
     {
         error = null;
-        // The caller's OWN spelling for this edit. Ops written inline are op[i]; ops the §4.5 zip generated are
-        // named by the pair and path they came from — pointing a refusal at an op index the caller never wrote
-        // sends anyone fixing it to a line that does not exist (review [medium]).
+        // The caller's own spelling for this edit: inline ops are op[i], while zip-generated ops are named by the
+        // pair and path they came from. A refusal pointing at an op index the caller never wrote sends anyone
+        // fixing it to a line that does not exist.
         var where = origin ?? $"op[{index}]";
         if (string.IsNullOrWhiteSpace(op.Formid)) { error = $"{where}: formid is required."; return null; }
         FormKey fk;
@@ -6945,10 +6943,10 @@ public sealed class LoadOrderService : IDisposable
 
         var verb = string.IsNullOrWhiteSpace(op.Verb) ? "Set" : op.Verb;
 
-        // SPEC §4.5 — the CROSS-RECORD copy source (housecarl_apply's from=). A named source record makes
-        // from_source OPTIONAL (it defaults to that record's load-order winner, resolved at pre-flight where the
-        // captured view lives); without one, the source plugin is the only thing that identifies a version to copy,
-        // so it stays required. A source equal to the target is a no-op, refused by name rather than written.
+        // The cross-record copy source. A named source record makes from_source optional, defaulting to that
+        // record's load-order winner, resolved at pre-flight where the captured view lives; without one, the source
+        // plugin is the only thing identifying a version to copy, so it stays required. A source equal to the target
+        // is a no-op, refused by name rather than written.
         FormKey? fromKey = null;
         if (!string.IsNullOrWhiteSpace(fromRecord))
         {
@@ -6969,25 +6967,24 @@ public sealed class LoadOrderService : IDisposable
         };
     }
 
-    /// <summary>P8b — validate + extract from_plugin for a CopyFrom op. from_plugin is REQUIRED with (and ONLY with)
-    /// verb=CopyFrom, which copies the field FROM that plugin's version and so takes no value/values/entries/compose/
-    /// composes. Both rules refuse loud (Q3), never silently ignore. Returns null for a non-CopyFrom op.</summary>
+    /// <summary>Validate and extract from_plugin for a CopyFrom op. It is required with, and only with, the CopyFrom
+    /// verb, which copies the field from that plugin's version and so takes no value, values, entries, compose or
+    /// composes. Both rules refuse loudly rather than silently ignoring. Returns null for a non-CopyFrom
+    /// op.</summary>
     static string? MapFromPlugin(BulkOp op, string verb, string where, StructSpec? spec, IReadOnlyList<StructSpec>? specs,
         bool hasSourceRecord, out string? error)
     {
         error = null;
-        if (!string.Equals(verb, "CopyFrom", StringComparison.Ordinal))   // match the engine's Ordinal verb compare — a mis-cased verb fails loud uniformly (Unknown verb … Legal: …CopyFrom)
+        if (!string.Equals(verb, "CopyFrom", StringComparison.Ordinal))   // match the engine's ordinal verb compare, so a mis-cased verb fails the same way everywhere
         {
             if (!string.IsNullOrWhiteSpace(op.FromPlugin))
                 error = $"{where}: from_source is only valid with op=CopyFrom (got op={verb}).";
             return null;
         }
-        // The "a copy carries no authored value" rule is independent of whether the POLE was named, so it is
-        // checked FIRST (review [high]): it used to sit below the from_plugin block, and the §4.5 cross-record
-        // shape (from= with no from_source=) returned early past it — so `op=CopyFrom, from=…, value="55"` was
-        // accepted and the value silently DISCARDED, while the same mistake WITH from_source= was refused by name.
-        // Nothing downstream catches it: the rulebook short-circuits CopyFrom to CopyFromLegality (which never
-        // sees Value), and the apply takes the CopyField branch. Two spellings of one mistake, one silent.
+        // The "a copy carries no authored value" rule is independent of whether the pole was named, so it is checked
+        // FIRST: below the from_plugin block, the cross-record shape returns early past it and an authored value is
+        // silently discarded. Nothing downstream catches that — the rulebook short-circuits CopyFrom to its own
+        // legality check, which never sees Value, and the apply takes the copy branch.
         if (op.Value is not null || op.Values is not null || op.Entries is not null || spec is not null || specs is not null)
         {
             error = $"{where}: CopyFrom copies the field from the source record's version — it takes no value/values/entries/compose/composes.";
@@ -6995,9 +6992,9 @@ public sealed class LoadOrderService : IDisposable
         }
         if (string.IsNullOrWhiteSpace(op.FromPlugin))
         {
-            // A named SOURCE RECORD (§4.5) identifies what to copy on its own, so the pole is optional and defaults
-            // to that record's winner. Without one, the plugin IS the only thing distinguishing a source version
-            // from the target's own — required, or the op means nothing.
+            // A named source record identifies what to copy on its own, so the pole is optional and defaults to that
+            // record's winner. Without one, the plugin is the only thing distinguishing a source version from the
+            // target's own, so it is required or the op means nothing.
             if (hasSourceRecord) return null;
             error = $"{where}: CopyFrom requires from_source — the plugin whose version of this record to copy field_path from.";
             return null;
@@ -7005,17 +7002,14 @@ public sealed class LoadOrderService : IDisposable
         return op.FromPlugin.Trim();
     }
 
-    /// <summary>Build a core composition <see cref="StructSpec"/> from the wire shape — flat <c>fields</c> (coercible
-    /// sub-fields), positional <c>ctor_args</c>, and nested <c>sets</c> (each a path+verb+value applied to the built
-    /// struct, e.g. a leveled-list entry's Data.Level / Data.Reference). The nested sets' RecordType carries the struct
-    /// type (the validator roots them at the struct schema, so it's a label). A nested set may itself carry a
-    /// <c>compose</c> (HCBR-2026-06-15-01 PR-C) — a recursive <see cref="StructSpec"/> selecting a polymorphic
-    /// sub-ARM (e.g. <c>sets:[{path:'Data', compose:{type:'GetActorValueConditionData', …}}]</c>) — mapped here into
-    /// the nested <see cref="WriteRequest.Struct"/> the core already applies + validates end-to-end (BuildStruct
-    /// recurses on a Set/Add carrying a Struct; the rulebook's ArmLegality validates compose.type against the leaf's
-    /// legal arms). Without this propagation a nested set could only set a coercible scalar, never a sub-arm. Q3 on a
-    /// malformed spec. <c>internal static</c> is the harness seam (the PR-C guard drives the wire→core mapping directly,
-    /// like the other engine helpers; it touches no instance state).</summary>
+    /// <summary>Build a core composition <see cref="StructSpec"/> from the wire shape: flat coercible
+    /// <c>fields</c>, positional <c>ctor_args</c>, and nested <c>sets</c>, each a path, verb and value applied to the
+    /// built struct. The nested sets' RecordType carries the struct type as a label, since the validator roots them
+    /// at the struct schema. A nested set may itself carry a <c>compose</c> — a recursive
+    /// <see cref="StructSpec"/> selecting a polymorphic sub-arm — mapped here into the nested
+    /// <see cref="WriteRequest.Struct"/> the core applies and validates end to end. Without that propagation a nested
+    /// set could only set a coercible scalar, never a sub-arm. A malformed spec is a named error. It is
+    /// <c>internal static</c> as a test seam and touches no instance state.</summary>
     internal static StructSpec? MapStruct(StructInput s, string where, out string? error)
     {
         error = null;
@@ -7044,11 +7038,11 @@ public sealed class LoadOrderService : IDisposable
         return new StructSpec { Type = s.Type!, Fields = s.Fields, CtorArgs = s.CtorArgs, Sets = sets };
     }
 
-    /// <summary>P8a — map a wire op's composes[] (MANY build-from-parts list elements) to core StructSpecs. Mutually
-    /// exclusive with the singular compose (both set → refused loud, Q3, never silently merged). Each element maps via
-    /// the SAME <see cref="MapStruct"/> the singular compose uses, so a composes element can never be shaped differently
-    /// from a compose element; a bad element names itself (composes[i]). Returns null when no composes= is present; an
-    /// explicitly EMPTY composes=[] is a named caller mistake, not a silent no-op.</summary>
+    /// <summary>Map a wire op's composes[] — many build-from-parts list elements — to core StructSpecs. Mutually
+    /// exclusive with the singular compose: both set is refused rather than silently merged. Each element maps via
+    /// the same <see cref="MapStruct"/> the singular compose uses, so a composes element can never be shaped
+    /// differently from a compose element, and a bad element names itself. Returns null when no composes= is present;
+    /// an explicitly empty composes=[] is a named caller mistake, not a silent no-op.</summary>
     static List<StructSpec>? MapComposes(BulkOp op, string where, StructSpec? singular, out string? error)
     {
         error = null;
@@ -7060,15 +7054,14 @@ public sealed class LoadOrderService : IDisposable
         }
         if (op.Composes.Length == 0)
         {
-            // An EMPTY composes=[] is the CLEAR intent for a ReplaceAll (empty the modeled list — the modeled twin of
-            // ReplaceAll values=[], which already clears a coercible list); for any other verb an empty batch is a
-            // caller mistake worth naming.
+            // An empty composes=[] is the clear intent for a ReplaceAll — empty the modeled list, the twin of
+            // ReplaceAll values=[] on a coercible list. For any other verb an empty batch is a caller mistake.
             if (!string.Equals(op.Verb, "ReplaceAll", StringComparison.Ordinal))
             {
                 error = $"{where}: composes=[] is empty — supply one or more element specs (or compose= for one); an empty composes= is only meaningful with op=ReplaceAll, to CLEAR the list.";
                 return null;
             }
-            return new List<StructSpec>();   // ReplaceAll composes=[] → clear the modeled list
+            return new List<StructSpec>();   // ReplaceAll composes=[] clears the modeled list
         }
         var specs = new List<StructSpec>(op.Composes.Length);
         for (int j = 0; j < op.Composes.Length; j++)
@@ -7083,22 +7076,20 @@ public sealed class LoadOrderService : IDisposable
     static string[] SplitPath(string dotted)
         => dotted.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-    /// <summary>Resolve a patch's output path under the FOLDER-PER-PATCH model (Aaron-locked 2026-06-02): each patch is
-    /// its OWN MO2 mod folder — <c>&lt;ModsDir&gt;\houseCARL - &lt;name&gt;\&lt;name&gt;.esp</c> — so every houseCARL
-    /// plugin is a first-class mod the user enables / orders / removes independently. A NEW patch always creates a fresh,
-    /// marker-stamped folder (name auto-suffixed _001… so a prior reviewed patch is never clobbered);
-    /// <paramref name="into"/> EXTENDS an existing houseCARL-owned patch (replace / modify its own plugins).
-    /// ORIGINALS UNTOUCHED is structural (CLAUDE.md §1): houseCARL only ever writes a folder that is brand-NEW or carries
-    /// its own <c>meta.ini</c> marker — it REFUSES (Q3) to write a folder it didn't create (a user mod), even on a name
-    /// collision. The caller name is reduced to a bare stem (no directory parts) so it can never escape ModsDir.
-    /// Runs under <see cref="_gate"/> like its sibling <see cref="ResolvePatchModFolder"/> (hunt F2): the UniqueStem
-    /// check-then-create is only race-free when every folder allocation is serialized on the one gate.
+    /// <summary>Resolve a patch's output path under the folder-per-patch model: each patch is its own MO2 mod folder,
+    /// <c>&lt;ModsDir&gt;\houseCARL - &lt;name&gt;\&lt;name&gt;.esp</c>, so every houseCARL plugin is a first-class
+    /// mod the user enables, orders and removes independently. A new patch always creates a fresh, marker-stamped
+    /// folder, auto-suffixed so a prior reviewed patch is never clobbered; <paramref name="into"/> extends an
+    /// existing houseCARL-owned patch. Originals-untouched is structural: houseCARL only ever writes a folder that is
+    /// brand new or carries its own <c>meta.ini</c> marker, and refuses to write a folder it did not create even on a
+    /// name collision. The caller's name is reduced to a bare stem with no directory parts, so it can never escape
+    /// ModsDir. Runs under <see cref="_gate"/> like <see cref="ResolvePatchModFolder"/>, because the check-then-create
+    /// of a unique stem is only race-free when every folder allocation is serialized on one gate.
     /// <paramref name="createdFolder"/> reports whether THIS call created the fresh folder, so a refused write can
-    /// remove it again (hunt F4 — "NO patch written" must not leave an orphan folder accreting _001/_002 on retry).
-    /// <paramref name="freshPatch"/> and <paramref name="laneClause"/> are passed through to the not-found refusal's
-    /// remedy: the calling operation states how ITS own fresh-write path works, and adds any next step that is its
-    /// alone. Both default to claiming nothing, so a caller added later without considering them cannot inherit a
-    /// sentence that is false for it (#356 — removal inherited exactly that).</summary>
+    /// remove it again and "no patch written" leaves no orphan accreting suffixes on retry.
+    /// <paramref name="freshPatch"/> and <paramref name="laneClause"/> pass through to the not-found refusal's
+    /// remedy, so the calling operation states how its own fresh-write path works. Both default to claiming nothing,
+    /// so a caller added later cannot inherit a sentence that is false for it.</summary>
     string ResolveOutputPath(string? patchName, string? into, out bool extend, out bool createdFolder, bool create = true,
                              FreshPatchRemedy freshPatch = FreshPatchRemedy.None, string? laneClause = null)
     {
@@ -7111,11 +7102,11 @@ public sealed class LoadOrderService : IDisposable
             if (!string.IsNullOrWhiteSpace(into))
             {
                 extend = true;
-                // The .esp write lane shares the 4-step EXTEND resolver with the rider/asset lane (HCBR-2026-06-23) so
-                // "extend my renamed patch" behaves IDENTICALLY across records, scripts, BSAs, and assets. needEsp:true —
-                // the canonical fast path only short-circuits a folder that actually holds <stem>.esp; we then pick the .esp
-                // to extend inside the resolved folder: the <stem>.esp it holds, or — via the by-folder catch-all, where the
-                // folder & plugin names differ — the folder's single plugin (Q3-refuse if it holds none or several).
+                // The .esp write lane shares the extend resolver with the rider and asset lanes, so "extend my
+                // renamed patch" behaves identically across records, scripts, BSAs and assets. needEsp:true because
+                // the fast path only short-circuits a folder that actually holds <stem>.esp; the .esp to extend is
+                // then picked inside the resolved folder — the <stem>.esp it holds, or, where the folder and plugin
+                // names differ, the folder's single plugin, refusing if it holds none or several.
                 var folder = ResolveOwnedPatchFolder(into, needEsp: true, freshPatch, laneClause);
                 var direct = Path.Combine(folder, PatchStem(into) + ".esp");
                 if (File.Exists(direct)) return direct;
@@ -7129,8 +7120,8 @@ public sealed class LoadOrderService : IDisposable
             var freeStem = UniqueStem(baseStem);
             var newFolder = Path.Combine(_modsDir, ModFolderName(freeStem));
             var plugin = freeStem + ".esp";
-            // #225 dry run (create:false): resolve the WOULD-BE path only — no folder, no meta.ini; the disk stays
-            // exactly as it was. The real write re-resolves and creates as before.
+            // A dry run (create:false) resolves the would-be path only — no folder, no meta.ini — so the disk stays
+            // exactly as it was. The real write re-resolves and creates.
             if (create)
             {
                 Directory.CreateDirectory(newFolder);
@@ -7141,11 +7132,11 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
-    /// <summary>Hunt F4: a write that was REFUSED after <see cref="ResolveOutputPath"/> created a fresh folder removes
-    /// that folder again, so "NO patch written" is true of the disk too (no orphan accreting _001/_002 on retry).
-    /// DELETION-SAFE by content check, not trust: only a folder holding NOTHING beyond our own meta.ini (and an empty
-    /// <c>.housecarl-tmp</c> staging leftover) is removed — anything else present means the folder gained real content
-    /// and stays. Best-effort: a cleanup failure never masks the write's own (already-reported) outcome.</summary>
+    /// <summary>A write refused after <see cref="ResolveOutputPath"/> created a fresh folder removes that folder
+    /// again, so "no patch written" is true of the disk too and no orphan accretes suffixes on retry. Deletion is
+    /// gated by a content check rather than trust: only a folder holding nothing beyond our own meta.ini and an empty
+    /// <c>.housecarl-tmp</c> staging leftover is removed — anything else means the folder gained real content and
+    /// stays. Best-effort: a cleanup failure never masks the write's own reported outcome.</summary>
     static void RemoveFolderCreatedThisCall(string outPath)
     {
         try
@@ -7171,13 +7162,13 @@ public sealed class LoadOrderService : IDisposable
     /// compile/decompile riders OutputDir is a subfolder (<c>Scripts\</c> / <c>Source\Scripts\</c>) under ModFolder.</summary>
     public readonly record struct RiderFolder(string OutputDir, string ModFolder, bool CreatedFresh);
 
-    /// <summary>Resolve a houseCARL-owned MOD FOLDER under ModsDir for a NON-.esp output (compiled scripts, a packed .bsa,
-    /// extracted loose files) — the folder-per-patch model generalised beyond the .esp write path. A fresh marker-stamped
-    /// folder (<paramref name="defaultStem"/> names it when patchName is blank; auto-suffixed so a prior one is never
-    /// clobbered) or <paramref name="into"/> an existing houseCARL-owned one. ORIGINALS UNTOUCHED (Q3): refuses a folder
-    /// houseCARL didn't create. Derives ModsDir CHEAPLY (reads ModOrganizer.ini; NO ~10s index build). Throws the trained
-    /// prompt when unconfigured. Reuses the same ownership/marker helpers as the .esp write path. The returned
-    /// <see cref="RiderFolder.CreatedFresh"/> flag drives <see cref="RemoveOrNameRiderResidue"/> on a rider failure.</summary>
+    /// <summary>Resolve a houseCARL-owned mod folder under ModsDir for a non-.esp output — compiled scripts, a packed
+    /// .bsa, extracted loose files — generalising the folder-per-patch model beyond the .esp write path. Either a
+    /// fresh marker-stamped folder, named by <paramref name="defaultStem"/> when patchName is blank and auto-suffixed
+    /// so a prior one is never clobbered, or <paramref name="into"/> an existing houseCARL-owned one. It refuses a
+    /// folder houseCARL did not create. Derives ModsDir cheaply by reading ModOrganizer.ini, with no index build, and
+    /// throws the unconfigured prompt when there is no instance. The returned
+    /// <see cref="RiderFolder.CreatedFresh"/> flag drives the cleanup on a failure.</summary>
     public RiderFolder ResolvePatchModFolder(string? patchName, string? into, string defaultStem)
     {
         lock (_gate)
@@ -7189,14 +7180,13 @@ public sealed class LoadOrderService : IDisposable
 
             if (!string.IsNullOrWhiteSpace(into))
             {
-                // The SAME shared 4-step EXTEND resolver as the .esp write path (HCBR-2026-06-23): a renamed houseCARL patch
-                // folder is found by the .esp it holds OR by its new name, so compile / decompile / bsa_repack / place_asset
-                // into= behaves exactly like record into= (before this, a renamed folder fell to a misleading "folder not
-                // found"). needEsp:false — a rider targets the FOLDER itself (it writes scripts / a .bsa / loose files into
-                // it, not an .esp), so it does NOT require a <stem>.esp to be present.
-                // CreatedByOmittingInto, stated here rather than inherited: omitting into= on this lane DOES create a
-                // fresh folder (measured — the branch below returns CreatedFresh), but patch= names the rider's own
-                // artifact on bsa_repack (the .bsa), so the naming remedy is the wrong one and always was.
+                // The same shared extend resolver as the .esp write path: a renamed houseCARL patch folder is found by
+                // the .esp it holds or by its new name, so every rider's into= behaves exactly like a record into=.
+                // needEsp:false because a rider targets the FOLDER itself, writing scripts, a .bsa or loose files
+                // into it rather than an .esp, so no <stem>.esp need be present.
+                // The fresh-patch remedy is stated here rather than inherited: omitting into= on this lane does
+                // create a fresh folder, but patch= names the rider's own artifact on some callers, so the naming
+                // remedy would be wrong.
                 var folder = ResolveOwnedPatchFolder(into, needEsp: false, FreshPatchRemedy.CreatedByOmittingInto);
                 return new RiderFolder(folder, folder, CreatedFresh: false);   // reused — the user owns it; cleanup leaves it
             }
@@ -7209,9 +7199,9 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
-    /// <summary>The <c>Scripts\</c> output folder for a COMPILED .pex (the compile rider) — a houseCARL mod folder via
-    /// <see cref="ResolvePatchModFolder"/> plus its <c>Scripts\</c> subfolder, where MO2 deploys compiled Papyrus into the
-    /// game's Data\Scripts. Carries the mod-folder root + fresh flag through for residue cleanup.</summary>
+    /// <summary>The <c>Scripts\</c> output folder for a compiled .pex: a houseCARL mod folder via
+    /// <see cref="ResolvePatchModFolder"/> plus its <c>Scripts\</c> subfolder, which MO2 deploys into the game's
+    /// Data\Scripts. Carries the mod-folder root and fresh flag through for cleanup.</summary>
     public RiderFolder ResolveCompiledScriptFolder(string? patchName, string? into)
     {
         var f = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts");
@@ -7220,39 +7210,33 @@ public sealed class LoadOrderService : IDisposable
         return f with { OutputDir = scripts };
     }
 
-    /// <summary>output_dir= escape hatch (6.3): the user names WHERE the compiled .pex lands, instead of houseCARL cutting a
-    /// fresh folder-per-patch mod folder. DECIDED contract (Aaron 2026-06-16): output_dir is a mod-folder ROOT and houseCARL
-    /// appends Scripts\ — matching <see cref="ResolveCompiledScriptFolder"/> + MO2's deploy model so the .pex actually loads —
-    /// with a DOUBLE-SCRIPTS guard (don't append a second Scripts\ if it's already there). Does NOT call
-    /// <see cref="ResolvePatchModFolder"/> (no houseCARL mod folder is cut under ModsDir), and the folder is USER-OWNED — the
-    /// returned <see cref="RiderFolder"/> carries CreatedFresh=false, so <see cref="RemoveOrNameRiderResidue"/> never deletes
-    /// it on a failed compile (it early-returns on !CreatedFresh). <paramref name="deployWarning"/> is a Q3 note (non-null)
-    /// when the final Scripts\ path is none of a mod's own Scripts\, the MO2 overwrite folder, or the game's Data — the .pex compiles but the game
-    /// won't auto-load it from there, so a clean "done" is never reported for a .pex that won't deploy. Refuses loud (Q3) on
-    /// an unusable output_dir (a malformed path, or a path that names an existing FILE).</summary>
+    /// <summary>The output_dir= escape hatch: the user names where the compiled .pex lands instead of houseCARL
+    /// cutting a fresh folder-per-patch mod folder. output_dir is a mod-folder ROOT and houseCARL appends
+    /// <c>Scripts\</c>, matching <see cref="ResolveCompiledScriptFolder"/> and MO2's deploy model so the .pex
+    /// actually loads, with a guard against appending a second Scripts\ when one is already there. It cuts no
+    /// houseCARL mod folder, and the folder is user-owned, so the returned <see cref="RiderFolder"/> carries
+    /// CreatedFresh=false and cleanup never deletes it on a failed compile. <paramref name="deployWarning"/> is
+    /// non-null when the final Scripts\ path is none of a mod's own Scripts\, the MO2 overwrite folder, or the game's
+    /// Data, because the .pex compiles but the game will not auto-load it from there. Refuses loudly on an unusable
+    /// output_dir — a malformed path, or one naming an existing file.</summary>
     public RiderFolder ResolveExplicitScriptFolder(string outputDir, out string? deployWarning)
         => ResolveExplicitRiderFolder(outputDir, "Scripts", ScriptOutputContract, out deployWarning);
 
-    /// <summary>#312 — the SAME output_dir= contract for the SEQ rider: the user names a mod-folder ROOT and houseCARL
-    /// appends <c>SEQ\</c>. Parity, not a new escape hatch — <c>compile_script</c> has carried output_dir= on this
-    /// DECIDED contract (Aaron 2026-06-16) since 6.3 (<c>bsa_extract</c>'s <c>dest=</c> is a plain unpack folder — a
-    /// looser, different thing; this comment and the changelog both said otherwise, review round 1), and
-    /// <c>write_seq</c> was the odd one out: its
-    /// output model assumed the plugin it serves lives in a houseCARL folder, which the opt-in IN-PLACE .esp lane
-    /// inverted — the .esp in the mod's own folder, the .seq in a different mod entirely, left to the user to reunite.
-    /// For a <c>.seq</c> that is the live Q3 footgun <see cref="OwnedPluginFolderStem"/> exists to prevent: one in an
-    /// un-enabled or wrong folder leaves the quest SILENTLY DEAD.
-    /// <para>The <c>into=</c> ownership guard is deliberately untouched — loosening it (letting into= name a folder
-    /// houseCARL didn't create) would put houseCARL's own patch-folder machinery inside a third party's mod. This lane
-    /// is the <c>place_asset</c> posture instead: a NEW SIDECAR FILE written into a folder the USER owns, with no
-    /// houseCARL folder cut and residue cleanup bypassed (<see cref="RiderFolder.CreatedFresh"/> = false).</para></summary>
+    /// <summary>The same output_dir= contract for the SEQ rider: the user names a mod-folder root and houseCARL
+    /// appends <c>SEQ\</c>. It exists because the .seq output model otherwise assumes the plugin it serves lives in a
+    /// houseCARL folder, which the in-place .esp lane inverts — the .esp in the mod's own folder, the .seq in a
+    /// different mod entirely — and a .seq in an un-enabled or wrong folder leaves the quest silently dead.
+    /// <para>The <c>into=</c> ownership check is deliberately untouched: letting into= name a folder houseCARL did
+    /// not create would put its patch-folder machinery inside a third party's mod. This lane instead writes a new
+    /// sidecar file into a folder the user owns, cutting no houseCARL folder and bypassing cleanup
+    /// (<see cref="RiderFolder.CreatedFresh"/> = false).</para></summary>
     public RiderFolder ResolveExplicitSeqFolder(string outputDir, out string? deployWarning)
         => ResolveExplicitRiderFolder(outputDir, "SEQ", SeqOutputContract, out deployWarning);
 
-    /// <summary>The shared body of the output_dir= lanes (6.3's contract, one artifact per caller): normalize the root,
-    /// refuse an unusable one LOUD, apply <paramref name="contract"/> (which appends <paramref name="sub"/> with the
-    /// double-segment guard and decides deployability), create the folder, and hand back a USER-OWNED RiderFolder.
-    /// One body rather than one per rider — the compile lane's rules are the rules, so they cannot drift per artifact.</summary>
+    /// <summary>The shared body of the output_dir= lanes, one artifact per caller: normalize the root, refuse an
+    /// unusable one loudly, apply <paramref name="contract"/>, which appends <paramref name="sub"/> with the
+    /// double-segment guard and decides deployability, create the folder, and hand back a user-owned RiderFolder.
+    /// One body rather than one per rider, so the rules cannot drift per artifact.</summary>
     RiderFolder ResolveExplicitRiderFolder(
         string outputDir, string sub,
         Func<string, string, string, string, (string dir, bool appended, string? deployWarning)> contract,
@@ -7269,33 +7253,28 @@ public sealed class LoadOrderService : IDisposable
                 throw new InvalidOperationException($"output_dir '{root}' is a file, not a folder. Give a mod-folder root — houseCARL appends {sub}\\.");
 
             var (outDir, appended, warn) = contract(root, _modsDir, _dataDir, _overwriteDir);
-            // Friendly Q3 message if the folder can't be created — e.g. <output_dir>\Scripts already exists AS A FILE, or
-            // the path is read-only — instead of letting the IO/access exception reach Guard.Tool's generic "internal
-            // failure" (which would wrongly read as a houseCARL bug, not bad input). The File.Exists(root) guard above
-            // already catches the common "output_dir itself is a file" shape; this rounds out the rest.
+            // A plain message when the folder cannot be created — the subfolder already exists as a file, or the path
+            // is read-only — instead of letting the IO or access exception reach the generic internal-failure
+            // handler, which would read as a houseCARL bug rather than bad input.
             try { Directory.CreateDirectory(outDir); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             { throw new InvalidOperationException($"output_dir: couldn't create the output folder '{outDir}' ({ex.Message}). Check the path and that it's writable."); }
             deployWarning = warn;
-            // ModFolder = the mod-folder root (inert here — cleanup is bypassed by CreatedFresh=false — but kept honest):
-            // when the user pointed AT a Scripts\ dir, the root is its parent; otherwise the path they gave IS the root.
+            // ModFolder is the mod-folder root — inert here, since cleanup is bypassed by CreatedFresh=false, but
+            // kept accurate: when the user pointed at the subfolder, the root is its parent; otherwise the path they
+            // gave IS the root.
             var modRoot = appended ? root : (Path.GetDirectoryName(outDir.TrimEnd('\\', '/')) ?? outDir);
             return new RiderFolder(outDir, modRoot, CreatedFresh: false);   // user-owned: residue cleanup never touches it
         }
     }
 
-    /// <summary>PURE (no filesystem access) resolution of the output_dir= contract, so the riskiest 6.3 change is provable in
-    /// CI without an MO2 instance. Appends Scripts\ to a mod-folder root, with the DOUBLE-SCRIPTS GUARD (a root already ending
-    /// in a Scripts segment — any case, trailing separator tolerated — is taken as-is, never doubled). <paramref name="outputDir"/>
-    /// is expected absolute (the caller GetFullPaths it). Returns the final Scripts dir, whether Scripts\ was appended, and a
-    /// Q3 deployWarning when the result is none of <paramref name="modsDir"/> (a mod's Scripts\ is VFS-deployed), the overwrite folder, nor
-    /// <paramref name="dataDir"/> (a direct game install) — the one "this won't load" case the contract can't fix by
-    /// construction, so it's surfaced rather than reported as a clean success.
-    /// <para>2026-08-07 (#312's shared refactor, review round 2): <paramref name="overwriteDir"/> counts as deployable
-    /// too. MO2 maps the overwrite folder's contents onto the Data root at top priority, and it is where xEdit / CK /
-    /// Synthesis output lands, so warning about it was a false alarm on both lanes. A BEHAVIOUR CHANGE for
-    /// compile_script, deliberately shared rather than special-cased for SEQ — a deployability rule that differs per
-    /// artifact is the drift this helper exists to prevent — and logged in the changelog as its own line.</para></summary>
+    /// <summary>Pure, filesystem-free resolution of the output_dir= contract, so it is testable without an MO2
+    /// instance. Appends <c>Scripts\</c> to a mod-folder root, taking a root that already ends in a Scripts segment
+    /// as-is — any case, trailing separator tolerated — rather than doubling it. <paramref name="outputDir"/> is
+    /// expected absolute. Returns the final Scripts dir, whether Scripts\ was appended, and a deployWarning when the
+    /// result is none of a mod folder under <paramref name="modsDir"/>, the overwrite folder, or
+    /// <paramref name="dataDir"/>. <paramref name="overwriteDir"/> counts as deployable because MO2 maps the
+    /// overwrite folder's contents onto the Data root at top priority.</summary>
     internal static (string scriptsDir, bool appendedScripts, string? deployWarning) ScriptOutputContract(
         string outputDir, string modsDir, string dataDir, string overwriteDir = "")
     {
@@ -7307,11 +7286,10 @@ public sealed class LoadOrderService : IDisposable
         return (scriptsDir, appended, warn);
     }
 
-    /// <summary>#312 — <see cref="ScriptOutputContract"/>'s twin for the <c>.seq</c>: the same pure path contract with
-    /// <c>SEQ\</c> appended, and a warning worded for what a mis-placed .seq actually costs. The stakes differ from the
-    /// .pex's: a script that doesn't deploy leaves the OLD behaviour, while a .seq the engine never reads leaves every
-    /// start-game-enabled quest in that plugin SILENTLY not starting — the exact failure the tool exists to prevent, so
-    /// the note says that rather than the milder "won't deploy on its own".</summary>
+    /// <summary><see cref="ScriptOutputContract"/>'s twin for the <c>.seq</c>: the same pure path contract with
+    /// <c>SEQ\</c> appended, and a warning worded for what a mis-placed .seq costs. The stakes differ from the .pex's:
+    /// a script that does not deploy leaves the old behaviour, while a .seq the engine never reads leaves every
+    /// start-game-enabled quest in that plugin silently not starting.</summary>
     internal static (string seqDir, bool appendedSeq, string? deployWarning) SeqOutputContract(
         string outputDir, string modsDir, string dataDir, string overwriteDir = "")
     {
@@ -7323,23 +7301,21 @@ public sealed class LoadOrderService : IDisposable
         return (seqDir, appended, warn);
     }
 
-    /// <summary>The shared pure core of the output_dir= contracts: append <paramref name="sub"/> to a mod-folder root with
-    /// the DOUBLE-SEGMENT GUARD (a root already ending in that segment — any case, trailing separator tolerated — is taken
-    /// as-is, never doubled), and decide DEPLOYABILITY. MO2 overlays a mod folder's CONTENTS onto the game Data root, so a
-    /// deployable folder is EXACTLY <c>&lt;mods&gt;\&lt;modFolder&gt;\&lt;sub&gt;</c> (mod folder a direct child of mods;
-    /// the subfolder directly under it). A bare <c>&lt;mods&gt;\&lt;sub&gt;</c> (no mod folder) and a nested
-    /// <c>&lt;mods&gt;\X\Sub\&lt;sub&gt;</c> (which lands at Data\Sub\…, not Data\&lt;sub&gt;) do NOT load — so they
-    /// correctly warn (review nit: "under mods" alone was too loose). A direct game install loads exactly
-    /// <c>&lt;data&gt;\&lt;sub&gt;</c> — and, since #312's shared refactor, <c>&lt;overwriteDir&gt;\&lt;sub&gt;</c>, which MO2
-    /// maps onto Data at top priority. <paramref name="outputDir"/> is expected absolute (the caller GetFullPaths it).
-    /// The per-artifact SENTENCE stays with each caller — the RULE is shared, the consequence is not.</summary>
+    /// <summary>The shared pure core of the output_dir= contracts: append <paramref name="sub"/> to a mod-folder
+    /// root, taking a root already ending in that segment as-is rather than doubling it, and decide deployability.
+    /// MO2 overlays a mod folder's CONTENTS onto the game Data root, so a deployable folder is exactly
+    /// <c>&lt;mods&gt;\&lt;modFolder&gt;\&lt;sub&gt;</c>, with the mod folder a direct child of mods and the
+    /// subfolder directly under it. A bare <c>&lt;mods&gt;\&lt;sub&gt;</c> has no mod folder, and a nested
+    /// <c>&lt;mods&gt;\X\Sub\&lt;sub&gt;</c> lands at Data\Sub\… rather than Data\&lt;sub&gt;, so neither loads and
+    /// both warn. A direct game install loads exactly <c>&lt;data&gt;\&lt;sub&gt;</c>, as does
+    /// <c>&lt;overwriteDir&gt;\&lt;sub&gt;</c>. <paramref name="outputDir"/> is expected absolute. The per-artifact
+    /// sentence stays with each caller: the rule is shared, the consequence is not.</summary>
     static (string dir, bool appendedSub, bool deployable) SubfolderOutputContract(
         string outputDir, string sub, string modsDir, string dataDir, string overwriteDir = "")
     {
-        // A DRIVE ROOT keeps its separator: "C:\".TrimEnd() is "C:", and Path.Combine("C:", sub) yields the
-        // drive-RELATIVE "C:SEQ" — a path Windows resolves against the process's current directory on that drive,
-        // so the folder is created somewhere else entirely and reported under a name that looks absolute (review
-        // round 1). Inherited from the compile lane's contract; fixed here for both.
+        // A drive root keeps its separator: trimming "C:\" gives "C:", and combining that with a subfolder yields the
+        // drive-RELATIVE "C:SEQ", which Windows resolves against the process's current directory on that drive — so
+        // the folder is created somewhere else entirely under a name that looks absolute.
         var root = IsRoot(outputDir) ? outputDir : outputDir.TrimEnd('\\', '/');
         bool already = Path.GetFileName(root).Equals(sub, StringComparison.OrdinalIgnoreCase);
         var dir = already ? root : Path.Combine(root, sub);
@@ -7347,22 +7323,21 @@ public sealed class LoadOrderService : IDisposable
             IsModDeployFolder(dir, modsDir) || IsDataDeployFolder(dir, dataDir) || IsDataDeployFolder(dir, overwriteDir));
     }
 
-    /// <summary>Is this path a filesystem ROOT whose trailing separator is part of its MEANING — i.e. <c>C:\</c>,
-    /// where trimming yields the drive-RELATIVE <c>C:</c>? A bare UNC share (<c>\\srv\share</c>) answers true as well,
-    /// since <c>GetPathRoot</c> returns it unchanged — harmlessly, because trimming it changes nothing either way. Two
-    /// earlier drafts of this comment got the UNC case wrong in OPPOSITE directions (review rounds 2 and 3); the case
-    /// this helper exists for is the drive root, and that is what it is worth stating.</summary>
+    /// <summary>Is this path a filesystem root whose trailing separator is part of its meaning — <c>C:\</c>, where
+    /// trimming yields the drive-relative <c>C:</c>? A bare UNC share answers true as well, since
+    /// <c>GetPathRoot</c> returns it unchanged, which is harmless because trimming it changes nothing. The case this
+    /// helper exists for is the drive root.</summary>
     static bool IsRoot(string path)
     {
         try { return string.Equals(Path.GetPathRoot(path), path, StringComparison.OrdinalIgnoreCase); }
         catch { return false; }
     }
 
-    /// <summary>A deploy folder MO2 actually serves: <c>&lt;modsDir&gt;\&lt;modFolder&gt;\&lt;sub&gt;</c> exactly — the mod
-    /// folder a DIRECT child of the mods root, the subfolder directly under it (MO2 maps a mod folder's contents onto the
-    /// Data root, so <c>&lt;mods&gt;\Scripts</c> has no mod and <c>&lt;mods&gt;\X\Sub\Scripts</c> lands at Data\Sub\Scripts).
-    /// The rule is about SHAPE, not the segment's name, so the .pex and .seq lanes share it. Empty mods root
-    /// (unconfigured) → false. Case-insensitive, normalized.</summary>
+    /// <summary>A deploy folder MO2 actually serves: exactly <c>&lt;modsDir&gt;\&lt;modFolder&gt;\&lt;sub&gt;</c>,
+    /// with the mod folder a direct child of the mods root and the subfolder directly under it. MO2 maps a mod
+    /// folder's contents onto the Data root, so <c>&lt;mods&gt;\Scripts</c> has no mod and
+    /// <c>&lt;mods&gt;\X\Sub\Scripts</c> lands at Data\Sub\Scripts. The rule is about shape, not the segment's name,
+    /// so every lane shares it. An empty mods root is false. Case-insensitive and normalized.</summary>
     static bool IsModDeployFolder(string outDir, string modsDir)
     {
         if (string.IsNullOrEmpty(modsDir)) return false;
