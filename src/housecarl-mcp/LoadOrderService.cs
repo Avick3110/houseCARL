@@ -1088,7 +1088,7 @@ public sealed class LoadOrderService : IDisposable
                 var types = _svc.ResolveFormScope(mutagenType);
                 if (types is not null)
                     foreach (var (candidate, _, cBody) in _view.WinnerRecordsOfType(types))
-                        if (cBody.EditorID is { Length: > 0 } eid && !eids.ContainsKey(eid))   // first winner keeps the slot (the old sweep's break-on-first)
+                        if (cBody.EditorID is { Length: > 0 } eid && !eids.ContainsKey(eid))   // first winner keeps the slot
                             eids[eid] = candidate;
                 _eidsByType[mutagenType] = eids;
             }
@@ -1125,21 +1125,17 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
-    // ---- NIF layer Wave 1: read the data values inside one or many meshes (housecarl_nif_inspect) ----
+    // ---- NIF layer: read the data values inside one or many meshes (housecarl_nif_inspect) ----
 
-    /// <summary>Inspect the data values inside one or many Skyrim meshes (housecarl_nif_inspect): capture the asset
-    /// resolver ONCE under <see cref="_gate"/>, then — per Data-relative path, OUTSIDE the gate on the pinned
-    /// handle-free view — resolve through the MO2 VFS to the WINNING copy (or the <paramref name="mod"/>-named
-    /// provider), read that copy's bytes IN PROCESS (a loose file, or a single entry out of a BSA via native Mutagen —
-    /// no disk extraction), and hand them to <see cref="NifService.Inspect"/> for the header / block census / shapes /
-    /// partitions / alpha / textures / node tree / string table. Read-only. Results come back in INPUT ORDER, one per
-    /// path; a per-path failure (empty/invalid path, ABSENT, a mod= that doesn't provide it, unreadable bytes, a parse
-    /// refusal) is a NAMED per-path <see cref="NifInspectData.Error"/> that never aborts the rest of the batch (Q3).
-    /// The asset-tool parity is carried through per path — the full winner→loser provider chain (each tagged
-    /// loose/BSA) and the ambiguity flag — while the build-level Q3 caveats (<see cref="AssetView.BsaFailures"/>,
-    /// discovery warnings) ride ONCE on the batch, so an ABSENT answer is never over-trusted. The single capture is
-    /// what makes a load-order-wide facegen sweep one call instead of one per mesh (issue #229); a single-path call is
-    /// simply a batch of one.</summary>
+    /// <summary>Inspect the data values inside one or many Skyrim meshes: capture the asset resolver once under
+    /// <see cref="_gate"/>, then, per Data-relative path and outside the gate on the pinned handle-free view, resolve
+    /// through the MO2 VFS to the winning copy (or the <paramref name="mod"/>-named provider), read that copy's bytes
+    /// in process (a loose file, or a single entry out of a BSA — no disk extraction), and hand them to
+    /// <see cref="NifService.Inspect"/>. Read-only. Results come back in input order, one per path; a per-path failure
+    /// is a named <see cref="NifInspectData.Error"/> that never aborts the rest of the batch. Each path carries its
+    /// full winner-to-loser provider chain and ambiguity flag, while the build-level caveats
+    /// (<see cref="AssetView.BsaFailures"/>, discovery warnings) ride once on the batch so an ABSENT answer is never
+    /// over-trusted. The single capture is what makes a load-order-wide sweep one call instead of one per mesh.</summary>
     public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? mod)
     {
         AssetResolver.AssetView view;
@@ -1147,19 +1143,19 @@ public sealed class LoadOrderService : IDisposable
         string profileName;
         lock (_gate)
         {
-            view = Assets.Capture();                              // build/refresh the asset resolver under the gate, ONCE per batch
+            view = Assets.Capture();                              // build/refresh the asset resolver under the gate, once per batch
             warnings = _assetWarnings;
             profileName = _profileName;
         }
 
-        // OUTSIDE the gate: the captured view is pinned + handle-free, so resolving + reading + parsing here can't race a
-        // concurrent refresh into wrongness and doesn't block other tools behind our file reads.
+        // Outside the gate: the captured view is pinned and handle-free, so resolving, reading and parsing here cannot
+        // race a concurrent refresh into wrongness and does not block other tools behind these file reads.
         var results = new List<NifInspectData>(relPaths.Count);
         foreach (var raw in relPaths)
         {
             var rel = (raw ?? "").Trim();
-            // The isolation contract holds by CONSTRUCTION, not by callee audit (PR #243 review): anything unexpected
-            // from ONE path's resolve/read/parse becomes THAT path's named error, never the whole batch's (Q3).
+            // Per-path isolation holds by construction rather than by trusting the callee: anything unexpected from
+            // one path's resolve, read or parse becomes that path's named error, never the whole batch's.
             try { results.Add(NifInspectOne(view, rel, mod)); }
             catch (Exception ex) { results.Add(NifInspectData.Fail(rel, $"unexpected error inspecting this path — {ex.GetType().Name}: {ex.Message}")); }
         }
@@ -1167,7 +1163,7 @@ public sealed class LoadOrderService : IDisposable
     }
 
     /// <summary>One path's inspect against the already-captured view — the per-path body of <see cref="NifInspect"/>.
-    /// Every failure is a NAMED per-path outcome, never a throw (Q3).</summary>
+    /// Every failure is a named per-path outcome, never a throw.</summary>
     static NifInspectData NifInspectOne(AssetResolver.AssetView view, string rel, string? mod)
     {
         if (rel.Length == 0)
@@ -1181,13 +1177,12 @@ public sealed class LoadOrderService : IDisposable
 
         if (place.Sources.Count == 0)
         {
-            // A model path taken straight off a record is stored relative to meshes\, so the flat ABSENT was a dead
-            // end for the NORMAL way one arrives at a mesh (#273). The hint is RE-RESOLVED, never guessed — see
-            // AssetPathHint: a "did you mean" always names a file that exists, and the weaker fallback names only
-            // the convention, never a file.
+            // A model path taken straight off a record is stored relative to meshes\, so a flat ABSENT is a dead end
+            // for the normal way one arrives at a mesh. The hint is re-resolved, never guessed: a "did you mean"
+            // always names a file that exists, and the weaker fallback names only the convention.
             var hint = AssetPathHint.MeshHint(view, rel);
-            // Absent=true lets the renderer hedge this at POINT OF USE on the batch-level caveats (read failures /
-            // discovery warnings) — asset_status parity; the top-of-output alarm alone scrolls away in a long batch.
+            // Absent=true lets the renderer hedge this at the point of use against the batch-level caveats; the
+            // top-of-output warning alone scrolls away in a long batch.
             return new NifInspectData(rel, null, providers, place.Ambiguous, Absent: true, null,
                 "ABSENT — no active mod or BSA provides this mesh path." + (hint is null ? "" : " " + hint));
         }
@@ -1214,26 +1209,24 @@ public sealed class LoadOrderService : IDisposable
             false, outcome.Inspect, outcome.Error);
     }
 
-    /// <summary>Render an <see cref="AssetKind"/> as the tool-facing label ("loose" / "BSA"). An explicit switch (not a
-    /// ternary) so a future AssetKind arm renders its real name, never a silent mislabel.</summary>
+    /// <summary>Render an <see cref="AssetKind"/> as the tool-facing label ("loose" / "BSA"). An explicit switch
+    /// rather than a ternary, so a new AssetKind renders its real name instead of being mislabelled.</summary>
     static string KindLabel(AssetKind k) => k switch { AssetKind.Bsa => "BSA", AssetKind.Loose => "loose", var other => other.ToString() };
 
-    // ---- NIF layer Wave 2: whitelist WRITES into a mesh (housecarl_nif_set) ----
+    // ---- NIF layer: whitelisted writes into a mesh (housecarl_nif_set) ----
 
-    /// <summary>Apply the N2-whitelist write op(s) to a mesh (housecarl_nif_set): resolve the Data-relative
-    /// <paramref name="relPath"/> to the WINNING copy (or <paramref name="mod"/>'s copy), read its bytes IN PROCESS, hand
-    /// them to <see cref="NifService.Set"/> (which applies + VERIFIES with the two offset-immune gates, or refuses loud —
-    /// nothing is written to disk unless it verified), then place the verified bytes. Two lanes, mirroring the record
-    /// write lanes:
-    ///   • DEFAULT (non-destructive): write into a NEW houseCARL-owned MO2 mod folder (same relative path) that the modder
-    ///     enables + sorts ABOVE the current winner so the edited copy WINS the VFS — originals untouched. A BSA-packed
-    ///     source naturally becomes a loose winning override this way.
-    ///   • IN-PLACE (opt-in, <paramref name="inPlace"/>): OVERWRITE the winning LOOSE file where it sits, riding the SAME
-    ///     persistent first-touch consent handshake as the record in-place lane (keyed on the resolved file path,
-    ///     <see cref="UserConfigStore"/>) — no backup. A BSA-only winner can't be edited in place (there is no loose file);
-    ///     that refuses with the default-lane guidance.
-    /// Serialized on the write gate. Q3 honesty: for the default lane "wrote it" ≠ "it wins" — the render says to enable +
-    /// sort the fresh mod; this never claims the fix took effect on write.</summary>
+    /// <summary>Apply the whitelisted write ops to a mesh: resolve the Data-relative <paramref name="relPath"/> to the
+    /// winning copy (or <paramref name="mod"/>'s copy), read its bytes in process, hand them to
+    /// <see cref="NifService.Set"/>, which applies and verifies or refuses loudly — nothing reaches disk unless it
+    /// verified — then place the verified bytes. Two lanes, mirroring the record write lanes:
+    ///   • DEFAULT (non-destructive): write into a new houseCARL-owned MO2 mod folder at the same relative path, which
+    ///     the modder enables and sorts above the current winner so the edited copy wins the VFS. Originals untouched,
+    ///     and a BSA-packed source becomes a loose winning override this way.
+    ///   • IN-PLACE (opt-in): overwrite the winning loose file where it sits, behind the same persistent first-touch
+    ///     consent handshake as the record in-place lane, keyed on the resolved file path. No backup. A BSA-only winner
+    ///     has no loose file to edit and is refused with the default-lane guidance.
+    /// Serialized on the write gate. For the default lane, "wrote it" is not "it wins": the render says to enable and
+    /// sort the fresh mod, and this never claims the fix took effect on write.</summary>
     public NifSetResult NifSet(string relPath, IReadOnlyList<NifSetOp> ops, string? mod, string? patchName, string? into, bool inPlace, bool acknowledge)
     {
         var rel = (relPath ?? "").Trim();
@@ -1255,7 +1248,7 @@ public sealed class LoadOrderService : IDisposable
             var providers = place.Sources.Select(s => new NifProvider(s.ProviderName, KindLabel(s.Kind))).ToList();
             if (place.Sources.Count == 0)
             {
-                var hint = AssetPathHint.MeshHint(view, rel);   // #273 — same verified re-resolve as nif_inspect's ABSENT
+                var hint = AssetPathHint.MeshHint(view, rel);   // same verified re-resolve as nif_inspect's ABSENT
                 return NifSetResult.Fail(
                     $"ABSENT — no active mod or BSA provides '{rel}', so there is no copy to edit." + (hint is null ? "" : " " + hint),
                     providers, profileName);
@@ -1275,13 +1268,13 @@ public sealed class LoadOrderService : IDisposable
             var (bytes, readErr) = AssetResolver.ReadPlacementSource(chosen);
             if (bytes is null) return NifSetResult.Fail(readErr ?? "could not read the resolved mesh bytes.", providers, profileName);
 
-            // ---- apply + verify (pure; NOTHING is written unless this returns verified bytes) ----
+            // ---- apply and verify (pure; nothing is written unless this returns verified bytes) ----
             var outcome = NifService.Set(bytes, ops);
             if (outcome.Error is not null) return NifSetResult.Fail(outcome.Error, providers, profileName);
             var editedBytes = outcome.WrittenBytes!;
             var report = outcome.Report!;
             var chosenProv = new NifProvider(chosen.ProviderName, KindLabel(chosen.Kind));
-            // Did we edit the VFS WINNER, or a copy a mod=-named loser shadows? Drives the honest "is it live" wording.
+            // Whether the edited copy is the VFS winner or a mod=-named loser. Drives the "is it live" wording.
             bool editedIsWinner = place.Sources.Count > 0 && ReferenceEquals(chosen, place.Sources[0]);
 
             // ---- IN-PLACE lane ----
@@ -1294,9 +1287,9 @@ public sealed class LoadOrderService : IDisposable
                 var targetPath = chosen.LooseFilePath!;
                 var meshName = Path.GetFileName(targetPath);
 
-                // The CHECK gates entry here; the acknowledgement is RECORDED below, once the overwrite has landed and
-                // verified — see PersistInPlaceConsent. The parent pre-flight and the write's own failure both refuse
-                // without changing the file, and neither may spend the caller's one-time confirmation.
+                // The check gates entry here; the acknowledgement is recorded below, only once the overwrite has landed
+                // and verified. The parent pre-flight and the write's own failure both refuse without changing the
+                // file, and neither may spend the caller's one-time confirmation.
                 bool already = _store.IsInPlaceAcknowledged(targetPath);
                 if (!already && !acknowledge)
                     return NifSetResult.NeedsAck(NifInPlaceHandshakeText(meshName, targetPath), chosenProv, providers, profileName);
@@ -1339,9 +1332,9 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
-    /// <summary>Merge the write report's notes (e.g. the unknown-block preservation disclosure) with the asset-layer
-    /// discovery warnings and an optional extra note (in-place ack-save failure) — BOTH lanes surface BOTH sets (Q3: a
-    /// preservation disclosure must not vanish because it rode the other lane's list).</summary>
+    /// <summary>Merge the write report's notes with the asset-layer discovery warnings and an optional extra note.
+    /// Both lanes surface both sets, so a preservation disclosure cannot vanish by riding the other lane's
+    /// list.</summary>
     static IReadOnlyList<string> MergeWarnings(IReadOnlyList<string> reportWarnings, IReadOnlyList<string> assetWarnings, string? extra)
     {
         var list = new List<string>(reportWarnings.Count + assetWarnings.Count + 1);
@@ -1351,11 +1344,10 @@ public sealed class LoadOrderService : IDisposable
         return list;
     }
 
-    /// <summary>The mesh-specific first-touch in-place consent prompt. Shares the opening lead with the PLUGIN
-    /// handshake (<see cref="InPlaceHandshakeLead"/>) — same two claims, keyed to the mesh — and diverges from
-    /// <see cref="InPlaceHandshakeText"/> after it, because that prompt's "whole plugin re-serialized / engine-reserved
-    /// sub-0x800 records" wording is false for a .nif: a mesh write is a WHOLE-FILE NiflySharp re-serialization (not a
-    /// byte-surgical patch), then verified. The opt-in trade-off carries over.</summary>
+    /// <summary>The mesh-specific first-touch in-place consent prompt. Shares its opening lead with the plugin
+    /// handshake (<see cref="InPlaceHandshakeLead"/>) and diverges after it, because that prompt's wording about
+    /// re-serializing a whole plugin and engine-reserved sub-0x800 records is false for a .nif: a mesh write is a
+    /// whole-file NiflySharp re-serialization, then verified.</summary>
     static string NifInPlaceHandshakeText(string meshName, string path) =>
         InPlaceHandshakeLead(meshName, path, "mesh", "overwrites") +
         "  • The written mesh is a WHOLE-FILE re-serialization through NiflySharp's canonical writer (the way NifSkope / BodySlide rewrite a mesh on save), NOT a byte-surgical patch — then VERIFIED (only the value you edited changed; it reloads as a valid SE mesh).\n" +
@@ -1363,35 +1355,33 @@ public sealed class LoadOrderService : IDisposable
         "  • The default lane (a NEW mod folder, originals untouched) stays the recommended way — this is the explicit opt-in.\n" +
         "Re-call the SAME edit with acknowledge=true to proceed.";
 
-    // ---- facegen-diagnostics Phase 3: place an asset so the correct copy WINS the VFS (housecarl_place_asset) ----
+    // ---- place an asset so the correct copy wins the VFS (housecarl_place_asset) ----
 
-    /// <summary>Place one-or-more assets (FaceGen .nif/.dds, or any Data-relative file) into a NEW houseCARL-owned MO2 mod
-    /// folder so the CORRECT copy can win the VFS (housecarl_place_asset = one; housecarl_bulk_place_asset = many). For
-    /// each request: resolve its current providers (auto-resolve a source when none was named — sole provider used, &gt;1
-    /// refused as ambiguous, 0 refused with guidance), read the source bytes IN PROCESS (a loose file, or a single entry
-    /// out of a BSA via native Mutagen), and write them CRASH-ATOMICALLY (<see cref="AtomicFile.WriteAllBytes"/>) under the
-    /// owned folder. Originals untouched (we only ever write a fresh / houseCARL-owned folder). NON-DESTRUCTIVE on failure:
-    /// a fresh folder that ended up with NOTHING placed is removed (no orphan); a partial one is kept + named. Q3 honesty:
-    /// "wrote it" ≠ "it wins" — the fresh mod must be ENABLED + SORTED above the current winner, which the render reports;
-    /// this never claims the fix took effect on write. Serialized on the write gate (one placement batch at a time).</summary>
+    /// <summary>Place one or more assets into a new houseCARL-owned MO2 mod folder so the correct copy can win the
+    /// VFS. For each request: resolve its current providers (auto-resolving a source when none was named — a sole
+    /// provider is used, more than one is refused as ambiguous, none is refused with guidance), read the source bytes
+    /// in process (a loose file, or a single entry out of a BSA), and write them crash-atomically under the owned
+    /// folder. Originals are untouched: only a fresh or houseCARL-owned folder is ever written. On failure a fresh
+    /// folder that ended up with nothing placed is removed, and a partial one is kept and named. "Wrote it" is not
+    /// "it wins": the fresh mod must be enabled and sorted above the current winner, which the render says, and this
+    /// never claims the fix took effect on write. Serialized on the write gate.</summary>
     public PlaceOutcome PlaceAssets(IReadOnlyList<PlaceRequest> requests, string? patchName, string? into)
     {
         if (requests is null || requests.Count == 0) return PlaceOutcome.Fail("no assets to place.");
 
-        lock (_writeGate)                                                 // hunt F2 sibling: one placement batch at a time, resolve->stage->commit
+        lock (_writeGate)                                                 // one placement batch at a time: resolve, stage, commit
         {
-            // PRECONDITION: _writeGate is held for the WHOLE method. ResolvePatchModFolder and the `Assets` getter each
-            // take-and-release _gate, so this method straddles two _gate sections — safe ONLY because _writeGate excludes
-            // every other writer and instance-switch throughout, so no profile refresh can land between them. Do not call
-            // PlaceOne/Assets here outside this _writeGate hold.
+            // Precondition: _writeGate is held for the WHOLE method. ResolvePatchModFolder and the `Assets` getter each
+            // take and release _gate, so this method straddles two _gate sections — safe only because _writeGate
+            // excludes every other writer and instance switch throughout, so no profile refresh can land between them.
+            // Do not call PlaceOne or Assets here outside this _writeGate hold.
             RiderFolder rf;
-            try { rf = ResolvePatchModFolder(patchName, into, "houseCARL_Assets"); }   // neutral default stem (general asset placer); the facegen skill passes its own patch_name
+            try { rf = ResolvePatchModFolder(patchName, into, "houseCARL_Assets"); }   // neutral default stem; a caller with a better name passes patch_name
             catch (InvalidOperationException ex) { return PlaceOutcome.Fail(ex.Message); }
 
-            // ONE asset build for the whole batch (auto-resolve sources + the post-write winner report), reentrant on _gate.
-            // CAPTURED, not the live resolver: every request in the batch — and the #283 missing-root suggestion's
-            // re-resolve — answers from the SAME snapshot, so a refresh landing mid-batch can't make two placements
-            // describe two builds (the AssetView discipline the other asset lanes already ride).
+            // One asset build for the whole batch, reentrant on _gate. Captured rather than the live resolver, so every
+            // request in the batch — and the missing-root suggestion's re-resolve — answers from the same snapshot and
+            // a refresh landing mid-batch cannot make two placements describe two builds.
             AssetResolver.AssetView view; IReadOnlyList<string> warnings;
             try { lock (_gate) { view = Assets.Capture(); warnings = _assetWarnings; } }
             catch (Exception ex)
@@ -1410,15 +1400,15 @@ public sealed class LoadOrderService : IDisposable
                 if (r.Placed) placed++;
             }
 
-            // Nothing placed into a FRESH folder → remove the orphan (the .esp F4 / rider H2 principle). A reused into=
-            // folder (the user owns it) is never touched. A partial fresh folder is kept and its path surfaced.
+            // Nothing placed into a fresh folder → remove the orphan. A reused into= folder belongs to the user and is
+            // never touched. A partial fresh folder is kept and its path surfaced.
             string? leftover = placed == 0 ? RemoveOrNameRiderResidue(rf) : null;
             return new PlaceOutcome(results, placed > 0 ? rf.ModFolder : null, warnings, leftover, null);
         }
     }
 
-    /// <summary>Place ONE asset: validate the destination rel-path (reject drive-rooted/'..' through the resolver's own
-    /// gate, Q3), get the source bytes (explicit source= or auto-resolve), and write them crash-atomically under
+    /// <summary>Place one asset: validate the destination rel-path (drive-rooted and '..' paths are rejected by the
+    /// resolver's own check), get the source bytes (explicit source= or auto-resolve), and write them atomically under
     /// <paramref name="outDir"/>. Reports the CURRENT VFS winner so the caller knows what to sort the fresh mod above —
     /// the placed file does NOT win until the mod is enabled + sorted (the fresh folder isn't in the active profile yet).
     /// A per-asset failure is a recoverable named error, never a thrown batch abort.</summary>
@@ -1438,19 +1428,18 @@ public sealed class LoadOrderService : IDisposable
         // is the same VFS lane pointed at the destination path. The last two share one code path because they are
         // one question ("which provider supplies this Data-relative path") asked about different paths.
         byte[] bytes; string sourceDesc;
-        // The mod folder an OFF-ORDER read was served from, or null when the bytes came from the active universe.
-        // Typed, not baked into sourceDesc: the render owns the sentence (#337), and this is a fact about WHERE the
-        // bytes came from that a caller cannot infer from a provider name.
+        // The mod folder an off-order read was served from, or null when the bytes came from the active order. Typed
+        // rather than baked into sourceDesc, because the render owns the sentence and a caller cannot infer this from
+        // a provider name.
         string? offOrderProvider = null;
-        // ONE normalization point for source=, ahead of BOTH the classification and every consumer. IsVfsSource used
-        // to trim quotes to decide and the VFS lane then resolved the un-trimmed string, so a quoted Data-relative
-        // source classified one way and was read another — refused as "nothing provides '"meshes\…"'" for a path two
-        // mods supplied. Whatever trimming the routing decision depends on has to have happened before this line.
+        // One normalization point for source=, ahead of both the classification and every consumer: whatever trimming
+        // the routing decision depends on must have happened before this line, or a quoted Data-relative source
+        // classifies one way and is read another.
         var explicitSrc = NormalizeSourceArg(req.Source);
         var providerSel = req.SourceProvider?.Trim();
         if (!string.IsNullOrEmpty(explicitSrc) && !IsVfsSource(explicitSrc!))
         {
-            // An on-disk source already IS one exact copy, so a pole cannot apply to it — said, never dropped (Q3).
+            // An on-disk source already IS one exact copy, so a pole cannot apply to it — said, never dropped.
             if (!string.IsNullOrEmpty(providerSel))
                 return PlaceResult.Fail(rel, WriteSentences.PlaceSourceProviderNeedsRelPath, winner);
             var (b, desc, err) = ReadExplicitSource(explicitSrc!, rel);
@@ -1468,30 +1457,26 @@ public sealed class LoadOrderService : IDisposable
                 catch (ArgumentException ex) { return PlaceResult.Fail(rel, $"source '{explicitSrc}': {ex.Message}", winner); }
             }
             var srcRes = sourceNamed ? view.ResolveForPlacement(srcRel) : res;
-            // The off-order lane (F1) is handed to the ONE source policy rather than spelled here: naming a mod means
-            // that mod's copy whether or not MO2 ticks it, and both place tools plus the closure copy's asset carry
-            // reach that rule through this call.
+            // The off-order lane is handed to the one source policy rather than spelled here: naming a mod means that
+            // mod's copy whether or not MO2 ticks it, and every caller reaches that rule through this call.
             var choice = AssetSourceChoice.Parse(providerSel);
             var pick = AssetSourceSelection.Select(srcRes, choice,
                                                    n => view.TryResolveOffOrderProvider(n, srcRel));
 
-            // BOTH named-provider misses render as ONE refusal. They are the same fact — the provider you named does
-            // not supply this path — and what differs is only which places were searched and whether there is anyone
-            // else to suggest, both of which the sentence takes as inputs rather than being several sentences.
-            //
-            // Gated on the POLE, not on "a provider string was passed". Those are different sets: '*winner' is a
-            // non-empty selector that parses to the WINNER pole, and gating on the string quoted it back as if it
-            // were a mod name, told the caller a mod folder of that name had been searched (impossible — '*' cannot
-            // be in a folder name, which is the whole reason the token is sigiled), and corrected them toward the
-            // spelling they had just used. Measured in review round 1.
+            // Both named-provider misses render as one refusal: they are the same fact — the named provider does not
+            // supply this path — differing only in which places were searched and whether there is anyone else to
+            // suggest, and the sentence takes both as inputs.
+            // Gated on the POLE, not on "a provider string was passed": '*winner' is a non-empty selector that parses
+            // to the winner pole, and gating on the string would quote it back as if it were a mod name and claim a
+            // folder of that name had been searched, which is impossible since '*' cannot appear in a folder name.
             if (choice.Pole == AssetSourcePole.Named
                 && pick.Verdict is AssetSourceVerdict.NamedAbsent or AssetSourceVerdict.NoProvider)
                 return PlaceResult.Fail(rel, WriteSentences.PlaceSourceNamedAbsent(
                     providerSel!, srcRel, pick.ProviderNames,
                     pick.OffOrderReason, pick.OffOrderUnreadableName, pick.OffOrderUnreadableCause,
-                    // The #283 root-prefix hint, which this refusal used to swallow: a path taken off a record is
-                    // stored relative to meshes\/textures\, and naming a provider does not stop that being the
-                    // caller's actual mistake. Verified before it is offered, like every other site that shows it.
+                    // The root-prefix hint: a path taken off a record is stored relative to meshes\ or textures\, and
+                    // naming a provider does not stop that being the caller's actual mistake. Verified before it is
+                    // offered, like every other site that shows it.
                     AssetPathHint.AssetRootHint(view, srcRel),
                     // srcRes, not res: the caveat has to describe the scan that answered for the SOURCE path.
                     srcRes.ReadIncomplete), winner);
@@ -1502,38 +1487,29 @@ public sealed class LoadOrderService : IDisposable
                     $"nothing in the active load order provides the source '{srcRel}'."
                     + (AssetPathHint.AssetRootHint(view, srcRel) is { } srcHint ? " " + srcHint : "")
                     + (srcRes.ReadIncomplete ? " " + WriteSentences.PlaceSourceScanIncomplete : "")
-                    // The OTHER dead end, and the one the appearance skill's own recipe produces: a Data-relative
-                    // source= with no source_provider=. The auto-resolve refusal below gained the route out of it;
-                    // this one did not, so the caller who passed a source and no provider was still told only that
-                    // nothing active has it. Same sentence, same one home (review round 2).
+                    // The other dead end: a Data-relative source= with no source_provider=. Same sentence as the
+                    // auto-resolve refusal below, so a caller who passed a source and no provider gets the same route
+                    // out.
                     + " " + WriteSentences.PlaceSourceNameReachesUnticked,
                     winner);
             if (pick.Verdict == AssetSourceVerdict.NoProvider)
             {
-                // #283 — the auto-resolve dead end is the same input mistake #273 fixed in the three sibling lanes: a
-                // path taken off a record is stored relative to its ROOT folder, so passing it verbatim is the normal
-                // way one arrives here. Both roots (this lane can't know the path's kind), VERIFIED by re-resolving —
-                // a suggestion always names a copy that really is provided, and silence is the honest default.
-                // NOT on the explicit-source= arm above: placing a NEW file at a path nothing provides is legitimate
-                // there, so an absent destination is not a mistake to correct.
+                // A path taken off a record is stored relative to its root folder, so passing it verbatim is the
+                // normal way one arrives here. Both roots are tried (this lane cannot know the path's kind) and
+                // verified by re-resolving, so a suggestion always names a copy that really is provided and silence
+                // is the default. Not offered on the explicit-source= arm above: placing a NEW file at a path
+                // nothing provides is legitimate there.
                 var hint = AssetPathHint.AssetRootHint(view, rel);
-                // ORDER IS LOAD-BEARING — the hint sits directly after the sentence about the PATH, before the
-                // "Pass source=" fallback (review of this PR). It names a destination, not a source, and it must not
-                // trail an imperative about sources or it reads as one. The old wording ALSO had to steer callers
-                // away from retrying with a Data-relative source=, which then routed to Path.GetFullPath against the
-                // process CWD; that is no longer true — a Data-relative source= is now the VFS lane, and it is the
-                // first form the imperative offers. Adjacency to the ABSENT clause is the shape the three sibling
-                // lanes already have (NifInspect / NifSet append MeshHint to a purely descriptive sentence;
-                // asset_status renders it on its own line), so all four read the same way.
+                // Order is load-bearing: the hint sits directly after the sentence about the PATH and before the
+                // "Pass source=" fallback. It names a destination, not a source, and must not trail an imperative
+                // about sources or it reads as one.
                 return PlaceResult.Fail(rel,
                     $"nothing in the active load order provides '{rel}', so there is no copy to auto-place."
                     + (hint is null ? "" : " " + hint)
                     + " Pass source= the copy to place — a Data-relative path (resolved through the VFS, with"
                     + " source_provider= to name which mod's copy), a full loose path, '<archive.bsa>|<entry>', or a '.bsa' path."
-                    // The remedy above used to dead-end for the commonest way of reaching this refusal — the only copy
-                    // living in a mod MO2 does not load — because auto-resolve and the named pole were both
-                    // enabled-only, so "pass source= with source_provider=" routed to a second refusal. Naming a mod
-                    // now reaches it, and the caller who is here is precisely the one who needs to be told.
+                    // The commonest way of reaching this refusal is that the only copy lives in a mod MO2 does not
+                    // load, and naming a mod reaches it, so the caller who is here is the one who needs to be told.
                     + " " + WriteSentences.PlaceSourceNameReachesUnticked
                     + (res.ReadIncomplete ? " " + WriteSentences.PlaceSourceScanIncomplete : ""),
                     winner);
@@ -1542,14 +1518,14 @@ public sealed class LoadOrderService : IDisposable
             if (err is not null) return PlaceResult.Fail(rel, err, winner);
             bytes = b!;
             if (pick.Source!.OffOrder) offOrderProvider = pick.Source.ProviderName;
-            // A source read from a DIFFERENT path than the destination is a rename, and the render has to say so —
-            // "placed from ModX" alone would hide that the bytes are another file's. Keyed on whether the two PATHS
-            // differ, not on whether a source was NAMED: "place meshes\x.nif from ModB" is the natural spelling of a
-            // plain provider-scoped placement, and calling it a rename says a file moved when none did.
+            // A source read from a different path than the destination is a rename and the render has to say so,
+            // since "placed from ModX" alone hides that the bytes are another file's. Keyed on whether the two paths
+            // differ, not on whether a source was named — a provider-scoped placement of the same path is not a
+            // rename.
             sourceDesc = sourceNamed && !SameAssetPath(srcRel, rel) ? $"{srcRel} — {desc}" : desc!;
         }
 
-        // ---- crash-atomic place under the owned folder (originals untouched; same-volume staging done in core) ----
+        // ---- crash-atomic place under the owned folder (originals untouched; same-volume staging done in the core) ----
         var dest = Path.Combine(outDir, rel);
         try
         {
@@ -1558,10 +1534,9 @@ public sealed class LoadOrderService : IDisposable
         }
         catch (Exception ex) { return PlaceResult.Fail(rel, $"could not write '{rel}' into the patch folder: {ex.Message}", winner); }
 
-        // ---- integrity (Q3: THIS run wrote it; the on-disk size matches the source bytes — no false success) ----
-        // Belt-and-braces truncation / short-write detection — NOT a content hash (the bytes are in-memory and the swap is
-        // atomic, so a same-length corruption isn't a reachable failure of this path; a size mismatch would mean the OS
-        // wrote fewer bytes than handed). Defensive, not the primary guarantee (that's AtomicFile's crash-atomic swap).
+        // ---- integrity: the on-disk size matches the source bytes, so success is never claimed falsely ----
+        // Truncation / short-write detection, not a content hash: the bytes are in memory and the swap is atomic, so a
+        // same-length corruption is not a reachable failure here. Defensive; AtomicFile's swap is the real guarantee.
         long size; try { size = new FileInfo(dest).Length; } catch { size = -1; }
         if (size != bytes.Length)
             return PlaceResult.Fail(rel,
@@ -1573,16 +1548,13 @@ public sealed class LoadOrderService : IDisposable
     /// BSA entry, split on the FIRST '|'); a path ending ".bsa" (the entry is the destination rel-path — the FaceGen
     /// case, where the entry inside the BSA IS the Data-relative path); a FULLY-QUALIFIED path (a loose file on disk).
     /// A Data-relative source never reaches here — <see cref="IsVfsSource"/> routes it to the VFS lane, which is the one
-    /// that can say which provider's copy. Returns the bytes + a human description, or a NAMED error (Q3) for a
-    /// missing file / missing entry / unreadable archive.</summary>
+    /// that can say which provider's copy. Returns the bytes plus a human description, or a named error for a
+    /// missing file, missing entry, or unreadable archive.</summary>
     static (byte[]? bytes, string? desc, string? error) ReadExplicitSource(string source, string destRel)
     {
-        // The whole-string trim + unquote happened in NormalizeSourceArg, ahead of the routing decision. The per-PART
-        // trims below are a different job and stay: each side of a '<archive>|<entry>' pair can carry its own quotes
-        // ("C:\X - Textures.bsa"|"meshes\y.nif"), which no whole-string normalization can reach. Re-trimming the whole
-        // string here would be harmless but would put a second spelling of "what the source is" in the file, and one
-        // spelling is the point (a quoted ".bsa" that kept its quotes would route as a loose file and place the WHOLE
-        // archive as the asset — a silent-wrong placement that passes the size check).
+        // The whole-string trim and unquote happened in NormalizeSourceArg, ahead of the routing decision. The
+        // per-part trims below stay: each side of a '<archive>|<entry>' pair can carry its own quotes, which no
+        // whole-string normalization can reach.
         int bar = source.IndexOf('|');
         if (bar >= 0)
             return ReadBsaEntry(source[..bar].Trim().Trim('"'), source[(bar + 1)..].Trim().Trim('"'));
@@ -1597,8 +1569,8 @@ public sealed class LoadOrderService : IDisposable
     }
 
     /// <summary>Read the bytes of an AUTO-resolved provider (the sole VFS provider when no source= was named). A loose
-    /// provider reads off disk; a BSA provider extracts its single entry natively. A named error (Q3) if the resolved copy
-    /// vanished between resolve and read, or the archive can't be read.</summary>
+    /// provider reads off disk; a BSA provider extracts its single entry natively. A named error if the resolved copy
+    /// vanished between resolve and read, or the archive cannot be read.</summary>
     static (byte[]? bytes, string? desc, string? error) ReadResolvedSource(PlacementSource s)
     {
         if (s.Kind == AssetKind.Loose)
@@ -1612,7 +1584,7 @@ public sealed class LoadOrderService : IDisposable
     }
 
     /// <summary>Read one entry out of a BSA (native Mutagen, no BSArch, zero handles at rest — see
-    /// <see cref="AssetResolver.TryReadArchiveEntry"/>). Named errors (Q3) for a missing archive, an entry not inside it,
+    /// <see cref="AssetResolver.TryReadArchiveEntry"/>). Named errors for a missing archive, an entry not inside it,
     /// or an unreadable archive.</summary>
     static (byte[]? bytes, string? desc, string? error) ReadBsaEntry(string archive, string entry)
     {
@@ -1653,16 +1625,12 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>Does this source= name a copy through the VFS (a Data-relative path) rather than one exact file on
     /// disk? Expects an already-<see cref="NormalizeSourceArg"/>d string. The on-disk forms are tested in the same
     /// order <see cref="ReadExplicitSource"/> routes them.
-    /// <para>FULLY-QUALIFIED, not merely rooted: on Windows <c>Path.IsPathRooted</c> is true for a leading '\' or
-    /// '/', but <c>AssetResolver.Normalize</c> trims exactly those, so <c>\meshes\…</c> is a legal Data-relative
-    /// path as a DESTINATION. Reading it as on-disk made one spelling mean two different things in a single call —
-    /// and sent it to Path.GetFullPath against the process CWD, the round-trip this lane exists to end. A path is
-    /// on-disk when it names a volume (<c>C:\…</c>) or a UNC share, and not before.</para>
-    /// <para>ORDER: the qualified test runs BEFORE the extension test, because an extension is a property of a
-    /// filename and says nothing about where the file is. A mod can legitimately ship <c>meshes\thing.bsa</c> as a
-    /// Data-relative asset, and testing '.bsa' first sent exactly that to the process CWD — the same round-trip one
-    /// clause up, reintroduced by the clause order beneath it. A '.bsa' only means "an archive to open" once we know
-    /// the caller named a file on disk.</para></summary>
+    /// <para>Fully qualified, not merely rooted: on Windows <c>Path.IsPathRooted</c> is true for a leading '\' or '/',
+    /// but <c>AssetResolver.Normalize</c> trims exactly those, so <c>\meshes\…</c> is a legal Data-relative
+    /// destination. A path is on-disk only when it names a volume (<c>C:\…</c>) or a UNC share.</para>
+    /// <para>The qualified test runs BEFORE the extension test, because an extension says nothing about where the
+    /// file is: a mod can legitimately ship <c>meshes\thing.bsa</c> as a Data-relative asset. A '.bsa' means "an
+    /// archive to open" only once the caller is known to have named a file on disk.</para></summary>
     static bool IsVfsSource(string source)
     {
         if (source.IndexOf('|') >= 0) return false;                      // '<archive.bsa>|<entry>' — an entry, not a path
@@ -1673,7 +1641,7 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>Whole-order stats (forces the lazy build). For the server's stand-up / health check.</summary>
     public (int plugins, int records, int conflicts, int maxDepth, IReadOnlyList<string> loadFailures, string epoch) Stats()
     {
-        var view = Resolver.Capture();          // ONE build for every counter in the line (HCBR-2026-06-11-02)
+        var view = Resolver.Capture();          // one build for every counter in the line
         return (view.PluginCount, view.RecordCount, view.ConflictCount, view.MaxDepth, view.LoadFailures, view.Epoch);
     }
 
