@@ -46,7 +46,9 @@ public static class NifTools
          "asset-INTERNAL companion to " + ToolNames.AssetStatus + " (which mod wins) once you know the winning file. Pass " +
          "mesh_paths = one or more paths (asset_status parity — a whole facegen sweep's flagged subset is ONE call, one " +
          "load-order resolution for the batch); results return in input order, and a failing path is reported LOUD on THAT " +
-         "path without aborting the rest. Output is a " +
+         "path without aborting the rest. Pass npc = one or more NPC FormIDs to inspect their FaceGen HEAD MESHES without " +
+         "working the path out yourself — houseCARL derives each facegeom .nif from the FormID (the folder is the plugin " +
+         "that DEFINES the NPC, never the winner) and reads it as one more member of the same batch. Output is a " +
          "SUMMARY per mesh by default (header + census + shape names); pass sections to expand ('shapes','partitions','alpha'," +
          "'paths','shader','strings','nodes','bones', or 'all'). Pass mod= to inspect a specific provider instead of the winner; " +
          "sections, mod and max_chars apply to the whole batch. An " +
@@ -58,8 +60,17 @@ public static class NifTools
         [Description("The Data-relative mesh path(s) to inspect, e.g. " +
                      "'meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif' or " +
                      "'meshes\\armor\\iron\\cuirass_1.nif'. One or many; inspected in order, results returned in the same " +
-                     "order. Relative to the game's Data folder (forward or back slashes both fine).")]
-            string[] mesh_paths,
+                     "order. Relative to the game's Data folder (forward or back slashes both fine). Optional only if " +
+                     "npc= is passed instead.")]
+            string[]? mesh_paths = null,
+        [Description("Optional. NPC FormID(s) to inspect the FaceGen HEAD MESH of — houseCARL derives each one's " +
+                     "'meshes\\actors\\character\\facegendata\\facegeom\\<defining master>\\00<6 hex>.nif' and reads it " +
+                     "like any other mesh path, so the record → facegen derivation stops being the caller's job. " +
+                     "'XXXXXX:Plugin.esp', or the runtime form the game/console prints ('FE012800', '0501A51A'). " +
+                     "The FOLDER is the plugin that DEFINES the NPC, never the conflict winner. Derived paths are " +
+                     "inspected AFTER any mesh_paths, in the order given; mesh_paths and npc may be passed together, " +
+                     "and one of the two is required.")]
+            string[]? npc = null,
         [Description("Optional. Which detail sections to show beyond the summary — any of 'shapes', 'partitions', 'alpha', " +
                      "'paths', 'shader', 'strings', 'nodes', 'bones', or 'all'. Comma-, space-, or JSON-array-separated (e.g. " +
                      "[\"shapes\",\"shader\"]). There is NO 'textures' section — a mesh's embedded texture-set slot paths " +
@@ -80,17 +91,42 @@ public static class NifTools
             int max_chars = 0) => Guard.Tool(ToolNames.NifInspect, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        if (mesh_paths is null || mesh_paths.Length == 0)
-            return "error: mesh_paths is empty. Pass one or more Data-relative mesh paths (e.g. 'meshes\\armor\\iron\\cuirass_1.nif').";
-        if (mesh_paths.All(string.IsNullOrWhiteSpace))
-            return "error: mesh_paths contains only empty/blank entries. Pass Data-relative mesh paths (e.g. 'meshes\\armor\\iron\\cuirass_1.nif').";
+        bool anyPath = mesh_paths is not null && mesh_paths.Any(p => !string.IsNullOrWhiteSpace(p));
+        bool anyNpc = npc is not null && npc.Any(p => !string.IsNullOrWhiteSpace(p));
+        if (!anyPath && !anyNpc)
+        {
+            if (mesh_paths is { Length: > 0 })
+                return "error: mesh_paths contains only empty/blank entries. Pass Data-relative mesh paths (e.g. 'meshes\\armor\\iron\\cuirass_1.nif').";
+            if (npc is { Length: > 0 })
+                return "error: npc contains only empty/blank entries. Pass NPC FormIDs (e.g. '01A51A:Dawnguard.esm').";
+            return "error: nothing to inspect. Pass mesh_paths (Data-relative mesh paths, e.g. 'meshes\\armor\\iron\\cuirass_1.nif') and/or npc (NPC FormIDs, whose FaceGen head mesh is derived).";
+        }
+
+        // npc= is a SELECT value, not a mode: each FormID becomes the FaceGen mesh path it derives to and joins the
+        // same batch, read exactly like a path the caller typed.
+        var selected = new List<string>((mesh_paths?.Length ?? 0) + (npc?.Length ?? 0));
+        if (mesh_paths is not null) selected.AddRange(mesh_paths);
+        if (anyNpc)
+        {
+            var door = svc.OpenFormIdDoor();
+            foreach (var raw in npc!)
+            {
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                try { selected.Add(FaceGenPath.For(door.Parse(raw), FaceGenSlot.Mesh)); }
+                catch (Exception ex)
+                {
+                    return FormIdDoor.Sentence(ex, "error: ",
+                        $"error: bad npc FormID '{raw.Trim()}' ({ex.Message}). Expected 'XXXXXX:Plugin.esp' or a runtime FormID.");
+                }
+            }
+        }
 
         var (want, unknownTokens) = ParseSections(sections);
         // Sections were requested but none resolved: fail rather than render the summary as if that were the answer.
         // A partial request proceeds, rendering the valid sections plus a warning.
         if (SectionsError(want, unknownTokens) is { } sectionsErr) return sectionsErr;
 
-        var data = svc.NifInspect(mesh_paths, string.IsNullOrWhiteSpace(mod) ? null : mod);
+        var data = svc.NifInspect(selected, string.IsNullOrWhiteSpace(mod) ? null : mod);
         return NifWire.Render(data, want, unknownTokens, max_chars > 0 ? max_chars : 80_000);
     });
 
