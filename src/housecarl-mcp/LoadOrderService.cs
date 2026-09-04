@@ -2198,8 +2198,8 @@ public sealed class LoadOrderService : IDisposable
     /// reference (FormLinks and condition-target FLOIs both emit a bare FormKey token; scalars never do), so this
     /// inherits coverage from the read surface with no per-type wiring. Resolution rides the SAME captured view +
     /// open session the read used, memoised so a keyword that recurs across a whole record (or batch) resolves once.
-    /// An unresolvable target is a NAMED unresolved <see cref="ResolvedRef"/> (Resolved=false), never dropped (Q3) —
-    /// bar the engine-implicit forms, which <see cref="ResolveRefOne"/> answers with their hardcoded identity (#230).
+    /// An unresolvable target is a named unresolved <see cref="ResolvedRef"/> (Resolved=false), never dropped, bar
+    /// the engine-implicit forms, which <see cref="ResolveRefOne"/> answers with their hardcoded identity.
     /// Copy-on-first-write: a record with no form-reference leaves returns the SAME instance.</summary>
     static RecordFields AnnotateLinks(RecordFields rf, LoadOrderResolver.IndexView view,
                                       LoadOrderResolver.OverlaySession session, Dictionary<FormKey, ResolvedRef> memo)
@@ -2217,45 +2217,34 @@ public sealed class LoadOrderService : IDisposable
         return rebuilt is null ? rf : rf with { Fields = rebuilt };
     }
 
-    /// <summary>#342 CHEAP TIER — on a read of a field that OWNS CHILD RECORDS, say that other plugins touch this
-    /// record and that this read did not open them. Index only; no body is fetched.
-    ///
-    /// <para><b>The wrong answer this exists to stop.</b> Placed references, a topic's INFOs and a worldspace's cells
-    /// are declared per plugin and assembled by the game from every plugin that declares them. An override that
-    /// touches a cell for an unrelated reason (occlusion, lighting, music) carries no references and deletes none —
-    /// so reading its <c>Persistent</c>/<c>Temporary</c> reports an empty cell that the game fills. Reproduced:
-    /// <c>008EB5:Skyrim.esm</c> reads Temporary 0 at its winner (<c>Occlusion.esp</c>, override depth 42) while
-    /// <c>Skyrim.esm</c>'s own body carries 201. A caller auditing "what is in this cell" through the winner got a
-    /// silent wrong answer, which is the Q3 class.</para>
-    ///
-    /// <para><b>Why this tier claims so little.</b> Naming WHICH plugins declare children requires their bodies —
-    /// cost measured, history, and the precise tier's own home:
+    /// <summary>On a read of a field that OWNS CHILD RECORDS, say that other plugins touch this record and that this
+    /// read did not open them. Index only; no body is fetched.
+    /// <para>Placed references, a topic's INFOs and a worldspace's cells are declared per plugin and assembled by the
+    /// game from every plugin that declares them. An override touching a cell for an unrelated reason (occlusion,
+    /// lighting, music) carries no references and deletes none, so reading its <c>Persistent</c>/<c>Temporary</c>
+    /// reports an empty cell the game actually fills. Without this note a caller auditing "what is in this cell"
+    /// through the winner gets a silently wrong answer.</para>
+    /// <para>This tier deliberately claims little: naming which plugins declare children requires their bodies, and
+    /// it unions nothing — "what is actually live in this parent" is separate work, since naive concatenation would
+    /// multi-count children that overlapping overrides both declare. See
     /// `docs/architecture/records-owned-child-declarers.md`.</para>
-    ///
-    /// <para><b>What this tier does not do.</b> Union anything. The read that answers "what is actually live in this
-    /// parent" — every child at its own winner, minus the deleted and initially-disabled — is separate design work;
-    /// naive concatenation would multi-count the children overlapping overrides both declare.</para>
-    ///
-    /// <para><b>Every other toucher, not just the lower ones.</b> Assembly is over the whole touching set, so a
-    /// <c>plugin=</c>-scoped read of a base master — the workaround this bug's reporter reached for — is annotated
-    /// too: the plugins ABOVE it declare children it cannot see.</para>
-    ///
-    /// <para>DISPLAY-ONLY, like the biped-slot decode and the resolve_names link it sits beside: it rides
-    /// <see cref="FieldValue.Display"/>, never the round-trip <see cref="FieldValue.Token"/>, so it is invisible to
-    /// the write surface, the read-proof oracle and the conflict diff — and it reaches the text render, the json
-    /// fields array and the dense cells through that one carrier.</para></summary>
+    /// <para>Assembly is over the whole touching set, so a <c>plugin=</c>-scoped read of a base master is annotated
+    /// too: the plugins above it declare children it cannot see.</para>
+    /// <para>Display-only: it rides <see cref="FieldValue.Display"/>, never the round-trip
+    /// <see cref="FieldValue.Token"/>, so it is invisible to the write surface, the read-proof oracle and the
+    /// conflict diff, and reaches every render through that one carrier.</para></summary>
     static RecordFields AnnotateOwnedChildContent(RecordFields rf, IMajorRecordGetter body,
                                                   LoadOrderResolver.IndexView view, FormKey fk,
                                                   out IReadOnlyDictionary<string, OwnedChildShape>? annotated)
     {
         annotated = null;
-        // The pinned field set (write-surface-guard's own sweep, reached from a getter) — empty for all but three
-        // record types, so this is where the overwhelming majority of reads leave, before any index lookup.
+        // Empty for all but three record types, so this is where the overwhelming majority of reads leave, before
+        // any index lookup.
         var owning = OwnedChildContent.Fields(body);
         if (owning.Count == 0) return rf;
 
-        // …and of the lines THIS read produced, which are those fields. A depth>=2 read emits the same summary line
-        // at the bare field path before expanding its children, so the annotation lands in one place either way.
+        // Which of the lines THIS read produced are those fields. A depth>=2 read emits the same summary line at the
+        // bare field path before expanding its children, so the annotation lands in one place either way.
         List<int>? hits = null;
         for (int i = 0; i < rf.Fields.Count; i++)
             if (owning.ContainsKey(rf.Fields[i].Path)) (hits ??= new List<int>()).Add(i);
@@ -2264,11 +2253,9 @@ public sealed class LoadOrderService : IDisposable
         var touching = view.TouchingPlugins(fk);
         if (touching is null || touching.Count <= 1) return rf;   // sole toucher: its own body IS the whole story
 
-        // INDEX ONLY — no body is opened here (cost measured, `docs/architecture/records-owned-child-declarers.md`).
-        // The default read states only what the index settles for free — that other plugins touch this record and
-        // this read did not look at what they declare — and `records project={"form":"tree"}`, which has already
-        // paid for every body, states which ones do. NOT the conflict-tree lane: AppendChildDeclarers has no
-        // caller on it — those render halves belong to #486.
+        // Index only — no body is opened here. The default read states just what the index settles for free: that
+        // other plugins touch this record and this read did not look at what they declare. The tree form, which has
+        // already paid for every body, states which ones do.
         var note = ReadSentences.NotReadNote(touching.Count - 1);
         var rebuilt = new List<FieldValue>(rf.Fields);
         // The ANNOTATED paths and their shapes travel with the outcome, because the render decides its
@@ -2286,22 +2273,21 @@ public sealed class LoadOrderService : IDisposable
         return rf with { Fields = rebuilt };
     }
 
-    /// <summary>How deep the conflict diff reads each touching body. The diff must compare CONTENT, not the
-    /// depth-1 count summaries that masked equal-count list deltas (HCBR-2026-06-09-01) — deep enough to reach
-    /// every modeled scalar leaf (the walk is bounded by the modeled-corpus boundary + ReadEngine's expansion
-    /// cap, whose truncation sentinel FieldsDiff surfaces as Complete=false).</summary>
+    /// <summary>How deep the conflict diff reads each touching body. It must compare CONTENT rather than depth-1
+    /// count summaries, which hide equal-count list deltas — deep enough to reach every modeled scalar leaf. The walk
+    /// is bounded by the modeled-corpus boundary and ReadEngine's expansion cap, whose truncation sentinel the diff
+    /// surfaces as Complete=false.</summary>
     internal const int ConflictDiffDepth = 16;
 
-    /// <summary>The winner's full conflict tree, MATERIALISED — every touching plugin's name + its fields read off its
-    /// own body, in priority order (winner last) — for the field-level diff view, read DEEP (<see cref="ConflictDiffDepth"/>)
-    /// so the diff compares list/substruct CONTENT, not depth-1 count summaries (HCBR-2026-06-09-01). Opens a per-call
-    /// session, fetches each touching body, reads its <paramref name="fields"/> into a plain DTO, then DISPOSES the
-    /// session (Option B): the render layer never touches a live overlay or holds a handle. null if the FormKey isn't
-    /// in the order.</summary>
+    /// <summary>The winner's full conflict tree, materialised: every touching plugin's name and its fields read off
+    /// its own body, in priority order with the winner last, read at <see cref="ConflictDiffDepth"/> so the diff
+    /// compares list and substruct content. Opens a per-call session, fetches each touching body, reads its
+    /// <paramref name="fields"/> into a plain DTO, then disposes the session, so the render layer never touches a live
+    /// overlay or holds a handle. Null if the FormKey is not in the order.</summary>
     public ConflictTreeView? ResolveTree(FormKey fk, IReadOnlyList<string>? fields)
     {
         var resolver = Resolver;
-        return ResolveTreePinned(new ViewPin(resolver, resolver.Capture()), fk, fields);   // one body, two entries (third-round note)
+        return ResolveTreePinned(new ViewPin(resolver, resolver.Capture()), fk, fields);
     }
 
     /// <summary>A header-only summary for one record (winner + type + editorid, no field dump) — the compact
@@ -2309,7 +2295,7 @@ public sealed class LoadOrderService : IDisposable
     public RecordSummary ResolveSummary(FormKey fk)
     {
         var resolver = Resolver;
-        return ResolveSummary(resolver, resolver.Capture(), fk);   // one capture per summary (winner + depth + fetch from one build)
+        return ResolveSummary(resolver, resolver.Capture(), fk);   // one capture per summary: winner, depth and fetch from one build
     }
 
     static RecordSummary ResolveSummary(LoadOrderResolver resolver, LoadOrderResolver.IndexView view, FormKey fk)
@@ -2325,21 +2311,19 @@ public sealed class LoadOrderService : IDisposable
                                  w.Value.WinnerPlugin, w.Value.OverrideDepth, null);
     }
 
-    // ---- pinned per-match fills (PR #305 review) --------------------------------------------------------
+    // ---- pinned per-match fills ------------------------------------------------------------------------
 
     /// <summary>A pinned (resolver, view) pair, carried on <see cref="CrossQueryOutcome.Pin"/> and
-    /// <see cref="ReadOutcome.Pin"/> so the RENDER-time fills a response makes (cross-query detail bodies, lazy
-    /// summaries, conflict-tree blocks) read the build the outcome's epoch names — never a fresh capture of an
-    /// adjacent build (PR #305 review + re-review). Pure data, no handles.</summary>
+    /// <see cref="ReadOutcome.Pin"/> so the render-time fills a response makes — cross-query detail bodies, lazy
+    /// summaries, conflict-tree blocks — read the build the outcome's epoch names rather than a fresh capture of an
+    /// adjacent build. Pure data, no handles.</summary>
     internal sealed record ViewPin(LoadOrderResolver Resolver, LoadOrderResolver.IndexView View);
 
-    /// <summary>The cross-query detail fill, PINNED to the scan's build when the outcome carries one (PR #305
-    /// review): the render loop used to call the public <see cref="ResolveRead(FormKey, string?, IReadOnlyList{string}?, bool, int, bool, Dictionary{FormKey, ResolvedRef}?, string?)"/>,
-    /// which re-gates + re-captures PER ROW — so a freshness rebuild landing mid-render filled the remaining rows
-    /// from a build the header's epoch does not name. Pinning also drops the per-row stat sweep. Bodies are still
-    /// fetched from disk at fill time (Option B holds none) — the pin freezes winner IDENTITY, and a file that
-    /// changed under a pinned fetch surfaces as the named fetch-inconsistency error, never as a silently re-resolved
-    /// winner. Falls back to the public path when the outcome carries no pin (a hand-built outcome in guards).</summary>
+    /// <summary>The cross-query detail fill, pinned to the scan's build when the outcome carries one. Without the pin
+    /// each row re-gates and re-captures, so a freshness rebuild landing mid-render would fill the remaining rows from
+    /// a build the header's epoch does not name; pinning also drops the per-row stat sweep. Bodies are still fetched
+    /// from disk at fill time — the pin freezes winner IDENTITY, and a file that changed under a pinned fetch surfaces
+    /// as the named fetch-inconsistency error. Falls back to the public path when the outcome carries no pin.</summary>
     internal ReadOutcome ResolveReadOn(CrossQueryOutcome q, FormKey fk, string? plugin, IReadOnlyList<string>? fields,
                                        bool conflictTree, int depth = 1, bool resolveNames = false,
                                        Dictionary<FormKey, ResolvedRef>? linkMemo = null,
@@ -2354,18 +2338,17 @@ public sealed class LoadOrderService : IDisposable
     internal RecordSummary ResolveSummaryOn(CrossQueryOutcome q, FormKey fk)
         => q.Pin is { } p ? ResolveSummary(p.Resolver, p.View, fk) : ResolveSummary(fk);
 
-    /// <summary>The conflict-tree fill off a PINNED build (PR #305 review + re-review) — used by the render whenever
-    /// the outcome it is decorating carries a <see cref="ViewPin"/> (single reads, batch items, and cross-query
-    /// detail rows all do), so the tree's membership and the response's epoch stamp name the same build.</summary>
+    /// <summary>The conflict-tree fill off a pinned build — used by the render whenever the outcome it is decorating
+    /// carries a <see cref="ViewPin"/>, so the tree's membership and the response's epoch stamp name the same
+    /// build.</summary>
     internal ConflictTreeView? ResolveTreePinned(ViewPin p, FormKey fk, IReadOnlyList<string>? fields)
     {
         using var session = p.Resolver.OpenSession();
         var tree = p.View.ResolveTree(session, fk);
         if (tree is null) return null;
 
-        // The PRECISE owned-child tier (#342, restored by #485): which providers declare children per
-        // child-bearing field, asked of bodies already open for the diff below — no extra fetch. Field set is
-        // OwnedChildContent.Fields(body). Rationale, narrowing rules and cost measurements:
+        // The precise owned-child tier: which providers declare children per child-bearing field, asked of bodies
+        // already open for the diff below, so it costs no extra fetch. Rationale and narrowing rules:
         // `docs/architecture/records-owned-child-declarers.md`.
         var owning = tree.Nodes.Count > 0 ? OwnedChildContent.Fields(tree.Nodes[0].Record) : null;
         var wanted = owning is null || owning.Count == 0
@@ -2381,8 +2364,8 @@ public sealed class LoadOrderService : IDisposable
             nodes.Add(new ConflictNodeView(n.Plugin, ReadEngine.ReadFields(n.Record, fields, ConflictDiffDepth)));   // materialise while open
             foreach (var f in wanted)
             {
-                // NULL is "I could not look", never "declares nothing" (#308's rule one level down): a body
-                // dropped in silence would render as "nobody declares content here".
+                // Null means "could not look", never "declares nothing": a body dropped in silence would render as
+                // "nobody declares content here".
                 var d = OwnedChildContent.DeclaresChild(n.Record, f);
                 if (d == true) declaring[f].Add(n.Plugin);
                 else if (d is null) unreadable[f].Add(n.Plugin);
@@ -2395,17 +2378,16 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>The best-effort display Name of a record body — reflection-generic via Mutagen's <c>INamedGetter</c>
     /// aspect, so it inherits coverage from the model (no per-record-type wiring): every named record answers, a
     /// type with no Name (KYWD, most references) returns null. A translated Name resolves to its default-language
-    /// string. Used by housecarl_resolve (P3) and the resolve_names annotation (P7).</summary>
+    /// string.</summary>
     static string? ReadDisplayName(IMajorRecordGetter body) =>
         body is INamedGetter named && !string.IsNullOrEmpty(named.Name) ? named.Name : null;
 
     /// <summary>Resolve ONE FormKey to its load-order identity (type/editorid/name/winner) off a captured view + open
     /// session, memoised so a target that recurs across a batch (the SAME keyword on 500 items) resolves once. A
-    /// FormKey not in the order is a NAMED unresolved result (Resolved=false), never dropped or guessed (Q3) — except
-    /// the engine-implicit forms (PlayerRef 000014 / Player 000007), which the index can't resolve but are real: those
-    /// answer with their hardcoded identity and winner "&lt;engine&gt;", the same precise <see cref="EngineImplicit"/>
-    /// exemption check_errors and the dialogue lints apply (#230). Shared by housecarl_resolve (P3) and the
-    /// resolve_names field annotation (P7).</summary>
+    /// FormKey not in the order is a named unresolved result (Resolved=false), never dropped or guessed — except the
+    /// engine-implicit forms (PlayerRef 000014, Player 000007), which the index cannot resolve but are real: those
+    /// answer with their hardcoded identity and winner "&lt;engine&gt;", the same <see cref="EngineImplicit"/>
+    /// exemption the error and dialogue checks apply.</summary>
     static ResolvedRef ResolveRefOne(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                                      FormKey fk, Dictionary<FormKey, ResolvedRef> memo)
     {
@@ -2428,20 +2410,18 @@ public sealed class LoadOrderService : IDisposable
         return result;
     }
 
-    /// <summary>Bulk name resolution (housecarl_resolve — P3): turn a list of FormIDs into their load-order identity
-    /// (type/editorid/name/winner) in ONE call over ONE captured view, memoised across the batch. A bad/absent FormID
-    /// yields a per-item result carrying its reason (Error for a malformed string, Resolved=false for a valid-but-absent
-    /// FormKey) without failing the whole batch (Q3, the batch_record_detail convention). Deliberately minimal — no
-    /// fields/depth/conflict_tree; anything richer is housecarl_batch_record_detail's job.</summary>
+    /// <summary>Bulk name resolution: turn a list of FormIDs into their load-order identity (type, editorid, name,
+    /// winner) in one call over one captured view, memoised across the batch. A bad or absent FormID yields a per-item
+    /// result carrying its reason — Error for a malformed string, Resolved=false for a valid-but-absent FormKey —
+    /// without failing the whole batch. Deliberately minimal: no fields, depth or conflict tree.</summary>
     public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids) => ResolveRefs(formids, out _);
 
     public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids, out string epoch)
         => ResolveRefs(formids, null, out epoch, out _);
 
-    /// <summary>The §2.1.1 artifact-epoch mismatch refusal — ONE wording for every consuming lane (cross-query
-    /// predicates, batch, resolve), naming BOTH epochs and the two legitimate next moves. Deliberately no
-    /// stale-override parameter: fresh re-projection goes through the server; honest-snapshot traversal of the
-    /// file is the client's own lane.</summary>
+    /// <summary>The artifact-epoch mismatch refusal — one wording for every consuming lane, naming both epochs and
+    /// the two legitimate next moves. Deliberately no stale-override parameter: re-projecting goes through the
+    /// server, and reading the old file as a snapshot of its own build is the client's lane.</summary>
     internal static string ArtifactEpochMismatch(ArtifactDemand d, string current) =>
         $"artifact '{d.Path}' was captured at epoch={d.Epoch}, but the CURRENT load-order build is epoch={current} — " +
         "the load order changed since the artifact was written, so its rows may resolve differently now. " +
@@ -2449,19 +2429,18 @@ public sealed class LoadOrderService : IDisposable
         "readable with your own tools as an honest snapshot of ITS build. There is deliberately no stale-override switch.";
 
     /// <summary>As above, also handing back the captured build's <paramref name="epoch"/> fingerprint — the batch is
-    /// ONE capture, and the render stamps that identity into the response's in-band accounting (SPEC §2.1.1).
-    /// <see cref="ResolvedRef"/> itself stays epoch-free: it is core's per-row identity DTO, reused as the
-    /// resolve_names annotation, where a per-row stamp would be noise.
-    /// <para><paramref name="artifactDemand"/> — when the formid list came from a §2.1.1 artifact — is checked
-    /// against THIS capture's epoch (the same build that answers), and a mismatch hands back
-    /// <paramref name="artifactRefusal"/> with no rows: the refusal consulted the build, so the caller renders it
-    /// stamped with <paramref name="epoch"/>.</para></summary>
+    /// one capture, and the render stamps that identity into the response's accounting.
+    /// <see cref="ResolvedRef"/> itself stays epoch-free: it is the per-row identity DTO, reused as the resolve_names
+    /// annotation where a per-row stamp would be noise.
+    /// <para><paramref name="artifactDemand"/>, when the formid list came from an artifact, is checked against THIS
+    /// capture's epoch — the same build that answers — and a mismatch hands back
+    /// <paramref name="artifactRefusal"/> with no rows, stamped with <paramref name="epoch"/>.</para></summary>
     public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids, ArtifactDemand? artifactDemand,
                                                   out string epoch, out string? artifactRefusal)
     {
         artifactRefusal = null;
         var resolver = Resolver;
-        var view = resolver.Capture();                  // ONE build for the whole batch (HCBR-2026-06-11-02)
+        var view = resolver.Capture();                  // one build for the whole batch
         epoch = view.Epoch;
         if (artifactDemand is not null && artifactDemand.Epoch != view.Epoch)
         {
@@ -2482,7 +2461,7 @@ public sealed class LoadOrderService : IDisposable
         return results;
     }
 
-    // ---- pairwise record diff (housecarl_diff_record — P8c) --------------------------------------------
+    // ---- pairwise record diff --------------------------------------------------------------------------
 
     /// <summary>If <paramref name="path"/> is the EXACT file the active order loads for its filename, the plugin name
     /// the order knows it by; else null. The full-path compare is the whole point: a backup that shares the filename
@@ -2496,10 +2475,9 @@ public sealed class LoadOrderService : IDisposable
         try { full = Path.GetFullPath(path.Trim()); } catch { return null; }
         var name = Path.GetFileName(full);
         if (name.Length == 0 || !view.ContainsPlugin(name)) return null;
-        // An EXCLUDED plugin is still in the name table (exclusion is a separate set), and the active lane can only
-        // refuse it. Reading its file DIRECTLY is the escape hatch for exactly that case — records ahead of the
-        // unparseable one still come back — so a path to one must keep taking the off-order lane, not get routed
-        // into a refusal it was addressed by path to avoid.
+        // An excluded plugin is still in the name table (exclusion is a separate set) and the active lane can only
+        // refuse it. Reading its file directly is the escape hatch for that case — records ahead of the unparseable
+        // one still come back — so a path to one must keep taking the off-order lane.
         if (view.ExcludedPlugins.ContainsKey(name)) return null;
         var active = view.PluginPath(name);
         return !string.IsNullOrEmpty(active) && SamePluginFile(active, full) ? name : null;
@@ -2509,31 +2487,30 @@ public sealed class LoadOrderService : IDisposable
     /// order, or OUT-OF-LOAD-ORDER on disk), whether it's in the active order, and the record identity it carries.</summary>
     public sealed record DiffPole(string Plugin, string Where, bool InOrder, string? RecordType, string? EditorId);
 
-    // ---- batch (Q4.9) -----------------------------------------------------------------------------------
+    // ---- batch ------------------------------------------------------------------------------------------
 
-    /// <summary>Resolve+read many records in one call (housecarl_batch_record_detail). Each formid runs the same
-    /// <see cref="ResolveRead"/> path, so a bad/absent formid yields a per-item recoverable error (Q3) without
-    /// failing the batch. Returns one <see cref="ReadOutcome"/> per input, in order. <paramref name="plugin"/> —
-    /// when set — reads every formid AS THAT NAMED PLUGIN'S version (its override, not the load-order winner), the
-    /// batch twin of housecarl_read_record's plugin= (HCBR-2026-07-15): a formid that plugin doesn't touch yields
-    /// its own per-item error (ResolveRead's "does not define this record"), never failing the batch.</summary>
+    /// <summary>Resolve and read many records in one call. Each formid runs the same <see cref="ResolveRead"/> path,
+    /// so a bad or absent formid yields a per-item recoverable error without failing the batch. Returns one
+    /// <see cref="ReadOutcome"/> per input, in order. When <paramref name="plugin"/> is set, every formid is read as
+    /// that plugin's version — its override, not the load-order winner — and a formid it does not touch yields its
+    /// own per-item error.</summary>
     public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
                                                    bool resolveNames = false, string? plugin = null,
                                                    string? containerHint = ReadEngine.DepthExpandHint)
         => ResolveBatch(formids, fields, conflictTree, depth, resolveNames, plugin, null, out _, out _, containerHint);
 
-    /// <summary>The §2.1.1-aware overload: <paramref name="artifactDemand"/> (a formids=@artifact input) is
-    /// checked against THIS capture's epoch — the same build that would answer — and a mismatch hands back
-    /// <paramref name="artifactRefusal"/> + <paramref name="refusalEpoch"/> with no rows (a build-consulting
-    /// refusal renders stamped, per the PR #305 contract).</summary>
+    /// <summary>The artifact-aware overload: <paramref name="artifactDemand"/> (a formids=@artifact input) is checked
+    /// against THIS capture's epoch — the same build that would answer — and a mismatch hands back
+    /// <paramref name="artifactRefusal"/> and <paramref name="refusalEpoch"/> with no rows, because a refusal that
+    /// consulted a build renders stamped with it.</summary>
     public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth,
                                                    bool resolveNames, string? plugin, ArtifactDemand? artifactDemand,
                                                    out string? artifactRefusal, out string? refusalEpoch,
                                                    string? containerHint = ReadEngine.DepthExpandHint)
     {
         artifactRefusal = null; refusalEpoch = null;
-        var resolver = Resolver;                // build/refresh ONCE for the batch
-        var view = resolver.Capture();          // ONE build for every item — the whole batch is one logical operation (HCBR-2026-06-11-02)
+        var resolver = Resolver;                // build/refresh once for the batch
+        var view = resolver.Capture();          // one build for every item — the whole batch is one logical operation
         if (artifactDemand is not null && artifactDemand.Epoch != view.Epoch)
         {
             artifactRefusal = ArtifactEpochMismatch(artifactDemand, view.Epoch);
@@ -2541,7 +2518,7 @@ public sealed class LoadOrderService : IDisposable
             return Array.Empty<ReadOutcome>();
         }
         var pin = new ViewPin(resolver, view);
-        var linkMemo = resolveNames ? new Dictionary<FormKey, ResolvedRef>() : null;   // P7: one link-resolution cache across the WHOLE batch
+        var linkMemo = resolveNames ? new Dictionary<FormKey, ResolvedRef>() : null;   // one link-resolution cache across the whole batch
         var outcomes = new List<ReadOutcome>(formids.Count);
         foreach (var raw in formids)
         {
@@ -2549,35 +2526,34 @@ public sealed class LoadOrderService : IDisposable
             try { fk = FormKey.Factory(raw.Trim()); }
             catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
             outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint)
-                         with { Epoch = view.Epoch, Pin = pin });   // the batch's ONE build, stamped + pinned per item (SPEC §2.1.1)
+                         with { Epoch = view.Epoch, Pin = pin });   // the batch's one build, stamped and pinned per item
         }
         return outcomes;
     }
 
-    // ---- W2 `records`: the §4.2 one-pole batch (source=named, wherever the plugin lives) ----------------
+    // ---- `records`: the one-pole batch (source=named, wherever the plugin lives) -----------------------
 
-    /// <summary>How a `records` source= pole resolved (SPEC §4.2's ONE-POLE rule): ACTIVE in the order, or an
-    /// on-disk FILE outside it — the response always STATES which arm, so nothing resolves silently. An off-order
-    /// file sits OUTSIDE the epoch fingerprint (the PR #305 coverage rule diff_record already declares) —
-    /// <see cref="EpochCoversPole"/> carries that as data for the render.</summary>
+    /// <summary>How a `records` source= pole resolved: active in the order, or an on-disk file outside it. The
+    /// response always states which arm, so nothing resolves silently. An off-order file sits outside the epoch
+    /// fingerprint, which <see cref="EpochCoversPole"/> carries as data for the render.</summary>
     public sealed record PoleInfo(string Plugin, string Where, bool InOrder, bool EpochCoversPole)
     {
-        /// <summary>The on-disk locate result for the OFF-ORDER arm (null on the active arm) — carried so the
+        /// <summary>The on-disk locate result for the off-order arm (null on the active arm), carried so the
         /// consuming lane can open the file without re-running the locate.</summary>
         internal string? Path { get; init; }
 
-        /// <summary>The epoch of the build the arm was judged against (set by <see cref="ProbeSourceArm"/>) — the
-        /// caller compares it against its dispatch's own stamp, so a load-order change in the probe→dispatch gap
-        /// surfaces as a loud retry refusal instead of an arm statement about a different world (PR #307 round 3).</summary>
+        /// <summary>The epoch of the build the arm was judged against. The caller compares it against its dispatch's
+        /// own stamp, so a load-order change between probe and dispatch surfaces as a loud retry refusal instead of
+        /// an arm statement about a different build.</summary>
         public string? Epoch { get; init; }
     }
 
-    /// <summary>Resolve a `records` source= pole against ONE captured view (the §4.2 one-pole rule): active in the
-    /// order, else located on disk across the whole install. Error non-null ⇒ found in NEITHER place (naming both),
-    /// or ambiguous across mod folders (naming them + the {file, mod} disambiguator).</summary>
+    /// <summary>Resolve a `records` source= pole against ONE captured view: active in the order, else located on disk
+    /// across the whole install. A non-null error means it was found in neither place (naming both), or is ambiguous
+    /// across mod folders (naming them and the {file, mod} disambiguator).</summary>
     (PoleInfo? Pole, string? Error) ResolvePoleArm(LoadOrderResolver.IndexView view, string plugin, string? mod)
     {
-        // A pole addressed by PATH that IS the active order's file resolves back to its plugin name (#269's rule).
+        // A pole addressed by path that IS the active order's file resolves back to its plugin name.
         if (LooksLikePath(plugin) && ActiveNameForPath(view, plugin) is { } activeName) plugin = activeName;
 
         if (view.ContainsPlugin(plugin))
@@ -2592,7 +2568,7 @@ public sealed class LoadOrderService : IDisposable
         var comp = Mo2LoadOrder.ReadComposition(profileDir);
         var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, plugin, mod);
         if (loc.Error is not null)
-            // The §4.2 refusal contract: a pole found in NEITHER place names BOTH places searched.
+            // A pole found in neither place names both places searched.
             return (null, $"source '{plugin}' resolves in NEITHER place the one-pole rule searches: it is not ACTIVE in " +
                           $"the load order ({view.PluginCount} plugins), and on disk {loc.Error}");
         if (loc.Ambiguous is not null)
@@ -2615,13 +2591,12 @@ public sealed class LoadOrderService : IDisposable
         return pole is null ? null : pole with { Epoch = view.Epoch };
     }
 
-    /// <summary>The list-driven `records` read under a NAMED source pole (SPEC §4.2): resolve the pole ONCE —
-    /// active in the order, else a file on disk (enabled, disabled, or unlisted mod folders; the read_plugin_file
-    /// reach) — and read every FormID's version from it off ONE captured build. A pole found in NEITHER place is a
-    /// whole-call refusal naming both places searched; a record the pole does not touch is a per-item refusal
-    /// naming the actual touchers (never a silent drop — the §4.2 untouched contract); a bad FormID is a per-item
-    /// error. Off-order reads carry winner context where the record resolves in the active order (so the row still
-    /// says who currently wins), and the pole's file content is declared OUTSIDE the epoch fingerprint.</summary>
+    /// <summary>The list-driven `records` read under a named source pole: resolve the pole once — active in the
+    /// order, else a file on disk in an enabled, disabled or unlisted mod folder — and read every FormID's version
+    /// from it off ONE captured build. A pole found in neither place is a whole-call refusal naming both places
+    /// searched; a record the pole does not touch is a per-item refusal naming the actual touchers, never a silent
+    /// drop; a bad FormID is a per-item error. Off-order reads carry winner context where the record also resolves in
+    /// the active order, and the pole's file content is declared outside the epoch fingerprint.</summary>
     public IReadOnlyList<ReadOutcome> ResolveBatchFromPole(
         IReadOnlyList<string> formids, string plugin, string? mod,
         IReadOnlyList<string>? fields, int depth, bool resolveNames,
@@ -2631,7 +2606,7 @@ public sealed class LoadOrderService : IDisposable
     {
         pole = null; refusal = null; refusalEpoch = null;
         var resolver = Resolver;
-        var view = resolver.Capture();          // ONE build for the pole test and every read (§4.1)
+        var view = resolver.Capture();          // one build for the pole test and every read
         if (artifactDemand is not null && artifactDemand.Epoch != view.Epoch)
         {
             refusal = ArtifactEpochMismatch(artifactDemand, view.Epoch);
@@ -2652,8 +2627,8 @@ public sealed class LoadOrderService : IDisposable
 
         if (arm.InOrder)
         {
-            // ACTIVE arm — the same per-item reads ResolveBatch(plugin=) does, off the same captured view
-            // (excluded-plugin and untouched-record refusals per item, touchers named).
+            // Active arm: the same per-item reads ResolveBatch(plugin=) does, off the same captured view, with
+            // excluded-plugin and untouched-record refusals per item and the touchers named.
             var linkMemo = resolveNames ? new Dictionary<FormKey, ResolvedRef>() : null;
             var outcomes = new List<ReadOutcome>(formids.Count);
             foreach (var raw in formids)
@@ -2667,8 +2642,8 @@ public sealed class LoadOrderService : IDisposable
             return outcomes;
         }
 
-        // OFF-ORDER arm (the read_plugin_file reach, absorbed): the locate already ran in ResolvePoleArm; open
-        // the overlay ONCE and pick every requested record in a single enumeration pass.
+        // Off-order arm: the locate already ran in ResolvePoleArm, so open the overlay once and pick every requested
+        // record in a single enumeration pass.
         string dataDirForOverlay;
         try { lock (_gate) { EnsurePathsDerived(); dataDirForOverlay = _dataDir; } }
         catch (Exception ex)
@@ -2722,11 +2697,10 @@ public sealed class LoadOrderService : IDisposable
             {
                 if (!found.TryGetValue(fk, out var rec))
                 {
-                    // The §4.2 untouched contract holds on THIS arm too (PR #307 round 3): name the plugins that
-                    // DO touch the record in the active order — or say plainly that nothing does.
-                    // TouchingPlugins returns NULL (it does not throw) for a FormKey outside the index — e.g. an
-                    // old patch whose master is also disabled (round-3 re-review blocker: the try/catch never
-                    // fired and the null dereferenced into a whole-call generic failure).
+                    // The untouched contract holds on this arm too: name the plugins that DO touch the record in the
+                    // active order, or say plainly that nothing does. TouchingPlugins returns null rather than
+                    // throwing for a FormKey outside the index — e.g. an old patch whose master is also disabled —
+                    // so the ?? is load-bearing, not defensive.
                     IReadOnlyList<string> touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
                     results[index] = ReadOutcome.Fail(fk,
                         $"file '{plugin}' ({poleWhere}) does not define or override {fk} — it has no version of this record. " +
@@ -2748,19 +2722,19 @@ public sealed class LoadOrderService : IDisposable
         finally { (ov as IDisposable)?.Dispose(); }
     }
 
-    // ---- W2 PR 2: comparison poles + the delta/tree batches (SPEC §4.1–§4.4) ---------------------------
+    // ---- comparison poles and the delta/tree batches --------------------------------------------------
 
-    /// <summary>Which §4.2 pole a source=/versus= expression names. <see cref="Overlay"/> is the SkyPatcher
-    /// runtime replay (pre = the plain winner body; post = the winner body after the INI layer replays).</summary>
+    /// <summary>Which pole a source= or versus= expression names. <see cref="Overlay"/> is the SkyPatcher runtime
+    /// replay: pre is the plain winner body, post the winner body after the INI layer replays.</summary>
     public enum PoleKind { Winner, Named, PreviousProvider, Overlay }
 
-    /// <summary>A parsed §4.2 pole expression — the tool layer parses the wire spelling ("winner" | a plugin
-    /// filename | {file, mod} | "previous_provider" | {overlay, state}) into this engine value.</summary>
+    /// <summary>A parsed pole expression — the tool layer parses the wire spelling ("winner", a plugin filename,
+    /// {file, mod}, "previous_provider", {overlay, state}) into this engine value.</summary>
     public sealed record PoleSpec(PoleKind Kind, string? Plugin = null, string? Mod = null, string? OverlayState = null)
     {
         public static readonly PoleSpec Winner = new(PoleKind.Winner);
-        /// <summary>The arm statement a render leads with when the pole is uniform across the batch (Named/Winner/
-        /// Overlay). PreviousProvider is per-record; its statement is the rule, not an arm.</summary>
+        /// <summary>The arm statement a render leads with when the pole is uniform across the batch. PreviousProvider
+        /// is per-record, so its statement is the rule rather than an arm.</summary>
         public string Label => Kind switch
         {
             PoleKind.Winner => "winner",
@@ -2770,20 +2744,19 @@ public sealed class LoadOrderService : IDisposable
         };
     }
 
-    /// <summary>One record's §4.1 delta: subject pole vs reference pole, compared by <see cref="FieldsDiff"/>.
+    /// <summary>One record's delta: subject pole versus reference pole, compared by <see cref="FieldsDiff"/>.
     /// <see cref="StackAbove"/> — set only under a previous_provider reference when the subject sits mid-stack —
-    /// names what outranks the subject (winner last) as NEUTRAL FACT (§4.3: a non-winning subject is not an
-    /// anomaly; no advice, no warning tone). <see cref="Note"/> carries per-row facts like the two poles resolving
-    /// to the same provider. Error non-null ⇒ per-item refusal (P3/P4/untouched), the batch survives.</summary>
+    /// names what outranks the subject, winner last, as neutral fact: a non-winning subject is not an anomaly, so
+    /// no advice and no warning tone. <see cref="Note"/> carries per-row facts such as the two poles resolving to
+    /// the same provider. A non-null Error is a per-item refusal; the batch survives.</summary>
     public sealed record DeltaRow(string Formid, DiffPole? Subject, DiffPole? Reference, FieldsDiff.Result? Diff,
                                   IReadOnlyList<string>? StackAbove, string? Note, string? Error);
 
-    /// <summary>The §4.1 PROJECT=delta batch: every pole of every record resolves against ONE captured build
-    /// (§4.1 — a comparison can never span two builds). Subject defaults to winner; reference may be winner, a
-    /// named plugin (active or off-order — the §4.2 one-pole rule, off-order files declared outside the epoch
-    /// fingerprint), or previous_provider (§4.3, subject-relative, P1–P4 declared). A named pole that does not
-    /// touch a record is a per-item refusal naming the actual touchers (§4.2's untouched contract); the caller
-    /// counts those as not_touched accounting. Overlay poles resolve via the SkyPatcher replay.</summary>
+    /// <summary>The project=delta batch: every pole of every record resolves against ONE captured build, so a
+    /// comparison can never span two. Subject defaults to winner; reference may be winner, a named plugin (active or
+    /// off-order, with off-order files declared outside the epoch fingerprint), or previous_provider, which is
+    /// subject-relative. A named pole that does not touch a record is a per-item refusal naming the actual touchers,
+    /// which the caller counts as not_touched. Overlay poles resolve via the SkyPatcher replay.</summary>
     public IReadOnlyList<DeltaRow> DeltaBatch(
         IReadOnlyList<string> formids, PoleSpec subject, PoleSpec reference, IReadOnlyList<string>? fields,
         ArtifactDemand? demand,
