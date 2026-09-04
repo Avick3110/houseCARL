@@ -8,14 +8,13 @@ using Mutagen.Bethesda.Plugins.Records;
 namespace HousecarlCore;
 
 // ======================================================================
-//  NpcAppearanceAssets — the FILE half of the composed standalone-NPC-copy verb
-//  (capability chain Stage 3 §1 items 3–4). Three jobs:
+//  NpcAppearanceAssets — the FILE half of the composed standalone-NPC-copy verb.
+//  Three jobs:
 //
 //    1. FACEGEN RENAME — the donor's baked facegeom .nif + facetint .dds move to the
 //       NEW NPC's FormKey path (FaceGenPath — folder = the defining master, so the
 //       apply lane files under the TARGET's plugin, the clone lane under the patch).
-//       Empirically pinned (the 2026-07-01 build test, NPC2 cross-validated): the
-//       engine resolves the facetint from the FormKey path and IGNORES the path
+//       The engine resolves the facetint from the FormKey path and IGNORES the path
 //       embedded inside the .nif — so a rename needs NO .nif editing, ever.
 //
 //    2. REFERENCED-ASSET CARRY — the harvested asset paths (the caller collects them
@@ -32,7 +31,7 @@ namespace HousecarlCore;
 //       another active provider (vanilla BSA, a shared-resource mod) supplies is
 //       SKIPPED + noted — it keeps resolving without the donor. The facegen pair is
 //       the exception (alwaysCarry): its DESTINATION path is new, so it is a rename
-//       from wherever the winning copy lives. Best-effort + reported (Q3): the records
+//       from wherever the winning copy lives. Best-effort and reported: the records
 //       are already written, so a carry miss is a NAMED warning, never a silent gap.
 // ======================================================================
 
@@ -42,8 +41,8 @@ public sealed record CarriedAsset(string OldRelPath, string NewRelPath, long Byt
 
 /// <summary>The asset-carry half's outcome: what moved, what was deliberately left (another active provider still
 /// supplies it), what was referenced but found nowhere (verify in-game), VFS-precedence warnings (a carried file
-/// whose destination path an ACTIVE provider already supplies does not win until sorted above it — the
-/// facegen-diagnostics keystone: file precedence is its own system), and named failures. Never throws.</summary>
+/// whose destination path an ACTIVE provider already supplies does not win until sorted above it — file
+/// precedence is its own system, separate from plugin load order), and named failures. Never throws.</summary>
 public sealed record NpcAssetOutcome(
     IReadOnlyList<CarriedAsset> Carried,
     IReadOnlyList<string> SkippedStillProvided,
@@ -103,12 +102,11 @@ public static class NpcAppearanceAssets
 
     /// <summary>Conservative texture-path scan of facegeom bytes: every ASCII run that starts 'textures\' (either
     /// slash) and ends '.dds', case-insensitive — the skin/hair texture paths a facegen .nif embeds and the engine
-    /// resolves at render time. No NIF parsing: a path in a .nif is stored as plain text (the same byte-scrape the
-    /// 2026-07-01 build test used); a false positive costs one 'referenced but found nowhere' note. Within a
-    /// printable run the match ends at the FIRST '.dds' (review finding: last-match glued two adjacent paths into
-    /// garbage), and the scan resumes right after the matched path so a second 'textures\…' in the same run is
-    /// still found; the resume never skips a byte (review finding: an 'i = end' reset over the for-increment ate
-    /// the first byte of a path that started exactly at a run boundary).</summary>
+    /// resolves at render time. No NIF parsing: a path in a .nif is stored as plain text; a false positive costs
+    /// one 'referenced but found nowhere' note. Within a printable run the match must end at the FIRST '.dds' —
+    /// taking the last one glues two adjacent paths together — and the scan resumes right after the matched path
+    /// so a second 'textures\…' in the same run is still found. The resume must not skip a byte: an 'i = end'
+    /// reset combined with the for-increment eats the first byte of a path starting at a run boundary.</summary>
     public static IReadOnlyList<string> ScrapeNifTexturePaths(byte[] nif)
     {
         var found = new List<string>();
@@ -147,8 +145,8 @@ public static class NpcAppearanceAssets
 
     /// <summary>Where the donor's own files live on disk: the donor plugin's containing folder plus any BSAs at its
     /// root — the direct-disk lane for a DISABLED donor the active VFS cannot see. The caller only constructs one
-    /// for a donor under an MO2 mod folder (never for the game Data folder — there every vanilla BSA would
-    /// misclassify as "the donor's", review finding).</summary>
+    /// for a donor under an MO2 mod folder — never for the game Data folder, where every vanilla BSA would
+    /// misclassify as "the donor's".</summary>
     public sealed record DonorDisk(string Folder, IReadOnlyList<string> Bsas)
     {
         public static DonorDisk For(string donorPluginPath)
@@ -180,24 +178,22 @@ public static class NpcAppearanceAssets
         }
     }
 
-    /// <summary>Resolve ONE Data-relative path under the carry rule (file header §3). <paramref name="alwaysCarry"/>
-    /// = the facegen-rename case: the destination path is NEW, so the bytes move from wherever the winning copy
-    /// lives (the donor-provides test doesn't apply). Returns the bytes + provenance when the path must be carried,
-    /// (null, note) when deliberately skipped, or a miss — with <c>ReadError</c> carrying the REAL cause when a
-    /// resolved winner could not be read (review finding: discarding it reported an in-use file as "found neither
-    /// in the active VFS nor the donor's folder" — factually false, Q3).</summary>
+    /// <summary>Resolve ONE Data-relative path under the carry rule (job 3 in the file header).
+    /// <paramref name="alwaysCarry"/> = the facegen-rename case: the destination path is NEW, so the bytes move from
+    /// wherever the winning copy lives (the donor-provides test doesn't apply). Returns the bytes + provenance when
+    /// the path must be carried, (null, note) when deliberately skipped, or a miss — with <c>ReadError</c> carrying
+    /// the REAL cause when a resolved winner could not be read. Discarding that cause reports an in-use file as
+    /// "found neither in the active VFS nor the donor's folder", which is false.</summary>
     static (byte[]? Bytes, string? From, string? SkipNote, bool Missing, string? ReadError) ResolveForCarry(
         string relPath, AssetResolver.AssetView view, IReadOnlyList<DonorDisk> donors, IReadOnlyList<string> donorModFolderNames, bool alwaysCarry)
     {
         string? readError = null;
         var res = view.ResolveForPlacement(relPath);
-        // The pick goes through the shared S2 source policy (AssetSourceSelection) — the same code path place_asset
-        // uses — under the WINNER pole. That pole is this lane's ORIGINAL behavior, kept verbatim, and it is a known
-        // DIVERGENCE from the successor flow: on the facegen rename (alwaysCarry) the caller has named a donor mod,
-        // so the successor reads that NAMED provider while this reads whatever currently wins. Where a replacer
-        // out-sorts the donor the two carry different bytes, and the winner's are the ones that can disagree with the
-        // donor's head-part and tint records. Deliberately NOT changed here: this tool is being subsumed, and the
-        // difference is the thing its replacement is measured against.
+        // The pick goes through the shared source policy (AssetSourceSelection), the same path place_asset uses,
+        // under the WINNER pole. Known divergence from the successor flow: on the facegen rename (alwaysCarry) the
+        // caller has named a donor mod, and the successor reads that NAMED provider while this reads whatever
+        // currently wins. Where a replacer out-sorts the donor the two carry different bytes, and the winner's can
+        // disagree with the donor's head-part and tint records. Deliberately left as-is.
         var pick = AssetSourceSelection.Select(res, AssetSourceChoice.Winner);
         if (pick.Source is { } winner)
         {
@@ -230,7 +226,7 @@ public static class NpcAppearanceAssets
     /// <paramref name="harvestedPaths"/> comes from the caller's pre-serialize harvest of the in-patch duplicates.
     /// Writes go under <paramref name="outDir"/> (the patch mod folder) via staged temp + <see cref="AtomicFile"/>.
     /// A carried file whose DESTINATION relpath an active provider already supplies gets a precedence WARNING
-    /// (it does not win until the patch is sorted above that provider). Never throws; every miss/failure named (Q3).
+    /// (it does not win until the patch is sorted above that provider). Never throws; every miss/failure is named.
     /// </summary>
     public static NpcAssetOutcome CarryAll(
         FormKey donorNpc, FormKey newNpc,
@@ -288,9 +284,9 @@ public static class NpcAppearanceAssets
                 if (wantedSet.Add(p)) wanted.Add(p);
 
         // ---- 3. carry each harvested path under the rule (same relpath — a keep-resolving move, not a rename).
-        //         Per-path fault isolation (review finding): ONE dirty path (a '..' segment surviving in a mod
-        //         author's data, a scrape false-positive) is ONE named failure — never an abort that silently
-        //         drops every path after it while reporting "asset carry skipped". ----
+        //         Per-path fault isolation: ONE dirty path (a '..' segment surviving in a mod author's data, a
+        //         scrape false-positive) must be ONE named failure — never an abort that silently drops every
+        //         path after it while reporting "asset carry skipped". ----
         foreach (var rel in wanted)
         {
             try

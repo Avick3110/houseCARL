@@ -4,57 +4,43 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlCore;
 
-// ======================================================================
-//  VoiceCheck — the on-disk voice (.fuz/.lip) PRESENCE check for created dialogue lines
-//  (nested-dialogue plan §3.5, Layer B unit B). A byte-valid INFO with no .fuz on disk plays
-//  NOTHING — the exact silent-failure class houseCARL refuses (Q3). This runs as a POST-WRITE
-//  step on a successful create: for every CREATED voiced INFO it computes each response line's
-//  expected voice path (VoicePath), checks it against the live VFS (AssetResolver — loose + BSA),
-//  and reports a loud "WILL BE SILENT" line when the audio is absent, OR a loud, NAMED reason
-//  when the path can't even be computed (no Speaker, etc.) — never a false "fine".
+// VoiceCheck — the on-disk voice (.fuz/.lip) presence check for created dialogue lines. A byte-valid
+// INFO with no .fuz on disk plays nothing, so a create is followed by this read-only diagnostic: it
+// computes each response line's expected voice path, checks it against the live VFS (loose + BSA), and
+// reports either "will be silent" or a named reason the path could not be computed — never a false "fine".
+// It adds no write logic; the create path itself is untouched.
 //
-//  CORNERSTONE-CLEAN: this is a DIAGNOSTIC over records the engine already wrote — it adds NO
-//  per-record write logic and is deliberately SEPARATE from the proven WritePatchBuilder.CreateRecords
-//  path (which is untouched). It is driven by BOTH the service (post-create, with the live
-//  AssetResolver) and the nested-create CI guard (with a temp AssetResolver over a planted .fuz),
-//  so the present/silent/undeterminable verdict is end-to-end testable in CI.
-//
-//  HOW IT RESOLVES THE GRAPH (the voice path needs more than the FormKey — see VoicePath):
-//    • parent topic — found by WALKING the written patch's DialogTopics: the created INFO lives in
-//      some topic's Responses (for an existing parent the patch carries its OVERRIDE, deep-copied
-//      with EditorID + Quest intact; for a same-call parent it's the new topic). So topic EDID + the
-//      Quest link come straight off the patch — no spec threading, works for same-call AND existing parents.
-//    • voice type — INFO.Speaker -> Npc.Voice -> VoiceType.EditorID, each resolved patch-first then
-//      load-order (a same-call NPC/quest lives in the patch; an existing one in the order). Speaker
-//      null -> the runtime quest-alias case -> NO computable path (a NAMED undetermined reason, Q3).
-//    • quest EDID — the topic's Quest -> Quest.EditorID (empty when the topic has no quest).
-//
-//  Resolution reuses the read idiom (ResolveWinner -> GetRecord re-enumerates the winner overlay),
-//  cached per FormKey for the run — a create post-step, not a hot bulk scan; a handful of resolves.
-// ======================================================================
+// Resolving the graph (a voice path needs more than the FormKey — see VoicePath):
+//   • parent topic — found by walking the written patch's DialogTopics; the created INFO sits in some
+//     topic's Responses, so topic EditorID and the Quest link come off the patch for both a same-call
+//     parent and an existing one (whose override the patch carries with EditorID + Quest intact).
+//   • voice type — INFO.Speaker -> Npc.Voice -> VoiceType.EditorID, each resolved patch-first then
+//     load-order; a same-call record lives in the patch, an existing one in the order.
+//   • quest EditorID — the topic's Quest, empty when the topic has none.
+// Resolution reuses the read idiom (ResolveWinner -> GetRecord), cached per FormKey for the run.
 
 /// <summary>One created INFO response line's voice verdict: the expected <see cref="FuzPath"/> (the spoken
 /// audio — absence ⇒ the line is SILENT) and <see cref="LipPath"/> (lip-sync — absence ⇒ no mouth movement,
 /// audio still plays), each with its on-disk presence + the winning provider, plus the
-/// <see cref="ReadIncomplete"/> caveat (a BSA failed to read, so an "absent" may merely be unscanned — Q3).</summary>
+/// <see cref="ReadIncomplete"/> caveat (a BSA failed to read, so an "absent" may merely be unscanned).</summary>
 public sealed record VoiceLine(
     FormKey Info, string TopicEditorId, int ResponseNumber,
     string FuzPath, bool FuzPresent, string? FuzWinner, bool FuzAmbiguous,
     string LipPath, bool LipPresent,
     bool ReadIncomplete);
 
-/// <summary>A created INFO whose voice path could NOT be computed, with the NAMED reason (Q3 — never a
-/// silent "fine"): no Speaker (voice type assigned at runtime from a quest alias), an unresolvable
-/// speaker/voice-type, etc. The whole INFO is reported once; its lines are not checked.</summary>
+/// <summary>A created INFO whose voice path could NOT be computed, with the named reason: no Speaker
+/// (voice type assigned at runtime from a quest alias), an unresolvable speaker/voice-type, etc.
+/// The whole INFO is reported once; its lines are not checked.</summary>
 public sealed record VoiceUndetermined(FormKey Info, string TopicEditorId, string Reason);
 
 /// <summary>The voice-coverage report for one create call: per-line presence verdicts and per-INFO
 /// undeterminable reasons. <see cref="IsEmpty"/> when the call created no voiced INFO lines.</summary>
 public sealed record VoiceReport(IReadOnlyList<VoiceLine> Lines, IReadOnlyList<VoiceUndetermined> Undetermined)
 {
-    /// <summary>The voice check itself could not run (the patch wouldn't re-open, the walk threw) — surfaced, never a
-    /// silent skip (Q3). The create ALREADY SUCCEEDED when this is set; it just means "I couldn't verify voice
-    /// coverage", not "the write failed". Null on a clean run.</summary>
+    /// <summary>The voice check itself could not run (the patch wouldn't re-open, the walk threw) — surfaced,
+    /// never a silent skip. The create ALREADY SUCCEEDED when this is set; it means "voice coverage unverified",
+    /// not "the write failed". Null on a clean run.</summary>
     public string? CheckError { get; init; }
 
     public bool IsEmpty => Lines.Count == 0 && Undetermined.Count == 0 && CheckError is null;
@@ -72,7 +58,7 @@ public static class VoiceCheck
     /// service needs no Mutagen.Skyrim dependency); <paramref name="created"/> is the call's CreatedRecord list (filtered
     /// here to INFOs); <paramref name="resolver"/> resolves existing speaker/voice-type/quest records from the load order;
     /// <paramref name="assets"/> answers on-disk presence (loose + BSA). Returns <see cref="VoiceReport.Empty"/> when the
-    /// call created no INFOs. A resolve MISS is a NAMED undetermined reason (Q3); a whole-check failure (the patch won't
+    /// call created no INFOs. A resolve MISS is a named undetermined reason; a whole-check failure (the patch won't
     /// re-open, the walk throws) is surfaced on <see cref="VoiceReport.CheckError"/> — NEVER thrown (the create already
     /// succeeded; this is a verify step, not the write).</summary>
     public static VoiceReport Run(string patchPath, IReadOnlyList<WritePatchBuilder.CreatedRecord> created,
@@ -140,7 +126,7 @@ public static class VoiceCheck
             }
         }
 
-        // A created INFO not found under any topic is a real inconsistency — surfaced, never silently dropped (Q3).
+        // A created INFO not found under any topic is a real inconsistency — surfaced, never silently dropped.
         foreach (var fk in infoKeys)
             if (!foundInfos.Contains(fk))
                 undetermined.Add(new VoiceUndetermined(fk, "",
@@ -150,10 +136,10 @@ public static class VoiceCheck
     }
 
     /// <summary>Resolve one INFO's voice graph (topic+quest EDIDs, speaker voice type) and emit either a per-line
-    /// presence verdict for each spoken response, or ONE named undetermined reason (Q3) when the voice folder can't
+    /// presence verdict for each spoken response, or ONE named undetermined reason when the voice folder can't
     /// be computed. An INFO with no spoken response lines (a link/branch node) yields nothing — there is no voice to check.</summary>
-    // internal (not private): DialogueValidate (unit C2) reuses this exact per-INFO walk over EVERY INFO in a
-    // topic, so the per-create voice teeth and the on-demand validator can never drift on what "silent" means.
+    // internal, not private: DialogueValidate reuses this exact per-INFO walk over every INFO in a topic, so the
+    // per-create check and the on-demand validator cannot drift on what counts as silent.
     internal static void CheckInfo(IDialogResponsesGetter info, IDialogTopicGetter topic,
                           Func<FormKey, IMajorRecordGetter?> resolve, AssetResolver.AssetView av,
                           List<VoiceLine> lines, List<VoiceUndetermined> undetermined)
@@ -162,7 +148,7 @@ public static class VoiceCheck
 
         // No own response lines: either a link/branch node (no spoken audio — skip silently) or one that BORROWS
         // another INFO's audio via ResponseData (it IS voiced, but under the OTHER INFO's path, not computable here).
-        // The borrowed case must be NAMED, not silently produce nothing (Q3 — a "false nothing").
+        // The borrowed case must be named, not silently produce nothing.
         if (info.Responses.Count == 0)
         {
             var sharedFk = NonNull(info.ResponseData.FormKeyNullable);
@@ -172,7 +158,7 @@ public static class VoiceCheck
             return;   // ResponseData null ⇒ a genuine link/branch node: no spoken audio to check
         }
 
-        // Speaker -> the voice type (folder). Null Speaker is the runtime quest-alias case: no computable path (Q3).
+        // Speaker -> the voice type (folder). Null Speaker is the runtime quest-alias case: no computable path.
         var speakerFk = NonNull(info.Speaker.FormKeyNullable);
         if (speakerFk is null)
         {
@@ -181,7 +167,7 @@ public static class VoiceCheck
                 "Set Speaker on this line to make it checkable, or verify the audio yourself."));
             return;
         }
-        // Two distinct misses, two distinct messages (Q3 — don't say "not found" for a record that WAS found): the
+        // Two distinct misses, two distinct messages — don't say "not found" for a record that WAS found: the
         // FormKey resolves to nothing, vs it resolves to a record that isn't an NPC (Speaker is typed as a FormLink to
         // an NPC, but real/odd data can point it elsewhere, and the voice type is derived only from an NPC's Voice).
         var speaker = resolve(speakerFk.Value);
@@ -216,7 +202,7 @@ public static class VoiceCheck
         var questFk = NonNull(topic.Quest.FormKeyNullable);
         var questEdid = questFk is { } qfk ? (resolve(qfk) as IQuestGetter)?.EditorID ?? "" : "";
 
-        // One .fuz/.lip check per spoken response line (its ResponseNumber names the file — used as-authored, Q3).
+        // One .fuz/.lip check per spoken response line; its ResponseNumber names the file, used as authored.
         foreach (var resp in info.Responses)
         {
             int num = resp.ResponseNumber;

@@ -1,29 +1,18 @@
 namespace HousecarlCore;
 
-// ======================================================================
-//  AssetSourceSelection — the ONE policy for "which provider do I read an asset from".
+// AssetSourceSelection — the one policy for "which provider do I read an asset from". The source grammar
+// has three poles: the VFS winner, a named mod, and the sole provider; every caller that reads bytes out of
+// the asset layer passes one of them here rather than spelling the pick itself.
 //
-//  S2's SOURCE grammar has three poles (SPEC §1): the VFS winner, a NAMED mod, and the
-//  sole provider. Every caller that reads bytes out of the asset layer picks one of them,
-//  and before this type each caller spelled the pick itself — NpcAppearanceAssets took
-//  Sources[0] inline, place_asset took Sources[0] behind its own ambiguity test. Two
-//  spellings of "how to read a contended source" is the drift class one layer up from the
-//  sentence twins, so the pick lives here and the callers pass a pole.
+// This type decides which provider and nothing else: it reads no bytes, renders no sentence, and knows no
+// tool. Every non-Selected verdict carries the provider NAMES, never their on-disk paths — a refusal that
+// names a machine path teaches the caller to round-trip absolute paths that go stale between resolve and read.
 //
-//  This type decides WHICH provider, and nothing else: it reads no bytes, renders no
-//  sentence, and knows no tool. The verdict enum is the whole vocabulary a caller needs to
-//  render its own refusal — every non-Selected verdict carries the provider NAMES (never
-//  their on-disk paths; naming a machine path in a refusal is how the caller learns to
-//  round-trip absolute paths that go stale between resolve and read).
-//
-//  F1 (ruling O1) widened the NAMED pole rather than adding a fourth: a name the active
-//  universe cannot answer is looked for as a mod folder on disk, through a lookup the CALLER
-//  passes in. The widening therefore lives at this one decision point too — place_asset,
-//  bulk_place_asset and the closure copy's asset carry all reach it through here, and not one
-//  of them spells the lane for itself.
-// ======================================================================
+// The named pole is widened rather than joined by a fourth: a name the active universe cannot answer is
+// looked for as a mod folder on disk, through a lookup the caller passes in. That widening lives at this one
+// decision point, so no caller spells the off-order lane for itself.
 
-/// <summary>Which pole of S2's SOURCE grammar a read is made under.</summary>
+/// <summary>Which pole of the source grammar a read is made under.</summary>
 public enum AssetSourcePole
 {
     /// <summary>Use the only provider; more than one is a refusal (the caller chooses).</summary>
@@ -31,7 +20,7 @@ public enum AssetSourcePole
     /// <summary>Use whichever copy currently wins the VFS — "what the game shows right now".</summary>
     Winner,
     /// <summary>Use a NAMED provider's copy, whatever else contends — and, where the caller supplies the off-order
-    /// lookup, wherever that provider lives (SPEC §4.2's one-pole rule; ruling O1). Absent from it is a refusal.</summary>
+    /// lookup, wherever that provider lives. Absent from that provider is a refusal.</summary>
     Named,
 }
 
@@ -39,12 +28,9 @@ public enum AssetSourcePole
 /// <see cref="AssetSourcePole.Named"/> pole; null for an in-process choice and for the winner pole.</summary>
 public sealed record AssetSourceChoice(AssetSourcePole Pole, string? Spelling)
 {
-    /// <summary>The reserved wire token selecting the VFS-winner pole. SIGILED — '*' is illegal in a Windows file or
-    /// folder name, so the pole space and the provider-name space are disjoint BY CONSTRUCTION and a bare "winner"
-    /// always means a provider called winner. The first spelling was the bare word, which a real mod folder can also
-    /// carry; that overlap was resolved at matching time and unknown to every site that LISTS names, and it generated
-    /// a collision verdict, a suppression flag, a conditional sentence, a bespoke refusal and two unguarded holes
-    /// before it was respelled (Aaron-go 2026-08-12). Same idiom as '@file' in ops=. See SPEC §5's amendment.</summary>
+    /// <summary>The reserved wire token selecting the VFS-winner pole. Sigiled: '*' is illegal in a Windows file or
+    /// folder name, so the pole space and the provider-name space are disjoint by construction and a bare "winner"
+    /// always means a provider actually called winner. Same idiom as '@file' in ops=.</summary>
     public const string WinnerToken = "*winner";
 
     /// <summary>The sole-provider pole (no selector given).</summary>
@@ -91,13 +77,12 @@ public sealed record AssetSourcePick(
     PlacementSource? Source,
     IReadOnlyList<string> ProviderNames)
 {
-    /// <summary>WHY the off-order lane ended where it did — the typed outcome a refusal keys its sentence to. It
-    /// replaced a pair of booleans that two consecutive review rounds each caught expressing fewer states than the
-    /// lane actually reaches; no consumer re-derives this from anything else.</summary>
+    /// <summary>WHY the off-order lane ended where it did — the typed outcome a refusal keys its sentence to.
+    /// No consumer re-derives this from anything else.</summary>
     public OffOrderReason OffOrderReason { get; init; } = OffOrderReason.NotConsulted;
 
     /// <summary>The NAME of the folder or archive that would not read, and a concise cause — the unreadable
-    /// outcome's data, so an absent answer is never rendered as an authoritative "that mod does not have it" (Q3).
+    /// outcome's data, so an absent answer is never rendered as an authoritative "that mod does not have it".
     /// Both null unless <see cref="OffOrderReason"/> is <see cref="HousecarlCore.OffOrderReason.FolderUnreadable"/>.</summary>
     public string? OffOrderUnreadableName { get; init; }
     public string? OffOrderUnreadableCause { get; init; }
@@ -112,16 +97,14 @@ public static class AssetSourceSelection
     /// contain, or it is not a boundary: single quotes failed that test — <c>JK's Skyrim</c> is a real and widely
     /// installed mod, and it dissolved the delimiter mid-name. Windows forbids '"' in a file or folder name, so
     /// double quotes cannot occur inside one. Same construction as the '*' sigil on the pole token.</para>
-    /// <para>The first spelling ran name and kind together as <c>ModA (loose)</c>, so copying a message verbatim
-    /// produced a name no pole matched and a second refusal calling the caller's copy a typo. A round-trip arm in
-    /// place-asset-guard feeds these strings back through the real tool — over hostile names, not friendly ones —
-    /// and is what keeps the claim true.</para></summary>
+    /// <para>The name must be copyable verbatim out of a message and back into a selector, so the kind stays outside
+    /// the quotes; a CI round-trip over hostile names feeds these strings back through the real tool.</para></summary>
     public static string Describe(PlacementSource s) => $"\"{s.ProviderName}\" ({(s.Kind == AssetKind.Bsa ? "BSA" : "loose")})";
 
     /// <summary>Pick the provider to read from, under <paramref name="choice"/>'s pole. Every refusal verdict carries
     /// the provider names so the caller can render its own.
     ///
-    /// <para><paramref name="offOrderLookup"/> is the F1 lane (ruling O1): a NAMED provider the active universe has no
+    /// <para><paramref name="offOrderLookup"/> is the off-order lane: a NAMED provider the active universe has no
     /// answer for is looked for as a mod folder on disk. Passing it is what makes a named source reachable regardless
     /// of the MO2 tick; omitting it leaves the pure, universe-only policy every other caller wants. It is consulted
     /// ONLY under the Named pole — naming is the consent, so an omitted provider, the winner pole and the contention
@@ -134,10 +117,9 @@ public static class AssetSourceSelection
         var names = new List<string>(res.Sources.Count);
         foreach (var s in res.Sources) names.Add(Describe(s));
 
-        // The NAMED pole is answered FIRST and on its own, ahead of the empty-universe return below. Its answer does
-        // not depend on how many providers the active universe has — and while it sat under that return, a named
-        // provider was never consulted at all for a path nothing enabled supplied, which is precisely the disabled-mod
-        // case: the caller's name was dropped and the refusal spoke only of the active load order (measured on `main`).
+        // The NAMED pole must be answered FIRST, ahead of the empty-universe return below: its answer does not depend
+        // on how many providers the active universe has, and the disabled-mod case is exactly a path nothing enabled
+        // supplies — under that return the caller's name would never be consulted at all.
         if (choice.Pole == AssetSourcePole.Named)
         {
             foreach (var s in res.Sources)
@@ -146,10 +128,9 @@ public static class AssetSourceSelection
             var off = offOrderLookup?.Invoke(choice.Spelling) ?? OffOrderLookup.NotConsulted;
             if (off.Source is { } offOrder)
                 return new AssetSourcePick(AssetSourceVerdict.Selected, offOrder, names);
-            // Which refusal is the SAME question as before this lane existed — does anything else supply the path —
-            // so the two verdicts keep meaning exactly what they meant, and the caller's remedy can still only offer
-            // names it actually has. What the LOOKUP did rides along, because the refusal has to say which places
-            // were searched and cannot infer that from an absent source.
+            // Which refusal turns on one question — does anything else supply the path — so the caller's remedy can
+            // only offer names it actually has. What the lookup did rides along, because the refusal has to say which
+            // places were searched and cannot infer that from an absent source.
             return new AssetSourcePick(
                 res.Sources.Count == 0 ? AssetSourceVerdict.NoProvider : AssetSourceVerdict.NamedAbsent, null, names)
             {
@@ -166,14 +147,12 @@ public static class AssetSourceSelection
         {
             case AssetSourcePole.Winner:
                 // No collision test, and none possible: the pole token carries a '*', which no provider name can.
-                // A whole verdict, a suppression flag and a bespoke refusal used to live here to manage the overlap
-                // a bare "winner" created; the sigil deletes the overlap instead of guarding it.
                 return new AssetSourcePick(AssetSourceVerdict.Selected, res.Sources[0], names);
 
             default:
                 // Sole-provider: contention is the caller's call, not ours. Counted off Sources rather than read off
-                // PlacementResolution.Ambiguous so the pick depends on one fact (how many providers there are) —
-                // the flag means the same thing today, and this way it cannot drift into meaning something else.
+                // PlacementResolution.Ambiguous so the pick turns on one fact — how many providers there are — and
+                // cannot drift if that flag's meaning changes.
                 return res.Sources.Count == 1
                     ? new AssetSourcePick(AssetSourceVerdict.Selected, res.Sources[0], names)
                     : new AssetSourcePick(AssetSourceVerdict.Ambiguous, null, names);

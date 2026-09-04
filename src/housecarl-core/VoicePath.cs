@@ -5,16 +5,15 @@ namespace HousecarlCore;
 // ======================================================================
 //  VoicePath — a dialogue line's voice .fuz/.lip path is a PURE TRANSFORM of
 //  {the INFO's FormKey, the speaker's voice type, the parent quest + topic EditorIDs,
-//  the response number} (nested-dialogue plan §3.5; sibling of FaceGenPath). NO load
-//  order, NO runtime FormID, NO file read: Skyrim resolves the spoken audio by
-//  FILESYSTEM CONVENTION (there is no Voice/Wav/Lip/FileName field on INFO/DialogResponse
-//  anywhere in the Mutagen corpus — see memory reference_skyrim_voice_file_naming), so a
-//  byte-valid INFO with no .fuz on disk plays NOTHING. This computes the path that audio
-//  must live at, so the create flow can check it and warn loud (Q3 — never a silent dead line).
+//  the response number} (sibling of FaceGenPath). NO load order, NO runtime FormID, NO
+//  file read: Skyrim resolves the spoken audio by FILESYSTEM CONVENTION (there is no
+//  Voice/Wav/Lip/FileName field on INFO/DialogResponse anywhere in the Mutagen corpus),
+//  so a byte-valid INFO with no .fuz on disk plays NOTHING. This computes the path that
+//  audio must live at, so the create flow can check it and warn rather than leave a
+//  silently dead line.
 //
-//  THE RULE (the keystone — get it wrong and the "place audio here" path is wrong, a Q3
-//  silent-wrong answer; authoritative source is xEdit's InfoFileName, Export dialogues.pas,
-//  verified empirically 2026-06-19 against real loose .fuz files — e.g.
+//  THE RULE (get it wrong and the "place audio here" path is wrong; it follows xEdit's
+//  InfoFileName in Export dialogues.pas, and matches real loose .fuz files — e.g.
 //  Walks-Distant-Sands: WDSMainQue_WDSMainQuest1Co_00000013_1.fuz):
 //    Sound\Voice\<DefiningPlugin>\<VoiceType>\<QuestEDID[..10]>_<TopicEDID[..15]>_<00+6hexLocalID>_<ResponseNum>.fuz
 //
@@ -24,23 +23,21 @@ namespace HousecarlCore;
 //      audio lives with the original (the override trap — out of scope for the create path,
 //      which assigns fresh patch-local 0x800+ ids).
 //    • FOLDER2 = the speaker's VoiceType EditorID (INFO.Speaker -> Npc.Voice -> VoiceType.EditorID),
-//      empirically the on-disk folder name (e.g. "FemaleArgonian"). Resolved by the caller — when
-//      it can't be (no Speaker; the runtime quest-alias case), there is NO path to compute (Q3).
-//      ASSUMPTION (the one unverified leg of the keystone): the on-disk folder == the VoiceType's
-//      EditorID. True for vanilla + the empirically-checked mods; a mod whose VoiceType EditorID
-//      diverges from the folder its audio actually ships under would get a wrong "place audio here"
-//      path. No counter-example seen, but it's the assumption to revisit first if a path is ever wrong.
-//    • QUEST seg = the parent topic's Quest's EditorID, truncated to 10 chars (empirically
-//      "WDSMainQue" = 10). Empty when the topic has no quest (the segment is just empty).
-//    • TOPIC seg = the parent DialogTopic's EditorID, truncated to 15 chars (empirically
-//      "WDSMainQuest1Co" = 15). Often EMPTY (a topic with no EditorID) -> the "__" double underscore.
+//      which is the on-disk folder name (e.g. "FemaleArgonian"). Resolved by the caller — when
+//      it can't be (no Speaker; the runtime quest-alias case), there is NO path to compute.
+//      ASSUMPTION: the on-disk folder == the VoiceType's EditorID. True for vanilla and every mod
+//      checked; a mod whose VoiceType EditorID diverges from the folder its audio actually ships
+//      under would get a wrong "place audio here" path — the first thing to revisit if one is.
+//    • QUEST seg = the parent topic's Quest's EditorID, truncated to 10 chars ("WDSMainQue" = 10).
+//      Empty when the topic has no quest (the segment is just empty).
+//    • TOPIC seg = the parent DialogTopic's EditorID, truncated to 15 chars ("WDSMainQuest1Co" =
+//      15). Often EMPTY (a topic with no EditorID) -> the "__" double underscore.
 //    • ID    = the load-order index byte MASKED to "00", then the 6-hex local id: "00" + fk.ID("X6")
 //      (xEdit IntToHex(InfoFormID and $FFFFFF, 8)) — load-order-INDEPENDENT, exactly the
 //      FaceGenPath masking. e.g. local 0x13 -> "00000013".
 //    • NUM   = the DialogResponse's ResponseNumber (one .fuz per spoken line: _1, _2, …).
 //
-//  Built in core (not in the create tool) so the read side (a future voice-coverage diagnostic /
-//  the Unit C completeness validator) reuses the EXACT same transform — one home for the keystone.
+//  Built in core (not in the create tool) so the read side reuses the EXACT same transform.
 //  Backslash-separated to match the AssetResolver match form (backslash, OrdinalIgnoreCase);
 //  resolution is case-insensitive, so EDID case is preserved as-authored and the hex is upper.
 // ======================================================================
@@ -52,12 +49,10 @@ public enum VoiceFile { Fuz, Lip }
 
 public static class VoicePath
 {
-    /// <summary>xEdit InfoFileName truncates the Quest EditorID to its first 10 chars (Copy(QuestEDID, 1, 10)),
-    /// verified empirically ("WDSMainQue" = 10).</summary>
+    /// <summary>xEdit InfoFileName truncates the Quest EditorID to its first 10 chars (Copy(QuestEDID, 1, 10)).</summary>
     public const int QuestEdidMax = 10;
 
-    /// <summary>…and the Topic/DIAL EditorID to its first 15 chars (Copy(TopicEDID, 1, 15)), verified
-    /// empirically ("WDSMainQuest1Co" = 15).</summary>
+    /// <summary>…and the Topic/DIAL EditorID to its first 15 chars (Copy(TopicEDID, 1, 15)).</summary>
     public const int TopicEdidMax = 15;
 
     /// <summary>The Data-relative voice path for one created INFO line + slot — the pure transform (see the
