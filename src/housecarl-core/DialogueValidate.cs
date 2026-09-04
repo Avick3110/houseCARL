@@ -302,7 +302,11 @@ public static class DialogueValidate
                 var seqLint = CheckSeq(view, av, fk, quest, win.Value.WinnerPlugin);
 
                 var topics = new List<TopicValidation>();
-                foreach (var (tfk, _, tbody) in view.WinnerRecordsOfType(DialTypes))
+                // A plugin that cannot be read now contributes no topics to the fan-out. Collected so the sweep
+                // covers the rest of the order, and named below — the same never-a-silently-thinner-answer rule the
+                // per-topic unread accounting follows.
+                var unreadable = new List<PluginUnreadableException>();
+                foreach (var (tfk, _, tbody) in view.WinnerRecordsOfType(DialTypes, unreadable))
                 {
                     if (tbody is not IDialogTopicGetter dt) continue;
                     if (NonNull(dt.Quest.FormKeyNullable) is not { } qk || qk != fk) continue;
@@ -326,6 +330,11 @@ public static class DialogueValidate
                 // never judges the ANAM VALUE (an edited quest's ANAM is a legitimate CK high-water mark).
                 var questGaps = DialogueCkParity.MissingQuestDefaults(quest)
                     .Select(g => GapIssue("Quest", fk, g)).ToList();
+                // A plugin the fan-out could not read may own topics of this quest, so the topic list below it is
+                // incomplete — a Problem, because a clean pass over a short list is the misleading answer here.
+                foreach (var u in unreadable)
+                    questGaps.Add(new DialogueIssue(DialogueIssueSeverity.Problem,
+                        $"{u.Message} Any topic of this quest that plugin owns is missing from this report."));
 
                 return new DialogueValidationReport(fk, "quest", quest.EditorID ?? "", win.Value.WinnerPlugin, topics)
                     { ReadIncomplete = av.ReadIncomplete, SeqLint = seqLint, InputIssues = questGaps };

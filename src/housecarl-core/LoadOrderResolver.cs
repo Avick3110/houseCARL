@@ -681,10 +681,11 @@ public sealed class LoadOrderResolver : IDisposable
             return Array.ConvertAll(_s.Overriders[fk], i => names[i]);
         }
 
-        /// <summary>The winner-body scan stream (<see cref="LoadOrderResolver.WinnerRecordsOfType(IReadOnlyList{Type})"/>),
+        /// <summary>The winner-body scan stream (<see cref="LoadOrderResolver.WinnerRecordsOfType(IReadOnlyList{Type}, ICollection{PluginUnreadableException}?)"/>),
         /// pinned to THIS view's build — so a caller's per-match winner/depth fills agree with the scan by construction.</summary>
-        public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body)> WinnerRecordsOfType(IReadOnlyList<Type> getterTypes)
-            => _r.WinnerRecordsOfType(getterTypes, _s);
+        public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body)> WinnerRecordsOfType(
+            IReadOnlyList<Type> getterTypes, ICollection<PluginUnreadableException>? unreadable = null)
+            => _r.WinnerRecordsOfType(getterTypes, _s, unreadable);
 
         /// <summary>The plugin-scoped scan stream (<see cref="LoadOrderResolver.RecordsIn(IReadOnlyList{string}, IReadOnlyList{Type})"/>),
         /// pinned to THIS view's build.</summary>
@@ -832,18 +833,35 @@ public sealed class LoadOrderResolver : IDisposable
     /// — i.e. the WINNER body, in hand, for each distinct typed FormKey (no re-fetch). Typed group enumeration
     /// (Mutagen seeks the GRUP). Multiple types (GMST → 4 GameSetting variants) are unioned. Yields
     /// (FormKey, override-depth, winner body). throwIfUnknown is belt-and-braces — resolved types are always
-    /// real.</summary>
-    public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body)> WinnerRecordsOfType(IReadOnlyList<Type> getterTypes)
-        => WinnerRecordsOfType(getterTypes, _snap);                        // ONE build for the whole scan (captured here, at the call)
+    /// real.
+    ///
+    /// A plugin that opened at index-build time but cannot be opened now wins records this scan would otherwise drop
+    /// without a word. Pass <paramref name="unreadable"/> to collect such a plugin's
+    /// <see cref="PluginUnreadableException"/> and have the scan carry on to the plugins after it — the shape every
+    /// whole-order caller wants, since a throw mid-stream would lose them. With no collector the stream THROWS
+    /// instead, so a caller that has nowhere to report the gap fails loudly rather than returning a partial scan as a
+    /// clean one.</summary>
+    public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body)> WinnerRecordsOfType(
+        IReadOnlyList<Type> getterTypes, ICollection<PluginUnreadableException>? unreadable = null)
+        => WinnerRecordsOfType(getterTypes, _snap, unreadable);            // ONE build for the whole scan (captured here, at the call)
 
-    IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body)> WinnerRecordsOfType(IReadOnlyList<Type> getterTypes, IndexSnapshot s)
+    IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body)> WinnerRecordsOfType(
+        IReadOnlyList<Type> getterTypes, IndexSnapshot s, ICollection<PluginUnreadableException>? unreadable)
     {
         for (int i = 0; i < _paths.Length; i++)
         {
             if (s.Excluded.Contains(i)) continue;                          // excluded at build (unparseable/unopenable) — wins nothing; never re-touch (would re-throw)
             ISkyrimModGetter ov;
             try { ov = OpenOverlay(_paths[i], _dataDir); }
-            catch { continue; }                                            // an unopenable plugin wins nothing (surfaced at build)
+            catch (Exception ex)
+            {
+                // It opened when the index was built, so it became unreadable after that — moved, or held open by
+                // another program. Collected and skipped when the caller can report the gap; thrown otherwise.
+                var fault = new PluginUnreadableException(_names[i], ex);
+                if (unreadable is null) throw fault;
+                unreadable.Add(fault);
+                continue;
+            }
             try
             {
                 foreach (var t in getterTypes)

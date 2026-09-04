@@ -963,6 +963,14 @@ public sealed class LoadOrderService : IDisposable
                 folder.PatchingEnabled));
         }
 
+        // An EditorID sweep that could not read a plugin leaves that plugin's EditorIDs out of the lookup table, so a
+        // line naming one resolves to nothing and the replay would report a state the layer does not actually
+        // produce. Named as the record's error rather than answered wrong.
+        if (formResolver is SkyPatcherServiceResolver spr && spr.Unreadable.Count > 0)
+            return (typeName, winner.Value.WinnerPlugin, body.EditorID, none,
+                $"the SkyPatcher replay of {fk} resolves EditorIDs against the load order, and "
+                + string.Join(" ", spr.Unreadable.Select(u => u.Message).Distinct()), null);
+
         return (typeName, winner.Value.WinnerPlugin, body.EditorID, folders, null, copy);
     }
 
@@ -1032,6 +1040,10 @@ public sealed class LoadOrderService : IDisposable
                     if (rfk is not null) targets.Add(rfk.Value); else unresolvedTargets++;
                 }
             }
+            // A plugin the EditorID sweep could not open keeps its records out of the lookup, so a target naming one
+            // counts as unresolved for a reason that has nothing to do with the INI. Say which plugin.
+            foreach (var msg in formResolver.Unreadable.Select(u => u.Message).Distinct())
+                noOpNotes.Add($"no-op scan: {msg} Targets naming a record it defines could not be resolved.");
             foreach (var fk in targets)
             {
                 var r = ReplaySkyPatcher(view, session, scan, catalog, fieldMap, scratch, formResolver, fk, linesCache);
@@ -1075,6 +1087,12 @@ public sealed class LoadOrderService : IDisposable
         readonly LoadOrderResolver.IndexView _view;
         readonly LoadOrderResolver.OverlaySession _session;
         readonly Dictionary<string, Dictionary<string, FormKey>> _eidsByType = new(StringComparer.OrdinalIgnoreCase);
+        readonly List<PluginUnreadableException> _unreadable = new();
+
+        /// <summary>Plugins an EditorID sweep could not open. Their EditorIDs are absent from the table, so a miss
+        /// here is not proof the name does not exist — the callers state the gap rather than let a lookup answer
+        /// "no such record" on a plugin they never read.</summary>
+        public IReadOnlyList<PluginUnreadableException> Unreadable => _unreadable;
 
         public SkyPatcherServiceResolver(LoadOrderService svc, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session)
         { _svc = svc; _view = view; _session = session; }
@@ -1087,7 +1105,7 @@ public sealed class LoadOrderService : IDisposable
                 eids = new Dictionary<string, FormKey>(StringComparer.OrdinalIgnoreCase);
                 var types = _svc.ResolveFormScope(mutagenType);
                 if (types is not null)
-                    foreach (var (candidate, _, cBody) in _view.WinnerRecordsOfType(types))
+                    foreach (var (candidate, _, cBody) in _view.WinnerRecordsOfType(types, _unreadable))
                         if (cBody.EditorID is { Length: > 0 } eid && !eids.ContainsKey(eid))   // first winner keeps the slot
                             eids[eid] = candidate;
                 _eidsByType[mutagenType] = eids;
@@ -3733,6 +3751,9 @@ public sealed class LoadOrderService : IDisposable
         int total = 0;
         int unscannable = 0;                                                  // records whose body tests threw (Mutagen-unparseable content) — excluded and accounted, never silent
         var unscannableSamples = new List<string>();
+        // Plugins the winner scan could not open at all — a whole-plugin coverage gap, named in the response rather
+        // than left to read as a clean whole-order scan.
+        var unreadablePlugins = new List<PluginUnreadableException>();
 
         HashSet<FormKey>? setFilter = hasFormidSet ? new HashSet<FormKey>(formidSet!) : null;
         // The set-alone branch also owns conflicts_only combined with formidSet, via its in-loop touching-count
@@ -3847,7 +3868,7 @@ public sealed class LoadOrderService : IDisposable
                 // winner: plugins= gives the scoped plugin's filename, type= gives null, meaning the winner.
                 IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string? source)> stream =
                     hasPlugins ? view.RecordsIn(plugins!, types).Select(x => (fk: x.fk, depth: x.depth, body: x.body, source: (string?)x.source))  // the scoped plugin's own body
-                               : view.WinnerRecordsOfType(types!).Select(x => (fk: x.fk, depth: x.depth, body: x.body, source: (string?)null));    // the load-order winner's body
+                               : view.WinnerRecordsOfType(types!, unreadablePlugins).Select(x => (fk: x.fk, depth: x.depth, body: x.body, source: (string?)null));    // the load-order winner's body
                 foreach (var (fk, depth, body, source) in stream)
                 {
                     if (setFilter is not null && !setFilter.Contains(fk)) continue;   // the identity intersection, cheapest first
@@ -3984,6 +4005,14 @@ public sealed class LoadOrderService : IDisposable
               + string.Join("; ", unscannableSamples)
               + (unscannable > unscannableSamples.Count ? $"; and {unscannable - unscannableSamples.Count} more" : "")
               + $". Inspect one with {ToolNames.Records} formids=[the FormID] (per-field fault isolation applies).";
+        // Whole-plugin coverage gap: the scan carried on past a plugin it could not open, so the answer covers the
+        // rest of the order but not that plugin's winners. Named here so the result never reads as a clean scan.
+        if (unreadablePlugins.Count > 0)
+        {
+            string gap = $"coverage gap: {unreadablePlugins.Count} plugin(s) could not be read, so any record they win is missing from this answer: "
+                       + string.Join("; ", unreadablePlugins.Select(u => u.Message));
+            scanNote = scanNote is null ? gap : scanNote + " " + gap;
+        }
         // group_by= aggregation is not limit-capped, so Capped is a match-line concern only.
         var groupRows = groups?.Select(kv => new GroupCount(kv.Key, kv.Value))
                               .OrderByDescending(g => g.Count).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
