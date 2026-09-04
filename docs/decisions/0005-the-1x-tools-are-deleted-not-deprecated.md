@@ -98,7 +98,7 @@ Four consequences of the shape, each load-bearing:
   file whose subject is split shrinks in two steps, not one. A file that also guards engine behaviour
   keeps that half and its residue entry. On this change, the eight harness files enumerated on #486 also
   keep their **tool-layer** blocks: those blocks compile against the surviving render and service members,
-  and they go when those do. The countdown that measured the harness's remaining size was what
+  and they go when those do. The countdown that measures the harness's remaining size is what
   makes both states visible: it moves in this change by exactly the files that left, and it carries the
   seven probe files among the eight that stayed — by name, with their line counts — so the arrears sit in the
   checked-in baseline as a number rather than as something a later session has to remember. (The eighth,

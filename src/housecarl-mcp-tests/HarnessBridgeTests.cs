@@ -9,7 +9,7 @@ namespace HousecarlMcpTests;
 /// both harnesses during the two-harness window.
 ///
 /// It shells the built generator's `ci-all` and fails on a non-zero exit. The bridge shrinks on its own as
-/// families convert, and disappears when the residue counter reaches zero.
+/// families convert, and goes when the last probe does.
 ///
 /// Tier `bridge` because it is neither cheap nor isolated: it runs ~1.5 minutes and duplicates a step CI
 /// already has. CI excludes this tier from its `dotnet test` step for exactly that reason (see ci.yml);
