@@ -9,22 +9,25 @@
   each to its licence, and rewrites the marked regions of plugin/THIRD-PARTY-NOTICES.txt in place. The
   repo-root copy is then written from the same string, so the two stay byte-identical.
 
-  Everything else in the notices file - the licence texts, the per-component prose, and the GPLv3 section 6
-  corresponding-source release and commit - stays hand-authored. Only the tables between the
+  Everything else in the notices file - the licence texts and the per-component prose - stays hand-authored.
+  Only the regions between the
 
-      --- generated: <licence> components ---
+      --- generated: <tag> ---
       --- end generated ---
 
-  markers are written here.
+  markers are written here. Two tags exist: "<licence> components" for a licence's component table, and
+  "Mutagen release" for the GPLv3 section 6 corresponding-source line, which names the Mutagen version the
+  publish output ships and the commit that release is tagged at.
 
-  Two data files carry what the publish output cannot say:
+  Three data files carry what the publish output cannot say:
 
       packaging/notices-display-names.json        package id -> the name the file lists it under
       packaging/notices-licence-exceptions.json   packages whose NuGet metadata has no licence expression
+      packaging/notices-mutagen-commits.json      Mutagen release version -> repository commit
 
   A shipped DLL that resolves to neither a project nor a known package, a package with no licence
-  expression and no exception entry, or a licence with no section in the notices file, all stop the build
-  with the component named.
+  expression and no exception entry, a licence with no section in the notices file, and a shipped Mutagen
+  version with no recorded commit, all stop the build with the component named.
 
   Run standalone against any publish directory:
       pwsh scripts/generate-notices.ps1 -PublishDir dist/housecarl/server
@@ -46,8 +49,9 @@ $PluginCopy   = Join-Path $RepoRoot 'plugin/THIRD-PARTY-NOTICES.txt'
 $RootCopy     = Join-Path $RepoRoot 'THIRD-PARTY-NOTICES.txt'
 $NamesFile    = Join-Path $RepoRoot 'packaging/notices-display-names.json'
 $ExceptFile   = Join-Path $RepoRoot 'packaging/notices-licence-exceptions.json'
+$CommitsFile  = Join-Path $RepoRoot 'packaging/notices-mutagen-commits.json'
 
-foreach ($f in @($DepsFile, $PluginCopy, $RootCopy, $NamesFile, $ExceptFile)) {
+foreach ($f in @($DepsFile, $PluginCopy, $RootCopy, $NamesFile, $ExceptFile, $CommitsFile)) {
   if (-not (Test-Path $f)) { throw "notices generation needs a file that is not there: $f" }
 }
 
@@ -60,8 +64,9 @@ function Get-Prop($obj, $name) {
   return $null
 }
 
-$displayNames = Read-JsonFile $NamesFile
-$exceptions   = Read-JsonFile $ExceptFile
+$displayNames   = Read-JsonFile $NamesFile
+$exceptions     = Read-JsonFile $ExceptFile
+$mutagenCommits = Read-JsonFile $CommitsFile
 
 # ---- what the publish actually put beside the exe --------------------------
 $shippedDlls = @{}
@@ -139,6 +144,7 @@ foreach ($p in $target.PSObject.Properties) {
   }
 
   $components += [pscustomobject]@{
+    Id      = $id
     Name    = $name
     Version = $version
     Licence = $licence
@@ -150,6 +156,21 @@ $unclaimed = @($shippedDlls.Keys | Where-Object { -not $claimed.ContainsKey($_) 
 if ($unclaimed.Count -gt 0) {
   throw ("these DLLs ship but resolve to no package in the publish output: {0}" -f ($unclaimed -join ', '))
 }
+
+# ---- the corresponding-source line, from the Mutagen version that ships -----
+$mutagenVersions = @($components | Where-Object { $_.Id -like 'Mutagen.*' } | ForEach-Object { $_.Version } | Sort-Object -Unique)
+if ($mutagenVersions.Count -eq 0) {
+  throw "no Mutagen package ships in $PublishDir, so the corresponding-source line in THIRD-PARTY-NOTICES.txt cannot name a release"
+}
+if ($mutagenVersions.Count -gt 1) {
+  throw ("the publish output ships more than one Mutagen version ({0}), so the corresponding-source line in THIRD-PARTY-NOTICES.txt cannot name one release" -f ($mutagenVersions -join ', '))
+}
+$mutagenVersion = $mutagenVersions[0]
+$mutagenCommit  = Get-Prop $mutagenCommits $mutagenVersion
+if (-not $mutagenCommit) {
+  throw "Mutagen $mutagenVersion ships but packaging/notices-mutagen-commits.json records no commit for it; add the commit the release is tagged at, from github.com/Mutagen-Modding/Mutagen/releases/tag/$mutagenVersion"
+}
+$mutagenLine = '    (release {0}; repository commit {1})' -f $mutagenVersion, $mutagenCommit
 
 # ---- render one table per licence ------------------------------------------
 function Format-ComponentTable($rows, $withSource) {
@@ -178,24 +199,36 @@ foreach ($g in ($components | Group-Object Licence)) { $byLicence[$g.Name] = $g.
 # emptied rather than left standing.
 $regions = @()
 for ($i = 0; $i -lt $lines.Length; $i++) {
-  if ($lines[$i] -match '^  --- generated: (.+) components ---$') {
+  if ($lines[$i] -match '^  --- generated: (.+) ---$') {
+    $tag = $Matches[1]
+    if ($tag -ne 'Mutagen release' -and $tag -notmatch ' components$') {
+      throw "THIRD-PARTY-NOTICES.txt marks a generated region '$tag' that this script does not know how to write"
+    }
     $endIdx = [Array]::IndexOf($lines, '  --- end generated ---', $i)
-    if ($endIdx -lt 0) { throw "the $($Matches[1]) generated region in THIRD-PARTY-NOTICES.txt has no end marker" }
-    $regions += [pscustomobject]@{ Licence = $Matches[1]; Begin = $i; End = $endIdx }
+    if ($endIdx -lt 0) { throw "the $tag generated region in THIRD-PARTY-NOTICES.txt has no end marker" }
+    $regions += [pscustomobject]@{ Tag = $tag; Begin = $i; End = $endIdx }
   }
 }
+if (@($regions | Where-Object { $_.Tag -eq 'Mutagen release' }).Count -ne 1) {
+  throw "THIRD-PARTY-NOTICES.txt needs exactly one 'Mutagen release' generated region for the corresponding-source line"
+}
 foreach ($lic in $byLicence.Keys) {
-  if (-not ($regions | Where-Object { $_.Licence -eq $lic })) {
+  if (-not ($regions | Where-Object { $_.Tag -eq "$lic components" })) {
     throw "$lic components ship but THIRD-PARTY-NOTICES.txt has no '$lic' section; add the section, its markers and its licence text, then rerun the build"
   }
 }
 # Last region first, so the earlier regions' line numbers stay valid as the file grows and shrinks.
 for ($k = $regions.Count - 1; $k -ge 0; $k--) {
   $r = $regions[$k]
-  $table = @()
-  # The source column is only shown for the copyleft components, whose corresponding source has to be findable.
-  if ($byLicence.ContainsKey($r.Licence)) { $table = Format-ComponentTable $byLicence[$r.Licence] ($r.Licence -like 'GPL*') }
-  $lines = @($lines[0..$r.Begin]) + @($table) + @($lines[$r.End..($lines.Length - 1)])
+  $body = @()
+  if ($r.Tag -eq 'Mutagen release') {
+    $body = @($mutagenLine)
+  } else {
+    $lic = $r.Tag -replace ' components$', ''
+    # The source column is only shown for the copyleft components, whose corresponding source has to be findable.
+    if ($byLicence.ContainsKey($lic)) { $body = Format-ComponentTable $byLicence[$lic] ($lic -like 'GPL*') }
+  }
+  $lines = @($lines[0..$r.Begin]) + @($body) + @($lines[$r.End..($lines.Length - 1)])
 }
 
 $rendered = ($lines -join $newline)
@@ -204,4 +237,4 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($RootCopy, $rendered, $utf8NoBom)
 
 $changed = ($rendered -ne $text)
-Write-Host ("notices: {0} components from {1}{2}" -f $components.Count, $PublishDir, $(if ($changed) { ' (component table updated)' } else { '' }))
+Write-Host ("notices: {0} components from {1}{2}" -f $components.Count, $PublishDir, $(if ($changed) { ' (generated regions updated)' } else { '' }))
