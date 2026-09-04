@@ -3,24 +3,10 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// housecarl_remove — the 2.0 S1 record-removal surface (tool-surface-2.0 W3 PR 2; SPEC §2.2 ACT, §5.1/§5.2, §6.1).
-///
-/// Absorbs <c>housecarl_remove_record</c> over the unchanged removal cleave
-/// (<see cref="LoadOrderService.RemoveRecords"/> → WritePatchBuilder.RemoveRecords / RemoveRecordsInPlace). Two
-/// things change beyond the vocabulary:
-/// <list type="bullet">
-/// <item><b>Plural by construction</b> — <c>formids=</c> is set-valued (§5.1: one is a degenerate set). The engine
-/// has ALWAYS taken a list (present-check + all-or-nothing over every target, one re-serialize); the 1.x tool
-/// exposed a single <c>formid=</c>, so dropping ten overrides cost ten rewrites of the same file. This is the
-/// "unreachable engine capability recovered" §6.1 names — no engine change, a reachable one.</item>
-/// <item><b>The lane is <c>into=</c>, not <c>patch=</c></b> — SPEC §5.1 defines <c>patch</c> as the NEW artifact a
-/// write creates, and a removal never creates one: it edits an artifact that already exists, which is exactly what
-/// <c>into=</c> names. (§5.3's row folded 1.x's bare <c>patch=</c> in with the <c>patch_name</c> drift instances —
-/// a spelling merge, not a role decision; taking it literally would re-create the one-word-two-meanings collision
-/// §5.2 exists to kill. The alias layer maps the old <c>patch=</c> onto <c>into=</c> by name.)</item>
-/// </list>
-/// </summary>
+/// <summary>housecarl_remove — the whole-record removal surface, over
+/// <see cref="LoadOrderService.RemoveRecords"/>. <c>formids=</c> is set-valued because the engine present-checks and
+/// re-serializes all targets in one all-or-nothing pass; the lane is <c>into=</c> rather than <c>patch=</c> because a
+/// removal never creates an artifact, it edits one that already exists.</summary>
 [McpServerToolType]
 public static class RemoveTools
 {
@@ -66,14 +52,14 @@ public static class RemoveTools
         [Description("TRANSPORT: character ceiling on the render; past it trailing rows are dropped with an explicit notice (never silent). 0 = a safe default kept under the host's per-response limit.")]
             int max_chars = 0) => Guard.Tool(ToolNames.Remove, () =>
     {
-        // format first, so the unconfigured-MO2 prompt answers a json caller as a DOCUMENT (PR #311 review 5 [low]).
+        // format first, so the unconfigured-MO2 prompt answers a json caller as a document.
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;
         if (svc.ConfigPromptOrNull() is { } prompt)
             return json ? JsonWire.RenderError(prompt, null) : prompt;
         string Refuse(string message) => json ? JsonWire.RenderError(message, null) : "error: " + message;
 
-        // ---- LANE: exactly one destination, and a dropped one is named (SPEC §2.1) ---------------------
+        // ---- LANE: exactly one destination, and a dropped one is named ---------------------------------
         bool hasInto = !string.IsNullOrWhiteSpace(into);
         bool hasInPlace = !string.IsNullOrWhiteSpace(in_place);
         if (hasInto && hasInPlace)
@@ -89,26 +75,18 @@ public static class RemoveTools
         var (tokens, demand, _, xerr) = Artifacts.ExpandListInput(formids, "formids");
         if (xerr is not null) return Refuse(xerr.StartsWith("error: ", StringComparison.Ordinal) ? xerr[7..] : xerr);
         if (demand is not null)
-            // An artifact's identity column is epoch-BOUND (SPEC §2.1.1): the read tools check it inside the
-            // consuming call's own capture, which is the only place the comparison means anything. The write lanes
-            // capture inside the engine, so that check has no home here yet — refuse by name rather than honor a
-            // list whose freshness nothing verified (a stale identity column driving a REMOVAL is the worst place
-            // to find out). A plain list file (one FormID per line) is unaffected.
+            // An artifact's identity column is only valid at the epoch it was captured at, and the write lanes
+            // capture inside the engine, so nothing here can re-check it: refuse rather than honour it unverified.
             return Refuse($"formids= names a result ARTIFACT ('{demand.Path}'), whose identity column is only valid at the epoch it was captured at ({demand.Epoch}) — the write lanes don't re-check that yet, and an unchecked artifact must not drive a removal. Pass the FormIDs inline, or a plain list file (one FormID per line).");
         var targets = tokens!.Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t.Trim()).ToList();
         if (targets.Count == 0)
             return Refuse("formids= expanded to an empty list — nothing to remove.");
 
-        // LANE-as-name maps onto the 1.x service contract: into= IS the patch lane's artifact, in_place= the
-        // target+bool pair (§5.2). The service's own exclusivity checks stay as the second line of defence.
-        // The in-place remedy this tool's refusals may name is THIS tool's spelling — one string. The service
-        // renders it but cannot pick it, which is why the sentence is handed DOWN rather than chosen there: the
-        // 1.x housecarl_remove_record reached the same refusal and spelled the lane target= + in_place=true, and
-        // nothing at that altitude told the two apart. It was deleted at #468, so one spelling reaches here now,
-        // but the hand-down stays — it is what keeps the service from having to guess its caller.
+        // The in-place lane's spelling is handed DOWN: the service renders the remedy sentence but cannot know
+        // which parameter names its caller exposes, so it must never pick that wording for itself.
         var outcome = svc.RemoveRecords(targets, hasInto ? into : null, in_place, hasInPlace, acknowledge,
                                         WriteSentences.RemoveInPlaceLane);
-        // The lane the CALL named — stated, not derived from the outcome's flags (PR #311 review [medium]).
+        // The lane the CALL named — stated, not derived from the outcome's flags.
         return json
             ? JsonWire.RenderRemovalOutcome(outcome, max_chars, hasInPlace ? "in_place" : "into")
             : WriteTools.RenderRemoval(outcome, max_chars);

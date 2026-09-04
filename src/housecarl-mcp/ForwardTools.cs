@@ -3,25 +3,10 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// housecarl_forward — the 2.0 S1 whole-record override surface (tool-surface-2.0 W3 PR 2; SPEC §2.2 ACT,
-/// §5.1/§5.2, §6.1).
-///
-/// Absorbs <c>housecarl_forward_record</c> over the unchanged forward cleave
-/// (<see cref="LoadOrderService.ForwardRecords"/> → WritePatchBuilder.ForwardRecords / ForwardRecordsInPlace).
-/// Vocabulary: <c>from_plugin</c> becomes <c>source</c> (§5.3 — the SOURCE axis word: WHOSE version), the
-/// <c>target=</c>+<c>in_place=true</c> pair becomes <c>in_place="X.esp"</c> (§5.2), <c>patch_name</c> is
-/// <c>patch</c>, <c>full_readback</c> is <c>readback</c>; TRANSPORT gains <c>format=json</c> and the §2.1.1 epoch.
-///
-/// <para><b>The pole is whole (W3 PR 2b).</b> §4.2's <c>source</c> pole resolves a plugin wherever it lives — active,
-/// or a file on disk out of the order — and BOTH arms are reachable here. An active source resolves through the
-/// load-order index; one that is only on disk (a disabled mod, an unticked plugin, an unregistered folder, or a direct
-/// path) is located by the shared on-disk contract and read off its own overlay
-/// (<c>LoadOrderService.ResolveOffOrderForwardSource</c>, the forward twin of the <c>CopyFrom</c> lane's
-/// <c>ResolveOffOrderCopySources</c>). PR #311 shipped the off-order arm as a DECLARED BOUND; declaring it made it
-/// honest but not right, since re-asserting a disabled mod's version is exactly the inactive-plugin case CLAUDE.md §1
-/// names — so it was lifted rather than left.</para>
-/// </summary>
+/// <summary>housecarl_forward — copies a named plugin's whole version of a record as an override, over
+/// <see cref="LoadOrderService.ForwardRecords"/>. <c>source=</c> resolves a plugin wherever it lives: an active one
+/// through the load-order index, one only on disk (a disabled mod, an unticked plugin, an unregistered folder, or a
+/// direct path) off its own overlay via <c>LoadOrderService.ResolveOffOrderForwardSource</c>.</summary>
 [McpServerToolType]
 public static class ForwardTools
 {
@@ -93,14 +78,14 @@ public static class ForwardTools
         [Description("TRANSPORT: character ceiling on the WHOLE render — the forwarded-record rows (each naming its source and the winner it out-ranks) and then the read-back. Past it, trailing rows are dropped with an explicit notice (never silent); the WRITE is unaffected. 0 = a safe default kept under the host's per-response limit.")]
             int max_chars = 0) => Guard.Tool(ToolNames.Forward, () =>
     {
-        // format first, so the unconfigured-MO2 prompt answers a json caller as a DOCUMENT (PR #311 review 5 [low]).
+        // format first, so the unconfigured-MO2 prompt answers a json caller as a document.
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;
         if (svc.ConfigPromptOrNull() is { } prompt)
             return json ? JsonWire.RenderError(prompt, null) : prompt;
         string Refuse(string message) => json ? JsonWire.RenderError(message, null) : "error: " + message;
 
-        // ---- LANE: the three destinations are mutually exclusive, and a dropped one is named (SPEC §2.1) ----
+        // ---- LANE: the three destinations are mutually exclusive, and a dropped one is named ---------------
         var patchName = string.IsNullOrWhiteSpace(patch) ? null : patch.Trim();
         bool hasPatch = patchName is not null;
         bool hasInto = !string.IsNullOrWhiteSpace(into);
@@ -122,19 +107,18 @@ public static class ForwardTools
         var (tokens, demand, _, xerr) = Artifacts.ExpandListInput(formids, "formids");
         if (xerr is not null) return Refuse(xerr.StartsWith("error: ", StringComparison.Ordinal) ? xerr[7..] : xerr);
         if (demand is not null)
-            // Same bound as housecarl_remove's, for the same reason: an artifact's identity column is epoch-BOUND,
-            // and the check only means something inside the consuming call's own capture — which the write lanes
-            // take inside the engine. Refused by name rather than honored unchecked.
+            // An artifact's identity column is only valid at the epoch it was captured at, and the write lanes
+            // capture inside the engine, so nothing here can re-check it: refuse rather than honour it unverified.
             return Refuse($"formids= names a result ARTIFACT ('{demand.Path}'), whose identity column is only valid at the epoch it was captured at ({demand.Epoch}) — the write lanes don't re-check that yet, and an unchecked artifact must not drive a write. Pass the FormIDs inline, or a plain list file (one FormID per line).");
         var targets = tokens!.Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t.Trim()).ToList();
         if (targets.Count == 0)
             return Refuse("formids= expanded to an empty list — nothing to forward.");
 
-        // sourceParam: the refusals that name the source pole render THIS tool's word (PR #311 review 4 [low]) — the
-        // engine's are shared with the 1.x forward_record, whose pole is still spelled from_plugin=.
+        // sourceParam: the engine's refusals are shared, so the caller's own spelling of the source pole is handed
+        // down rather than guessed there.
         var outcome = svc.ForwardRecords(targets, source.Trim(), patchName, into, readback, in_place, hasInPlace, acknowledge, dry_run,
                                          sourceParam: "source=");
-        // The lane the CALL named — stated, not derived from the outcome's flags (PR #311 review [medium]).
+        // The lane the CALL named — stated, not derived from the outcome's flags.
         return json
             ? JsonWire.RenderForwardOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "into" : "patch")
             : WriteTools.RenderForward(outcome, max_chars);

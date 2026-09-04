@@ -5,13 +5,10 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// houseCARL standalone-NPC-copy tool — the composed verb the capability chain builds toward (Stage 3): one
-/// reviewable operation that forks a donor NPC's appearance into a houseCARL patch with NO donor master, no CK,
-/// no .nif editing. Mechanism = Duplicate + RemapLinks (whole-record copies), so the two empirically-pinned traps
-/// (HDPT.Parts morph refs → lip-sync; TextureLighting=0 → dark skin) are structurally impossible to reproduce.
-/// The donor may be DISABLED — houseCARL reads its file out of load order (the read_plugin_file lane) and says so.
-/// </summary>
+/// <summary>Forks a donor NPC's appearance into a houseCARL patch with no donor master. Records are copied whole
+/// (Duplicate + RemapLinks), which is what keeps the two Skyrim traps unreachable: dropped HDPT.Parts morph refs
+/// break lip-sync, and TextureLighting=0 gives dark skin. The donor may be disabled — its file is then read out of
+/// load order and the result says so.</summary>
 [McpServerToolType]
 public static class NpcCopyTools
 {
@@ -56,7 +53,7 @@ public static class NpcCopyTools
                                             target_formid, new_editorid, new_name, patch_name, into));
     });
 
-    internal static string Render(NpcCopyOutcome o)   // internal: the guard pins the unverified-read-back render (review finding 2)
+    internal static string Render(NpcCopyOutcome o)   // internal: a test renders the unverified read-back path
     {
         if (!o.Success) return "error: " + o.Error;
 
@@ -64,15 +61,12 @@ public static class NpcCopyTools
         sb.AppendLine(o.Mode == "clone"
             ? $"CLONED {o.DonorKey} → new NPC {o.NewNpcKey} in {Path.GetFileName(o.OutPath!)}{(o.Extended ? " (extended)" : " (new patch)")}."
             : $"APPLIED {o.DonorKey}'s appearance onto {o.NewNpcKey} in {Path.GetFileName(o.OutPath!)}{(o.Extended ? " (extended)" : " (new patch)")}.");
-        // The stamp is about THIS READ (the file lane bypasses load-order resolution), which is why it is set for the
-        // whole lane. It used to add "the game does not load this file" — false whenever the donor named IS the live
-        // plugin, and unconditional here, so it asserted it for every file-lane copy (#271). Whether the game loads the
-        // donor is a per-file fact and DonorReadFrom already carries it, with its cause.
+        // The stamp says only that this READ bypassed load-order resolution — the file lane does that for every copy.
+        // Whether the game loads the donor is a per-file fact DonorReadFrom carries, so never assert it here.
         sb.AppendLine($"donor read from: {o.DonorReadFrom}{(o.DonorOutOfLoadOrder ? "  [OUT-OF-LOAD-ORDER — not resolved through the load order; the copy is what makes the appearance live]" : "")}");
         sb.AppendLine($"plugin: {o.OutPath} ({o.Bytes:N0} bytes)");
-        // When the post-write read-back failed, the masters/standalone facts are UNVERIFIED — asserting them from
-        // default-empty values would report a donor-mastered patch as standalone on exactly the path where
-        // verification broke (review finding). Say only what is known.
+        // A failed read-back leaves the masters/standalone facts UNKNOWN: asserting them from the default-empty
+        // values would report a donor-mastered patch as standalone. Say only what is known.
         if (o.Warning is not null)
         {
             sb.AppendLine("masters: <NOT VERIFIED — read-back failed>");

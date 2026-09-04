@@ -7,17 +7,11 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// houseCARL place-asset tools — place a chosen asset file (any Data-relative file) as a winning override in a NEW
-/// houseCARL-owned MO2 mod folder, the WRITE counterpart to housecarl_asset_status (which reports which copy currently
-/// wins the VFS). A precise placer: it writes a source it is handed and auto-resolves only when exactly ONE copy exists
-/// (the "which copy is correct" judgment is the caller's / a skill's, not the tool's). Source bytes are read IN PROCESS —
-/// a loose file, or a single entry out of a BSA via native Mutagen (no BSArch). The write is crash-atomic and
-/// non-destructive (originals untouched; a failed fresh placement leaves no orphan). Honest (Q3): "wrote it" is NOT "it
-/// wins" — the tool reports the current winner and the required MO2 enable + sort, and never claims the fix took effect on
-/// write. General asset-layer; the FaceGen / dark-face case is the headline use case, driven by the facegen skill (the
-/// formid+kind input is its convenience — for any other file use asset_path).
-/// </summary>
+/// <summary>Places a chosen asset file as a winning override in a new houseCARL-owned MO2 mod folder — the write
+/// counterpart to housecarl_asset_status. It writes the source it is handed and auto-resolves only when exactly one
+/// copy exists; which copy is correct is the caller's judgement, never the tool's. Source bytes are read in process
+/// (a loose file, or one BSA entry through Mutagen — no BSArch), the write is crash-atomic, and a placement never
+/// wins on write: the response always states the current winner and the required MO2 enable + sort.</summary>
 [McpServerToolType]
 public static class PlaceAssetTools
 {
@@ -128,8 +122,8 @@ public static class PlaceAssetTools
     /// <summary>Map one wire spec to its placement request(s): asset_path → one request; formid+kind → one request (the
     /// computed FaceGen path); formid with NO kind → BOTH mesh+tint (only when <paramref name="allowExpand"/> — the bulk
     /// tool). Exactly one of formid/asset_path is required. A both-expansion forbids a single loose/entry source (it can't
-    /// serve two different files) — only a FULLY-QUALIFIED '.bsa' source (entry derived per slot) or auto-resolve. Q3: every bad
-    /// input is a NAMED error (returned via <paramref name="error"/>), never a silent skip.</summary>
+    /// serve two different files) — only a FULLY-QUALIFIED '.bsa' source (entry derived per slot) or auto-resolve. Every
+    /// bad input is a NAMED error returned via <paramref name="error"/>, never a silent skip.</summary>
     static List<PlaceRequest>? MapSpec(string? formid, string? kind, string? assetPath, string? source, string? sourceProvider, bool allowExpand, string where, out string? error)
     {
         error = null;
@@ -159,11 +153,9 @@ public static class PlaceAssetTools
             error = $"{where}kind is required with formid (mesh or tint — {ToolNames.PlaceAsset} places ONE file). To place both at once, use {ToolNames.BulkPlaceAsset}.";
             return null;
         }
-        // Trim quotes for the both-expansion test the same way the service normalizes before it routes — else a quoted
-        // spaced BSA name (the natural form, "C:\...\X - Textures.bsa") ends in '"' not '.bsa' and would be wrongly
-        // refused here on the marquee mesh+tint path. (The service unquotes before routing too, so the two agree.)
-        // FULLY-QUALIFIED, matching that routing: a RELATIVE '.bsa' is a Data-relative asset path resolved through the
-        // VFS, and one such path cannot serve two slots — accepting it here would hand both slots the same file.
+        // Trim quotes exactly as the service does before it routes, or a quoted spaced BSA name ends in '"' not '.bsa'
+        // and is wrongly refused. FULLY-QUALIFIED matches that routing: a RELATIVE '.bsa' is a Data-relative asset
+        // path, and one such path cannot serve two slots — accepting it would hand both slots the same file.
         var srcProbe = src?.Trim('"');
         bool srcOkForBoth = srcProbe is null
             || (srcProbe.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase)
@@ -180,7 +172,7 @@ public static class PlaceAssetTools
     }
 
     /// <summary>Parse the FaceGen slot token. Null/blank ⇒ null (unspecified — the caller decides if that means "both" or
-    /// "required"). A bad token is a named error (Q3). Lenient synonyms for the two file kinds.</summary>
+    /// "required"). A bad token is a named error. Lenient synonyms for the two file kinds.</summary>
     static FaceGenSlot? ParseSlot(string? kind, out string? error)
     {
         error = null;
@@ -197,10 +189,9 @@ public static class PlaceAssetTools
     static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 }
 
-/// <summary>Renders a <see cref="PlaceOutcome"/> as compact, scannable text: the count, the mod folder, the discovery
-/// caveats (Q3), one line per asset (placed with its source + the current VFS winner to sort above, or a per-asset
-/// error), and — the load-bearing honesty — the EXPLICIT "this does not win until you enable + sort the mod in MO2"
-/// instruction whenever anything was placed.</summary>
+/// <summary>Renders a <see cref="PlaceOutcome"/> as compact text: the count, the mod folder, the discovery caveats,
+/// one line per asset (its source and the current VFS winner to sort above, or a per-asset error), and always the
+/// explicit "this does not win until you enable + sort the mod in MO2" instruction when anything was placed.</summary>
 static class PlaceWire
 {
     public static string Render(PlaceOutcome o)
@@ -225,15 +216,12 @@ static class PlaceWire
             if (r.Placed)
             {
                 sb.Append("  OK    ").Append(r.AssetPath).Append("  (").Append(r.Bytes).Append(" bytes from ").Append(r.SourceDesc).Append(")\n");
-                // Q3 provenance for the F1 lane: bytes served out of a mod MO2 does not currently load look exactly
-                // like any other placement on the line above — the provider name alone does not say which. Its own
-                // line, about the SOURCE; the destination's enable+sort instruction is the block below and stays there.
+                // Bytes served out of a mod MO2 does not load look like any other placement on the line above, so
+                // say so on their own line. This is about the SOURCE; the destination's enable+sort is the block below.
                 if (r.SourceOffOrderProvider is { } offOrder)
                     sb.Append("        ").Append(WriteSentences.PlaceSourceOffOrder(offOrder)).Append('\n');
-                // "the mod" was unambiguous until the off-order line put a SECOND mod in scope directly above it:
-                // that line ends "enabling it is not required", and this one began "once the mod is enabled", so read
-                // in sequence the two contradicted each other about two different mods (review round 1). Naming the
-                // destination folder here costs nothing and cannot be misread.
+                // Name the destination folder rather than saying "the mod": the off-order line above can put a
+                // SECOND mod in scope, and it ends by saying enabling THAT one is not required.
                 sb.Append(r.CurrentWinner is not null
                     ? $"        currently wins the VFS: {r.CurrentWinner} — sort the new mod ABOVE it\n"
                     : $"        nothing else provides this path — once '{modFolder ?? "(the new folder)"}' is enabled, the placed copy wins\n");

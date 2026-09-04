@@ -6,16 +6,10 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// houseCARL's 2.0 CLOSURE-COPY tool (SPEC §6: `copy` absorbs `copy_npc_appearance`). Generic by construction —
-/// it copies a record's declared link closure out of one plugin universe and into a patch, and knows nothing about
-/// what the records mean. The domain half (which fields seed a walk, which record classes must never be walked
-/// into) arrives as DATA the caller supplies, which is what a skill carries.
-///
-/// <para>This class owns every user-facing sentence on the surface; the service and core beneath it return typed
-/// data (#337's one-source-per-sentence rule). Argument-shape validation therefore lives HERE too — a refusal is
-/// prose, and prose does not belong in a service.</para>
-/// </summary>
+/// <summary>The closure-copy tool: it copies a record's declared link closure out of one plugin universe into a
+/// patch and knows nothing about what the records mean — which fields seed the walk and which record classes it
+/// must not enter arrive as caller data. This class owns every user-facing sentence on the surface (the service and
+/// core return typed data), so argument-shape validation lives here too rather than in the service.</summary>
 [McpServerToolType]
 public static class CopyTools
 {
@@ -110,10 +104,8 @@ public static class CopyTools
             catch (Exception ex) { return $"error: bad target '{target}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."; }
         }
 
-        // Blank elements are REFUSED BY INDEX, not dropped. Dropping them silently changed the caller's list and
-        // made the service's own per-element refusal unreachable — and worse, it shifted the indices the service
-        // reports, so a refusal about from_source[1] named the blank the caller cannot see rather than the bad
-        // name at index 2 (review round 1).
+        // Blank elements are REFUSED BY INDEX, never dropped: dropping one shifts every later index, so the
+        // service's own per-element refusals would then name the wrong position back to the caller.
         var rawSeeds = seed_paths ?? Array.Empty<string>();
         for (int i = 0; i < rawSeeds.Length; i++)
             if (string.IsNullOrWhiteSpace(rawSeeds[i]))
@@ -127,11 +119,8 @@ public static class CopyTools
         var exclusions = new List<WalkExclusion>();
         foreach (var raw in exclude_types ?? Array.Empty<string>())
         {
-            // REFUSED, not skipped — the same rule seed_paths and from_source already apply one loop up and one
-            // loop down. Continuing here ran the whole copy with NO exclusions at all when a templating slip left
-            // one blank entry: a 'Race:refuse' the caller believed they had passed never fired, the walk entered
-            // the Race, and nothing in the response said an entry had been dropped. A blank has no index to shift
-            // here, so it refuses by CONTENT rather than by index (Aaron's review).
+            // REFUSED, not skipped: skipping would run the copy with fewer exclusions than were passed, silently.
+            // A blank here shifts no index the response reports, so it refuses by CONTENT rather than by index.
             if (string.IsNullOrWhiteSpace(raw))
                 return "error: exclude_types has a blank entry. Every element must name a record type as " +
                        "'Type:stop' (prune it, keep the link) or 'Type:refuse' (fail the copy) — remove the empty " +
@@ -143,9 +132,8 @@ public static class CopyTools
             if (type.Length == 0) return $"error: exclude_types entry '{raw}' names no record type. Use 'Type:stop' or 'Type:refuse'.";
             if (sev is not ("stop" or "refuse"))
                 return $"error: exclude_types entry '{raw}' has severity '{sev}' — use 'stop' (prune, keep the link) or 'refuse' (fail the copy).";
-            // A duplicate type name used to reach the walk's ToDictionary and throw, which Guard.Tool rendered as
-            // "an internal houseCARL failure … not bad input" — a false claim about the caller's own input, and the
-            // opaque dead end the guard exists to prevent. Refused here, in the layer that owns prose.
+            // A duplicate type name would throw in the walk's ToDictionary, which Guard.Tool reports as an internal
+            // failure rather than bad input — so it is caught here, in the layer that owns prose.
             if (exclusions.Any(x => string.Equals(x.TypeName, type, StringComparison.OrdinalIgnoreCase)))
                 return $"error: exclude_types names '{type}' more than once. One severity per record type — " +
                        "'stop' (prune, keep the link) or 'refuse' (fail the copy) — so pick the one you mean.";
@@ -167,7 +155,7 @@ public static class CopyTools
         return Render(svc.CopyClosure(fromKey, poles, seeds, exclusions, targetKey, new_editorid, patch, into));
     });
 
-    /// <summary>Render one outcome. Internal so a guard can pin the sentences without going through the wire.</summary>
+    /// <summary>Render one outcome. Internal so a test can read the sentences without going through the wire.</summary>
     internal static string Render(ClosureCopyOutcome o)
     {
         var sb = new StringBuilder();
@@ -177,8 +165,7 @@ public static class CopyTools
             if (o.WalkRefusal is { } w) sb.Append(RenderWalkRefusal(w, o.SourcesConsulted));
             else if (o.CopyRefusal is { } c) sb.Append(RenderCopyRefusal(c));
             else sb.Append(o.EngineError ?? "the copy could not be completed.");
-            // The route sentences are whole refusals and end with this themselves, so appending unconditionally
-            // printed it twice. Q3 wants it said once and plainly.
+            // The route sentences are whole refusals that already end with this, so append it only when absent.
             if (!sb.ToString().TrimEnd().EndsWith("Nothing was written.", StringComparison.Ordinal))
                 sb.Append("\nNothing was written.");
             return sb.ToString();
@@ -188,9 +175,8 @@ public static class CopyTools
             ? $"CLONED {o.SourceKey} -> {o.NewKey}\n"
             : $"COPIED {o.SourceKey}'s walked fields onto {o.NewKey}\n");
         sb.Append(WriteSentences.CopySourcesConsulted(o.SourcesConsulted));
-        // R2's readback half for the ONE body it was missing. Rendered in both modes: in attach mode the source
-        // record is not among the internalized rows at all, and in clone mode its row is not surfaced either, so
-        // without this the caller learns which arm produced every head part and not which produced the face.
+        // Which source produced the record the caller ASKED for. Needed in both modes: the source record is not
+        // among the internalized rows in either, so nothing else names where its own body came from.
         if (o.FromArmSpelling.Length > 0)
             sb.Append(WriteSentences.CopyFromArmLead).Append(o.FromArmSpelling).Append(".\n");
         sb.Append(WriteSentences.NewOrExtendedArtifact(o.Extended, Path.GetFileName(o.OutPath!), o.Bytes,
@@ -200,11 +186,8 @@ public static class CopyTools
         else
         {
             sb.Append(WriteSentences.Masters(o.Masters));
-            // THREE arms, not two (inventory F24). The alarm goes first and unconditionally: a bound plugin among
-            // the masters is worth shouting about whatever the source was. Then the transplant note, which belongs
-            // strictly to NOTHING BEING BOUND — F24's own condition. A base-game FormID read through an ordered
-            // from_source= that names a mod still binds that mod, and there the copy really is a standalone-ization
-            // of it: claiming a transplant printed "links are kept and mastered normally" above the strip list.
+            // Order matters: the alarm first whatever the source was, then the transplant note, which holds only
+            // when NOTHING was bound — a base-game FormID read through a from_source= naming a mod still binds it.
             sb.Append(o.SourceAmongMasters ? WriteSentences.CopySourceMastered
                       : o.NothingBound ? WriteSentences.CopySourceBaseGame
                       : WriteSentences.CopyStandalone).Append('\n');
@@ -216,9 +199,8 @@ public static class CopyTools
             foreach (var c in o.Copied)
                 sb.Append($"  - {c.TypeName} '{c.EditorId ?? "<no editorid>"}'  {c.OldKey} -> {c.NewKey}   (from {c.ArmSpelling}, via {c.PulledBy})\n");
         }
-        // Two different facts, and they used to share one sentence that was false for half of them: an exclusion
-        // boundary is INSIDE the source and still points at it, so calling it "mastered normally" contradicted the
-        // strip list in the same response (review round 1).
+        // Two different facts, kept apart: a link kept because it resolves outside the source masters normally,
+        // while an exclusion boundary is INSIDE the source and still points at it.
         var keptOutside = o.Kept.Count(k => !k.Excluded);
         var keptExcluded = o.Kept.Count - keptOutside;
         if (keptOutside > 0)
@@ -233,8 +215,8 @@ public static class CopyTools
         if (o.Attached.Count > 0)
         {
             sb.Append($"attached: {string.Join(", ", o.Attached.Select(a => $"{a.Field} ({a.Removed})"))}\n");
-            // A CLEARED field and a copied one both used to render as a bare name, so "attached: HeadParts" was
-            // the same output whether the target got the source's head parts or lost its own.
+            // The row above is a bare field name either way, so a cleared field and a copied one are otherwise
+            // indistinguishable to the caller.
             if (o.Attached.Any(a => a.Cleared)) sb.Append(WriteSentences.CopySeedClearedNote).Append('\n');
         }
         if (o.AssetPaths.Count > 0)

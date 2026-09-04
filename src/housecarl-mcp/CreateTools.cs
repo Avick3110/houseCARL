@@ -5,31 +5,11 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// housecarl_create — the 2.0 S1 record-authoring surface (tool-surface-2.0 W3 PR 2; SPEC §2.2 ACT, §5.1/§5.2, §6.1).
-///
-/// ONE create tool: <c>records=</c> (the ACT operand set) × the LANE (new patch | <c>into</c> an existing one |
-/// <c>in_place</c> + consent) × TRANSPORT, over the SAME proven create cleave the 1.x tools drive
-/// (<see cref="LoadOrderService.CreateRecordsBatch"/> → WritePatchBuilder.CreateRecords) — consolidation of the
-/// surface, not a re-implementation of the engine. Absorbs <c>housecarl_create_record</c> (the degenerate
-/// one-record call) and <c>housecarl_bulk_create</c>.
-///
-/// What is new rather than renamed:
-/// <list type="bullet">
-/// <item><b>One record is a set of one</b> — the scalar tool dissolves. The single-create call is
-/// <c>records=[{record_type, editorid, ops}]</c>, which is also why the nested one-shot (a topic AND its lines)
-/// needs no second tool.</item>
-/// <item><b>One list spelling</b> — <c>records=</c> takes the inline array OR <c>"@&lt;absolute path&gt;"</c>
-/// (SPEC §5.1's @file convention, via the shared <see cref="ListParams"/> reader), so a generated authoring job
-/// lives in a file exactly as <c>apply</c>'s <c>ops=</c> does. Both lanes parse through the same STRICT reader: an
-/// undeclared member is refused BY NAME at its element, where the SDK binder silently drops one.</item>
-/// <item><b>in_place is the file's NAME</b> (§5.2) — the <c>target=</c>+<c>in_place=true</c> pair collapses into one
-/// string naming the file being written into.</item>
-/// <item><b>TRANSPORT</b> — <c>format=json</c> (a refusal is a document too) and the §2.1.1 epoch on every response.</item>
-/// </list>
-/// The 1.x create tools stay registered and unchanged through the build waves; they retire at 2.0.0 (clean cut,
-/// CHARTER_PHASE4 §3.4a).
-/// </summary>
+/// <summary>housecarl_create — the record-authoring surface: <c>records=</c> × the lane (new patch, <c>into=</c> an
+/// existing one, or <c>in_place=</c> with consent) × transport, over
+/// <see cref="LoadOrderService.CreateRecordsBatch"/>. <c>records=</c> takes the inline array or
+/// <c>"@&lt;absolute path&gt;"</c>, both through the same strict <see cref="ListParams"/> reader, which refuses an
+/// undeclared member BY NAME at its element where the SDK binder would silently drop it.</summary>
 [McpServerToolType]
 public static class CreateTools
 {
@@ -121,23 +101,19 @@ public static class CreateTools
             int max_chars = 0) => Guard.Tool(ToolNames.Create, () =>
     {
         // ---- TRANSPORT: format --------------------------------------------------------------------------
-        // Resolved BEFORE the unconfigured-MO2 prompt (PR #311 review 5 [low]): that prompt is a prose block, and
-        // returning it verbatim to a format="json" caller hands back something JsonDocument.Parse throws on — no
-        // ok, no error to branch on, which is the one thing this tool's Refuse() contract says never happens.
-        // SeqTools has the ordering right and is the model.
+        // Resolved BEFORE the unconfigured-MO2 prompt: that prompt is prose, and handing it verbatim to a
+        // format="json" caller returns something JsonDocument.Parse throws on — no ok, no error to branch on.
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;   // the format value itself is unparsed — there is no known render to answer in
         if (svc.ConfigPromptOrNull() is { } prompt)
             return json ? JsonWire.RenderError(prompt, null) : prompt;
 
-        // Every refusal below answers in the caller's requested format (apply's contract, unchanged): a json caller
-        // must never have to parse "error: …" out of a string. Epoch is null on all of them — none has consulted a
-        // build yet.
+        // Every refusal below answers in the caller's requested format — a json caller must never have to parse
+        // "error: …" out of a string. Epoch is null on all of them: none has consulted a build yet.
         string Refuse(string message) => json ? JsonWire.RenderError(message, null) : "error: " + message;
 
         // ---- LANE: the three destinations are mutually exclusive, and a dropped one is named ------------
-        // (SPEC §2.1 LANE, identical to housecarl_apply's — a parameter is honored or refused BY NAME, never
-        //  accepted-and-ignored. 1.x silently ignored patch_name= under into=.)
+        // A parameter is honoured or refused BY NAME, never accepted-and-ignored.
         var patchName = string.IsNullOrWhiteSpace(patch) ? null : patch.Trim();
         bool hasPatch = patchName is not null;
         bool hasInto = !string.IsNullOrWhiteSpace(into);
@@ -158,19 +134,15 @@ public static class CreateTools
         var (specs, rerr) = ListParams.Read<CreateRecordSpec>(recEl, "records", "{record_type, editorid, ops?, parent?, collection?, grid?}");
         if (rerr is not null) return Refuse(rerr);
 
-        // ---- Map the 2.0 shapes onto the proven cleave --------------------------------------------------
-        // A rename over the same engine inputs: ops -> operations, op -> verb. The 1.x wire records (CreateOp /
-        // BulkOp) are reused deliberately so their published schemas stay untouched through the build waves.
+        // ---- Map the wire shapes onto the engine's inputs -----------------------------------------------
+        // A rename over the same engine inputs: ops -> operations, op -> verb.
         var wire = new List<CreateOp>(specs!.Length);
         var origins = new List<string?>(specs.Length);
         for (int i = 0; i < specs.Length; i++)
         {
             var s = specs[i];
-            // A null ELEMENT inside ops= is legal JSON and STJ hands it straight through, so the old
-            // `s.Ops?.Select(o => … o.FieldPath …)` dereferenced null and the tool answered "an internal houseCARL
-            // failure (the arguments bound fine) — retry once": wrong on both counts, and a retry loop over
-            // deterministic bad input (PR #311 review 7 [low]). ListParams.Read makes exactly this check, but only
-            // over the TOP-level list — which is records= here, so a create's ops sit one level below its reach.
+            // A null ELEMENT inside ops= is legal JSON and STJ hands it straight through. ListParams.Read makes this
+            // check only over the TOP-level list — records= here — so the nested ops must be checked by hand.
             BulkOp[]? ops = null;
             if (s.Ops is { } opsIn)
             {
@@ -192,29 +164,27 @@ public static class CreateTools
                 Collection = s.Collection, Grid = s.Grid,
                 Operations = ops,
             });
-            // The caller's OWN spelling for this spec. The 1.x batch labels its problems "record[i]" (its parameter
-            // is records=, singular label); this tool's element refusals say "records[i]", and a refusal must not
-            // point at a spelling the caller never wrote — so the engine label is carried, not left to drift.
+            // The caller's OWN spelling for this spec, carried down: a refusal must never point at a parameter
+            // label the caller never wrote.
             origins.Add($"records[{i}]");
         }
 
-        // naming: refusals below the tool layer name THIS surface's words — ops[i], and a copy asked for via
-        // op="CopyFrom" (there is no from_plugin member here to tell the caller to drop). PR #311 review 6 [low].
+        // naming: refusals raised below the tool layer must use THIS surface's words — ops[i], and op="CopyFrom"
+        // (there is no from_plugin member here to tell the caller to drop).
         var outcome = svc.CreateRecordsBatch(wire, patchName, into, readback, in_place, hasInPlace, acknowledge, origins,
             naming: new LoadOrderService.CreateOpNaming("ops", "op=\"CopyFrom\""));
-        // The lane the CALL named — stated, not derived from the outcome's flags (PR #311 review [medium]).
+        // The lane the CALL named — stated, not derived from the outcome's flags.
         return json
             ? JsonWire.RenderCreateOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "into" : "patch")
             : WriteTools.RenderCreate(outcome, max_chars, readback);
     });
 }
 
-// ---- wire DTOs (the 2.0 create shapes) -----------------------------------------------------------------
+// ---- wire DTOs (the create shapes) ---------------------------------------------------------------------
 
-/// <summary>One brand-new record off the 2.0 wire (housecarl_create). The 1.x <see cref="CreateOp"/> with the SPEC
-/// §5.1 vocabulary — <c>operations</c> is <c>ops</c>, and each op is a <see cref="CreateFieldOp"/> whose verb member
-/// is <c>op</c>. Its own record rather than a reshaped CreateOp so the 1.x tools' published schemas stay untouched
-/// through the build waves.</summary>
+/// <summary>One brand-new record off housecarl_create's wire — <see cref="CreateOp"/> with this surface's
+/// vocabulary: <c>operations</c> is <c>ops</c>, and each op is a <see cref="CreateFieldOp"/> whose verb member is
+/// <c>op</c>.</summary>
 public sealed record CreateRecordSpec
 {
     [JsonPropertyName("record_type"), Description("The kind of record to create: a catalog name ('Keyword', 'Spell', 'Weapon', 'DialogTopic', 'PlacedObject') or a 4-char signature ('KYWD'). For an abstract group name the concrete subtype ('GlobalFloat', 'GameSettingInt').")]
@@ -236,10 +206,9 @@ public sealed record CreateRecordSpec
     public string? Grid { get; init; }
 }
 
-/// <summary>One field op on a record being CREATED (housecarl_create). The <see cref="ApplyOp"/> shape minus the
-/// members a create has no meaning for: no <c>formid</c> (the id is auto-allocated), and no copy pole — copying a
-/// field FROM another version needs a record that already exists. Each of those is refused BY NAME by the strict
-/// reader, with the correction <see cref="ListParams"/> carries.</summary>
+/// <summary>One field op on a record being CREATED — the <see cref="ApplyOp"/> shape minus what a create cannot
+/// mean: no <c>formid</c> (the id is auto-allocated) and no copy pole (copying a field from another version needs a
+/// record that already exists). Either one is refused BY NAME by the strict reader.</summary>
 public sealed record CreateFieldOp
 {
     [JsonPropertyName("field_path"), Description("Dotted field path on the new record, e.g. 'Name' or 'BasicStats.Damage'. Step into a list/dict element mid-path with brackets ('Effects[0].Data.Magnitude'); at the LEAF use op + key, not brackets.")]
