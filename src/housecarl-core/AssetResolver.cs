@@ -621,16 +621,25 @@ public sealed class AssetResolver : IDisposable
     /// drive-rooted path ("C:\…") or one carrying a ".." segment — both make <c>Path.Combine(root, rel)</c> ESCAPE the
     /// loose roots and resolve a file OUTSIDE the load order, a silently-wrong answer. The resolver API is
     /// general-purpose, so a caller can hand it a bad path; it fails loud naming the input rather than resolving the
-    /// wrong file. (UNC inputs aren't drive-rooted after the leading-separator trim and aren't a caller shape here.)</summary>
+    /// wrong file. (UNC inputs aren't drive-rooted after the leading-separator trim and aren't a caller shape here.)
+    /// <para>The no-op segments — "." and an empty one from a doubled separator — are COLLAPSED, so ".\meshes",
+    /// "meshes//actors" and their plain spellings are one path. Left in, they survive into the loose walk (which
+    /// tolerates them) but not into a BSA-table match (which does not), and the two lanes would then answer for
+    /// different sets of files. The exception message names the input, not a parameter: it is rendered to the modder
+    /// as one plain sentence.</para></summary>
     static string NormalizeQueryPath(string relPath)
     {
         var rel = Normalize(relPath);
         if (Path.IsPathRooted(rel))
-            throw new ArgumentException($"expected a Data-relative asset path, got a drive-rooted path: '{relPath}'", nameof(relPath));
+            throw new ArgumentException($"expected a Data-relative asset path, got a drive-rooted path: '{relPath}'");
+        var kept = new List<string>();
         foreach (var seg in rel.Split('\\'))
+        {
             if (seg == "..")
-                throw new ArgumentException($"expected a Data-relative asset path, got a parent-escaping ('..') path: '{relPath}'", nameof(relPath));
-        return rel;
+                throw new ArgumentException($"expected a Data-relative asset path, got a parent-escaping ('..') path: '{relPath}'");
+            if (seg.Length > 0 && seg != ".") kept.Add(seg);
+        }
+        return string.Join('\\', kept);
     }
 
     static DateTime SafeMtime(string path)
