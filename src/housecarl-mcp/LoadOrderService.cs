@@ -6502,7 +6502,7 @@ public sealed class LoadOrderService : IDisposable
         if (apply)
         {
             try { targetFk = door.Parse(targetFormid); }
-            catch (Exception ex) { return NpcCopyOutcome.Fail($"bad target formid '{targetFormid}': {ex.Message}."); }
+            catch (Exception ex) { return NpcCopyOutcome.Fail(FormIdDoor.Sentence(ex, "", $"bad target formid '{targetFormid}': {ex.Message}.")); }
         }
 
         lock (_writeGate)
