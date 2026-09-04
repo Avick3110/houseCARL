@@ -6241,7 +6241,7 @@ public sealed class LoadOrderService : IDisposable
             masterSet.Sort((a, b) =>
                 (orderIndex.TryGetValue(a, out var ia) ? ia : int.MaxValue).CompareTo(orderIndex.TryGetValue(b, out var ib) ? ib : int.MaxValue));
 
-            // ---- 5. output folder (fresh houseCARL mod folder; the merge is ALWAYS a new file — no in-place lane) ----
+            // ---- output folder: a fresh houseCARL mod folder, since a merge is always a new file ----
             RiderFolder rf;
             try { rf = ResolvePatchModFolder(patchName, null,
                 Path.GetFileNameWithoutExtension(outName) + (donorInfos.Count == 1 ? " renamed" : " merged")); }
@@ -6249,7 +6249,7 @@ public sealed class LoadOrderService : IDisposable
             WriteOwnerMeta(rf.ModFolder, outName);
             var outPath = Path.Combine(rf.OutputDir, outName);
 
-            // ---- 6. build + write M ----
+            // ---- build and write the merged plugin ----
             var build = WritePatchBuilder.MergeBuild(
                 donorInfos.Select(d => (d.Name, d.Path, d.Key)).ToList(), outKey, plan.Dict, masterSet, view.PluginPath, outPath, view.DataDir);
             if (!build.Success)
@@ -6258,20 +6258,20 @@ public sealed class LoadOrderService : IDisposable
                 return WritePatchBuilder.MergeOutcome.Fail(build.Error!);
             }
 
-            // ---- 7. FormID-keyed assets follow the renumber, PER DONOR (merge renames the plugin, and the plugin NAME
-            //      is a segment of the facegen + voice paths — so the carry covers EVERY donor NPC/voiced line, not just
-            //      the id collisions). ONE captured asset view feeds the carries AND the SEQ gate. Best-effort + REPORTED
-            //      (Q3): the records are written, so an asset miss is a named warning, never a failure of the merge. ----
+            // ---- FormID-keyed assets follow the renumber, per donor: a merge renames the plugin, and the plugin
+            //      NAME is a segment of the facegen and voice paths, so the carry covers every donor NPC and voiced
+            //      line rather than just the id collisions. One captured asset view feeds the carries and the SEQ
+            //      check. Best-effort and reported: the records are written, so an asset miss is a named warning. ----
             AssetRenameOutcome assetRename;
             VoiceCarryOutcome voiceRename;
-            bool? seqGate = null;                                          // the VFS gate — SET the moment the view resolves (compact's seqGate discipline)
+            bool? seqGate = null;                                          // the VFS answer, set the moment the view resolves
             try
             {
                 AssetResolver assetResolver;
                 lock (_gate) { assetResolver = Assets; }                  // reentrant under the held _writeGate
                 var assetView = assetResolver.Capture();
                 seqGate = false;                                          // the view resolved — the answer below is authoritative
-                foreach (var (dName, _, _, _) in donorInfos)              // "did ANY donor ship a .seq?" — VFS-aware, per donor
+                foreach (var (dName, _, _, _) in donorInfos)              // did any donor ship a .seq? VFS-aware, per donor
                     if (assetView.ResolveForPlacement($@"SEQ\{Path.GetFileNameWithoutExtension(dName)}.seq").Sources.Count > 0)
                         { seqGate = true; break; }
                 var outDir = Path.GetDirectoryName(outPath)!;
@@ -6290,15 +6290,15 @@ public sealed class LoadOrderService : IDisposable
                 voiceRename = new VoiceCarryOutcome(0, 0, 0,
                     new[] { $"voice carry skipped — the asset layer could not be built ({ex.Message}); verify voiced lines in-game." }, false);
             }
-            // Only when the view never resolved (seqGate still null — the asset layer couldn't be built) fall back to a
-            // loose per-donor-folder check, so an asset-layer fault can't silently downgrade a donor-shipped .seq to
-            // "the donors shipped none" and skip the refresh with a factually wrong advisory (compact's ?? discipline).
+            // Only when the view never resolved does this fall back to a loose per-donor-folder check, so an
+            // asset-layer fault cannot silently downgrade a donor-shipped .seq to "the donors shipped none" and skip
+            // the refresh with a factually wrong advisory.
             bool anyDonorSeq = seqGate ?? donorInfos.Any(d =>
                 File.Exists(Path.Combine(Path.GetDirectoryName(d.Path)!, "SEQ", Path.GetFileNameWithoutExtension(d.Name) + ".seq")));
 
-            // ---- 8. SEQ — refresh-only, off the merged plugin: rebuilt when ANY donor shipped a .seq (all their SGE
-            //      quests now live in M, whose .seq must list the NEW on-disk FormIDs); donors with SGE quests but no
-            //      shipped .seq get the same NAMED write_seq advisory compact gives. ----
+            // ---- SEQ, refresh-only, off the merged plugin: rebuilt when any donor shipped a .seq, because all their
+            //      SGE quests now live in the output, whose .seq must list the new on-disk FormIDs. Donors with SGE
+            //      quests but no shipped .seq get the same named advisory a compaction gives. ----
             SeqRegenOutcome seqRegen;
             try { seqRegen = AssetRenameService.RegenerateSeq(outPath, Path.GetDirectoryName(outPath)!, anyDonorSeq); }
             catch (Exception ex)
@@ -6307,8 +6307,8 @@ public sealed class LoadOrderService : IDisposable
                     new[] { $"SEQ regenerate skipped ({ex.Message}) — if the donors have start-game-enabled quests, run {ToolNames.WriteSeq} on '{outName}'." });
             }
 
-            // Q3 — surface the one behavior delta the any-donor SEQ gate can introduce: SeqFile.Build lists EVERY SGE
-            // quest in M, so a quest from a donor that shipped NO .seq (and thus wasn't auto-starting) gains an entry.
+            // Surface the one behaviour change the any-donor rule can introduce: the rebuild lists EVERY SGE quest in
+            // the output, so a quest from a donor that shipped no .seq — and so was not auto-starting — gains an entry.
             string? note = seqRegen.Written
                 ? "the regenerated .seq lists EVERY start-game-enabled quest in the output — including quests no donor's own .seq " +
                   "listed, whether because that donor shipped none or because its .seq was trimmed. Such quests were NOT " +
@@ -6323,23 +6323,22 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
-    /// <summary>The composed standalone-NPC-copy verb (housecarl_copy_npc_appearance — capability chain Stage 3).
-    /// Deep-copies a donor NPC's appearance-record subtree into a houseCARL patch under NEW FormKeys (Duplicate +
-    /// RemapLinks — the RemapEngine mechanism, so every field carries by construction: HDPT.Parts morph refs,
-    /// TextureLighting, tints), preserves headpart EditorIDs (facegeom block-name identity), renames the facegen
-    /// pair to the new key's path, and carries the donor-only textures/meshes the records + geom reference.
-    /// TWO TARGET MODES: <paramref name="targetFormid"/> dresses an EXISTING NPC (appearance fields copied onto an
-    /// override); <paramref name="newEditorid"/> mints a full standalone CLONE (donor NPC duplicated; every remaining
-    /// donor-internal non-appearance link stripped + reported by name — Q3, the clone is donor-free LOUDLY).
-    /// The donor may be ACTIVE (read via the load-order winner) or sit in a plugin FILE houseCARL locates across
-    /// enabled/disabled mod folders (<paramref name="sourcePlugin"/> — the read_plugin_file lane, stamped
-    /// out-of-load-order in the outcome). Never touches the donor; output = folder-per-patch or into= extend.</summary>
+    /// <summary>The composed standalone-NPC-copy verb. Deep-copies a donor NPC's appearance-record subtree into a
+    /// houseCARL patch under new FormKeys, via duplicate-and-remap so every field carries by construction (headpart
+    /// morph refs, texture lighting, tints); preserves headpart EditorIDs, which are the facegeom block-name
+    /// identity; renames the facegen pair to the new key's path; and carries the donor-only textures and meshes the
+    /// records and geometry reference. Two target modes: <paramref name="targetFormid"/> dresses an existing NPC by
+    /// copying the appearance fields onto an override, while <paramref name="newEditorid"/> mints a full standalone
+    /// clone, duplicating the donor NPC and stripping every remaining donor-internal non-appearance link, each
+    /// reported by name so the clone is donor-free loudly. The donor may be active, read via the load-order winner,
+    /// or sit in a plugin file located across enabled and disabled mod folders, stamped out-of-load-order in the
+    /// outcome. The donor is never touched; the output is a fresh patch folder or an into= extend.</summary>
     public NpcCopyOutcome CopyNpcAppearance(
         string sourceFormid, string? sourcePlugin, string? sourceMod,
         string? targetFormid, string? newEditorid, string? newName,
         string? patchName, string? into)
     {
-        // ---- 0. argument shape (Q3 — exactly one target mode) ----
+        // ---- argument shape: exactly one target mode ----
         FormKey donorFk;
         try { donorFk = FormKey.Factory((sourceFormid ?? "").Trim()); }
         catch (Exception ex) { return NpcCopyOutcome.Fail($"bad source formid '{sourceFormid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '000D62:Vivace.esp'."); }
@@ -6366,14 +6365,14 @@ public sealed class LoadOrderService : IDisposable
 
             using var session = resolver.OpenSession();
 
-            // ---- 1. read the donor NPC — the ACTIVE lane (load-order winner) or the FILE lane (any plugin on disk,
-            //         disabled included — the read_plugin_file machinery; results stamped out-of-load-order). ----
+            // ---- read the donor NPC: the active lane via the load-order winner, or the file lane over any plugin on
+            //      disk, disabled included, with results stamped out-of-load-order. ----
             INpcGetter donorNpc;
             NpcAppearanceCopy.DonorFetch fetch;
-            // "Donor-bound" ModKeys — the plugin(s) being standalone-ized away from. A BASE-GAME/implicit master is
-            // NEVER donor-bound (review finding): copying a vanilla-defined NPC's look must not classify NordRace or
-            // vanilla headparts as "donor-internal" (that produced a nonsense custom-race refusal and would wholesale-
-            // internalize vanilla records). With an empty set the copy is an override-style transplant, said plainly.
+            // Donor-bound ModKeys: the plugins being standalone-ized away from. A base-game or implicit master is
+            // never donor-bound — copying a vanilla-defined NPC's look must not classify vanilla races or headparts
+            // as donor-internal, which would produce a nonsense custom-race refusal and wholesale-internalize vanilla
+            // records. With an empty set the copy is an override-style transplant, said plainly.
             var baseMasters = Mutagen.Bethesda.Plugins.Implicits.Get(Mutagen.Bethesda.GameRelease.SkyrimSE).BaseMasters;
             var donorMods = new HashSet<ModKey>();
             if (!baseMasters.Contains(donorFk.ModKey)) donorMods.Add(donorFk.ModKey);
@@ -6382,7 +6381,7 @@ public sealed class LoadOrderService : IDisposable
             ISkyrimModGetter? widenOverlay = null;    // file lane, auto-widened defining plugin — disposed in finally
             string? donorFilePath = null;             // file lane: the located file; active lane: the winner's path (for the donor-disk asset fallback)
             string? widenFilePath = null;             // file lane: the auto-widened defining plugin's file (self-lock check)
-            string widenNote = "";                    // file lane: the auto-widen's read context (what was auto-read, or why it couldn't be) — appended to a FETCH-MISS closure refusal only, never a failure of its own
+            string widenNote = "";                    // file lane: what was auto-read, or why it could not be — appended to a fetch-miss closure refusal only, never a failure of its own
             string dataDirForAssets;
             try
             {
@@ -6397,8 +6396,8 @@ public sealed class LoadOrderService : IDisposable
                     if (loc.Error is not null) return NpcCopyOutcome.Fail(loc.Error);
                     if (loc.Ambiguous is not null)
                         return NpcCopyOutcome.Fail($"'{sp}' exists in {loc.Ambiguous.Count} places ({string.Join(" | ", loc.Ambiguous.Select(h => h.Where))}) — pass source_mod= to pick one.");
-                    // Same vocabulary fix as the diff pole: the donor line said ", DISABLED" for an unticked or shadowed
-                    // donor whose mod is perfectly enabled. State the cause the locate contract computed (#271).
+                    // State the cause the locate contract computed: a flat "DISABLED" would be wrong for an unticked
+                    // or shadowed donor whose mod is perfectly enabled.
                     static string Located(PluginLocateResult l) => $"{l.Where}{(l.WhyNotActive is { } why ? $"; NOT active — {why}" : "")}";
                     static NpcAppearanceCopy.DonorFetch CacheFetch(Mutagen.Bethesda.Plugins.Cache.ILinkCache c) =>
                         fk2 => { try { return c.TryResolve(fk2, out var b) ? b : null; } catch { return null; } };
@@ -6418,8 +6417,8 @@ public sealed class LoadOrderService : IDisposable
                     catch { /* a direct path with an odd name — donorFk.ModKey still governs */ }
 
                     donorOverlay = LoadOrderResolver.OpenOverlay(donorFilePath, string.IsNullOrEmpty(dataDir) ? null : dataDir);
-                    // Lazy per-type link cache — no eager whole-file parse (review finding), and per-resolve fault
-                    // isolation: one unparseable record elsewhere in the file must not abort the verb (Q3).
+                    // Lazy per-type link cache, so there is no eager whole-file parse, plus per-resolve fault
+                    // isolation: one unparseable record elsewhere in the file must not abort the verb.
                     var donorCache = donorOverlay.ToImmutableLinkCache();
                     IMajorRecordGetter? donorBody;
                     try { donorBody = donorCache.TryResolve(donorFk, out var db) ? db : null; }
@@ -6432,13 +6431,12 @@ public sealed class LoadOrderService : IDisposable
                     var namedFetch = CacheFetch(donorCache);
                     fetch = namedFetch;
 
-                    // AUTO-WIDEN (Aaron 2026-07-07 — PR #156 finding 6): the named file only OVERRIDES the donor;
-                    // the records a standalone copy must internalize live in the DEFINING plugin, which an override
-                    // patch points at but does not contain. Locate that plugin on disk too and let the closure fall
-                    // through to it — the named file stays first (its override IS the look being asked for). Said
-                    // loudly in the render on success, and carried as a NOTE onto a fetch-miss closure refusal
-                    // either way (what was read, or why the widen could not happen) — never a hard failure of its
-                    // own: a donor whose closure never needs the defining plugin must keep working.
+                    // Auto-widen: the named file only OVERRIDES the donor, while the records a standalone copy must
+                    // internalize live in the DEFINING plugin, which an override patch points at but does not
+                    // contain. Locate that plugin on disk too and let the closure fall through to it, with the named
+                    // file still first because its override IS the look being asked for. Reported on success, and
+                    // carried as a note onto a fetch-miss closure refusal either way — never a failure of its own,
+                    // because a donor whose closure never needs the defining plugin must keep working.
                     if (donorMods.Contains(donorFk.ModKey) && namedFileKey != donorFk.ModKey)
                     {
                         var defName = donorFk.ModKey.FileName.String;
@@ -6493,11 +6491,11 @@ public sealed class LoadOrderService : IDisposable
 
                 NpcAppearanceCopy.ActiveResolve active = fk2 => view.ResolveWinner(fk2) is not null;
 
-                // ---- 2. the appearance closure (generic link walk; loud refusals — custom race, runaway, unreadable) ----
+                // ---- the appearance closure: a generic link walk, with loud refusals for a custom race, a runaway walk, or an unreadable record ----
                 var closure = NpcAppearanceCopy.CollectAppearanceClosure(donorNpc, donorMods, fetch, active);
                 if (!closure.Success) return NpcCopyOutcome.Fail(closure.Error! + (closure.FetchMiss ? widenNote : ""));
 
-                // ---- 3. output patch (folder-per-patch or into= extend — the record lane's resolver + ownership gate) ----
+                // ---- output patch: a fresh folder or an into= extend, through the record lane's resolver and ownership gate ----
                 string outPath; bool extend, created;
                 var defaultStem = clone ? newEditorid!.Trim() : "houseCARL_NpcCopy";
                 try { outPath = ResolveOutputPath(patchName ?? (into is null ? defaultStem : null), into, out extend, out created,
@@ -6506,8 +6504,8 @@ public sealed class LoadOrderService : IDisposable
                 var patchFileName = Path.GetFileName(outPath);
                 var patchModKey = ModKey.FromFileName(patchFileName);
 
-                // ---- 4. apply lane: resolve the ACTIVE target body up front (an in-patch target — its formid names
-                //         the patch itself — is resolved inside the build, off the opened patch mod). ----
+                // ---- apply lane: resolve the active target body up front. An in-patch target, whose formid names
+                //      the patch itself, is resolved inside the build off the opened patch mod. ----
                 INpcGetter? targetActiveBody = null;
                 if (apply && targetFk.ModKey != patchModKey)
                 {
@@ -6524,8 +6522,8 @@ public sealed class LoadOrderService : IDisposable
                     targetActiveBody = tnpc;
                 }
 
-                // ---- 4b. neither donor-side FILE may be the output patch (review finding: the overlays stay
-                //          memory-mapped through the serialize — the exact self-lock class the write path guards).
+                // ---- neither donor-side file may be the output patch: the overlays stay memory-mapped through the
+                //      serialize, which is the self-lock the write path protects against. ----
                 foreach (var (lockPath, what) in new (string?, string)[]
                          { (donorFilePath, "donor plugin file"), (widenFilePath, "auto-widened defining plugin") })
                     if (lockPath is not null && PathEquals(lockPath, outPath))
@@ -6536,7 +6534,7 @@ public sealed class LoadOrderService : IDisposable
                             "deadlock on its own open handle. Copy into a DIFFERENT patch (omit into=, or name another).");
                     }
 
-                // ---- 5. build + serialize (core — Duplicate/RemapLinks, mode lane, multi-master write) ----
+                // ---- build and serialize in the core: duplicate, remap links, pick the mode lane, write ----
                 var outcome = NpcAppearanceCopy.BuildAndWrite(
                     donorNpc, donorMods, closure,
                     clone, newEditorid, newName,
@@ -6545,21 +6543,20 @@ public sealed class LoadOrderService : IDisposable
                     outPath, extend,
                     pf => { session.ReleaseOverlay(pf); return session.AllMastersExcept(pf); },   // active-patch self-lock fix
                     donorReadFrom, outOfLoadOrder,
-                    // #314 — the SAME renderer the sibling write lanes use, so the baseline refusal substitutes here too.
+                    // The same renderer the sibling write lanes use, so the baseline refusal substitutes here too.
                     ex => WritePatchBuilder.SerializeFailure("serialize failed — ", ex, session, " Nothing usable was written."));
                 if (!outcome.Success)
                 {
-                    if (created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused copy leaves no orphan
+                    if (created) RemoveFolderCreatedThisCall(outPath);   // a refused copy leaves no orphan folder
                     return outcome;
                 }
 
-                // ---- 6. asset carry (facegen rename + donor-only textures/meshes) — best-effort + reported (Q3).
-                //         Paths were harvested from the IN-PATCH duplicates pre-serialize (never the donor overlay,
-                //         which may be released by now). Donor-disk direct lanes exist for BOTH donor-side files —
-                //         the named file's folder AND the auto-widened defining plugin's (review finding: a widened
-                //         copy's facegen lives in the DEFINING mod's folder, not the override patch's) — but only
-                //         under an MO2 mod folder, NEVER the game Data folder, where every vanilla BSA would
-                //         misclassify as "the donor's" (review finding). ----
+                // ---- asset carry: the facegen rename plus the donor-only textures and meshes. Best-effort and
+                //      reported. Paths were harvested from the in-patch duplicates before the serialize, never from
+                //      the donor overlay, which may be released by now. Donor-disk direct lanes exist for both
+                //      donor-side files — the named file's folder and the auto-widened defining plugin's, since a
+                //      widened copy's facegen lives in the defining mod's folder — but only under an MO2 mod folder,
+                //      never the game Data folder, where every vanilla BSA would misclassify as the donor's. ----
                 NpcAssetOutcome assets;
                 try
                 {
@@ -6573,7 +6570,7 @@ public sealed class LoadOrderService : IDisposable
                         if (sidePath is null) continue;
                         var sideDir = Path.GetDirectoryName(sidePath);
                         if (sideDir is not null && !string.IsNullOrEmpty(dataDirForAssets) && PathEquals(sideDir, dataDirForAssets)) continue;
-                        if (sideDir is not null && donorDisks.Any(d => PathEquals(sideDir, d.Folder))) continue;   // named + defining in one folder = one scan
+                        if (sideDir is not null && donorDisks.Any(d => PathEquals(sideDir, d.Folder))) continue;   // named and defining in one folder means one scan
                         var disk = NpcAppearanceAssets.DonorDisk.For(sidePath);
                         donorDisks.Add(disk);
                         donorFolderNames.Add(Path.GetFileName(disk.Folder));
@@ -6593,17 +6590,16 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
-    /// <summary>Create a BRAND-NEW record (housecarl_create_record) — the net-new authoring capability, the sibling of
-    /// <see cref="ApplyEdits"/>. Resolves <paramref name="recordType"/> (catalog name or 4-char signature) to ONE concrete
-    /// catalog name (unknown/ambiguous → Q3), maps the field <paramref name="operations"/> to core <see cref="WriteRequest"/>s
-    /// rooted at that type (a create op takes NO formid — it sets fields on the new record), resolves the folder-per-patch
-    /// output (fresh, or <paramref name="into"/> an existing houseCARL-owned patch), then drives
-    /// <see cref="WritePatchBuilder.CreateRecords"/> (pre-flight ALL → AddNew/NestedAddNew → ApplyVerb → multi-master serialize).
-    /// The new record's FormID is auto-allocated (local 0x800+) and reported; originals are never touched. A flat top-level
-    /// record needs no <paramref name="parent"/>; a NESTED child (a dialogue line, a placed ref) passes <paramref name="parent"/>
-    /// (an existing parent's FormKey, or a record created in a prior into= call) and, when the parent holds more than one
-    /// fitting child-list, <paramref name="collection"/>. For a parent + its children in ONE call (a topic + its lines, a
-    /// child's parent= naming a same-call sibling), see <see cref="CreateRecordsBatch"/>.</summary>
+    /// <summary>Create a brand-new record — the net-new authoring capability, the sibling of
+    /// <see cref="ApplyEdits"/>. Resolves <paramref name="recordType"/> (a catalog name or 4-char signature) to one
+    /// concrete catalog name, refusing an unknown or ambiguous one; maps the field <paramref name="operations"/> to
+    /// core write requests rooted at that type, since a create op takes no formid and sets fields on the new record;
+    /// resolves the folder-per-patch output, fresh or <paramref name="into"/> an existing houseCARL-owned patch; then
+    /// drives <see cref="WritePatchBuilder.CreateRecords"/>. The new record's FormID is auto-allocated at 0x800 and
+    /// above and reported, and originals are never touched. A flat top-level record needs no
+    /// <paramref name="parent"/>; a nested child passes one — an existing parent's FormKey, or a record created in a
+    /// prior into= call — plus <paramref name="collection"/> when the parent holds more than one fitting child list.
+    /// For a parent and its children in one call, see <see cref="CreateRecordsBatch"/>.</summary>
     public WritePatchBuilder.CreateOutcome CreateRecords(string recordType, string editorid, IReadOnlyList<BulkOp> operations,
         string? patchName, string? into, bool fullReadback = false, string? parent = null, string? collection = null, string? grid = null,
         string? target = null, bool inPlace = false, bool acknowledge = false)
@@ -6616,12 +6612,11 @@ public sealed class LoadOrderService : IDisposable
         return CommitCreate(new[] { spec }, patchName, into, fullReadback, target, inPlace, acknowledge);
     }
 
-    /// <summary>Create MANY new records in ONE patch (housecarl_bulk_create) — the batch sibling of
-    /// <see cref="CreateRecords"/>, and the one-shot lever for a nested unit (a dialogue topic + its lines, a cell + its
-    /// placed refs) where a child's <c>parent</c> names a same-call sibling by editorid. Each spec is mapped exactly as
-    /// the single create (type resolution + field-op mapping + parent/collection); ALL-OR-NOTHING (Q3) — any malformed
-    /// spec refuses the whole call (with per-record reasons) and the core <see cref="WritePatchBuilder.CreateRecords"/>
-    /// likewise refuses the whole batch on any creatability/parent problem. One serialize for the lot.</summary>
+    /// <summary>Create many new records in one patch — the batch sibling of <see cref="CreateRecords"/>, and the
+    /// one-shot route for a nested unit (a dialogue topic and its lines, a cell and its placed refs) where a child's
+    /// <c>parent</c> names a same-call sibling by editorid. Each spec is mapped exactly as the single create.
+    /// All-or-nothing: any malformed spec refuses the whole call with per-record reasons, and the core likewise
+    /// refuses the whole batch on any creatability or parent problem. One serialize for the lot.</summary>
     public WritePatchBuilder.CreateOutcome CreateRecordsBatch(IReadOnlyList<CreateOp> records, string? patchName, string? into, bool fullReadback = false,
         string? target = null, bool inPlace = false, bool acknowledge = false, IReadOnlyList<string?>? origins = null,
         CreateOpNaming? naming = null)
@@ -6634,9 +6629,8 @@ public sealed class LoadOrderService : IDisposable
         for (int r = 0; r < records.Count; r++)
         {
             var rec = records[r];
-            // origins[r] is the CALLER's own spelling for this spec (housecarl_create passes "records[r]"; the 1.x
-            // batch passes none and keeps its own "record[r]"). Carried parallel to the list for the same reason
-            // ApplyEdits carries opOrigins: a refusal must never name an index shape the caller did not write.
+            // origins[r] is the caller's own spelling for this spec, carried parallel to the list for the same
+            // reason ApplyEdits carries opOrigins: a refusal must never name an index shape the caller did not write.
             var where = origins is not null && r < origins.Count && origins[r] is { } o ? o : $"record[{r}]";
             var spec = BuildCreateSpec(rec.RecordType, rec.Editorid, rec.Operations ?? Array.Empty<BulkOp>(), rec.Parent, rec.Collection, rec.Grid, where, problems, naming ?? CreateOpNaming.Legacy);
             if (spec is not null) specs.Add(spec);
@@ -6647,12 +6641,12 @@ public sealed class LoadOrderService : IDisposable
         return CommitCreate(specs, patchName, into, fullReadback, target, inPlace, acknowledge);
     }
 
-    /// <summary>Build ONE core <see cref="WritePatchBuilder.CreateSpec"/> from wire parts (shared by the single create and
-    /// the batch): resolve <paramref name="recordType"/> (catalog name or 4-char signature) to ONE concrete catalog name
-    /// (unknown/ambiguous → a problem), require an editorid, map each field <paramref name="operations"/> op to a core
-    /// <see cref="WriteRequest"/> rooted at that type, and carry <paramref name="parent"/>/<paramref name="collection"/>
-    /// through (a nested child) — null ⇒ a flat top-level record. Every problem (with the optional <paramref name="where"/>
-    /// label) is APPENDED to <paramref name="problems"/>; returns null iff this record contributed any (all-or-nothing).</summary>
+    /// <summary>Build one core <see cref="WritePatchBuilder.CreateSpec"/> from wire parts, shared by the single
+    /// create and the batch: resolve <paramref name="recordType"/> to one concrete catalog name, require an editorid,
+    /// map each field op to a core <see cref="WriteRequest"/> rooted at that type, and carry
+    /// <paramref name="parent"/> and <paramref name="collection"/> through for a nested child — null means a flat
+    /// top-level record. Every problem, tagged with the optional <paramref name="where"/> label, is appended to
+    /// <paramref name="problems"/>, and this returns null iff this record contributed any.</summary>
     WritePatchBuilder.CreateSpec? BuildCreateSpec(string? recordType, string? editorid, IReadOnlyList<BulkOp> operations,
         string? parent, string? collection, string? grid, string? where, List<string> problems, CreateOpNaming naming)
     {
@@ -6676,7 +6670,8 @@ public sealed class LoadOrderService : IDisposable
         if (string.IsNullOrWhiteSpace(editorid))
             problems.Add($"{prefix}editorid is required — the EditorID the new record is referenced by (e.g. in SkyPatcher/SPID).");
 
-        // Map each field op → a core WriteRequest rooted at the create type (only once the type resolved; collect ALL malformed ops).
+        // Map each field op to a core WriteRequest rooted at the create type, only once the type resolved, and
+        // collect every malformed op.
         var edits = new List<WriteRequest>(operations.Count);
         if (catalogName is not null)
             for (int i = 0; i < operations.Count; i++)
@@ -6695,17 +6690,17 @@ public sealed class LoadOrderService : IDisposable
         };
     }
 
-    /// <summary>Resolve the folder-per-patch output (fresh, or <paramref name="into"/> an existing houseCARL-owned patch),
-    /// then drive the core multi-record create + serialize under the write gate (hunt F2: one write at a time). A refused
-    /// create that just created the output folder leaves no orphan (hunt F4). Shared by the single + batch create.</summary>
+    /// <summary>Resolve the folder-per-patch output, fresh or <paramref name="into"/> an existing houseCARL-owned
+    /// patch, then drive the core multi-record create and serialize under the write gate, one write at a time. A
+    /// refused create that just made the output folder leaves no orphan. Shared by the single and batch
+    /// create.</summary>
     WritePatchBuilder.CreateOutcome CommitCreate(IReadOnlyList<WritePatchBuilder.CreateSpec> specs, string? patchName, string? into, bool fullReadback,
         string? target = null, bool inPlace = false, bool acknowledge = false)
     {
-        // In-place is the explicit, named-file opt-in (the SECOND write lane — create into an existing plugin, incl. one
-        // houseCARL didn't author, instead of writing a new patch). Validate the contract up front (Q3): it REQUIRES a
-        // target=, is mutually exclusive with into= (which EXTENDS a houseCARL patch — a different lane), and target=
-        // without in_place is a no-op the caller likely didn't mean — name it rather than silently ignore it. (Mirrors
-        // ApplyEdits' in-place contract exactly.)
+        // In-place is the explicit, named-file opt-in: create into an existing plugin, including one houseCARL did
+        // not author, instead of writing a new patch. The contract is validated up front — it requires target=, is
+        // mutually exclusive with into=, and target= without in_place is a no-op the caller likely did not mean, so
+        // it is named rather than silently ignored. Mirrors ApplyEdits' in-place contract exactly.
         if (inPlace && string.IsNullOrWhiteSpace(target))
             return WritePatchBuilder.CreateOutcome.Fail(
                 "in_place=true requires target=<plugin filename> — name the existing plugin to create into in place. (Omit in_place to write a new patch instead — the default, originals untouched.)");
@@ -6729,34 +6724,30 @@ public sealed class LoadOrderService : IDisposable
             catch (Exception ex) { return WritePatchBuilder.CreateOutcome.Fail(ex.Message); }
 
             var outcome = WritePatchBuilder.CreateRecords(resolver, rulebook, specs, outPath, extend, fullReadback);
-            if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused create leaves no orphan
-            // Layer B dialogue teeth + the coordinate-keyed cell teeth — all post-write verify steps (the proven
-            // CreateRecords path stays untouched): unit B voice (.fuz/.lip) coverage, unit C the result-script binding,
-            // then the §4-(b) structural-shell report. Each is a no-op unless the call created the relevant record kind
-            // (a dialogue line / a cell); none can fail the create (the write already succeeded).
+            if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // a refused create leaves no orphan folder
+            // Post-write verify steps, leaving the create path itself untouched: voice (.fuz/.lip) coverage, the
+            // result-script binding, then the cell structural-shell report. Each is a no-op unless the call created
+            // the relevant record kind, and none can fail the create, which already succeeded.
             return outcome.Success ? EnrichWithCellShell(EnrichWithScriptCheck(EnrichWithVoiceCheck(outcome, resolver))) : outcome;
         }
     }
 
-    /// <summary>The in-place branch of <see cref="CommitCreate"/> (in-place write lane, Wave 1b) — the create-side
-    /// companion of <see cref="ApplyEditsInPlace"/>, and it REUSES every Wave-1 in-place seam: the same foreign-target
-    /// resolver (<see cref="ResolveActivePluginPath"/>), the same PERSISTENT first-touch CONSENT handshake (keyed off the
-    /// resolved path in <see cref="UserConfigStore"/>), the same writable-parent pre-flight, and the same distinct
-    /// <c>editedInPlace=</c> marker (NEVER <c>generated=true</c> — the user mod keeps failing
-    /// <see cref="IsHouseCarlOwned"/> so a later into= can't blind-overwrite it). THREE divergences from
-    /// <see cref="ApplyEditsInPlace"/>: (1) it drives <see cref="WritePatchBuilder.CreateRecordsInPlace"/>
-    /// (allocate-into-target, not edit-own-record); (2) it returns a <see cref="WritePatchBuilder.CreateOutcome"/>; and
-    /// (3) because in-place create has FULL parity — it can author dialogue lines / cells under any parent, unlike
-    /// <c>set_field</c> — it runs the SAME post-write voice/result-script/cell-shell coverage teeth the patch-lane create
-    /// runs (<see cref="ApplyEditsInPlace"/> is marker-only). The created-record verify is forced ON (the model-C
-    /// substitute for the dropped whole-plugin floor). <paramref name="acknowledge"/> waives the CONSENT axis ONLY — the
-    /// verify is a corruption-axis fact no acknowledgement overrides. Runs under <c>_writeGate</c> (the caller holds it).</summary>
+    /// <summary>The in-place branch of <see cref="CommitCreate"/> — the create-side companion of
+    /// <see cref="ApplyEditsInPlace"/>, reusing every in-place seam: the same foreign-target resolver, the same
+    /// persistent first-touch consent handshake keyed off the resolved path, the same writable-parent pre-flight, and
+    /// the same <c>editedInPlace=</c> marker rather than <c>generated=true</c>. It diverges in three ways: it drives
+    /// <see cref="WritePatchBuilder.CreateRecordsInPlace"/>, which allocates into the target rather than editing an
+    /// existing record; it returns a <see cref="WritePatchBuilder.CreateOutcome"/>; and because in-place create can
+    /// author dialogue lines and cells under any parent, it runs the same post-write voice, result-script and
+    /// cell-shell coverage checks the patch-lane create runs. The created-record verify is forced on, and
+    /// <paramref name="acknowledge"/> waives the consent axis only. Runs under <c>_writeGate</c>, which the caller
+    /// holds.</summary>
     WritePatchBuilder.CreateOutcome CommitCreateInPlace(
         LoadOrderResolver resolver, CorpusRulebook rulebook, IReadOnlyList<WritePatchBuilder.CreateSpec> specs,
         string target, bool acknowledge)
     {
-        // (1) Resolve target -> real on-disk path via the load order (by plugin FILENAME). Refuse loud if it isn't a real
-        //     active plugin (closes the coincidental-folder collision the into= lane can hit). Same resolver as the edit lane.
+        // Resolve target to its real on-disk path via the load order, by plugin filename. Refuse loudly if it is not
+        // a real active plugin, which closes the coincidental-folder collision. Same resolver as the edit lane.
         var view = resolver.Capture();
         var targetPath = ResolveActivePluginPath(view, Path.GetFileName(target.Trim()), out var targetName);
         if (targetPath is null)
@@ -6772,31 +6763,29 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.CreateOutcome.Fail(locRefusal)
                 with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
-        // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path (shared with
-        //     the edit lane: acknowledging a plugin once covers BOTH editing and creating into it in place — it's the same
-        //     "touch your original" trade-off). The CHECK gates entry here; the acknowledgement is RECORDED at (5), once
-        //     the create has actually landed — see PersistInPlaceConsent.
+        // The consent axis: the persistent first-touch handshake keyed off the resolved path, shared with the edit
+        // lane because acknowledging a plugin once covers both editing and creating into it — the same "touch your
+        // original" trade-off. The check gates entry here; the acknowledgement is recorded only once the create has
+        // landed.
         bool already = _store.IsInPlaceAcknowledged(targetPath);
         if (!already && !acknowledge)
             // Stamped for the reason the edit lane's twin states: this branch is reached only after the view above
-            // resolved the target, and it is the MOST COMMON in-place response shape — an unstamped one would make
-            // "every write response carries an epoch" false exactly where a caller most often meets it.
+            // resolved the target, and it is the most common in-place response shape.
             return WritePatchBuilder.CreateOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath))
                 with { Epoch = view.Epoch };
         bool owesConsent = !already && acknowledge;
 
-        // (3) Writable, same-volume parent pre-flight — refuse rather than degrade (the swap stages a sibling temp here).
+        // Writable-parent pre-flight — refuse rather than degrade; the swap stages a sibling temp here.
         if (InPlaceParentUnwritable(targetPath, out var why))
             return WritePatchBuilder.CreateOutcome.Fail(why) with { Epoch = view.Epoch };
 
-        // (4) The write — created-record verify forced ON (the model-C substitute for the dropped whole-plugin floor).
+        // The write, with the created-record verify forced on.
         var outcome = WritePatchBuilder.CreateRecordsInPlace(resolver, rulebook, specs, targetPath, targetName, fullReadback: true);
 
-        // (5) On success: record the acknowledgement, then run the SAME post-write teeth the patch lane runs (the service
-        //     owns the live AssetResolver) — in-place create can now author dialogue lines / cells under any parent, so
-        //     voice (.fuz) + result-script + cell-shell coverage must be checked here too (each a no-op unless that
-        //     record kind was created; none can fail the write, which already succeeded). Then stamp the distinct audit
-        //     marker (best-effort; a marker miss never fails the done create, Q3-noted).
+        // On success, record the acknowledgement, then run the same post-write checks the patch lane runs, since the
+        // service owns the live asset resolver and in-place create can author dialogue lines and cells under any
+        // parent. Each is a no-op unless that record kind was created, and none can fail the write. Then stamp the
+        // audit marker, best-effort: a marker miss never fails the done create.
         if (outcome.Success)
         {
             var ackNote = PersistInPlaceConsent(owesConsent, targetPath, "create");
