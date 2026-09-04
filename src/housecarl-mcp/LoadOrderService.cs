@@ -2583,31 +2583,45 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>Resolve a `records` source= pole against ONE captured view: active in the order, else located on disk
     /// across the whole install. A non-null error means it was found in neither place (naming both), or is ambiguous
-    /// across mod folders (naming them and the {file, mod} disambiguator).</summary>
+    /// across mod folders (naming them and the {file, mod} disambiguator).
+    /// <para>The {file, mod} form addresses ONE on-disk copy, which is the whole reason it exists: several mod
+    /// folders ship the same filename and MO2 serves one. So it does NOT short-circuit to the active copy of the
+    /// filename — the locate runs first, and the named copy resolves to the active arm only when it IS the copy the
+    /// game loads. A plain filename and a direct path are unchanged.</para></summary>
     (PoleInfo? Pole, string? Error) ResolvePoleArm(LoadOrderResolver.IndexView view, string plugin, string? mod)
     {
         // A pole addressed by path that IS the active order's file resolves back to its plugin name.
         if (LooksLikePath(plugin) && ActiveNameForPath(view, plugin) is { } activeName) plugin = activeName;
 
-        if (view.ContainsPlugin(plugin))
+        bool namesMod = !string.IsNullOrWhiteSpace(mod) && !LooksLikePath(plugin);
+        bool activeFilename = view.ContainsPlugin(plugin);
+        if (!namesMod && activeFilename)
             return (new PoleInfo(plugin, "active in the load order", InOrder: true, EpochCoversPole: true), null);
 
         string modsDir, dataDir, overwriteDir, profileDir;
         try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
         catch (Exception ex)
         {
-            return (null, $"source '{plugin}' is not active in the load order, and the MO2 roots couldn't be derived to search for it on disk: {ex.Message}");
+            return (null, activeFilename
+                ? $"source '{plugin}' names a mod folder, and the MO2 roots couldn't be derived to read that folder's copy: {ex.Message}"
+                : $"source '{plugin}' is not active in the load order, and the MO2 roots couldn't be derived to search for it on disk: {ex.Message}");
         }
         var comp = Mo2LoadOrder.ReadComposition(profileDir);
         var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, plugin, mod);
         if (loc.Error is not null)
-            // A pole found in neither place names both places searched.
-            return (null, $"source '{plugin}' resolves in NEITHER place the one-pole rule searches: it is not ACTIVE in " +
-                          $"the load order ({view.PluginCount} plugins), and on disk {loc.Error}");
+            // A pole found in neither place names both places searched. When the filename IS active, the named mod
+            // folder is the only place searched, so the sentence says that instead of claiming it is not active.
+            return (null, activeFilename
+                ? $"source '{plugin}': {loc.Error} The filename IS active in the load order — drop mod= to read the copy the game loads."
+                : $"source '{plugin}' resolves in NEITHER place the one-pole rule searches: it is not ACTIVE in " +
+                  $"the load order ({view.PluginCount} plugins), and on disk {loc.Error}");
         if (loc.Ambiguous is not null)
             return (null, $"source '{plugin}' is not active in the load order and its filename is provided by SEVERAL mod " +
                           $"folders on disk: {string.Join(", ", loc.Ambiguous.Select(h => $"'{h.Where}'"))} — disambiguate " +
                           "with source={\"file\": \"" + plugin + "\", \"mod\": \"<mod folder>\"}.");
+        // The named copy IS the copy the game loads, so it is read out of the order like any other active pole.
+        if (activeFilename && loc.Enabled)
+            return (new PoleInfo(plugin, "active in the load order", InOrder: true, EpochCoversPole: true), null);
         var poleWhere = $"OUT-OF-LOAD-ORDER ({loc.Where}{(loc.WhyNotActive is { } why ? $"; NOT active — {why}" : "")})";
         return (new PoleInfo(plugin, poleWhere, InOrder: false, EpochCoversPole: false) { Path = loc.Path }, null);
     }

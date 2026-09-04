@@ -191,3 +191,127 @@ public sealed class RecordsExcludedPluginSourceTests : IClassFixture<ExcludedPlu
         Assert.Contains("winner=" + _w.CleanName, r);
     }
 }
+
+/// <summary>Two ENABLED mod folders shipping the same plugin filename, the higher-priority one served into the
+/// active order — the ESP-replacer shape the {file, mod} source form exists for. The one weapon's Damage differs
+/// per copy, so which physical file was read is visible in the answer.</summary>
+public sealed class ShadowedCopyWorld : IDisposable
+{
+    public string Root { get; }
+    public LoadOrderService Svc { get; }
+    /// <summary>The one filename both mod folders provide.</summary>
+    public string FileName { get; }
+    public string WinnerMod => "SWinner";
+    public string LoserMod => "SLoser";
+    /// <summary>Damage in the served copy / in the shadowed copy.</summary>
+    public const int WinnerDamage = 99;
+    public const int LoserDamage = 44;
+    public string SubjectFid { get; }
+
+    public ShadowedCopyWorld()
+    {
+        Root = Path.Combine(Path.GetTempPath(), "hc-shadowed-copy-tests-" + Guid.NewGuid().ToString("N"));
+        var instance = Path.Combine(Root, "instance");
+        var profiles = Path.Combine(instance, "profiles", "Default");
+        var mods = Path.Combine(instance, "mods");
+        foreach (var d in new[] { profiles, mods, Path.Combine(Root, "game", "Data") }) Directory.CreateDirectory(d);
+        File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
+            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+            + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
+
+        var mKey = new ModKey("HcSMaster", ModType.Master);
+        var rKey = new ModKey("HcSReplacer", ModType.Plugin);
+        FileName = rKey.FileName.String;
+
+        string P(string folder, ModKey k)
+        {
+            var p = Path.Combine(mods, folder, k.FileName.String);
+            Directory.CreateDirectory(Path.GetDirectoryName(p)!);
+            return p;
+        }
+
+        var m = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
+        var subject = m.Weapons.AddNew();
+        subject.EditorID = "SSubject";
+        subject.BasicStats = new WeaponBasicStats { Damage = 10 };
+        SubjectFid = $"{subject.FormKey.ID:X6}:{mKey.FileName}";
+        m.BeginWrite.ToPath(P("SMaster", mKey)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+        foreach (var (folder, damage) in new[] { (WinnerMod, WinnerDamage), (LoserMod, LoserDamage) })
+        {
+            var r = new SkyrimMod(rKey, SkyrimRelease.SkyrimSE);
+            ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(r, subject)).BasicStats = new WeaponBasicStats { Damage = (ushort)damage };
+            r.BeginWrite.ToPath(P(folder, rKey)).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
+        }
+
+        File.WriteAllText(Path.Combine(profiles, "loadorder.txt"),
+            "# header\r\n" + mKey.FileName + "\r\n" + rKey.FileName + "\r\n");
+        File.WriteAllText(Path.Combine(profiles, "plugins.txt"),
+            "*" + mKey.FileName + "\r\n*" + rKey.FileName + "\r\n");
+        // modlist.txt is TOP = highest priority, so SWinner provides the copy MO2 serves.
+        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+SWinner\r\n+SLoser\r\n+SMaster\r\n");
+
+        Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
+        Svc.Stats();
+    }
+
+    public void Dispose()
+    {
+        Svc.Dispose();
+        try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
+    }
+}
+
+public sealed class ShadowedCopyFixture : IDisposable
+{
+    public ShadowedCopyWorld W { get; } = new();
+    public void Dispose() => W.Dispose();
+}
+
+/// <summary>The {file, mod} source form against a filename that IS active: it addresses the named folder's copy,
+/// which is the only reason the form exists.</summary>
+[Trait("tier", "integration")]
+public sealed class RecordsModFolderSourceTests : IClassFixture<ShadowedCopyFixture>
+{
+    readonly ShadowedCopyWorld _w;
+    public RecordsModFolderSourceTests(ShadowedCopyFixture f) => _w = f.W;
+
+    string Read(string mod) =>
+        RecordsTools.Records(_w.Svc, formids: new[] { _w.SubjectFid },
+                             source: JsonDocument.Parse("{\"file\": \"" + _w.FileName + "\", \"mod\": \"" + mod + "\"}").RootElement.Clone(),
+                             project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage" } });
+
+    [Fact]
+    public void NamingTheShadowedModReadsThatFoldersCopy()
+    {
+        var r = Read(_w.LoserMod);
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        Assert.Contains("BasicStats.Damage = " + ShadowedCopyWorld.LoserDamage, r);
+    }
+
+    [Fact]
+    public void NamingTheShadowedModSaysItIsNotTheActiveCopyAndWhichModIsActive()
+    {
+        var r = Read(_w.LoserMod);
+        Assert.Contains("OUT-OF-LOAD-ORDER", r);
+        Assert.Contains("SHADOWED", r);
+        Assert.Contains("'" + _w.WinnerMod + "'", r);
+    }
+
+    [Fact]
+    public void NamingTheServingModReadsTheActiveCopyOnTheActiveArm()
+    {
+        var r = Read(_w.WinnerMod);
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        Assert.Contains("BasicStats.Damage = " + ShadowedCopyWorld.WinnerDamage, r);
+        Assert.Contains("active in the load order", r);
+    }
+
+    [Fact]
+    public void AModFolderThatDoesNotCarryTheFilenameIsStillRefused()
+    {
+        var r = Read("SMaster");
+        Assert.StartsWith("error:", r);
+        Assert.Contains("does not provide", r);
+    }
+}

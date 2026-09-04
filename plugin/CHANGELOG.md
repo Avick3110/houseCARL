@@ -13,6 +13,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **`housecarl_records` with `source={"file", "mod"}` now reads the copy in the named mod folder, even when that
+  filename is active in the load order.** Several mod folders can ship the same plugin filename (an ESP replacer),
+  and MO2 serves one of them; naming a folder addresses that folder's file. When the named copy is not the one the
+  game loads, the response says so and names the mod folder that provides the served copy. A folder that does not
+  carry the filename is refused as before, and the plain-filename and direct-path forms are unchanged.
+
 - **A FormID from the game, a log or a crash log now works as an input, and comes back as an output.**
   Wherever a parameter holds nothing but FormIDs, houseCARL now also takes the runtime form the game, the
   console, Papyrus logs, SKSE logs and crash logs print: eight hex digits and no plugin name — `FExxxYYY` for a light plugin,
