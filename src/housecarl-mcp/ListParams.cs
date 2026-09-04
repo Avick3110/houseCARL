@@ -66,9 +66,9 @@ internal static class ListParams
                           $"Expected a JSON ARRAY of {shape} elements.{ElementVocabularyHint(msg)}");
         }
         if (items is null) return (null, $"{origin} parsed to JSON null — expected a JSON array of {shape} elements.");
-        if (items.Length == 0) return (null, $"{param} is an empty array — give at least one {shape}.");
+        if (items.Length == 0) return (null, $"{origin} is an empty array — give at least one {shape}.");
         for (int i = 0; i < items.Length; i++)
-            if (items[i] is null) return (null, $"{param}: element [{i}] is null — every element must be an object.");
+            if (items[i] is null) return (null, $"{origin}: element [{i}] is null — every element must be an object.");
         return (items, null);
     }
 
