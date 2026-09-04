@@ -1934,7 +1934,7 @@ public static class RecordsTools
                 sb.Append("  ").Append(o.Record!.Type)
                   .Append("  ").Append(o.Record.EditorId ?? "<no editorid>")
                   .Append("  source=").Append(o.SourcePlugin ?? "?");
-                if (o.WinnerPlugin is not null) sb.Append("  winner=").Append(o.WinnerPlugin).Append("  depth=").Append(o.OverrideDepth);
+                if (o.WinnerPlugin is not null) sb.Append("  winner=").Append(o.WinnerPlugin).Append("  override_depth=").Append(o.OverrideDepth);
                 sb.Append('\n');
             }
             rendered++;
