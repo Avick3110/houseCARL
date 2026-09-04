@@ -83,6 +83,8 @@ public sealed class FieldPredicateSet
     readonly long[] _noField;     // per-predicate SUBSET of _noValue: the path is not a field on the record (mistyped / wrong for this type)
     readonly long[] _container;   // per-predicate SUBSET of _noValue: the path resolves to a container/list, not a scalar leaf
     readonly long[] _unreadable;  // per-predicate SUBSET of _noValue: the path READ FAULTED (Mutagen-unparseable content) — a fault, NOT an unset value
+    readonly long[] _listHop;     // per-predicate SUBSET of _noField: the path hopped THROUGH a list/dict with a dotted segment (a missing bracket, not a mistyped name)
+    readonly string?[] _listHopOwner;  // the collection field the hop dead-ended on, for the remedy sentence
     long _scanned;
     string? _fatal;
 
@@ -132,6 +134,8 @@ public sealed class FieldPredicateSet
         _noField = new long[predicates.Count];
         _container = new long[predicates.Count];
         _unreadable = new long[predicates.Count];
+        _listHop = new long[predicates.Count];
+        _listHopOwner = new string?[predicates.Count];
     }
 
     /// <summary>Set once when a numeric operator meets a non-numeric field value on the first value-bearing
@@ -504,6 +508,9 @@ public sealed class FieldPredicateSet
             {
                 case EvalKind.Definite: _valueRead[k]++; if (!sat) all = false; break;
                 case EvalKind.NoField: _noField[k]++; _noValue[k]++; all = false; break;
+                // A list hop IS a no-such-field miss, so it keeps that bucket; the extra counter is what lets the
+                // rollup tell a missing bracket from a mistyped name.
+                case EvalKind.ListHop: _noField[k]++; _listHop[k]++; _noValue[k]++; _listHopOwner[k] ??= _lastListHopOwner; all = false; break;
                 case EvalKind.Container: _container[k]++; _noValue[k]++; all = false; break;
                 case EvalKind.Unreadable: _unreadable[k]++; _noValue[k]++; all = false; break;
                 default: _noValue[k]++; all = false; break;   // Unset — a valid, value-less path
@@ -515,7 +522,23 @@ public sealed class FieldPredicateSet
     /// <summary>How one predicate's evaluation on one record resolved: a DEFINITE verdict (the value was read and
     /// compared, or an identity/presence test decided), or one of the no-verdict classes the accounting keys on.
     /// Mirrors the leaf-note vocabulary: no-such-field / container / read-fault / genuinely-unset.</summary>
-    enum EvalKind { Definite, NoField, Container, Unreadable, Unset }
+    enum EvalKind { Definite, NoField, ListHop, Container, Unreadable, Unset }
+
+    /// <summary>The collection field named by the most recent list-hop note, stashed for the rollup.</summary>
+    string? _lastListHopOwner;
+
+    /// <summary>Classify a leaf note beginning "(no field": the read engine emits a bracket-aware variant when the
+    /// path stepped THROUGH a list/dict, and that is a missing-bracket miss, not a mistyped name.</summary>
+    EvalKind ClassifyNoField(string note)
+    {
+        // "(no field 'X': 'Owner' is a list/dict — …)" vs the plain "(no field X)".
+        const string marker = "' is a list/dict";
+        int at = note.IndexOf(marker, StringComparison.Ordinal);
+        if (at < 0) return EvalKind.NoField;
+        int open = at > 0 ? note.LastIndexOf('\'', at - 1) : -1;
+        _lastListHopOwner = open >= 0 ? note[(open + 1)..at] : null;
+        return EvalKind.ListHop;
+    }
 
     /// <summary>Evaluate one predicate's own (non-link) side against one record. Shared by the top-level test and
     /// the link step's per-target test — so 'Perks-&gt;editorid' and a plain 'editorid' term can't drift. Sets
@@ -600,7 +623,7 @@ public sealed class FieldPredicateSet
             // "unset" (that would assert a valid empty field where the truth is a read fault); anything else
             // (absent / null link / unresolved string) = a genuinely-unset valid field.
             var note = leaf.Note ?? "";
-            if (note.StartsWith("(no field", StringComparison.Ordinal)) return (false, EvalKind.NoField);
+            if (note.StartsWith("(no field", StringComparison.Ordinal)) return (false, ClassifyNoField(note));
             if (note.StartsWith("(unreadable", StringComparison.Ordinal)) return (false, EvalKind.Unreadable);
             if (note.Length > 0 && note[0] == '[') return (false, EvalKind.Container);
             return (false, EvalKind.Unset);
@@ -640,14 +663,14 @@ public sealed class FieldPredicateSet
         if (links is null)
         {
             var n = note ?? "";
-            if (n.StartsWith("(no field", StringComparison.Ordinal)) return (false, EvalKind.NoField);
+            if (n.StartsWith("(no field", StringComparison.Ordinal)) return (false, ClassifyNoField(n));
             if (n.StartsWith("(unreadable", StringComparison.Ordinal)) return (false, EvalKind.Unreadable);
             if (n.StartsWith("(no links", StringComparison.Ordinal)) return (false, EvalKind.NoField);   // not a link-bearing path — a wrong path for this step
             return (false, EvalKind.Unset);                                                              // absent optional — no links to follow
         }
         if (links.Count == 0) return (false, EvalKind.Unset);   // present but empty — genuinely nothing linked
 
-        bool anyVerdict = false, anyNoField = false;
+        bool anyVerdict = false, anyNoField = false, anyListHop = false;
         foreach (var fk in links)
         {
             if (!_targetCache.TryGetValue(fk, out var target))
@@ -660,10 +683,10 @@ public sealed class FieldPredicateSet
                 anyVerdict = true;
                 if (sat) return (true, EvalKind.Definite);
             }
-            else if (kind == EvalKind.NoField) anyNoField = true;
+            else if (kind is EvalKind.NoField or EvalKind.ListHop) { anyNoField = true; anyListHop |= kind == EvalKind.ListHop; }
         }
         if (anyVerdict) return (false, EvalKind.Definite);
-        return (false, anyNoField ? EvalKind.NoField : EvalKind.Unreadable);
+        return (false, anyNoField ? (anyListHop ? EvalKind.ListHop : EvalKind.NoField) : EvalKind.Unreadable);
     }
 
     /// <summary>The three-state presence verdict for a leaf under <c>exists</c>/<c>missing</c>: a DEFINITE
@@ -822,7 +845,18 @@ public sealed class FieldPredicateSet
                 const string loud = "yielded no readable value on any of";
                 long unset = _noValue[k] - _noField[k] - _container[k] - _unreadable[k];   // what is left: genuinely-unset valid fields
                 string reason;
-                if (_noField[k] == _scanned)
+                if (_listHop[k] == _scanned)
+                {
+                    // The deeper, more specific path must not get the vaguer advice: this is a missing bracket, not
+                    // a mistyped name, and the schema is the wrong place to send the caller.
+                    var owner = _listHopOwner[k];
+                    reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — the path steps THROUGH " +
+                             (owner is not null ? $"'{owner}', which is a list/dict, " : "a list/dict ") +
+                             "with a dotted segment, which dead-ends. Index the element with BRACKETS (e.g. " +
+                             (owner is not null ? $"'{owner}[0]. …'" : "'Effects[0].Data.Magnitude'") +
+                             "); a wildcard over a list is not supported. For list->FormID membership use references=.";
+                }
+                else if (_noField[k] == _scanned)
                     reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — it is NOT A FIELD on these records " +
                              $"(a mistyped path, or a field that doesn't exist on this record type); check the field name against the record's schema.";
                 else if (_container[k] == _scanned)
