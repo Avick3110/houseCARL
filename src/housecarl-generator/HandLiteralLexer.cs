@@ -6,28 +6,26 @@ namespace HousecarlGenerator;
 /// READER B — a second, independent statement of "what string literals does this C# file contain", written from
 /// the language's lexical grammar rather than derived from <see cref="RoslynLiteralReader"/>.
 ///
-/// <para><b>Why a second reader exists at all.</b> <c>description-vocab-guard</c> claims its net is every shipped
-/// literal. Both earlier designs of that guard shipped a completeness ARM whose oracle came out of the same
-/// machinery it was certifying, and both were measured green over prose they could not see (#386, two §4
-/// class-stops). The rule that came out of it: a completeness claim needs a SECOND SPELLING. So this file exists
-/// to disagree with Roslyn — <c>INV6-AGREE</c> holds the two literal sets against each other per file, and a
-/// reader that stops early, mis-decodes an escape, or misses a literal inside an interpolation hole turns that arm
-/// red with the file named.</para>
+/// <para><b>Why a second reader exists.</b> <c>description-vocab-guard</c> claims its net is every shipped
+/// literal, and a completeness claim checked by the machinery it certifies proves nothing. So this file must be a
+/// SECOND SPELLING that can disagree with Roslyn: <c>INV6-AGREE</c> holds the two literal sets against each other
+/// per file, and a reader that stops early, mis-decodes an escape, or misses a literal inside an interpolation
+/// hole turns that arm red with the file named.</para>
 ///
-/// <para><b>What "independent" means here, precisely.</b> No code is shared with reader A beyond
+/// <para><b>What "independent" means here.</b> No code may be shared with reader A beyond
 /// <see cref="SourceLiteral"/>, which is a record — a data shape, carrying no opinion about what a literal is.
 /// This lexer is written against the C# lexical grammar directly: the four regular literal flavours (plain,
 /// verbatim <c>@</c>, interpolated <c>$</c>, and both together in either order), raw string literals of any quote
-/// count, the <c>u8</c> suffix, backslash escape decoding including the numeric forms, and — the shape the second
-/// design was class-stopped for — RECURSION INTO INTERPOLATION HOLES, so a literal in a ternary arm inside
-/// <c>$"…{c ? "a" : "b"}…"</c> is read at depth 1 rather than being invisible.</para>
+/// count, the <c>u8</c> suffix, backslash escape decoding including the numeric forms, and RECURSION INTO
+/// INTERPOLATION HOLES, so a literal in a ternary arm inside <c>$"…{c ? "a" : "b"}…"</c> is read at depth 1
+/// rather than being invisible.</para>
 ///
 /// <para><b>Escape decoding is a correctness surface, not a detail.</b> <c>—</c> is how an em dash reaches a
 /// tool description, and a reader that decoded it as the letter <c>u</c> would hold a different string from the
-/// one the compiler builds. <c>\uD83D</c> is a LONE SURROGATE, which C# permits in a string literal — the second
-/// design fed it to <c>char.ConvertFromUtf32</c>, which throws, and the throw collapsed all 38 arms of the guard
-/// while naming no file. <c>\u</c> and <c>\x</c> therefore produce one UTF-16 code unit each, exactly as the
-/// compiler does; only <c>\U</c> composes a surrogate pair.</para>
+/// one the compiler builds. <c>\uD83D</c> is a LONE SURROGATE, which C# permits in a string literal, so handing
+/// it to <c>char.ConvertFromUtf32</c> throws and takes the whole run down naming no file. <c>\u</c> and
+/// <c>\x</c> therefore produce one UTF-16 code unit each, exactly as the compiler does; only <c>\U</c> composes
+/// a surrogate pair.</para>
 /// </summary>
 public static class HandLiteralLexer
 {
@@ -109,10 +107,6 @@ public static class HandLiteralLexer
         // A run of three or more quotes opens a RAW literal only when the literal is not VERBATIM. C# has no
         // @"""x""" form: that is a verbatim string whose first character is an escaped quote, and reading it as
         // raw either hands back the wrong text or runs off looking for a three-quote terminator that never comes.
-        // Measured, so the reason is not hypothetical: the scanned trees hold NO @""" today, but they do hold the
-        // raw and verbatim forms this has to tell apart, and SkseConfigReferenceExtractor.cs is IN one of them
-        // (src/housecarl-core) rather than near one. The generator tree - deliberately not scanned - is full of
-        // the shape, which is where a reader that got this wrong would first be noticed and then not be caught.
         var (text, end) = quoteRun >= 3 && !verbatim
             ? LexRaw(src, quote, quoteRun, to, dollars, depth, outp, holeEnds)
             : LexRegular(src, quote, to, dollars > 0, verbatim, depth, outp, holeEnds);
@@ -145,7 +139,7 @@ public static class HandLiteralLexer
                 if (c == '\\') { j = Unescape(src, j, to, sb); continue; }
                 if (c == '"') { j++; break; }
                 // An unterminated literal is a compile error the parse arm reports; stop at the line end rather
-                // than consuming the rest of the file, which is how the previous design lost whole files.
+                // than consuming the rest of the file, which would silently lose every literal after it.
                 if (c == '\n') { j++; break; }
             }
             if (interpolated && c == '{')
@@ -169,8 +163,7 @@ public static class HandLiteralLexer
     /// <para>A run LONGER than the opener count is a brace of content followed by the opener, not a wider opener:
     /// the extra braces are emitted as text and only the last <paramref name="dollars"/> of the run start the
     /// hole. Taking the whole run as the opener drops those characters, and because a brace is not a letter the
-    /// loss is invisible to the phrase check — it surfaces only as an INV6-AGREE disagreement, which is exactly
-    /// how it was found.</para></summary>
+    /// loss is invisible to the phrase check — it surfaces only as an INV6-AGREE disagreement.</para></summary>
     static (string Text, int End) LexRaw(string src, int quote, int quoteRun, int to, int dollars, int depth, List<SourceLiteral> outp, Dictionary<(int From, int To), int> holeEnds)
     {
         int j = quote + quoteRun, close = -1;
@@ -213,10 +206,9 @@ public static class HandLiteralLexer
     /// is why an indented raw fixture holds the string its author meant rather than the source's indentation. A
     /// single-line raw literal has no such rule and is taken as written.
     /// <para>The line TERMINATORS the source used are kept, not normalized — the compiler keeps them, so a reader
-    /// that normalized would hold a different string from the one the program prints, and the two readers would
-    /// disagree about every multi-line raw literal in a CRLF checkout. That matters here specifically: this repo
-    /// is developed on Windows with git's CRLF conversion on, so the same committed file is LF in one working tree
-    /// and CRLF in another. Which is why the terminators are captured and replayed rather than assumed to be
+    /// that normalized would hold a different string from the one the program prints. This repo is developed on
+    /// Windows with git's CRLF conversion on, so the same committed file is LF in one working tree and CRLF in
+    /// another; the terminators are therefore captured and replayed rather than assumed to be
     /// <c>\n</c>.</para></summary>
     static string StripRawIndent(string content)
     {
@@ -242,11 +234,9 @@ public static class HandLiteralLexer
     /// inside a nested literal does not end the hole early.
     /// <para><b>Memoized per file, and that is not an optimization — it is what makes the reader terminate.</b>
     /// Finding a hole's end LEXES everything inside it (into a sink, for skipping); the caller then hands the same
-    /// span to <see cref="Scan"/>, which lexes it again to emit. Every nesting level therefore did its subtree's
-    /// work twice, so cost was 2ⁿ in nesting depth: measured on this branch, a legal 296-byte file nested 28 deep
-    /// took the whole guard from 1.8s to 21.1s, and each further level doubles it. Nothing bounded the depth and
-    /// nothing timed out, so a file a few characters longer was an unkillable CI job rather than a failure anyone
-    /// could read.</para>
+    /// span to <see cref="Scan"/>, which lexes it again to emit. Without the cache every nesting level does its
+    /// subtree's work twice, so cost is exponential in nesting depth, and nothing bounds the depth or times out —
+    /// a legal file nested a few levels deeper is then an unkillable job rather than a readable failure.</para>
     /// <para>Keyed on <c>(from, to)</c> because the bound varies between callers, and it is a plain dictionary
     /// created in <see cref="Read"/> and threaded down rather than a static: a cache keyed by source INDEX is only
     /// valid for the one string it was built for, and a static one would silently answer for the wrong file. With
@@ -323,9 +313,9 @@ public static class HandLiteralLexer
         {
             'n' => '\n', 't' => '\t', 'r' => '\r', '0' => '\0',
             'a' => '\a', 'b' => '\b', 'f' => '\f', 'v' => '\v',
-            // \e is C# 13's ESCAPE (U+001B). Reader A parses at LanguageVersion.Preview and decodes it; without
-            // this arm reader B fell through to the identity case below and appended a letter 'e', so an ANSI
-            // colour sequence in console prose would make the two disagree about text neither had lost.
+            // \e is C# 13's ESCAPE (U+001B). Reader A parses at LanguageVersion.Preview and decodes it, so without
+            // this arm reader B falls through to the identity case below, appends a letter 'e', and the two
+            // disagree over any ANSI colour sequence in console prose.
             'e' => '\u001b',
             _ => next,
         });

@@ -5,15 +5,14 @@ namespace HousecarlGenerator;
 
 /// <summary>
 /// Emits vanilla-class-parents.json — the decompiler's baseline child→parent class map, generated
-/// BY CONSTRUCTION from the vanilla Papyrus sources' own `ScriptName X extends Y` headers (the
-/// header scrape the PEX bulk gate proved at 25,919-edge scale). The asset ships beside the exe
-/// (csproj Content item) because it CANNOT be regenerated on a fresh checkout: vanilla sources
-/// install with the Creation Kit, not the game, and not on CI. Regenerate manually on a game
-/// update; the output is sorted so regeneration diffs are stable.
+/// from the vanilla Papyrus sources' own `ScriptName X extends Y` headers. The asset ships beside
+/// the exe (csproj Content item) because it CANNOT be regenerated on a fresh checkout: vanilla
+/// sources install with the Creation Kit, not the game, and not on CI. Regenerate manually on a
+/// game update; the output is sorted so regeneration diffs are stable.
 ///
 /// Why it exists: implicit-UPCAST suppression in <see cref="HousecarlCore.PapyrusDecompiler"/>
 /// needs ancestor chains, and the load-bearing ones are vanilla's (Actor → ObjectReference →
-/// Form). Without the map output stays CORRECT but keeps explicit casts (gate-tier cosmetic).
+/// Form). Without the map, output stays CORRECT but keeps explicit casts.
 ///
 /// Run: dotnet run --project src/housecarl-generator class-parents "&lt;vanilla Source\Scripts&gt;" &lt;out.json&gt;
 /// </summary>
