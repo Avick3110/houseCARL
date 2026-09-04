@@ -9,28 +9,22 @@ using Mutagen.Bethesda.Skyrim;
 namespace HousecarlCore;
 
 /// <summary>
-/// The PUBLIC write cleave (MCP §8.4 Beat C) — the one <c>(edits) → (patch)</c> method both the MCP server
-/// (<c>housecarl_set_field</c> / <c>housecarl_bulk_apply</c>) and the <c>apply-proof</c> harness call, so the
-/// harness proof transfers to the server BY CONSTRUCTION (the same code path). It factors the proven embryo
-/// (<see cref="WriteEngine.RunPatch"/> + <see cref="MultiMasterProof"/>) into a clean reusable surface:
+/// The one <c>(edits) → (patch)</c> surface the MCP server's write tools go through:
 ///
 ///   resolve each edit's WINNER across the load order → derive its RecordType from the runtime record →
-///   pre-flight EVERY edit through <see cref="CorpusRulebook"/> (refuse the WHOLE call if ANY rejects — Q3, no
+///   pre-flight EVERY edit through <see cref="CorpusRulebook"/> (refuse the WHOLE call if ANY rejects — no
 ///   partial patches) → override each winner into ONE patch mod (<see cref="WriteEngine.GenericGetOrAddAsOverride"/>)
 ///   → <see cref="WriteEngine.ApplyVerb"/> each → serialize ONCE with the FULL known-master set
-///   (<see cref="WriteEngine.WritePatch(SkyrimMod,System.Collections.Generic.IReadOnlyList{ISkyrimModGetter},string)"/>,
-///   the proven multi-master path) → re-open and report masters.
+///   (<see cref="WriteEngine.WritePatch(SkyrimMod,System.Collections.Generic.IReadOnlyList{ISkyrimModGetter},string)"/>)
+///   → re-open and report masters.
 ///
-/// OUTPUT MODEL (Aaron-locked 2026-06-01): <b>Option 1 — one complete .esp per call</b>. A fresh patch by default;
-/// <see cref="Apply"/> with <c>extend:true</c> opens an EXISTING patch and adds to it — the <c>into=</c> capability
-/// Aaron required for multi-session large-patch building via handoffs. Extend is file-based: the disk <c>.esp</c> IS
-/// the accumulating state, so it survives a server restart / a session boundary with NO server-held state (the locked
-/// <c>Stateless</c> transport stays clean). (Option 2, a server-held accumulating session patch, is a deferred 1.x item.)
+/// OUTPUT MODEL: one complete .esp per call. A fresh patch by default; <see cref="Apply"/> with <c>extend:true</c>
+/// opens an EXISTING patch and adds to it. Extend is file-based — the disk <c>.esp</c> IS the accumulating state, so
+/// a multi-session build survives a server restart with NO server-held state.
 ///
-/// ORIGINALS UNTOUCHED is structural (CLAUDE.md §1): this only ever WRITES <paramref name="outPath"/> (sandboxed to the
-/// server's OutputDir by the caller); every original is opened read-only as a lazy overlay by the resolver and never
-/// written. Cross-master is CLOSED — a patch referencing forms across several plugins serializes with a lean
-/// only-referenced master header (proven + xEdit-confirmed 2026-06-01).
+/// ORIGINALS UNTOUCHED is structural: this only ever WRITES <paramref name="outPath"/> (sandboxed to the server's
+/// OutputDir by the caller); every original is opened read-only as a lazy overlay by the resolver and never written.
+/// A patch referencing forms across several plugins serializes with a lean only-referenced master header.
 /// </summary>
 public static class WritePatchBuilder
 {
@@ -48,66 +42,64 @@ public static class WritePatchBuilder
         public string[]? Values { get; init; }
         public Dictionary<string, string>? Entries { get; init; }
         public StructSpec? Struct { get; init; }
-        public IReadOnlyList<StructSpec>? Structs { get; init; } // P8a batch struct-list ops (composes=): Add appends each, ReplaceAll clears+appends each.
-        public string? FromPlugin { get; init; } // P8b verb=CopyFrom: the plugin whose version of the SOURCE record to deep-copy the field FROM (active, or off-order on disk).
+        public IReadOnlyList<StructSpec>? Structs { get; init; } // batch struct-list ops (composes=): Add appends each, ReplaceAll clears+appends each.
+        public string? FromPlugin { get; init; } // verb=CopyFrom: the plugin whose version of the SOURCE record to deep-copy the field FROM (active, or off-order on disk).
 
-        /// <summary>SPEC §4.5 (the <c>assignments=</c> zip) — the SOURCE RECORD a CopyFrom reads, when it is a
-        /// DIFFERENT record from <see cref="Target"/> (cross-record copy: "give this weapon that weapon's Keywords").
-        /// Null ⇒ same-FormKey copy, the P8b behaviour: <see cref="FromPlugin"/>'s version of <see cref="Target"/>
-        /// itself. The pair passes the same-runtime-record-type gate at pre-flight (§4.5: "legality does not
-        /// shrink") — a cross-TYPE pair is refused by name, never coerced.</summary>
+        /// <summary>The SOURCE RECORD a CopyFrom reads, when it is a DIFFERENT record from <see cref="Target"/>
+        /// (cross-record copy: "give this weapon that weapon's Keywords"). Null ⇒ same-FormKey copy:
+        /// <see cref="FromPlugin"/>'s version of <see cref="Target"/> itself. The pair passes a
+        /// same-runtime-record-type gate at pre-flight — a cross-TYPE pair is refused by name, never coerced.</summary>
         public FormKey? FromTarget { get; init; }
 
-        /// <summary>The record a CopyFrom actually READS — the §4.5 zip's source record when one is named, else the
-        /// target itself. One accessor so every source-resolution site (pre-flight, the off-order pre-locate, the
-        /// in-place lane) can never disagree about which FormKey the copy reads.</summary>
+        /// <summary>The record a CopyFrom actually READS — the named source record, else the target itself. One
+        /// accessor so every source-resolution site (pre-flight, the off-order pre-locate, the in-place lane) can
+        /// never disagree about which FormKey the copy reads.</summary>
         public FormKey CopySource => FromTarget ?? Target;
     }
 
     /// <summary>Per-edit result. On a successful call every op has <see cref="Applied"/>=true (all-or-nothing);
     /// <see cref="After"/> is a best-effort read-back of the edited leaf (xEdit remains the authority).
-    /// <see cref="Landed"/> is the compact "what landed" descriptor the in-place verify renders by default
-    /// (HCBR-2026-06-28-01) — the new scalar value, or the touched list element + new count; null when not derivable.
+    /// <see cref="Landed"/> is the compact "what landed" descriptor the in-place verify renders by default — the new
+    /// scalar value, or the touched list element + new count; null when not derivable.
     /// <para><see cref="After"/> and <see cref="Landed"/> are read from the IN-MEMORY record, during apply and BEFORE
-    /// the serialize. That is not a defect — they are what the edit did — but it is the whole of #308: the in-place
-    /// verify rendered them under a banner claiming every line was re-read off the written file, so a composed struct
-    /// that exists in memory and serializes to NOTHING was reported as landed. <see cref="LandedOnDisk"/> below is
-    /// the file's own answer, and the render says which of the two a clause came from.</para></summary>
+    /// the serialize — so a composed struct that exists in memory and serializes to NOTHING still shows here.
+    /// <see cref="LandedOnDisk"/> below is the file's own answer, and the render must say which of the two a clause
+    /// came from.</para></summary>
     public sealed record OpResult(FormKey Target, string RecordType, string Label, bool Applied, string? Error, string? After, string? Landed = null)
     {
-        /// <summary>#308 — the same descriptor as <see cref="Landed"/>, re-derived from the record as it was RE-READ
-        /// off the written file (same code path, different universe). This is the one a file-authoritative render may
-        /// print. Null when the file could not answer for this op — the re-opened file did not yield the record, the
-        /// walk failed, or the lane never wrote one (a dry run) — and a renderer must then say the clause is the
-        /// applied edit's claim rather than the file's content, never silently substitute one for the other.</summary>
+        /// <summary>The same descriptor as <see cref="Landed"/>, re-derived from the record as it was RE-READ off the
+        /// written file. This is the one a file-authoritative render may print. Null when the file could not answer
+        /// for this op — the re-opened file did not yield the record, the walk failed, or the lane never wrote one (a
+        /// dry run) — and a renderer must then say the clause is the applied edit's claim rather than the file's
+        /// content, never silently substitute one for the other.</summary>
         public string? LandedOnDisk { get; init; }
 
 
-        /// <summary>#308 — a LATER op in the same call wrote into this op's leaf, so the written file cannot answer
-        /// for this one: <see cref="After"/>/<see cref="Landed"/> were read the instant it applied, and the file holds
-        /// the state after every op. Not a problem with the op — it applied, and the later op's own verified clause
-        /// covers the leaf's final state — but the two are not comparable, and comparing them reported a correct
-        /// multi-op write (two Adds to one list; a value set then corrected) as NOT landed.</summary>
+        /// <summary>A LATER op in the same call wrote into this op's leaf, so the written file cannot answer for this
+        /// one: <see cref="After"/>/<see cref="Landed"/> were read the instant it applied, and the file holds the
+        /// state after every op. Not a problem with the op — the later op's own verified clause covers the leaf's
+        /// final state — but the two are not comparable, and comparing them reports a correct multi-op write (two
+        /// Adds to one list; a value set then corrected) as NOT landed.</summary>
         public bool SupersededInCall { get; init; }
 
-        /// <summary>#308 — the file-verify actually examined this op. False means it was never asked: a lane that runs
-        /// no verify (patch, dry run), or an op APPENDED after the resolved edits (the SNAM topic-marker sync), which
-        /// has no request to re-read. Without it a renderer has to infer the state from the lane and gets it wrong in
-        /// both directions — an in-place dry run claiming a file was re-opened and could not answer (review), and a
-        /// synced marker reported as unanswered rather than unchecked.</summary>
+        /// <summary>The file-verify actually examined this op. False means it was never asked: a lane that runs no
+        /// verify (patch, dry run), or an op APPENDED after the resolved edits (the SNAM topic-marker sync), which has
+        /// no request to re-read. Without it a renderer has to infer the state from the lane and gets it wrong in both
+        /// directions — an in-place dry run claiming a file was re-opened and could not answer, and a synced marker
+        /// reported as unanswered rather than unchecked.</summary>
         public bool VerifyAttempted { get; init; }
 
     }
 
-    /// <summary>One record read back IN FULL from the WRITTEN patch file (opt-in — the pre-enable verify loop,
-    /// wishlist #3 re-scoped / HCBR-2026-06-11-02 wave (b)): every modeled field, deep, read off the re-opened
-    /// on-disk file — the same bytes MO2 will load — so the caller can confirm the WHOLE record (untouched fields
-    /// included) landed intact without enabling the patch. <see cref="Error"/> names a record the re-opened file
-    /// failed to yield (a real inconsistency, Q3) — never silently absent.</summary>
+    /// <summary>One record read back IN FULL from the WRITTEN patch file (opt-in — the pre-enable verify loop): every
+    /// modeled field, deep, read off the re-opened on-disk file — the same bytes MO2 will load — so the caller can
+    /// confirm the WHOLE record (untouched fields included) landed intact without enabling the patch.
+    /// <see cref="Error"/> names a record the re-opened file failed to yield (a real inconsistency) — never silently
+    /// absent.</summary>
     public sealed record FullReadback(FormKey Target, RecordFields? Record, string? Error);
 
     /// <summary>The call outcome. <see cref="Error"/> non-null ⇒ the whole call was refused (no patch written) with a
-    /// named, recoverable reason (Q3). Otherwise the patch at <see cref="OutputPath"/> carries every op; <see cref="Masters"/>
+    /// named, recoverable reason. Otherwise the patch at <see cref="OutputPath"/> carries every op; <see cref="Masters"/>
     /// is its (lean, only-referenced) master header; <see cref="Extended"/> says whether an existing patch was grown;
     /// <see cref="ReadBack"/> is the opt-in full read-back of every record this call touched (null unless requested).</summary>
     public sealed record PatchOutcome(
@@ -116,18 +108,17 @@ public static class WritePatchBuilder
     {
         public IReadOnlyList<FullReadback>? ReadBack { get; init; }
 
-        /// <summary>SPEC §2.1.1 — the fingerprint of the index build THIS OUTCOME was decided from (winners, master
-        /// membership, the in-place target's own body). Stamped on EVERY outcome decided after a capture: success,
-        /// refusal, dry run, and the consent prompt alike. Null only for the refusals taken BEFORE any build was
-        /// consulted (a malformed op, an unopenable patch file) — they read no index, so they claim no build.
-        /// Why a WRITE carries one: the readback proves what landed in the FILE, not what wins in the ORDER, and the
-        /// epoch is what lets a caller tell whether the winner it edited is the winner it read a moment earlier.
-        /// <para>HONESTY BOUND (round-4 review): a few call shapes consult more than one capture — an off-order
-        /// CopyFrom pre-locate takes its own, and the in-place lane captures once in the service to resolve the
-        /// target and again in the core. The field names the build the reported outcome came from, NOT a claim that
-        /// exactly one capture occurred. They can only differ if the load order changed mid-call (mtime freshness),
-        /// which would show as an epoch that does not match a read taken either side of it — detectable, which is
-        /// the point, rather than papered over.</para></summary>
+        /// <summary>The fingerprint of the index build THIS OUTCOME was decided from (winners, master membership, the
+        /// in-place target's own body). Stamped on EVERY outcome decided after a capture: success, refusal, dry run,
+        /// and the consent prompt alike. Null only for the refusals taken BEFORE any build was consulted (a malformed
+        /// op, an unopenable patch file) — they read no index, so they claim no build. Why a WRITE carries one: the
+        /// readback proves what landed in the FILE, not what wins in the ORDER, and the epoch is what lets a caller
+        /// tell whether the winner it edited is the winner it read a moment earlier.
+        /// <para>BOUND: a few call shapes consult more than one capture — an off-order CopyFrom pre-locate takes its
+        /// own, and the in-place lane captures once in the service to resolve the target and again in the core. The
+        /// field names the build the reported outcome came from, NOT a claim that exactly one capture occurred. They
+        /// can only differ if the load order changed mid-call (mtime freshness), which shows as an epoch that does not
+        /// match a read taken either side of it — detectable rather than papered over.</para></summary>
         public string? Epoch { get; init; }
 
         /// <summary>True ⇒ this outcome came from the IN-PLACE lane (<see cref="Apply"/>'s sibling
@@ -138,15 +129,15 @@ public static class WritePatchBuilder
         /// <summary>True ⇒ NOT a write and NOT an error: the server-enforced first-touch in-place CONSENT handshake. The
         /// in-place lane refused to write this plugin until the user acknowledges the trade-off; <see cref="Error"/>
         /// carries the prompt verbatim (re-call with acknowledge=true). Rendered as a confirmation prompt, never "error:"
-        /// (Q3 — a required confirmation is not a failure). Nothing was written; the original is untouched.</summary>
+        /// (a required confirmation is not a failure). Nothing was written; the original is untouched.</summary>
         public bool NeedsAcknowledge { get; init; }
 
-        /// <summary>An optional Q3 honesty note appended to a SUCCESSFUL outcome — a side effect that didn't land cleanly
+        /// <summary>An optional honesty note appended to a SUCCESSFUL outcome — a side effect that didn't land cleanly
         /// even though the write did (e.g. the in-place acknowledgement couldn't be persisted, or the editedInPlace audit
         /// marker couldn't be written). Null when there's nothing to add.</summary>
         public string? Note { get; init; }
 
-        /// <summary>True ⇒ this Success came from a DRY RUN (#225): the REAL pipeline ran — winner resolve, pre-flight,
+        /// <summary>True ⇒ this Success came from a DRY RUN: the REAL pipeline ran — winner resolve, pre-flight,
         /// every verb applied to the in-memory mod, the reference-resolution check — and STOPPED at the point of no
         /// return (the Phase-4 serialize), so NOTHING was written (no file, no folder). <see cref="Ops"/> carries what
         /// WOULD change; <see cref="Masters"/> is the EXPECTED master set (link-derived preview — the real write derives
@@ -169,18 +160,18 @@ public static class WritePatchBuilder
     public sealed record RemovedRecord(FormKey Target, string RecordType, string? EditorId);
 
     /// <summary>The outcome of a <see cref="RemoveRecords"/> call. <see cref="Error"/> non-null ⇒ the whole call was
-    /// refused (no file written) with a named, recoverable reason (Q3 — e.g. a target the patch doesn't carry).
+    /// refused (no file written) with a named, recoverable reason (e.g. a target the patch doesn't carry).
     /// Otherwise <see cref="Removed"/> lists every dropped record; <see cref="Masters"/> is the patch's now-lean header
     /// (a master orphaned by the removal is gone); <see cref="RemainingRecords"/>=0 means the patch is now inert.</summary>
     public sealed record RemovalOutcome(
         bool Success, string? Error, string OutputPath,
         IReadOnlyList<RemovedRecord> Removed, IReadOnlyList<string> Masters, int RemainingRecords, long Bytes)
     {
-        /// <summary>SPEC §2.1.1 — the fingerprint of the index build THIS OUTCOME was decided from, on the same
-        /// contract as <see cref="PatchOutcome.Epoch"/> (stamped on success, refusal, and the consent prompt alike;
-        /// null only for a refusal taken before any build was consulted). A removal reads the index for the
-        /// re-serialize's master context, and its report's "re-sort if dropping this override changed a winner"
-        /// advice is only meaningful against a named build — which is exactly what this names.</summary>
+        /// <summary>The fingerprint of the index build THIS OUTCOME was decided from, on the same contract as
+        /// <see cref="PatchOutcome.Epoch"/> (stamped on success, refusal, and the consent prompt alike; null only for
+        /// a refusal taken before any build was consulted). A removal reads the index for the re-serialize's master
+        /// context, and its report's "re-sort if dropping this override changed a winner" advice is only meaningful
+        /// against a named build.</summary>
         public string? Epoch { get; init; }
 
         /// <summary>True ⇒ this outcome came from the IN-PLACE remove lane (<see cref="RemoveRecords"/>'s sibling
@@ -192,10 +183,10 @@ public static class WritePatchBuilder
         /// <summary>True ⇒ NOT a write and NOT an error: the server-enforced first-touch in-place CONSENT handshake. The
         /// in-place lane refused to write this plugin until the user acknowledges the trade-off; <see cref="Error"/>
         /// carries the prompt verbatim (re-call with acknowledge=true). Rendered as a confirmation prompt, never "error:"
-        /// (Q3 — a required confirmation is not a failure). Nothing was written; the original is untouched.</summary>
+        /// (a required confirmation is not a failure). Nothing was written; the original is untouched.</summary>
         public bool NeedsAcknowledge { get; init; }
 
-        /// <summary>An optional Q3 honesty note appended to a SUCCESSFUL outcome — a side effect that didn't land cleanly
+        /// <summary>An optional honesty note appended to a SUCCESSFUL outcome — a side effect that didn't land cleanly
         /// even though the removal did (e.g. the in-place acknowledgement couldn't be persisted, or the editedInPlace
         /// audit marker couldn't be written). Null when there's nothing to add.</summary>
         public string? Note { get; init; }
@@ -220,24 +211,23 @@ public static class WritePatchBuilder
         public required string EditorId { get; init; }
         public required IReadOnlyList<WriteRequest> Edits { get; init; }
 
-        /// <summary>Optional — the PARENT this record nests UNDER (nested-create, Layer A). Either an EXISTING parent's
-        /// FormKey (<c>XXXXXX:Plugin.esp</c> — add a line to an existing topic, a ref to an existing cell) OR the
+        /// <summary>Optional — the PARENT this record nests UNDER. Either an EXISTING parent's FormKey
+        /// (<c>XXXXXX:Plugin.esp</c> — add a line to an existing topic, a ref to an existing cell) OR the
         /// <see cref="EditorId"/> of a record created EARLIER in this same call (the one-shot "topic + its lines" unit).
         /// A FormKey is recognised by parsing; anything else is a same-call sibling EditorId. Null ⇒ a flat top-level
-        /// record (the existing create path, unchanged).</summary>
+        /// record.</summary>
         public string? ParentRef { get; init; }
 
-        /// <summary>Optional — which of the parent's child-collections to add into, BY NAME (the outcome-(ii)
-        /// discriminator, e.g. a Cell's <c>Persistent</c>/<c>Temporary</c>). Null ⇒ the unique collection that accepts
-        /// this child type (outcome (i), e.g. a DialogTopic's one <c>Responses</c> list). Ignored when
-        /// <see cref="ParentRef"/> is null.</summary>
+        /// <summary>Optional — which of the parent's child-collections to add into, BY NAME (e.g. a Cell's
+        /// <c>Persistent</c>/<c>Temporary</c>). Null ⇒ the unique collection that accepts this child type (e.g. a
+        /// DialogTopic's one <c>Responses</c> list). Ignored when <see cref="ParentRef"/> is null.</summary>
         public string? IntoCollection { get; init; }
 
-        /// <summary>Optional — the exterior-cell GRID as "X,Y" (the coordinate-keyed §4-(b) create path). Set on a
-        /// <c>Cell</c> create, it places the new cell into a Worldspace's block tree by block=floor(grid/32),
-        /// subblock=floor(grid/8) (STEP-0 proven vs 4000 vanilla cells); <see cref="ParentRef"/> must then resolve to a
-        /// Worldspace. A <c>Cell</c> create with NO <see cref="Grid"/> and NO <see cref="ParentRef"/> ⇒ an INTERIOR cell
-        /// (self-files into the top-level Cells group by its own FormID). Ignored for non-Cell types.</summary>
+        /// <summary>Optional — the exterior-cell GRID as "X,Y". Set on a <c>Cell</c> create, it places the new cell
+        /// into a Worldspace's block tree by block=floor(grid/32), subblock=floor(grid/8);
+        /// <see cref="ParentRef"/> must then resolve to a Worldspace. A <c>Cell</c> create with NO
+        /// <see cref="Grid"/> and NO <see cref="ParentRef"/> ⇒ an INTERIOR cell (self-files into the top-level Cells
+        /// group by its own FormID). Ignored for non-Cell types.</summary>
         public string? Grid { get; init; }
     }
 
@@ -245,31 +235,30 @@ public static class WritePatchBuilder
     /// caller can't predict it; it's the local 0x800+ id), its type + editorid, and the per-field op results.
     /// <see cref="ReplacedExisting"/> = this create REPLACED a record the patch already defined with the same
     /// editorid (an into= re-run): same FormKey, prior contents — including any set_field edits made since the
-    /// original create — discarded and rebuilt from this call's spec. MUST be surfaced to the user (Q3 — a replace
-    /// is never silent).</summary>
+    /// original create — discarded and rebuilt from this call's spec. MUST be surfaced to the user — a replace is
+    /// never silent.</summary>
     public sealed record CreatedRecord(FormKey FormKey, string RecordType, string EditorId, IReadOnlyList<OpResult> Ops,
         bool ReplacedExisting = false)
     {
-        /// <summary>#300 — for a NESTED create: which record hosts this child in the artifact, and WHOSE version of
-        /// it was copied in (when one was). Null for a flat create and for a same-call sibling parent — there the
-        /// host is this call's own new record and nothing was chosen. A parent the destination ALREADY carried says
-        /// so rather than reporting null, since "nothing was copied" is itself the fact worth stating.
+        /// <summary>For a NESTED create: which record hosts this child in the artifact, and WHOSE version of it was
+        /// copied in (when one was). Null for a flat create and for a same-call sibling parent — there the host is
+        /// this call's own new record and nothing was chosen. A parent the destination ALREADY carried says so
+        /// rather than reporting null, since "nothing was copied" is itself the fact worth stating.
         /// <para>Reported because the choice is invisible afterwards and it is not the obvious one: the host is the
         /// parent's DEFINING plugin's version, deliberately not the load-order winner's — see the parent-resolution
         /// comment in <see cref="CreateRecords"/>. When the definer cannot answer (an injected parent, an excluded
         /// plugin) the winner IS used, and this says so rather than letting the two cases look alike.</para></summary>
         public string? ParentHost { get; init; }
 
-        /// <summary>#300 — the parent this child was hosted in is CONTESTED: another plugin currently wins that
-        /// record, and this artifact will out-rank it wherever it sorts later. The renders hoist a warning for
-        /// exactly these, and they select on THIS, not by substring-matching <see cref="ParentHost"/>'s prose —
-        /// display text gets reworded, and a reword would have silently switched both hoists off with the guard
-        /// still green (review [low]; the same posture <c>IndexSnapshot.Unopenable</c> documents).</summary>
+        /// <summary>The parent this child was hosted in is CONTESTED: another plugin currently wins that record, and
+        /// this artifact will out-rank it wherever it sorts later. Renders that hoist a warning must select on THIS,
+        /// not by substring-matching <see cref="ParentHost"/>'s prose — display text gets reworded, and a reword would
+        /// silently switch the hoist off.</summary>
         public bool ParentContested { get; init; }
     }
 
     /// <summary>The outcome of a <see cref="CreateRecords"/> call. <see cref="Error"/> non-null ⇒ the whole call was
-    /// refused (no file written) with a named, recoverable reason (Q3 — missing editorid, an un-createable type, a rejected
+    /// refused (no file written) with a named, recoverable reason (missing editorid, an un-createable type, a rejected
     /// edit). Otherwise <see cref="Created"/> lists every new record with its allocated FormKey; <see cref="Masters"/> is
     /// the patch's (lean, derived) header; <see cref="Extended"/> says whether an existing patch was grown;
     /// <see cref="ReadBack"/> is the opt-in full read-back of every record this call created (null unless requested).</summary>
@@ -279,10 +268,9 @@ public static class WritePatchBuilder
     {
         public IReadOnlyList<FullReadback>? ReadBack { get; init; }
 
-        /// <summary>SPEC §2.1.1 — the fingerprint of the index build THIS OUTCOME was decided from, on the same
-        /// contract as <see cref="PatchOutcome.Epoch"/>. A create resolves parents, link VALUES and the master
-        /// context through the captured build, so the new record's wiring is only as current as the build named
-        /// here.</summary>
+        /// <summary>The fingerprint of the index build THIS OUTCOME was decided from, on the same contract as
+        /// <see cref="PatchOutcome.Epoch"/>. A create resolves parents, link VALUES and the master context through
+        /// the captured build, so the new record's wiring is only as current as the build named here.</summary>
         public string? Epoch { get; init; }
 
         /// <summary>True ⇒ this outcome came from the IN-PLACE create lane (<see cref="CreateRecords"/>'s sibling
@@ -294,31 +282,31 @@ public static class WritePatchBuilder
         /// <summary>True ⇒ NOT a write and NOT an error: the server-enforced first-touch in-place CONSENT handshake.
         /// The in-place create lane refused to write this plugin until the user acknowledges the trade-off;
         /// <see cref="Error"/> carries the prompt verbatim (re-call with acknowledge=true). Rendered as a confirmation
-        /// prompt, never "error:" (Q3). Nothing was written; the original is untouched. Mirrors
+        /// prompt, never "error:". Nothing was written; the original is untouched. Mirrors
         /// <see cref="PatchOutcome.NeedsAcknowledge"/>.</summary>
         public bool NeedsAcknowledge { get; init; }
 
-        /// <summary>An optional Q3 honesty note appended to a SUCCESSFUL outcome — a side effect that didn't land cleanly
+        /// <summary>An optional honesty note appended to a SUCCESSFUL outcome — a side effect that didn't land cleanly
         /// even though the write did (e.g. the in-place acknowledgement couldn't be persisted, or the editedInPlace audit
         /// marker couldn't be written). Null when there's nothing to add. Mirrors <see cref="PatchOutcome.Note"/>.</summary>
         public string? Note { get; init; }
 
-        /// <summary>The voice-coverage report for the INFOs this call created (Layer B unit B) — null unless the call
-        /// created ≥1 dialogue line. Filled by the SERVICE post-write (it owns the live AssetResolver), NOT by the core
-        /// create path: a `with { Voice = … }` enrich on the returned outcome, so <see cref="CreateRecords"/> stays a
-        /// pure record-write and the asset-layer dependency lives in the service. See <see cref="VoiceCheck"/>.</summary>
+        /// <summary>The voice-coverage report for the INFOs this call created — null unless the call created ≥1
+        /// dialogue line. Filled by the SERVICE post-write (it owns the live AssetResolver), NOT by the core create
+        /// path: a `with { Voice = … }` enrich on the returned outcome, so <see cref="CreateRecords"/> stays a pure
+        /// record-write and the asset-layer dependency lives in the service. See <see cref="VoiceCheck"/>.</summary>
         public VoiceReport? Voice { get; init; }
 
-        /// <summary>The result-script binding report for the INFOs this call created (Layer B unit C / per-create
-        /// structural check) — null unless the call created ≥1 scripted dialogue line. Filled by the SERVICE post-write
-        /// the SAME way as <see cref="Voice"/> (it owns the live AssetResolver), so <see cref="CreateRecords"/> stays a
-        /// pure record-write. See <see cref="DialogueScriptCheck"/>.</summary>
+        /// <summary>The result-script binding report for the INFOs this call created — null unless the call created ≥1
+        /// scripted dialogue line. Filled by the SERVICE post-write the SAME way as <see cref="Voice"/> (it owns the
+        /// live AssetResolver), so <see cref="CreateRecords"/> stays a pure record-write. See
+        /// <see cref="DialogueScriptCheck"/>.</summary>
         public ScriptBindingReport? ScriptBinding { get; init; }
 
-        /// <summary>The structural-shell report for the cells this call created (the coordinate-keyed §4-(b) teeth —
-        /// what world content the author must still provide; Aaron 2026-06-20: no CK work) — null unless the call created
-        /// ≥1 Cell. Filled by the SERVICE post-write the SAME way as <see cref="Voice"/>, so <see cref="CreateRecords"/>
-        /// stays a pure record-write. See <see cref="CellShellCheck"/>.</summary>
+        /// <summary>The structural-shell report for the cells this call created — what world content the author must
+        /// still provide — null unless the call created ≥1 Cell. Filled by the SERVICE post-write the SAME way as
+        /// <see cref="Voice"/>, so <see cref="CreateRecords"/> stays a pure record-write. See
+        /// <see cref="CellShellCheck"/>.</summary>
         public CellShellReport? CellShell { get; init; }
 
         public static CreateOutcome Fail(string error) =>
@@ -332,22 +320,21 @@ public static class WritePatchBuilder
             new(false, prompt, "", false, Array.Empty<CreatedRecord>(), Array.Empty<string>(), 0) { NeedsAcknowledge = true };
     }
 
-    /// <summary>How deep the full read-back reads each written record — the same rationale as the conflict diff's
-    /// depth: deep enough to reach every modeled scalar leaf (condition payloads included — the report's otherwise
-    /// unverifiable perk gate), bounded by the modeled-corpus boundary + ReadEngine's expansion cap, whose
-    /// truncation sentinel stays an explicit note (Q3).</summary>
+    /// <summary>How deep the full read-back reads each written record — the same depth as the conflict diff: deep
+    /// enough to reach every modeled scalar leaf (condition payloads included), bounded by the modeled-corpus
+    /// boundary + ReadEngine's expansion cap, whose truncation sentinel stays an explicit note.</summary>
     public const int FullReadbackDepth = 16;
 
-    /// <summary>The coordinate-keyed cell-create kind for a spec (the §4-(b) path): <see cref="None"/> = the flat or
-    /// FormKey-nested path (unchanged); <see cref="Exterior"/> = a Cell placed under a Worldspace by grid
-    /// (<c>block=floor(grid/32)</c>, <c>subblock=floor(grid/8)</c>); <see cref="Interior"/> = a parentless Cell self-filed
-    /// into the top-level Cells group by its own FormID digits. See <c>WriteEngine.AddExteriorCell</c>/<c>AddInteriorCell</c>.</summary>
+    /// <summary>The cell-create kind for a spec: <see cref="None"/> = the flat or FormKey-nested path;
+    /// <see cref="Exterior"/> = a Cell placed under a Worldspace by grid (<c>block=floor(grid/32)</c>,
+    /// <c>subblock=floor(grid/8)</c>); <see cref="Interior"/> = a parentless Cell self-filed into the top-level Cells
+    /// group by its own FormID digits. See <c>WriteEngine.AddExteriorCell</c>/<c>AddInteriorCell</c>.</summary>
     enum CellCreate { None, Exterior, Interior }
 
-    /// <summary>Is <paramref name="recordType"/> the <c>Cell</c> record type (case-insensitive — the system's catalog convention)?</summary>
+    /// <summary>Is <paramref name="recordType"/> the <c>Cell</c> record type (case-insensitive — the catalog convention)?</summary>
     static bool IsCellType(string recordType) => string.Equals(recordType, nameof(Cell), StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Parse an exterior-cell grid "X,Y" into two ints (whitespace-tolerant). False ⇒ malformed (the call refuses loud, Q3).</summary>
+    /// <summary>Parse an exterior-cell grid "X,Y" into two ints (whitespace-tolerant). False ⇒ malformed; the call refuses loud.</summary>
     static bool TryParseGrid(string? grid, out int x, out int y)
     {
         x = y = 0;
@@ -361,12 +348,12 @@ public static class WritePatchBuilder
     /// <summary>Build/extend a patch from <paramref name="edits"/> and serialize it to <paramref name="outPath"/>.
     /// <paramref name="extend"/>=false writes a fresh patch (the ModKey = the output filename); =true opens the existing
     /// patch at <paramref name="outPath"/> mutably and adds to it (the <c>into=</c> path). All-or-nothing: any
-    /// resolve/pre-flight rejection refuses the whole call with no file written (Q3). <paramref name="fullReadback"/>
+    /// resolve/pre-flight rejection refuses the whole call with no file written. <paramref name="fullReadback"/>
     /// additionally reads every touched record back IN FULL off the re-opened written file (the pre-enable verify
-    /// loop — see <see cref="FullReadback"/>). <paramref name="dryRun"/> (#225) runs this SAME pipeline — winner
-    /// resolve, pre-flight, every verb applied to the in-memory mod — and stops at the point of no return (the
-    /// Phase-4 serialize), returning what WOULD change with NOTHING written; it is the real path halted, never a
-    /// parallel validate-lite that could drift from the write it predicts.</summary>
+    /// loop — see <see cref="FullReadback"/>). <paramref name="dryRun"/> runs this SAME pipeline — winner resolve,
+    /// pre-flight, every verb applied to the in-memory mod — and stops at the point of no return (the Phase-4
+    /// serialize), returning what WOULD change with NOTHING written; it is the real path halted, never a parallel
+    /// validate-lite that could drift from the write it predicts.</summary>
     public static PatchOutcome Apply(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
         IReadOnlyList<PatchEdit> edits, string outPath, bool extend, bool fullReadback = false,
@@ -377,10 +364,10 @@ public static class WritePatchBuilder
         return epoch is null ? outcome : outcome with { Epoch = epoch };
     }
 
-    /// <summary>The body of <see cref="Apply"/>. Split only so the ONE captured build's fingerprint (SPEC §2.1.1)
-    /// stamps EVERY outcome — success, refusal, dry run, consent prompt — from a single place, instead of threading
-    /// it through the dozen return sites below. <paramref name="epoch"/> stays null for the refusals decided BEFORE
-    /// the capture (they consulted no build, so stamping them would claim evidence they never read).</summary>
+    /// <summary>The body of <see cref="Apply"/>. Split only so the ONE captured build's fingerprint stamps EVERY
+    /// outcome — success, refusal, dry run, consent prompt — from a single place, instead of threading it through the
+    /// dozen return sites below. <paramref name="epoch"/> stays null for the refusals decided BEFORE the capture
+    /// (they consulted no build, so stamping them would claim evidence they never read).</summary>
     static PatchOutcome ApplyCore(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
         IReadOnlyList<PatchEdit> edits, string outPath, bool extend, bool fullReadback,
@@ -388,14 +375,13 @@ public static class WritePatchBuilder
     {
         if (edits.Count == 0) return PatchOutcome.Fail("no edits supplied.");
 
-        // Per-call overlay session (Option B): every source plugin this write reads (winner bodies, the nested link
-        // cache, the known-master set) is opened THROUGH it and disposed when the method returns — no handle held at rest.
+        // Per-call overlay session: every source plugin this write reads (winner bodies, the nested link cache, the
+        // known-master set) is opened THROUGH it and disposed when the method returns — no handle held at rest.
         using var session = resolver.OpenSession();
 
-        // --- Phase 0: open (extend) or create the patch mod BEFORE resolving targets (HCBR-2026-07-10-01 F3, the
-        //     edit-lane twin of CreateRecords' Phase 0): an extend edit may target a record the PATCH ITSELF defines
-        //     (created by a prior into= call, not yet enabled in MO2), so the opened patch must be consultable by the
-        //     resolve loop. The serializer ties the output filename to the ModKey. ---
+        // --- Phase 0: open (extend) or create the patch mod BEFORE resolving targets: an extend edit may target a
+        //     record the PATCH ITSELF defines (created by a prior into= call, not yet enabled in MO2), so the opened
+        //     patch must be consultable by the resolve loop. The serializer ties the output filename to the ModKey. ---
         var fileName = Path.GetFileName(outPath);
         SkyrimMod patchMod;
         if (extend)
@@ -413,26 +399,23 @@ public static class WritePatchBuilder
             return PatchOutcome.Fail($"patch ModKey '{patchMod.ModKey.FileName}' must match output filename '{fileName}'.");
 
         // --- Phase 1: resolve winner + derive RecordType + pre-flight EVERY edit. Collect ALL problems (so the caller
-        //     sees every fix at once), then refuse the whole call if any (Q3 — never a silently-partial patch).
-        //     ONE captured view answers EVERY edit (2026-06-12 hunt F5): the per-edit single-shot resolves each took
-        //     a fresh capture, so a freshness rebuild landing mid-loop (a concurrent read's refresh) could resolve
-        //     two edits of ONE call against two different builds' winners — a silently MIXED patch
-        //     (freshness-capture-guard arm 4, RED pre-fix: 2 of 12 hammered multi-op writes mixed). The write is one
-        //     logical operation; it reads one build — the same HCBR-2026-06-11-02 discipline the read service follows.
+        //     sees every fix at once), then refuse the whole call if any — never a silently-partial patch.
+        //     ONE captured view answers EVERY edit: a per-edit fresh capture lets a freshness rebuild landing mid-loop
+        //     (a concurrent read's refresh) resolve two edits of ONE call against two different builds' winners — a
+        //     silently MIXED patch. The write is one logical operation; it reads one build.
         //     A target absent from the load order that the EXTENDED patch itself defines (a record a prior into= call
-        //     created, patch not yet enabled in MO2 — HCBR-2026-07-10-01 F3) resolves to the patch's OWN settable copy
-        //     (patchLocal; Phase 3 edits it directly, no override) — this consults ONLY the named output artifact of
-        //     the current authoring session, never an arbitrary un-enabled plugin, so the Q3 winner-confusion hazard
-        //     the declined read-un-enabled-plugins feature guards against doesn't arise. ---
+        //     created, patch not yet enabled in MO2) resolves to the patch's OWN settable copy (patchLocal; Phase 3
+        //     edits it directly, no override) — this consults ONLY the named output artifact of the current authoring
+        //     session, never an arbitrary un-enabled plugin, so no winner-confusion hazard arises. ---
         var view = resolver.Capture();
-        epoch = view.Epoch;                                               // SPEC §2.1.1 — stamped on every outcome from here down
+        epoch = view.Epoch;                                               // stamped on every outcome from here down
         var resolved = new List<(PatchEdit edit, IMajorRecordGetter? body, string? winnerPlugin, IMajorRecord? patchLocal, WriteRequest req, string label, IMajorRecordGetter? srcBody)>(edits.Count);
         var problems = new List<string>();
         // Records the extended patch DEFINES (FormKey in the patch's own master space — created by a prior into=
-        // call), built lazily ONCE on the first load-order miss (PR #166 review finding 3: not a per-miss deep walk).
+        // call), built lazily ONCE on the first load-order miss, not per miss.
         // Deliberately NOT every record the patch contains: an override the patch merely CARRIES resolves via the
         // load order like any other record, so a target whose defining plugin is disabled stays a loud refusal —
-        // never a silent edit of the patch's possibly-stale override copy (PR #166 review finding 2).
+        // never a silent edit of the patch's possibly-stale override copy.
         Dictionary<FormKey, IMajorRecord>? patchDefined = null;
         foreach (var e in edits)
         {
@@ -467,15 +450,14 @@ public static class WritePatchBuilder
                 }
             }
 
-            // P8b CopyFrom source: from_plugin's version of the SOURCE record (e.CopySource — e.Target for a same-record
-            // copy, the §4.5 zip's `from` record for a cross-record one) — an OFF-ORDER file the SERVICE pre-located
-            // (passed in copyFromSources), ELSE resolved from the ACTIVE order via this same captured view (the
-            // forward_record contract: in the order, defines/overrides the record, and not the output patch itself).
-            // Refused loud, all-or-nothing (Q3).
+            // CopyFrom source: from_plugin's version of the SOURCE record (e.CopySource — e.Target for a same-record
+            // copy, the named `from` record for a cross-record one) — an OFF-ORDER file the SERVICE pre-located
+            // (passed in copyFromSources), ELSE resolved from the ACTIVE order via this same captured view (in the
+            // order, defines/overrides the record, and not the output patch itself). Refused loud, all-or-nothing.
             IMajorRecordGetter? srcBody = null;
             if (string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal))
             {
-                // §4.5: with a source RECORD named, from_source is optional and DEFAULTS to that record's winner —
+                // With a source RECORD named, from_source is optional and DEFAULTS to that record's winner —
                 // resolved here, where the one captured view lives, so the default reads the same build every other
                 // decision in this call reads.
                 var srcPlugin = ResolveCopyPole(e, view, out var poleErr);
@@ -488,12 +470,11 @@ public static class WritePatchBuilder
                 else if (string.Equals(srcPlugin, fileName, StringComparison.OrdinalIgnoreCase))
                 { problems.Add($"{e.Target}: CopyFrom from_plugin '{srcPlugin}' is the output patch itself — name the OTHER plugin whose version to copy from."); continue; }
                 else if (!view.ContainsPlugin(srcPlugin))
-                // Deliberately NO AbsenceClause here (review of PR #274): the service pre-resolves every off-order
-                // CopyFrom source before Apply — a source that is merely unticked / in a disabled mod / shadowed is
-                // LOCATED and supplied via copyFromSources above, and one that cannot be located aborts the whole call
-                // earlier. So the only name reaching this arm has no on-disk copy at all, which is exactly the case the
-                // explainer cannot explain — it would pay a profile parse plus a whole-install sweep, per edit, to
-                // return the did-you-mean the message would have got anyway. The sentence already says what is known.
+                // Deliberately NO AbsenceClause here: the service pre-resolves every off-order CopyFrom source before
+                // Apply — a source that is merely unticked / in a disabled mod / shadowed is LOCATED and supplied via
+                // copyFromSources above, and one that cannot be located aborts the whole call earlier. So the only
+                // name reaching this arm has no on-disk copy at all, which the explainer cannot explain — it would pay
+                // a profile parse plus a whole-install sweep, per edit, for nothing the message does not already say.
                 { problems.Add($"{e.Target}: CopyFrom source '{srcPlugin}' is not in the load order (and no plugin file by that name was located on disk) — name an active plugin, or a plugin file present on disk."); continue; }
                 else if (view.ExcludedPlugins.TryGetValue(srcPlugin, out var why))
                 { problems.Add($"{e.Target}: CopyFrom source '{srcPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
@@ -503,10 +484,10 @@ public static class WritePatchBuilder
                     if (srcBody is null)
                     { problems.Add(CopySourceMissing(e, srcPlugin)); continue; }
                 }
-                // §4.5 — the same-runtime-record-type gate. A same-FormKey copy passes by construction (one record,
-                // one type); the zip's CROSS-record pair is the case that can disagree, and a cross-type transplant
-                // is refused BY NAME here rather than reaching CopyField, where the mismatch would surface as a
-                // property-shaped "no field X on Y" that points away from the real cause.
+                // The same-runtime-record-type gate. A same-FormKey copy passes by construction (one record, one
+                // type); a CROSS-record pair is the case that can disagree, and a cross-type transplant is refused BY
+                // NAME here rather than reaching CopyField, where the mismatch would surface as a property-shaped
+                // "no field X on Y" that points away from the real cause.
                 if (CrossTypeRefusal(e, srcBody, patchLocal ?? (object?)body) is { } typeErr)
                 { problems.Add(typeErr); continue; }
             }
@@ -529,14 +510,14 @@ public static class WritePatchBuilder
         // --- Phase 3: override each winner into the ONE patch mod, then apply. A flat record needs no link cache; a
         //     NESTED record (Cell/Placed*/INFO/Navmesh/Landscape) gets the winner overlay's cache built on demand
         //     (costly → only here, never for the flat common case, never held). A throw here AFTER pre-flight passed is
-        //     a real engine inconsistency — fail the WHOLE call (no partial patch), surfaced not swallowed (Q3). ---
+        //     a real engine inconsistency — fail the WHOLE call (no partial patch), surfaced not swallowed. ---
         var ops = new List<OpResult>(resolved.Count);
         foreach (var (e, body, winnerPlugin, patchLocal, req, label, srcBody) in resolved)
         {
             try
             {
-                // A patch-local target (defined only in the extended patch — HCBR-2026-07-10-01 F3) is already a
-                // settable record IN patchMod: edit it directly, no override and no source link cache needed.
+                // A patch-local target (defined only in the extended patch) is already a settable record IN patchMod:
+                // edit it directly, no override and no source link cache needed.
                 IMajorRecord ov;
                 if (patchLocal is not null) ov = patchLocal;
                 else
@@ -544,7 +525,7 @@ public static class WritePatchBuilder
                     ILinkCache? cache = WriteEngine.RecordNeedsSourceCache(body!) ? session.LinkCacheFor(winnerPlugin!) : null;
                     ov = WriteEngine.GenericGetOrAddAsOverride(patchMod, body!, cache);
                 }
-                // P8b CopyFrom transplants the field FROM the source body into ov; every other verb applies to ov directly.
+                // CopyFrom transplants the field FROM the source body into ov; every other verb applies to ov directly.
                 if (string.Equals(req.Verb, "CopyFrom", StringComparison.Ordinal))
                     WriteEngine.CopyField(srcBody!, ov, req.Path);
                 else
@@ -556,16 +537,16 @@ public static class WritePatchBuilder
             {
                 // An EXPECTED apply-time refusal pre-flight legitimately can't pre-empt (live state — e.g. a duplicate dict
                 // key): render its clean guidance, NOT the gate/apply-inconsistency wrapper. All-or-nothing still holds —
-                // the whole call is refused and no file is written (gap-audit Finding 3).
+                // the whole call is refused and no file is written.
                 return PatchOutcome.Fail(
                     $"refused applying [{label}] to {req.RecordType} {e.Target} — {ex.Message} (no patch written)");
             }
             catch (MalformedTargetDataException ex)
             {
-                // The THIRD category: the TARGET record's own data is malformed (a present-but-null element/entry) — neither
-                // a user input error nor a gate/apply inconsistency. Render it accurately, NOT under the "pre-flight ACCEPTED
-                // … a real inconsistency" wrapper (which would mislabel pre-existing bad source data as an engine bug).
-                // All-or-nothing holds — no file written (PR #83 follow-up Gap 2).
+                // The TARGET record's own data is malformed (a present-but-null element/entry) — neither a user input
+                // error nor a gate/apply inconsistency. Render it accurately, NOT under the "pre-flight ACCEPTED
+                // … a real inconsistency" wrapper, which would mislabel pre-existing bad source data as an engine bug.
+                // All-or-nothing holds — no file written.
                 return PatchOutcome.Fail(
                     $"refused applying [{label}] to {req.RecordType} {e.Target} — {ex.Message} (no patch written)");
             }
@@ -577,17 +558,16 @@ public static class WritePatchBuilder
             }
         }
 
-        // #131 F1 — edit-lane intent-following: if this call changed a DialogTopic's Subtype without also setting its
-        // SubtypeName, sync the SNAM marker so the change isn't a silent in-game no-op. Refuses loud on an unmodeled
-        // Subtype (no partial patch written).
+        // If this call changed a DialogTopic's Subtype without also setting its SubtypeName, sync the SNAM marker so
+        // the change isn't a silent in-game no-op. Refuses loud on an unmodeled Subtype (no partial patch written).
         if (SyncEditedTopicMarkers(patchMod, edits, ops) is { } syncErr)
             return PatchOutcome.Fail($"refused — {syncErr} (no patch written).");
 
-        // --- #225 DRY RUN: stop AT the point of no return. Everything above ran for real — the same resolve,
-        //     pre-flight, and in-memory apply the write uses — so the report below can't drift from what a real call
-        //     would do. The one Phase-4 hazard the halt skips (a reference to a plugin not in the serialize's
-        //     resolution context → MissingModException) is re-checked here by the same membership test, so a dry run
-        //     that says "would apply" doesn't hide a write that would fail at serialize (Q3). ---
+        // --- DRY RUN: stop AT the point of no return. Everything above ran for real — the same resolve, pre-flight,
+        //     and in-memory apply the write uses — so the report below can't drift from what a real call would do.
+        //     The one Phase-4 hazard the halt skips (a reference to a plugin not in the serialize's resolution
+        //     context → MissingModException) is re-checked here by the same membership test, so a dry run that says
+        //     "would apply" doesn't hide a write that would fail at serialize. ---
         if (dryRun)
         {
             if (DryRunMastersPreview(patchMod, resolver, patchLane: true, out var wouldMasters) is { } dryErr)
@@ -598,11 +578,11 @@ public static class WritePatchBuilder
         }
 
         // --- Phase 4: serialize ONCE with the FULL known-master set (multi-master). Mutagen keeps the header lean
-        //     (only-referenced); a referenced master genuinely absent from the order still fails loud (Q3). ---
-        // Two-part active-patch self-lock guard (Heisen 2026-06-08 + PR #24 review): no mapped handle on the file we're
-        // about to write may survive to the serialize, from ANY source. ReleaseOverlay closes one we already hold (Apply's
-        // Phase-1 winner fetch, when re-editing the patch's OWN override — there the winner IS the target); AllMastersExcept
-        // keeps the target out of the master set. (writelock-probe / writelock-apply-probe; both halves guarded.)
+        //     (only-referenced); a referenced master genuinely absent from the order still fails loud. ---
+        // Two-part active-patch self-lock: no mapped handle on the file we're about to write may survive to the
+        // serialize, from ANY source. ReleaseOverlay closes one we already hold (Apply's Phase-1 winner fetch, when
+        // re-editing the patch's OWN override — there the winner IS the target); AllMastersExcept keeps the target
+        // out of the master set. Both halves are required.
         session.ReleaseOverlay(patchMod.ModKey.FileName.String);
         try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
         catch (Exception ex)
@@ -631,9 +611,9 @@ public static class WritePatchBuilder
     }
 
     /// <summary>The "source plugin doesn't carry the record to copy" refusal, worded for the lane that hit it: a
-    /// SAME-record copy names the target (the P8b sentence, unchanged); a §4.5 cross-record copy names the SOURCE
-    /// record and the target it was being copied INTO, so the reader can tell WHICH of the two the source plugin is
-    /// missing (Q3 — the ambiguous "this record" would point at the wrong one half the time).</summary>
+    /// SAME-record copy names the target; a cross-record copy names the SOURCE record and the target it was being
+    /// copied INTO, so the reader can tell WHICH of the two the source plugin is missing — an ambiguous "this
+    /// record" would point at the wrong one half the time.</summary>
     static string CopySourceMissing(PatchEdit e, string srcPlugin) =>
         e.FromTarget is null
             ? $"{e.Target}: CopyFrom source '{srcPlugin}' is in the load order but does NOT define or override this record — there is no version of it there to copy."
@@ -642,18 +622,15 @@ public static class WritePatchBuilder
     /// <summary>Does this edit's CopyFrom source resolve through the service's OFF-ORDER pre-locate? The arm is decided
     /// from <paramref name="view"/> — THIS call's capture — rather than from the dictionary alone, so the body used is
     /// always the one the ENGINE's own build agrees is off-order.
-    /// <para>HOW FAR THAT ACTUALLY REACHES, stated precisely because #317 (and PR #313's <c>forward</c> twin, whose
-    /// shape this mirrors) was filed as a RACE fix and that framing is wrong. Membership lives in the resolver's
-    /// <c>_nameToIdx</c>, built once per resolver INSTANCE and never rebuilt; <c>RefreshIfStale</c> swaps only
-    /// <c>_snap</c> (winners, exclusions), and a changed plugin SET drops the whole resolver for a new one. A write
-    /// reads <c>Resolver</c> ONCE and hands that instance to both the pre-locate and the engine. So within one call the
-    /// two captures cannot disagree about MEMBERSHIP, and this re-check cannot currently change the arm.</para>
-    /// <para>It is kept, and kept cheap (one dictionary lookup), as a STRUCTURAL invariant rather than a race repair:
-    /// the arm follows the view the write actually resolves against, not a dictionary another component built against
-    /// another capture. If membership ever can move under a live resolver — an in-place profile refresh being the
-    /// obvious candidate — the right behaviour is already here rather than a silently wrong body. Pinned
-    /// deterministically by <c>CopyFromViewArm</c> in write-surface-guard, which hands the engine a pre-fetched body
-    /// keyed to an ACTIVE source and asserts the in-order arm still wins.</para></summary>
+    /// <para>HOW FAR THAT REACHES: membership lives in the resolver's <c>_nameToIdx</c>, built once per resolver
+    /// INSTANCE and never rebuilt; <c>RefreshIfStale</c> swaps only <c>_snap</c> (winners, exclusions), and a changed
+    /// plugin SET drops the whole resolver for a new one. A write reads <c>Resolver</c> ONCE and hands that instance to
+    /// both the pre-locate and the engine. So within one call the two captures cannot disagree about MEMBERSHIP, and
+    /// this re-check cannot currently change the arm. It is a STRUCTURAL invariant, not a race repair.</para>
+    /// <para>Kept, and kept cheap (one dictionary lookup): the arm follows the view the write actually resolves
+    /// against, not a dictionary another component built against another capture. If membership ever can move under a
+    /// live resolver — an in-place profile refresh being the obvious candidate — the right behaviour is already here
+    /// rather than a silently wrong body.</para></summary>
     static bool TryOffOrderCopyBody(
         IReadOnlyDictionary<PatchEdit, IMajorRecordGetter>? copyFromSources, PatchEdit e,
         LoadOrderResolver.IndexView view,
@@ -668,29 +645,23 @@ public static class WritePatchBuilder
     /// <summary>Does this edit's CopyFrom source need the OFF-ORDER on-disk locate — i.e. is it a CopyFrom naming a
     /// plugin the ACTIVE ORDER does not contain? The ONE rule, called by both sides: the service's pre-locate uses it
     /// to decide what to fetch, and <see cref="TryOffOrderCopyBody"/> uses it to decide what to consume.
-    /// <para>Shared rather than restated (PR #318 review [low]): the whole point of the engine-side re-check is that
-    /// the two captures agree, and enforcing that agreement with two independent copies of the predicate — in two
-    /// projects, kept in step by a comment asking the reader to check — is the hand-wiring shape CLAUDE.md §3 argues
-    /// against. It matters concretely: the next fix named for this lane is the <c>ActiveNameForPath</c> rule
-    /// <c>forward</c> already has, and a clause added to one copy would silently stop matching the other. One
-    /// predicate, so a clause can only be added to both.</para>
-    /// <para>That fix landed as #321, and it deliberately did NOT become a clause here. A PATH is re-spelled to the
-    /// plugin NAME by the service before this predicate runs (<c>RespellActiveCopySourcePaths</c>), so what both ends
-    /// test is the order's own vocabulary. Testing membership here is therefore still a plain name lookup — and the
-    /// re-spelling reaches the engine, the winner comparison and the report at the same time, which a predicate-only
-    /// clause could not have done (it would have routed the body correctly while every rendered sentence still called
-    /// an active plugin off-order).</para></summary>
+    /// <para>ONE predicate, deliberately, not two copies: the whole point of the engine-side re-check is that the two
+    /// ends agree, so a clause added here can only be added to both.</para>
+    /// <para>A source given as a PATH is re-spelled to the plugin NAME by the service before this runs
+    /// (<c>RespellActiveCopySourcePaths</c>), so what both ends test is the order's own vocabulary and membership here
+    /// stays a plain name lookup. Re-spelling upstream also reaches the winner comparison and the report, which a
+    /// predicate-only clause could not: it would route the body correctly while every rendered sentence still called
+    /// an active plugin off-order.</para></summary>
     public static bool IsOffOrderCopySource(PatchEdit e, LoadOrderResolver.IndexView view)
         => string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal)
            && !string.IsNullOrWhiteSpace(e.FromPlugin)
            && !view.ContainsPlugin(e.FromPlugin!);
 
     /// <summary>Resolve the PLUGIN a CopyFrom reads its source body from. Named <c>from_source</c> wins; when it is
-    /// absent AND a source RECORD is named (the §4.5 zip's <c>from</c>), it defaults to that record's load-order
-    /// WINNER — the §4.5 wording ("<c>from_source</c> … defaulting to winner"), resolved against the call's ONE
-    /// captured build so the default can't read a different order than the rest of the write. Returns null with a
-    /// null error when there is nothing to resolve (a non-CopyFrom op, or the off-order arm the service pre-located);
-    /// a source record absent from the whole order is a named refusal, never a silent skip.</summary>
+    /// absent AND a source RECORD is named, it defaults to that record's load-order WINNER — resolved against the
+    /// call's ONE captured build so the default can't read a different order than the rest of the write. Returns null
+    /// with a null error when there is nothing to resolve (a non-CopyFrom op, or the off-order arm the service
+    /// pre-located); a source record absent from the whole order is a named refusal, never a silent skip.</summary>
     static string? ResolveCopyPole(PatchEdit e, LoadOrderResolver.IndexView view, out string? error)
     {
         error = null;
@@ -707,9 +678,9 @@ public static class WritePatchBuilder
         return w.Value.WinnerPlugin;
     }
 
-    /// <summary>SPEC §4.5's same-runtime-record-type gate for a CROSS-record copy. Returns a named refusal when the
-    /// source and target records are different runtime types, else null. A same-FormKey copy (<see
-    /// cref="PatchEdit.FromTarget"/> null) is one record and always passes — the gate exists for the zip's pairs.
+    /// <summary>The same-runtime-record-type gate for a CROSS-record copy. Returns a named refusal when the source and
+    /// target records are different runtime types, else null. A same-FormKey copy (<see cref="PatchEdit.FromTarget"/>
+    /// null) is one record and always passes — the gate exists for cross-record pairs.
     /// Compared on the OVERLAY-STRIPPED type name, the same identity every other surface reports, so a binary-overlay
     /// source and a settable target of the same record type agree instead of tripping on their runtime classes.</summary>
     static string? CrossTypeRefusal(PatchEdit e, IMajorRecordGetter srcBody, object? targetBody)
@@ -723,15 +694,15 @@ public static class WritePatchBuilder
                "different types); pair each target with a source of its own type.";
     }
 
-    /// <summary>#131 F1 (edit-lane intent-following), shared by <see cref="Apply"/> and <see cref="ApplyInPlace"/>:
-    /// after the edits are applied, for each DialogTopic this call edited where it SET <c>Subtype</c> but NOT
-    /// <c>SubtypeName</c>, sync the SNAM marker to the new Subtype — otherwise the change is a silent in-game no-op
-    /// (the engine buckets topics by the SNAM marker, so a stale marker keeps the old bucket; #131). It fires ONLY
-    /// when Subtype was actively set in THIS call, so it never rewrites the SNAM of a topic whose subtype the call
-    /// didn't touch — which is what keeps it off the countless vanilla topics whose DATA\Subtype is legitimately
-    /// noisy (a blanket "SubtypeName != marker" lint would false-positive on those). Adds a report op on a real
-    /// change (Q3 — never silent); returns a non-null error to FAIL the whole call on an unmodeled Subtype (never
-    /// leave a mismatched/blank marker), else null. <paramref name="mod"/> is the mutable mod the overrides live in.</summary>
+    /// <summary>Shared by <see cref="Apply"/> and <see cref="ApplyInPlace"/>: after the edits are applied, for each
+    /// DialogTopic this call edited where it SET <c>Subtype</c> but NOT <c>SubtypeName</c>, sync the SNAM marker to
+    /// the new Subtype — otherwise the change is a silent in-game no-op, because the engine buckets topics by the SNAM
+    /// marker and a stale marker keeps the old bucket. It fires ONLY when Subtype was actively set in THIS call, so it
+    /// never rewrites the SNAM of a topic whose subtype the call didn't touch — which is what keeps it off the
+    /// countless vanilla topics whose DATA\Subtype is legitimately noisy (a blanket "SubtypeName != marker" lint would
+    /// false-positive on those). Adds a report op on a real change, never silent; returns a non-null error to FAIL the
+    /// whole call on an unmodeled Subtype (never leave a mismatched/blank marker), else null. <paramref name="mod"/>
+    /// is the mutable mod the overrides live in.</summary>
     static string? SyncEditedTopicMarkers(SkyrimMod mod, IReadOnlyList<PatchEdit> edits, List<OpResult> ops)
     {
         // Which top-level fields did this call edit, per target? (path[0]; Subtype/SubtypeName are scalar leaves.)
@@ -762,27 +733,27 @@ public static class WritePatchBuilder
     }
 
     /// <summary>
-    /// EDIT records IN PLACE inside an EXISTING plugin the user owns — the opt-in second write lane (in-place write
-    /// lane, Wave 1), the sibling of <see cref="Apply"/>. Where <see cref="Apply"/> overrides the load-order WINNER into
-    /// a NEW patch (originals untouched), this opens the TARGET plugin itself mutably, edits the TARGET's OWN record, and
-    /// re-serializes the whole plugin back over itself — the user's original file IS the output. Three deliberate
-    /// divergences from <see cref="Apply"/>, each load-bearing:
+    /// EDIT records IN PLACE inside an EXISTING plugin the user owns — the opt-in second write lane, the sibling of
+    /// <see cref="Apply"/>. Where <see cref="Apply"/> overrides the load-order WINNER into a NEW patch (originals
+    /// untouched), this opens the TARGET plugin itself mutably, edits the TARGET's OWN record, and re-serializes the
+    /// whole plugin back over itself — the user's original file IS the output. Three deliberate divergences from
+    /// <see cref="Apply"/>, each load-bearing:
     /// <list type="bullet">
-    /// <item>CONTENT SOURCE (§4.1 winner-injection fix): the body is the TARGET's own record
-    /// (<c>view.GetRecord(session, target, fk)</c>), NEVER the load-order winner — and the call REFUSES loud if the
-    /// target doesn't itself define/override the FormKey ("in-place edits only what the file OWNS"). So pre-flight
-    /// validates the body actually mutated, and another mod's content can never be injected into the user's file.</item>
+    /// <item>CONTENT SOURCE: the body is the TARGET's own record (<c>view.GetRecord(session, target, fk)</c>), NEVER
+    /// the load-order winner — and the call REFUSES loud if the target doesn't itself define/override the FormKey
+    /// ("in-place edits only what the file OWNS"). So pre-flight validates the body actually mutated, and another
+    /// mod's content can never be injected into the user's file.</item>
     /// <item>DESTINATION: <paramref name="targetPath"/> IS the target's real on-disk path (the caller resolved it via
     /// the load order, dropping the houseCARL-owned gate); the mutable mod IS the target (CreateFromBinary), so
     /// <see cref="WriteEngine.GenericGetOrAddAsOverride"/> returns the target's OWN record (get-semantics).</item>
-    /// <item>SERIALIZE (model C — what the Wave 0 probe validated, NOT <see cref="WriteEngine.WritePatch"/>):
-    /// <see cref="WriteEngine.WriteInPlace"/> re-emits with the target's OWN declared masters, no baseline force-include,
-    /// no FormID floor — preserving the author's master list + NextObjectID as xEdit/CK do on save.</item>
+    /// <item>SERIALIZE via <see cref="WriteEngine.WriteInPlace"/>, NOT <see cref="WriteEngine.WritePatch"/>: re-emits
+    /// with the target's OWN declared masters, no baseline force-include, no FormID floor — preserving the author's
+    /// master list + NextObjectID as xEdit/CK do on save.</item>
     /// </list>
     /// The reused full read-back (<paramref name="fullReadback"/>, default ON here) VERIFIES the records actually touched
-    /// landed; Mutagen is trusted for the rest (the xEdit-parity bar). CONSENT + the persistent acknowledge handshake are
-    /// enforced by the SERVICE before this is reached — this is the mechanism. All-or-nothing (Q3): any resolve/pre-flight
-    /// reject, or a serialize failure, leaves the original file UNTOUCHED (staged temp + atomic swap).
+    /// landed; Mutagen is trusted for the rest. CONSENT + the persistent acknowledge handshake are enforced by the
+    /// SERVICE before this is reached — this is the mechanism. All-or-nothing: any resolve/pre-flight reject, or a
+    /// serialize failure, leaves the original file UNTOUCHED (staged temp + atomic swap).
     /// </summary>
     public static PatchOutcome ApplyInPlace(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
@@ -795,7 +766,7 @@ public static class WritePatchBuilder
     }
 
     /// <summary>The body of <see cref="ApplyInPlace"/> — split for the same single-point epoch stamp as
-    /// <see cref="ApplyCore"/> (SPEC §2.1.1).</summary>
+    /// <see cref="ApplyCore"/>.</summary>
     static PatchOutcome ApplyInPlaceCore(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
         IReadOnlyList<PatchEdit> edits, string targetPath, string targetName, bool fullReadback,
@@ -803,15 +774,15 @@ public static class WritePatchBuilder
     {
         if (edits.Count == 0) return PatchOutcome.Fail("no edits supplied.");
 
-        // Per-call overlay session (Option B), same as Apply: every read (the target's own bodies, the nested link
-        // cache) is opened THROUGH it and disposed when the method returns — no handle held at rest.
+        // Per-call overlay session, same as Apply: every read (the target's own bodies, the nested link cache) is
+        // opened THROUGH it and disposed when the method returns — no handle held at rest.
         using var session = resolver.OpenSession();
         var fileName = Path.GetFileName(targetPath);
 
-        // --- Phase 1: resolve each edit's body FROM THE TARGET (not the winner) + derive type + pre-flight. The §4.1
-        //     content-source guard. ONE captured view answers every edit (the hunt-F5 one-view discipline). ---
+        // --- Phase 1: resolve each edit's body FROM THE TARGET (not the winner) + derive type + pre-flight — the
+        //     content-source guard. ONE captured view answers every edit, so no rebuild can mix two builds. ---
         var view = resolver.Capture();
-        epoch = view.Epoch;                                               // SPEC §2.1.1 — stamped on every outcome from here down
+        epoch = view.Epoch;                                               // stamped on every outcome from here down
         if (!view.ContainsPlugin(targetName))
             return PatchOutcome.Fail($"in-place target '{targetName}' is not an active plugin in the load order.{view.AbsenceClause(targetName)}");
         if (view.ExcludedPlugins.TryGetValue(targetName, out var excluded))
@@ -840,12 +811,11 @@ public static class WritePatchBuilder
             var label = Label(req);
             if (rulebook.Validate(req) is { } reject) { problems.Add($"{recType} {e.Target} [{label}]: {reject}"); continue; }
 
-            // CopyFrom SOURCE resolution — the same contract Apply enforces, on this lane too (W3: the LANE axis is
-            // uniform, so every ACT verb must compose with in_place). Before this, a CopyFrom op reaching the in-place
-            // lane had NO source resolved and fell through to ApplyVerb, which has no CopyFrom branch — it surfaced as
-            // the "pre-flight ACCEPTED it but the apply threw" engine-inconsistency wrapper, i.e. a real capability gap
-            // reported as an internal fault (Q3). The source may be any plugin (the target itself is legitimate ONLY
-            // for a cross-record copy — copying a record's own field onto itself is a no-op, refused by name).
+            // CopyFrom SOURCE resolution — the same contract Apply enforces, on this lane too: the lane axis is
+            // uniform, so every write verb must compose with in_place. Without this a CopyFrom op reaches ApplyVerb,
+            // which has no CopyFrom branch, and a real capability gap surfaces as the "pre-flight ACCEPTED it but the
+            // apply threw" engine-inconsistency wrapper. The source may be any plugin (the target itself is legitimate
+            // ONLY for a cross-record copy — copying a record's own field onto itself is a no-op, refused by name).
             IMajorRecordGetter? srcBody = null;
             if (string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal))
             {
@@ -866,7 +836,7 @@ public static class WritePatchBuilder
                 {
                     srcBody = view.GetRecord(session, srcPlugin, e.CopySource);
                     if (srcBody is null) { problems.Add(CopySourceMissing(e, srcPlugin)); continue; }
-                    // LIFETIME (review [high]): a source resolved out of the TARGET's own file comes from a session
+                    // LIFETIME: a source resolved out of the TARGET's own file comes from a session
                     // overlay that Phase 4 disposes (ReleaseOverlay, before WriteInPlace) — while CopyField's
                     // contract is that the source overlay outlives the serialize, because TransplantValue shares
                     // directly-assignable immutables (strings, MemorySlice) BY REFERENCE. Reading through the
@@ -885,9 +855,9 @@ public static class WritePatchBuilder
                 $"refused — {problems.Count} of {edits.Count} edit(s) rejected by resolve/pre-flight; '{fileName}' is UNTOUCHED:\n  - "
                 + string.Join("\n  - ", problems));
 
-        // --- Phase 2: open the TARGET mutably. EAGER, the SINGLE plugin only — NEVER the load order (the legacy 12–14 GB
-        //     RAM trap; CLAUDE.md §1). CreateFromBinary is the same call Apply's extend path uses; an unparseable plugin
-        //     throws here and is REFUSED, never silently re-emitted minus the record Mutagen couldn't read (Q3). ---
+        // --- Phase 2: open the TARGET mutably. EAGER, the SINGLE plugin only — NEVER the load order (eager-loading the
+        //     whole order costs 12–14 GB of RAM). CreateFromBinary is the same call Apply's extend path uses; an
+        //     unparseable plugin throws here and is REFUSED, never silently re-emitted minus what Mutagen couldn't read. ---
         if (!File.Exists(targetPath))
             return PatchOutcome.Fail($"in-place target '{fileName}' not found on disk at {targetPath} — the file is untouched.");
         SkyrimMod targetMod;
@@ -897,18 +867,17 @@ public static class WritePatchBuilder
         if (!string.Equals(targetMod.ModKey.FileName.String, fileName, StringComparison.OrdinalIgnoreCase))
             return PatchOutcome.Fail($"in-place ModKey '{targetMod.ModKey.FileName}' must match the target filename '{fileName}'.");
         // The author's DECLARED masters, captured before any mutation — the re-opened header is diffed against this
-        // to surface a master GROW as an explicit re-sort note (PR #163 review #1: a grown master is itself a
-        // re-sort trigger — the plugin is invalid until it loads AFTER its new master — independent of winners).
+        // to surface a master GROW as an explicit re-sort note: a grown master is itself a re-sort trigger, because
+        // the plugin is invalid until it loads AFTER its new master, independent of winners.
         var mastersBefore = targetMod.ModHeader.MasterReferences
             .Select(m => m.Master.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         // --- Phase 3: apply each verb to the TARGET's OWN record. GenericGetOrAddAsOverride on the target's own body
         //     (already present in targetMod) returns THAT record (get-semantics) — the verb edits the file's own body,
         //     never a foreign override's. A nested record gets the target overlay's link cache on demand (released in
-        //     Phase 4). A throw after pre-flight passed is a real engine inconsistency — fail the WHOLE call (Q3). ---
-        // --- Phase 2b: SNAPSHOT every same-file copy source, BEFORE any op mutates anything (re-review [high] +
-        //     [medium] + [low], one fix). A source living in the file being rewritten cannot be read from the live
-        //     mutable record for three reasons:
+        //     Phase 4). A throw after pre-flight passed is a real engine inconsistency — fail the WHOLE call. ---
+        // --- Phase 2b: SNAPSHOT every same-file copy source, BEFORE any op mutates anything. A source living in the
+        //     file being rewritten cannot be read from the live mutable record for three reasons:
         //       • ALIASING — CopyElement shares an element when the target's element type already accepts it. That
         //         is safe for an overlay source (an EffectBinaryOverlay is not an Effect, so it deep-copies), but a
         //         source out of targetMod IS the settable concrete type, so the two records would share the very
@@ -977,15 +946,15 @@ public static class WritePatchBuilder
             }
         }
 
-        // #131 F1 — edit-lane intent-following (same as Apply): a Subtype change without a SubtypeName in this call
-        // syncs the SNAM marker, so the edit isn't a silent in-game no-op. Refuses loud on an unmodeled Subtype (the
-        // original file stays UNTOUCHED — nothing serialized yet).
+        // Same as Apply: a Subtype change without a SubtypeName in this call syncs the SNAM marker, so the edit isn't
+        // a silent in-game no-op. Refuses loud on an unmodeled Subtype (the original file stays UNTOUCHED — nothing
+        // serialized yet).
         if (SyncEditedTopicMarkers(targetMod, edits, ops) is { } syncErr)
             return PatchOutcome.Fail($"refused — {syncErr} ('{fileName}' is UNTOUCHED).");
 
-        // --- #225 DRY RUN: stop AT the point of no return (see Apply's twin block). patchLane:false — in-place
-        //     serializes via WriteInPlace (no Skyrim.esm/Update.esm baseline force-include), so the master preview
-        //     must not add one. The would-grow re-sort note is phrased predictively (nothing was added yet). ---
+        // --- DRY RUN: stop AT the point of no return (see Apply's twin block). patchLane:false — in-place serializes
+        //     via WriteInPlace (no Skyrim.esm/Update.esm baseline force-include), so the master preview must not add
+        //     one. The would-grow re-sort note is phrased predictively (nothing was added yet). ---
         if (dryRun)
         {
             if (DryRunMastersPreview(targetMod, resolver, patchLane: false, out var wouldMasters) is { } dryErr)
@@ -1002,23 +971,21 @@ public static class WritePatchBuilder
             };
         }
 
-        // --- Phase 4: re-serialize the WHOLE target back over itself (model C — the probe's incantation via WriteInPlace,
-        //     NOT WritePatch). Release the target overlay first (the winner-IS-the-target common case made common — the
-        //     two-part self-lock guard, here on a FOREIGN target: ReleaseOverlay disposes every session overlay on the
-        //     target, flat via GetRecord and nested via LinkCacheFor, before the File.Replace). The resolution context is
-        //     the WHOLE known-master set (AllMastersExcept — the same context the in-place CREATE lane serializes
-        //     against), NOT just the target's declared masters: an edit that composes a FormLink to an ACTIVE plugin the
-        //     target didn't yet master must GROW the header (Mutagen lean-derives it from the records' actual links —
-        //     exactly how forward_record grows masters), instead of failing MissingModException against a context that
-        //     artificially excluded the referenced plugin (HCBR-2026-07-08-01 F2). A link to a plugin genuinely NOT
-        //     active still fails loud below (Q3), now meaning what it says. ---
+        // --- Phase 4: re-serialize the WHOLE target back over itself via WriteInPlace, NOT WritePatch. Release the
+        //     target overlay first (the two-part self-lock, here on a FOREIGN target: ReleaseOverlay disposes every
+        //     session overlay on the target, flat via GetRecord and nested via LinkCacheFor, before the File.Replace).
+        //     The resolution context is the WHOLE known-master set (AllMastersExcept — the same context the in-place
+        //     CREATE lane serializes against), NOT just the target's declared masters: an edit that composes a FormLink
+        //     to an ACTIVE plugin the target didn't yet master must GROW the header (Mutagen lean-derives it from the
+        //     records' actual links), instead of failing MissingModException against a context that artificially
+        //     excluded the referenced plugin. A link to a plugin genuinely NOT active still fails loud below. ---
         session.ReleaseOverlay(fileName);
         try { WriteEngine.WriteInPlace(targetMod, session.AllMastersExcept(fileName), targetPath, resolver.DataDir); }
         catch (MissingModException ex)
         {
-            // #314: this arm fires FIRST, so it is where the unopenable residual lands on this lane — and its
-            // "NOT active in the load order" reading is wrong for it (the plugin IS active, just unopenable), which
-            // would send the user to enable something already enabled. Prefer the named cause when it applies.
+            // This arm fires FIRST, so it is where an unopenable-but-ACTIVE master lands on this lane — and the
+            // "NOT active in the load order" reading is wrong for it, sending the user to enable something already
+            // enabled. Prefer the named cause when it applies.
             return PatchOutcome.Fail(UnopenableMasterClause(ex, session) is { Length: > 0 } why
                 ? $"writing '{fileName}' in place failed: the edited records reference a plugin the write cannot " +
                   $"resolve ({ex.Message}).{why} The existing file is untouched."
@@ -1029,9 +996,9 @@ public static class WritePatchBuilder
         catch (Exception ex)
             { return PatchOutcome.Fail(SerializeFailure($"writing '{fileName}' in place failed (serialize or commit; the existing file is untouched): ", ex, session)); }
 
-        // --- Phase 5: re-open the now-edited file and report its master header — and the touched-record verify (default
-        //     ON for in-place): each edited record read back IN FULL off the on-disk bytes (the model-C substitute for
-        //     the dropped whole-plugin floor — confirm what you TOUCHED landed; Mutagen is trusted for the rest). ---
+        // --- Phase 5: re-open the now-edited file and report its master header — and the touched-record verify
+        //     (default ON for in-place): each edited record read back IN FULL off the on-disk bytes. Confirm what you
+        //     TOUCHED landed; Mutagen is trusted for the rest. ---
         IReadOnlyList<string> masters = Array.Empty<string>();
         IReadOnlyList<FullReadback>? readBack = null;
         IReadOnlyList<OpResult> reported = ops;
@@ -1039,28 +1006,25 @@ public static class WritePatchBuilder
         ISkyrimModGetter? back = null;
         try
         {
-            // The strings-aware factory, not a bare open (#308 review): a LOCALIZED plugin whose own folder carries no
-            // strings source reads every TranslatedString EMPTY (the HCBR-2026-06-24 class OpenOverlay exists for). That
-            // used to make only the read-back DUMP look empty; the verify below now COMPARES what it reads, so a bare
-            // open would report a correct in-place `Set Name` on such a plugin as "the file does not carry it" — the
-            // same wrong-answer class this fix exists to close, in the mirror direction.
+            // The strings-aware factory, not a bare open: a LOCALIZED plugin whose own folder carries no strings
+            // source reads every TranslatedString EMPTY, which is what OpenOverlay exists to avoid. The verify below
+            // COMPARES what it reads, so a bare open would report a correct in-place `Set Name` on such a plugin as
+            // "the file does not carry it".
             back = LoadOrderResolver.OpenOverlay(targetPath, resolver.DataDir);
             masters = back.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();
             bytes = new FileInfo(targetPath).Length;
             if (fullReadback) readBack = ReadBackInFull(back, resolved.Select(r => r.edit.Target));
-            // #308 — the per-op half of the same verify. Unconditional, unlike the read-back above: the "what landed"
-            // clause is rendered on EVERY in-place response (the compact default is the one a caller reads to confirm
-            // an edit), so it is exactly the half that must not be a memory-derived claim wearing a file's authority.
-            // Its own try: the file is already written and re-opened by this point, so a fault in the COMPARE pass is
-            // not "could not be re-opened to verify" and must not be reported as one (review [nit]). Ops then stay
-            // unverified, which the render states per op rather than turning a completed write into a failure.
+            // The per-op half of the same verify. Unconditional, unlike the read-back above: the "what landed" clause
+            // is rendered on EVERY in-place response, so it is exactly the half that must not be a memory-derived
+            // claim wearing a file's authority. Its own try: the file is already written and re-opened by this point,
+            // so a fault in the COMPARE pass is not "could not be re-opened to verify" and must not be reported as
+            // one. Ops then stay unverified, which the render states per op rather than turning a completed write
+            // into a failure.
             try { reported = VerifyLandedAgainstFile(back, resolved.Select(r => (r.edit.Target, r.req)).ToList(), ops); }
-            // A pass that THREW is not "this lane ran no file check" (review [low]) — the verify ran and produced no
-            // answer, which is the state that says so. Under-reporting a failed verification as an absent one is the
-            // quieter half of the same wrong-answer class.
-            // Only the ops the pass would have ASKED about (review [nit]): the SNAM-sync ops appended past the
-            // resolved edits were never candidates, and marking them attempted made them claim the file was re-opened
-            // and could not answer for them — the state their own doc calls a claim about a read that did not happen.
+            // A pass that THREW is not "this lane ran no file check" — the verify ran and produced no answer, which is
+            // a distinct state. Only the ops the pass would have ASKED about: the SNAM-sync ops appended past the
+            // resolved edits were never candidates, and marking them attempted makes them claim the file was re-opened
+            // and could not answer for them.
             catch
             {
                 int asked = resolved.Count;
@@ -1075,11 +1039,11 @@ public static class WritePatchBuilder
             { ReadBack = readBack, InPlace = true, Note = MasterGrowNote(fileName, mastersBefore, masters) };
     }
 
-    /// <summary>The explicit re-sort note when an in-place write GREW the target's master header (PR #163 review #1):
-    /// Skyrim loads a plugin only AFTER its masters, so a newly added master — e.g. an edit's FormLink into an
-    /// active-but-undeclared plugin (F2), or a forwarded body's references (F4) — leaves the file invalid until the
-    /// order is re-sorted, independent of any conflict-winner change. Null when nothing was added (the common case,
-    /// and any prune: a shrink never breaks load eligibility).</summary>
+    /// <summary>The explicit re-sort note when an in-place write GREW the target's master header: Skyrim loads a
+    /// plugin only AFTER its masters, so a newly added master — an edit's FormLink into an active-but-undeclared
+    /// plugin, or a forwarded body's references — leaves the file invalid until the order is re-sorted, independent
+    /// of any conflict-winner change. Null when nothing was added (the common case, and any prune: a shrink never
+    /// breaks load eligibility).</summary>
     static string? MasterGrowNote(string fileName, HashSet<string> mastersBefore, IReadOnlyList<string> mastersAfter)
     {
         var grown = mastersAfter.Where(m => !mastersBefore.Contains(m)).ToList();
@@ -1088,12 +1052,12 @@ public static class WritePatchBuilder
                "a plugin loads only if its masters load BEFORE it, so re-sort your load order (LOOT / MO2) before playing.";
     }
 
-    /// <summary>#225 dry run — the pre-serialize reference-resolution check + expected-master preview, run INSTEAD of
+    /// <summary>The dry run's pre-serialize reference-resolution check + expected-master preview, run INSTEAD of
     /// Phase 4. Walks every record the in-memory mod holds and collects each referenced ModKey (a contained record's
     /// ORIGIN plugin + every FormLink's plugin, minus the mod itself — the same link surface Mutagen lean-derives the
     /// real header from). A referenced plugin NOT in the active order is the EXACT condition the real serialize fails
     /// on (its WithLoadOrder resolution context is the active order minus the output — MissingModException), so it is
-    /// a Q3 refusal here too: a dry run must never say "would apply" about a write that would fail. On success,
+    /// a refusal here too: a dry run must never say "would apply" about a write that would fail. On success,
     /// <paramref name="masters"/> is the expected master set in load order — link-derived, PLUS the Skyrim.esm/Update.esm
     /// baseline the patch lane's <c>WritePatch</c> force-includes (<paramref name="patchLane"/>; the in-place lane's
     /// <c>WriteInPlace</c> deliberately adds none) — a labeled PREVIEW: the real write derives its own lean header.</summary>
@@ -1116,13 +1080,13 @@ public static class WritePatchBuilder
             catch (Exception ex)
             {
                 // A throw here derefs the IN-MEMORY would-be content (already materialized — nothing lazy about a
-                // mutable SkyrimMod). The dominant cause is the SAME class the real serialize re-stamps loud
-                // (HCBR-2026-06-15-01): a COMPOSED record whose REQUIRED polymorphic sub-field was left null (a
-                // Condition without its Data arm) — the walk hits the null exactly as Mutagen's writer would. Detect
-                // it via the SHARED WriteEngine.RootNullArm (so the two paths can't drift) and refuse with the same
-                // named framing, not the opaque bare NRE (PR #240 review). Anything else is named raw (Q3). NOTE the
-                // honest boundary: a required-null sub-field containing NO FormLinks doesn't cross this walk — that
-                // class still surfaces only at the real serialize, which the dry-run footer discloses.
+                // mutable SkyrimMod). The dominant cause is the same class the real serialize refuses: a COMPOSED
+                // record whose REQUIRED polymorphic sub-field was left null (a Condition without its Data arm) — the
+                // walk hits the null exactly as Mutagen's writer would. Detect it via the SHARED
+                // WriteEngine.RootNullArm, so the two paths can't drift, and refuse with the same named framing rather
+                // than an opaque bare NRE. Anything else is named raw. BOUNDARY: a required-null sub-field containing
+                // NO FormLinks doesn't cross this walk — that class still surfaces only at the real serialize, which
+                // the dry-run footer discloses.
                 if (WriteEngine.RootNullArm(ex) is not null)
                     return $"dry run caught what the real write would fail on: {rec.FormKey} carries a required modeled " +
                            "sub-field left null (the same null-dereference Mutagen's writer refuses at serialize). The " +
@@ -1147,31 +1111,26 @@ public static class WritePatchBuilder
             foreach (var bm in WriteEngine.BaselineMasters)
                 if (priority.ContainsKey(bm.FileName.String)) set.Add(bm.FileName.String);
 
-        // SNAPSHOT NOTE (PR #315 review 4): resolver.IsUnopenable reads the CURRENT snapshot, while the write lanes
-        // resolve against a pinned IndexView — so a rebuild between this prediction and the write lets the two
-        // disagree, the class hunt-F5's one-view discipline exists to prevent. Inherited shape (this method takes a
-        // resolver, not a view) rather than introduced here, and the failure mode is a stale prediction, never a bad
-        // write; recorded so it is a known bound rather than an oversight.
+        // SNAPSHOT BOUND: resolver.IsUnopenable reads the CURRENT snapshot, while the write lanes resolve against a
+        // pinned IndexView — so a rebuild between this prediction and the write lets the two disagree. Inherited from
+        // this method taking a resolver rather than a view; the failure mode is a stale prediction, never a bad write.
         //
-        // #314 — an UNOPENABLE referenced plugin is ACTIVE, so the membership test above passes it happily, and the
-        // dry run would predict success for a write the real call now refuses. That breaks this method's own contract
-        // ("a dry run must never say 'would apply' about a write that would fail"), which the #225 parity guard holds.
+        // An UNOPENABLE referenced plugin is ACTIVE, so the membership test above passes it happily and the dry run
+        // would predict success for a write the real call refuses — breaking this method's own contract that a dry run
+        // never says "would apply" about a write that would fail.
         //
-        // The threshold is empirical, not assumed: a header carrying ONE master writes even when that master is the
-        // unopenable plugin (Mutagen derives the entry from the record's FormKey), and a header that must be SORTED —
-        // two or more — refuses. Both sides are pinned by excluded-master-guard, so if that behaviour ever moves, the
-        // guard says so rather than this prediction quietly going wrong in one direction or the other.
+        // The threshold is empirical: a header carrying ONE master writes even when that master is the unopenable
+        // plugin (Mutagen derives the entry from the record's FormKey), and a header that must be SORTED — two or
+        // more — refuses.
         // The BASELINE case first, and WITHOUT the count threshold: the real write refuses it outright (the force-
         // include is mandatory however small the header), and it is not in `set` at all when nothing references it —
         // which is exactly the self-contained create the real call would otherwise emit missing a master.
         foreach (var bm in WriteEngine.BaselineMasters)
             // IsUnopenable already returns false for a name absent from the order, so a membership pre-test would only
-            // add an O(n) scan of every plugin name per baseline, on every dry run (PR #315 review 4).
+            // add an O(n) scan of every plugin name per baseline, on every dry run.
             if (resolver.IsUnopenable(bm.FileName.String))
-                // The REAL call's own message, constructed rather than paraphrased (PR #315 re-review). Finding 4 was
-                // folded in the exception and missed here, so the two immediately disagreed — this one still carried
-                // the patch-lane-only reason on a lane that reaches it in-place, and had lost the remedy. Sharing the
-                // string makes #225 parity a fact instead of two prose blocks somebody has to keep in step.
+                // The REAL call's own message, constructed rather than paraphrased: sharing the string is what keeps
+                // the prediction and the refusal from drifting into two prose blocks somebody has to keep in step.
                 return "dry run caught what the real write would fail on: "
                        + new UnopenableBaselineMasterException(bm.FileName.String).Message;
 
@@ -1190,11 +1149,11 @@ public static class WritePatchBuilder
     }
 
     /// <summary>Resolve the target's OWN declared masters to on-disk overlays in declared order — the load order
-    /// <see cref="WriteEngine.WriteInPlace"/> hands Mutagen (the probe's faithful set). Each master filename resolves to
-    /// its WINNING on-disk path via the order (<see cref="LoadOrderResolver.IndexView.PluginPath"/>); a declared master
-    /// ABSENT from the active order makes <paramref name="missing"/> a loud Q3 refusal (re-serializing would leave the
-    /// target's references unresolvable) rather than emit a broken plugin. Opened overlays are added to
-    /// <paramref name="overlays"/> for the caller to dispose after the write.</summary>
+    /// <see cref="WriteEngine.WriteInPlace"/> hands Mutagen. Each master filename resolves to its WINNING on-disk path
+    /// via the order (<see cref="LoadOrderResolver.IndexView.PluginPath"/>); a declared master ABSENT from the active
+    /// order makes <paramref name="missing"/> a loud refusal (re-serializing would leave the target's references
+    /// unresolvable) rather than emit a broken plugin. Opened overlays are added to <paramref name="overlays"/> for
+    /// the caller to dispose after the write.</summary>
     static ISkyrimModGetter[] ResolveOwnMasters(
         LoadOrderResolver.IndexView view, SkyrimMod targetMod, List<IDisposable> overlays, out string? missing)
     {
@@ -1211,11 +1170,10 @@ public static class WritePatchBuilder
                           "(or fix the target's masters in xEdit) first. The file is UNTOUCHED.";
                 return Array.Empty<ISkyrimModGetter>();
             }
-            // #314 — this lane does NOT go through AllMasters/AllMastersExcept: it opens the target's declared
-            // masters itself, with a bare CreateFromBinaryOverlay that sat outside every catch. An unopenable declared
-            // master therefore escaped as an unhandled exception rather than a Q3 refusal — the same failure class
-            // #314 filed, surviving in the one write lane the skip does not reach (PR #315 review). Asked BEFORE the
-            // open, so the refusal names the plugin and the remedy instead of relaying an engine throw.
+            // This lane does NOT go through AllMasters/AllMastersExcept — it opens the target's declared masters
+            // itself — so the unopenable-master skip never reaches it and an unopenable declared master would escape
+            // as an unhandled exception. Asked BEFORE the open, so the refusal names the plugin and the remedy
+            // instead of relaying an engine throw.
             if (view.IsUnopenable(mfn))
             {
                 missing = $"cannot re-serialize '{targetMod.ModKey.FileName}' in place: its declared master '{mfn}' is ACTIVE " +
@@ -1243,22 +1201,21 @@ public static class WritePatchBuilder
 
     /// <summary>
     /// Remove WHOLE records the patch ITSELF carries — literal drop-from-plugin (<c>mod.Remove(FormKey)</c>), NOT
-    /// flag-as-deleted (Aaron-locked 2026-06-02). The companion to <see cref="Apply"/>: where Apply overrides a
-    /// load-order winner INTO the patch, this drops a record OUT of it — a created record, or an override the patch
-    /// accumulated via <c>into=</c>. A master's own record can't be literally removed (it lives in the master); only
-    /// the patch's override of it is dropped, so the load-order winner reverts by absence.
+    /// flag-as-deleted. The companion to <see cref="Apply"/>: where Apply overrides a load-order winner INTO the
+    /// patch, this drops a record OUT of it — a created record, or an override the patch accumulated via
+    /// <c>into=</c>. A master's own record can't be literally removed (it lives in the master); only the patch's
+    /// override of it is dropped, so the load-order winner reverts by absence.
     ///
-    /// <para>ONE call shape serves flat AND nested groups: Mutagen's <c>Remove(FormKey, Type, throwIfUnknown)</c> reaches
-    /// every group (incl. the nested Cell/Placed*/INFO/Navmesh/Landscape families) — no flat-vs-nested fork, no
-    /// parent-chain reconstruction (proven by the remove-record-probe: the bare <c>Remove(FormKey)</c> is [Obsolete],
-    /// and the typed overload was measured to remove a nested Cell too, Q7). Clean-masters rides along for free: the
-    /// serialize re-derives the header from the SURVIVING records' links, so a master orphaned by the removal drops
-    /// automatically (probe Q5).</para>
+    /// <para>ONE call shape serves flat AND nested groups: Mutagen's <c>Remove(FormKey, Type, throwIfUnknown)</c>
+    /// reaches every group (incl. the nested Cell/Placed*/INFO/Navmesh/Landscape families) — no flat-vs-nested fork,
+    /// no parent-chain reconstruction. The bare <c>Remove(FormKey)</c> is [Obsolete]; use the typed overload.
+    /// Clean-masters rides along for free: the serialize re-derives the header from the SURVIVING records' links, so a
+    /// master orphaned by the removal drops automatically.</para>
     ///
-    /// <para>PRESENT-CHECK FIRST (Q3 — no silent non-removal): <c>Remove</c> is a silent <c>void</c> no-op on a
-    /// key the patch doesn't carry, so every target is verified carried before any removal, and the WHOLE call is refused
-    /// (nothing written) if ANY isn't — the all-or-nothing contract <see cref="Apply"/> uses. The patch must already
-    /// exist (removal targets a patch houseCARL created); the caller resolves + ownership-gates the path.</para>
+    /// <para>PRESENT-CHECK FIRST, so there is no silent non-removal: <c>Remove</c> is a silent <c>void</c> no-op on a
+    /// key the patch doesn't carry, so every target is verified carried before any removal, and the WHOLE call is
+    /// refused (nothing written) if ANY isn't — the all-or-nothing contract <see cref="Apply"/> uses. The patch must
+    /// already exist (removal targets a patch houseCARL created); the caller resolves + ownership-gates the path.</para>
     /// </summary>
     public static RemovalOutcome RemoveRecords(LoadOrderResolver resolver, IReadOnlyList<FormKey> targets, string outPath)
     {
@@ -1268,14 +1225,14 @@ public static class WritePatchBuilder
     }
 
     /// <summary>The body of <see cref="RemoveRecords"/> — split for the same single-point epoch stamp as
-    /// <see cref="ApplyCore"/> (SPEC §2.1.1).</summary>
+    /// <see cref="ApplyCore"/>.</summary>
     static RemovalOutcome RemoveRecordsCore(
         LoadOrderResolver resolver, IReadOnlyList<FormKey> targets, string outPath, ref string? epoch)
     {
         if (targets.Count == 0) return RemovalOutcome.Fail("no records to remove supplied.");
 
-        // Per-call overlay session (Option B): the known-master set for the re-serialize is opened through it and
-        // disposed when the method returns — no handle held at rest.
+        // Per-call overlay session: the known-master set for the re-serialize is opened through it and disposed when
+        // the method returns — no handle held at rest.
         using var session = resolver.OpenSession();
         // This lane resolves no winner — the record set comes from the patch's own present-check — but it is NOT
         // build-free: the master context this removal re-serializes against is the session's, off the resolver's
@@ -1293,8 +1250,8 @@ public static class WritePatchBuilder
 
         // Present-check: index what the patch ACTUALLY carries (one enumeration — walks flat + nested), so a target the
         // patch doesn't define is refused loud rather than silently no-op'd by Remove. Captures type+editorid for the
-        // report AND the removal-routing type: the record's FLAT GROUP's T, not the concrete runtime type — a subclass
-        // of an abstract group's T (GlobalShort) makes Mutagen's Remove silently no-op (HCBR-2026-07-08-01 F3).
+        // report AND the removal-routing type: the record's FLAT GROUP's T, not the concrete runtime type — passing a
+        // subclass of an abstract group's T (GlobalShort) makes Mutagen's Remove silently no-op.
         var carried = new Dictionary<FormKey, (string type, string? edid, Type runtime)>();
         foreach (var r in patchMod.EnumerateMajorRecords())
             carried[r.FormKey] = (RecordNaming.StripOverlay(r.GetType().Name), r.EditorID, WriteEngine.RemovalTypeFor(r));
@@ -1321,11 +1278,11 @@ public static class WritePatchBuilder
                 + string.Join("\n  - ", problems));
 
         // Literal drop-from-group (NOT flag-as-deleted). The typed overload Remove(FormKey, Type, throwIfUnknown) is
-        // Mutagen's blessed path (the bare Remove(FormKey) is [Obsolete] — "use as a last resort"), and the
-        // remove-record-probe (Q7) proved it reaches NESTED records (Cell/Placed*/INFO/Navmesh/Landscape) too, not just
-        // flat groups — so ONE call shape serves every record type by construction. The runtime type captured in the
-        // present-check routes it straight to the right group; throwIfUnknown:true keeps an unrecognized type loud (Q3),
-        // never a silent no-op. A throw here AFTER the present-check passed is a real engine inconsistency — surfaced.
+        // Mutagen's blessed path (the bare Remove(FormKey) is [Obsolete]) and reaches NESTED records
+        // (Cell/Placed*/INFO/Navmesh/Landscape) too, not just flat groups — so ONE call shape serves every record type.
+        // The runtime type captured in the present-check routes it straight to the right group; throwIfUnknown:true
+        // keeps an unrecognized type loud, never a silent no-op. A throw here AFTER the present-check passed is a real
+        // engine inconsistency — surfaced.
         try
         {
             foreach (var rr in toRemove)
@@ -1341,11 +1298,11 @@ public static class WritePatchBuilder
             return RemovalOutcome.Fail(survived + $" '{fileName}' is UNTOUCHED.");
 
         // Serialize ONCE with the full known-master set; Mutagen keeps the header lean (only-referenced), so a master
-        // orphaned by the removal drops here automatically. A referenced master genuinely absent still fails loud (Q3).
-        // Two-part active-patch self-lock guard (Heisen 2026-06-08 + PR #24 review): no mapped handle on the file we're
-        // about to write may survive to the serialize, from ANY source. ReleaseOverlay closes one we already hold (Apply's
-        // Phase-1 winner fetch, when re-editing the patch's OWN override — there the winner IS the target); AllMastersExcept
-        // keeps the target out of the master set. (writelock-probe / writelock-apply-probe; both halves guarded.)
+        // orphaned by the removal drops here automatically. A referenced master genuinely absent still fails loud.
+        // Two-part active-patch self-lock: no mapped handle on the file we're about to write may survive to the
+        // serialize, from ANY source. ReleaseOverlay closes one we already hold (Apply's Phase-1 winner fetch, when
+        // re-editing the patch's OWN override — there the winner IS the target); AllMastersExcept keeps the target
+        // out of the master set. Both halves are required.
         session.ReleaseOverlay(patchMod.ModKey.FileName.String);
         try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
         catch (Exception ex) { return RemovalOutcome.Fail(SerializeFailure("writing the patch after removal failed (serialize or commit; the existing file is untouched): ", ex, session)); }
@@ -1369,11 +1326,11 @@ public static class WritePatchBuilder
     }
 
     /// <summary>IN-MEMORY absence verify run BEFORE any serialize, shared by both remove lanes: Mutagen's typed
-    /// <c>Remove</c> can no-op WITHOUT throwing (<c>throwIfUnknown:true</c> notwithstanding — HCBR-2026-07-08-01 F3
-    /// proved it for a concrete subclass of an abstract group's T), so trusting the void return and serializing anyway
-    /// rewrites the whole file to no effect and only the post-write verify catches it. Checking the mutable mod first
-    /// keeps a future no-op loud with the file UNTOUCHED (Q3). Null ⇒ all targets gone; else the refusal text (the
-    /// caller appends its lane's file-untouched suffix).</summary>
+    /// <c>Remove</c> can no-op WITHOUT throwing, <c>throwIfUnknown:true</c> notwithstanding (a concrete subclass of an
+    /// abstract group's T does it), so trusting the void return and serializing anyway rewrites the whole file to no
+    /// effect and only the post-write verify catches it. Checking the mutable mod first keeps a no-op loud with the
+    /// file UNTOUCHED. Null ⇒ all targets gone; else the refusal text (the caller appends its lane's file-untouched
+    /// suffix).</summary>
     static string? RemoveSurvivors(SkyrimMod mod, IReadOnlyList<RemovedRecord> toRemove)
     {
         var mustBeGone = toRemove.Select(rr => rr.Target).ToHashSet();
@@ -1386,25 +1343,25 @@ public static class WritePatchBuilder
     }
 
     /// <summary>
-    /// Remove WHOLE records IN PLACE — the in-place write lane's Wave-2 sibling of <see cref="RemoveRecords"/> and the
-    /// remove counterpart of <see cref="ApplyInPlace"/>. Drops a record the TARGET's own file carries (one it DEFINES, or
-    /// an override it HOLDS) back over the user's ORIGINAL file, instead of dropping it from a houseCARL patch. REUSES
-    /// every in-place mechanic <see cref="ApplyInPlace"/> proved: a per-call overlay session, the ContainsPlugin/
-    /// ExcludedPlugins refusal (never re-serialize a plugin Mutagen can't fully parse — that would risk dropping the
-    /// record it couldn't read, Q3), an EAGER CreateFromBinary of the SINGLE target (NEVER the order — the legacy
-    /// 12–14 GB RAM trap), <see cref="LoadOrderResolver.OverlaySession.ReleaseOverlay"/> before the swap (the self-lock
-    /// guard, here on a FOREIGN target), own-declared-masters re-emit via <see cref="WriteEngine.WriteInPlace"/> (NOT
-    /// WritePatch — no Skyrim.esm/Update.esm baseline force-include, the author's HEDR.NextObjectID preserved), and the
-    /// crash-atomic swap.
+    /// Remove WHOLE records IN PLACE — the in-place sibling of <see cref="RemoveRecords"/> and the remove counterpart
+    /// of <see cref="ApplyInPlace"/>. Drops a record the TARGET's own file carries (one it DEFINES, or an override it
+    /// HOLDS) back over the user's ORIGINAL file, instead of dropping it from a houseCARL patch. REUSES every in-place
+    /// mechanic <see cref="ApplyInPlace"/> uses: a per-call overlay session, the ContainsPlugin/ExcludedPlugins
+    /// refusal (never re-serialize a plugin Mutagen can't fully parse — that would risk dropping the record it
+    /// couldn't read), an EAGER CreateFromBinary of the SINGLE target (NEVER the order — that costs 12–14 GB of RAM),
+    /// <see cref="LoadOrderResolver.OverlaySession.ReleaseOverlay"/> before the swap (the self-lock, here on a FOREIGN
+    /// target), own-declared-masters re-emit via <see cref="WriteEngine.WriteInPlace"/> (NOT WritePatch — no
+    /// Skyrim.esm/Update.esm baseline force-include, the author's HEDR.NextObjectID preserved), and the crash-atomic
+    /// swap.
     ///
-    /// <para>REMOVAL SEMANTICS are <see cref="RemoveRecords"/>'s, unchanged: PRESENT-CHECK FIRST against what the TARGET
-    /// carries (Q3 — a key the file doesn't carry is REFUSED, the whole call, nothing written; <c>Remove</c> is a silent
+    /// <para>REMOVAL SEMANTICS are <see cref="RemoveRecords"/>'s, unchanged: PRESENT-CHECK FIRST against what the
+    /// TARGET carries (a key the file doesn't carry REFUSES the whole call, nothing written; <c>Remove</c> is a silent
     /// no-op otherwise), then the typed <c>Remove(FormKey, Type, throwIfUnknown)</c> that reaches every group (flat AND
     /// nested). MASTER-PRUNE rides along for free exactly as the patch lane gets it: <see cref="WriteEngine.WriteInPlace"/>
     /// hands Mutagen the target's own masters as the resolution context and lean-derives the emitted header from the
-    /// SURVIVING records' links, so a master the removal orphaned drops from the header automatically. The model-C
+    /// SURVIVING records' links, so a master the removal orphaned drops from the header automatically. The
     /// touched-record verify is applied to a removal as ABSENCE — every removed FormKey is confirmed GONE on the
-    /// re-opened on-disk file (confirm what you DROPPED actually went; Mutagen is trusted for the untouched rest).</para>
+    /// re-opened on-disk file; Mutagen is trusted for the untouched rest.</para>
     ///
     /// <para>The caller (the service in-place branch) has already resolved <paramref name="targetPath"/> to the real
     /// active-plugin path, run the consent handshake, and checked the writable parent — exactly as it does for
@@ -1419,22 +1376,22 @@ public static class WritePatchBuilder
     }
 
     /// <summary>The body of <see cref="RemoveRecordsInPlace"/> — split for the same single-point epoch stamp as
-    /// <see cref="ApplyCore"/> (SPEC §2.1.1).</summary>
+    /// <see cref="ApplyCore"/>.</summary>
     static RemovalOutcome RemoveRecordsInPlaceCore(
         LoadOrderResolver resolver, IReadOnlyList<FormKey> targets, string targetPath, string targetName,
         ref string? epoch)
     {
         if (targets.Count == 0) return RemovalOutcome.Fail("no records to remove supplied.");
 
-        // Per-call overlay session (Option B), same as ApplyInPlace: every read (the master set for the re-serialize) is
-        // opened THROUGH it and disposed when the method returns — no handle held at rest.
+        // Per-call overlay session, same as ApplyInPlace: every read (the master set for the re-serialize) is opened
+        // THROUGH it and disposed when the method returns — no handle held at rest.
         using var session = resolver.OpenSession();
         var fileName = Path.GetFileName(targetPath);
 
-        // --- Phase 1: the target must be an active, FULLY-PARSEABLE plugin (the ApplyInPlace guard — never re-serialize a
-        //     plugin Mutagen excluded, which would risk dropping the record it couldn't read on the rewrite, Q3). ---
+        // --- Phase 1: the target must be an active, FULLY-PARSEABLE plugin (the ApplyInPlace guard — never re-serialize
+        //     a plugin Mutagen excluded, which would risk dropping the record it couldn't read on the rewrite). ---
         var view = resolver.Capture();
-        epoch = view.Epoch;                                               // SPEC §2.1.1 — stamped on every outcome from here down
+        epoch = view.Epoch;                                               // stamped on every outcome from here down
         if (!view.ContainsPlugin(targetName))
             return RemovalOutcome.Fail($"in-place target '{targetName}' is not an active plugin in the load order.{view.AbsenceClause(targetName)}");
         if (view.ExcludedPlugins.TryGetValue(targetName, out var excluded))
@@ -1444,7 +1401,7 @@ public static class WritePatchBuilder
 
         // --- Phase 2: open the TARGET mutably. EAGER, the SINGLE plugin only — NEVER the load order. CreateFromBinary is
         //     the same call ApplyInPlace uses; an unparseable plugin throws here and is REFUSED, never silently
-        //     re-emitted minus the record Mutagen couldn't read (Q3). ---
+        //     re-emitted minus the record Mutagen couldn't read. ---
         if (!File.Exists(targetPath))
             return RemovalOutcome.Fail($"in-place target '{fileName}' not found on disk at {targetPath} — the file is untouched.");
         SkyrimMod targetMod;
@@ -1456,9 +1413,9 @@ public static class WritePatchBuilder
 
         // --- Phase 3: present-check against what the TARGET carries (RemoveRecords' contract, unchanged). One enumeration
         //     (flat + nested) captures type+editorid for the report AND the removal-routing type — the record's FLAT
-        //     GROUP's T, not the concrete runtime type: a subclass of an abstract group's T (GlobalShort) makes Mutagen's
-        //     Remove silently no-op (HCBR-2026-07-08-01 F3). A key the file doesn't define/override is REFUSED loud —
-        //     in-place removes only what the file OWNS. ---
+        //     GROUP's T, not the concrete runtime type: passing a subclass of an abstract group's T (GlobalShort) makes
+        //     Mutagen's Remove silently no-op. A key the file doesn't define/override is REFUSED loud — in-place
+        //     removes only what the file OWNS. ---
         var carried = new Dictionary<FormKey, (string type, string? edid, Type runtime)>();
         foreach (var r in targetMod.EnumerateMajorRecords())
             carried[r.FormKey] = (RecordNaming.StripOverlay(r.GetType().Name), r.EditorID, WriteEngine.RemovalTypeFor(r));
@@ -1484,9 +1441,9 @@ public static class WritePatchBuilder
                 $"refused — {problems.Count} of {targets.Count} target(s) not carried by '{fileName}'; NOTHING removed:\n  - "
                 + string.Join("\n  - ", problems));
 
-        // --- Phase 4: literal drop-from-group (NOT flag-as-deleted), the typed overload RemoveRecords proved reaches
-        //     nested groups (Cell/Placed*/INFO/Navmesh/Landscape) too. throwIfUnknown:true keeps an unrecognized type
-        //     loud (Q3). A throw AFTER the present-check passed is a real engine inconsistency — surfaced, not swallowed. ---
+        // --- Phase 4: literal drop-from-group (NOT flag-as-deleted), the typed overload that reaches nested groups
+        //     (Cell/Placed*/INFO/Navmesh/Landscape) too. throwIfUnknown:true keeps an unrecognized type loud. A throw
+        //     AFTER the present-check passed is a real engine inconsistency — surfaced, not swallowed. ---
         try
         {
             foreach (var rr in toRemove)
@@ -1501,10 +1458,10 @@ public static class WritePatchBuilder
         if (RemoveSurvivors(targetMod, toRemove) is { } survived)
             return RemovalOutcome.Fail(survived + $" Your original '{fileName}' is UNTOUCHED.");
 
-        // --- Phase 5: re-serialize the WHOLE target back over itself (model C — WriteInPlace, NOT WritePatch). Release
-        //     the target overlay first (the self-lock guard on a FOREIGN target: ReleaseOverlay disposes every session
-        //     overlay on the target — none here, since the present-check read targetMod directly, not via an overlay, but
-        //     the discipline is kept identical to ApplyInPlace). Resolve the target's OWN declared masters; Mutagen orders
+        // --- Phase 5: re-serialize the WHOLE target back over itself (WriteInPlace, NOT WritePatch). Release the
+        //     target overlay first (the self-lock on a FOREIGN target: ReleaseOverlay disposes every session overlay on
+        //     the target — none here, since the present-check read targetMod directly, not via an overlay, but the
+        //     discipline is kept identical to ApplyInPlace). Resolve the target's OWN declared masters; Mutagen orders
         //     against them and lean-derives the emitted header from the SURVIVING records, so an orphaned master drops. ---
         session.ReleaseOverlay(fileName);
         var masterOverlays = new List<IDisposable>();
@@ -1523,8 +1480,8 @@ public static class WritePatchBuilder
         finally { foreach (var d in masterOverlays) { try { d.Dispose(); } catch { /* best-effort; never mask the write result */ } } }
 
         // --- Phase 6: re-open the now-rewritten file; report its (possibly shrunk) master header + how many records
-        //     remain, and VERIFY each removed FormKey is ABSENT (the model-C touched-record verify applied to a removal
-        //     as absence). One enumeration counts survivors AND catches any removed key that wrongly survived. ---
+        //     remain, and VERIFY each removed FormKey is ABSENT — the touched-record verify applied to a removal as
+        //     absence. One enumeration counts survivors AND catches any removed key that wrongly survived. ---
         IReadOnlyList<string> masters = Array.Empty<string>();
         int remaining = 0; long bytes = 0;
         ISkyrimModGetter? back = null;
@@ -1553,15 +1510,14 @@ public static class WritePatchBuilder
 
     /// <summary>Phase-1 source resolution SHARED by <see cref="ForwardRecords"/> and <see cref="ForwardRecordsInPlace"/>:
     /// resolve each spec's body from its NAMED plugin (NOT the load-order winner) off ONE captured view, collecting ALL
-    /// problems (Q3 — refuse the whole call if any; <paramref name="refusal"/> non-null ⇒ the caller fails with it).
+    /// problems — refuse the whole call if any (<paramref name="refusal"/> non-null ⇒ the caller fails with it).
     /// <paramref name="selfIsTarget"/> only shapes the self-forward message (output patch vs in-place target).
-    /// <para><paramref name="sourceParam"/> is the SPELLING the calling tool exposes for the source pole — the
-    /// 1.x <c>from_plugin=</c>, or 2.0's <c>source=</c> (PR #311 review 4 [low]). Only the two self-forward
-    /// refusals name a parameter at all (the rest say "source plugin '<c>x</c>'", which is prose either way), and
-    /// naming one the caller cannot see is the same class this PR closes twice elsewhere — <c>offerModParam</c> on
-    /// the locate refusal, <c>InPlaceAgainHint</c> on the success path: render the CALLING surface's word.</para>
-    /// <para><paramref name="offOrder"/> (W3 PR 2b), when non-null, carries the bodies of a source the ACTIVE order does
-    /// NOT contain, pre-fetched by the service off that file's own overlay. It is consulted INSTEAD of the index for
+    /// <para><paramref name="sourceParam"/> is the SPELLING the calling tool exposes for the source pole
+    /// (<c>from_plugin=</c> or <c>source=</c>). Only the two self-forward refusals name a parameter at all (the rest
+    /// say "source plugin '<c>x</c>'", which is prose either way); they must render the CALLING surface's word, never
+    /// one the caller cannot see.</para>
+    /// <para><paramref name="offOrder"/>, when non-null, carries the bodies of a source the ACTIVE order does NOT
+    /// contain, pre-fetched by the service off that file's own overlay. It is consulted INSTEAD of the index for
     /// exactly that plugin — so "on disk but not in the order" resolves rather than being refused, and every other
     /// refusal below still applies to it unchanged.</para></summary>
     static List<(ForwardSpec spec, IMajorRecordGetter body, string? priorWinner, bool wasWinner, bool offOrderBody)> ResolveForwardSources(
@@ -1576,7 +1532,7 @@ public static class WritePatchBuilder
         // AbsenceClause costs a profile parse plus (for anything not already unticked) a whole-install folder sweep, and
         // `specs` is unbounded — a batch naming the same bad from_plugin 500 times would pay it 500 times for one
         // answer. Memoized per CALL, not per resolver: the explainer reads the profile fresh by design, and a cache
-        // living longer than one refusal batch is exactly the staleness it refuses to have (review of PR #274).
+        // living longer than one refusal batch would reintroduce the staleness it exists to avoid.
         var absenceMemo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         string Absence(string plugin)
         {
@@ -1589,11 +1545,11 @@ public static class WritePatchBuilder
             if (!seen.Add(s.Target))
             { problems.Add($"{s.Target}: forwarded more than once in this call — name each target once (one source per record)."); continue; }
             // Is the source THE FILE THIS CALL IS ABOUT TO WRITE? Judged by NAME for an in-order source (a filename is
-            // unique in an order, so the name IS the identity) and by FULL-PATH identity for an off-order one (W3 PR 2b:
-            // source= can now be a direct path, and two install copies legitimately share a filename — refusing on the
-            // name alone would reject re-asserting a disabled OLD copy of 'Patch.esp' into the live one). Not merely a
-            // no-op guard: an off-order overlay is held OPEN across the serialize, so copying a file into itself would
-            // also have the write fight our own mapped handle.
+            // unique in an order, so the name IS the identity) and by FULL-PATH identity for an off-order one: source=
+            // can be a direct path, and two install copies legitimately share a filename — refusing on the name alone
+            // would reject re-asserting a disabled OLD copy of 'Patch.esp' into the live one. Not merely a no-op
+            // guard: an off-order overlay is held OPEN across the serialize, so copying a file into itself would also
+            // have the write fight our own mapped handle.
             bool sourceIsSelf = IsOffOrderSource(offOrder, s, view)
                 ? SameFile(offOrder!.Path, targetPath)
                 : string.Equals(s.FromPlugin, fileName, StringComparison.OrdinalIgnoreCase);
@@ -1606,15 +1562,15 @@ public static class WritePatchBuilder
             }
             // The record's ORIGIN plugin must be active whatever the source is: the patch overrides the ORIGIN FormKey,
             // so the header needs that master, and the serializer would otherwise fail on a master it can't resolve —
-            // loud, but as an engine throw rather than a named, fixable reason. Newly reachable via the off-order arm
-            // ("forward this disabled mod's OWN records"), so it is refused here BY NAME (Q3).
+            // loud, but as an engine throw rather than a named, fixable reason. Reachable via the off-order arm
+            // ("forward this disabled mod's OWN records"), so it is refused here BY NAME.
             // …with ONE exemption: when the ORIGIN is the artifact being written. A plugin is never its own master
             // (Phase 4 hands the serializer AllMastersExcept(fileName), and a FormLink into the mod's own ModKey
-            // contributes no master reference), so such a record needs no master at all and the write succeeds. This is
-            // the PR's own motivating shape, one step on: re-assert an OLD copy's body of a record the patch you are
-            // mid-authoring ORIGINATES — where the patch is not enabled in MO2 yet, which is the default lane's whole
-            // premise, so the un-exempted check refused it and told the caller to "enable it first" (PR #313 review
-            // [low]). Judged on the same fileName the self-forward guard just used.
+            // contributes no master reference), so such a record needs no master at all and the write succeeds. The
+            // shape that needs it: re-assert an OLD copy's body of a record the patch you are mid-authoring
+            // ORIGINATES, while that patch is not enabled in MO2 yet — which is the default lane's whole premise, so
+            // an un-exempted check would tell the caller to "enable it first". Judged on the same fileName the
+            // self-forward guard just used.
             var originMaster = s.Target.ModKey.FileName.String;
             if (!string.Equals(originMaster, fileName, StringComparison.OrdinalIgnoreCase) && !view.ContainsPlugin(originMaster))
             { problems.Add($"{s.Target}: the record ORIGINATES in '{originMaster}', which is not active — a forward overrides the record's origin FormKey, so the patch would need '{originMaster}' as a master. Enable it first (forwarding copies FROM source, but it cannot invent the origin master).{Absence(originMaster)}"); continue; }
@@ -1653,22 +1609,13 @@ public static class WritePatchBuilder
     /// <summary>Does this spec's source resolve through <paramref name="offOrder"/>? The service resolves the off-order
     /// arm for the ONE <c>source=</c> the whole call shares, so this is a spelling match against that — one place, so the
     /// body lookup and the self-forward guard can never disagree about which arm a spec is on.
-    /// <para>It also re-checks the arm against <paramref name="view"/> — THIS call's capture, not the pre-locate's. The
-    /// two captures are separate (the service locates off-order, then the engine captures again), and `_snap` can be
-    /// swapped by a concurrent read's freshness rebuild in between, so a source that was off-order a moment ago may be
-    /// ACTIVE now. Matching on the name alone would then read the disk copy of a live plugin — and a profile switch can
-    /// make that a DIFFERENT file, so it is a wrong body, not merely a wrong label. Re-checking costs one dictionary
-    /// lookup and resolves the drift the right way round: the fresher build wins, the pre-fetched bodies go unused, and
-    /// the arm reported matches the arm taken (PR #313 review 3 [observation]). The <c>CopyFrom</c> twin took the same
-    /// shape in its own PR (#317) — <see cref="TryOffOrderCopyBody"/>.</para>
-    /// <para>CORRECTION (2026-08-07, 2.0 tidy-up review round 1): the premise above — "a concurrent rebuild can swap
-    /// membership mid-call" — is FALSE as written, here and on the twin, so both re-checks are structural invariants
-    /// rather than the race repairs they were filed as. The argument is stated ONCE, on
-    /// <see cref="TryOffOrderCopyBody"/> — read it there rather than re-deriving it from a second copy here
-    /// (PR #318 review [nit]: this correction and its twin were saying the same thing twice).</para>
-    /// <para>PARITY, since #321: both lanes carry the <c>ActiveNameForPath</c> full-path identity rule, so a
-    /// <c>source=</c> / <c>from_source=</c> PATH naming an ACTIVE plugin takes the in-order arm on either. The
-    /// <c>CopyFrom</c> twin applies it one step EARLIER — it re-spells the edit to the plugin NAME before
+    /// <para>It also re-checks the arm against <paramref name="view"/> — THIS call's capture, not the pre-locate's — so
+    /// the arm follows the build the write actually resolves against, and a name match alone can never read the disk
+    /// copy of a plugin the engine's build calls active. One dictionary lookup. This is a structural invariant, not a
+    /// race repair; the reasoning is stated once, on <see cref="TryOffOrderCopyBody"/>.</para>
+    /// <para>PARITY: both lanes carry the <c>ActiveNameForPath</c> full-path identity rule, so a <c>source=</c> /
+    /// <c>from_source=</c> PATH naming an ACTIVE plugin takes the in-order arm on either. The <c>CopyFrom</c> twin
+    /// applies it one step EARLIER — it re-spells the edit to the plugin NAME before
     /// <see cref="IsOffOrderCopySource"/> is ever consulted — because that predicate is shared with the service's
     /// pre-locate and a per-end rule could land on one side only.</para></summary>
     static bool IsOffOrderSource(OffOrderForwardSource? offOrder, ForwardSpec s, LoadOrderResolver.IndexView view) =>
@@ -1686,8 +1633,7 @@ public static class WritePatchBuilder
 
     /// <summary>The source link cache for ONE forward copy: null for the flat common case (costly and unnecessary), the
     /// OFF-ORDER file's own cache for an off-order body, and the session's per-plugin cache for an in-order one. One
-    /// function rather than the same ternary in both forward lanes — the shape PR #311's late rounds kept re-learning:
-    /// a rule duplicated per lane drifts, a rule that is a function cannot.</summary>
+    /// function rather than the same ternary in both forward lanes: a rule duplicated per lane drifts.</summary>
     static ILinkCache? SourceCacheFor(
         LoadOrderResolver.OverlaySession session, ForwardSpec spec, IMajorRecordGetter body,
         bool offOrderBody, OffOrderForwardSource? offOrder)
@@ -1698,17 +1644,17 @@ public static class WritePatchBuilder
 
     /// <summary>
     /// Forward records INTO an EXISTING plugin the user owns, IN PLACE — the forward lane's sibling of
-    /// <see cref="ApplyInPlace"/> (HCBR-2026-07-08-01 F4: <c>into=</c> is reserved for houseCARL-owned patches, so a
-    /// non-houseCARL original gets forwards through THIS explicit, consent-gated lane instead). Semantics:
+    /// <see cref="ApplyInPlace"/>. <c>into=</c> is reserved for houseCARL-owned patches, so a non-houseCARL original
+    /// gets forwards through THIS explicit, consent-gated lane instead. Semantics:
     /// <list type="bullet">
     /// <item>SOURCE: each body resolves from its NAMED plugin exactly as <see cref="ForwardRecords"/> Phase 1 (the
     /// shared <see cref="ResolveForwardSources"/>).</item>
     /// <item>COLLISION = REPLACE: a FormKey the target already carries has its existing record dropped
     /// (<see cref="WriteEngine.RemovalTypeFor"/> + the no-op verify) before the copy — the same xEdit
-    /// copy-as-override-into overwrite the default lane's extend now performs (F1), flagged per record.</item>
-    /// <item>SERIALIZE: model C via <see cref="WriteEngine.WriteInPlace"/> against the WHOLE known-master set (the
-    /// in-place create/edit lanes' context) — the header grows from the copied bodies' actual links (F2's mechanic),
-    /// the author's counter survives, no baseline force-include. Atomic swap; any failure leaves the original intact.</item>
+    /// copy-as-override-into overwrite the default lane's extend performs, flagged per record.</item>
+    /// <item>SERIALIZE via <see cref="WriteEngine.WriteInPlace"/> against the WHOLE known-master set (the in-place
+    /// create/edit lanes' context) — the header grows from the copied bodies' actual links, the author's counter
+    /// survives, no baseline force-include. Atomic swap; any failure leaves the original intact.</item>
     /// </list>
     /// CONSENT + the persistent acknowledge handshake are enforced by the SERVICE before this is reached. The full
     /// read-back (default ON, like every in-place lane) verifies each forwarded record landed on the re-opened file.
@@ -1726,27 +1672,27 @@ public static class WritePatchBuilder
     }
 
     /// <summary>What each forward lane left alone, SUBSTITUTED into a child-group refusal rather than appended after
-    /// it (round-1 review [low]; the <c>SerializeFailure</c> precedent below). Appending doubled the reassurance and
-    /// landed it after "please report it" — the engine builds the whole sentence with the lane's clause in place.</summary>
+    /// it (the <c>SerializeFailure</c> shape below): appending doubles the reassurance and lands it after "please
+    /// report it". The engine builds the whole sentence with the lane's clause in place.</summary>
     const string InPlaceUntouched = "Nothing was serialized; your original is UNTOUCHED.";
     const string ExtendUntouched = "Nothing was serialized; the extended patch's on-disk file is UNTOUCHED.";
 
     /// <summary>The body of <see cref="ForwardRecordsInPlace"/> — split for the same single-point epoch stamp as
-    /// <see cref="ApplyCore"/> (SPEC §2.1.1).</summary>
+    /// <see cref="ApplyCore"/>.</summary>
     static ForwardOutcome ForwardRecordsInPlaceCore(
         LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string targetPath, string targetName,
         bool fullReadback, bool dryRun, string sourceParam, OffOrderForwardSource? offOrder, ref string? epoch, ref bool usedOffOrder)
     {
         if (specs.Count == 0) return ForwardOutcome.Fail("no records to forward supplied.");
 
-        // Per-call overlay session (Option B), same as ApplyInPlace — no handle held at rest.
+        // Per-call overlay session, same as ApplyInPlace — no handle held at rest.
         using var session = resolver.OpenSession();
         var fileName = Path.GetFileName(targetPath);
 
         // --- Phase 1: target guards (the ApplyInPlace posture — never re-serialize a plugin Mutagen can't fully
         //     parse) + source resolution off ONE captured view. ---
         var view = resolver.Capture();
-        epoch = view.Epoch;                                               // SPEC §2.1.1 — stamped on every outcome from here down
+        epoch = view.Epoch;                                               // stamped on every outcome from here down
         if (!view.ContainsPlugin(targetName))
             return ForwardOutcome.Fail($"in-place target '{targetName}' is not an active plugin in the load order.{view.AbsenceClause(targetName)}");
         if (view.ExcludedPlugins.TryGetValue(targetName, out var excluded))
@@ -1755,7 +1701,7 @@ public static class WritePatchBuilder
                 "re-serialize a plugin it can't fully parse (that would risk dropping the record it couldn't read, Q3). The file is UNTOUCHED.");
         var resolved = ResolveForwardSources(session, view, specs, targetPath, selfIsTarget: true, sourceParam, out var refusal, offOrder);
         if (refusal is not null) return ForwardOutcome.Fail(refusal);
-        usedOffOrder = resolved.Any(r => r.offOrderBody);   // the arm ACTUALLY taken, which drift can differ from
+        usedOffOrder = resolved.Any(r => r.offOrderBody);   // the arm ACTUALLY taken, not the one the caller planned
 
         // --- Phase 2: open the TARGET mutably (EAGER, the single plugin only — never the order). ---
         if (!File.Exists(targetPath))
@@ -1767,13 +1713,13 @@ public static class WritePatchBuilder
         if (!string.Equals(targetMod.ModKey.FileName.String, fileName, StringComparison.OrdinalIgnoreCase))
             return ForwardOutcome.Fail($"in-place ModKey '{targetMod.ModKey.FileName}' must match the target filename '{fileName}'.");
         // Declared masters before any mutation — diffed against the re-opened header for the master-grow re-sort
-        // note (PR #163 review #1; see MasterGrowNote).
+        // note (see MasterGrowNote).
         var mastersBefore = targetMod.ModHeader.MasterReferences
             .Select(m => m.Master.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        // --- Phase 3: replace-or-copy each source body into the TARGET (the F1 semantic — a carried FormKey is
-        //     REPLACED, verified dropped before the copy; nothing is serialized until Phase 4, so any refusal here
-        //     leaves the on-disk file untouched). ---
+        // --- Phase 3: replace-or-copy each source body into the TARGET — a carried FormKey is REPLACED, verified
+        //     dropped before the copy; nothing is serialized until Phase 4, so any refusal here leaves the on-disk
+        //     file untouched. ---
         var alreadyCarried = new Dictionary<FormKey, IMajorRecord>();
         foreach (var r in targetMod.EnumerateMajorRecords())
             alreadyCarried[r.FormKey] = r;
@@ -1787,9 +1733,9 @@ public static class WritePatchBuilder
                 var carriedChildren = default(WriteEngine.ChildGroupCarry);
                 if (alreadyCarried.TryGetValue(spec.Target, out var existing))
                 {
-                    // #324, and this is the worse half: the target is the caller's OWN plugin on the lane whose banner
-                    // reads "no houseCARL backup or undo", so a child group the drop takes is gone for good. Lift it
-                    // off before the Remove and re-attach after the copy.
+                    // The drop takes the record's CHILD GROUP with it and the copy carries none back in. Here the
+                    // target is the caller's OWN plugin, with no backup or undo, so a child group the drop takes is
+                    // gone for good. Lift it off before the Remove and re-attach after the copy.
                     if (WriteEngine.TryCaptureChildGroup(existing, InPlaceUntouched, out carriedChildren) is { } captureRefusal)
                         return ForwardOutcome.Fail(captureRefusal);
                     ((IMajorRecordEnumerable)targetMod).Remove(spec.Target, WriteEngine.RemovalTypeFor(existing), throwIfUnknown: true);
@@ -1815,8 +1761,8 @@ public static class WritePatchBuilder
             }
         }
 
-        // --- #225 DRY RUN: stop AT the point of no return (see Apply's twin block). patchLane:false — WriteInPlace
-        //     adds no baseline masters. The would-grow re-sort note is phrased predictively. ---
+        // --- DRY RUN: stop AT the point of no return (see Apply's twin block). patchLane:false — WriteInPlace adds no
+        //     baseline masters. The would-grow re-sort note is phrased predictively. ---
         if (dryRun)
         {
             if (DryRunMastersPreview(targetMod, resolver, patchLane: false, out var wouldMasters) is { } dryErr)
@@ -1833,8 +1779,8 @@ public static class WritePatchBuilder
             };
         }
 
-        // --- Phase 4: model-C re-serialize over the original (WriteInPlace, whole known-master set — the copied
-        //     bodies' links grow the header; the self-lock ReleaseOverlay first; atomic swap). ---
+        // --- Phase 4: re-serialize over the original (WriteInPlace, whole known-master set — the copied bodies' links
+        //     grow the header; the self-lock ReleaseOverlay first; atomic swap). ---
         session.ReleaseOverlay(fileName);
         try { WriteEngine.WriteInPlace(targetMod, session.AllMastersExcept(fileName), targetPath, resolver.DataDir); }
         catch (MissingModException ex)
@@ -1871,24 +1817,22 @@ public static class WritePatchBuilder
     }
 
 
-    /// <summary>#314 — the NAMED cause when a serialize failed because the header needed a master this session
-    /// skipped as unopenable. The plugin IS active, so the "not active in the load order" wording the missing-master
-    /// arms use is wrong for it, and the generic "serialize or commit" wording reads as a disk fault. Empty string when
-    /// this isn't that case, so callers can append unconditionally.
+    /// <summary>The NAMED cause when a serialize failed because the header needed a master this session skipped as
+    /// unopenable. The plugin IS active, so the "not active in the load order" wording the missing-master arms use is
+    /// wrong for it, and the generic "serialize or commit" wording reads as a disk fault. Empty string when this isn't
+    /// that case, so callers can append unconditionally.
     ///
-    /// <para>Matched on the exception's TYPED <c>ModPaths</c>, never on its message text. Two review findings closed by
-    /// construction rather than patched: a substring match would fire when a skipped <c>Foo.esp</c> is a substring of
-    /// the <c>MyFoo.esp</c> the serializer actually wanted (Skyrim plugin names are heavily prefixed) — the confident
-    /// wrong cause this is supposed to degrade away from; and reading only <c>ex.Message</c> would miss a
-    /// <c>MissingModException</c> that arrives WRAPPED, which this codebase already documents happens (see
-    /// <see cref="RootNullArm"/>'s doubly-nested AggregateException). The whole chain is walked, aggregates
-    /// included.</para></summary>
+    /// <para>Matched on the exception's TYPED <c>ModPaths</c>, never on its message text: a substring match would fire
+    /// when a skipped <c>Foo.esp</c> is a substring of the <c>MyFoo.esp</c> the serializer actually wanted (Skyrim
+    /// plugin names are heavily prefixed). Reading only <c>ex.Message</c> would also miss a
+    /// <c>MissingModException</c> that arrives WRAPPED, which happens here (see <see cref="RootNullArm"/>'s
+    /// doubly-nested AggregateException). The whole chain is walked, aggregates included.</para></summary>
     public static string UnopenableMasterClause(Exception ex, LoadOrderResolver.OverlaySession session)
     {
         // NOT the baseline class: WriteEngine.Describe already renders "{Type}: {Message}", and that exception's
-        // Message IS the whole refusal — appending it as a CAUSE printed the same ~60 words twice (PR #315 review 3).
-        // That branch is handled by SerializeFailure, which SUBSTITUTES rather than appends. Returning "" here also
-        // keeps the doubling out of the one lane that renders the clause without going through it (npc-copy).
+        // Message IS the whole refusal — appending it as a CAUSE would print the same ~60 words twice. That branch is
+        // handled by SerializeFailure, which SUBSTITUTES rather than appends. Returning "" here also keeps the
+        // doubling out of the one lane that renders the clause without going through it (npc-copy).
         for (Exception? b = ex; b is not null; b = b.InnerException)
             if (b is UnopenableBaselineMasterException) return "";
         if (session.SkippedUnopenable.Count == 0) return "";
@@ -1905,15 +1849,14 @@ public static class WritePatchBuilder
 
     /// <summary>Render a serialize-failure message. Normally <paramref name="lead"/> + the exception + the
     /// unopenable-master CAUSE; but a BASELINE refusal SUBSTITUTES its own message for the lot, because every part of
-    /// the usual shape is wrong for it (PR #315 review 3): it is thrown while the master-set ARGUMENT is being built,
-    /// so "serialize or commit" names a phase that never started; the patch lanes' lead adds "the existing file is
-    /// untouched" when a fresh patch has no existing file; and the message would otherwise print twice, since
+    /// the usual shape is wrong for it: it is thrown while the master-set ARGUMENT is being built, so "serialize or
+    /// commit" names a phase that never started; the patch lanes' lead adds "the existing file is untouched" when a
+    /// fresh patch has no existing file; and the message would otherwise print twice, since
     /// <see cref="WriteEngine.Describe"/> already carries it.</summary>
     /// <para><paramref name="trailer"/> is a lane's own tail (npc-copy's "Nothing usable was written."). It is
-    /// DROPPED on the baseline branch, whose message already states the write status — appending it produced the
-    /// doubled status and doubled period that survived in the one lane routed around this helper (PR #315 review 4).
-    /// PUBLIC rather than the suggested internal: the calling lane lives in housecarl-mcp, and core only grants
-    /// InternalsVisibleTo to housecarl-generator, so internal would not have compiled at the call site.</para>
+    /// DROPPED on the baseline branch, whose message already states the write status — appending it doubles the
+    /// status and the period. PUBLIC, not internal: the calling lane lives in housecarl-mcp, and core only grants
+    /// InternalsVisibleTo to housecarl-generator.</para>
     public static string SerializeFailure(string lead, Exception ex, LoadOrderResolver.OverlaySession session, string trailer = "")
     {
         for (Exception? b = ex; b is not null; b = b.InnerException)
@@ -1928,7 +1871,7 @@ public static class WritePatchBuilder
         if (trailer.Length == 0) return body;
         // Exactly ONE terminator before a lane's tail. A fixed trailer cannot do this alone: the clause already ends
         // in a full stop when it fires, and Describe(ex) does not when it doesn't — so a leading period doubles in one
-        // case and its absence runs two sentences together in the other (PR #315 re-review).
+        // case and its absence runs two sentences together in the other.
         return body.TrimEnd().EndsWith('.') ? body + trailer : body + "." + trailer;
     }
 
@@ -1947,8 +1890,7 @@ public static class WritePatchBuilder
         {
             // …and NOT the tail below as well: AggregateException.InnerException IS InnerExceptions[0], so visiting
             // both walks that branch twice and burns two depth levels on one hop, roughly halving the effective cap
-            // along an aggregate chain (PR #315 review 4). Harmless — the set dedupes — but the cap should mean what
-            // it says.
+            // along an aggregate chain. Harmless — the set dedupes — but the cap should mean what it says.
             foreach (var inner in agg.InnerExceptions) CollectMissingMods(inner, session, into, depth + 1);
             return;
         }
@@ -1984,14 +1926,14 @@ public static class WritePatchBuilder
         /// human half of the same disclosure.</summary>
         public required string Where { get; init; }
         /// <summary>Every wanted record's body, pre-fetched off the overlay. A key absent here never reaches the engine:
-        /// the caller refuses the WHOLE call by name when the file doesn't define a requested record (Q3).</summary>
+        /// the caller refuses the WHOLE call by name when the file doesn't define a requested record.</summary>
         public required IReadOnlyDictionary<FormKey, IMajorRecordGetter> Bodies { get; init; }
         /// <summary>The overlay the bodies came from, kept for the NESTED-record link cache below. Not owned here.</summary>
         public required ISkyrimModGetter Overlay { get; init; }
         /// <summary>Non-null ⇒ this file is the order's own copy of a plugin the session EXCLUDED (Mutagen could not
         /// fully parse it when the index was built), reached because it was addressed by PATH. Copying ONE body out is
         /// not the whole-file re-serialize the exclusion refusal guards, so it is allowed — but never silently: the
-        /// reason is carried to the report (PR #313 review 3 [low]).</summary>
+        /// reason is carried to the report.</summary>
         public string? ExcludedReason { get; init; }
 
         ILinkCache? _cache;
@@ -2011,23 +1953,22 @@ public static class WritePatchBuilder
     /// <summary>One record forwarded by <see cref="ForwardRecords"/> — its FormKey + type + editorid, the source plugin
     /// whose version was copied, and the load-order winner it will out-rank once the patch is enabled (so the caller
     /// sees what the forward CHANGES). <see cref="WasAlreadyWinner"/>=true ⇒ the forwarded version WAS already the
-    /// winner, so this override is a redundant no-op copy — surfaced, never silent (Q3).
+    /// winner, so this override is a redundant no-op copy — surfaced, never silent.
     /// <see cref="ReplacedExisting"/>=true ⇒ the patch ALREADY carried this FormKey and its existing record was
-    /// REPLACED by the source's body (the xEdit copy-as-override-into semantic; HCBR-2026-07-08-01 F1 — the old
-    /// GetOrAdd path kept the existing record and skipped the copy while still reporting "forwarded").</summary>
+    /// REPLACED by the source's body (the xEdit copy-as-override-into semantic).</summary>
     /// <para><paramref name="PriorWinner"/> is NULL when no active plugin currently defines the record at all — which
-    /// this PR's self-origin path makes ordinary (a record originating in a patch that is not enabled yet). It used to
-    /// be the sentinel "(none)", which the renders dropped straight into "out-ranks the current winner (none)" — a
-    /// ranking asserted against a winner that does not exist (PR #313 review 3 [low]).</para>
+    /// the self-origin path makes ordinary (a record originating in a patch that is not enabled yet). Deliberately
+    /// null and not a "(none)" sentinel, which renders as "out-ranks the current winner (none)": a ranking asserted
+    /// against a winner that does not exist.</para>
     /// <param name="PreservedChildren">How many records nested under <paramref name="Target"/> the replace carried
-    /// across (#324). Only ever non-zero with <paramref name="ReplacedExisting"/>, and it is what stops the render
-    /// saying "the old body is gone" over a cell whose forty placed refs are still there.</param>
+    /// across. Only ever non-zero with <paramref name="ReplacedExisting"/>, and it is what stops the render saying
+    /// "the old body is gone" over a cell whose forty placed refs are still there.</param>
     public sealed record ForwardedRecord(
         FormKey Target, string RecordType, string? EditorId, string FromPlugin, string? PriorWinner, bool WasAlreadyWinner,
         bool ReplacedExisting = false, int PreservedChildren = 0);
 
     /// <summary>The outcome of a <see cref="ForwardRecords"/> call. <see cref="Error"/> non-null ⇒ the whole call was
-    /// refused (no file written) with a named, recoverable reason (Q3 — a source plugin found nowhere / excluded /
+    /// refused (no file written) with a named, recoverable reason (a source plugin found nowhere / excluded /
     /// the file being written itself / one that doesn't define the target). Otherwise the patch at <see cref="OutputPath"/> carries
     /// each forwarded record; <see cref="Masters"/> is its lean header (the forwarded content's ORIGIN master + whatever
     /// it references — NOT the source plugin, which is copied FROM, never mastered ON). <see cref="ReadBack"/> is the
@@ -2038,13 +1979,13 @@ public static class WritePatchBuilder
     {
         public IReadOnlyList<FullReadback>? ReadBack { get; init; }
 
-        /// <summary>SPEC §2.1.1 — the fingerprint of the index build THIS OUTCOME was decided from, on the same
-        /// contract as <see cref="PatchOutcome.Epoch"/>. A forward resolves every source body THROUGH the captured
-        /// build and reports the winner each copy will out-rank, so the epoch is what tells a caller whether that
-        /// "out-ranks X" reading still holds against the order they last read.
+        /// <summary>The fingerprint of the index build THIS OUTCOME was decided from, on the same contract as
+        /// <see cref="PatchOutcome.Epoch"/>. A forward resolves every source body THROUGH the captured build and
+        /// reports the winner each copy will out-rank, so the epoch is what tells a caller whether that "out-ranks X"
+        /// reading still holds against the order they last read.
         /// <para>On the OFF-ORDER arm (<see cref="OffOrderSource"/> non-null) only the second half of that holds: the
         /// out-ranked winners are still resolved from this build, but the BODIES came from a file the build does not
-        /// index, so the stamp says nothing about their content. The fact is reported rather than the stamp being
+        /// index, so the stamp says nothing about their content. That is reported rather than the stamp being
         /// re-defined — the same split the read surface spells <c>epoch_covers_all_inputs</c>.</para></summary>
         public string? Epoch { get; init; }
 
@@ -2053,7 +1994,7 @@ public static class WritePatchBuilder
         public bool InPlace { get; init; }
 
         /// <summary>Non-null ⇒ the bodies were copied from a source the ACTIVE ORDER DOES NOT CONTAIN — a disabled mod,
-        /// an unticked plugin, a folder MO2 never registered (W3 PR 2b). WHICH copy on disk was read is not derivable
+        /// an unticked plugin, a folder MO2 never registered. WHICH copy on disk was read is not derivable
         /// from the source's name (several install layers can provide the same filename, and only one of them was
         /// opened), so it is reported as a fact rather than left for the caller to assume. Null on the ordinary
         /// active-order path.</summary>
@@ -2061,14 +2002,14 @@ public static class WritePatchBuilder
 
         /// <summary>True ⇒ NOT a write and NOT an error: the server-enforced first-touch in-place CONSENT handshake.
         /// <see cref="Error"/> carries the prompt verbatim (re-call with acknowledge=true). Rendered as a confirmation
-        /// prompt, never "error:" (Q3). Nothing was written. Mirrors <see cref="PatchOutcome.NeedsAcknowledge"/>.</summary>
+        /// prompt, never "error:". Nothing was written. Mirrors <see cref="PatchOutcome.NeedsAcknowledge"/>.</summary>
         public bool NeedsAcknowledge { get; init; }
 
-        /// <summary>An optional Q3 honesty note appended to a SUCCESSFUL outcome — a side effect that didn't land cleanly
+        /// <summary>An optional honesty note appended to a SUCCESSFUL outcome — a side effect that didn't land cleanly
         /// even though the write did. Null when there's nothing to add. Mirrors <see cref="PatchOutcome.Note"/>.</summary>
         public string? Note { get; init; }
 
-        /// <summary>True ⇒ this Success came from a DRY RUN (#225): the real forward pipeline ran (source resolve,
+        /// <summary>True ⇒ this Success came from a DRY RUN: the real forward pipeline ran (source resolve,
         /// replace-or-copy into the in-memory mod, the reference-resolution check) and STOPPED before the serialize —
         /// NOTHING was written. <see cref="Forwarded"/> is what WOULD be copied; <see cref="Masters"/> is the expected
         /// (link-derived, preview) master set; <see cref="Bytes"/> is 0. Mirrors <see cref="PatchOutcome.DryRun"/>.</summary>
@@ -2085,7 +2026,7 @@ public static class WritePatchBuilder
     }
 
     /// <summary>The outcome of a <see cref="CreatePlugin"/> call. <see cref="Error"/> non-null ⇒ the call was refused
-    /// (no file written) with a named reason (Q3). Otherwise the empty plugin lives at <see cref="OutputPath"/> with the
+    /// (no file written) with a named reason. Otherwise the empty plugin lives at <see cref="OutputPath"/> with the
     /// exact <see cref="PluginName"/> the caller asked for (never auto-suffixed — a header-only plugin's basename is
     /// load-bearing). <see cref="RecordCount"/> is 0 by definition (re-read off the written file to confirm, not
     /// assumed); <see cref="Masters"/> is empty (an empty plugin references nothing — exactly what the CK stamps on one);
@@ -2099,14 +2040,14 @@ public static class WritePatchBuilder
     }
 
     /// <summary>One external referencer's in-place repoint result (the opt-in compact rewrite): the plugin, whether its
-    /// references were successfully rewritten to the new keys, and the named reason if not (Q3 — a per-plugin failure is
-    /// reported, never silent; the file is left untouched on failure by <see cref="RemapEngine.RepointInPlace"/>).</summary>
+    /// references were successfully rewritten to the new keys, and the named reason if not — a per-plugin failure is
+    /// reported, never silent, and <see cref="RemapEngine.RepointInPlace"/> leaves the file untouched on failure.</summary>
     public sealed record RepointReport(string Plugin, bool Success, string? Error);
 
     /// <summary>The outcome of a <see cref="LoadOrderService.CompactPlugin"/> call (the compact/ESL-renumber tool).
     /// <see cref="NeedsAcknowledge"/> ⇒ a required first-time in-place CONSENT prompt (the operation will overwrite an
     /// existing file — the target in the in-place lane, and/or each external referencer being repointed — so the caller
-    /// must re-call with acknowledge=true); it is NOT an error (Q3). <see cref="Error"/> non-null (with NeedsAcknowledge
+    /// must re-call with acknowledge=true); it is NOT an error. <see cref="Error"/> non-null (with NeedsAcknowledge
     /// false) ⇒ refused, nothing written, named reason. On success the compacted P′ is at <see cref="OutputPath"/>
     /// (<see cref="InPlace"/> ⇒ the original file was overwritten; else a NEW file keeping the source's basename in a fresh
     /// mod folder). <see cref="RecordsRenumbered"/> originating records moved into the (light if <see cref="Esl"/>) window;
@@ -2114,13 +2055,13 @@ public static class WritePatchBuilder
     /// lists plugins outside the target that reference a renumbered record — empty on the clean path; on the refused path
     /// (externals present, no opt-in) the list IS the refusal detail; with opt-in repoint, <see cref="Repointed"/> reports
     /// each. <see cref="PluginsScanned"/>/<see cref="UnscannableRecords"/> are the identify-pass coverage accounting.
-    /// <see cref="AssetRename"/> (null until the asset-carry runs) is the FormID-keyed-asset accounting — A1: facegen
-    /// carried to the new FormIDs (so a compacted NPC mod no longer silently dark-faces). <see cref="VoiceRename"/>
-    /// (A2, null until the carry runs) is the same for voice (.fuz/.lip), so a compacted voiced mod no longer goes mute.
+    /// <see cref="AssetRename"/> (null until the asset-carry runs) is the FormID-keyed-asset accounting: facegen
+    /// carried to the new FormIDs, so a compacted NPC mod no longer silently dark-faces. <see cref="VoiceRename"/>
+    /// (null until the carry runs) is the same for voice (.fuz/.lip), so a compacted voiced mod no longer goes mute.
     /// <see cref="ExternalOverriders"/>
-    /// (gap #2) are plugins OUTSIDE the target that OVERRIDE a renumbered record — surfaced as a WARN (they orphan after
+    /// are plugins OUTSIDE the target that OVERRIDE a renumbered record — surfaced as a WARN (they orphan after
     /// the renumber and houseCARL can't auto-repoint an override's identity); they never gate the compaction.
-    /// <see cref="SeqRegen"/> (A3, null until the regen runs) is the start-game-enabled-quest <c>.seq</c> accounting — a
+    /// <see cref="SeqRegen"/> (null until the regen runs) is the start-game-enabled-quest <c>.seq</c> accounting — a
     /// renumber shifts the on-disk FormIDs a <c>.seq</c> lists, so a <c>.seq</c> the source SHIPPED is REBUILT from P′ (not
     /// carried) so those quests still start; REFRESH-ONLY — a source with no <c>.seq</c> gets a named advisory, not an
     /// invented file; a plugin with no SGE quests is a clean no-op.</summary>
@@ -2140,7 +2081,7 @@ public static class WritePatchBuilder
                 Array.Empty<string>(), Array.Empty<RepointReport>(), 0, 0, Array.Empty<string>());
     }
 
-    /// <summary>The merge tool's outcome (A4): the merged plugin's identity + per-donor remap accounting + every
+    /// <summary>The merge tool's outcome: the merged plugin's identity + per-donor remap accounting + every
     /// cross-donor conflict (load-order winner, reported never silent) + the identify-pass WARN surfaces (external
     /// referencers AND overriders — merge never refuses on them, the donors stay installed and active until the user
     /// swaps in MO2, so nothing breaks at write time; the report names each with the remedy) + the FormID-keyed asset
@@ -2169,8 +2110,7 @@ public static class WritePatchBuilder
     /// <summary>
     /// FORWARD a NAMED plugin's version of each record INTO the patch as an override — xEdit's "copy as override into",
     /// the inverse of <see cref="Apply"/>'s winner-override. Where Apply/Create author NEW content, this re-asserts an
-    /// EARLIER plugin's already-authored version over a later override (the HCBR-2026-06-21 case: restore ATweaks'
-    /// Searing-Sun spell over Sacrilege's). The whole source record is DEEP-COPIED via
+    /// EARLIER plugin's already-authored version over a later override. The whole source record is DEEP-COPIED via
     /// <see cref="WriteEngine.GenericGetOrAddAsOverride"/> — the SAME override primitive <see cref="Apply"/> uses, so
     /// it's generic over EVERY record type by construction (the nested Cell/Placed*/INFO/Navmesh/Landscape families
     /// included, via the source link cache). There is NO field edit, so NO rulebook pre-flight: a complete, valid source
@@ -2181,7 +2121,7 @@ public static class WritePatchBuilder
     /// the origin master + whatever the forwarded content references (exactly what xEdit's "copy as override into a new
     /// patch" produces). Forwarding the ORIGIN master's own version reverts the record to vanilla.</para>
     ///
-    /// <para>Q3 — every refusal is named and the WHOLE call is all-or-nothing (no partial patch): a source plugin in
+    /// <para>Every refusal is named and the WHOLE call is all-or-nothing (no partial patch): a source plugin in
     /// NEITHER the order nor on disk, EXCLUDED (unparseable), the FILE BEING WRITTEN itself (a no-op self-forward, judged
     /// by file identity for an off-order source), a target whose ORIGIN plugin isn't active (the patch would need it as a
     /// master), the SAME target twice, or one
@@ -2206,38 +2146,38 @@ public static class WritePatchBuilder
     /// <summary>Stamp WHICH off-order copy a SUCCESSFUL forward read (including a dry run, which resolves every body for
     /// real). Single-point, on the same wrapper as the epoch stamp, so the two forward lanes cannot report it
     /// differently. A REFUSAL is left unstamped: it leads with its own named reason, and the refusal may well be that the
-    /// source never resolved at all — labelling that outcome with a copy it read would be the wrong claim (Q3).</summary>
+    /// source never resolved at all — labelling that outcome with a copy it read would be the wrong claim.</summary>
     static ForwardOutcome StampOffOrderSource(ForwardOutcome outcome, OffOrderForwardSource? offOrder, bool usedOffOrder) =>
         offOrder is null || !usedOffOrder || !outcome.Success
             ? outcome
             : outcome with { OffOrderSource = new OffOrderSourceRead(offOrder.Plugin, offOrder.Path, offOrder.Where, offOrder.ExcludedReason) };
 
     /// <summary>The body of <see cref="ForwardRecords"/> — split for the same single-point epoch stamp as
-    /// <see cref="ApplyCore"/> (SPEC §2.1.1).</summary>
+    /// <see cref="ApplyCore"/>.</summary>
     static ForwardOutcome ForwardRecordsCore(
         LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string outPath, bool extend, bool fullReadback,
         bool dryRun, string sourceParam, OffOrderForwardSource? offOrder, ref string? epoch, ref bool usedOffOrder)
     {
         if (specs.Count == 0) return ForwardOutcome.Fail("no records to forward supplied.");
 
-        // Per-call overlay session (Option B): every source plugin this forward reads is opened THROUGH it and disposed
-        // when the method returns — no handle held at rest (the same model Apply / RemoveRecords / CreateRecords use).
+        // Per-call overlay session: every source plugin this forward reads is opened THROUGH it and disposed when the
+        // method returns — no handle held at rest (the same model Apply / RemoveRecords / CreateRecords use).
         using var session = resolver.OpenSession();
         var fileName = Path.GetFileName(outPath);
 
-        // --- Phase 1: resolve each source body from its NAMED plugin (NOT the load-order winner) + classify any miss
-        //     (Q3 — collect ALL problems, then refuse the whole call if any). ONE captured build answers every spec (the
-        //     hunt-F5 one-view discipline Apply follows: a freshness rebuild mid-loop can't mix two builds' resolutions).
-        //     PERF (accuracy-over-perf, not a blocker): each GetRecord re-enumerates from_plugin's overlay, so N targets
-        //     from ONE source = N in-memory walks of that overlay (the file is opened ONCE — the session caches it). Fine
-        //     for realistic use (re-assert a few of a mod's records); if a "forward 100 records out of a huge overhaul"
-        //     case ever bites, the clean fix is a single-pass batch fetch keyed by from_plugin (group specs by source,
-        //     enumerate the overlay once collecting all wanted FormKeys) — deferred until measured. ---
+        // --- Phase 1: resolve each source body from its NAMED plugin (NOT the load-order winner) + classify any miss:
+        //     collect ALL problems, then refuse the whole call if any. ONE captured build answers every spec, so a
+        //     freshness rebuild mid-loop can't mix two builds' resolutions.
+        //     PERF: each GetRecord re-enumerates from_plugin's overlay, so N targets from ONE source = N in-memory
+        //     walks of that overlay (the file is opened ONCE — the session caches it). Fine for realistic use; the
+        //     clean fix if a "forward 100 records out of a huge overhaul" case ever bites is a single-pass batch fetch
+        //     keyed by from_plugin (group specs by source, enumerate the overlay once collecting all wanted
+        //     FormKeys) — deferred until measured. ---
         var view = resolver.Capture();
-        epoch = view.Epoch;                                               // SPEC §2.1.1 — stamped on every outcome from here down
+        epoch = view.Epoch;                                               // stamped on every outcome from here down
         var resolved = ResolveForwardSources(session, view, specs, outPath, selfIsTarget: false, sourceParam, out var refusal, offOrder);
         if (refusal is not null) return ForwardOutcome.Fail(refusal);
-        usedOffOrder = resolved.Any(r => r.offOrderBody);   // the arm ACTUALLY taken, which drift can differ from
+        usedOffOrder = resolved.Any(r => r.offOrderBody);   // the arm ACTUALLY taken, not the one the caller planned
 
         // --- Phase 2: open (extend) or create the patch mod (identical to Apply Phase 2). ---
         SkyrimMod patchMod;
@@ -2257,13 +2197,13 @@ public static class WritePatchBuilder
 
         // --- Phase 3: deep-copy each source body INTO the patch as an override. NO ApplyVerb — the copy IS the forward
         //     (GenericGetOrAddAsOverride duplicates the source's whole content; a nested record gets the source overlay's
-        //     link cache on demand, the SAME session.LinkCacheFor path Apply uses + guards). A FormKey the patch ALREADY
-        //     carries (an extend) is REPLACED — its existing record dropped first, then the source body copied — the
-        //     xEdit copy-as-override-into semantic (HCBR-2026-07-08-01 F1: GetOrAdd's get-semantics on a collision kept
-        //     the existing record and SKIPPED the copy while still reporting "forwarded" — a silent wrong result; the
-        //     drop also lets the serialize grow the master list from the NEW body, which the skip path never did).
+        //     link cache on demand, the SAME session.LinkCacheFor path Apply uses). A FormKey the patch ALREADY carries
+        //     (an extend) is REPLACED — its existing record dropped first, then the source body copied — the xEdit
+        //     copy-as-override-into semantic. The drop is required: GetOrAdd has get-semantics, so on a collision it
+        //     keeps the existing record and SKIPS the copy while still reporting "forwarded", and only the drop lets
+        //     the serialize grow the master list from the NEW body.
         //     A throw here is a real engine inconsistency — fail the WHOLE call (no partial patch; nothing has been
-        //     serialized, the on-disk file is untouched), surfaced not swallowed (Q3). ---
+        //     serialized, the on-disk file is untouched), surfaced not swallowed. ---
         var alreadyCarried = new Dictionary<FormKey, IMajorRecord>();
         if (extend)
             foreach (var r in patchMod.EnumerateMajorRecords())
@@ -2278,14 +2218,14 @@ public static class WritePatchBuilder
                 var carriedChildren = default(WriteEngine.ChildGroupCarry);
                 if (alreadyCarried.TryGetValue(spec.Target, out var existing))
                 {
-                    // #324: the drop below takes the record's CHILD GROUP with it and the copy carries none back in,
-                    // so lift the children off FIRST and re-attach them after — a topic's INFOs, a cell's placed refs.
-                    // Before the Remove, because afterwards the record is no longer reachable from the mod.
+                    // The drop below takes the record's CHILD GROUP with it and the copy carries none back in, so lift
+                    // the children off FIRST and re-attach them after — a topic's INFOs, a cell's placed refs. Before
+                    // the Remove, because afterwards the record is no longer reachable from the mod.
                     if (WriteEngine.TryCaptureChildGroup(existing, ExtendUntouched, out carriedChildren) is { } captureRefusal)
                         return ForwardOutcome.Fail(captureRefusal);
                     ((IMajorRecordEnumerable)patchMod).Remove(spec.Target, WriteEngine.RemovalTypeFor(existing), throwIfUnknown: true);
-                    // The typed Remove can no-op WITHOUT throwing (F3's sibling defect) — verify the slot is genuinely
-                    // empty before the copy, else GetOrAdd would silently return the old record again (Q3).
+                    // The typed Remove can no-op WITHOUT throwing — verify the slot is genuinely empty before the
+                    // copy, else GetOrAdd would silently return the old record again.
                     if (patchMod.EnumerateMajorRecords().Any(x => x.FormKey == spec.Target))
                         return ForwardOutcome.Fail(
                             $"cannot replace {spec.Target}: the patch already carries this record and its existing " +
@@ -2308,7 +2248,7 @@ public static class WritePatchBuilder
             }
         }
 
-        // --- #225 DRY RUN: stop AT the point of no return (see Apply's twin block) — the copies above landed in the
+        // --- DRY RUN: stop AT the point of no return (see Apply's twin block) — the copies above landed in the
         //     in-memory mod only; report what WOULD be forwarded + the expected masters, write nothing. ---
         if (dryRun)
         {
@@ -2320,21 +2260,16 @@ public static class WritePatchBuilder
         }
 
         // --- Phase 4: serialize ONCE with the FULL known-master set (identical to Apply Phase 4 — release any overlay
-        //     on the target before the serialize + keep the target out of the master set; the two-part self-lock guard). ---
+        //     on the target before the serialize + keep the target out of the master set; the two-part self-lock). ---
         session.ReleaseOverlay(patchMod.ModKey.FileName.String);
         try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
         catch (MissingModException ex)
         {
-            // The in-place twin has named this since its own wave; this lane had only the generic catch below, so the
-            // single most likely off-order failure — a disabled mod mastered on something other than Skyrim.esm —
-            // rendered as a disk/commit fault with no remedy (PR #313 review [low]). Loud was never the whole ask; Q3
-            // is loud AND named.
-            // MERGE RECONCILIATION (#313 rebased onto #315's main). This arm arrived from #313 with the wording its
-            // in-place twins USED to have — "NOT active in the load order" — which #315 then established is wrong for
-            // a plugin that is active but UNOPENABLE: it sends the user to enable something already enabled. The two
-            // PRs merged without a textual conflict and left this third arm inconsistent with the two beside it;
-            // excluded-master-guard caught it on the rebase (two arms, both demanding the named cause). Same shape as
-            // the twins now: prefer the cause when it applies.
+            // Named, not just loud: without this arm the single most likely off-order failure — a disabled mod
+            // mastered on something other than Skyrim.esm — renders through the generic catch below as a disk/commit
+            // fault with no remedy. Same shape as the two in-place twins, which must stay in step: "NOT active in the
+            // load order" is wrong for a plugin that is active but UNOPENABLE, since it sends the user to enable
+            // something already enabled. Prefer the named cause when it applies.
             return ForwardOutcome.Fail(UnopenableMasterClause(ex, session) is { Length: > 0 } why
                 ? $"writing the patch failed: the forwarded records reference a plugin the write cannot resolve " +
                   $"({ex.Message}).{why} Nothing was written."
@@ -2366,26 +2301,24 @@ public static class WritePatchBuilder
     }
 
     /// <summary>
-    /// Create an EMPTY, HEADER-ONLY plugin — a valid <c>TES4</c> header and ZERO records (HCBR-2026-06-19-02). The
-    /// whole point is a plugin that exists purely so its BASENAME resolves: the artifact SKSE configs that bind by
-    /// plugin name need (a CraftingCategories-style trigger that must ship <c>Foo.esp</c> so <c>Foo.json</c> loads), a
-    /// placeholder ESL for FormID reservation, a dummy plugin another mod can list as a master to satisfy a dependency.
-    /// It is the clean primitive behind those: where the record-centric create/forward paths can only materialise a
-    /// plugin by giving it a record (forcing an unwanted conflict-tree participant — the report's redundant backpack
-    /// override), this authors NO record at all.
+    /// Create an EMPTY, HEADER-ONLY plugin — a valid <c>TES4</c> header and ZERO records. The whole point is a plugin
+    /// that exists purely so its BASENAME resolves: the artifact SKSE configs that bind by plugin name need (a
+    /// CraftingCategories-style trigger that must ship <c>Foo.esp</c> so <c>Foo.json</c> loads), a placeholder ESL for
+    /// FormID reservation, a dummy plugin another mod can list as a master to satisfy a dependency. Where the
+    /// record-centric create/forward paths can only materialise a plugin by giving it a record — forcing an unwanted
+    /// conflict-tree participant — this authors NO record at all.
     ///
     /// <para>CORNERSTONE-CLEAN: a <see cref="SkyrimMod"/> with no records added IS a header-only plugin — there is no
-    /// per-type anything here, so it is trivially generic. ZERO MASTERS (Aaron 2026-06-23): an empty plugin references
-    /// nothing, so it carries no masters — passing an EMPTY known-master set means <see cref="WriteEngine.WritePatch"/>
-    /// forces no baseline masters either (its baseline force-include filters to masters present in the set; the empty
-    /// set yields none). That is exactly what the Creation Kit stamps on a truly empty plugin, so it honours the same
-    /// "match the CK" convention the baseline-master rule is built on. The atomic staged write + FormID floor still
-    /// apply (every product write funnels through that one chokepoint).</para>
+    /// per-type anything here, so it is trivially generic. ZERO MASTERS: an empty plugin references nothing, so it
+    /// carries no masters — passing an EMPTY known-master set means <see cref="WriteEngine.WritePatch"/> forces no
+    /// baseline masters either, since its baseline force-include filters to masters present in the set and the empty
+    /// set yields none. That is what the Creation Kit stamps on a truly empty plugin. The atomic staged write + FormID
+    /// floor still apply — every product write funnels through that one chokepoint.</para>
     ///
-    /// <para>Q3 — the written file is RE-READ to confirm it is what was promised (0 records, the ESL flag as requested)
+    /// <para>The written file is RE-READ to confirm it is what was promised (0 records, the ESL flag as requested)
     /// before reporting success; a mismatch refuses loud rather than return a wrong artifact. Caller resolves
-    /// <paramref name="outPath"/> (the service uses an EXACT, never-suffixed name with a loud collision refusal — the
-    /// basename must be precise for the trigger to bind).</para>
+    /// <paramref name="outPath"/> — the service uses an EXACT, never-suffixed name with a loud collision refusal,
+    /// because the basename must be precise for the trigger to bind.</para>
     /// </summary>
     public static CreatePluginOutcome CreatePlugin(string outPath, bool esl, string? author, string? description)
     {
@@ -2407,7 +2340,7 @@ public static class WritePatchBuilder
         catch (Exception ex)
             { return CreatePluginOutcome.Fail($"writing the plugin failed (serialize or commit; nothing left on disk): {WriteEngine.Describe(ex)}"); }
 
-        // Re-open + CONFIRM the artifact (Q3 — never report success on an unverified file): zero records, the master
+        // Re-open + CONFIRM the artifact — never report success on an unverified file: zero records, the master
         // header (empty), the ESL flag as written, the byte size.
         IReadOnlyList<string> masters = Array.Empty<string>();
         int recordCount = -1; bool eslBack = false; long bytes = 0;
@@ -2434,7 +2367,7 @@ public static class WritePatchBuilder
         if (confirmFail is not null)
         {
             // The file we just wrote is wrong or unverifiable — remove it so a refusal leaves NO bad artifact behind
-            // (Q3; the service's folder cleanup then finds an empty folder and removes that too). Safe here: create_plugin
+            // (the service's folder cleanup then finds an empty folder and removes that too). Safe here: create_plugin
             // always writes a FRESH file in a fresh folder (no extend), so there is never a prior file to lose.
             try { File.Delete(outPath); } catch { /* best-effort; the loud refusal stands regardless */ }
             return CreatePluginOutcome.Fail(confirmFail);
@@ -2444,18 +2377,18 @@ public static class WritePatchBuilder
     }
 
     // ======================================================================
-    //  COMPACT (A2) — the core build half of housecarl_compact_plugin (the
-    //  service does the policy half: resolve P, identify externals, consent,
-    //  folder allocation, opt-in external repoint). Renumber-mechanism + nested
-    //  coverage live in RemapEngine (remap-wave1/2). Output model = a NEW P′ or
-    //  an in-place overwrite (Aaron 2026-06-26: new-file default, in-place opt-in).
+    //  COMPACT — the core build half of housecarl_compact_plugin (the service
+    //  does the policy half: resolve P, identify externals, consent, folder
+    //  allocation, opt-in external repoint). Renumber mechanism + nested coverage
+    //  live in RemapEngine. Output is a NEW P′ by default, an in-place overwrite
+    //  on opt-in.
     // ======================================================================
 
     /// <summary>Read a plugin's ORIGINATING record FormKeys (<c>FormKey.ModKey == modKey</c>) in document order — the set
     /// a compaction renumbers (overrides, which reference a master's record, are NOT renumbered). Opens the plugin as a
-    /// binary overlay (the lazy read path) and disposes it before returning, so no handle is held at rest (Option B).
-    /// Returns false with a named reason (Q3) if the plugin can't be parsed — the same honesty the in-place lane uses
-    /// (houseCARL won't renumber a plugin it can't fully read, lest it drop a record it couldn't parse).</summary>
+    /// binary overlay (the lazy read path) and disposes it before returning, so no handle is held at rest.
+    /// Returns false with a named reason if the plugin can't be parsed — houseCARL won't renumber a plugin it can't
+    /// fully read, lest it drop a record it couldn't parse.</summary>
     public static bool TryReadOriginatingKeys(string srcPath, ModKey modKey, out IReadOnlyList<FormKey> keys, out string? error)
     {
         keys = Array.Empty<FormKey>(); error = null;
@@ -2476,7 +2409,7 @@ public static class WritePatchBuilder
     }
 
     /// <summary>The result of the core compact build: success + the written file's masters / record accounting / byte
-    /// size, or a loud Q3 refusal with the file UNTOUCHED (a missing master, a renumber fault, a serialize fault).</summary>
+    /// size, or a loud refusal with the file UNTOUCHED (a missing master, a renumber fault, a serialize fault).</summary>
     public sealed record CompactBuildResult(
         bool Success, string? Error, IReadOnlyList<string> Masters, int RecordsCopied, int RecordsRenumbered, long Bytes)
     {
@@ -2492,7 +2425,7 @@ public static class WritePatchBuilder
     /// declared masters to overlays via <paramref name="resolveMasterPath"/>, and re-serializes through
     /// <see cref="WriteEngine.WriteInPlace"/> (own masters, no baseline force, crash-atomic staged swap — the faithful
     /// re-emit). The source overlay is DISPOSED before the write so the in-place lane (outPath == srcPath) can swap over
-    /// it. All-or-nothing (Q3): any refusal or fault leaves <paramref name="outPath"/> untouched.
+    /// it. All-or-nothing: any refusal or fault leaves <paramref name="outPath"/> untouched.
     /// </summary>
     public static CompactBuildResult CompactBuild(
         string srcPath, ModKey modKey, IReadOnlyDictionary<FormKey, FormKey> dict,
@@ -2506,24 +2439,15 @@ public static class WritePatchBuilder
         ISkyrimModGetter? srcOv = null;
         try
         {
-            // The strings-aware factory, not a bare open (#362): a LOCALIZED source whose own folder carries no strings
-            // source reads every TranslatedString EMPTY (the HCBR-2026-06-24 class OpenOverlay exists for) — and the
-            // renumber below copies those empty values into P′, which is then written with the blanks baked in. The
-            // in-place lane already routes through here for its read-back; the compact SOURCE open is the same hazard
-            // one step earlier, where the loss is written rather than merely displayed.
+            // The strings-aware factory, not a bare open: a LOCALIZED source whose own folder carries no strings
+            // source reads every TranslatedString EMPTY, and the renumber below copies those empty values into P′,
+            // which is then written with the blanks baked in — the loss is written, not merely displayed.
             srcOv = LoadOrderResolver.OpenOverlay(srcPath, dataDir);
             declaredMasters = srcOv.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToList();
             // A compaction builds a FRESH mod rather than re-serializing the source, and the fresh mod carries no
             // header flags — so a compacted localized plugin comes out DE-LOCALIZED: whichever language resolved at
             // read time is written into the plugin itself and the source's .STRINGS files no longer describe it. That
-            // is deliberate, and the service says so in the report (Q3 — a changed nature is never silent).
-            //
-            // Q2-A — emitting a LOCALIZED P′ with a matching rewritten table set — was ruled, built, and then CUT
-            // (2026-08-26). It was measured to work; what killed it is that it generated defects faster than review
-            // cleared them, over a population the frequency sweep priced at one plugin in sixty-three on a real load
-            // order. Aaron's ground for the cut: multi-language mods do not exist in the wild — Nexus ships
-            // single-language translations — so the language the read resolves IS the mod's language, and carrying a
-            // table set forward buys nothing to offset the surface it costs.
+            // is deliberate, and the service must say so in the report — a changed nature is never silent.
             pPrime = new SkyrimMod(modKey, SkyrimRelease.SkyrimSE) { IsSmallMaster = esl };
             ren = RemapEngine.RenumberModInto(pPrime, srcOv, dict);
         }
@@ -2536,9 +2460,9 @@ public static class WritePatchBuilder
         if (!ren.Success) return CompactBuildResult.Fail(ren.Error!);
 
         // NextObjectID = the next free originating id above the renumbered run (floor + #originating). WriteInPlace
-        // persists it verbatim (NoNextFormIDProcessing) — the CK reads it on the next save. Note (PR #122 review #6): for
-        // an exactly-full light master (2048 records) this lands at 0x1000, one past the ESL ceiling — INTENTIONAL and
-        // harmless: it's only header metadata for the NEXT new record, and compact creates none (it renumbers existing ones).
+        // persists it verbatim (NoNextFormIDProcessing) — the CK reads it on the next save. For an exactly-full light
+        // master (2048 records) this lands at 0x1000, one past the ESL ceiling — intentional and harmless: it is only
+        // header metadata for the NEXT new record, and compact creates none (it renumbers existing ones).
         pPrime.ModHeader.Stats.NextFormID = Math.Max(floor, (uint)(floor + dict.Count));
 
         // 2. Resolve P's OWN declared masters to overlays (the faithful re-serialize set). A declared master absent from
@@ -2554,10 +2478,9 @@ public static class WritePatchBuilder
                     return CompactBuildResult.Fail(
                         $"cannot compact '{modKey.FileName}': its declared master '{mfn}' is not active in the load order, so a " +
                         "faithful re-serialize can't resolve the references into it. Enable that master (or fix the masters in xEdit) first. Nothing was written.");
-                // Wrapped for the reason MergeBuild's twin states in its own catch: an open throw escaping HERE skips
-                // the caller's rider-folder cleanup, leaving an orphan houseCARL mod folder in the MO2 mods directory
-                // — plus an unnamed engine throw instead of a Fail result. CompactBuild had the same caller shape and
-                // no such catch, which #314's unopenable class makes reachable (PR #315 review 2).
+                // Wrapped, like MergeBuild's twin: an open throw escaping HERE skips the caller's rider-folder
+                // cleanup, leaving an orphan houseCARL mod folder in the MO2 mods directory — plus an unnamed engine
+                // throw instead of a Fail result.
                 ISkyrimModGetter mov;
                 try { mov = SkyrimMod.CreateFromBinaryOverlay(mp, SkyrimRelease.SkyrimSE); }
                 catch (Exception ex)
@@ -2570,7 +2493,7 @@ public static class WritePatchBuilder
                 overlays.Add((IDisposable)mov); resolved.Add(mov);
             }
             // P′ is a fresh mod and never flagged localized (see the build above), so its serialize emits no string
-            // tables and this is the plain single-file commit — the same one this lane used before Q2-A and after it.
+            // tables and this is the plain single-file commit.
             try { WriteEngine.WriteInPlace(pPrime, resolved, outPath, dataDir); }
             catch (Exception ex)
             {
@@ -2586,7 +2509,7 @@ public static class WritePatchBuilder
     }
 
     /// <summary>The result of the core merge build: success + the RESOLVED master set / record accounting / cross-donor
-    /// conflicts / byte size, or a loud Q3 refusal with <c>outPath</c> UNTOUCHED (an unopenable donor, an engine fault,
+    /// conflicts / byte size, or a loud refusal with <c>outPath</c> UNTOUCHED (an unopenable donor, an engine fault,
     /// a dangling donor reference that would keep a donor as a master, an absent master, a serialize fault).</summary>
     public sealed record MergeBuildResult(
         bool Success, string? Error, IReadOnlyList<string> Masters, int RecordsCopied, int RecordsRenumbered,
@@ -2603,13 +2526,13 @@ public static class WritePatchBuilder
     /// NEW file — merge has no in-place lane; the donors are never touched). Opens every donor as a lazy overlay,
     /// renumbers them into one fresh <see cref="SkyrimMod"/> via <see cref="RemapEngine.MergeModsInto"/> (load-order
     /// winner on cross-donor conflicts, losers' un-relisted children grafted), then enforces the donor-master-survives
-    /// check (Q3, the zMerge "Clean" pattern): any link still pointing INTO a donor after the remap is a DANGLING source
-    /// reference (the donor never defined that FormID, so the dict couldn't map it) — writing it would re-declare the
-    /// donor as a master of its own merge, so the build REFUSES with the offending links NAMED. Masters =
+    /// check: any link still pointing INTO a donor after the remap is a DANGLING source reference (the donor never
+    /// defined that FormID, so the dict couldn't map it) — writing it would re-declare the donor as a master of its
+    /// own merge, so the build REFUSES with the offending links NAMED. Masters =
     /// <paramref name="masters"/> (union of donor declared masters minus the donors, load-order sorted — the
     /// orchestrator computes it off the captured view), resolved to overlays for the master-aware serialize;
     /// <see cref="WriteEngine.WriteInPlace"/> then derives the header's master list from actual content against them.
-    /// All-or-nothing (Q3): any refusal or fault leaves <paramref name="outPath"/> untouched.
+    /// All-or-nothing: any refusal or fault leaves <paramref name="outPath"/> untouched.
     /// </summary>
     public static MergeBuildResult MergeBuild(
         IReadOnlyList<(string Name, string Path, ModKey Key)> donorsByLoadOrder, ModKey outKey,
@@ -2631,9 +2554,9 @@ public static class WritePatchBuilder
             foreach (var (name, path, _) in donorsByLoadOrder)
             {
                 ISkyrimModGetter ov;
-                // The strings-aware factory, not a bare open (#362): a LOCALIZED donor whose own folder carries no
-                // strings source reads every TranslatedString EMPTY (the HCBR-2026-06-24 class OpenOverlay exists for),
-                // and the merge below copies those empty values into M, which is then written with the blanks baked in.
+                // The strings-aware factory, not a bare open: a LOCALIZED donor whose own folder carries no strings
+                // source reads every TranslatedString EMPTY, and the merge below copies those empty values into M,
+                // which is then written with the blanks baked in.
                 try { ov = LoadOrderResolver.OpenOverlay(path, dataDir); }
                 catch (Exception ex)
                 {
@@ -2647,10 +2570,10 @@ public static class WritePatchBuilder
                 // be CARRIED is a separate decision that is not this lane's to make.
                 //
                 // LIGHT and MASTER are each read BOTH ways, because either alone under-reports the loss. The header
-                // bit is not the whole model: this tool's own .esl-output refusal states that the engine force-treats
-                // the extension as light regardless of the bit, so a .esl donor with the bit unset still loses light
-                // status here. Symmetrically an esmified .esp carries the master bit without the extension, and a
-                // .esm carries the extension; both lose master status in a bare output.
+                // bit is not the whole model: the engine force-treats the .esl extension as light regardless of the
+                // bit, so a .esl donor with the bit unset still loses light status here. Symmetrically an esmified
+                // .esp carries the master bit without the extension, and a .esm carries the extension; both lose
+                // master status in a bare output.
                 if (ov.IsSmallMaster || ov.ModKey.Type == ModType.Light) lightDonors.Add(name);
                 if (ov.ModHeader.Flags.HasFlag(SkyrimModHeader.HeaderFlag.Master) || ov.ModKey.Type == ModType.Master)
                     masterDonors.Add(name);
@@ -2662,7 +2585,7 @@ public static class WritePatchBuilder
         finally { foreach (var d in overlays) { try { d.Dispose(); } catch { /* best-effort */ } } }
         if (!mr.Success) return MergeBuildResult.Fail(mr.Error!);
 
-        // 2. Donor-master-survives check (Q3): after RemapLinks, NO link may still point into a donor. One that does is
+        // 2. Donor-master-survives check: after RemapLinks, NO link may still point into a donor. One that does is
         //    a reference to a FormID the donor never DEFINED (a dangling source ref — the dict maps every real donor key),
         //    and serializing it would re-declare the donor as a master of its own merge. Named, never silent.
         var dangling = new List<string>();
@@ -2744,15 +2667,15 @@ public static class WritePatchBuilder
     /// child-collection via <see cref="WriteEngine.NestedAddNew"/> — the add-target found by construction, named via
     /// <see cref="CreateSpec.IntoCollection"/> when more than one fits. Either way the new record gets a local 0x800+
     /// ESP-range FormID and the SAME <see cref="WriteEngine.ApplyVerb"/> path sets its fields; RecordType is DECLARED
-    /// (no existing winner to derive it from). Still failed loud (Q3): an abstract-group subtype, and a coordinate-keyed
+    /// (no existing winner to derive it from). Still failed loud: an abstract-group subtype, and a coordinate-keyed
     /// EXTERIOR cell (FormKey-less worldspace block parents) — via <see cref="WriteEngine.CanCreateType"/> /
     /// <see cref="WriteEngine.CanCreateNested"/>. <paramref name="extend"/>=false writes a fresh patch (ModKey = filename);
-    /// =true adds to an existing one (the into= path). ALL-OR-NOTHING (Q3): any pre-flight problem — missing editorid, an
+    /// =true adds to an existing one (the into= path). ALL-OR-NOTHING: any pre-flight problem — missing editorid, an
     /// un-createable type, an unresolvable parent, a rejected edit — refuses the WHOLE call with no file written.
     ///
-    /// <paramref name="inPlaceTarget"/> (non-null) switches to the IN-PLACE lane (Wave 1b): <paramref name="outPath"/> IS
+    /// <paramref name="inPlaceTarget"/> (non-null) switches to the IN-PLACE lane: <paramref name="outPath"/> IS
     /// the target plugin's real on-disk path and the records are allocated INTO it + the whole plugin re-serialized over
-    /// itself (model C, <see cref="WriteEngine.WriteInPlace"/>) instead of a new patch — full create parity, incl. nesting
+    /// itself (<see cref="WriteEngine.WriteInPlace"/>) instead of a new patch — full create parity, incl. nesting
     /// under a parent the target doesn't itself own (the parent is overridden IN, exactly as the patch lane does into a new
     /// patch; a parent the target DOES own is sourced from the target so its content is preserved). Every in-place fork is
     /// additive + gated on this param: the patch lane (inPlaceTarget null) is behaviourally unchanged.
@@ -2767,9 +2690,9 @@ public static class WritePatchBuilder
     }
 
     /// <summary>The body of <see cref="CreateRecords"/> — split for the same single-point epoch stamp as
-    /// <see cref="ApplyCore"/> (SPEC §2.1.1): the ONE captured build's fingerprint reaches every outcome (success,
-    /// refusal, consent prompt) from one place instead of a `with` at each return site, and <paramref name="epoch"/>
-    /// stays null for the refusals decided BEFORE the capture — they consulted no build, so they claim none.</summary>
+    /// <see cref="ApplyCore"/>: the ONE captured build's fingerprint reaches every outcome (success, refusal, consent
+    /// prompt) from one place instead of a `with` at each return site, and <paramref name="epoch"/> stays null for the
+    /// refusals decided BEFORE the capture — they consulted no build, so they claim none.</summary>
     static CreateOutcome CreateRecordsCore(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
         IReadOnlyList<CreateSpec> specs, string outPath, bool extend, bool fullReadback, string? inPlaceTarget,
@@ -2778,12 +2701,12 @@ public static class WritePatchBuilder
         if (specs.Count == 0) return CreateOutcome.Fail("no records to create supplied.");
         bool inPlace = inPlaceTarget is not null;
 
-        // Per-call overlay session (Option B): the known-master set for the serialize is opened through it and disposed
-        // when the method returns — no handle held at rest. The view is captured up front (the in-place Phase-0 guard needs
-        // it; the patch lane uses it identically in Phase 1).
+        // Per-call overlay session: the known-master set for the serialize is opened through it and disposed when the
+        // method returns — no handle held at rest. The view is captured up front (the in-place Phase-0 guard needs it;
+        // the patch lane uses it identically in Phase 1).
         using var session = resolver.OpenSession();
         var view = resolver.Capture();
-        epoch = view.Epoch;                                               // SPEC §2.1.1 — stamped on every outcome from here down
+        epoch = view.Epoch;                                               // stamped on every outcome from here down
 
         // --- Phase 0: open the destination FIRST — moved AHEAD of pre-flight so a FormKey parent can resolve from it (a
         //     parent created in a PRIOR into= call, or — in place — a parent the target itself owns). CreateFromBinary reads
@@ -2795,7 +2718,7 @@ public static class WritePatchBuilder
         if (inPlace)
         {
             // The target must be an active, fully-parseable plugin (the excluded-plugin guard, same as ApplyInPlace):
-            // houseCARL won't re-serialize a plugin it can't fully parse — that would risk DROPPING a record it couldn't read (Q3).
+            // houseCARL won't re-serialize a plugin it can't fully parse — that would risk DROPPING a record it couldn't read.
             if (!view.ContainsPlugin(inPlaceTarget!))
                 return CreateOutcome.Fail($"in-place target '{inPlaceTarget}' is not an active plugin in the load order.{view.AbsenceClause(inPlaceTarget!)}");
             if (view.ExcludedPlugins.TryGetValue(inPlaceTarget!, out var excluded))
@@ -2822,34 +2745,32 @@ public static class WritePatchBuilder
         if (!string.Equals(patchMod.ModKey.FileName.String, fileName, StringComparison.OrdinalIgnoreCase))
             return CreateOutcome.Fail($"{(inPlace ? "in-place" : "patch")} ModKey '{patchMod.ModKey.FileName}' must match {(inPlace ? "the target filename" : "output filename")} '{fileName}'.");
 
-        // --- Phase 1: pre-flight EVERY spec before any mutation (Q3, all-or-nothing). editorid required + unique; the
+        // --- Phase 1: pre-flight EVERY spec before any mutation (all-or-nothing). editorid required + unique; the
         //     type must be createable — a FLAT top-level type (CanCreateType), OR a NESTED child given a valid parent
         //     (CanCreateNested): the parent is resolved to its TYPE (an existing parent FormKey's load-order winner, a
         //     record created EARLIER in this same call — the one-shot order rule — or a record the PATCH being extended
-        //     already carries, from a prior into= call), and the child must nest under it by construction (§1.4 Q2). Every
+        //     already carries, from a prior into= call), and the child must nest under it by construction. Every
         //     edit is validated by the rulebook rooted at the create type. The new FormID isn't known until allocation
         //     (Phase 3), so creatability is STRUCTURAL; a FormKey parent is resolved here only to learn its TYPE + stash
-        //     the route to make it settable in Phase 3. ONE captured build answers every parent resolve (hunt-F5). ---
+        //     the route to make it settable in Phase 3. ONE captured build answers every parent resolve. ---
         var problems = new List<string>();
         var seenEdid = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var declaredEdidType = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // editorid -> RecordType (same-call sibling parents)
         // editorids declared in EARLIER specs PLUS the current one — the legal targets of a "@editorid" same-call
-        // field ref (HCBR Layer B unit A). Grown as each spec DECLARES its editorid (before its edits validate), so
-        // during spec i's edit validation it holds {0..i}: an earlier sibling AND the record itself (self-reference —
-        // HCBR-2026-07-10-01: a quest's VMAD fragment points at its own quest; apply registers the record in
-        // createdByEditorId before applying its edits, so the substitution timing already holds). A forward-ref to a
-        // LATER sibling still rejects loud.
+        // field ref. Grown as each spec DECLARES its editorid (before its edits validate), so during spec i's edit
+        // validation it holds {0..i}: an earlier sibling AND the record itself. Self-reference is real (a quest's VMAD
+        // fragment points at its own quest) and works because apply registers the record in createdByEditorId before
+        // applying its edits. A forward-ref to a LATER sibling still rejects loud.
         var priorEditorIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var parentPlans = new List<(IMajorRecordGetter? body, string? sourcePlugin, string? sibling, IMajorRecord? patchParent)?>(specs.Count);
-        // #300 — per-spec provenance of the parent override this create had to host the child in. Reported (Q3): which
+        // Per-spec provenance of the parent override this create had to host the child in. Reported, because which
         // plugin's version was copied is a decision the caller did not make and cannot see in the record afterwards.
         var parentHosts = new string?[specs.Count];
         var parentContested = new bool[specs.Count];
-        // The destination's own records, indexed ONCE (review [low]): the "does the artifact already carry this
-        // parent?" probe runs per parented spec, and enumerating the whole destination each time is O(specs x records)
-        // — on a bulk_create into a large into= patch, and equally on the IN-PLACE lane, where the destination is the
-        // user's own plugin and is the bigger of the two. Both branches read it. Lazy: a call with no parented spec
-        // builds nothing.
+        // The destination's own records, indexed ONCE: the "does the artifact already carry this parent?" check runs
+        // per parented spec, and enumerating the whole destination each time is O(specs x records) — on a bulk_create
+        // into a large into= patch, and equally on the IN-PLACE lane, where the destination is the user's own plugin
+        // and is the bigger of the two. Both branches read it. Lazy: a call with no parented spec builds nothing.
         var parentBodies = new Dictionary<(string Plugin, FormKey Key), IMajorRecordGetter?>();
         IMajorRecordGetter? ParentBodyFrom(string plugin, FormKey fk)
         {
@@ -2862,7 +2783,7 @@ public static class WritePatchBuilder
             carried ??= patchMod.EnumerateMajorRecords().GroupBy(r => r.FormKey).ToDictionary(g => g.Key, g => g.First());
             return carried.TryGetValue(fk, out var rec) ? rec : null;
         }
-        var cellKinds = new CellCreate[specs.Count];   // coordinate-keyed §4-(b) routing per spec (None / Exterior / Interior)
+        var cellKinds = new CellCreate[specs.Count];   // cell-create routing per spec (None / Exterior / Interior)
         for (int i = 0; i < specs.Count; i++)
         {
             var s = specs[i];
@@ -2876,8 +2797,8 @@ public static class WritePatchBuilder
             {
                 if (IsCellType(s.RecordType))
                 {
-                    // A parentless Cell (coordinate-keyed §4-(b)): NO grid ⇒ an INTERIOR cell (self-files by FormID —
-                    // CanCreateType would refuse a bare Cell, so bypass it). A grid here is malformed (exterior needs a Worldspace).
+                    // A parentless Cell: NO grid ⇒ an INTERIOR cell (self-files by FormID — CanCreateType would refuse
+                    // a bare Cell, so bypass it). A grid here is malformed (exterior needs a Worldspace).
                     if (s.Grid is not null) { problems.Add($"Cell '{s.EditorId}': an exterior cell (grid=) needs parent= a Worldspace; an interior cell takes no parent and no grid."); continue; }
                     cellKinds[i] = CellCreate.Interior;
                 }
@@ -2901,13 +2822,13 @@ public static class WritePatchBuilder
                     }
                     else if (AlreadyCarried(parentFk) is { } already)
                     {
-                        // The DESTINATION already carries this parent — a prior into= call created it (the former N9
-                        // gap, resolvable because Phase 0 opens the patch BEFORE this loop), forwarded it, or edited
-                        // it. Use that record: it is already patch-local and settable, and overriding a body in on top
-                        // of it would be discarded anyway (GenericGetOrAddAsOverride has get-semantics).
-                        // Ordered BEFORE the load-order branch since #300 (review [low]): that branch used to win
-                        // whenever the parent was also in the order, so the definer's body was fetched, silently
-                        // dropped, and then REPORTED as the host — the one place the provenance line could lie.
+                        // The DESTINATION already carries this parent — a prior into= call created it (resolvable
+                        // because Phase 0 opens the patch BEFORE this loop), forwarded it, or edited it. Use that
+                        // record: it is already patch-local and settable, and overriding a body in on top of it would
+                        // be discarded anyway (GenericGetOrAddAsOverride has get-semantics).
+                        // Must stay ordered BEFORE the load-order branch: otherwise that branch wins whenever the
+                        // parent is also in the order, and the definer's body is fetched, silently dropped, and then
+                        // REPORTED as the host — a provenance line that lies.
                         parentType = WriteEngine.ResolveConcreteRecordType(RecordNaming.StripOverlay(already.GetType().Name));
                         parentPlans[i] = (null, null, null, already);
                         parentHosts[i] = $"{RecordNaming.StripOverlay(already.GetType().Name)} {parentFk} was already carried by this artifact — its existing record hosts the child (nothing copied in)";
@@ -2919,26 +2840,24 @@ public static class WritePatchBuilder
                         // overriding it in to host the child is exactly what the patch lane does into a new patch (correct,
                         // necessary nesting, NOT injection: the user explicitly named the parent; the override is reported).
                         //
-                        // #300 — the version copied in is the parent's DEFINING plugin's, not its load-order WINNER's. The
+                        // The version copied in is the parent's DEFINING plugin's, not its load-order WINNER's. The
                         // override exists to HOST the child: a child lives in the parent's child GROUP and survives the
-                        // parent record losing, so nothing about the child needs the winner's fields. Taking them cost a
-                        // master the child never needed AND froze a snapshot of another mod's content — so a patch sorted
-                        // below that mod silently re-asserted its OLD values after it updated (the Q3 half of the report).
-                        // The definer's version is the leanest host that still carries a valid record.
+                        // parent record losing, so nothing about the child needs the winner's fields. Taking them costs
+                        // a master the child never needed AND freezes a snapshot of another mod's content — so a patch
+                        // sorted below that mod would silently re-assert its OLD values after it updated. The definer's
+                        // version is the leanest host that still carries a valid record.
                         // An INJECTED parent (a FormKey in a master's ModKey but defined by a mod) is why the winner
                         // remains a fallback rather than a refusal: the definer genuinely does not carry it. Same for a
                         // definer this session EXCLUDED. Both are reported per record, never silently substituted.
                         var definer = parentFk.ModKey.FileName.String;
                         // GetRecord answers null for a plugin the order doesn't contain AND for one this session
-                        // EXCLUDED, so the two cases need no separate test here (review [nit]) — both fall to the
-                        // winner below, which is the behaviour an injected or unparseable definer should get.
+                        // EXCLUDED, so the two cases need no separate test here — both fall to the winner below,
+                        // which is the behaviour an injected or unparseable definer should get.
                         // Memoised per (plugin, record): GetRecord is a full EnumerateMajorRecords scan, this sits in
-                        // the per-spec loop, and #300 pointed it at the DEFINER — usually Skyrim.esm — where it used
-                        // to hit the (small) winner. A bulk_create fanning N refs into vanilla cells would otherwise
-                        // pay N scans of a ~250k-record file (review [medium]). The memo is keyed (plugin, record), so
-                        // it collapses the SHARED-parent fan-out to one scan; N specs naming N DISTINCT parents still
-                        // pay N, and against the definer those are now the bigger file, not the smaller one (review
-                        // [low]: said plainly rather than left implied — the honest fix is an index, not a memo).
+                        // the per-spec loop, and it reads the DEFINER — usually Skyrim.esm — so a bulk_create fanning
+                        // N refs into vanilla cells would otherwise pay N scans of a ~250k-record file. The memo
+                        // collapses the SHARED-parent fan-out to one scan; N specs naming N DISTINCT parents still pay
+                        // N, against the bigger file. The real fix for that would be an index, not a memo.
                         var fromDefiner = ParentBodyFrom(definer, parentFk);
                         var parentBody = fromDefiner ?? ParentBodyFrom(w.WinnerPlugin, parentFk);
                         if (parentBody is null) { problems.Add($"{s.RecordType} '{s.EditorId}': parent {parentFk} winner '{w.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
@@ -2952,32 +2871,21 @@ public static class WritePatchBuilder
                                 ? $" (the load-order WINNER — its defining plugin '{definer}' does not carry it: an injected or excluded parent)"
                                 : !overWinner
                                     ? " (its DEFINING plugin, which is also the load-order winner)"
-                                    // THE RESIDUAL IS THE DEFAULT, AND IT IS A CONTROL DECISION (Aaron, 2026-08-11).
-                                    // houseCARL does not resolve the conflict for the caller the way a human does in
-                                    // xEdit — xEdit copies the winner because a person is deciding in the moment. Here
-                                    // the two shapes are both legitimate and only the caller knows which they want:
-                                    // a LOGICAL patch that carries the residual (the child, and a host lean enough to
-                                    // lose harmlessly), or an INLINED one that carries another mod's content forward
-                                    // because this artifact feeds a patch that will win. Copying the winner by default
-                                    // silently picks the second, drags that mod's fields into the caller's plugin, and
-                                    // costs a master the child never needed. So the default is the lean host and the
-                                    // choice is REPORTED — a statement, not a warning: the caller sorts, or builds the
-                                    // inlined shape deliberately when inlining is what they meant.
-                                    // "Not copied here" and not "not a master of this write": masters are derived at
-                                    // serialize, and another spec or a created record's own links can still pull that
-                                    // plugin in.
-                                    // THE INLINING LEVER NAMES AN ORDER (PR #323 review [medium]). History, because
-                                    // the wording has been wrong in both directions: "forward the winner's version in
-                                    // explicitly" was measured FALSE while #324 was open — forwarding into a patch
-                                    // that already held the child DELETED the child, since forward's extend/in-place
-                                    // path drops the whole record before re-copying it and the child group went with
-                                    // the drop — so the message was changed to name one safe order and mark the other
-                                    // destructive. #324 is FIXED on this branch (the children are lifted off and
-                                    // re-attached across the replace), which makes that warning false in turn: both
-                                    // orders now land the same shape, measured in ForwardChildGroupArm, which runs
-                                    // exactly the sequence this sentence used to call destructive. The message states
-                                    // what happens and names no issue number — a sentence pinned to an OPEN bug is a
-                                    // sentence that goes stale the day it is fixed, and the guard arm holds it there.
+                                    // The LEAN host is the default, and that is a control the caller keeps: xEdit
+                                    // copies the winner because a person is deciding in the moment, but here both
+                                    // shapes are legitimate and only the caller knows which they want — a patch
+                                    // carrying just the child and a host lean enough to lose harmlessly, or one that
+                                    // inlines another mod's content because this artifact feeds a patch that will win.
+                                    // Copying the winner by default silently picks the second, drags that mod's fields
+                                    // into the caller's plugin, and costs a master the child never needed. So the
+                                    // default is the lean host and the choice is REPORTED as a statement, not a
+                                    // warning.
+                                    // The message says "not copied here", NOT "not a master of this write": masters
+                                    // are derived at serialize, and another spec or a created record's own links can
+                                    // still pull that plugin in.
+                                    // It also names no issue number: a sentence pinned to an open bug goes stale the
+                                    // day it is fixed. Both forward orders land the same shape, because a replace
+                                    // lifts the child group off and re-attaches it.
                                     : $" (its DEFINING plugin — the LEAN host, carrying the residual only: '{w.WinnerPlugin}' currently WINS this record "
                                       + $"and its version is deliberately NOT inlined here, so wherever this artifact out-ranks '{w.WinnerPlugin}' the parent "
                                       + $"record resolves to '{readFrom}'s fields. That is the control this lane gives you: sort below '{w.WinnerPlugin}' to "
@@ -2988,8 +2896,8 @@ public static class WritePatchBuilder
                     }
                     else
                     {
-                        // Genuinely absent from the load order AND the destination — the surviving loud refusal (Q3, never a
-                        // misleading "wrong FormID"). Name the one-call workaround for the common new-topic case.
+                        // Genuinely absent from the load order AND the destination — a loud refusal, never a
+                        // misleading "wrong FormID". Name the one-call workaround for the common new-topic case.
                         problems.Add($"{s.RecordType} '{s.EditorId}': parent {parentFk} is not present in the load order"
                             + (extend ? " or this patch" : "") + (inPlace ? " or the target plugin" : "") + " — name an existing parent, or create the parent and this "
                             + "child in ONE call (a same-call sibling parent, by the parent's editorid).");
@@ -3006,8 +2914,8 @@ public static class WritePatchBuilder
                 if (parentType is null) { problems.Add($"{s.RecordType} '{s.EditorId}': could not resolve the parent's record type."); continue; }
                 if (IsCellType(s.RecordType))
                 {
-                    // A Cell WITH a parent (coordinate-keyed §4-(b)): a grid ⇒ an EXTERIOR cell placed into the
-                    // Worldspace's block tree (NOT a child-collection nest). No grid ⇒ ambiguous — refuse loud (Q3).
+                    // A Cell WITH a parent: a grid ⇒ an EXTERIOR cell placed into the Worldspace's block tree (NOT a
+                    // child-collection nest). No grid ⇒ ambiguous — refuse loud.
                     // (Parent resolution above already populated parentPlans[i] so Phase 3 can make the Worldspace settable.)
                     if (s.Grid is null) { problems.Add($"Cell '{s.EditorId}': a Cell with parent= but no grid= is ambiguous — an exterior cell needs grid=<X,Y> under a Worldspace; an interior cell takes no parent."); continue; }
                     if (parentType != typeof(Worldspace)) { problems.Add($"Cell '{s.EditorId}': an exterior cell nests under a Worldspace, but parent '{s.ParentRef}' resolved to a {parentType.Name}."); continue; }
@@ -3029,22 +2937,20 @@ public static class WritePatchBuilder
 
         // --- Phase 3: UPSERT each record, then apply its edits. A throw here AFTER pre-flight passed is a real engine
         //     inconsistency — fail the WHOLE call (the in-memory patch is discarded; nothing serialized), surfaced not
-        //     swallowed (Q3). All upserts are in-memory until the single WritePatch, so all-or-nothing holds even mid-loop.
-        //     UPSERT (idempotency): on the into=/extend path, a re-run of the same create used to APPEND a duplicate of
-        //     every record (nothing checked whether the EditorID already existed in the opened patch). GenericUpsertNew
-        //     replaces a same-EditorID record THE PATCH ITSELF DEFINES fresh at its same FormKey instead — re-runs are
-        //     idempotent, list fields can't accumulate, and stable FormKeys keep cross-record links + external references
-        //     valid. Collisions it will NOT absorb (carried overrides, duplicate residue, cross-type) refuse loud there;
-        //     every replace that DOES happen is carried on CreatedRecord.ReplacedExisting and rendered to the user. ---
+        //     swallowed. All upserts are in-memory until the single WritePatch, so all-or-nothing holds even mid-loop.
+        //     UPSERT is what makes the into=/extend path idempotent: GenericUpsertNew replaces a same-EditorID record
+        //     THE PATCH ITSELF DEFINES fresh at its same FormKey rather than appending a duplicate, so re-runs don't
+        //     accumulate list fields and stable FormKeys keep cross-record links + external references valid.
+        //     Collisions it will NOT absorb (carried overrides, duplicates, cross-type) refuse loud there; every
+        //     replace that DOES happen is carried on CreatedRecord.ReplacedExisting and rendered to the user. ---
         //     NESTED create (a spec with a ParentRef): the parent is made settable IN the patch first — an existing
         //     load-order parent is overridden in (a flat parent needs no link cache; a nested parent — a Cell — gets the
-        //     winner overlay's cache, the SAME session.LinkCacheFor path Apply uses + guards), a same-call sibling parent
-        //     is the record created earlier in this loop, and a parent the patch ALREADY carries (created in a prior
-        //     into= call — Phase 0) is used directly — then WriteEngine.NestedAddNew allocates the child into the
-        //     parent's modeled collection (named, or the unique one). Idempotency: nested create APPENDS (no
-        //     upsert-replace) — Aaron-accepted for Layer A (2026-06-14): nested children carry no stable EditorID
-        //     handle to de-dup on (unlike flat GenericUpsertNew), so a re-run into= re-adds. Watch in real use;
-        //     revisit only if it bites. ---
+        //     winner overlay's cache, the SAME session.LinkCacheFor path Apply uses), a same-call sibling parent is the
+        //     record created earlier in this loop, and a parent the patch ALREADY carries (created in a prior into=
+        //     call — Phase 0) is used directly — then WriteEngine.NestedAddNew allocates the child into the parent's
+        //     modeled collection (named, or the unique one). Nested create APPENDS rather than upsert-replacing:
+        //     nested children carry no stable EditorID handle to de-dup on, unlike flat GenericUpsertNew, so a re-run
+        //     into= re-adds. Known and accepted. ---
         var created = new List<CreatedRecord>(specs.Count);
         var createdByEditorId = new Dictionary<string, IMajorRecord>(StringComparer.OrdinalIgnoreCase);
         var linkCacheByPlugin = new Dictionary<string, Mutagen.Bethesda.Plugins.Cache.ILinkCache>(StringComparer.OrdinalIgnoreCase);
@@ -3052,7 +2958,7 @@ public static class WritePatchBuilder
         // Resolve a spec's parent to a SETTABLE record IN the patch — shared by nested-create AND exterior-cell create
         // (both make the parent settable identically: a prior-into= patch record used directly; an existing load-order
         // parent overridden in, with its source link cache only when the override needs one; or a same-call sibling
-        // created earlier in this loop). Returns (parent, null) on success, (null, error) to fail the WHOLE call (Q3).
+        // created earlier in this loop). Returns (parent, null) on success, (null, error) to fail the WHOLE call.
         (IMajorRecord? parent, string? error) MakeSettableParent(int idx)
         {
             var plan = parentPlans[idx]!.Value;
@@ -3080,13 +2986,13 @@ public static class WritePatchBuilder
             {
                 if (cellKinds[i] == CellCreate.Interior)
                 {
-                    // INTERIOR cell (coordinate-keyed §4-(b)): self-files into the patch's Cells group by FormID digits.
+                    // INTERIOR cell: self-files into the patch's Cells group by FormID digits.
                     rec = WriteEngine.AddInteriorCell(patchMod, s.EditorId);
                 }
                 else if (cellKinds[i] == CellCreate.Exterior)
                 {
-                    // EXTERIOR cell (coordinate-keyed §4-(b)): make the Worldspace settable (thin override), then place
-                    // the cell into its block tree by grid. Pre-flight (Phase 1) guaranteed a Worldspace parent + a grid that parses.
+                    // EXTERIOR cell: make the Worldspace settable (thin override), then place the cell into its block
+                    // tree by grid. Pre-flight (Phase 1) guaranteed a Worldspace parent + a grid that parses.
                     var (wsParent, perr) = MakeSettableParent(i);
                     if (perr is not null) return CreateOutcome.Fail(perr);
                     TryParseGrid(s.Grid!, out var gx, out var gy);
@@ -3109,30 +3015,29 @@ public static class WritePatchBuilder
             var ops = new List<OpResult>(s.Edits.Count);
             foreach (var rawReq in s.Edits)
             {
-                // Resolve every same-call reference (@editorid) to its now-allocated FormKey (HCBR Layer B unit A —
-                // the INFO PNAM chain + Topic back-link in one bulk_create; HCBR-2026-07-10-01 — self-reference +
-                // compose-struct refs, e.g. a quest's VMAD fragment pointing at its own quest). Pre-flight (Phase 1)
-                // already guaranteed any surviving @-token is on a FormLink target AND names a record declared no
-                // later than this spec — the current record was registered in createdByEditorId just above, so SELF
-                // resolves too; a miss here is a real engine inconsistency, surfaced not swallowed (Q3). The
-                // substituted value is a normal intra-patch FormKey that ApplyVerb coerces exactly as a literal
-                // FormID would (no apply-path change). Slots that carry a ref: the SINGULAR req.Value, req.Values
-                // (ReplaceAll on a link list), and — recursively — a compose Struct's formlink Fields values and
-                // nested Sets (ResolveSiblingRefs walks all of them).
+                // Resolve every same-call reference (@editorid) to its now-allocated FormKey — the INFO PNAM chain +
+                // Topic back-link in one bulk_create, and self-reference + compose-struct refs such as a quest's VMAD
+                // fragment pointing at its own quest. Pre-flight (Phase 1) already guaranteed any surviving @-token is
+                // on a FormLink target AND names a record declared no later than this spec — the current record was
+                // registered in createdByEditorId just above, so SELF resolves too; a miss here is a real engine
+                // inconsistency, surfaced not swallowed. The substituted value is a normal intra-patch FormKey that
+                // ApplyVerb coerces exactly as a literal FormID would. Slots that carry a ref: the SINGULAR req.Value,
+                // req.Values (ReplaceAll on a link list), and — recursively — a compose Struct's formlink Fields
+                // values and nested Sets (ResolveSiblingRefs walks all of them).
                 var (req, refErr) = ResolveSiblingRefs(rawReq, createdByEditorId, $"new {s.RecordType} '{s.EditorId}'");
                 if (refErr is not null) return CreateOutcome.Fail(refErr);
                 try { WriteEngine.ApplyVerb(rec, req); ops.Add(new OpResult(rec.FormKey, s.RecordType, Label(req), true, null, TryReadAfter(rec, req))); }
                 catch (ExpectedApplyRejectionException ex)
                 {
                     // EXPECTED apply-time refusal (live state pre-flight can't see — e.g. a duplicate dict key): clean
-                    // guidance, NOT the inconsistency wrapper. Whole call still refused, nothing serialized (gap-audit Finding 3).
+                    // guidance, NOT the inconsistency wrapper. Whole call still refused, nothing serialized.
                     return CreateOutcome.Fail(
                         $"refused applying [{Label(req)}] to new {s.RecordType} '{s.EditorId}' ({rec.FormKey}) — {ex.Message} (nothing created)");
                 }
                 catch (MalformedTargetDataException ex)
                 {
-                    // THIRD category: the target record's own data is malformed (present-but-null element/entry) — render it
-                    // accurately, NOT under the inconsistency wrapper. Whole call refused, nothing serialized (PR #83 Gap 2).
+                    // The target record's own data is malformed (present-but-null element/entry) — render it
+                    // accurately, NOT under the inconsistency wrapper. Whole call refused, nothing serialized.
                     return CreateOutcome.Fail(
                         $"refused applying [{Label(req)}] to new {s.RecordType} '{s.EditorId}' ({rec.FormKey}) — {ex.Message} (nothing created)");
                 }
@@ -3143,11 +3048,11 @@ public static class WritePatchBuilder
                         $"pre-flight ACCEPTED it but the apply threw — a real inconsistency, surfaced not swallowed (Q3): {ex.GetType().Name}: {ex.Message}");
                 }
             }
-            // #131 — auto-fill the DialogTopic SNAM subtype marker. A new topic with a Subtype but a blank SNAM marker
-            // (the default when only Subtype is set — or nothing, which defaults to Custom) is a load CTD: the engine
+            // Auto-fill the DialogTopic SNAM subtype marker. A new topic with a Subtype but a blank SNAM marker (the
+            // default when only Subtype is set — or nothing, which defaults to Custom) is a load CTD: the engine
             // buckets topics by the 4-char marker, and a new topic with a blank one walks an invalid list. This
             // COMPLETES the write the author under-specified (never overriding an explicit marker) and surfaces it as
-            // an op — auto-filled, not silent (Q3). The authority + why-not-derivable live in DialogueSubtype.
+            // an op — auto-filled, not silent. The marker table lives in DialogueSubtype.
             if (rec is IDialogTopic dtopic)
             {
                 switch (DialogueSubtype.NormalizeMarker(dtopic, out var marker))
@@ -3158,12 +3063,11 @@ public static class WritePatchBuilder
                             $"{marker} — derived from Subtype={dtopic.Subtype}; a new topic with a blank marker is a load CTD (#131)"));
                         break;
                     case MarkerFill.Unmodeled:
-                        // Fail loud, never ship a silent blank (Q3 + the cornerstone's "fail loud on a Mutagen/xEdit
-                        // delta"): the ONLY way here is a Subtype outside the modeled 0..N (an out-of-range enum value
+                        // Fail loud, never ship a silent blank — the cornerstone's "fail loud on a Mutagen/xEdit
+                        // delta". The ONLY way here is a Subtype outside the modeled 0..N (an out-of-range enum value
                         // that coerced past pre-flight, or a future Mutagen addition the table doesn't cover yet). We
                         // can't derive its marker and a blank SNAM is malformed — refuse with actionable guidance
-                        // rather than write a crash-prone record (nothing serialized; the guard pins that every real
-                        // enum value IS modeled, so this only bites genuinely-out-of-range input).
+                        // rather than write a crash-prone record; nothing is serialized.
                         return CreateOutcome.Fail(
                             $"cannot create DialogTopic '{s.EditorId}': no SNAM subtype marker is modeled for Subtype={dtopic.Subtype} " +
                             $"((int){(int)dtopic.Subtype}, outside the known 0..{DialogueSubtype.Count - 1}). A blank marker is malformed " +
@@ -3171,23 +3075,22 @@ public static class WritePatchBuilder
                     // AlreadySet: an explicit marker the author set — never overridden, nothing to report.
                 }
 
-                // CK-parity seed (S2 — the byte-only tier): DIAL Priority (PNAM). Priority is a NON-NULLABLE float
-                // (defaults to 0), so "the author left it unset" is NOT is-null — it's "no edit touched the Priority
-                // path." Compute that from this record's op list and let DialogueCkParity seed the CK's 50 only when
-                // Priority was never mentioned; an explicit value (including 0) always wins. Surfaced as an op (Q3).
+                // CK-parity seed: DIAL Priority (PNAM). Priority is a NON-NULLABLE float (defaults to 0), so "the
+                // author left it unset" is NOT is-null — it's "no edit touched the Priority path". Compute that from
+                // this record's edits and let DialogueCkParity seed the CK's 50 only when Priority was never
+                // mentioned; an explicit value (including 0) always wins. Surfaced as an op.
                 bool authorSetPriority = s.Edits.Any(e => e.Path.Length >= 1 &&
                     string.Equals(e.Path[0], "Priority", StringComparison.OrdinalIgnoreCase));
                 if (DialogueCkParity.ApplyTopicPriorityDefault(dtopic, authorSetPriority) is { } pfill)
                     ops.Add(new OpResult(rec.FormKey, s.RecordType, pfill.Label, true, null, pfill.Reason));
             }
-            // CK-parity default-populate (S1 confirmed-CK-crash tier + S2 byte-only tier; same #131 asymmetry across
-            // the whole DIAL/INFO/DLVW/DLBR/QUST family: Mutagen omits null optionals, the CK writes them
-            // unconditionally). An INFO created without CNAM (FavorLevel) / ENAM (Flags) crashes the CK when its topic
-            // is opened; a bare DLVW crashes the CK Dialogue Views editor; the S2 fields (DLBR Category, QUST
-            // NextAliasID + objective Flags) are byte-parity only (no crash) but complete the write the same way.
-            // These COMPLETE the write the author under-specified (never overriding an explicit value) and surface each
-            // fill as an op — auto-filled, not silent (Q3). The authority + by-construction values live in
-            // DialogueCkParity (else-if: a record is exactly one of these types).
+            // CK-parity default-populate. The same asymmetry runs across the whole DIAL/INFO/DLVW/DLBR/QUST family:
+            // Mutagen omits null optionals, the CK writes them unconditionally. An INFO created without CNAM
+            // (FavorLevel) / ENAM (Flags) crashes the CK when its topic is opened; a bare DLVW crashes the CK Dialogue
+            // Views editor; DLBR Category and QUST NextAliasID + objective Flags are byte-parity only (no crash) but
+            // complete the write the same way. These COMPLETE the write the author under-specified (never overriding
+            // an explicit value) and surface each fill as an op — auto-filled, not silent. The values live in
+            // DialogueCkParity. else-if, because a record is exactly one of these types.
             else if (rec is IDialogResponses infoRec)
             {
                 foreach (var fill in DialogueCkParity.ApplyInfoDefaults(infoRec))
@@ -3198,12 +3101,12 @@ public static class WritePatchBuilder
                 foreach (var fill in DialogueCkParity.ApplyViewDefaults(viewRec))
                     ops.Add(new OpResult(rec.FormKey, s.RecordType, fill.Label, true, null, fill.Reason));
             }
-            else if (rec is IDialogBranch branchRec)   // S2 — DLBR Category (TNAM); S3 — DLBR Flags (DNAM), #212
+            else if (rec is IDialogBranch branchRec)   // DLBR Category (TNAM) + Flags (DNAM)
             {
                 foreach (var fill in DialogueCkParity.ApplyBranchDefaults(branchRec))
                     ops.Add(new OpResult(rec.FormKey, s.RecordType, fill.Label, true, null, fill.Reason));
             }
-            else if (rec is IQuest questRec)           // S2 — QUST NextAliasID (ANAM) + objective Flags (FNAM)
+            else if (rec is IQuest questRec)           // QUST NextAliasID (ANAM) + objective Flags (FNAM)
             {
                 foreach (var fill in DialogueCkParity.ApplyQuestDefaults(questRec))
                     ops.Add(new OpResult(rec.FormKey, s.RecordType, fill.Label, true, null, fill.Reason));
@@ -3214,19 +3117,19 @@ public static class WritePatchBuilder
 
         // --- Phase 4: serialize ONCE with the full known-master set. A created record referencing existing content pulls
         //     its master into the (lean, derived) header; a self-contained one yields a masterless plugin. A referenced
-        //     master genuinely absent still fails loud (Q3). ---
-        // Two-part active-patch self-lock guard (Heisen 2026-06-08 + PR #24 review): no mapped handle on the file we're
-        // about to write may survive to the serialize, from ANY source. ReleaseOverlay closes one we already hold (Apply's
-        // Phase-1 winner fetch, when re-editing the patch's OWN override — there the winner IS the target); AllMastersExcept
-        // keeps the target out of the master set. (writelock-probe / writelock-apply-probe; both halves guarded.)
+        //     master genuinely absent still fails loud. ---
+        // Two-part active-patch self-lock: no mapped handle on the file we're about to write may survive to the
+        // serialize, from ANY source. ReleaseOverlay closes one we already hold (Apply's Phase-1 winner fetch, when
+        // re-editing the patch's OWN override — there the winner IS the target); AllMastersExcept keeps the target
+        // out of the master set. Both halves are required.
         session.ReleaseOverlay(patchMod.ModKey.FileName.String);
         try
         {
             if (inPlace)
-                // Model C (the Wave 0 probe's incantation): re-emit the WHOLE target over itself — the author's counter
-                // preserved (NoNextFormIDProcessing, no re-floor; the allocation already floored+advanced it), no baseline
-                // force-include. Handed the SAME whole-master set as WritePatch, so a new record's cross-mod reference (incl.
-                // an overridden-in foreign parent) resolves + pulls its master into the lean derived header — xEdit-parity.
+                // Re-emit the WHOLE target over itself — the author's counter preserved (NoNextFormIDProcessing, no
+                // re-floor; the allocation already floored+advanced it), no baseline force-include. Handed the SAME
+                // whole-master set as WritePatch, so a new record's cross-mod reference (incl. an overridden-in
+                // foreign parent) resolves + pulls its master into the lean derived header — xEdit-parity.
                 WriteEngine.WriteInPlace(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath, resolver.DataDir);
             else
                 WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath);
@@ -3253,12 +3156,12 @@ public static class WritePatchBuilder
         return new CreateOutcome(true, null, outPath, extend, created, masters, bytes) { ReadBack = readBack, InPlace = inPlace };
     }
 
-    /// <summary>Create BRAND-NEW records IN PLACE inside an EXISTING plugin the user owns (in-place write lane, Wave 1b) —
-    /// the create sibling of <see cref="ApplyInPlace"/>, and the in-place ENTRY POINT into the shared
-    /// <see cref="CreateRecords"/> core: it forwards with <paramref name="targetName"/> as the in-place target, so the FULL
-    /// create capability — flat, nested (incl. under a parent the target doesn't own, overridden in to host the child), and
-    /// cells — runs the SAME proven path as the patch lane, pointed at <paramref name="targetPath"/> and serialized model-C
-    /// over the file itself (<see cref="WriteEngine.WriteInPlace"/>). The created-record verify
+    /// <summary>Create BRAND-NEW records IN PLACE inside an EXISTING plugin the user owns — the create sibling of
+    /// <see cref="ApplyInPlace"/>, and the in-place ENTRY POINT into the shared <see cref="CreateRecords"/> core: it
+    /// forwards with <paramref name="targetName"/> as the in-place target, so the FULL create capability — flat, nested
+    /// (incl. under a parent the target doesn't own, overridden in to host the child), and cells — runs the SAME path
+    /// as the patch lane, pointed at <paramref name="targetPath"/> and serialized over the file itself
+    /// (<see cref="WriteEngine.WriteInPlace"/>). The created-record verify
     /// (<paramref name="fullReadback"/>) defaults ON. CONSENT + the persistent acknowledge handshake are enforced by the
     /// SERVICE before this is reached.</summary>
     public static CreateOutcome CreateRecordsInPlace(
@@ -3270,10 +3173,10 @@ public static class WritePatchBuilder
     /// opens to confirm masters, so no new handle class (opened AFTER the serialize, disposed with Phase 5; the
     /// active-patch self-lock invariant is untouched). ONE enumeration pass serves every target (flat + nested
     /// groups — the same walk <see cref="RemoveRecords"/>' present-check relies on); tokens are materialised while
-    /// the overlay is open. NEVER throws (PR #40 review #1): the write itself already SUCCEEDED by the time this
-    /// runs (serialize done, masters confirmed), so a read-back failure must not convert the outcome to Fail —
-    /// that would read as "my write was lost" and invite re-issuing the ops (the duplicate-Add trap this read-back
-    /// exists to close). Every degraded path is named per-record on <see cref="FullReadback.Error"/> (Q3).</summary>
+    /// the overlay is open. NEVER throws: the write itself already SUCCEEDED by the time this runs (serialize done,
+    /// masters confirmed), so a read-back failure must not convert the outcome to Fail — that would read as "my write
+    /// was lost" and invite re-issuing the ops, which is the duplicate-Add trap this read-back exists to close. Every
+    /// degraded path is named per-record on <see cref="FullReadback.Error"/>.</summary>
     static IReadOnlyList<FullReadback> ReadBackInFull(ISkyrimModGetter back, IEnumerable<FormKey> targets, bool inMemory = false)
     {
         var order = new List<FormKey>();                                   // caller order, de-duped (several ops may hit one record)
@@ -3304,17 +3207,17 @@ public static class WritePatchBuilder
         return result;
     }
 
-    /// <summary>The xEdit-style edit label: <c>Verb path[key] = value</c> (matches <see cref="WriteEngine.RunPatch"/>).</summary>
+    /// <summary>The xEdit-style edit label: <c>Verb path[key] = value</c>.</summary>
     static string Label(WriteRequest r) =>
         $"{r.Verb} {string.Join('.', r.Path)}{(r.Key is not null ? "[" + r.Key + "]" : "")}{(r.Value is not null ? " = " + r.Value : "")}";
 
     /// <summary>Resolve every same-call <c>@editorid</c> reference in a request to the referenced record's allocated
-    /// FormKey — the singular <see cref="WriteRequest.Value"/>, each <see cref="WriteRequest.Values"/> entry, and
-    /// (HCBR-2026-07-10-01) a compose <see cref="WriteRequest.Struct"/>'s formlink Fields values + nested Sets,
-    /// recursively. WriteRequest/StructSpec are init-only, so substitution clones; the ORIGINAL instance is returned
-    /// untouched when nothing needed resolving (the common no-token path allocates nothing). A token naming a record
-    /// not in <paramref name="created"/> is a real engine inconsistency (pre-flight gates the declared-earlier-or-self
-    /// rule) — returned as <c>error</c>, surfaced not swallowed (Q3).</summary>
+    /// FormKey — the singular <see cref="WriteRequest.Value"/>, each <see cref="WriteRequest.Values"/> entry, and a
+    /// compose <see cref="WriteRequest.Struct"/>'s formlink Fields values + nested Sets, recursively.
+    /// WriteRequest/StructSpec are init-only, so substitution clones; the ORIGINAL instance is returned untouched when
+    /// nothing needed resolving (the common no-token path allocates nothing). A token naming a record not in
+    /// <paramref name="created"/> is a real engine inconsistency (pre-flight gates the declared-earlier-or-self
+    /// rule) — returned as <c>error</c>, surfaced not swallowed.</summary>
     static (WriteRequest req, string? error) ResolveSiblingRefs(
         WriteRequest r, IReadOnlyDictionary<string, IMajorRecord> created, string onWhat)
     {
@@ -3338,8 +3241,8 @@ public static class WritePatchBuilder
             err ??= sErr;
             strct = rs;
         }
-        // P8a: a composes= op carries a LIST of specs; in create context each may @editorid-reference a same-call
-        // sibling, so resolve every element the same clone-only-on-change way, fail loud on a miss (Q3).
+        // A composes= op carries a LIST of specs; in create context each may @editorid-reference a same-call sibling,
+        // so resolve every element the same clone-only-on-change way, and fail loud on a miss.
         var structs = r.Structs;
         if (structs is not null)
         {
@@ -3419,35 +3322,32 @@ public static class WritePatchBuilder
         catch { return null; }
     }
 
-    /// <summary>#308 — re-derive every op's "what landed" descriptor from the RE-OPENED WRITTEN FILE and compare it
-    /// with the in-memory one the apply produced. The in-place verify's banner claims every line was re-read off the
-    /// written file; before this, the record-level half was (<see cref="ReadBackInFull"/>) and the per-op half was
-    /// not, so a struct that exists in memory and serializes to nothing rendered as landed under a file-authority
-    /// claim while the file was byte-unchanged.
+    /// <summary>Re-derive every op's "what landed" descriptor from the RE-OPENED WRITTEN FILE and compare it with the
+    /// in-memory one the apply produced. The in-place verify's banner claims every line was re-read off the written
+    /// file, so without this per-op half a struct that exists in memory and serializes to nothing renders as landed
+    /// under a file-authority claim while the file is byte-unchanged.
     ///
-    /// <para>WHAT IT CATCHES, and what it does not, stated because three places used to claim more: content that is
-    /// GONE — a container whose count moved, or a leaf that held something and now holds nothing. NOT a value the
-    /// format represents differently (a byte-quantised Percent, an overlay's type name), and NOT an element that
-    /// landed but serialized with fewer fields than the caller supplied. That last one is bounded from the other end
-    /// instead: <c>WriteEngine.EmptyComposeRefusal</c> refuses the case where nothing was supplied at all, and the
-    /// per-op clause prints the FILE's own reading, so a caller comparing it against what they asked for can see the
-    /// difference — they are simply not told it is a failure, because this cannot tell that from a representation.</para>
+    /// <para>WHAT IT CATCHES, and what it does not: content that is GONE — a container whose count moved, or a leaf
+    /// that held something and now holds nothing. NOT a value the format represents differently (a byte-quantised
+    /// Percent, an overlay's type name), and NOT an element that landed but serialized with fewer fields than the
+    /// caller supplied. That last one is bounded from the other end instead: <c>WriteEngine.EmptyComposeRefusal</c>
+    /// refuses the case where nothing was supplied at all, and the per-op clause prints the FILE's own reading, so a
+    /// caller comparing it against what they asked for can see the difference — they are simply not told it is a
+    /// failure, because this cannot tell that from a representation.</para>
     /// <para>One READER both sides (<see cref="DescribeApplied"/>), so a difference is a difference in the DATA, not
-    /// in how two renderers phrase it. Not one OPEN, though, and the asymmetry is deliberate (review [low]): the
-    /// memory side is the record this call authored, while the file side is re-opened through
-    /// <c>LoadOrderResolver.OpenOverlay</c> so a localized plugin's strings resolve — without which a value this call
-    /// just wrote would read back empty and be reported as lost. A record the file does not yield leaves both fields
-    /// null — the renderer then says the clause is the applied edit's claim, which is the honest reading and the one
-    /// the old banner silently skipped.</para>
+    /// in how two renderers phrase it. Not one OPEN, though, and the asymmetry is deliberate: the memory side is the
+    /// record this call authored, while the file side is re-opened through <c>LoadOrderResolver.OpenOverlay</c> so a
+    /// localized plugin's strings resolve — without which a value this call just wrote would read back empty and be
+    /// reported as lost. A record the file does not yield leaves both fields null, and the renderer must then say the
+    /// clause is the applied edit's claim.</para>
     ///
-    /// <para>The cost, stated in full rather than partly (reviews [low], twice): on the in-place lane the read-back is
-    /// forced, so a write walks the re-opened file TWICE, pays a second reflective <c>ReadFields</c> PER OP against
-    /// the overlay, and runs an O(ops²) scan for superseded leaves. Unconditional on every in-place write. Kept separate because
-    /// <see cref="ReadBackInFull"/> materialises RecordFields and hands back values — threading a second output
-    /// through it would entangle this with its careful per-record error accounting — and because the walk is lazy
-    /// header parsing over a file the call has just fully re-serialized, which dominates it. Worth merging if a
-    /// large in-place target ever measures badly; not worth entangling on argument alone.</para></summary>
-    internal static IReadOnlyList<OpResult> VerifyLandedAgainstFile(   // internal: wire-pinned by apply-guard arm 8
+    /// <para>COST: on the in-place lane the read-back is forced, so a write walks the re-opened file TWICE, pays a
+    /// second reflective <c>ReadFields</c> PER OP against the overlay, and runs an O(ops²) scan for superseded leaves.
+    /// Unconditional on every in-place write. Kept separate because <see cref="ReadBackInFull"/> materialises
+    /// RecordFields and hands back values — threading a second output through it would entangle this with its
+    /// per-record error accounting — and because the walk is lazy header parsing over a file the call has just fully
+    /// re-serialized, which dominates it. Worth merging only if a large in-place target measures badly.</para></summary>
+    internal static IReadOnlyList<OpResult> VerifyLandedAgainstFile(   // internal: pinned by a test
         ISkyrimModGetter back, IReadOnlyList<(FormKey Target, WriteRequest Req)> perOp, IReadOnlyList<OpResult> ops)
     {
         if (ops.Count == 0) return ops;
@@ -3469,32 +3369,24 @@ public static class WritePatchBuilder
             var op = ops[i];
             if (i >= perOp.Count) { verified.Add(op); continue; }                       // appended past the edits — never asked
             if (!found.TryGetValue(perOp[i].Target, out var rec)) { verified.Add(op with { VerifyAttempted = true }); continue; }
-            // SUPERSEDED ops are not comparable, and comparing them was a false alarm (review [high], reproduced):
-            // `After`/`Landed` are read the instant op i applies — mid-sequence — while the file holds the state after
-            // ALL of them. Two ops on one leaf (two Adds to one list; a value set then corrected) therefore always
-            // "disagreed", and the response told the caller to treat a landed op as NOT landed. The remedy an agent
-            // then reaches for — re-issue the op — is the duplicate-Add trap this codebase already warns about.
-            // The file has ONE final state, so only the LAST op touching a leaf is answerable by it.
+            // SUPERSEDED ops are not comparable: `After`/`Landed` are read the instant op i applies — mid-sequence —
+            // while the file holds the state after ALL of them. Two ops on one leaf (two Adds to one list; a value set
+            // then corrected) therefore always "disagree", and reporting that tells the caller to treat a landed op as
+            // NOT landed — whose remedy, re-issuing the op, is the duplicate-Add trap. The file has ONE final state,
+            // so only the LAST op touching a leaf is answerable by it.
             if (LaterOpTouchesSameLeaf(perOp, i)) { verified.Add(op with { SupersededInCall = true, VerifyAttempted = true }); continue; }
             var (_, landedDisk, diskReadable) = DescribeApplied(rec, perOp[i].Req);
-            // ONE comparison, on the leaf. An earlier round added a second pass over `Landed` (the touched ELEMENT) to
-            // catch a struct that lands but serializes with fewer fields than supplied — and a later review proved it
-            // INERT (review [medium]): `Landed` differs from `After` only for a container leaf, and for a container
-            // both presences carry counts, so the count arm decides and returns null whenever the counts agree. The
-            // element strings were never judged. It is removed rather than repaired because repairing it means
-            // comparing element TEXT, which is exactly what produced the Percent and overlay-type false alarms — and
-            // the bound is now stated where it is claimed instead of implied away.
+            // ONE comparison, on the leaf. Deliberately NOT a second pass over `Landed` (the touched ELEMENT) to catch
+            // a struct that lands but serializes with fewer fields than supplied: such a pass is inert, because
+            // `Landed` differs from `After` only for a container leaf and for a container both presences carry counts,
+            // so the count arm decides and returns null whenever the counts agree. Making it live would mean comparing
+            // element TEXT, which is what produces the Percent and overlay-type false alarms.
             verified.Add(op with
             {
-                // A file side that could NOT BE READ is not the file's answer (review [medium]): DescribeApplied
-                // hands back the note ("(unreadable: …)"), which is non-null, and the state word derives from
-                // LandedOnDisk being non-null — so an op whose re-read THREW was stamped "verified" with the failure
-                // text printed as the file's content. Leaving it null routes it to the state that already exists for
-                // this: attempted, no answer. The comparator meanwhile stays silent on it, which is correct and is
-                // why nothing else caught it.
                 // A file side that could NOT BE READ is not the file's answer: DescribeApplied hands back the note
-                // ("(unreadable: …)"), which is non-null, so presenting it would print a read failure as the file's
-                // content. Null routes it to the label that says the clause is the applied edit's own reading.
+                // ("(unreadable: …)"), which is non-null, and the state word derives from LandedOnDisk being
+                // non-null — so presenting it would stamp the op "verified" and print a read failure as the file's
+                // content. Null routes it to the state that already exists for this: attempted, no answer.
                 LandedOnDisk = diskReadable ? landedDisk : null,
                 VerifyAttempted = true,
             });
@@ -3515,17 +3407,16 @@ public static class WritePatchBuilder
         {
             if (perOp[j].Target != perOp[i].Target || !PathFamiliesOverlap(perOp[i].Req.Path, perOp[j].Req.Path)) continue;
             // A key-addressed pair on ONE path can be two different ELEMENTS: SetAtIndex Ranks key=0 and key=1 carry
-            // the container as Path and the element in Key, so the bracketed rule above cannot tell them apart and
-            // the earlier op was marked superseded by an op that never touched it (losing its verification, and
-            // saying so untruthfully).
+            // the container as Path and the element in Key, so the path rule above cannot tell them apart and would
+            // mark the earlier op superseded by an op that never touched it, losing its verification.
             //
-            // But ONLY when neither op can move the container's COUNT (review [high], reproduced): the first draft of
-            // this exemption asked about the keys alone, which turned the superseded rule off for the count-CHANGING
-            // keyed verbs — a list Remove by index, a dict Add/Remove/Set. Two `Remove Ranks[i]` in one call then
-            // compared op 1's mid-sequence count against the file's final one and printed "treat this op as NOT
-            // landed" for a write where BOTH removes landed; the remedy that invites deletes a third element.
-            // SetAtIndex is the one keyed verb that replaces in place, so it is the whole exemption — anything else,
-            // InsertAtIndex included, falls back to superseded, which is silent rather than wrong.
+            // But ONLY when neither op can move the container's COUNT. Asking about the keys alone would turn the
+            // superseded rule off for the count-CHANGING keyed verbs — a list Remove by index, a dict Add/Remove/Set —
+            // and two `Remove Ranks[i]` in one call would then compare op 1's mid-sequence count against the file's
+            // final one and print "treat this op as NOT landed" for a write where BOTH removes landed; acting on that
+            // deletes a third element. SetAtIndex is the one keyed verb that replaces in place, so it is the whole
+            // exemption — anything else, InsertAtIndex included, falls back to superseded, which is silent rather
+            // than wrong.
             if (perOp[i].Req.Key is { } a && perOp[j].Req.Key is { } b
                 && !string.Equals(a, b, StringComparison.OrdinalIgnoreCase)
                 && CountNeutralKeyedVerb(perOp[i].Req.Verb) && CountNeutralKeyedVerb(perOp[j].Req.Verb)) continue;
@@ -3535,13 +3426,12 @@ public static class WritePatchBuilder
     }
 
     /// <summary>Does this KEY-addressed verb leave the container's element count alone? Only <c>SetAtIndex</c>, which
-    /// overwrites the element at a position. <c>Remove</c> by index, <c>InsertAtIndex</c> (#302 — it adds an element
-    /// AND shifts every index at or after it, so it is doubly not independent of another keyed op on the same list),
-    /// and every dict <c>Add</c>/<c>Set</c>/<c>Remove</c>
-    /// move the count, so two of them on one container are NOT independent for verification purposes — the earlier
-    /// one's in-memory count is a step behind the file's, and comparing it produces a false "NOT landed" on a write
-    /// that landed (review [high]). Named as a predicate rather than inlined so the exemption's bound is greppable
-    /// from the verb side, where the next keyed verb will be added.</summary>
+    /// overwrites the element at a position. <c>Remove</c> by index, <c>InsertAtIndex</c> (which adds an element AND
+    /// shifts every index at or after it, so it is doubly not independent of another keyed op on the same list), and
+    /// every dict <c>Add</c>/<c>Set</c>/<c>Remove</c> move the count, so two of them on one container are NOT
+    /// independent for verification purposes — the earlier one's in-memory count is a step behind the file's, and
+    /// comparing it produces a false "NOT landed" on a write that landed. A predicate rather than an inline test so
+    /// the exemption's bound is greppable from the verb side, where the next keyed verb will be added.</summary>
     static bool CountNeutralKeyedVerb(string verb) => string.Equals(verb, "SetAtIndex", StringComparison.Ordinal);
 
     /// <summary>Is one dotted path a prefix of the other, comparing segments with any <c>[index]</c>/<c>[key]</c>
@@ -3556,8 +3446,8 @@ public static class WritePatchBuilder
         return true;
 
         // Two segments that BOTH carry an index/key are compared whole, so Ranks[0] and Ranks[1] stay independent
-        // elements and each keeps its own file verification (review [low]); the suffix is stripped only when one side
-        // names the container itself, which is what makes Ranks[0].Number recognisably a write inside Ranks.
+        // elements and each keeps its own file verification; the suffix is stripped only when one side names the
+        // container itself, which is what makes Ranks[0].Number recognisably a write inside Ranks.
         static bool SameSegment(string x, string y)
         {
             int bx = x.IndexOf('['), by = y.IndexOf('[');
@@ -3579,7 +3469,7 @@ public static class WritePatchBuilder
             var after = f.HasValue ? f.Token : f.Note;
             // Scalar: Landed reuses the token just read. List/dict: name the touched element (+ new count); else the
             // summary. An Add carries how many elements it appended (composes= → Structs.Count, else 1) so a batch
-            // compose reports the whole appended run, never "(+1)" for N (#259).
+            // compose reports the whole appended run, never "(+1)" for N.
             int added = req.Verb == "Add" ? (req.Structs?.Count ?? 1) : 1;
             var landed = f.HasValue ? f.Token : (ReadEngine.TouchedElement(ov, req.Path, req.Verb, req.Key, added) ?? f.Note);
             // The presence PAIR rides along because it is the structural fact the tokens hide: a container summary, a

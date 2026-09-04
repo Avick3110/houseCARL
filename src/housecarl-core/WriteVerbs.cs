@@ -1,9 +1,8 @@
 namespace HousecarlCore;
 
-/// <summary>Which half of the collection surface a leaf is. This is the fact that decides whether a remedy may
-/// name an INDEX verb or a KEY verb, and it is the fact the class-A defect kept getting wrong: a dict caller was
-/// reachable by a message reciting list verbs, because the recital was typed by hand next to a condition that did
-/// not scope it.</summary>
+/// <summary>Which half of the collection surface a leaf is — the fact that decides whether a remedy may name an
+/// INDEX verb or a KEY verb. A hand-typed recital next to an unscoped condition is how a dict caller ends up
+/// offered list verbs.</summary>
 public enum CollectionKind
 {
     /// <summary>Positional — elements are addressed by index.</summary>
@@ -29,7 +28,7 @@ public enum ElementPlacement
 /// else, which is what makes "a dict caller cannot receive a list-verb remedy" structural rather than careful.</summary>
 public readonly record struct CollectionShape(CollectionKind Kind, ElementPlacement Element);
 
-/// <summary>The input slot a verb consumes on a given shape. Carried as DATA rather than prose so a guard can
+/// <summary>The input slot a verb consumes on a given shape. Carried as DATA rather than prose so a check can
 /// build a well-formed request for every verb the formatter names and replay it through the real gate.</summary>
 public enum VerbInput
 {
@@ -55,14 +54,9 @@ public readonly record struct VerbUse(string Verb, VerbInput Input, bool NeedsKe
 /// The one home IN CODE for houseCARL's write-verb vocabulary, and the one derivation of which of those verbs work
 /// on a given collection shape.
 ///
-/// <para><b>Why this exists.</b> Seven emitted messages recited verb names by hand, each next to the condition that
-/// produced it, and they drifted: a dict caller reached a message offering <c>InsertAtIndex</c> (measured on
-/// <c>Package.Data</c> — following the offer returns "InsertAtIndex is only valid on list"); the Set-on-list remedy
-/// named two of the five list verbs; the leaf-bracket remedy offered both cardinalities' verbs at once and left the
-/// caller to work out which half was theirs. Adding <c>InsertAtIndex</c> (#302) made the drift visible by adding an
-/// eighth name to keep in sync, but it did not cause it — a hand-maintained copy of a set rots whether or not the
-/// set is growing. Two consecutive pre-PR review rounds returned instances of it, which is the CLAUDE.md §11
-/// class-stop: the fix is the generator, not another round of copies.</para>
+/// <para><b>Why this exists.</b> Hand-recited verb names next to the condition that produced them drift: a dict
+/// caller gets offered a list-only verb, a remedy names two of the five list verbs, a leaf-bracket remedy offers
+/// both cardinalities at once. Deriving them here is what keeps every message in step.</para>
 ///
 /// <para><b>What a caller gets.</b> <see cref="On"/> maps a <see cref="CollectionShape"/> to the verbs that WORK on
 /// it. Sites select a purpose subset by the flags on <see cref="VerbUse"/> — <c>NeedsKey</c> for "how do I address
@@ -70,12 +64,11 @@ public readonly record struct VerbUse(string Verb, VerbInput Input, bool NeedsKe
 /// verbs" — and never by naming verbs themselves. A site therefore cannot recite a verb the shape does not
 /// support, and a verb added to (or removed from) the surface reaches every message at once.</para>
 ///
-/// <para><b>How it is kept honest.</b> Not by resembling <see cref="CorpusRulebook"/>'s verb-indexed switch — a
-/// mirror of that code would prove only that it had been copied correctly. This table is indexed by SHAPE, and the
-/// agreement is MEASURED: <c>remedy-verbs-guard</c> buckets every collection field in the corpus by shape, and for
-/// each populated bucket replays a well-formed request for every verb named here through the real
-/// <see cref="CorpusRulebook.Validate"/> (each must be ACCEPTED) and for every verb NOT named here (each must be
-/// REFUSED). Two independent routes to one fact; either one drifting turns the guard red.</para>
+/// <para><b>How it is kept honest.</b> Deliberately NOT a mirror of <see cref="CorpusRulebook"/>'s verb-indexed
+/// switch — a copy would prove only that it was copied correctly. This table is indexed by SHAPE, and the agreement
+/// is measured: every collection field in the corpus is bucketed by shape, and each bucket replays a well-formed
+/// request through the real <see cref="CorpusRulebook.Validate"/> for every verb named here (must be ACCEPTED) and
+/// every verb not named here (must be REFUSED). Two independent routes to one fact.</para>
 ///
 /// <para><b>Declared boundary.</b> This answers "which verbs suit this SHAPE". It does not answer "is this
 /// particular field writable" (<see cref="FieldSchema.Writable"/> / <see cref="FieldSchema.IsIdentity"/>) or "is
@@ -85,62 +78,23 @@ public readonly record struct VerbUse(string Verb, VerbInput Input, bool NeedsKe
 /// </summary>
 public static class WriteVerbs
 {
-    /// <summary>Every verb the write surface accepts, in the order the shipped tool descriptions list them. The home
-    /// for the names as a collection code can ITERATE. Both in-code statements of the membership are pinned, each
-    /// against a vocabulary written independently inside the probe that checks it: <c>remedy-verbs-guard</c>'s
-    /// SITE-UNKNOWN-VERB holds this one, and <c>description-vocab-guard</c>'s INV4-HOMES holds this one and
-    /// <see cref="AllRecital"/> together against a third, independent statement of the set (#386).
-    /// <see cref="AllRecital"/> states the same names a second time, as the caller-facing literal an attribute can
-    /// concatenate — see its summary for what that does and does not establish. <see cref="On"/> is the one home
-    /// for which of them apply where. The prose home for the set as DOCUMENTATION is the tool-surface SPEC, which
-    /// CLAUDE.md points readers at — two audiences, not two authorities on one fact.</summary>
+    /// <summary>Every verb the write surface accepts, in the order the shipped tool descriptions list them — the home
+    /// for the names as a collection code can ITERATE. <see cref="AllRecital"/> states the same names a second time
+    /// as a compile-time literal, and the two must agree. <see cref="On"/> is the one home for which of them apply
+    /// where.</summary>
     public static readonly IReadOnlyList<string> All =
         new[] { "Set", "Add", "Remove", "SetAtIndex", "InsertAtIndex", "ReplaceAll", "Merge", "CopyFrom" };
 
     /// <summary>The same vocabulary as the CALLER-FACING recital a <c>[Description]</c> prints — the pipe-joined
-    /// form, with the defaulting verb marked. TWO shipped descriptions concatenate it today rather than typing the
-    /// names out: <c>ApplyTools</c>'s <c>op=</c> method prose and the <c>ApplyOp.op</c> shape declaration. A third
-    /// concatenation exists in source and reaches no caller — <c>BulkOp.verb</c>'s: <c>housecarl_bulk_apply</c> was
-    /// the only tool that bound <c>BulkOp</c> off the wire, and #468 deleted it, so the type is an internal service
-    /// shape listed in <c>WireNamesProbe.NonInputWireTypes</c> and its attributes are vestigial.
+    /// form, with the defaulting verb marked. It exists as a second member because an attribute argument must be a
+    /// compile-time constant and <see cref="All"/> is built at runtime, so a description cannot read it; the
+    /// alternative is a hand-typed copy per description. Descriptions must CONCATENATE this rather than type the
+    /// names out — nothing enforces that, so a hand-typed recital would pass unnoticed.
     ///
-    /// <para><b>Why a second member, rather than reading <see cref="All"/> there.</b> An attribute argument must be
-    /// a compile-time constant, and <see cref="All"/> is a collection built at runtime — so a description literally
-    /// cannot read it. The choice is therefore between one <c>const</c> the descriptions share and one hand-typed
-    /// copy per description — and the hand-typed arrangement is the one #302 had to go round and edit site by site
-    /// when it added <c>InsertAtIndex</c>, and the one PR #339 retired everywhere it could reach. This is that
-    /// pattern applied to the description surface (#386).</para>
-    ///
-    /// <para><b>What this establishes, and what it still does not.</b> Two members are two statements of one fact,
-    /// and that they say the SAME names is now checked: <c>description-vocab-guard</c>'s INV4-HOMES holds this
-    /// recital and <see cref="All"/> against a vocabulary written independently inside that probe, so either one
-    /// drifting turns it red once, on purpose (#386). What is still NOT enforced is that a future description
-    /// concatenates this rather than hand-typing the whole set — a site that did would be the #302
-    /// edit-every-site regression back again, silently, and a hand-typed complete recital passes every arm. The
-    /// sites named above are therefore a statement about the code as it stands, not a property anything
-    /// enforces.</para>
-    ///
-    /// <para><b>One hazard this const CREATES, and the arm that pins it.</b> <c>BulkOp.verb</c> appends
-    /// <c>" (deep-copy the field at field_path from from_plugin's version — see from_plugin)"</c> straight onto
-    /// this recital, so that gloss describes whichever verb is LAST here — <c>CopyFrom</c> today, by position and
-    /// nothing else. Appending a ninth verb — the very edit this const exists to make sufficient — silently moves
-    /// the gloss onto the new verb and strips it off <c>CopyFrom</c>; reordering does the same. The two shipped
-    /// sites are position-independent (one appends after a full stop, one reads <c>"op is " + AllRecital + ". "</c>),
-    /// so the mis-gloss can only land on <c>BulkOp.verb</c>.</para>
-    ///
-    /// <para><b>Since #468 that mis-gloss has no SHIPPED consequence.</b> This paragraph used to end "shipping a
-    /// false claim in <c>housecarl_bulk_apply</c>'s schema" — that tool is deleted, and <c>BulkOp</c> left every
-    /// tool's input schema with it, so the one description the hazard can reach is one no caller is served. What is
-    /// left is latent: collapsing <c>BulkOp</c> into <c>ApplyOp</c> (the follow-up <c>NonInputWireTypes</c> names)
-    /// would carry the glued gloss onto a description callers DO read. <c>description-vocab-guard</c>'s
-    /// INV4-TAILGLOSS still holds this recital's tail token against the verb that gloss is written about, stated
-    /// independently inside that probe (#386), and it fails loud if NO description glues a parenthetical any more —
-    /// so whether the arm still has a subject is a reported fact rather than a silent pass. Whether an arm pinning
-    /// an unshipped description should be strengthened or deleted is a question for the collapse, not for this
-    /// summary to answer.</para>
-    ///
-    /// <para>What that arm does NOT check is whether the gloss is a TRUE statement about the verb it lands on.
-    /// That is authored prose, and the guard reads vocabulary rather than truth.</para></summary>
+    /// <para><b>The tail is load-bearing.</b> <c>BulkOp.verb</c> appends a parenthetical gloss straight onto this
+    /// recital, so the gloss describes whichever verb sits LAST here — <c>CopyFrom</c> today, by position alone.
+    /// Appending a ninth verb, or reordering, silently moves the gloss onto a different verb. The other sites are
+    /// position-independent (one appends after a full stop, one reads <c>"op is " + AllRecital + ". "</c>).</para></summary>
     public const string AllRecital = "Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge | CopyFrom";
 
     /// <summary>The verbs that work on <paramref name="shape"/>, each with the slot it consumes and the phrase a
@@ -186,11 +140,9 @@ public static class WriteVerbs
             Address(shape),
         };
         // CopyFrom is deliberately absent from every DICT shape: transplanting a dict field is not built
-        // ("a dict isn't transplanted yet" — CopyFromLegality), so naming it here would be the same over-claim in
-        // the other direction. Measured, not assumed — the guard's refuse sweep is what found it.
+        // (CopyFromLegality refuses it), so naming it here would over-claim.
         // ReplaceAll/Merge carry their elements in entries=, a plain key-to-value shape with no build-from-parts
-        // form — so on a MODELED-element dict they are a later surface, and naming them would be exactly the lie
-        // the class-A medium was made of.
+        // form — so on a MODELED-element dict they do not exist yet, and naming them would offer a verb that fails.
         if (!composed)
         {
             dict.Add(new VerbUse("ReplaceAll", VerbInput.Entries, false, true, "clears the dict, then sets each entry"));
@@ -282,9 +234,7 @@ public static class WriteVerbs
     /// DECLINED: <see cref="ElementKind.ScalarUncoercible"/> and <see cref="ElementKind.Unknown"/>. Neither has a
     /// settled legal-verb answer — an uncoercible element has no plain-value form, yet no gate check refuses an Add
     /// carrying one (a dormant accept-then-throw that predates this table and is not its to close). Describing that
-    /// shape would mean printing a verb the gate accepts and apply rejects, so it prints nothing.
-    /// <c>remedy-verbs-guard</c> reports the corpus population of every shape, declined ones included, so
-    /// "declined" stays a measured statement rather than an assumption.</summary>
+    /// shape would mean printing a verb the gate accepts and apply rejects, so it prints nothing.</summary>
     public static CollectionShape? OfField(FieldSchema leaf, Corpus corpus)
     {
         var kind = leaf.Cardinality switch
@@ -306,9 +256,8 @@ public static class WriteVerbs
     /// <summary>The RUNTIME route, for the engine's own throws: no corpus in scope, so the shape comes off the live
     /// property type through the SAME interface tests <c>ApplyVerb</c> dispatches on and the SAME coercion
     /// recogniser <c>Coerce</c> is built from. It has to be a second route — threading the corpus into the verb
-    /// path would cost the engine the schema-blindness <see cref="SchemaClassifier"/> is documented to protect —
-    /// and <c>remedy-verbs-guard</c> replays every collection field in the corpus through BOTH routes and requires
-    /// the same answer, which is the only thing that keeps two routes from becoming two opinions.</summary>
+    /// path would cost the engine the schema-blindness <see cref="SchemaClassifier"/> protects. The two routes must
+    /// give the same answer for every collection field in the corpus, or they become two opinions.</summary>
     public static CollectionShape? OfRuntimeType(Type leafType)
     {
         // Coercion owns a whole-coercible leaf even when its runtime type also implements IList/IDict — the same
