@@ -975,7 +975,7 @@ static class Wire
     /// dangling target, which is named rather than dropped. Display only — appended after the round-trip token,
     /// never in place of it. Internal so the dense render's cells reuse the same wording.</summary>
     internal static string LinkText(ResolvedRef r) =>
-        !r.Resolved ? "unresolved: target not in the active order"
+        !r.Resolved ? "unresolved: no active plugin defines this target"
         : string.IsNullOrEmpty(r.Name) ? $"→ {r.EditorId ?? "<no editorid>"}"
         : $"→ {r.EditorId ?? "<no editorid>"} \"{r.Name}\"";
 

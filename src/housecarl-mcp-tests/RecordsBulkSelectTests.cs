@@ -104,7 +104,7 @@ public sealed class RecordsBulkSelectTests : BulkRecordsTestBase
     {
         var r = AnnotatedText();
         Served(r, $"Keywords[1] = {Fid(W.Ghost)}");
-        Assert.Contains("(unresolved: target not in the active order)", r);
+        Assert.Contains("(unresolved: no active plugin defines this target)", r);
     }
 
     [Fact]
@@ -256,6 +256,6 @@ public sealed class RecordsEngineImplicitLinkTests : IDisposable
     {
         var r = Annotated();
         Assert.Contains($"Keywords[1] = {EngineImplicitLinkWorld.ControlToken}", r);
-        Assert.Contains("(unresolved: target not in the active order)", r);
+        Assert.Contains("(unresolved: no active plugin defines this target)", r);
     }
 }
