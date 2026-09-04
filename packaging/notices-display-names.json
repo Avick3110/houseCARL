@@ -1,0 +1,6 @@
+{
+  "_comment": "NuGet package id -> the name THIRD-PARTY-NOTICES.txt lists the component under, where the two differ. Read by scripts/generate-notices.ps1; a package absent from this map is listed under its own id. Two more components have a DLL name that matches neither (SharpZipLib ships ICSharpCode.SharpZipLib.dll, ini-parser-netstandard ships INIFileParser.dll) but their package id is already the listed name, so they need no entry.",
+
+  "Nifly": "NiflySharp",
+  "miniball-devel0": "miniball"
+}
