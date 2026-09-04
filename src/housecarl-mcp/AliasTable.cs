@@ -206,6 +206,15 @@ internal static class AliasTable
         ("housecarl_skypatcher_read",
          "absorbed into " + ToolNames.Records + ": source={\"overlay\": \"skypatcher\", \"state\": \"post\"} reads the post-INI body; pre-vs-post is project={\"form\": \"delta\"} with the two overlay poles."),
 
+        // The SKSE layer. Three families of one substrate, so all three rows name the same tool and differ only in the
+        // findings= value; the declared-vs-runtime ceiling they each used to carry is now written once on that tool.
+        ("housecarl_skse_inventory",
+         "absorbed into " + ToolNames.Skse + ": findings=\"inventory\", which is also the DEFAULT when findings= is omitted. filter=, peek= and max_chars= are unchanged, and peek= still requires filter=."),
+        ("housecarl_native_pairing_audit",
+         "absorbed into " + ToolNames.Skse + ": findings=\"pairing\". filter= and max_chars= are unchanged; peek= belongs to findings=\"inventory\" and is refused here."),
+        ("housecarl_skse_config_audit",
+         "absorbed into " + ToolNames.Skse + ": findings=\"config\". filter= and max_chars= are unchanged; peek= belongs to findings=\"inventory\" and is refused here."),
+
         // The write side. Each redirect names the parameter migration too, since a caller arriving from old docs
         // has the old parameter habits as well as the old tool name.
         ("housecarl_set_field",
