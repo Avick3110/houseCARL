@@ -94,3 +94,28 @@ jobs:
       - name: Probe — freshness-capture-guard (own cold process)
         if: ${{ !cancelled() }}
         run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll freshness-capture-guard
+
+      # The real `claude plugin validate --strict`, on the real assembled plugin tree. This is the
+      # validator the harness ships, so it is the only check that agrees with the harness by
+      # construction; the plugin-validate-guard probe above is a YAML proxy for it. The version is
+      # pinned so a CLI release cannot turn this step red on its own. `validate` reads files and
+      # exits — it needs no API key and no login.
+      - name: Set up Node 22
+        if: ${{ !cancelled() }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Install the Claude Code CLI
+        if: ${{ !cancelled() }}
+        run: npm install -g @anthropic-ai/claude-code@2.1.245
+
+      # -PluginTreeOnly assembles dist/housecarl (skills + plugin files) and skips the server
+      # publish, setup exe and zip — none of which the validator reads.
+      - name: Assemble the plugin tree
+        if: ${{ !cancelled() }}
+        run: ./scripts/build-plugin.ps1 -PluginTreeOnly
+
+      - name: Validate the plugin package (claude plugin validate --strict)
+        if: ${{ !cancelled() }}
+        run: claude plugin validate ./dist/housecarl --strict
