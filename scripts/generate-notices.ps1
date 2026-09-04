@@ -75,7 +75,9 @@ if (-not $targetName) { $targetName = ($deps.targets.PSObject.Properties.Name | 
 $target = Get-Prop $deps.targets $targetName
 
 # ---- the NuGet cache the nuspecs are read from -----------------------------
-$NugetCache = $env:NUGET_PACKAGES
+# Ask the toolchain rather than guessing: a nuget.config globalPackagesFolder moves it off the default path.
+$NugetCache = ((dotnet nuget locals global-packages --list) | Where-Object { $_ -match 'global-packages:' } | Select-Object -First 1) -replace '^.*global-packages:\s*', ''
+if (-not $NugetCache -or -not (Test-Path $NugetCache)) { $NugetCache = $env:NUGET_PACKAGES }
 if (-not $NugetCache) { $NugetCache = Join-Path $env:USERPROFILE '.nuget/packages' }
 if (-not (Test-Path $NugetCache)) { throw "NuGet package cache not found at $NugetCache; set NUGET_PACKAGES" }
 
@@ -105,9 +107,11 @@ $components = @()
 $claimed = @{}
 foreach ($p in $target.PSObject.Properties) {
   $id, $version = $p.Name -split '/', 2
-  $runtime = Get-Prop $p.Value 'runtime'
   $files = @()
-  if ($runtime) { $files = $runtime.PSObject.Properties.Name | ForEach-Object { Split-Path $_ -Leaf } }
+  foreach ($kind in @('runtime', 'native')) {
+    $assets = Get-Prop $p.Value $kind
+    if ($assets) { $files += $assets.PSObject.Properties.Name | ForEach-Object { Split-Path $_ -Leaf } }
+  }
   $mine = @($files | Where-Object { $shippedDlls.ContainsKey($_.ToLowerInvariant()) })
   if ($mine.Count -eq 0) { continue }
   foreach ($m in $mine) { $claimed[$m.ToLowerInvariant()] = $true }
@@ -128,13 +132,17 @@ foreach ($p in $target.PSObject.Properties) {
   if (-not $name) { $name = $id }
 
   $sourceUrl = $null
-  if ($facts) { $sourceUrl = $facts.Url }
+  if ($facts) { $sourceUrl = Format-SourceUrl $facts.Url }
+  # A copyleft component with no source pointer would leave the GPLv3 section 6 claim unbacked.
+  if ($licence -like 'GPL*' -and -not $sourceUrl) {
+    throw "$id $version is $licence but its NuGet metadata names no repository or project URL, so the notices file cannot point at its corresponding source"
+  }
 
   $components += [pscustomobject]@{
     Name    = $name
     Version = $version
     Licence = $licence
-    Source  = Format-SourceUrl $sourceUrl
+    Source  = $sourceUrl
   }
 }
 
@@ -163,20 +171,31 @@ $text = [System.IO.File]::ReadAllText($PluginCopy, [System.Text.Encoding]::UTF8)
 $newline = if ($text -match "`r`n") { "`r`n" } else { "`n" }
 $lines = $text -split "`r?`n"
 
-$groups = $components | Group-Object Licence
-foreach ($g in $groups) {
-  $begin = '  --- generated: {0} components ---' -f $g.Name
-  $beginIdx = [Array]::IndexOf($lines, $begin)
-  if ($beginIdx -lt 0) {
-    throw "$($g.Name) components ship but THIRD-PARTY-NOTICES.txt has no '$($g.Name)' section; add the section and its licence text, then rerun the build"
+$byLicence = @{}
+foreach ($g in ($components | Group-Object Licence)) { $byLicence[$g.Name] = $g.Group }
+
+# Walk the file's markers, not the components, so a region whose components all stopped shipping is
+# emptied rather than left standing.
+$regions = @()
+for ($i = 0; $i -lt $lines.Length; $i++) {
+  if ($lines[$i] -match '^  --- generated: (.+) components ---$') {
+    $endIdx = [Array]::IndexOf($lines, '  --- end generated ---', $i)
+    if ($endIdx -lt 0) { throw "the $($Matches[1]) generated region in THIRD-PARTY-NOTICES.txt has no end marker" }
+    $regions += [pscustomobject]@{ Licence = $Matches[1]; Begin = $i; End = $endIdx }
   }
-  $endIdx = [Array]::IndexOf($lines, '  --- end generated ---', $beginIdx)
-  if ($endIdx -lt 0) { throw "the $($g.Name) generated region in THIRD-PARTY-NOTICES.txt has no end marker" }
+}
+foreach ($lic in $byLicence.Keys) {
+  if (-not ($regions | Where-Object { $_.Licence -eq $lic })) {
+    throw "$lic components ship but THIRD-PARTY-NOTICES.txt has no '$lic' section; add the section, its markers and its licence text, then rerun the build"
+  }
+}
+# Last region first, so the earlier regions' line numbers stay valid as the file grows and shrinks.
+for ($k = $regions.Count - 1; $k -ge 0; $k--) {
+  $r = $regions[$k]
+  $table = @()
   # The source column is only shown for the copyleft components, whose corresponding source has to be findable.
-  $table = Format-ComponentTable $g.Group ($g.Name -like 'GPL*')
-  $head = $lines[0..$beginIdx]
-  $tail = $lines[$endIdx..($lines.Length - 1)]
-  $lines = @($head) + @($table) + @($tail)
+  if ($byLicence.ContainsKey($r.Licence)) { $table = Format-ComponentTable $byLicence[$r.Licence] ($r.Licence -like 'GPL*') }
+  $lines = @($lines[0..$r.Begin]) + @($table) + @($lines[$r.End..($lines.Length - 1)])
 }
 
 $rendered = ($lines -join $newline)
