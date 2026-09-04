@@ -107,9 +107,11 @@ public static class AssetSourceSelection
     public static string Describe(string providerName, string kindLabel) => $"\"{providerName}\" ({kindLabel})";
 
     /// <summary>Does <paramref name="name"/> address this source? Its provider name — the mod folder for a loose
-    /// copy, the archive filename for a BSA — or, for a BSA, the MOD FOLDER the archive file lives in. The second
-    /// arm is #388: a caller addresses a donor by naming the mod, and a mod's own root archives are part of what
-    /// naming that mod means. OrdinalIgnoreCase, the same way the providers themselves are matched.</summary>
+    /// copy, the archive filename for a BSA — or, for a BSA, the LAYER the archive file lives in, which is a mod
+    /// folder name or one of the two pseudo-layers "overwrite" / "Data". The second arm is #388: a caller addresses
+    /// a donor by naming the mod, and a mod's own root archives are part of what naming that mod means; naming a
+    /// pseudo-layer reaches its archives the same way. OrdinalIgnoreCase, the same way the providers themselves are
+    /// matched.</summary>
     public static bool NameMatches(PlacementSource s, string name)
         => string.Equals(s.ProviderName, name, StringComparison.OrdinalIgnoreCase)
         || (s.OwningMod is { } owner && string.Equals(owner, name, StringComparison.OrdinalIgnoreCase));

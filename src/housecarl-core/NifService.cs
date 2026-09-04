@@ -795,9 +795,11 @@ public static class NifService
     /// already lists under <c>sections=strings</c>. Addressed by the string's own current VALUE, because that is what
     /// the read prints and the table holds one entry per distinct string, so every reference to it moves together.
     ///
-    /// <para>A string that is a shape's or node's NAME is REFUSED here and sent to rename_shape / rename_node: those
-    /// ops carry the rename-onto-an-existing-name guard, and routing a rename through this form would walk around
-    /// it. Everything else in the table is the material/asset-ref class this form exists for.</para>
+    /// <para>Three refusals keep the whitelist a whitelist. A shape's or node's NAME goes to rename_shape /
+    /// rename_node, which carry the rename-onto-an-existing-name guard this form would otherwise walk around. An
+    /// extra-data block's Name is the KEY the engine looks the block up by, not a path, so its VALUE is the string
+    /// to swap. And a replacement already in the table is refused, because merging two entries renumbers every later
+    /// index and the write verification cannot tell that from a collateral edit.</para>
     ///
     /// <para>Touches the header only. The string table is authored, exactly as a rename's is; a block carries the
     /// table INDEX, which a same-order content swap leaves alone.</para></summary>
@@ -811,7 +813,8 @@ public static class NifService
         if (target == op.Path)
             return ($"the header string '{target}' already reads that way — nothing to change. Nothing was written.", null, null, null, null, false);
 
-        var refs = HeaderStringRefs(nif).Where(r => (r.String ?? "") == target).ToList();
+        var all = HeaderStringRefs(nif).ToList();
+        var refs = all.Where(r => (r.String ?? "") == target).ToList();
         if (refs.Count == 0)
             return ($"no header string in this mesh reads '{target}'. Pass the string EXACTLY as {ToolNames.NifInspect} "
                   + "sections=strings prints it (matching is case-sensitive). Nothing was written.", null, null, null, null, false);
@@ -821,6 +824,21 @@ public static class NifService
             if (av.Name is { } n && refs.Any(r => ReferenceEquals(r, n)))
                 return ($"'{target}' is the NAME of a shape or node, not an asset reference — use op=rename_shape or "
                       + "op=rename_node, which refuse renaming onto a name already in use. Nothing was written.", null, null, null, null, false);
+
+        // An extra-data block's Name is its KEY ("BODYTRI", "HH_OFFSET") — what the engine looks the block up by,
+        // not a path. Its VALUE is the asset ref, and that is the string to swap.
+        foreach (var ed in nif.Blocks.OfType<NiflySharp.Blocks.NiExtraData>())
+            if (ed.Name is { } k && refs.Any(r => ReferenceEquals(r, k)))
+                return ($"'{target}' is the KEY an extra-data block is looked up by, not an asset reference — swapping "
+                      + "it would hide the block from the engine. Pass the block's VALUE instead. Nothing was written.", null, null, null, null, false);
+
+        // Renumbering is indistinguishable from a collateral write at gate 1: nifly's table holds one entry per
+        // DISTINCT string, so merging two entries shifts every later index and every referring block's bytes. The
+        // edit may be legitimate; the verification cannot tell, so it is refused by name rather than mis-explained.
+        if (all.Any(r => (r.String ?? "") == op.Path))
+            return ($"'{op.Path}' is already a header string in this mesh, and pointing a second reference at it would "
+                  + "renumber the string table — a change the write verification cannot tell from a collateral edit. "
+                  + "Nothing was written.", null, null, null, null, false);
 
         foreach (var r in refs) r.String = op.Path;
         return (null, target, target, op.Path, null, true);
@@ -1058,9 +1076,10 @@ public static class NifService
             }
             case NifSetOpKind.SetPath when op.TextureSlot is null:
             {
-                // The header-string form: the new string must be there and the old one gone, both read off the
-                // RELOADED mesh's own refs.
-                var strings = HeaderStringRefs(nif).Select(r => r.String ?? "").ToList();
+                // The header-string form: the new string must be there and the old one gone. Read off the reloaded
+                // mesh's own TABLE rather than through the block refs the write went through — a ref a block type
+                // does not expose would otherwise be invisible to both, and a half-done swap would verify green.
+                var strings = ReadHeaderStrings(nif.Header);
                 return (strings.Contains(op.Path ?? "") && !strings.Contains(op.Target),
                         strings.Contains(op.Target) ? $"'{op.Target}' still present" : "(new string absent)");
             }

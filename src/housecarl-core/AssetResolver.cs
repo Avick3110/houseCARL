@@ -60,9 +60,13 @@ public sealed record AssetHit(string RelPath, bool Exists, AssetProvider? Winner
 /// from the provider name alone.</para>
 /// <para><see cref="OwningMod"/> is the MO2 layer a BSA source's archive file physically lives in — a mod folder
 /// name, "overwrite" or "Data" — so naming that mod addresses its own archives, not only its loose files (#388).
-/// Null for a loose source, whose <see cref="ProviderName"/> already IS that layer.</para></summary>
+/// Null for a loose source, whose <see cref="ProviderName"/> already IS that layer.</para>
+/// <para><see cref="OwnerEnabled"/> qualifies <see cref="OffOrder"/> with WHY the game is not loading this copy,
+/// which the two cases answer differently: MO2 does not tick the folder, or it does and this is a root archive no
+/// active plugin binds. Meaningless unless <see cref="OffOrder"/> is true.</para></summary>
 public sealed record PlacementSource(string ProviderName, AssetKind Kind, string? LooseFilePath, string? ArchivePath,
-                                     string EntryPath, bool OffOrder = false, string? OwningMod = null);
+                                     string EntryPath, bool OffOrder = false, string? OwningMod = null,
+                                     bool OwnerEnabled = false);
 
 /// <summary>Concrete-source resolution of one asset path for PLACEMENT (place_asset's auto-resolve when no explicit
 /// source= is given): every provider with its on-disk descriptor, winner FIRST (the same precedence
@@ -421,14 +425,17 @@ public sealed class AssetResolver : IDisposable
     /// plain folder name, or that folder supplies no copy — and the result says WHICH of those it was, because a
     /// refusal may only claim the folder was searched when it was.
     ///
-    /// <para>The lane reaches an ENABLED mod's folder too (see <see cref="IsReservedProviderName"/>), so the
-    /// <see cref="PlacementSource.OffOrder"/> flag is corrected here: a copy read out of a mod MO2 is loading is not
-    /// off-order, and labelling it so would tell the caller the game is not loading that mod.</para></summary>
+    /// <para>The lane reaches an ENABLED mod's folder too (see <see cref="IsReservedProviderName"/>), and a copy it
+    /// finds there is still one the game is NOT loading: the built universe already answers for an enabled mod's
+    /// loose tree and every archive the engine loads, so what is left to find is a root archive no active plugin
+    /// binds. <see cref="PlacementSource.OffOrder"/> therefore stays set, and
+    /// <see cref="PlacementSource.OwnerEnabled"/> is filled in here so a caller's sentence can say WHICH of the two
+    /// reasons it is rather than hedging between them.</para></summary>
     public OffOrderLookup TryResolveOffOrderProvider(string? providerName, string relPath)
     {
         var look = OffOrderAssetSource.Resolve(_modsDir, IsReservedProviderName, providerName, relPath);
         return look.Source is { } s && IsEnabledMod(s.ProviderName)
-            ? look with { Source = s with { OffOrder = false } }
+            ? look with { Source = s with { OwnerEnabled = true } }
             : look;
     }
 

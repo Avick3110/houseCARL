@@ -1250,13 +1250,18 @@ public sealed class LoadOrderService : IDisposable
 
         var (bytes, readErr) = AssetResolver.ReadPlacementSource(chosen);
         if (bytes is null)
-            return new NifInspectData(rel, new NifProvider(chosen.ProviderName, KindLabel(chosen.Kind)), providers, place.Ambiguous,
+            return new NifInspectData(rel, NifProviderFor(chosen), providers, place.Ambiguous,
                 false, null, readErr ?? "could not read the resolved mesh bytes.");
 
         var outcome = NifService.Inspect(bytes);
-        return new NifInspectData(rel, new NifProvider(chosen.ProviderName, KindLabel(chosen.Kind)), providers, place.Ambiguous,
+        return new NifInspectData(rel, NifProviderFor(chosen), providers, place.Ambiguous,
             false, outcome.Inspect, outcome.Error);
     }
+
+    /// <summary>The provider record for a CHOSEN source, carrying the off-order provenance the chain entries never
+    /// need: only the copy actually read can have come from outside what the game loads.</summary>
+    static NifProvider NifProviderFor(PlacementSource s)
+        => new(s.ProviderName, KindLabel(s.Kind), s.OffOrder, s.OwnerEnabled);
 
     /// <summary>Answer <c>mod=</c> for the NIF surface: pick the named provider's copy through the ONE source policy
     /// every asset caller rides, or hand back the refusal sentence. Shared by nif_inspect and nif_set, which are the
@@ -1268,9 +1273,16 @@ public sealed class LoadOrderService : IDisposable
     /// them with, so the token in the message is the token <c>mod=</c> takes (#340).</para></summary>
     static (PlacementSource? Source, string? Error) NifPick(AssetResolver.AssetView view, PlacementResolution place, string rel, string mod)
     {
-        var pick = AssetSourceSelection.Select(place, AssetSourceChoice.Named(mod),
-                                               n => view.TryResolveOffOrderProvider(n, rel));
+        // Parse, not Named: the refusal's tail teaches the '*winner' pole, so this surface has to take it. The sigil
+        // is what makes that safe — '*' cannot appear in a Windows name, so a bare token is always a provider.
+        var choice = AssetSourceChoice.Parse(mod);
+        var pick = AssetSourceSelection.Select(place, choice, n => view.TryResolveOffOrderProvider(n, rel));
         if (pick.Verdict == AssetSourceVerdict.Selected) return (pick.Source, null);
+        // The winner pole over an empty universe is the ABSENT case, not a named miss; say so rather than quote
+        // '*winner' back as a mod name that supplies nothing.
+        if (choice.Pole != AssetSourcePole.Named)
+            return (null, "ABSENT — no active mod or BSA provides '" + rel + "', so there is no winner to read."
+                        + (AssetPathHint.MeshHint(view, rel) is { } wh ? " " + wh : ""));
         return (null, WriteSentences.PlaceSourceNamedAbsent(
             mod, rel, pick.ProviderNames,
             pick.OffOrderReason, pick.OffOrderUnreadableName, pick.OffOrderUnreadableCause,
@@ -1344,13 +1356,21 @@ public sealed class LoadOrderService : IDisposable
             if (outcome.Error is not null) return NifSetResult.Fail(outcome.Error, providers, profileName);
             var editedBytes = outcome.WrittenBytes!;
             var report = outcome.Report!;
-            var chosenProv = new NifProvider(chosen.ProviderName, KindLabel(chosen.Kind));
+            var chosenProv = NifProviderFor(chosen);
             // Whether the edited copy is the VFS winner or a mod=-named loser. Drives the "is it live" wording.
             bool editedIsWinner = place.Sources.Count > 0 && ReferenceEquals(chosen, place.Sources[0]);
 
             // ---- IN-PLACE lane ----
             if (inPlace)
             {
+                // The lane overwrites the WINNING file with no backup, and its consent handshake is written about
+                // that file. A copy the game is not loading is not that file, so this lane declines it rather than
+                // mutating an original the caller reached by naming a mod.
+                if (chosen.OffOrder)
+                    return NifSetResult.Fail(
+                        $"in-place edits the copy the game loads, but '{chosen.ProviderName}' supplied one it does not "
+                        + "(see the provenance note on a read). Drop in_place to write the edited mesh into a new houseCARL "
+                        + "folder instead (the default lane).", providers, profileName);
                 if (chosen.Kind != AssetKind.Loose || string.IsNullOrEmpty(chosen.LooseFilePath))
                     return NifSetResult.Fail(
                         $"in-place needs a LOOSE copy to overwrite, but '{rel}' resolves to {chosen.ProviderName} ({KindLabel(chosen.Kind)}). " +
@@ -8836,8 +8856,14 @@ public sealed record SkyPatcherFolderOutcome(
 
 /// <summary>One provider of a mesh path: the mod / "overwrite" / "Data" / BSA-filename, and whether it's a "loose" file
 /// or a "BSA" entry. Winner-first ordering lives in <see cref="NifInspectData.Providers"/>.</summary>
-public sealed record NifProvider(string Name, string Kind)
+public sealed record NifProvider(string Name, string Kind, bool OffOrder = false, bool OwnerEnabled = false)
 {
+    /// <summary>The provenance line when these bytes came out of a copy the game is NOT loading — a mod folder MO2
+    /// does not tick, or an enabled mod's root archive no active plugin binds. Null for an in-order provider. Reading
+    /// such a copy is legitimate (naming the mod is the consent), but a response that did not SAY so would read as
+    /// "this is what the game shows", which is the one thing it is not.</summary>
+    public string? Provenance => OffOrder ? WriteSentences.PlaceSourceOffOrder(Name, OwnerEnabled) : null;
+
     /// <summary>The spelling every listing prints — the name inside a delimiter a Windows name cannot contain, with
     /// the kind outside it, through the one formatter the asset surface uses. The printed token is the token
     /// <c>mod=</c> accepts, so a caller can copy it back verbatim (#340).</summary>

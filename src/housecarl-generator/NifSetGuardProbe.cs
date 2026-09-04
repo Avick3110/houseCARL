@@ -42,7 +42,7 @@ internal static class NifSetGuardProbe
     /// set_path's header-string form addresses, and not any shape or node's name.</summary>
     const string GuardTriPath = @"meshes\actors\character\character assets\guard.tri";
 
-    const string DefaultSmoke =@"E:\Skyrim Modding\ARR 2.0\mods\A makeover for Lucien\meshes\actors\character\FaceGenData\FaceGeom\lucien.esp\00005900.nif";
+    const string DefaultSmoke = @"E:\Skyrim Modding\ARR 2.0\mods\A makeover for Lucien\meshes\actors\character\FaceGenData\FaceGeom\lucien.esp\00005900.nif";
 
     [CiProbe("nif-set-guard")]
     public static int RunGuard(string[] args)
@@ -162,6 +162,15 @@ internal static class NifSetGuardProbe
             var same = NifService.Set(seBytes, new[] { new NifSetOp(NifSetOpKind.SetPath, GuardTriPath, Path: GuardTriPath) });
             Check(same.Error is not null && same.WrittenBytes is null,
                   $"swapping a string for itself is refused rather than written as a no-op — {same.Error ?? "(wrote it — BUG)"}");
+            // An extra-data block's Name is the KEY the engine looks it up by; swapping it hides the block.
+            var onKey = NifService.Set(seBytes, new[] { new NifSetOp(NifSetOpKind.SetPath, "BODYTRI", Path: "NOTBODYTRI") });
+            Check(onKey.Error is not null && onKey.Error.Contains("KEY") && onKey.WrittenBytes is null,
+                  $"an extra-data KEY is refused, pointing at the block's VALUE — {onKey.Error ?? "(wrote it — BUG)"}");
+            // A replacement already in the table would MERGE two entries and renumber every later index, which gate 1
+            // cannot tell from a collateral write. Refused by name rather than mis-explained by the gate.
+            var collide = NifService.Set(seBytes, new[] { new NifSetOp(NifSetOpKind.SetPath, GuardTriPath, Path: "BODYTRI") });
+            Check(collide.Error is not null && collide.Error.Contains("renumber") && collide.WrittenBytes is null,
+                  $"a replacement already in the table is refused by name — {collide.Error ?? "(wrote it — BUG)"}");
         }
 
         // ---- verification RED arms: the gates CATCH a bad write (called directly) ----

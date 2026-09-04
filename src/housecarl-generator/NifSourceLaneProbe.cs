@@ -106,6 +106,25 @@ internal static class NifSourceLaneProbe
             Check(offRead.Contains("read from:") && !offRead.Contains("ABSENT"),
                   $"naming an UNTICKED mod reads out of its own root archive, and never reports the mesh ABSENT — {Line(offRead, "read from") ?? Line(offRead, "ABSENT")}");
 
+            // The provenance half. Reading out-of-order bytes is legitimate; presenting them as what the game shows
+            // is not, so the response has to SAY which of the two reasons applies.
+            Check(offRead.Contains("NOT enabled in MO2") && offRead.Contains(OffMod),
+                  $"…and SAYS the game is not loading that copy, naming the mod — {Line(offRead, "[!]") ?? "(no provenance line — BUG)"}");
+            var byModOut = HousecarlMcp.NifTools.NifInspect(svc, new[] { FaceRel }, mod: BsaOnlyMod);
+            Check(!byModOut.Contains("[!] read from"),
+                  "an ENGINE-LOADED archive reached by its mod's name carries NO off-order note — it is what the game loads");
+            // in_place would overwrite an original the caller reached by naming a mod, under a handshake written
+            // about the winning file. The lane declines rather than mutate it.
+            var ipOff = svc.NifSet(OffRel, new[] { new NifSetOp(NifSetOpKind.SetFlags, "GuardShape", Flags: 0x800000E) },
+                                   OffMod, null, null, inPlace: true, acknowledge: true);
+            Check(ipOff.Error is { } ie && ie.Contains("in-place edits the copy the game loads") && !ipOff.InPlace,
+                  $"in_place refuses a copy the game is not loading — {ipOff.Error ?? "(OVERWROTE IT — BUG)"}");
+
+            // The winner pole, which the refusal's own tail teaches, has to be accepted where it is taught.
+            var pole = HousecarlMcp.NifTools.NifInspect(svc, new[] { FaceRel }, mod: HousecarlCore.AssetSourceChoice.WinnerToken);
+            Check(pole.Contains("read from: \"" + LooseMod + "\""),
+                  $"'*winner' selects the VFS winner, as the refusal's tail says it does — {Line(pole, "read from") ?? Line(pole, "does not supply")}");
+
             var noSuch = HousecarlMcp.NifTools.NifInspect(svc, new[] { FaceRel }, mod: "NoSuchMod");
             Check(noSuch.Contains("'NoSuchMod' does not supply") && noSuch.Contains("no MO2 mod folder of that name")
                   && !noSuch.Contains("ABSENT"),
