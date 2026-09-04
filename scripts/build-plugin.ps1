@@ -21,6 +21,10 @@
   After it succeeds, run the validation gate (necessary, not sufficient):
       claude plugin validate ./dist/housecarl --strict
 
+  -PluginTreeOnly assembles just dist/housecarl (skills + plugin files) and stops: no corpus,
+  no server publish, no setup exe, no zip. That is the whole tree `claude plugin validate`
+  reads, and it is what CI runs the real validator against.
+
   Reference:
       dev/plans/PLUGIN_BUILD_EXECUTION_2026-06-03.md   (the checklist this implements)
       dev/plans/PLUGIN_PACKAGING_PLAN_2026-06-03.md    (the why / layout / locked decisions)
@@ -28,6 +32,7 @@
   NOTE: keep this file ASCII-only. Windows PowerShell 5.1 misreads UTF-8 non-ASCII bytes
   (em-dashes, section signs) as CP1252 and fails to parse.
 #>
+param([switch]$PluginTreeOnly)
 $ErrorActionPreference = 'Stop'
 
 # ---- paths -----------------------------------------------------------------
@@ -66,30 +71,35 @@ Step '0/10' 'Clean dist/ (package root)'
 if (Test-Path $PkgRoot) { Remove-Item $PkgRoot -Recurse -Force }
 New-Item -ItemType Directory -Path $DistRoot -Force | Out-Null
 
-# ---- 1. regenerate the rulebook (corpus.json + mutagen-reference shards, in sync by construction)
-Step '1/10' 'Regenerate corpus.json (generator)'
-# Explicit absolute args make this CWD-independent (Program.cs defaults are relative to CWD).
-dotnet run --project $GenProj -c Release -- $GeneratedDir $RefDir
-if ($LASTEXITCODE -ne 0) { throw "generator failed (exit $LASTEXITCODE)" }
-if (-not (Test-Path $CorpusSrc)) { throw "corpus not produced at $CorpusSrc" }
-Write-Host ("corpus.json: {0:N1} MB" -f ((Get-Item $CorpusSrc).Length / 1MB))
+# Steps 1-3 build the SERVER half of the tree. -PluginTreeOnly skips them: nothing the plugin
+# validator reads comes out of them, and they are the slow part (corpus reflection + two publishes).
+if (-not $PluginTreeOnly) {
 
-# ---- 2. publish the server (framework-dependent; trimming OFF) -------------
-# -p:Version stamps the plugin.json version into the exe, which ServerInfo reports over MCP
-# (one version home; an unstamped dev build says 0.0.0-dev).
-Step '2/10' 'Publish server (Release, win-x64, framework-dependent)'
-dotnet publish $McpProj -c Release -r win-x64 --self-contained false -p:Version=$Version -o $ServerDir
-if ($LASTEXITCODE -ne 0) { throw "publish failed (exit $LASTEXITCODE)" }
-$Exe = Join-Path $ServerDir 'housecarl-mcp.exe'
-if (-not (Test-Path $Exe)) { throw "server exe not produced at $Exe" }
+  # ---- 1. regenerate the rulebook (corpus.json + mutagen-reference shards, in sync by construction)
+  Step '1/10' 'Regenerate corpus.json (generator)'
+  # Explicit absolute args make this CWD-independent (Program.cs defaults are relative to CWD).
+  dotnet run --project $GenProj -c Release -- $GeneratedDir $RefDir
+  if ($LASTEXITCODE -ne 0) { throw "generator failed (exit $LASTEXITCODE)" }
+  if (-not (Test-Path $CorpusSrc)) { throw "corpus not produced at $CorpusSrc" }
+  Write-Host ("corpus.json: {0:N1} MB" -f ((Get-Item $CorpusSrc).Length / 1MB))
 
-# strip dev-only appsettings.json (carries absolute dev paths - must not ship)
-Get-ChildItem $ServerDir -Filter 'appsettings*.json' -ErrorAction SilentlyContinue | Remove-Item -Force
+  # ---- 2. publish the server (framework-dependent; trimming OFF) -------------
+  # -p:Version stamps the plugin.json version into the exe, which ServerInfo reports over MCP
+  # (one version home; an unstamped dev build says 0.0.0-dev).
+  Step '2/10' 'Publish server (Release, win-x64, framework-dependent)'
+  dotnet publish $McpProj -c Release -r win-x64 --self-contained false -p:Version=$Version -o $ServerDir
+  if ($LASTEXITCODE -ne 0) { throw "publish failed (exit $LASTEXITCODE)" }
+  $Exe = Join-Path $ServerDir 'housecarl-mcp.exe'
+  if (-not (Test-Path $Exe)) { throw "server exe not produced at $Exe" }
 
-# ---- 3. corpus beside the exe (the proven #1 requirement) ------------------
-# Reads survive without it via a reflection fallback, but writes + type-filtered queries need it.
-Step '3/10' 'Copy corpus.json beside the exe'
-Copy-Item $CorpusSrc (Join-Path $ServerDir 'corpus.json') -Force
+  # strip dev-only appsettings.json (carries absolute dev paths - must not ship)
+  Get-ChildItem $ServerDir -Filter 'appsettings*.json' -ErrorAction SilentlyContinue | Remove-Item -Force
+
+  # ---- 3. corpus beside the exe (the proven #1 requirement) ------------------
+  # Reads survive without it via a reflection fallback, but writes + type-filtered queries need it.
+  Step '3/10' 'Copy corpus.json beside the exe'
+  Copy-Item $CorpusSrc (Join-Path $ServerDir 'corpus.json') -Force
+}
 
 # ---- 4. bundle the 13 skills (exclude evals/ + _CORPUS_STATUS.md; KEEP all .jsonl) ----
 Step '4/10' 'Bundle skills'
@@ -108,6 +118,14 @@ Step '5/10' 'Copy plugin files'
 Copy-Item (Join-Path $PluginSrc '.claude-plugin') $DistRoot -Recurse -Force   # -> dist/housecarl/.claude-plugin/plugin.json
 foreach ($f in @('.mcp.json','LICENSE','THIRD-PARTY-NOTICES.txt','README.md','CHANGELOG.md')) {
   Copy-Item (Join-Path $PluginSrc $f) (Join-Path $DistRoot $f) -Force
+}
+
+# The validator's whole input is assembled now. Stop here when only that was asked for.
+if ($PluginTreeOnly) {
+  $skillCount = (Get-ChildItem $SkillsDir -Directory).Count
+  Write-Host ("`nPlugin tree assembled: {0}   skills: {1}" -f $DistRoot, $skillCount) -ForegroundColor Green
+  Write-Host "Server, setup utility and zip were skipped (-PluginTreeOnly)."
+  return
 }
 
 # ---- 6. package-root extras (START-HERE note + local marketplace.json) -----
