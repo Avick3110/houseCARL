@@ -234,6 +234,10 @@ public static class RecordsTools
                 return Wire.Refuse(json, "error: the 'aggregate' form names its count key — pass project.group_by='winner' | 'type' | 'defined_in'.");
             if (gbv is not ("winner" or "type" or "defined_in"))
                 return Wire.Refuse(json, $"error: project.group_by='{project!.group_by}' is not a count key — use 'winner', 'type', or 'defined_in'.");
+            // The engine refuses this too, but in the 1.x spelling (group_by=/type=). Pre-check here so the
+            // sentence names this tool's own levers, the way the neighbouring scope refusals already do.
+            if (gbv == "type" && types is not { Length: > 0 } && plugins?.names is not { Length: > 0 } && formids is not { Length: > 0 })
+                return Wire.Refuse(json, "error: project.group_by='type' counts each match's record TYPE, which only a body-bearing scope can name — add types=, plugins=, or formids=. ('winner' and 'defined_in' group without reading a body.)");
         }
         if (project is { resolve_names: true } && form is not ("fields" or "everything"))
             return Wire.Refuse(json, $"error: project.resolve_names annotates field values and belongs to the 'fields'/'everything' forms (got form='{form}').");
