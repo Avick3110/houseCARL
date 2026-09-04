@@ -2,7 +2,7 @@ using System.Text;
 
 namespace HousecarlCore;
 
-// SksePeek — the string half of the SKSE static peek (skse_inventory peek=true). It answers "what does this
+// SksePeek — the string half of the SKSE static peek (housecarl_skse findings='inventory' peek=true). It answers "what does this
 // unfamiliar DLL's image statically contain": imports ride the manifest read in SksePluginReader because they
 // are free there, while the embedded strings live here because scanning a whole image is not free and stays
 // opt-in per DLL.

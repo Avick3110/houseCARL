@@ -236,7 +236,7 @@ if (args.Length > 0 && args[0] == "remap-wave1-real") return RemapWave1Probe.Run
 // IMajorRecordGetterEnumerable is the recurse discriminator.
 if (args.Length > 0 && args[0] == "remap-wave2-nested-mech") return RemapWave2NestedMechProbe.RunMechanism(args[1..]);
 
-// MANUAL real-data harness: run housecarl_skse_inventory against a live MO2 instance and print the render and
+// MANUAL real-data harness: run the housecarl_skse inventory family against a live MO2 instance and print the render and
 // timing. The CI skse-reader-guard pins the decode; this covers the full inventory.
 if (args.Length > 0 && args[0] == "skse-inventory-real") return SkseInventoryProbe.RunReal(args[1..]);
 

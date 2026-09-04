@@ -40,7 +40,7 @@ Beyond the core workflow, reach for the right group. Depth for the specialist ar
 
 **Runtime layers (what xEdit can't see)**
 - `housecarl_skypatcher_read` — a record's true state after the SkyPatcher INI layer replays; `housecarl_skypatcher_layer` — the INIs, apply order, conflicts.
-- `housecarl_skse_inventory` — SKSE-plugin DLLs, configs, provider/metadata; `housecarl_skse_config_audit` — config references vs the load order; `housecarl_native_pairing_audit` — native Papyrus declarations vs the DLLs implementing them.
+- `housecarl_skse` — the SKSE layer, one family per call via `findings=`: `inventory` (SKSE-plugin DLLs, configs, provider/metadata — the default), `pairing` (native Papyrus declarations vs the DLLs implementing them), `config` (config references vs the load order).
 
 **Write / author**
 - `housecarl_apply` — the consolidated 2.0 field-write surface (one or many edits × the lane × the read-back in one call): `ops=` for field edits, `bundle=`+`assignments=` to copy a field bundle from one record onto another, and one lane spelling — a new patch, `into=` an existing one, or `in_place="X.esp"` naming the file you intend to overwrite. The 1.x write tools below keep working through the 2.0 build.

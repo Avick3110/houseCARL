@@ -25,7 +25,6 @@
     "housecarl_forward",
     "housecarl_load_order_status",
     "housecarl_merge_plugins",
-    "housecarl_native_pairing_audit",
     "housecarl_nexus_check_updates",
     "housecarl_nexus_graphql",
     "housecarl_nexus_identify",
@@ -38,8 +37,7 @@
     "housecarl_remove",
     "housecarl_set_mo2_instance",
     "housecarl_set_tool_path",
-    "housecarl_skse_config_audit",
-    "housecarl_skse_inventory",
+    "housecarl_skse",
     "housecarl_skypatcher_layer",
     "housecarl_update_status",
     "housecarl_write_seq"

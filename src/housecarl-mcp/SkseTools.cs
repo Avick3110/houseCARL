@@ -5,119 +5,174 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>Read-only view of the SKSE-plugin layer, which the record and asset tools cannot see: the full depth of
-/// Data\SKSE\Plugins — the .dll plugins and every .toml, .ini and .json config beneath them grouped by real subfolder
-/// — which mod wins the VFS for each, and each plugin's statically declared manifest (name, author, version, Address
-/// Library versus version-locked, target runtimes, XSE floor). It reads what a DLL declares about itself, via the SKSE
-/// loader's own <c>SKSEPlugin_Version</c> data blob, never what it does at runtime. Compact by default with everything
-/// accounted for; <c>filter=</c> expands any group or plugin. See <see cref="SksePluginReader"/>.</summary>
+/// <summary>Read-only view of the SKSE layer of the active load order: the .dll plugins under Data\SKSE\Plugins, the
+/// configs beneath them, and the native Papyrus functions the order's compiled scripts declare. One tool, one finding
+/// family per call — <c>findings=</c> picks inventory, pairing or config, and each family's render lives in its own
+/// wire class below.
+///
+/// <para>The declared-versus-runtime ceiling is written ONCE, in the tool description, because it is the same ceiling
+/// for all three families; per-family detail lives in the <c>findings=</c> parameter text. That is the whole reason
+/// the three tools folded into one (SPEC §6.3 S7).</para>
+///
+/// <para>No response merges two families: the families answer different questions over different populations, and a
+/// merged render would have no honest summary line. See <see cref="SksePluginReader"/>.</para></summary>
 [McpServerToolType]
 public static class SkseTools
 {
-    [McpServerTool(Name = ToolNames.SkseInventory, ReadOnly = true, Title = "SKSE plugin layer (DLLs, configs, provider & static metadata)"),
+    /// <summary>The three finding families <c>findings=</c> selects between.</summary>
+    internal enum SkseFamily { Inventory, Pairing, Config }
+
+    /// <summary>Parses <c>findings=</c>. Omitted is the inventory family, which every response states; an unknown
+    /// value is refused naming the three, never quietly defaulted.</summary>
+    internal static bool TryParseFamily(string? findings, out SkseFamily family, out string? error)
+    {
+        family = SkseFamily.Inventory;
+        error = null;
+        var token = (findings ?? "").Trim();
+        if (token.Length == 0) return true;
+        switch (token.ToLowerInvariant())
+        {
+            case "inventory": family = SkseFamily.Inventory; return true;
+            case "pairing": family = SkseFamily.Pairing; return true;
+            case "config": family = SkseFamily.Config; return true;
+        }
+        error = $"error: findings='{token}' is not a family on this tool — pass findings='inventory' (the DLL and config " +
+                "layer), 'pairing' (native Papyrus declarations vs the DLLs that implement them) or 'config' (the form " +
+                "references SKSE configs declare vs your load order). One family per call.";
+        return false;
+    }
+
+    /// <summary>The <c>peek=</c> family check, or null when the call is valid. peek= reads one DLL's image, which only
+    /// the inventory family looks at, so it is refused on the other two rather than silently ignored.</summary>
+    internal static string? PeekFamilyError(bool peek, SkseFamily family) =>
+        peek && family != SkseFamily.Inventory
+            ? $"error: peek= is the inventory family's — findings='{family.ToString().ToLowerInvariant()}' never reads a " +
+              "DLL image. Drop peek=, or pass findings='inventory' with filter='<DLL/plugin/mod name>'."
+            : null;
+
+    /// <summary>The line every response ends on: which family ran, and the exact spelling for the two that did not.
+    /// The default narrows only because the response says so.</summary>
+    internal static string FamilyFooter(SkseFamily ran)
+    {
+        const string Inventory = "findings='inventory' (the DLL and config layer, with each plugin's static manifest)";
+        const string Pairing = "findings='pairing' (native Papyrus declarations vs the DLLs that implement them)";
+        const string Config = "findings='config' (the form references SKSE configs declare vs your load order)";
+        var (mine, a, b) = ran switch
+        {
+            SkseFamily.Inventory => ("inventory", Pairing, Config),
+            SkseFamily.Pairing => ("pairing", Inventory, Config),
+            _ => ("config", Inventory, Pairing),
+        };
+        return $"\n\n(this call ran findings='{mine}'. NOT run: {a}; {b}.)";
+    }
+
+    [McpServerTool(Name = ToolNames.Skse, ReadOnly = true, Title = "The SKSE layer: DLL/config inventory, native pairing, config references"),
      Description(
-         "Inventory the SKSE-plugin layer of the ACTIVE load order — the layer houseCARL's record/asset tools are otherwise " +
-         "blind to. Covers the FULL depth of Data\\SKSE\\Plugins: the .dll plugins and every .ini/.toml/.json/.yaml config " +
-         "beneath, each with the MOD that wins the VFS for it. Configs are grouped by their real subfolder (SkyPatcher, " +
-         "DynamicStringDistributor, OStim, … — derived from the actual tree, never a hardcoded list), so the default stays " +
-         "compact while accounting for everything; non-config content is counted, never dropped. For every modern plugin it " +
-         "also reads the STATIC manifest the SKSE loader itself reads — name, author, version, whether it uses Address Library " +
-         "(version-independent) or is LOCKED to specific game runtimes, and the XSE floor — by parsing the DLL's " +
-         "SKSEPlugin_Version data export WITHOUT loading or running it. Leads with the diagnostics that matter: version-LOCKED " +
-         "plugins (won't load on a mismatched game version), legacy query-only plugins (metadata set at runtime — not statically " +
-         "readable), non-plugin DLLs (bundled dependencies), subfolder DLLs (not on SKSE's loader path), and any DLL contested " +
-         "by more than one mod. Pass filter= a plugin/mod/DLL name, author, or config FOLDER (e.g. 'SkyPatcher', 'EngineFixes', " +
-         "'po3', 'OStim') to expand that group or see a plugin in full (all flags, compatible runtimes, email, providers, " +
-         "configs). Pass peek=true WITH filter= to additionally read what the matching DLL's IMAGE statically contains: the " +
-         "DLLs it imports (with derived flags — graphics/input hooks, network, and which sibling non-plugin DLL is bundled " +
-         "for it), the config paths it embeds (which folder it actually scans), and the plugin names it embeds, each " +
-         "cross-checked against your load order. Debug-build plugins are flagged WITHOUT peek — a DLL importing the debug C " +
-         "runtime fails with error 126 for anyone without Visual Studio. It does NOT read DLL behavior (that's the ceiling; " +
-         "an embedded string is what the image CONTAINS, never what the code DOES, and absence proves nothing), and it does " +
-         "NOT cover distributor INIs (SPID *_DISTR, KID *_KID) — those live in Data\\ root and are owned by the " +
-         "spid-authoring / kid-authoring skills. Read-only.")]
-    public static string SkseInventory(
+         // ---- what it is, and what selects a family ------------------------------------------------
+         "The SKSE LAYER of the ACTIVE load order — the plane houseCARL's record and asset tools are blind to: the .dll " +
+         "plugins under Data\\SKSE\\Plugins, every .ini/.toml/.json/.yaml config beneath them, and the native Papyrus " +
+         "functions the order's compiled scripts declare. Read-only; writes nothing. ONE FAMILY PER CALL, selected by " +
+         "findings= — 'inventory' (the DEFAULT when findings= is omitted), 'pairing' or 'config'. Each family's own " +
+         "detail is on the findings= parameter below, and every response states which family it ran and the exact " +
+         "spelling of the two it did not, so the default narrows only because the response says so. Two families are " +
+         "never merged into one answer: they run over different populations and would share no honest summary line. " +
+         // ---- the ceiling, once for all three -------------------------------------------------------
+         "THE CEILING, stated once because it is the same for all three families: everything here is WHAT A FILE " +
+         "DECLARES, NEVER WHAT THE DLL DOES. A version manifest, an import table, an embedded string and a config token " +
+         "are static facts about a file on disk; loading, registering, hooking and reading are runtime behavior " +
+         "houseCARL never observes, and the ABSENCE of a token proves nothing. So a finding here is a plausibility " +
+         "verdict to VERIFY rather than a claim about a running game, and 'nothing found' is never a clean bill of " +
+         "health. " +
+         // ---- shared narrowing and the one boundary that spans every family -------------------------
+         "filter= narrows whichever family ran (its match domain is that family's own — see filter= below); peek= " +
+         "belongs to the inventory family alone and is refused, not ignored, on the other two. NOT COVERED by any " +
+         "family: distributor INIs in Data\\ root (SPID *_DISTR, KID *_KID) — they live outside SKSE\\Plugins and are " +
+         "owned by the spid-authoring / kid-authoring skills.")]
+    public static string Skse(
         LoadOrderService svc,
-        [Description("Optional. A plugin name, author, DLL filename, providing-mod, or config-FOLDER substring (case-insensitive). " +
-            "Expands the matching config folder to its individual files, and shows full per-plugin detail for a matching DLL. " +
-            "Omit for the whole-layer overview.")]
+        [Description(
+            "Optional. WHICH FAMILY to run — exactly one; the default when omitted is 'inventory'. " +
+            // ---- family: inventory (harvested from housecarl_skse_inventory) -------------------------
+            "'inventory' — the SKSE-plugin layer itself, over the FULL depth of Data\\SKSE\\Plugins: every .dll and " +
+            "every .ini/.toml/.json/.yaml config beneath it, each with the MOD that wins the VFS for it. Configs are " +
+            "grouped by their real subfolder (SkyPatcher, DynamicStringDistributor, OStim, … derived from the actual " +
+            "tree, never a hardcoded list), so the default stays compact while accounting for everything; non-config " +
+            "content is counted, never dropped. For every modern plugin it also reads the STATIC manifest the SKSE " +
+            "loader itself reads — name, author, version, whether it uses Address Library (version-independent) or is " +
+            "LOCKED to specific game runtimes, and the XSE floor — by parsing the DLL's SKSEPlugin_Version data export " +
+            "WITHOUT loading or running it. Leads with the diagnostics: version-LOCKED plugins (won't load on a " +
+            "mismatched game version), legacy query-only plugins (metadata set at runtime, not statically readable), " +
+            "non-plugin DLLs (bundled dependencies), subfolder DLLs (not on SKSE's loader path), DLLs contested by more " +
+            "than one mod, and DEBUG-BUILD plugins — a DLL importing the debug C runtime fails with error 126 for " +
+            "anyone without Visual Studio, and it is flagged WITHOUT peek=. " +
+            // ---- family: pairing (harvested from housecarl_native_pairing_audit) ---------------------
+            "'pairing' — the declaration↔implementation seam, where 'a mod's scripts are installed but its DLL is " +
+            "missing, won't load on this game version, or is 32-bit/BSA-packed/subfolder-shipped' hides. A native " +
+            "function is ONE thing declared in TWO places (a .pex class with a native-flagged function, plus a DLL " +
+            "registering the implementation at runtime); the halves ship as separate files and fail INDEPENDENTLY, and " +
+            "the engine's response is a cryptic 'unable to bind' log plus calls that silently no-op. It scans the " +
+            "winning copy of EVERY compiled script (loose + BSA), keeps the baseline honest by construction (a class " +
+            "carried by an official archive is the ENGINE's — even when SKSE's loose override wins the file; skse64's " +
+            "own script additions are SKSE CORE, implemented by the game-root loader), then pairs each remaining class " +
+            "to the DLLs its provider mod — or a mod in its conflict chain, the bundling case — ships under " +
+            "SKSE\\Plugins. Leads with PAIRED-BUT-DEAD (scripts installed and every candidate DLL statically will not " +
+            "load: wrong game runtime for a version-LOCKED plugin, BSA-only, subfolder, 32-bit, unreadable, debug-built) " +
+            "and UNPAIRED (no DLL in sight — a VERIFY flag, typically a declaration copy of a framework you don't have; " +
+            "never called 'broken', because registration is runtime behavior). It answers 'is this pairing plausible and " +
+            "healthy', NEVER 'does the DLL register exactly these functions'. " +
+            // ---- family: config (harvested from housecarl_skse_config_audit) -------------------------
+            "'config' — reference VALIDITY, so a BROKEN reference (a FormID pointing at a record that doesn't exist in " +
+            "a plugin you DO have) is caught here instead of by a silent in-game failure, and kept apart from a merely " +
+            "INERT one. It reads the WINNING copy of every .ini/.toml/.json/.yaml/.yml under the full depth of " +
+            "Data\\SKSE\\Plugins (the copy the DLL actually reads) and extracts every form-shaped reference — a hex " +
+            "FormID paired with a plugin filename in EITHER order (0xFORM|Plugin.esp as DSD/CDF/po3 write it, " +
+            "Plugin.esp|0xFORM as SkyPatcher writes it, the ~ tilde form) plus plugin-named folder gates " +
+            "(DynamicStringDistributor\\Plugin.esp\\...) — and resolves each against the real records of the active " +
+            "order: OK, PLUGIN MISSING (plugin not in the order), DANGLING (plugin present but no such record) or " +
+            "UNPARSEABLE (a shape-matched token that can't be normalized), summarized as BROKEN (dangling/unparseable, " +
+            "actionable) vs INERT (plugin-missing, usually optional support for a mod you aren't running). The " +
+            "framework-AGNOSTIC twin of the SkyPatcher reader's first half: it checks whether a reference RESOLVES, " +
+            "never what it is FOR (per-framework skill territory). Extraction is a heuristic over token SHAPES, so a " +
+            "token in a comment or a disabled block still surfaces; 'no references found' is the most common per-file " +
+            "outcome and is accounted for, never a warning. Bare EditorID / name strings are NOT validated.")]
+            string? findings = null,
+        [Description(
+            "Optional. A case-insensitive substring narrowing whichever family ran; the match domain is that family's " +
+            "own. inventory: a plugin name, author, DLL filename, providing mod, or config FOLDER ('SkyPatcher', " +
+            "'EngineFixes', 'po3', 'OStim') — expands that folder to its individual files, or shows one plugin in full " +
+            "(all flags, compatible runtimes, email, providers, configs). pairing: a script CLASS name, providing mod, " +
+            "paired mod, or DLL filename — full detail per matching class: the declared native function names, the " +
+            "pairing evidence, each candidate DLL's manifest and load verdict, the conflict chains. config: a config " +
+            "FOLDER, providing mod, filename, or REFERENCED-plugin name — audits just those configs and lists EVERY " +
+            "reference with its verdict, the OKs included (positive confirmation of a patch you just authored). Omit " +
+            "for the family's whole-layer view.")]
             string? filter = null,
-        [Description("Optional. Static peek at the matching DLL's image — its imports, the config paths and plugin names it " +
-            "embeds. REQUIRES filter= (a peek is per-DLL: it reads whole images, and a whole-layer dump would be unreadable " +
-            "noise). Use it to answer 'what does this unfamiliar DLL touch'.")]
+        [Description(
+            "Optional. The INVENTORY family only, and it REQUIRES filter=. Statically peeks inside the matching DLL's " +
+            "IMAGE: the DLLs it imports (with derived flags — graphics/input hooks, network, and which sibling " +
+            "non-plugin DLL is bundled for it), the config paths it embeds (which folder it actually scans), and the " +
+            "plugin names it embeds, each cross-checked against your load order — the answer to 'what does this " +
+            "unfamiliar DLL touch'. Per-DLL by design: it reads whole images, so a whole-layer peek is refused rather " +
+            "than dumped. Passed with findings='pairing' or 'config' it is refused, never silently ignored.")]
             bool peek = false,
         [Description("Optional. Max characters before lists are cut with an explicit notice. 0 = the server default (~80k).")]
-            int max_chars = 0) => Guard.Tool(ToolNames.SkseInventory, () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.Skse, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        if (!TryParseFamily(findings, out var family, out var famErr)) return famErr!;
+        if (PeekFamilyError(peek, family) is { } peekErr) return peekErr;
         if (SkseInventoryWire.PeekArgError(peek, filter) is { } err) return err;
-        var data = svc.SkseInventory(peek ? filter!.Trim() : null);
-        return SkseInventoryWire.Render(data, filter, max_chars > 0 ? max_chars : 80_000);
-    });
 
-    [McpServerTool(Name = ToolNames.NativePairingAudit, ReadOnly = true, Title = "Native Papyrus declarations vs the DLLs that implement them (pairing audit)"),
-     Description(
-         "Cross-check the native Papyrus functions the ACTIVE order's compiled scripts declare against the SKSE DLLs that must " +
-         "implement them — the seam where 'a mod's scripts are installed but its DLL is missing, won't load on this game version, " +
-         "or is 32-bit/BSA-packed/subfolder-shipped' hides. A native function is ONE thing declared in TWO places (a .pex class " +
-         "with a native-flagged function + a DLL registering the implementation at runtime); the halves ship as separate files and " +
-         "fail INDEPENDENTLY, and the engine's response is a cryptic 'unable to bind' log + calls that silently no-op. Scans the " +
-         "winning copy of EVERY compiled script (loose + BSA), keeps the baseline honest by construction (a class carried by an " +
-         "official archive is the ENGINE's — even when SKSE's loose override wins the file; skse64's own script additions are " +
-         "SKSE CORE, implemented by the game-root loader), then pairs each remaining class to the DLLs its provider mod — or a mod " +
-         "in its conflict chain, the bundling case — ships under SKSE\\Plugins. Leads with the findings: PAIRED-BUT-DEAD (scripts " +
-         "installed, and every candidate DLL statically will not load — wrong game runtime for a version-LOCKED plugin, BSA-only, " +
-         "subfolder, 32-bit, unreadable) and UNPAIRED (no DLL in sight — a VERIFY flag, typically a declaration copy of a framework " +
-         "you don't have; never called 'broken', because registration is runtime behavior — the tier-E ceiling this tool never " +
-         "crosses). It answers 'is the declaration↔implementation pairing plausible and healthy', NEVER 'does the DLL register " +
-         "exactly these functions'. Pass filter= a class, mod, or DLL substring for full detail — the native function names, the " +
-         "pairing evidence, each candidate DLL's manifest and load verdict, the conflict chains. Read-only.")]
-    public static string NativePairingAudit(
-        LoadOrderService svc,
-        [Description("Optional. A script CLASS name, providing-mod, paired-mod, or DLL filename substring (case-insensitive). " +
-            "Shows full detail for every matching class: declared native functions, pairing rung, candidate DLL manifests and " +
-            "load verdicts, conflict chains. Omit for the whole-order audit (findings first, then the accounted-for baseline).")]
-            string? filter = null,
-        [Description("Optional. Max characters before lists are cut with an explicit notice. 0 = the server default (~80k).")]
-            int max_chars = 0) => Guard.Tool(ToolNames.NativePairingAudit, () =>
-    {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        var data = svc.NativePairingAudit();
-        return NativePairingWire.Render(data, filter, max_chars > 0 ? max_chars : 80_000);
-    });
-
-    [McpServerTool(Name = ToolNames.SkseConfigAudit, ReadOnly = true, Title = "SKSE config references vs the load order (reference-validity audit)"),
-     Description(
-         "Cross-check the form references SKSE-plugin CONFIGS declare against the real records of the ACTIVE load order — so a " +
-         "BROKEN reference (a FormID pointing at a record that doesn't exist in a plugin you DO have) is caught by houseCARL " +
-         "instead of by a silent in-game failure, and kept apart from a merely INERT one (a plugin you don't have installed — " +
-         "usually optional support for a mod you aren't running). Scans the full depth of Data\\SKSE\\Plugins for .ini/.toml/.json/" +
-         ".yaml/.yml configs, reads the WINNING copy of each (the copy the DLL actually reads), and extracts every form-shaped " +
-         "reference — a hex FormID paired with a plugin filename in EITHER order (0xFORM|Plugin.esp as DSD/CDF/po3 write it, " +
-         "Plugin.esp|0xFORM as SkyPatcher writes it, the ~ tilde form) plus plugin-named folder gates (DynamicStringDistributor\\" +
-         "Plugin.esp\\...) — then resolves each to a verdict: OK, PLUGIN MISSING (plugin not in the order), DANGLING (plugin " +
-         "present but no such record), or UNPARSEABLE (a shape-matched token that can't be normalized) — the summary groups " +
-         "these as BROKEN (dangling/unparseable, actionable) vs INERT (plugin-missing, usually optional support). It is the generic, " +
-         "framework-AGNOSTIC twin of the SkyPatcher reader's first half: it checks reference VALIDITY, never what a reference is " +
-         "FOR (that's per-framework skill territory) and never what the DLL DOES with it (the honest ceiling). Extraction is a " +
-         "heuristic over token SHAPES, so a token in a comment or disabled block still surfaces — the framing is 'references this " +
-         "file DECLARES', not 'references the DLL will use'. 'No references found' is the most common per-file outcome and is " +
-         "accounted for, never a warning. Bare EditorID / name strings are NOT validated (Wave 2). Pass filter= a folder, mod, " +
-         "filename, or referenced-plugin substring to audit just that group and list EVERY reference with its verdict (the OKs " +
-         "included — positive confirmation of a patch you just authored). Distributor INIs in Data\\ root (SPID *_DISTR, KID " +
-         "*_KID) are out of scope — owned by their authoring skills. Read-only.")]
-    public static string SkseConfigAudit(
-        LoadOrderService svc,
-        [Description("Optional. A config FOLDER, providing-mod, filename, or REFERENCED-plugin substring (case-insensitive). " +
-            "Audits just the matching configs and lists every reference with its verdict, OKs included. Omit for the whole-layer " +
-            "audit (diagnostics — broken & inert references — first, then the accounted-for remainder).")]
-            string? filter = null,
-        [Description("Optional. Max characters before lists are cut with an explicit notice. 0 = the server default (~80k).")]
-            int max_chars = 0) => Guard.Tool(ToolNames.SkseConfigAudit, () =>
-    {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        var data = svc.SkseConfigAudit();
-        return SkseConfigAuditWire.Render(data, filter, max_chars > 0 ? max_chars : 80_000);
+        // The footer is priced into the cap rather than appended past it, so max_chars stays the whole response.
+        var footer = FamilyFooter(family);
+        int cap = Math.Max(1_000, (max_chars > 0 ? max_chars : 80_000) - footer.Length);
+        var body = family switch
+        {
+            SkseFamily.Inventory => SkseInventoryWire.Render(svc.SkseInventory(peek ? filter!.Trim() : null), filter, cap),
+            SkseFamily.Pairing => NativePairingWire.Render(svc.NativePairingAudit(), filter, cap),
+            _ => SkseConfigAuditWire.Render(svc.SkseConfigAudit(), filter, cap),
+        };
+        return body + footer;
     });
 }
 

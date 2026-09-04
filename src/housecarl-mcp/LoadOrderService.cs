@@ -8715,7 +8715,7 @@ public sealed record AssetStatusData(
 /// a "BSA" entry. The winner-first-then-losers ordering lives in <see cref="SkseFileEntry.Providers"/>.</summary>
 public sealed record SkseProvider(string Name, string Kind);
 
-/// <summary>One file found under Data\SKSE\Plugins in the active load order (housecarl_skse_inventory). <see cref="Group"/> is the
+/// <summary>One file found under Data\SKSE\Plugins in the active load order (housecarl_skse findings='inventory'). <see cref="Group"/> is the
 /// immediate subfolder it sits in ("" = top level) — the derived render-grouping key. <see cref="Providers"/> is the FULL conflict
 /// chain — every mod that ships this exact file, WINNER FIRST then the losers in precedence order (the same winner→loser
 /// transparency the asset tools give), each tagged loose/BSA; empty ⇒ nothing active provides it. <see cref="Plugin"/> is the tier-C
@@ -8756,7 +8756,7 @@ public sealed record SkseFileEntry(
     public int ProviderCount => Providers.Count;
 }
 
-/// <summary>The data behind housecarl_skse_inventory: the SKSE-plugin layer of the active load order — <see cref="Dlls"/> (each a
+/// <summary>The data behind housecarl_skse findings='inventory': the SKSE-plugin layer of the active load order — <see cref="Dlls"/> (each a
 /// plugin DLL with its winning provider + static manifest) and <see cref="Configs"/> (their .ini/.toml/.json/.yaml with the
 /// winning provider), plus <see cref="OtherFileCount"/> (uncategorized files like .pdb/.txt, counted not listed). The build-level
 /// caveats <see cref="BsaFailures"/> / <see cref="ReadIncomplete"/> and discovery <see cref="Warnings"/> ride along; <see cref="ProfileName"/>
@@ -8785,7 +8785,7 @@ public sealed record SkseInventoryData(
     public bool PeekRequested { get; init; } = PeekRequested;
 }
 
-/// <summary>The load-order verdict for one reference an SKSE config declares (housecarl_skse_config_audit).</summary>
+/// <summary>The load-order verdict for one reference an SKSE config declares (housecarl_skse findings='config').</summary>
 public enum SkseRefVerdict
 {
     /// <summary>Plugin in the active order, and (for a form token) the FormID resolves to a record in it.</summary>
@@ -8815,7 +8815,7 @@ public sealed record SkseConfigFileAudit(
     IReadOnlyList<SkseAuditedRef> Refs,
     string? ReadError);
 
-/// <summary>The data behind housecarl_skse_config_audit: every SKSE-plugin config with the references it
+/// <summary>The data behind housecarl_skse findings='config': every SKSE-plugin config with the references it
 /// declares resolved to OK / PLUGIN MISSING / DANGLING / UNPARSEABLE, plus the build-level caveats
 /// (<see cref="BsaFailures"/> / <see cref="ReadIncomplete"/> / <see cref="Warnings"/>) and the active <see cref="ProfileName"/>.</summary>
 public sealed record SkseConfigAuditData(
@@ -8826,7 +8826,7 @@ public sealed record SkseConfigAuditData(
     IReadOnlyList<string> Warnings,
     string ProfileName);
 
-/// <summary>Who implements a native class's declarations (housecarl_native_pairing_audit).</summary>
+/// <summary>Who implements a native class's declarations (housecarl_skse findings='pairing').</summary>
 public enum NativeProvenance
 {
     /// <summary>The class's provider chain includes an OFFICIAL archive — implemented by the game executable. Baseline;
@@ -8894,7 +8894,7 @@ public sealed record NativeClassEntry(
 /// <summary>A .pex whose winning copy could not be parsed — a NAMED note, never a silent skip.</summary>
 public sealed record NativeUnreadablePex(string RelPath, string? WinningProvider, string Reason);
 
-/// <summary>The data behind housecarl_native_pairing_audit: every native-declaring class classified and (for third
+/// <summary>The data behind housecarl_skse findings='pairing': every native-declaring class classified and (for third
 /// parties) paired, the scan accounting (<see cref="PexScanned"/> total compiled scripts examined), the unreadable
 /// notes, whether an skse64 loader is visible (<see cref="SkseLoaderSeen"/> — the SKSE-CORE sanity note; tri-state:
 /// null = the check itself failed, "could not check", never rendered as a definite absence), the installed game

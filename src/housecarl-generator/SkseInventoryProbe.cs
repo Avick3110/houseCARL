@@ -5,7 +5,7 @@ using HousecarlMcp;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// MANUAL real-data harness for housecarl_skse_inventory (SKSE-plugin-layer visibility, gap 2026-06-08). Runs the REAL
+/// MANUAL real-data harness for housecarl_skse findings='inventory' (SKSE-plugin-layer visibility, gap 2026-06-08). Runs the REAL
 /// service + renderer against a live MO2 instance and prints exactly what the tool would return, plus a timing line —
 /// the empirical re-check Aaron drives (the CI skse-reader-guard pins the DECODE; this proves the whole inventory over
 /// real DLLs). NOT in ci-all (needs a real instance + game install). Read-only; touches nothing but a temp user.json.

@@ -286,7 +286,7 @@ public static class SkseConfigAuditProbe
         => new(files, files.Length, Array.Empty<string>(), false, Array.Empty<string>(), "TestProfile");
 
     /// <summary>MANUAL real-data harness (the tier-B LIVE GATE): run the WHOLE audit against a live MO2 instance and print
-    /// exactly what housecarl_skse_config_audit would return, plus a timing line — the empirical re-check Aaron drives (the
+    /// exactly what housecarl_skse findings='config' would return, plus a timing line — the empirical re-check Aaron drives (the
     /// CI guard pins the extractor + verdict logic; this proves the full scan over real configs). NOT in ci-all (needs a
     /// real instance + game install). Read-only; touches nothing but a temp user.json.
     /// Usage: dotnet run --project src/housecarl-generator -- skse-config-audit-real --mo2 "&lt;MO2 instance&gt;" [--filter &lt;substr&gt;]</summary>
