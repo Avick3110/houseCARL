@@ -140,7 +140,7 @@ foreach ($p in $target.PSObject.Properties) {
   $sourceUrl = $null
   if ($facts) { $sourceUrl = Format-SourceUrl $facts.Url }
   # A copyleft component with no source pointer would leave the GPLv3 section 6 claim unbacked.
-  if ($licence -like 'GPL*' -and -not $sourceUrl) {
+  if ($licence -match 'GPL' -and -not $sourceUrl) {
     throw "$id $version is $licence but its NuGet metadata names no repository or project URL, so the notices file cannot point at its corresponding source"
   }
 
@@ -227,7 +227,7 @@ for ($k = $regions.Count - 1; $k -ge 0; $k--) {
   } else {
     $lic = $r.Tag -replace ' components$', ''
     # The source column is only shown for the copyleft components, whose corresponding source has to be findable.
-    if ($byLicence.ContainsKey($lic)) { $body = Format-ComponentTable $byLicence[$lic] ($lic -like 'GPL*') }
+    if ($byLicence.ContainsKey($lic)) { $body = Format-ComponentTable $byLicence[$lic] ($lic -match 'GPL') }
   }
   $lines = @($lines[0..$r.Begin]) + @($body) + @($lines[$r.End..($lines.Length - 1)])
 }
