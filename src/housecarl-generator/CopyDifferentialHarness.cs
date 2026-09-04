@@ -9,9 +9,9 @@ using HousecarlMcp;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// THE PR 3b ACCEPTANCE DIFFERENTIAL — <c>housecarl_copy_npc_appearance</c> (the chartered ancestor) against its 2.0
-/// successor (<c>housecarl_copy</c> + <c>housecarl_apply</c>'s copy zip + <c>housecarl_bulk_place_asset</c>), driven
-/// over CONSTRUCTED MO2 instances, with the artifacts on disk compared.
+/// The acceptance differential: <c>housecarl_copy_npc_appearance</c> (the ancestor) against its 2.0 successor
+/// (<c>housecarl_copy</c> + <c>housecarl_apply</c>'s copy zip + <c>housecarl_bulk_place_asset</c>), driven over
+/// CONSTRUCTED MO2 instances, with the artifacts on disk compared.
 ///
 /// <para><b>It compares two TOOL CALLS, not two service methods.</b> The claim under test is that the successor
 /// reproduces the ancestor's behavior, and "behavior" is what a caller gets from the surface — so both sides go
@@ -25,23 +25,19 @@ namespace HousecarlGenerator;
 /// would be a difference the inventory says is not one; a difference it shows is either matched or an inventoried
 /// intentional divergence, and anything else is a defect in the successor.</para>
 ///
-/// <para><b>Fixture 3 can fail informatively</b>, so its contested-ness is CONSTRUCTED and ASSERTED
-/// here rather than inferred from a tool: two providers for one facegen path (a loose replacer out-sorting a real
-/// BSA), asserted to hold different bytes, with the loose copy asserted to win. Only once that is measured does a
-/// clean diff there STOPS THE RUN. It is not folded, and it is not reported as a pass.</para>
+/// <para><b>Fixture 3 must fail informatively</b>, so its contested-ness is CONSTRUCTED and ASSERTED here rather
+/// than inferred from a tool: two providers for one facegen path (a loose replacer out-sorting a real BSA), asserted
+/// to hold different bytes, with the loose copy asserted to win. Only once that is measured does a clean diff there
+/// stop the run — and it stops it rather than being reported as a pass.</para>
 ///
 /// <para><b>What that stop means, stated honestly.</b> This harness passes <c>source_provider</c> to
-/// <c>bulk_place_asset</c> ITSELF, standing in for the skill, and <c>place_asset</c> is not a tool this branch
-/// changes. So the arm is a FLOW-level claim — "the composed replacement reads the named donor where the ancestor
-/// read the winner" — not proof that a named-donor read was wired here. A clean diff is a reason to go and find
-/// out which of the three moved (the fixture, the flow, or place_asset's source selection); it does not by itself
-/// identify one. The empirical half of this fixture's evidence is Aaron's pass on the live install.</para>
+/// <c>bulk_place_asset</c> ITSELF, standing in for the skill, and it does not change <c>place_asset</c>. So the arm
+/// is a FLOW-level claim — "the composed replacement reads the named donor where the ancestor read the winner" —
+/// not proof that a named-donor read was wired here. A clean diff is a reason to find out which of the three moved
+/// (the fixture, the flow, or place_asset's source selection); it does not by itself identify one.</para>
 ///
-/// <para><b>Fixture 2 compares assets too, since F1.</b> It ran records-only under ruling R1, because the successor
-/// had no disabled-donor asset lane for the ancestor's donor-disk carry to be diffed against; F1 built one, and the
-/// comparison (EMPIRICAL_LEDGER EL-2) is the asset half here. It fails informatively for the same reason fixture 3
-/// does, and by the same construction: its contested path and its donor-only paths are both MEASURED before anything
-/// is compared, so a match cannot be a coincidence and a divergence cannot be a fixture accident.</para>
+/// <para><b>Fixture 2 compares assets too.</b> Its contested path and its donor-only paths are both MEASURED before
+/// anything is compared, so a match cannot be a coincidence and a divergence cannot be a fixture accident.</para>
 ///
 /// Run: dotnet run --project src/housecarl-generator -- copy-differential
 /// </summary>
@@ -121,10 +117,8 @@ public static class CopyDifferentialHarness
             "…and the record the caller ASKED for names the arm that produced it (R2)");
         DiffPatches("clone lane", FindPatch(mods, "F1OldClone"), FindPatch(mods, "F1NewClone"));
 
-        // The skill's Step 1 output, printed in full ONCE. Binding rule from the round-1 incident: a skill step
-        // that describes a tool's output gets RUN before it ships. Three claims in the first draft of the skill
-        // were text nobody had executed, and two of them were false — including a readback section the tool did
-        // not emit at all. Printing it here is cheap and it makes the next author's claim checkable.
+        // The skill's Step 1 output, printed in full ONCE: a skill step that describes a tool's output must be RUN
+        // before it ships, or its claims are text nobody executed. Printing it here makes them checkable.
         Console.WriteLine("  ---- the successor's Step-1 readback, verbatim ----");
         foreach (var line in newClone.Split('\n')) Console.WriteLine("  | " + line.TrimEnd());
         Console.WriteLine("  ---------------------------------------------------");
@@ -160,11 +154,10 @@ public static class CopyDifferentialHarness
         Check(!newBundle.StartsWith("error"), $"attach: the SUCCESSOR's bundle step succeeds ({First(newBundle)})");
         DiffPatches("attach lane", FindPatch(mods, "F1OldAttach"), FindPatch(mods, "F1NewAttach"));
 
-        // ---- the seed-shape boundary REFUSES rather than going quiet (shape ruling (a)) ------------------
+        // ---- the seed-shape boundary REFUSES rather than going quiet ------------------
         // The ancestor has a fixed seed set, so there is no old-vs-new pair to diff here; what the run asserts is
         // that the successor's answer to an unsupported shape is a REFUSAL that names the route, not a silent
-        // no-op and not a wiped list. Asserted in the differential because it is an acceptance claim about the
-        // replacement, and "the suite is green" was true of the silent version too.
+        // no-op and not a wiped list.
         var shape = CopyTools.Copy(svc, donorKey.ToString(), null, new[] { "HeadParts", "Factions" },
                                    new[] { "Race:refuse" }, targetKey.ToString(), null, "F1Shape", null);
         Check(shape.StartsWith("error") && shape.Contains("RankPlacement", StringComparison.Ordinal),
@@ -177,8 +170,8 @@ public static class CopyDifferentialHarness
     }
 
     // ==================================================================================================
-    //  FIXTURE 2 — a DISABLED donor: the off-order read, and the ordered source list read through an
-    //  override. RECORDS ONLY by ruling — the disabled-donor asset lane is not built in this branch.
+    //  FIXTURE 2 — a DISABLED donor: the off-order read, and the ordered source list read through an override,
+    //  plus the asset half below.
     // ==================================================================================================
     static void Fixture2(string root)
     {
@@ -201,9 +194,7 @@ public static class CopyDifferentialHarness
         DiffPatches("disabled donor", oldPatch, newPatch);
 
         // ================================================================================================
-        //  THE ASSET HALF — EL-2. Deferred from PR #346 by ruling R1 because the successor had no
-        //  disabled-donor asset lane to be compared against; F1 built it, and this runs while the
-        //  ancestor still exists to be compared against.
+        //  THE ASSET HALF. It runs only while the ancestor still exists to be compared against.
         // ================================================================================================
         Console.WriteLine();
         Console.WriteLine("  -- EL-2: the deferred asset comparison, per destination path --");
@@ -267,9 +258,9 @@ public static class CopyDifferentialHarness
 
             if (key == "<clone facegeom>")
             {
-                // THE INVENTORIED DIVERGENCE (§12): on a contested path the ancestor reads the VFS winner and
-                // the successor reads the mod the caller named. Its ABSENCE is the failure here — a clean diff
-                // would mean one of the two stopped doing what it is documented to do.
+                // THE INVENTORIED DIVERGENCE: on a contested path the ancestor reads the VFS winner and the
+                // successor reads the mod the caller named. Its ABSENCE is the failure here — a clean diff would
+                // mean one of the two stopped doing what it is documented to do.
                 Check(ob is not null && ob.SequenceEqual(ReplacerMeshBytes),
                     "  the ANCESTOR carried the VFS WINNER's mesh (the replacer's) — the recorded behaviour");
                 Check(nb is not null && nb.SequenceEqual(DonorMeshBytes),
@@ -403,17 +394,15 @@ public static class CopyDifferentialHarness
         // ---- records: a vanilla donor is a transplant in BOTH tools, so the patches should still match ----
         DiffPatches("contested vanilla (records)", FindPatch(mods, "F3Old"), newPatch);
 
-        // ---- the RESPONSE half, which Project() is blind to by construction (inventory F24) --------------
+        // ---- the RESPONSE half, which Project() is blind to by construction --------------
         // Project() compares plugin bytes and the masters list and never the two tools' prose, so a render-level
-        // divergence was invisible to this harness — which is how a base-master donor kept getting a false
-        // standalone claim through three review rounds while every fixture reported NO DIFF. This donor lives in
-        // Dawnguard.esm, so it is exactly that case, and the two renders are compared directly.
+        // divergence — a base-master donor wrongly called a standalone-ization — is invisible to it while every
+        // fixture reports NO DIFF. This donor lives in Dawnguard.esm, so the two renders are compared directly.
         //
-        // Still the transplant case under the CORRECTED condition (F24 is about the bound set being EMPTY, not
-        // about where `from` is defined): this call passes no from_source=, so the universe is ['winner'], and
-        // 'winner' is exempt from binding — the whole load order is not a plugin to copy away from. Name a MOD
-        // here and the bound set stops being empty and the standalone claim becomes the right one; that case is
-        // arm 7h in copy-service-guard, not this one.
+        // Still the transplant case: this call passes no from_source=, so the universe is ['winner'], and 'winner'
+        // is exempt from binding — the whole load order is not a plugin to copy away from. Name a MOD here and the
+        // bound set stops being empty and the standalone claim becomes the right one, which copy-service-guard
+        // covers rather than this harness.
         Check(oldOut.Contains("appearance transplant", StringComparison.Ordinal),
             "the ANCESTOR calls a base-master donor an appearance transplant rather than a standalone-ization");
         Check(newOut.Contains("appearance transplant", StringComparison.Ordinal),
@@ -468,8 +457,8 @@ public static class CopyDifferentialHarness
         var a = Project(oldPath);
         var b = Project(newPath);
         // MULTISET, not set. Except() collapses duplicates, so a patch carrying the SAME projected line twice —
-        // exactly what a double-internalize produces — diffed clean against one carrying it once. The count is the
-        // half that catches a stray duplicate, and this branch had one (a walk that came back round to `from`).
+        // what a double-internalize produces — would diff clean against one carrying it once. The count is the
+        // half that catches a stray duplicate.
         var only = Excess(a, b);
         var extra = Excess(b, a);
         if (only.Count == 0 && extra.Count == 0)
@@ -565,7 +554,7 @@ public static class CopyDifferentialHarness
     /// DISABLED donor. No archive here: see the SCOPE note at the end of <c>Fixture2</c> for why, and for where the
     /// root-archive half of the lane is guarded instead.
     /// <para>Opt-in rather than always-on because fixture 1 asserts against this same tree, and growing it would move
-    /// what a dozen of its arms measure for the sake of a fixture only fixture 2 needs (#333's lesson).</para></summary>
+    /// what a dozen of its arms measure for the sake of a fixture only fixture 2 needs.</para></summary>
     static string BuildInstance(string root, bool donorEnabled, bool withAssets,
         out FormKey donorKey, out FormKey targetKey, out string donorPlugin, out string overrideName)
     {
@@ -582,9 +571,9 @@ public static class CopyDifferentialHarness
         baseMod.Races.Add(new Race(raceA, SkyrimRelease.SkyrimSE) { EditorID = "RaceA" });
         baseMod.Races.Add(new Race(raceB, SkyrimRelease.SkyrimSE) { EditorID = "RaceB" });
         // A shared, ACTIVE armor. It exists so the attach TARGET can carry a WornArmor the donor does NOT — the
-        // case where the ancestor's unconditional assignment CLEARS the target's field. The successor used to
-        // leave the target's value in place and report nothing, which is a face built from two records; nothing in
-        // the earlier fixtures could see it because the donor and the target were unset together.
+        // case where the ancestor's unconditional assignment CLEARS the target's field. A successor that instead
+        // left the target's value in place would build a face out of two records, and no fixture where the donor
+        // and the target are unset together can see that.
         var armorFk = new FormKey(baseKey, 0x802);
         baseMod.Armors.Add(new Armor(armorFk, SkyrimRelease.SkyrimSE) { EditorID = "SharedArmor" });
         WriteMod(mods, "BaseMod", baseMod);
@@ -690,13 +679,14 @@ public static class CopyDifferentialHarness
     }
 
     /// <summary>Every file a patch mod folder holds EXCEPT its plugin, keyed by destination path with the two
-    /// per-side identities folded out: the FaceGen pair's path carries the patch's own plugin name and the clone's
-    /// own FormID, both of which differ between the two runs by construction and neither of which is a behaviour.
-    /// Everything else is compared under its literal path.
+    /// per-side identities normalized away: the FaceGen pair's path carries the patch's own plugin name and the
+    /// clone's own FormID, both of which differ between the two runs by construction and neither of which is a
+    /// behaviour. Everything else is compared under its literal path.
     /// <para><c>meta.ini</c> is excluded and its exclusion is checked rather than assumed. It is MO2 bookkeeping
     /// houseCARL writes for the folder it just made, and it NAMES that folder — so the two runs differ in it for the
-    /// same reason the patch filename differs, which <see cref="Project"/> already folds out on the record side. The
-    /// caller asserts both sides HAVE one, so dropping it cannot hide a side that stopped writing it.</para></summary>
+    /// same reason the patch filename differs, which <see cref="Project"/> already normalizes away on the record
+    /// side. The caller asserts both sides HAVE one, so dropping it cannot hide a side that stopped writing
+    /// it.</para></summary>
     static Dictionary<string, byte[]> CarriedFiles(string? patchFolder, FormKey cloneKey)
     {
         var map = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);

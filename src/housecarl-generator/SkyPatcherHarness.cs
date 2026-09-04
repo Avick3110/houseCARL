@@ -5,23 +5,18 @@ using Mutagen.Bethesda.Plugins;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// SkyPatcher Wave-1 CRUX harness (plan dev/plans/SKYPATCHER_DISTRIBUTOR_TOOL_PLAN_2026-07-08.md §7
-/// Wave 1): stand the REAL service path (<see cref="LoadOrderService.SkyPatcherLayer"/>) up against a
-/// live MO2 instance and print the whole INI layer — the artifact Aaron verifies against xEdit +
-/// in-game (the empirical gate; the promise is proven, not reviewed).
-///
-/// <para>The per-record mode went with <c>LoadOrderService.SkyPatcherPostState</c> (#486): the service
-/// member had no shipped caller once the 1.x read tools were cut, and this harness was the only thing
-/// left driving it. The layer mode is unaffected — it reads its own service member.</para>
+/// Stand the REAL service path (<see cref="LoadOrderService.SkyPatcherLayer"/>) up against a live MO2
+/// instance and print the whole INI layer — the artifact to check against xEdit and in-game. Needs a
+/// live instance, so it is run by hand, not from CI.
 ///
 /// Run: dotnet run --project src/housecarl-generator skypatcher-layer --instance &lt;MO2 instance dir&gt;
 /// </summary>
 public static class SkyPatcherHarness
 {
-    /// <summary>corpus.json is GENERATED, not tracked — run from outside the repo root the default
-    /// relative CorpusPath resolves to nothing and the service's rulebook/type-catalog loads crash
-    /// unnamed. Bootstrap the FloiFieldsProbe way (generate into a unique temp dir, cleaned on exit)
-    /// around <paramref name="body"/> — the ONE bootstrap both harness modes ride (review fold).</summary>
+    /// <summary>corpus.json is GENERATED, not tracked, so when this runs from outside the repo root the
+    /// default relative CorpusPath resolves to nothing and the service's rulebook and type-catalog loads
+    /// crash with no useful message. Generate one into a unique temp dir, cleaned on exit, around
+    /// <paramref name="body"/>.</summary>
     static int WithCorpus(Func<int> body)
     {
         string? tmp = null;
@@ -39,9 +34,8 @@ public static class SkyPatcherHarness
     }
 
     /// <summary>
-    /// The Wave-2 layer harness: the whole SkyPatcher layer + conflict report off a live MO2 instance,
-    /// rendered by the SAME Wire the housecarl_skypatcher_layer tool uses (internals-visible) — what the
-    /// tool will return, verifiable before the plugin repackages.
+    /// The whole SkyPatcher layer + conflict report off a live MO2 instance, rendered by the SAME Wire the
+    /// housecarl_skypatcher_layer tool uses (internals-visible), so what prints is what the tool returns.
     /// Run: dotnet run --project src/housecarl-generator skypatcher-layer --instance &lt;MO2 instance dir&gt; [--filter x]
     /// </summary>
     public static int RunLayer(string[] args)

@@ -6,7 +6,7 @@ using Mutagen.Bethesda.Skyrim;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// Shared fixture for the localized-strings arms of the merge and compact service guards (#362). Builds a synthetic MO2
+/// Shared fixture for the localized-strings arms of the merge and compact service guards. Builds a synthetic MO2
 /// instance in the shape the bug needs and nothing else:
 ///
 ///   • a real (empty) <c>Skyrim.esm</c> in the game-Data folder — WITHOUT it <c>LoadOrderResolver.ComputeDataDir</c>
@@ -18,8 +18,8 @@ namespace HousecarlGenerator;
 ///     localized plugin whose own folder carries no strings source — the "Cleaned Base Game Masters" / translation-mod
 ///     pattern, and exactly the read the bare overlay gets wrong.
 ///
-/// A spec with <see cref="Spec.StringsNowhere"/> has its strings DELETED instead of relocated: the residual case, where
-/// the strings exist in neither the plugin's own folder nor game-Data, so no <c>dataDir</c> can resolve them.
+/// A spec with <see cref="Spec.StringsNowhere"/> has its strings DELETED instead of relocated: the case where they
+/// exist in neither the plugin's own folder nor game-Data, so no <c>dataDir</c> can resolve them.
 /// </summary>
 internal static class LocalizedStringsFixture
 {
@@ -27,17 +27,16 @@ internal static class LocalizedStringsFixture
     /// <param name="Key">The plugin's ModKey.</param>
     /// <param name="Name">The localized FULL the weapon carries.</param>
     /// <param name="Desc">The localized DESC the weapon carries.</param>
-    /// <param name="StringsNowhere">Delete the strings rather than relocating them to game-Data (the residual case).</param>
+    /// <param name="StringsNowhere">Delete the strings rather than relocating them to game-Data, so nothing can resolve them.</param>
     /// <param name="LinksTo">A record in an EARLIER spec's plugin to point a FormList at — the external-referencer
     /// shape. The link makes that plugin a declared master of this one, which is what puts this plugin in the
     /// identify pass's answer when the other one is compacted.</param>
-    /// <param name="Localized">Build this one NON-localized. Needed because the in-place lanes now refuse a localized
-    /// plugin outright: an arm about the REFERENCER check has to give the operation a target it will accept, or the
-    /// target check answers first and the arm measures that instead of what it is named for.</param>
+    /// <param name="Localized">Build this one NON-localized. The in-place lanes refuse a localized plugin outright, so
+    /// an arm about the REFERENCER check must give the operation a target it will accept — otherwise the target check
+    /// answers first and the arm measures that instead.</param>
     /// <param name="StringsBeside">LEAVE the strings in the plugin's own folder rather than relocating them to
     /// game-Data. That is the one shape a write may commit rewritten tables for, so an arm about the ACCEPTED path
-    /// needs it — the relocated default is a shape the write refuses, and an arm built on it would be measuring the
-    /// refusal.</param>
+    /// needs it; the relocated default is a shape the write refuses.</param>
     /// <param name="SecondLanguage">Also carry a French value, so a claim about a multi-language plugin surviving a
     /// compaction rests on a language something actually reads back.</param>
     internal sealed record Spec(string ModFolder, ModKey Key, string Name, string Desc, bool StringsNowhere = false,
@@ -135,9 +134,8 @@ internal static class LocalizedStringsFixture
                     var target = Path.Combine(data, "Strings");
                     Directory.CreateDirectory(target);
                     // GetFiles, not EnumerateFiles: the loop MOVES files out of the directory it is walking, and a lazy
-                    // enumerator can skip an entry under that mutation — which the Delete below would then destroy rather
-                    // than relocate. It fails toward a RED arm rather than a false green, but a flaky fixture is worse
-                    // than either.
+                    // enumerator can skip an entry under that mutation — which the Delete below would then destroy
+                    // rather than relocate.
                     foreach (var f in Directory.GetFiles(own)) File.Move(f, Path.Combine(target, Path.GetFileName(f)));
                     Directory.Delete(own, true);
                 }
@@ -174,7 +172,7 @@ internal static class LocalizedStringsFixture
     /// <summary>Read a written plugin's weapon FULL/DESC back with the BARE overlay — deliberately bare, and deliberately
     /// from the OUTPUT's own folder. Merge and compact both build a fresh, NON-localized <c>SkyrimMod</c>, so a correct
     /// output carries its strings INLINE and this read must see them with no dataDir and no strings folder anywhere near
-    /// it. A read that comes back empty here is the blanking #362 describes, whichever end produced it.</summary>
+    /// it. A read that comes back empty here is the string-blanking bug, whichever end produced it.</summary>
     internal static (string? Name, string? Desc) ReadBackBare(string pluginPath, string weaponEdid)
     {
         using var ov = SkyrimMod.CreateFromBinaryOverlay(pluginPath, SkyrimRelease.SkyrimSE);

@@ -2,11 +2,10 @@ using Mutagen.Bethesda.Plugins;
 
 namespace HousecarlGenerator;
 
-// MCP step §8.5: verify Mo2LoadOrder.Build against a real profile's files (loadorder.txt + modlist.txt +
-// plugins.txt). Proves the static-file reader produces a sane true order — masters first, the user's top-priority
-// patches last, the ~110 duplicate-name plugins resolved to a real winning path — then feeds it to the real
-// LoadOrderResolver and spot-checks the depth-879 sanity record. This is the Phase-1 empirical gate before the
-// server consumes it; Phase 2 is Aaron's xEdit winner-IDENTITY cross-check.
+// Verify Mo2LoadOrder.Build against a real profile's files (loadorder.txt + modlist.txt + plugins.txt): masters
+// first, the user's top-priority patches last, the ~110 duplicate-name plugins resolved to a real winning path.
+// Then feed that order to the real LoadOrderResolver and spot-check one deep record. Needs a live MO2 instance,
+// so it is a manual harness, not a CI probe.
 //
 //   dotnet run --project src/housecarl-generator mo2-order [profileDir] [modsDir] [dataDir]
 static class Mo2OrderHarness
@@ -57,7 +56,7 @@ static class Mo2OrderHarness
             foreach (var w in result.Warnings.Take(10)) Console.WriteLine($"  - {w}");
         }
 
-        // Feed the true order into the REAL resolver and spot-check it stands up + the §8.5 sanity record.
+        // Feed the true order into the REAL resolver and spot-check that it stands up.
         Console.WriteLine("\nbuilding LoadOrderResolver on the true order...");
         var rsw = System.Diagnostics.Stopwatch.StartNew();
         using var resolver = LoadOrderResolver.Build(paths);
@@ -70,14 +69,14 @@ static class Mo2OrderHarness
             foreach (var f in resolver.LoadFailures.Take(5)) Console.WriteLine($"    - {f}");
         }
 
-        // §8.5 sanity record: the deepest-known Worldspace 00003C:Skyrim.esm (depth ~879 in the placeholder order).
+        // Sanity record: the deepest-known Worldspace, 00003C:Skyrim.esm.
         var sanity = FormKey.Factory("00003C:Skyrim.esm");
         var winner = resolver.ResolveWinner(sanity);
         Console.WriteLine(winner is null
             ? $"\n00003C:Skyrim.esm  -> NOT FOUND (unexpected)"
             : $"\n00003C:Skyrim.esm  winner={winner.Value.WinnerPlugin}  override_depth={winner.Value.OverrideDepth}");
 
-        // Sanity assertions (loud, not silent) — the cheap structural checks; xEdit identity is Phase 2.
+        // Structural sanity only — that the winners are the RIGHT records is checked against xEdit by hand.
         bool firstIsMaster = paths.Count > 0 && Path.GetFileName(paths[0]).Equals("Skyrim.esm", StringComparison.OrdinalIgnoreCase);
         bool plausibleCount = result.ResolvedCount > 3000;
         Console.WriteLine($"\nchecks: first==Skyrim.esm={firstIsMaster}  resolved>3000={plausibleCount}  resolved==active={result.ResolvedCount == result.ActiveCount}");
