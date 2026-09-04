@@ -104,6 +104,37 @@ saying it sets an expectation their install may contradict. Say what is known, a
   the summary no longer reports a clean bill of health over it. A class that also has a clean DLL that loads stays
   healthy: that DLL implements it for everyone. The inventory family already flagged this, so the two families no
   longer disagree about the same file.
+- **A localized plugin whose text lives in the game's `Data` folder now reads its names and descriptions even when a
+  `.bsa` sits beside it.** houseCARL pointed the strings lookup at game-Data only when the plugin's own folder carried
+  no strings source, and it answered that with "is there a `Strings\` folder" plus "is there any `.bsa`" — so an
+  archive holding only meshes and textures, and a shared `Strings\` folder holding only a neighbouring plugin's tables,
+  both suppressed the lookup and every localized value read back empty. The question is now asked about the named
+  plugin: a loose table matching its name, or an archive beside it that embeds one. This reaches every read houseCARL
+  does, including the copies `housecarl_merge_plugins` and `housecarl_compact_plugin` write.
+
+- **`housecarl_merge_plugins` and `housecarl_compact_plugin` now refuse a localized plugin whose `.STRINGS` houseCARL
+  cannot find anywhere.** Such a plugin reads every name, description and message as empty, and both verbs wrote those
+  blanks into the output and reported an ordinary success. The refusal names the plugin, says what reads empty, and
+  says the tables may be somewhere it cannot see from the plugin's own folder — a translation mod that is not enabled,
+  or content whose archive is in another mod folder. Nothing is written. A plugin whose strings do resolve is
+  unaffected.
+
+- **`housecarl_merge_plugins` now states that it de-localizes a localized donor.** The merged plugin is never flagged
+  localized, so a donor's text is written into it inline: the donor's `.STRINGS` files no longer describe the output,
+  and any language they shipped that this read did not resolve is not in it. The report names each donor houseCARL
+  read and found flagged. `housecarl_compact_plugin`'s new-file lane already said this.
+
+- **`housecarl_merge_plugins` now finds plugins that only DECLARE a donor as a master.** The safety scan read record
+  links and record identity and never opened a header, so a compat patch that lists a donor as a master while
+  referencing none of its records was reported as no dependent at all — and stopped loading, for want of a master, as
+  soon as the donor was deactivated. Those plugins are now named with what they declare and what to do about it, and
+  the pass line says what the scan does and does not read. `housecarl_compact_plugin` does not report them: its output
+  keeps the source's basename, so a declarer's master is still there.
+
+- **`housecarl_merge_plugins`'s `.esl` refusal no longer states a reason that is false for a light donor.** It said a
+  merge keeps the donors' object ids in the full range; renaming an already-light plugin — a single-donor merge — has
+  ids that are all inside the light window. The refusal now says what the merge does not do (it never renumbers into
+  the light range) and points at `housecarl_compact_plugin`, which does.
 
 - **`housecarl_asset_status` under a `max_chars` its header and alarms already fill now renders the first path's
   answer instead of cutting to none.** `housecarl_nif_inspect` already did; both tools now render through one batch

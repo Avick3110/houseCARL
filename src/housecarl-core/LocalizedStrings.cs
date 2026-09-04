@@ -306,7 +306,9 @@ public static class LocalizedStrings
         try
         {
             var folder = Path.GetDirectoryName(pluginPath);
-            if (folder is null) return true;
+            // A folder that is not there is not a clean, empty read — it is a bad one, and the redirect is only ever
+            // taken on a clean one.
+            if (folder is null || !Directory.Exists(folder)) return true;
             var stem = Path.GetFileNameWithoutExtension(pluginPath);
             var loose = ReadStringsFolder(Path.Combine(folder, "Strings"), stem);
             // A folder that is there and could not be LISTED tells us nothing about what is in it — keep the default.
