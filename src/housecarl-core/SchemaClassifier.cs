@@ -4,7 +4,6 @@ namespace HousecarlCore;
 /// How a collection's ELEMENT is written — the one classification the schema-side instruments
 /// (rulebook pre-flight, write-census reachability, write-proof denominator) must agree on. Derived
 /// BY CONSTRUCTION from the corpus + the engine's coercion recogniser; never hand-listed per record.
-/// Wave 4 (arm-breadth) switches on <see cref="Arm"/>; wave 3 (nested-group) on <see cref="Record"/>.
 /// </summary>
 public enum ElementKind
 {
@@ -12,11 +11,11 @@ public enum ElementKind
     ScalarCoercible,
     /// <summary>No modeled element ref, but the engine cannot coerce the element's value type (a coercion-deferred element).</summary>
     ScalarUncoercible,
-    /// <summary>A build-from-parts modeled struct element (Add takes a StructSpec) — wave-1 half B.</summary>
+    /// <summary>A build-from-parts modeled struct element (Add takes a StructSpec).</summary>
     Struct,
-    /// <summary>An owned child-record element — resolved via the record axis (nested-group wave 3), not composed.</summary>
+    /// <summary>An owned child-record element — resolved via the record axis, not composed.</summary>
     Record,
-    /// <summary>A polymorphic-union element (condition data, script properties, …) — arm-breadth wave 4.</summary>
+    /// <summary>A polymorphic-union element (condition data, script properties, …).</summary>
     Arm,
     /// <summary>A whole-coercible element set as one value (an AssetLink path), not built from parts.</summary>
     WholeCoercible,
@@ -25,27 +24,24 @@ public enum ElementKind
 }
 
 /// <summary>
-/// The ONE schema-side classifier for element/leaf write-kind + coercibility. Before this existed the same
-/// predicates were forked across <c>CorpusRulebook</c>, <c>WriteProof</c>, and <c>WriteCensus</c> — the harness
-/// deriving against the deserialized corpus while the engine derived against live reflection — so a future
-/// editor had to remember to update 2–3 look-alike sites or the census and the proof would silently disagree
-/// about the denominator (baseline review S2). Now there is one definition; every schema-side instrument calls it.
+/// The ONE schema-side classifier for element/leaf write-kind + coercibility. Every schema-side instrument
+/// (<c>CorpusRulebook</c> pre-flight, <c>WriteProof</c>, <c>WriteCensus</c>) calls it, so the census and the proof
+/// cannot silently disagree about the denominator.
 ///
 /// It deliberately does NOT cover the engine's <i>runtime</i> write-time branch (<c>ApplyListVerb</c> decides by
-/// <c>req.Struct is not null</c>, with no FieldSchema in scope): the engine is schema-blind by design (review
-/// bullet ①), and threading the corpus into the verb path would break that property. The fork unified here is the
-/// schema-side derivation only.
+/// <c>req.Struct is not null</c>, with no FieldSchema in scope): the engine is schema-blind by design, and threading
+/// the corpus into the verb path would break that property. Only the schema-side derivation lives here.
 ///
 /// Coercibility delegates to the engine's own recogniser (<see cref="WriteEngine.CanCoerce"/> /
 /// <see cref="WriteEngine.ResolveType"/> / <see cref="WriteEngine.IsWholeCoercibleElement"/>) so "is this
-/// coercible" can never drift between recognise-side and execute-side (review bullet ②).
+/// coercible" cannot drift between recognise-side and execute-side.
 /// </summary>
 public static class SchemaClassifier
 {
     /// <summary>A scalar/enum/value/formlink/substruct-whole leaf is settable-today iff the engine can coerce its
     /// WHOLE type. Enums always coerce (Enum.Parse). FormLinkOrIndex, owned-record links, and type-erased
-    /// <c>object</c> are correctly excluded (the coerce-audit deferred surface), unifying this proof's denominator
-    /// with the census's writable-today set.</summary>
+    /// <c>object</c> are excluded, which is what keeps the proof's denominator and the census's writable-today set
+    /// the same.</summary>
     public static bool CoercibleLeaf(FieldSchema f)
     {
         if (f.Cardinality == "enum") return true; // enums always coerce (Enum.Parse)
@@ -54,8 +50,8 @@ public static class SchemaClassifier
     }
 
     /// <summary>A list/dict is settable-today iff its ELEMENT coerces from a scalar value (scalar/enum/formlink
-    /// element with NO modeled element ref). A modeled-struct/record/arm element (ElementTypeRef set) needs
-    /// composition or record resolution — deferred. Corpus-free by construction (the AQ + the ref are enough).</summary>
+    /// element with NO modeled element ref). A modeled struct/record/arm element (ElementTypeRef set) needs
+    /// composition or record resolution instead. Corpus-free: the AQ plus the ref are enough.</summary>
     public static bool CoercibleElement(FieldSchema f)
     {
         if (f.ElementTypeRef is not null) return false; // element is a modeled type → needs composition/resolution
@@ -88,8 +84,8 @@ public static class SchemaClassifier
     /// modeled STRUCTS — the VMAD shape (ScriptProperty → ScriptObjectProperty…). A base whose arms are RECORDS
     /// (GameSetting → GameSettingBool/Float/Int/String, the typed record-group families) lives on the FormKey /
     /// record axis: its elements are allocated as records, never built from a StructSpec — classify
-    /// <see cref="ElementKind.Record"/> so the composition surface can never admit them (PR review: pre-flight
-    /// accepting a record-family compose was an accept-then-throw). A mixed or unresolvable arm set surfaces as
+    /// <see cref="ElementKind.Record"/> so the composition surface can never admit them; pre-flight accepting a
+    /// record-family compose would be an accept-then-throw. A mixed or unresolvable arm set surfaces as
     /// <see cref="ElementKind.Unknown"/> — never silently bucketed either way.</summary>
     static ElementKind PolyBaseElementKind(string baseName, Corpus corpus)
     {
@@ -104,31 +100,27 @@ public static class SchemaClassifier
     }
 
     /// <summary>True iff the field is a collection whose ELEMENT is a BUILD-FROM-PARTS modeled struct (so Add takes a
-    /// StructSpec). Excludes record-elements (nested-group wave 3), arm-elements (arm wave 4), and whole-coercible
-    /// AssetLink-path elements (set as one value). Defined via <see cref="ClassifyElement"/> so it cannot drift from it.</summary>
+    /// StructSpec). Excludes record elements, arm elements, and whole-coercible AssetLink-path elements (set as one
+    /// value). Defined via <see cref="ClassifyElement"/> so it cannot drift from it.</summary>
     public static bool IsStructElement(FieldSchema f, Corpus corpus) =>
         ClassifyElement(f, corpus) == ElementKind.Struct;
 
     /// <summary>True iff a SINGULAR leaf holds an OWNED CHILD RECORD — the parent carries the record itself, rather
     /// than a link to one (<c>Cell.Landscape</c>, <c>Worldspace.TopCell</c>). The singular twin of
-    /// <see cref="ElementKind.Record"/>, and the ONE home for the question: until #335 corrected their classification
-    /// no field in the corpus held a record singularly, so every rule keyed on "substruct" was written when this could
-    /// not occur and reads such a leaf as an ordinary navigable sub-object. It is not one. A record has its own FormKey
-    /// and its own children, so it cannot be built from parts, cannot be materialized into an absent slot, and must not
-    /// be dropped as a side effect of clearing a field. Rules that would otherwise inherit the sub-object answer ask
-    /// HERE, so a later consumer meets one named predicate rather than re-deriving the test.
+    /// <see cref="ElementKind.Record"/>, and the ONE home for the question. Such a leaf is NOT an ordinary navigable
+    /// sub-object: a record has its own FormKey and its own children, so it cannot be built from parts, cannot be
+    /// materialized into an absent slot, and must not be dropped as a side effect of clearing a field. Rules that
+    /// would otherwise inherit the sub-object answer ask HERE rather than re-deriving the test.
     /// <para/>
     /// Keyed on the TypeRef's <b>Kind</b>, across BOTH singular ownership cardinalities — not on "substruct" alone.
     /// <see cref="CorpusGenerator"/>'s classifier emits <c>polymorphic</c> instead of <c>substruct</c> whenever the
     /// field's getter interface has more than one concrete arm, so a singular field typed as a record POLYMORPHIC BASE
     /// (<c>IPlacedGetter</c>, <c>IGameSettingGetter</c>, …) would catalog as <c>polymorphic</c> with record arms and
-    /// slip past a substruct-only test — every clause keyed on this predicate skipped, and a compose routed to
-    /// ArmLegality, accepted, then thrown at BuildStruct: #335's own accept-then-throw, one shape over. No such field
-    /// existed in the Skyrim model when this was written, 2026-08 (the regeneration of that day moved two fields, both
-    /// substructs) — a dated observation about the shape, not a standing count of what any later bump moves — so
-    /// this arm is latent — which is the reason to close it here rather than at the next bump, where it would arrive
-    /// as a live defect. <see cref="PolyBaseElementKind"/> already answers "are this base's arms records?" for
-    /// elements; the singular case asks it the same way, so the two cannot drift.</summary>
+    /// slip past a substruct-only test — every clause keyed on this predicate skipped, and a compose accepted then
+    /// thrown at BuildStruct. No such field exists in the Skyrim model today, so that branch is latent; it stays
+    /// because a later Mutagen bump would otherwise land it as a live defect.
+    /// <see cref="PolyBaseElementKind"/> already answers "are this base's arms records?" for elements; the singular
+    /// case asks it the same way, so the two cannot drift.</summary>
     public static bool IsOwnedChildRecord(FieldSchema f, Corpus corpus)
     {
         if (f.Cardinality is not ("substruct" or "polymorphic") || f.TypeRef is not { } tr) return false;
@@ -142,20 +134,19 @@ public static class SchemaClassifier
     /// element ref. Requires ALL of: a substruct leaf; whose modeled type is a build-from-parts struct OR concrete arm
     /// (corpus Kind); that is NOT coercible-from-a-value (<see cref="CoercibleLeaf"/> — a TranslatedString substruct keeps
     /// its plain-value Set, never re-routed to compose-only); and that <see cref="WriteEngine.IsPlainComposableStruct"/>
-    /// can instantiate — which EXCLUDES the composition-residuals <c>GenderedItem&lt;T&gt;</c>/<c>Array2d&lt;T&gt;</c> (no
-    /// parameterless ctor; BuildStruct would throw). The last two guards keep the accept in lock-step with what
-    /// <c>ApplyScalarVerb</c> req.Struct → <c>BuildStruct</c> can actually build (gate==apply — with TWO declared
-    /// exceptions. The second, since #335, is an OWNED CHILD RECORD leaf: the gate accepts a descent into it from the
-    /// schema alone, and the apply refuses when the copy being written carries no child — live state the corpus cannot
-    /// know, surfaced as an <c>ExpectedApplyRejectionException</c> with nothing written, the same all-or-nothing shape
-    /// as the first. The first, since #308: a compose the caller gave NOTHING to, whose built object has no settable value at all, is
-    /// accepted here and refused at apply. It cannot be decided from the schema — emptiness is a property of the
-    /// INSTANCE, and the corpus models types — so the check lives where the object exists. The refusal is still
-    /// pre-serialize and all-or-nothing on every lane, so the guarantee the parity exists to protect (never
-    /// accept-then-throw mid-write) holds; what it costs is that the gate no longer predicts this one refusal).
-    /// Gendered leaves never reach
-    /// the compose gate — <c>CorpusRulebook</c> diverts them to their [0]/[1] halves upstream. Corpus-derived, no per-type
-    /// wiring (cornerstone): the set of composable substructs IS the set of modeled build-from-parts struct/arm types.</summary>
+    /// can instantiate — which EXCLUDES <c>GenderedItem&lt;T&gt;</c> and <c>Array2d&lt;T&gt;</c> (no parameterless ctor;
+    /// BuildStruct would throw). The last two guards keep the accept in lock-step with what <c>ApplyScalarVerb</c>
+    /// req.Struct → <c>BuildStruct</c> can actually build.
+    /// <para/>
+    /// The gate matches the apply with TWO declared exceptions, both decidable only from the live instance the corpus
+    /// cannot model: an OWNED CHILD RECORD leaf, where the apply refuses when the copy being written carries no child;
+    /// and a compose the caller gave NOTHING to, whose built object has no settable value at all. Both surface as an
+    /// <c>ExpectedApplyRejectionException</c>, pre-serialize and all-or-nothing with nothing written, so the write is
+    /// never accepted then thrown mid-write; the cost is that the gate does not predict these two refusals.
+    /// <para/>
+    /// Gendered leaves never reach the compose gate — <c>CorpusRulebook</c> diverts them to their [0]/[1] halves
+    /// upstream. Corpus-derived, no per-type wiring (cornerstone): the set of composable substructs IS the set of
+    /// modeled build-from-parts struct/arm types.</summary>
     public static bool IsComposableSubstructLeaf(FieldSchema f, Corpus corpus)
     {
         if (f.Cardinality != "substruct" || f.TypeRef is not { } tr) return false;

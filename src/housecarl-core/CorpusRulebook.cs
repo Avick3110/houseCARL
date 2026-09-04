@@ -3,9 +3,8 @@ using System.Text.Json;
 namespace HousecarlCore;
 
 /// <summary>
-/// A write request in the engine's internal representation (plan §3 P-ADDR): a verb applied at the
-/// leaf of a path from a record root. The string/JSON wire format a user types is a step-8 (MCP API)
-/// concern — deliberately deferred; this is the engine's internal shape.
+/// A write request in the engine's internal representation: a verb applied at the leaf of a path from
+/// a record root. Not the wire format — the MCP layer translates into this shape.
 /// </summary>
 public sealed class WriteRequest
 {
@@ -17,15 +16,14 @@ public sealed class WriteRequest
     public string[]? Values { get; init; }              // list ReplaceAll — the whole new contents
     public Dictionary<string, string>? Entries { get; init; } // dict ReplaceAll / Merge — key→value pairs
     public StructSpec? Struct { get; init; }            // build-from-parts spec: the arm for a polymorphic Set, OR the new element for a struct-element Add
-    public IReadOnlyList<StructSpec>? Structs { get; init; } // P8a: a LIST of build-from-parts elements (composes=) — Add appends each, ReplaceAll clears then appends each
+    public IReadOnlyList<StructSpec>? Structs { get; init; } // a LIST of build-from-parts elements (composes=) — Add appends each, ReplaceAll clears then appends each
 }
 
 /// <summary>
-/// A modeled struct built FROM PARTS — the one composition primitive (wave-1 half B), generalizing the prior
-/// polymorphic-arm builder. Used in three places, all the same shape: a <b>polymorphic Set</b> (<see cref="Type"/>
-/// = the chosen arm), a <b>struct-element Add</b> to a collection (<see cref="Type"/> = the list's element type),
-/// and absent-composition materialization. <see cref="Fields"/> is flat-leaf sugar (coercible scalar/enum/
-/// formlink/value sub-fields, one Set-leaf each — the ergonomic arm shape, unchanged). <see cref="Sets"/> carries
+/// A modeled struct built FROM PARTS — the one composition primitive. Used in three places, all the same shape: a
+/// <b>polymorphic Set</b> (<see cref="Type"/> = the chosen arm), a <b>struct-element Add</b> to a collection
+/// (<see cref="Type"/> = the list's element type), and absent-composition materialization. <see cref="Fields"/> is
+/// flat-leaf sugar (coercible scalar/enum/formlink/value sub-fields, one Set-leaf each). <see cref="Sets"/> carries
 /// the general NESTED writes (sub-structs, struct-element Adds, lists) applied to the freshly-built instance
 /// through the verb engine ITSELF — so a built struct can never miss a field kind the engine already handles, and
 /// the build recurses (a struct element whose own field is a struct element) for free.
@@ -40,11 +38,9 @@ public sealed class StructSpec
 
 /// <summary>
 /// The in-memory rulebook — <c>corpus.json</c> deserialised into the generator's own schema model,
-/// used for <b>pre-flight validation</b> (plan §3 P-VALIDATE) before any Mutagen mutation. The schema
-/// IS the validator data, by construction: corpus.json and this model come out of the same reflection
-/// walk, so they cannot disagree about field names or types.
-///
-/// Q3 — no silent failure: every rejection names what was checked and what's legal.
+/// used for <b>pre-flight validation</b> before any Mutagen mutation. The schema IS the validator data,
+/// by construction: corpus.json and this model come out of the same reflection walk, so they cannot
+/// disagree about field names or types. Every rejection names what was checked and what's legal.
 /// </summary>
 public sealed class CorpusRulebook
 {
@@ -53,7 +49,7 @@ public sealed class CorpusRulebook
 
     /// <summary>The legal shapes of a condition FormLinkOrIndex target value — shared by the nested-sets
     /// (<see cref="ValidateFromType"/>) and the flat-fields (<see cref="CheckValue"/>) rejects so the two compose entry
-    /// points can't drift on what they tell the user is legal (the no-drift thesis of HCBR-2026-06-22).</summary>
+    /// points can't drift on what they tell the user is legal.</summary>
     const string FloiTargetForms =
         "a FormID (XXXXXX:Plugin.esp → form mode), a bare index, or 'alias N' / 'packdata N' (→ index mode)";
 
@@ -63,9 +59,8 @@ public sealed class CorpusRulebook
     /// <summary>The ONE source of truth for where corpus.json lives — every corpus read in the core
     /// resolves through it. Defaults to the dev-harness location ("generated/corpus.json", relative to
     /// the CWD, which is the repo root when the harness runs). The MCP server is launched by MO2 from an
-    /// arbitrary working directory, so it MUST set this to an absolute path at startup (§8.4) — a hardcoded
-    /// relative path can't survive the process/CWD change. (§8.4 tidy: collapsed the ~7 duplicated
-    /// `Deserialize&lt;Corpus&gt;("generated/corpus.json")` copies onto this + the loaders below.)</summary>
+    /// arbitrary working directory, so it MUST set this to an absolute path at startup — a hardcoded
+    /// relative path can't survive the process/CWD change.</summary>
     public static string CorpusPath { get; set; } = Path.Combine("generated", "corpus.json");
 
     /// <summary>Load the validator rulebook from the configured <see cref="CorpusPath"/>.</summary>
@@ -79,8 +74,8 @@ public sealed class CorpusRulebook
     /// coerce-audit / census / write-proof) rather than the validator wrapper.</summary>
     public static Corpus LoadCorpus() => LoadCorpus(CorpusPath);
 
-    /// <summary>The raw deserialised <see cref="Corpus"/> from an explicit path. Fail-loud (Q3): a missing
-    /// file or a null deserialise throws a named exception — never a silent empty corpus.</summary>
+    /// <summary>The raw deserialised <see cref="Corpus"/> from an explicit path. A missing file or a null
+    /// deserialise throws a named exception — never a silent empty corpus.</summary>
     public static Corpus LoadCorpus(string corpusJsonPath)
     {
         if (!File.Exists(corpusJsonPath))
@@ -91,13 +86,13 @@ public sealed class CorpusRulebook
             ?? throw new InvalidOperationException("corpus.json deserialised to null.");
     }
 
-    /// <summary>Pre-flight (P-VALIDATE order). Returns null if the write is legal, else a fail-loud message.
+    /// <summary>Pre-flight. Returns null if the write is legal, else a fail-loud message.
     /// <paramref name="siblingEditorIds"/> (non-null only on the CREATE-batch path) is the set of editorids created
-    /// EARLIER in the same call PLUS the record being created itself (self-reference — HCBR-2026-07-10-01: a quest's
-    /// VMAD fragment points at its own quest): a FormLink value of the form <c>@editorid</c> in that set is accepted
-    /// as a forward-ref the create path resolves post-allocation (HCBR Layer B unit A). The set threads into composed
-    /// StructSpec Fields/Sets too. Null (the override/set_field path) ⇒ an <c>@editorid</c> value is rejected loud —
-    /// it has no meaning when there are no same-call creations.</summary>
+    /// EARLIER in the same call PLUS the record being created itself (a quest's VMAD fragment points at its own
+    /// quest): a FormLink value of the form <c>@editorid</c> in that set is accepted as a forward-ref the create path
+    /// resolves post-allocation. The set threads into composed StructSpec Fields/Sets too. Null (the override/set_field
+    /// path) ⇒ an <c>@editorid</c> value is rejected loud — it has no meaning when there are no same-call
+    /// creations.</summary>
     public string? Validate(WriteRequest req, IReadOnlyCollection<string>? siblingEditorIds = null)
     {
         // (1) resolve the record, then validate rooted at it. ValidateFromType is shared with StructSpec validation
@@ -117,10 +112,10 @@ public sealed class CorpusRulebook
             return "Empty path: a write must target at least one field.";
 
         // (2) walk the path, validating each intermediate hop's existence + descendability. A plain hop descends a
-        // substruct; a bracketed hop (Effects[0]) steps INTO a collection element (wave-1 collection-nav).
+        // substruct; a bracketed hop (Effects[0]) steps INTO a collection element.
         var current = root;
-        // …remembering whether any HOP was an owned child record (#335). The leaf is not the whole story once a
-        // record can sit mid-path: the hops through it are where a verb acts on a record the call never named.
+        // …remembering whether any HOP was an owned child record. The leaf is not the whole story once a record can
+        // sit mid-path: the hops through it are where a verb acts on a record the call never named.
         FieldSchema? ownedChildHop = null;
         TypeSchema? ownedChildHopOwner = null;
         for (int i = 0; i < req.Path.Length - 1; i++)
@@ -136,11 +131,10 @@ public sealed class CorpusRulebook
             {
                 // plain hop — descend a substruct, OR a STANDALONE polymorphic field (NpcConfiguration.Level,
                 // Npc.Sound, DialogResponsesAdapter.ScriptFragments). The poly case descends to the polymorphic-BASE
-                // catalog entry (field.TypeRef); FindField's existing over-arms search (below) then resolves the next
-                // hop against the base's arms — the standalone twin of the list-element poly branch (#35), keyed on
-                // cardinality, no per-type wiring. The static validator can't know WHICH live arm sits here, so apply
-                // resolves on the element's RUNTIME type and fails loud on a real arm mismatch (Q3) — the identical
-                // accepted contract the list-element branch already carries.
+                // catalog entry (field.TypeRef); FindField's over-arms search (below) then resolves the next hop
+                // against the base's arms, keyed on cardinality, no per-type wiring. The static validator can't know
+                // WHICH live arm sits here, so apply resolves on the element's RUNTIME type and fails loud on a real
+                // arm mismatch.
                 if (field.Cardinality == "substruct" && field.TypeRef is { } tr)
                 {
                     var next = Type(tr);
@@ -162,10 +156,10 @@ public sealed class CorpusRulebook
             else
             {
                 // Gendered field ([0]=male / [1]=female): a substruct whose TypeRef is GenderedItem<T>. The named arms
-                // (.Male/.Female) descend as plain hops today; [0]/[1] is the render-matching navigable alias (HCBR
-                // PR-H). Corpus-side recogniser = the "GenderedItem<" TypeRef; the engine's twin is the runtime
-                // IGenderedItem<> in WriteEngine.StepIntoElement — two recognisers that must agree. Descends to the arm
-                // type T so the next hop validates against the arm's own fields (a scalar/value arm has none → loud).
+                // (.Male/.Female) descend as plain hops; [0]/[1] is the render-matching navigable alias. Corpus-side
+                // recogniser = the "GenderedItem<" TypeRef; the engine's twin is the runtime IGenderedItem<> in
+                // WriteEngine.StepIntoElement — two recognisers that must agree. Descends to the arm type T so the
+                // next hop validates against the arm's own fields (a scalar/value arm has none → loud).
                 if (field.Cardinality == "substruct" && field.TypeRef is { } gtr
                     && gtr.StartsWith("GenderedItem<", StringComparison.Ordinal))
                 {
@@ -182,7 +176,7 @@ public sealed class CorpusRulebook
                 }
 
                 // bracketed hop — step into a collection element. Must be a list/dict whose element is a navigable
-                // STRUCT; a record-element is resolved on its own (nested-group wave), never walked into from a parent.
+                // STRUCT; a record-element is resolved on its own, never walked into from a parent.
                 if (field.Cardinality is not ("list" or "dict"))
                     return $"'{segName}[{segKey}]' on '{current.Name}' indexes a {field.Cardinality}, which is not a collection.";
                 if (field.ElementTypeRef is not { } er)
@@ -194,20 +188,18 @@ public sealed class CorpusRulebook
                 if (elem.Kind == "record")
                     return $"'{segName}' on '{current.Name}' holds records ({er}); a record is resolved on its own, " +
                            "not reached by stepping into a parent (nested-group wave).";
-                // list mid-path index SHAPE — reconcile onto the SAME recognizer the LEAF step-4-key block uses
+                // list mid-path index SHAPE — the SAME recognizer the LEAF key block uses
                 // (WriteEngine.IsValidListIndexValue: a parseable NON-NEGATIVE int32), so the mid-path hop and the leaf
                 // can't drift. A bare int.TryParse ACCEPTS a negative ('-1' parses), but apply's StepIntoElement list
-                // branch requires idx >= 0 and throws a PLAIN InvalidOperationException (a SHAPE error, deliberately not
-                // an ExpectedApplyRejection) → the misleading "real inconsistency" wrapper. Gating >= 0 here closes that
-                // accept-then-throw, exactly as the leaf index was reconciled (the in-range bound stays apply's job, Q3).
+                // branch requires idx >= 0 and throws a PLAIN InvalidOperationException, which surfaces as the
+                // misleading "real inconsistency" wrapper. The in-range bound stays apply's job.
                 if (field.Cardinality == "list" && !WriteEngine.IsValidListIndexValue(segKey))
                     return $"List '{segName}' on '{current.Name}' must be indexed by a non-negative integer; got '{segKey}'.";
-                // dict mid-path key SHAPE — reconcile onto the SAME recognizer pair (DictKeyType + CheckValue's AQ
-                // branch) the PR #79 LEAF step-4-key block uses, so the mid-path hop and the leaf can't drift. Without
-                // the key's real CLR type (DictKeyType -> the dict AQ's args[0], the type apply keys on via
-                // StepIntoElement/ApplyDictVerb) CheckValue falls to the enum-catalog-by-name fallback and MISSES a
-                // non-enum key — e.g. Package.Data's sbyte key ('Data[notasbyte]') was accepted then threw
-                // FormatException at apply (StepIntoElement -> Coerce(key, sbyte)).
+                // dict mid-path key SHAPE — the SAME recognizer pair (DictKeyType + CheckValue's AQ branch) the LEAF
+                // key block uses, so the mid-path hop and the leaf can't drift. Without the key's real CLR type
+                // (DictKeyType -> the dict AQ's args[0], the type apply keys on via StepIntoElement/ApplyDictVerb)
+                // CheckValue falls to the enum-catalog-by-name fallback and MISSES a non-enum key — e.g. Package.Data's
+                // sbyte key ('Data[notasbyte]') is accepted then throws FormatException at apply.
                 if (field.Cardinality == "dict"
                     && CheckValue(field.KeyType, segKey, $"dict key for '{segName}'", DictKeyType(field)?.AssemblyQualifiedName) is { } ke)
                     return ke;
@@ -223,21 +215,15 @@ public sealed class CorpusRulebook
             // but the halves are reached/set BY NAME, so point at .Male/.Female, not the list-verb message below (which
             // would mis-route the user to SetAtIndex/Set/Remove + Key on a field that takes none of them). Same corpus-
             // side "GenderedItem<" recogniser as the mid-path hop above; its engine twin is WriteEngine.GenderedInterface
-            // in ApplyVerb's leaf throw — two recognisers that must agree. (HCBR-2026-06-15-01 PR-H follow-up: the leaf
-            // seam of the mid-path scalar hint.)
+            // in ApplyVerb's leaf throw — two recognisers that must agree.
             var bracketed = FindField(current, leafName, out _, out _);
             if (bracketed is { Cardinality: "substruct", TypeRef: { } ltr }
                 && ltr.StartsWith("GenderedItem<", StringComparison.Ordinal))
                 return $"Gendered field '{leafName}' on '{current.Name}' renders as [0]/[1] but is not a list — set its " +
                        $"halves by name: '{leafName}.Male' (=[0]) / '{leafName}.Female' (=[1]).";
-            // The remedy is SHAPE-scoped, not a recital of both cardinalities' verbs for the caller to sort out.
-            // This message used to offer "SetAtIndex/InsertAtIndex/Remove by index, Set/Remove by dict key" to
-            // everyone who reached it, so a dict caller was handed index verbs that refuse and a list caller was
-            // handed key verbs that refuse. WriteVerbs derives the keyed set from the leaf's own shape, so neither
-            // can happen. Two cases name no verbs, and they are not equally live: an unresolved field name is
-            // REACHABLE (any bracketed typo — 'Nope[0]' — lands here, and the rule is still the right thing to
-            // say), while a declined element kind is dormant today, measured rather than assumed
-            // (remedy-verbs-guard reports zero declined fields in the corpus).
+            // The remedy is SHAPE-scoped: WriteVerbs derives the keyed verb set from the leaf's own shape, so a dict
+            // caller is never handed index verbs nor a list caller key verbs. The verbless fallback is still reachable
+            // — a bracketed typo ('Nope[0]') resolves no field — so it states the rule without naming verbs.
             var head = $"Path '{req.Path[^1]}' brackets a collection element at the LEAF; brackets navigate mid-path only. ";
             if (bracketed is not null && WriteVerbs.OfField(bracketed, _corpus) is { } bshape)
                 return head + $"Target the collection field '{leafName}' itself and address the element with the verb "
@@ -248,17 +234,16 @@ public sealed class CorpusRulebook
         if (leafPolyErr is not null) return leafPolyErr;
         if (leaf is null) return FieldNotFound(current, leafName);
 
-        // (3a-composes) P8a batch struct-list surface: composes= is a distinct input shape (a LIST of build-from-parts
-        // element specs) that short-circuits the singular verb/value pipeline — Add appends each, ReplaceAll clears then
-        // appends each (the modeled-list replace the singular composable block below still defers; THIS is that input
-        // surface). Validated whole, all-or-nothing per element (Q3). Gated FIRST so composes on a dict/substruct gets a
-        // composes-specific message, not the singular VerbLegality reject.
+        // (3a-composes) batch struct-list surface: composes= is a distinct input shape (a LIST of build-from-parts
+        // element specs) that short-circuits the singular verb/value pipeline — Add appends each, ReplaceAll clears
+        // then appends each. Validated whole, all-or-nothing per element. Gated FIRST so composes on a dict/substruct
+        // gets a composes-specific message, not the singular VerbLegality reject.
         if (req.Structs is not null)
             return ComposesLegality(leaf, leafOwner, req, siblingEditorIds);
 
-        // (3a-copyfrom) P8b CopyFrom transplants the WHOLE field from another plugin's version — a distinct input shape
+        // (3a-copyfrom) CopyFrom transplants the WHOLE field from another plugin's version — a distinct input shape
         // (no wire value; the source is from_plugin). Gate writable + not-identity + a transplantable KIND here; the
-        // SOURCE resolution (is from_plugin in the order / does it define the record) is the cleave's Phase 1. The one
+        // SOURCE resolution (is from_plugin in the order / does it define the record) happens later. The one
         // non-transplantable kind is an owned-child record collection — refused by name (forward the whole record).
         if (string.Equals(req.Verb, "CopyFrom", StringComparison.Ordinal))
             return CopyFromLegality(leaf, leafOwner, ownedChildHop, ownedChildHopOwner);
@@ -266,15 +251,12 @@ public sealed class CorpusRulebook
         // (3a) verb legal for this cardinality?
         if (VerbLegality(leaf, req) is { } verbErr) return verbErr;
 
-        // (3a-owned) …and the verb whose cardinality answer is wrong for an OWNED CHILD RECORD (#335). Remove on a
-        // nullable substruct clears a sub-object; on a leaf that holds a record it deletes the record itself and
-        // everything under it — a Worldspace's TopCell takes its persistent references with it.
-        //
-        // The ground is CONSEQUENCE and TARGETING, not family precedent: the list form of the same family does delete
-        // an owned child (Cell.Persistent Remove key=0 removes that PlacedObject), but by INDEX — the caller names
-        // which one. A keyless clear of a singular child deletes a whole subtree implicitly, in one call, with no
-        // backup on the in-place lane. And deliberate owned-child deletion is exactly the capability gap #350 files:
-        // legalizing it as a side effect of a classification fix would be a capability call nobody made.
+        // (3a-owned) …and the verb whose cardinality answer is wrong for an OWNED CHILD RECORD. Remove on a nullable
+        // substruct clears a sub-object; on a leaf that holds a record it deletes the record itself and everything
+        // under it — a Worldspace's TopCell takes its persistent references with it. The list form of the same family
+        // does delete an owned child (Cell.Persistent Remove key=0), but by INDEX, so the caller names which one; a
+        // keyless clear of a singular child deletes a whole subtree implicitly, in one call, with no backup on the
+        // in-place lane. Deliberate owned-child deletion is an open gap, #350.
         if (string.Equals(req.Verb, "Remove", StringComparison.Ordinal)
             && SchemaClassifier.IsOwnedChildRecord(leaf, _corpus))
             return $"'{leaf.Name}' on '{leafOwner.Name}' holds an owned child RECORD ({leaf.TypeRef}): clearing the " +
@@ -284,11 +266,11 @@ public sealed class CorpusRulebook
                    $"field decides. (To see which record this is: read the parent at depth=2 — the '{leaf.Name}' " +
                    "field shows the child's FormID.)";
 
-        // (3b) record identity (FormKey/ModKey) is a flat, honest reject regardless of Mutagen's setter (plan §3 P-DISC).
+        // (3b) record identity (FormKey/ModKey) is a flat, honest reject regardless of Mutagen's setter.
         if (leaf.IsIdentity)
             return $"'{leaf.Name}' on '{leafOwner.Name}' is record identity (FormKey/ModKey), not an editable content field.";
 
-        // (3c) writable? (P-DISC routing for discriminators)
+        // (3c) writable? (discriminators route to their own rejection)
         if (!leaf.Writable) return WritabilityRejection(leafOwner, leaf);
 
         // (4) value / key coercion + enum/legal-set legality
@@ -313,7 +295,7 @@ public sealed class CorpusRulebook
     /// <c>Add</c>/<c>Remove</c> operate on (a single-value enum like CastType has no bits to OR/clear, so it stays
     /// refused). Resolved from the field's OWN assembly-qualified type — never the simple-name catalog, which
     /// collides on shared enum names ("Flags", "MajorFlags", …) — checking <see cref="FlagsAttribute"/>. False when
-    /// the AQ won't resolve (Q3 — never ASSUME flags-ness, so a bit verb is refused rather than accepted-then-thrown).
+    /// the AQ won't resolve — never ASSUME flags-ness, so a bit verb is refused rather than accepted-then-thrown.
     /// The SAME resolution the apply path keys on (WriteEngine.ApplyScalarVerb's [Flags] gate), so gate and apply
     /// can't drift on which leaves accept a bit verb.</summary>
     static bool IsFlagsEnumLeaf(FieldSchema leaf)
@@ -325,9 +307,9 @@ public sealed class CorpusRulebook
         return u.IsEnum && u.IsDefined(typeof(FlagsAttribute), false);
     }
 
-    // ---- verb × cardinality (plan §3 P-VERBS) ----
+    // ---- verb × cardinality ----
     // Instance, not static, since the Set-on-list remedy derives its alternatives from the leaf's SHAPE — which
-    // needs the corpus to classify the element. The switch itself is unchanged: it decides, WriteVerbs describes.
+    // needs the corpus to classify the element. This switch decides; WriteVerbs describes.
     string? VerbLegality(FieldSchema leaf, WriteRequest req)
     {
         var c = leaf.Cardinality;
@@ -336,18 +318,18 @@ public sealed class CorpusRulebook
         {
             case "Set":
                 if (c == "dict") return hasKey ? null : $"Set on dict field '{leaf.Name}' requires a key.";
-                // The alternatives are DERIVED, not recited: this remedy named two of the list verbs and had
-                // already fallen behind the surface twice (Add, then InsertAtIndex) before WriteVerbs existed.
+                // The alternatives are DERIVED from the leaf's shape, not recited, so they cannot fall behind the
+                // list verb set.
                 if (c == "list") return $"Set is not valid on list '{leaf.Name}' — {PlacingRemedy(leaf)}.";
                 return hasKey ? $"Set on {c} field '{leaf.Name}' does not take a key." : null;
             case "Add":
                 // A dict Add coerces req.Key into the new entry's key (ApplyDictVerb -> Coerce(req.Key!, kType)); a
                 // MISSING key reaches apply and throws UNNAMED (Coerce(null)). A list Add appends — no key. Gate dict-Add
-                // key PRESENCE here, the structural twin of Set-on-dict above (key VALUE-shape is ValueLegality's step-4-key).
+                // key PRESENCE here, the structural twin of Set-on-dict above (key VALUE-shape is ValueLegality's job).
                 if (c == "dict") return hasKey ? null : $"Add on dict field '{leaf.Name}' requires a key.";
                 if (c == "list") return null;
-                // A [Flags] enum accepts Add as a bit-SET (OR the flag in, other bits preserved) — the fix for the
-                // silent-clobber a whole-value Set caused (HCBR-2026-07-15). A bit verb takes no key (it is not a
+                // A [Flags] enum accepts Add as a bit-SET (OR the flag in, other bits preserved), so it does not
+                // clobber the other bits the way a whole-value Set would. A bit verb takes no key (it is not a
                 // collection); the flag VALUE is gated in ValueLegality. Non-flags scalars/enums still refuse below.
                 if (IsFlagsEnumLeaf(leaf))
                     return hasKey ? $"Add on flags field '{leaf.Name}' takes no key — the value IS the flag to set." : null;
@@ -359,8 +341,8 @@ public sealed class CorpusRulebook
                 if (c == "dict") return hasKey ? null : $"Remove on dict field '{leaf.Name}' requires a key.";
                 if (c == "list") return null;
                 // A [Flags] enum accepts Remove as a bit-CLEAR (AND-NOT the flag out, other bits preserved) — the
-                // Remove twin of the flags Add above (HCBR-2026-07-15). Distinct from the nullable-scalar whole-clear
-                // below: it clears ONE bit, not the whole field. No key; the flag VALUE is gated in ValueLegality.
+                // Remove twin of the flags Add above. Distinct from the nullable-scalar whole-clear below: it clears
+                // ONE bit, not the whole field. No key; the flag VALUE is gated in ValueLegality.
                 if (IsFlagsEnumLeaf(leaf))
                     return hasKey ? $"Remove on flags field '{leaf.Name}' takes no key — the value IS the flag to clear." : null;
                 return leaf.Nullable ? null : $"Remove on non-nullable {c} field '{leaf.Name}' is not valid.";
@@ -369,24 +351,21 @@ public sealed class CorpusRulebook
             case "SetAtIndex":
                 // A list SetAtIndex parses req.Key as the index (ApplyListVerb -> int.Parse(req.Key!)); a MISSING index
                 // throws ArgumentNullException at apply. Require it up front (PRESENCE; the parseable-as-int / non-negative
-                // VALUE-shape is gated in ValueLegality's step-4-key block).
+                // VALUE-shape is gated in ValueLegality's key block).
                 if (c != "list") return $"SetAtIndex is only valid on list; '{leaf.Name}' is {c}.";
                 return hasKey ? null : $"SetAtIndex on list '{leaf.Name}' requires an index.";
             case "InsertAtIndex":
-                // SetAtIndex's structural twin (#302): a list InsertAtIndex parses req.Key as the position to insert
-                // AT (ApplyListVerb -> int.Parse(req.Key!)), so a MISSING index throws ArgumentNullException at apply
-                // exactly as a keyless SetAtIndex did. Same PRESENCE gate here; the parseable / non-negative VALUE-shape
-                // is ValueLegality's step-4-key block, and the in-RANGE bound is apply's (no live list at the gate) —
-                // the established split, and the one place insert's bound differs (it admits index == count, the
-                // append slot), which is apply's to enforce either way.
+                // SetAtIndex's structural twin: a list InsertAtIndex parses req.Key as the position to insert AT
+                // (ApplyListVerb -> int.Parse(req.Key!)), so a MISSING index throws ArgumentNullException at apply.
+                // Same PRESENCE gate here; the parseable / non-negative VALUE-shape is ValueLegality's key block, and
+                // the in-RANGE bound is apply's (no live list at the gate) — insert's bound differs there (it admits
+                // index == count, the append slot).
                 if (c != "list") return $"InsertAtIndex is only valid on list; '{leaf.Name}' is {c}.";
                 return hasKey ? null : $"InsertAtIndex on list '{leaf.Name}' requires an index (the position to insert AT; the list's length appends).";
             case "Merge":
                 return c == "dict" ? null : $"Merge is only valid on dict; '{leaf.Name}' is {c}.";
             default:
-                // The VOCABULARY, from its one home — a caller who typed a verb that does not exist has a
-                // vocabulary problem, and the per-cardinality answer is what the arms above give once the name is
-                // real. Never a hand-typed copy of the set again.
+                // The verb set comes from its one home (WriteVerbs.All), never a hand-typed copy.
                 return $"Unknown verb '{req.Verb}'. Legal: {string.Join(", ", WriteVerbs.All)}.";
         }
     }
@@ -394,57 +373,38 @@ public sealed class CorpusRulebook
     /// <summary>"How do I put an element into this collection", derived from the leaf's own shape — the one answer
     /// every collection remedy in this file asks for.
     /// <para/>
-    /// Every call site is cardinality-gated to a list or a dict, so the null arm is reached only when the leaf IS a
-    /// collection whose ELEMENT KIND <see cref="WriteVerbs"/> declines to describe — which no field in the corpus
-    /// is (remedy-verbs-guard's population arm measures that, and goes red if a Mutagen bump changes it). It is
-    /// therefore dormant-by-construction and cannot be fixtured today: stated here rather than covered, and the
-    /// reason it says nothing instead of guessing is that a declined kind has no settled legal-verb answer to give.
-    /// An earlier draft let a NON-collection leaf reach this arm through the composes= refusal, which made the
-    /// fallback a live non-answer for the most likely composes= mistake; that path now answers by shape upstream.</summary>
+    /// Every call site must stay cardinality-gated to a list or a dict: the null arm is reached only when the leaf IS
+    /// a collection whose ELEMENT KIND <see cref="WriteVerbs"/> declines to describe, which no field in the corpus is
+    /// today. It says nothing rather than guessing, because a declined kind has no settled legal-verb answer.</summary>
     string PlacingRemedy(FieldSchema leaf) =>
         WriteVerbs.OfField(leaf, _corpus) is { } shape
             ? WriteVerbs.HowToPlace(shape)
             : "the verbs this field takes are in the tool description";
 
-    /// <summary>P8a — validate a composes= batch (a LIST of build-from-parts element specs) whole: Add appends each,
+    /// <summary>Validate a composes= batch (a LIST of build-from-parts element specs) whole: Add appends each,
     /// ReplaceAll clears then appends each. LIST-of-modeled-elements ONLY (a dict needs keyed entries; a substruct/
     /// scalar takes compose=/value=). Each element is validated by the SAME <see cref="StructElementLegality"/> the
     /// singular compose Add uses (poly-base arm resolution + recursive contents), so composes can never admit a shape
-    /// the singular path rejects. All-or-nothing: the first bad element names itself (composes[i]) and refuses the whole
-    /// op (Q3). ReplaceAll here OPENS the modeled-list replace the singular composable block defers — that block has no
-    /// per-element input surface; composes IS that surface.</summary>
+    /// the singular path rejects. All-or-nothing: the first bad element names itself (composes[i]) and refuses the
+    /// whole op.</summary>
     string? ComposesLegality(FieldSchema leaf, TypeSchema owner, WriteRequest req,
         IReadOnlyCollection<string>? siblingEditorIds)
     {
-        // SHAPE BEFORE VERB. The verb arm used to run first, and its head sentence ("use it with Add or
-        // ReplaceAll") is true of composes= in general but false for the caller when composes= does not apply to
-        // their field AT ALL — so a dict caller (Package.Data), a substruct caller (Armor.BodyTemplate) and a
-        // coercible-element list caller (Armor.Keywords) were each told to reach for a verb that then refused on
-        // the very next call. Deriving the parenthetical fixed the second half of that sentence and left the first
-        // half doing the same thing; all three round-3 reviewers reproduced it. Asking the SHAPE questions first
-        // makes it structural rather than careful: by the time the verb arm is reached the leaf is a list of
-        // modeled elements, which is the only shape whose answer that sentence is about.
+        // SHAPE BEFORE VERB. The verb arm must run LAST: its sentence ("use composes= with Add or ReplaceAll") is
+        // only true for a caller whose field is a list of modeled elements, so a dict, substruct or coercible-element
+        // list caller reaching it would be pointed at a verb that refuses on the next call.
         //
         // The owned-child answer stays FIRST of all, because the cardinality sentence below ends by pointing at
-        // compose= / value= — and on that shape both of those refuse too (#335). That is the loop the singular
-        // Set arm was written to close, reached through a third door.
+        // compose= / value= — and on that shape both of those refuse too.
         if (SchemaClassifier.IsOwnedChildRecord(leaf, _corpus))
             return OwnedChildSetRefusal(leaf);
-        // …and the COLLECTION twin of that shape, which the singular predicate above does not match and which
-        // therefore fell through to the not-composable label below — a label that reads the element kind off
-        // FormLinkTarget, and so called Cell.Persistent's owned child records "coercible values (Placed)" while the
-        // derived tail beside it correctly named the record axis. One sentence asserting two contradictory facts,
-        // and the HEAD was the false half: step-4-rec refuses every plain-value verb on that field.
+        // …and the COLLECTION twin of that shape, which the singular predicate above does not match. Asked before the
+        // not-composable label below, which reads the element kind off FormLinkTarget and would call Cell.Persistent's
+        // owned child records "coercible values". Answered from the same classification the collection verbs decide
+        // with, and NOT verb-scoped: a record is not built from parts under any verb.
         //
-        // Asked HERE, before the label, and answered from the SAME classification step-4-rec decides with, so head
-        // and tail come from one reading of the field rather than two. Deliberately NOT verb-scoped the way
-        // step-4-rec is: composes= is a build-from-parts INPUT surface, and a record is not built from parts under
-        // any verb, so this answer does not depend on which verb arrived.
-        //
-        // The singular refusal above cannot carry this wording, because its remedy is the opposite one: a singular
-        // child routes to #350 ("giving a parent a child it lacks is an open gap") since create with parent= is
-        // MEASURED refused for it, while the collection form is the shape parent= serves. Two shapes, two measured
-        // remedies, two sentences — not a near-twin fork.
+        // The two shapes carry different remedies, so they cannot share one sentence: create with parent= is refused
+        // for a singular child (which routes to the open gap #350) and is exactly the shape the collection serves.
         if (IsOwnedChildRecordCollection(leaf))
             return OwnedChildRecordCollectionRefusal(leaf);
         if (leaf.Cardinality != "list")
@@ -452,24 +412,19 @@ public sealed class CorpusRulebook
                    $"{leaf.Cardinality}. (A dict takes keyed entries, not a positional list; a substruct/scalar takes " +
                    "compose= / value=.)";
         if (!IsComposableElement(leaf))
-            // The slot guidance is DERIVED now, because moving the verb check below this one widened who reaches
-            // this sentence: it used to be seen only by an Add/ReplaceAll caller, for whom "values= (ReplaceAll) /
-            // value= (Add)" named their own verb, and a SetAtIndex caller now lands here and would be told value=
-            // belongs to Add. Every verb this shape takes, with the slot each one wants, is the answer that does
-            // not go narrow on whoever arrives.
+            // The slot guidance is DERIVED, not written for one verb: any verb reaches this sentence (the verb check
+            // sits below), so it names every verb this shape takes with the slot each one wants.
             return $"'{leaf.Name}' on '{owner.Name}' holds " +
                    (leaf.FormLinkTarget is not null ? "formlink" : "coercible") +
                    $" values ({leaf.ElementTypeRef ?? leaf.ElementType}), not modeled structs, so composes= has " +
                    $"nothing to build — {PlacingRemedy(leaf)}.";
         if (req.Verb is not ("Add" or "ReplaceAll"))
-            // Reached only on a LIST of modeled elements now, so both halves are about a shape composes= serves.
-            // The singular alternatives are DERIVED, and derived as the SINGULAR ones: HowToPlace would also offer
-            // ReplaceAll (composes=), which is a batch verb and is what the head sentence just recommended — a
+            // Reached only on a LIST of modeled elements. The alternatives are derived as the SINGULAR ones:
+            // HowToPlace would also offer ReplaceAll, the batch verb the head sentence just recommended, and a
             // remedy labelled "one element at a time" must not end by naming the batch form again.
             return $"composes= appends/replaces a LIST of modeled elements — use it with Add (append each) or " +
                    $"ReplaceAll (clear, then append each), not {req.Verb}. " +
-                   // The shape is settled by the two checks above, so it is NAMED rather than looked up — no
-                   // null-forgiving operator standing in for an assumption nothing states.
+                   // The shape is settled by the two checks above, so it is NAMED rather than looked up.
                    $"(One element at a time: {WriteVerbs.HowToPlaceOne(new CollectionShape(CollectionKind.List, ElementPlacement.Composed))}.)";
         if (req.Structs!.Count == 0)
             return req.Verb is "ReplaceAll"
@@ -481,23 +436,19 @@ public sealed class CorpusRulebook
         return null;
     }
 
-    /// <summary>P8b — validate a CopyFrom target leaf: writable, not record identity, and a TRANSPLANTABLE kind. The
+    /// <summary>Validate a CopyFrom target leaf: writable, not record identity, and a TRANSPLANTABLE kind. The
     /// non-transplantable kind is an owned-child record, in EITHER shape — a collection of them (Cell.Persistent,
-    /// DialogTopic.Responses, …) or the SINGULAR one #335 gave the corpus (Cell.Landscape, Worldspace.TopCell). CopyFrom
-    /// copies a FIELD's value, not owned child records; refuse by name. Everything else — scalar/enum/value, formlink,
-    /// formlink/modeled list, sub-struct, polymorphic arm — WriteEngine.CopyField transplants by construction.
+    /// DialogTopic.Responses, …) or the singular one (Cell.Landscape, Worldspace.TopCell). CopyFrom copies a FIELD's
+    /// value, not owned child records; refuse by name. Ungated, a CopyFrom on <c>Worldspace.TopCell</c> deep-copies the
+    /// source's whole CELL — its FormKey, its persistent references and all — into the destination's worldspace, the
+    /// silent child-record import <see cref="WriteEngine.RestoreChildGroup"/> refuses by name on the forward path.
+    /// Everything else — scalar/enum/value, formlink, formlink/modeled list, sub-struct, polymorphic arm —
+    /// WriteEngine.CopyField transplants by construction.
     /// <para/>
-    /// The singular arm is not a variant of the collection arm's wording, because the two shapes have different
-    /// remedies and a refusal may only name one that works. MEASURED on both: <c>housecarl_forward</c> carries
-    /// the child record itself from another plugin (a LAND and a worldspace's top cell both forward), while
-    /// <c>create</c> with <c>parent=</c> — which the collection arm can honestly offer — is refused for a singular child
-    /// ("that parent models no child-collection that holds it"), so it is named for the list and NOT for the singular
-    /// case, which routes to the lifecycle gap instead (#350).
-    /// <para/>
-    /// Left ungated, this was the one door still open after #335 closed Set / compose / composes / Remove: measured, a
-    /// CopyFrom on <c>Worldspace.TopCell</c> deep-copied the source's whole CELL — its own FormKey, its persistent
-    /// references and all — into the destination's worldspace, which is the silent child-record import
-    /// <see cref="WriteEngine.RestoreChildGroup"/> refuses by name on the forward path.</summary>
+    /// The singular and collection arms word their remedies differently because only one remedy works per shape:
+    /// <c>housecarl_forward</c> carries the child record itself across for both, but <c>create</c> with
+    /// <c>parent=</c> is refused for a singular child, so only the collection arm may offer it; the singular case
+    /// routes to the lifecycle gap #350 instead.</summary>
     string? CopyFromLegality(FieldSchema leaf, TypeSchema owner, FieldSchema? ownedChildHop = null, TypeSchema? hopOwner = null)
     {
         if (leaf.IsIdentity)
@@ -508,11 +459,10 @@ public sealed class CorpusRulebook
         // other: two child records, neither named by the caller, reported as an edit to the parent. That is the same
         // act the leaf clause forbids, one hop further down.
         //
-        // The in-place verbs through the same hop (Set / Remove / Add / SetAtIndex / InsertAtIndex at a leaf UNDER the child) stay
-        // ACCEPTED, and the split is deliberate rather than unexamined: those edit the child this record already
-        // carries, in place — the descent the table's accept row covers, and the one way to edit a carried child at
-        // all. What CopyFrom adds is a SECOND record, from another plugin, as the source of the value; that is the
-        // transplant this refuses, and it refuses wherever in the path the child sits.
+        // The in-place verbs through the same hop (Set / Remove / Add / SetAtIndex / InsertAtIndex at a leaf UNDER
+        // the child) stay ACCEPTED: those edit the child this record already carries, in place, and are the only way
+        // to edit a carried child at all. What CopyFrom adds is a SECOND record, from another plugin, as the source
+        // of the value — the transplant this refuses, wherever in the path the child sits.
         if (ownedChildHop is not null)
             return $"the path runs through '{ownedChildHop.Name}' on '{hopOwner?.Name ?? owner.Name}', which holds an " +
                    $"owned child RECORD ({ownedChildHop.TypeRef}); CopyFrom would read one plugin's child record and " +
@@ -528,8 +478,8 @@ public sealed class CorpusRulebook
                    $"depth=2 and the '{leaf.Name}' field shows the child's FormID. Giving a parent a child it does " +
                    "not have is an open gap (#350).";
         // The same recogniser as the other two collection doors; the SENTENCE stays this door's own, because
-        // CopyFrom's measured remedy is housecarl_forward (carrying across a record that already exists) rather
-        // than housecarl_create with parent= alone. Shared predicate, per-door remedy.
+        // CopyFrom's remedy is housecarl_forward (carrying across a record that already exists) rather than
+        // housecarl_create with parent= alone. Shared predicate, per-door remedy.
         if (IsOwnedChildRecordCollection(leaf))
             return $"'{leaf.Name}' on '{owner.Name}' holds owned child records ({leaf.ElementTypeRef}); CopyFrom copies a " +
                    "FIELD's value, not owned child records. To carry the WHOLE record from another plugin use " +
@@ -541,15 +491,14 @@ public sealed class CorpusRulebook
     }
 
     /// <summary>The ONE sentence every value-shaped Set at an owned child record gets — <c>value=</c>, <c>compose=</c>
-    /// and <c>composes=</c> alike (#335). Shared rather than phrased per door because the three doors previously gave
-    /// three answers that pointed at each other: compose= said "use a plain value", value= said "navigate into it",
-    /// and composes= said "a substruct takes compose= / value=" — all three refused.
+    /// and <c>composes=</c> alike. Shared rather than phrased per door, so the three doors cannot point at each other's
+    /// refused remedies.
     /// <para/>
-    /// The remedy it names is the MEASURED one: addressing the child record by its own FormID writes and reads back on
-    /// the default lane. The descent clause is stated conditionally on purpose — a path through the parent reaches a
-    /// child only when the copy being written already carries one, and a patch's override of a parent never does
-    /// (Mutagen's override copy leaves the children behind), so an unconditional "descend into it" would send a caller
-    /// at a state the default lane cannot produce.</summary>
+    /// The remedy it names works: addressing the child record by its own FormID writes and reads back on the default
+    /// lane. The descent clause is conditional on purpose — a path through the parent reaches a child only when the
+    /// copy being written already carries one, and a patch's override of a parent never does (Mutagen's override copy
+    /// leaves the children behind), so an unconditional "descend into it" would send a caller at a state the default
+    /// lane cannot produce.</summary>
     static string OwnedChildSetRefusal(FieldSchema leaf) =>
         $"'{leaf.Name}' holds an owned child RECORD ({leaf.TypeRef}): a record is not a part of its parent, so it is " +
         "neither built from parts (compose= / composes=) nor set from a value (value=). Address the child record " +
@@ -561,10 +510,10 @@ public sealed class CorpusRulebook
     /// owned child record (<c>Cell.Persistent</c>, <c>DialogTopic.Responses</c>, the typed record groups). The
     /// collection twin of <see cref="SchemaClassifier.IsOwnedChildRecord"/>, which matches only the SINGULAR shape.
     /// <para/>
-    /// It exists as one named predicate because three separate doors ask the question — the collection verbs
-    /// (step 4-rec), <c>composes=</c> (<see cref="ComposesLegality"/>) and <c>CopyFrom</c> — and the composes=
-    /// door did NOT ask it: it fell through to a label that reads the element kind off <c>FormLinkTarget</c> and so
-    /// called an owned child record "coercible". A door that has to remember to run the test can forget to.</summary>
+    /// It is one named predicate because three separate doors ask the question — the collection verbs,
+    /// <c>composes=</c> (<see cref="ComposesLegality"/>) and <c>CopyFrom</c> — and a door that has to remember to
+    /// run the test can forget to, falling through to a label that reads the element kind off
+    /// <c>FormLinkTarget</c> and calls an owned child record "coercible".</summary>
     bool IsOwnedChildRecordCollection(FieldSchema leaf) =>
         leaf.Cardinality is "list" or "dict" && SchemaClassifier.ClassifyElement(leaf, _corpus) == ElementKind.Record;
 
@@ -573,18 +522,16 @@ public sealed class CorpusRulebook
     /// <see cref="OwnedChildSetRefusal"/> is: the doors reach one shape by different routes, and a per-door phrasing
     /// is where one of them starts describing the field differently from the others.
     /// <para/>
-    /// The remedy it names is the MEASURED one for THIS shape (and the one the singular twin must not name):
-    /// nested-create-guard's INTOCELL arm creates a PlacedObject with <c>parent=</c> the cell and
-    /// <c>collection=Persistent</c> and reads it back out of the cell override's Persistent list, and the arm beside
-    /// it measures <c>collection=</c> being REQUIRED when the parent holds more than one fitting list — which is
-    /// why the parenthetical names it rather than leaving the caller to a second refusal.</summary>
+    /// The remedy it names is the one that works for THIS shape (and the one the singular twin must not name):
+    /// create with <c>parent=</c> the parent's FormID. <c>collection=</c> is REQUIRED when the parent holds more than
+    /// one fitting list, so the parenthetical names it rather than leaving the caller to a second refusal.</summary>
     static string OwnedChildRecordCollectionRefusal(FieldSchema leaf) =>
         $"'{leaf.Name}' holds owned child records ({leaf.ElementTypeRef}); a child record is created on its " +
         "own (the record axis), not added into a parent's collection by a write verb. Use " + ToolNames.Create + " with " +
         "parent= the parent's FormID in its records= element (and collection= there when the parent holds more " +
         "than one fitting list) — surfaced here, never accepted and thrown at apply.";
 
-    // ---- writability rejection (plan §3 P-DISC) ----
+    // ---- writability rejection ----
     static string WritabilityRejection(TypeSchema owner, FieldSchema leaf)
     {
         if (leaf.IsIdentity)
@@ -602,17 +549,16 @@ public sealed class CorpusRulebook
     // ---- value / key legality ----
     string? ValueLegality(FieldSchema leaf, WriteRequest req, IReadOnlyCollection<string>? siblingEditorIds = null)
     {
-        // Same-call sibling reference ("@editorid", create-context forward-ref — HCBR Layer B unit A). Gate it BEFORE
-        // any verb/cardinality dispatch: it names a record created EARLIER in this same create call — or the record
-        // being created ITSELF (self-reference, HCBR-2026-07-10-01) — substituted with the real FormKey AFTER
-        // allocation (WritePatchBuilder.CreateRecords), and ONLY in create context
-        // (siblingEditorIds non-null) — the Apply/set_field path has no siblings, so an @editorid there rejects loud
-        // (never an accept-then-substitute-nothing, Q3). Legal placements, all resolved with identical timing:
-        //   • a SINGULAR value — Set on a singular FormLink leaf, OR Add on a FormLink LIST leaf (S4 Track D: LinkTo
-        //     etc.; the substitution replaces the singular req.Value either way — ApplyListVerb's Add coerces it).
-        //   • inside a ReplaceAll's req.Values on a FormLink LIST (S4 Track D) — each @-entry substituted in place.
-        // Anywhere else a sibling token would slip past pre-flight and throw FormKey.Factory at apply (a Q3
-        // accept-then-throw), so those cases stay refused loud below. Both gates sit ahead of the cardinality branches.
+        // Same-call sibling reference ("@editorid", a create-context forward-ref). Gate it BEFORE any verb/cardinality
+        // dispatch: it names a record created EARLIER in this same create call — or the record being created ITSELF —
+        // substituted with the real FormKey AFTER allocation (WritePatchBuilder.CreateRecords), and ONLY in create
+        // context (siblingEditorIds non-null). The Apply/set_field path has no siblings, so an @editorid there rejects
+        // loud rather than substituting nothing. Legal placements, all resolved with identical timing:
+        //   • a SINGULAR value — Set on a singular FormLink leaf, OR Add on a FormLink LIST leaf (the substitution
+        //     replaces the singular req.Value either way — ApplyListVerb's Add coerces it).
+        //   • inside a ReplaceAll's req.Values on a FormLink LIST — each @-entry substituted in place.
+        // Anywhere else a sibling token would slip past pre-flight and throw FormKey.Factory at apply, so those cases
+        // stay refused loud below. Both gates sit ahead of the cardinality branches.
         if (WriteEngine.IsSameCallSiblingRef(req.Value, out var sibEdid))
         {
             if (siblingEditorIds is null)
@@ -626,7 +572,7 @@ public sealed class CorpusRulebook
             if (!onFormLink)
                 return $"Same-call reference '{req.Value}' for '{leaf.Name}' is only valid on a FormLink field, but " +
                        $"'{leaf.Name}' is a {leaf.Cardinality}.";
-            // …and the verb must fit the target's shape: Set a singular link, Add to a link list (S4 Track D).
+            // …and the verb must fit the target's shape: Set a singular link, Add to a link list.
             var verbFits = (leaf.Cardinality == "formlink" && req.Verb == "Set")
                         || (leaf.Cardinality == "list" && req.Verb == "Add");
             if (!verbFits)
@@ -636,7 +582,7 @@ public sealed class CorpusRulebook
             // A stray compose spec riding alongside an admitted '@' value would skip validation (this gate RETURNS
             // before the compose branches) yet be WALKED by apply's substitution recursion — a bad token inside it
             // would then fail under the "internal: pre-flight should have caught it" wrapper, blaming the engine for
-            // input the gate never saw (PR #166 review finding 1). Refuse it loud instead.
+            // input the gate never saw. Refuse it loud instead.
             if (req.Struct is not null)
                 return $"Same-call reference '{req.Value}' for '{leaf.Name}' takes no compose spec — the '@editorid' " +
                        "value IS the whole FormLink target; remove struct=.";
@@ -645,11 +591,11 @@ public sealed class CorpusRulebook
                   "EARLIER in this call (a record may also reference ITSELF by its own editorid) — declare it before " +
                   "the record that references it (in spec order).";
         }
-        // A sibling token inside req.Values — legal ONLY as a ReplaceAll on a FormLink LIST (S4 Track D); each entry is
-        // substituted with its sibling's allocated FormKey (WritePatchBuilder.CreateRecords). Validate the WHOLE list
-        // here (siblings + literal FormIDs may mix) and RETURN — do NOT fall through to step-4a, which would reject the
-        // '@' tokens as malformed FormLinks. Any other placement (wrong verb, a non-FormLink list) stays refused loud
-        // rather than slipping to a FormKey.Factory throw at apply (Q3).
+        // A sibling token inside req.Values — legal ONLY as a ReplaceAll on a FormLink LIST; each entry is substituted
+        // with its sibling's allocated FormKey (WritePatchBuilder.CreateRecords). Validate the WHOLE list here
+        // (siblings + literal FormIDs may mix) and RETURN — do NOT fall through to the FormLink value check, which
+        // would reject the '@' tokens as malformed FormLinks. Any other placement (wrong verb, a non-FormLink list)
+        // stays refused loud rather than slipping to a FormKey.Factory throw at apply.
         if (req.Values is { } vals && vals.Any(v => WriteEngine.IsSameCallSiblingRef(v, out _)))
         {
             if (siblingEditorIds is null)
@@ -660,7 +606,7 @@ public sealed class CorpusRulebook
             if (!(req.Verb == "ReplaceAll" && leaf.Cardinality == "list" && leaf.FormLinkTarget is not null))
                 return $"a '@editorid' same-call reference for '{leaf.Name}' is only supported as an Add value or a " +
                        $"ReplaceAll value on a FormLink list (the verb was '{req.Verb}', '{leaf.Name}' is a {leaf.Cardinality}).";
-            // The values-branch twin of the stray-compose guard above (PR #166 review finding 1).
+            // The values-branch twin of the stray-compose guard above.
             if (req.Struct is not null)
                 return $"a '@editorid' same-call reference for '{leaf.Name}' takes no compose spec — the '@editorid' " +
                        "entries ARE the FormLink elements; remove struct=.";
@@ -677,13 +623,12 @@ public sealed class CorpusRulebook
             }
             return null;
         }
-        // A sibling token inside a dict Entries' VALUES — no formlink-VALUED dict is modeled (0 fields in the corpus),
-        // so this stays refused loud (the dormant-by-construction dict half; a dict KEY '@…' is caught by the step-4-key
-        // shape gate below, which won't coerce '@…' to any modeled key type).
+        // A sibling token inside a dict Entries' VALUES — no formlink-VALUED dict is modeled, so this stays refused
+        // loud. A dict KEY '@…' is caught by the key-shape gate below, which won't coerce '@…' to any modeled key type.
         if (req.Entries is { } ents && ents.Values.Any(v => WriteEngine.IsSameCallSiblingRef(v, out _)))
             return $"a '@editorid' same-call reference for '{leaf.Name}' is only supported on a FormLink list, not " +
                    "inside a dict value — no formlink-valued dict is modeled.";
-        // (step 4-key) KEY / INDEX VALUE-SHAPE — the shape twin of the key/index PRESENCE gate (VerbLegality's
+        // KEY / INDEX VALUE-SHAPE — the shape twin of the key/index PRESENCE gate (VerbLegality's
         // missing-key rejects). A PRESENT-but-malformed dict key / list index passes presence but throws UNNAMED at
         // apply: a dict Set/Add/Remove coerces req.Key into the entry (ApplyDictVerb -> Coerce(req.Key!, KeyType)) and
         // Merge/ReplaceAll coerce each Entries key the same way; a list SetAtIndex/InsertAtIndex/Remove parses req.Key as the index
@@ -691,10 +636,9 @@ public sealed class CorpusRulebook
         // apply path uses so gate and apply can't drift: the dict key's real CLR type is resolved from the field's own
         // dictionary AQ (DictKeyType — the identical type apply keys on, dictIface.GetGenericArguments()[0]), so
         // coercibility is checked for EVERY key kind (enum AND the one sbyte-keyed dict), not just enums by catalog-
-        // name; the list index via WriteEngine.IsValidListIndexValue (parseable non-negative int32). This EXTENDS the
-        // gate to Add/Remove/Merge/ReplaceAll keys AND reconciles the dict Set key check (below, now value-only) onto
-        // the same recognizer — closing the prior enum-only gaps (a non-enum key slipped; a numeric enum key like '3',
-        // which apply accepts, was over-rejected). PRESENCE stays VerbLegality's job; this is purely SHAPE.
+        // name; the list index via WriteEngine.IsValidListIndexValue (parseable non-negative int32). An enum-name-only
+        // check both lets a non-enum key through and over-rejects a numeric enum key like '3', which apply accepts.
+        // PRESENCE stays VerbLegality's job; this is purely SHAPE.
         if (leaf.Cardinality == "dict")
         {
             var keyAq = DictKeyType(leaf)?.AssemblyQualifiedName;
@@ -711,11 +655,11 @@ public sealed class CorpusRulebook
                    "(Whether the index is in range is checked at apply, against the live list.)";
         if (req.Verb is "Set" && leaf.Cardinality == "dict")
         {
-            // Key shape gated by the step-4-key block above (Set/Add/Remove share one recognizer). A struct/arm-VALUED
-            // dict (Package.Data — the only one Mutagen models) Set REPLACES an entry's value with a build-from-parts
-            // element (Gap 3, dict-element composition): validate the spec against the element type via the SAME
-            // StructElementLegality the Add path uses (poly-base arm resolution + recursive contents) — gate and apply
-            // share one recognizer, no drift. A coercible-VALUE dict (Class.SkillWeights, Race.Regen, …) Set coerces.
+            // Key shape gated by the key block above (Set/Add/Remove share one recognizer). A struct/arm-VALUED dict
+            // (Package.Data — the only one Mutagen models) Set REPLACES an entry's value with a build-from-parts
+            // element: validate the spec against the element type via the SAME StructElementLegality the Add path uses
+            // (poly-base arm resolution + recursive contents), so gate and apply can't drift. A coercible-VALUE dict
+            // (Class.SkillWeights, Race.Regen, …) Set coerces.
             if (IsComposableElement(leaf)) return StructElementLegality(leaf, req.Struct, siblingEditorIds);
             if (req.Value is null) return $"Set on dict '{leaf.Name}' requires a value.";
             return CheckValue(leaf.ElementType, req.Value, $"dict value for '{leaf.Name}'", leaf.ElementTypeAssemblyQualified);
@@ -723,19 +667,18 @@ public sealed class CorpusRulebook
         if (req.Verb is "Set" && leaf.Cardinality == "polymorphic")
             return ArmLegality(leaf, req.Struct, siblingEditorIds);
         // A whole modeled-STRUCT substruct leaf (FaceParts, ObjectBounds, FaceMorph, a concrete script-property arm, …) is
-        // Set by composing its value FROM PARTS — the leaf twin of the dict-element (above) and polymorphic-arm (just above)
-        // compose paths, validated by the SAME StructSpecContents. Apply already builds it (ApplyScalarVerb req.Struct ->
-        // BuildStruct), so this LIFTS the documented safe over-reject (write-preflight audit §3(b)) so a one-shot subtree
-        // author can fill an absent struct in ONE op. SchemaClassifier scopes it so a coercible substruct (TranslatedString)
-        // keeps its plain-value Set below, and a composition-residual (GenderedItem — diverted to [0]/[1] upstream — /
-        // Array2d — no paramless ctor) stays out (gate==apply, no accept-then-throw). Chain Stage 2b.
+        // Set by composing its value FROM PARTS — the leaf twin of the dict-element (above) and polymorphic-arm (just
+        // above) compose paths, validated by the SAME StructSpecContents. Apply builds it (ApplyScalarVerb req.Struct ->
+        // BuildStruct), so an absent struct can be filled in ONE op. SchemaClassifier scopes it so a coercible substruct
+        // (TranslatedString) keeps its plain-value Set below, and GenderedItem (diverted to [0]/[1] upstream) and
+        // Array2d (no parameterless ctor) stay out — gate and apply agree, no accept-then-throw.
         if (req.Verb is "Set" && SchemaClassifier.IsComposableSubstructLeaf(leaf, _corpus))
             return StructLeafLegality(leaf, req.Struct, siblingEditorIds);
         if (req.Verb is "Set")
         {
             // A compose spec reaching HERE means the leaf isn't a compose target (not a composable substruct/dict/poly —
             // those branch above): a coercible substruct (a TranslatedString — set as one value, not built from parts), a
-            // formlink, a plain scalar, or — since #335 — an OWNED CHILD RECORD, which is none of those. For the first
+            // formlink, a plain scalar, or an OWNED CHILD RECORD, which is none of those. For the first
             // three, name the plain-value path instead of the misleading "requires a value" (which reads as "value= is
             // absent"). For a record that advice is a dead end: the plain-value Set below refuses it too, so a caller
             // following the sentence lands back here. Say what is true of a record instead. compose is for a
@@ -747,9 +690,9 @@ public sealed class CorpusRulebook
                     ? $"'{leaf.Name}' is set from a plain value (value=…), not a compose spec."
                     : $"Set on '{leaf.Name}' requires a value.";
             // formlink / substruct-whole: the engine must be able to coerce the leaf's whole type. A normal formlink
-            // coerces; a condition FormLinkOrIndex is handled by the parent-aware SetFloi branch (wave 4) — validate
-            // its target-value SHAPE here; a non-string substruct still rejects honestly (so pre-flight never
-            // accepts-then-throws). FLOI is recognised via the engine's shared IsFormLinkOrIndex (no drift).
+            // coerces; a condition FormLinkOrIndex is handled by the parent-aware SetFloi branch — validate its
+            // target-value SHAPE here; a non-string substruct still rejects honestly, so pre-flight never
+            // accepts-then-throws. FLOI is recognised via the engine's shared IsFormLinkOrIndex (no drift).
             if (leaf.Cardinality is "formlink" or "substruct")
             {
                 var faq = leaf.MutableTypeAssemblyQualified ?? leaf.GetterTypeAssemblyQualified;
@@ -758,9 +701,9 @@ public sealed class CorpusRulebook
                         : $"Illegal condition target '{req.Value}' for '{leaf.Name}': expected {FloiTargetForms}.";
                 // A NORMAL FormLink Set — validate the FormKey VALUE shape at the gate (the FORMLINK arm ONLY; a
                 // substruct still falls to the type-shape CoercibilityReject below). CoercibilityReject is type-only
-                // and never inspected the string, so "00000000"/"0" were accepted then threw at FormKey.Factory on
-                // apply — a Q3 accept-then-throw hole. A null-synonym clears the link; otherwise it must parse as a
-                // FormKey. The recognizer is SHARED with the engine apply path (no drift). (HCBR-2026-06-15-01 PR-F.)
+                // and never inspects the string, so "00000000"/"0" would be accepted then throw at FormKey.Factory on
+                // apply. A null-synonym clears the link; otherwise it must parse as a FormKey. The recognizer is
+                // SHARED with the engine apply path (no drift).
                 if (leaf.Cardinality == "formlink")
                     return WriteEngine.IsValidFormLinkValue(req.Value) ? null
                         : $"Illegal FormLink target '{req.Value}' for '{leaf.Name}': expected a FormID " +
@@ -770,20 +713,18 @@ public sealed class CorpusRulebook
             return CheckValue(leaf.Type, req.Value, $"value for '{leaf.Name}'",
                 leaf.MutableTypeAssemblyQualified ?? leaf.GetterTypeAssemblyQualified);
         }
-        // (step 4-flags) Add/Remove on a [Flags] enum are bit-SET / bit-CLEAR (HCBR-2026-07-15): the value is the
-        // flag(s) to OR in or AND-NOT out. VerbLegality already admitted the verb for a [Flags] leaf; validate the
-        // flag NAME/bits here with the SAME CheckValue recognizer a Set uses (the field's real enum AQ), so a bogus
-        // flag fails LOUD at the gate instead of throwing Enum.Parse at apply (Q3 accept-then-throw). Gated ahead of
-        // the collection branches (which are list/dict-scoped and would ignore an enum leaf anyway) so it can't fall
-        // through to the terminal `return null` accept.
+        // Add/Remove on a [Flags] enum are bit-SET / bit-CLEAR: the value is the flag(s) to OR in or AND-NOT out.
+        // VerbLegality already admitted the verb for a [Flags] leaf; validate the flag NAME/bits here with the SAME
+        // CheckValue recognizer a Set uses (the field's real enum AQ), so a bogus flag fails LOUD at the gate instead
+        // of throwing Enum.Parse at apply. Gated ahead of the collection branches (list/dict-scoped, so they would
+        // ignore an enum leaf) to keep it from falling through to the terminal `return null` accept.
         if (req.Verb is "Add" or "Remove" && IsFlagsEnumLeaf(leaf))
         {
             if (req.Value is null)
             {
-                // Add always needs the bit to set. A VALUELESS Remove keeps its pre-bit-verb meaning — the WHOLE-CLEAR
-                // of a nullable scalar (the ONLY path to make a nullable flags field ABSENT/null) — preserved by
-                // construction so the bit verbs ADD capability without removing any (no silent trade-away): allowed iff
-                // the field is nullable, else refused with the turn-all-off redirect (Set '0'), never a dead end (Q3).
+                // Add always needs the bit to set. A VALUELESS Remove keeps its other meaning — the WHOLE-CLEAR of a
+                // nullable scalar, the ONLY path to make a nullable flags field ABSENT/null — so it is allowed iff
+                // the field is nullable, else refused with the turn-all-off redirect (Set '0'), never a dead end.
                 if (req.Verb == "Add")
                     return $"Add on flags field '{leaf.Name}' requires a flag value (the bit to set).";
                 return leaf.Nullable ? null
@@ -793,48 +734,30 @@ public sealed class CorpusRulebook
             return CheckValue(leaf.Type, req.Value, $"flag value for '{leaf.Name}'",
                 leaf.MutableTypeAssemblyQualified ?? leaf.GetterTypeAssemblyQualified);
         }
-        // (step 4-pre) ELEMENT-VALUE PRESENCE — the collection twin of the singular Set "requires a value" reject
-        // above (line ~328). Add / SetAtIndex / InsertAtIndex on a COERCIBLE-element collection set the new element by coercing the
-        // singular req.Value (ApplyListVerb / ApplyDictVerb -> Coerce(req.Value!, elem)); a MISSING value does NOT
-        // fail loud at the gate — at apply Coerce(null) yields a null element that then throws a NullReferenceException
-        // at SERIALIZE (surfaced as the misleading "compose the Data arm" NullArmSerializeException, nothing to do with
-        // the real cause). That is the SAME accept-then-throw shape PR #76 closed for a MALFORMED (non-null) element,
-        // but for the absent-value case: the step-4a formlink check below uses `is { } ev`, which SKIPS a null slot.
-        // Gate it here for EVERY coercible element (formlink + non-formlink), by construction. NO req.Struct guard, by
-        // design (PR #77 review finding 1): a coercible element is NEVER built from a StructSpec, so a struct supplied
-        // with a null value is itself malformed — SetAtIndex now mirrors Add (ApplyListVerb builds from a non-null
-        // req.Struct, else coerces req.Value), and BuildStruct on a coercible element throws for BOTH verbs, so a struct
-        // here can never rescue a null value; firing on a
-        // null value REGARDLESS of req.Struct closes both, and "requires an element value" is the right guidance either
-        // way (this also matches the singular Set mirror, which carries no struct guard). Verb-scoped to the verbs that
-        // consume the singular req.Value — ReplaceAll (req.Values) / Merge (req.Entries) carry their elements elsewhere
-        // (a null ENTRY inside those is the step-4a formlink check's job, or the parked non-formlink value-shape
-        // surface), and Remove is by-key-OR-value (a distinct identify-the-element concern, not a "requires a value"
-        // mirror). Coercible-element-only: Struct/Arm elements compose via the composable block below (which DOES
-        // require the spec), and Record / uncoercible elements have no plain-value Add path — both left as today.
-        // InsertAtIndex joins the two: it consumes the SAME singular req.Value slot (ApplyListVerb's insert arm coerces
-        // req.Value when there is no compose), so a null value lands the same null element in the list and throws the
-        // same misleading NullArmSerializeException at serialize.
+        // ELEMENT-VALUE PRESENCE — the collection twin of the singular Set "requires a value" reject above. Add /
+        // SetAtIndex / InsertAtIndex on a COERCIBLE-element collection set the new element by coercing the singular
+        // req.Value (ApplyListVerb / ApplyDictVerb -> Coerce(req.Value!, elem)); at apply Coerce(null) yields a null
+        // element that throws a NullReferenceException at SERIALIZE, surfaced as a misleading NullArmSerializeException.
+        // The formlink check below uses `is { } ev`, which SKIPS a null slot, so gate presence here for EVERY coercible
+        // element. NO req.Struct guard: a coercible element is never built from a StructSpec (BuildStruct throws on
+        // one), so a struct can never rescue a null value. Verb-scoped to the verbs consuming the singular req.Value —
+        // ReplaceAll (req.Values) / Merge (req.Entries) carry their elements elsewhere, and Remove is by-key-OR-value.
+        // Coercible-element-only: Struct/Arm elements compose via the composable block below, and Record / uncoercible
+        // elements have no plain-value Add path.
         if (leaf.Cardinality is "list" or "dict" && req.Verb is "Add" or "SetAtIndex" or "InsertAtIndex"
             && req.Value is null && IsValueCoercibleElement(leaf))
             return $"{req.Verb} on '{leaf.Name}' requires an element value.";
-        // (step 4a) FormLink-ELEMENT collection value-shape — the collection twin of the singular formlink Set check
-        // immediately above. A list/dict whose ELEMENT is a FormLink (corpus FormLinkTarget set — emitted BY
-        // CONSTRUCTION by the SAME generator IsFormLink branch that flags a singular formlink) coerces each element
-        // through FormKey.Factory at apply (ApplyListVerb / ApplyDictVerb -> Coerce -> TryFormLink -> ToFormKey). A
-        // malformed element ("notaformkey"; "0"/"00000000"/"Null"/"000000:Null" stay legal null-clears) used to pass
-        // pre-flight here and throw "Malformed FormKey string" at apply — a Q3 accept-then-throw, the GENERAL gap the
-        // Layer-B sibling-ref collection gate (above) named as the broader pre-existing hole. Validate every supplied
-        // element VALUE with the SAME recognizer the singular path uses (IsValidFormLinkValue — one predicate, no
-        // drift between gate and apply): req.Value (list Add / SetAtIndex / InsertAtIndex / Remove-by-value; dict Add — dict Set
-        // returned at its own block above), req.Values (list ReplaceAll), and req.Entries' VALUES (dict Merge /
-        // ReplaceAll). The dict KEY VALUE-SHAPE is gated up front by the step-4-key block above (coercible-to-KeyType
-        // via the key's real CLR type, EVERY key kind) — this block validates element VALUES only. (Key/index PRESENCE
-        // is a DISTINCT concern, gated by construction in VerbLegality's Add/Remove/SetAtIndex/InsertAtIndex arms.) NOTE: every
-        // formlink collection in the current corpus is a LIST (85 fields); a formlink-VALUED dict is
-        // not modeled by Mutagen today (0 fields) and the generator's dict branch does not stamp FormLinkTarget for
-        // one, so the req.Entries arm is dormant-by-construction — named here (Q3), and lit the moment such a field
-        // (carrying its FormLinkTarget stamp) exists. The dict KEY-shape edge is now closed by the step-4-key block above.
+        // FormLink-ELEMENT collection value-shape — the collection twin of the singular formlink Set check immediately
+        // above. A list/dict whose ELEMENT is a FormLink (corpus FormLinkTarget set — emitted by the SAME generator
+        // IsFormLink branch that flags a singular formlink) coerces each element through FormKey.Factory at apply, so a
+        // malformed element ("notaformkey"; "0"/"00000000"/"Null"/"000000:Null" stay legal null-clears) would otherwise
+        // throw "Malformed FormKey string" there. Validate every supplied element VALUE with the SAME recognizer the
+        // singular path uses (IsValidFormLinkValue — one predicate, no drift): req.Value (list Add / SetAtIndex /
+        // InsertAtIndex / Remove-by-value; dict Add — dict Set returned at its own block above), req.Values (list
+        // ReplaceAll), and req.Entries' VALUES (dict Merge / ReplaceAll). Element VALUES only — dict key shape is the
+        // key block's job, and key/index PRESENCE is VerbLegality's. Every formlink collection in the corpus is a LIST;
+        // Mutagen models no formlink-VALUED dict and the generator's dict branch stamps no FormLinkTarget for one, so
+        // the req.Entries arm is dormant until such a field exists.
         if (leaf.Cardinality is "list" or "dict" && leaf.FormLinkTarget is not null)
         {
             if (req.Value is { } ev && !WriteEngine.IsValidFormLinkValue(ev)) return FormLinkElementReject(ev, leaf);
@@ -843,21 +766,18 @@ public sealed class CorpusRulebook
             foreach (var kv in req.Entries ?? new())
                 if (!WriteEngine.IsValidFormLinkValue(kv.Value)) return FormLinkElementReject(kv.Value, leaf);
         }
-        // (step 4b) NON-FORMLINK coercible-element collection value-SHAPE — the value twin of step-4a (which handles
-        // FORMLINK elements via IsValidFormLinkValue) and of the dict-Set value block above (which gates dict Set's value
-        // but not the other collection verbs). A list Add/SetAtIndex/InsertAtIndex/ReplaceAll/Remove-by-value and a dict Add/Merge/
-        // ReplaceAll coerce each supplied element value at apply (ApplyListVerb/ApplyDictVerb -> Coerce(req.Value!/v,
-        // elem/vType)); a malformed value (e.g. "notafloat" into a List<Single>, "notabyte" into a Dictionary<Skill,Byte>)
-        // used to pass pre-flight then throw UNNAMED (float.Parse/byte.Parse) at apply — the Q3 accept-then-throw this
-        // closes. Scoped to IsValueCoercibleElement(leaf) && FormLinkTarget is null so formlink elements keep step-4a's
-        // per-element message and the two together cover EVERY coercible element with no double-check and no gap. Uses the
-        // SAME CheckValue recognizer (with the element AQ) the dict-Set value block uses — gate and apply can't drift.
-        // Verb/key-FAITHFUL to which slot apply actually coerces: the singular req.Value is checked for list Add/SetAtIndex/InsertAtIndex
-        // and dict Add (always coerced), and for a list Remove-by-VALUE (Key null) only — a list Remove BY INDEX / a dict
-        // Remove coerce only the key, so their value is apply-irrelevant and must NOT be over-rejected. req.Values is the
-        // list ReplaceAll contents; req.Entries' VALUES are dict Merge/ReplaceAll (their keys are the step-4-key block's
-        // job). Null PRESENCE on Add/SetAtIndex/InsertAtIndex stays step-4-pre's; a null inside Values/Entries yields CheckValue's
-        // "Missing element value …" (correct for those verbs, which have no presence mirror).
+        // NON-FORMLINK coercible-element collection value-SHAPE — the value twin of the formlink block above and of the
+        // dict-Set value block (which gates dict Set's value but not the other collection verbs). A list Add/SetAtIndex/
+        // InsertAtIndex/ReplaceAll/Remove-by-value and a dict Add/Merge/ReplaceAll coerce each supplied element value at
+        // apply, so a malformed value ("notafloat" into a List<Single>) would throw UNNAMED (float.Parse) there. Scoped
+        // to IsValueCoercibleElement(leaf) && FormLinkTarget is null so formlink elements keep their own per-element
+        // message and the two blocks cover EVERY coercible element with no double-check and no gap. Uses the SAME
+        // CheckValue recognizer (with the element AQ) as the dict-Set value block. Faithful to which slot apply actually
+        // coerces: the singular req.Value for list Add/SetAtIndex/InsertAtIndex and dict Add, and for a list
+        // Remove-by-VALUE (Key null) only — a list Remove BY INDEX and a dict Remove coerce only the key, so their value
+        // must NOT be over-rejected. req.Values is the list ReplaceAll contents; req.Entries' VALUES are dict Merge/
+        // ReplaceAll. Null PRESENCE on Add/SetAtIndex/InsertAtIndex is the presence gate's; a null inside Values/Entries
+        // yields CheckValue's "Missing element value …", which those verbs have no presence mirror for.
         if (leaf.Cardinality is "list" or "dict" && IsValueCoercibleElement(leaf) && leaf.FormLinkTarget is null)
         {
             string? ElemShape(string? v) =>
@@ -868,8 +788,7 @@ public sealed class CorpusRulebook
                 return evErr;
             // Slot-faithful to apply: a LIST ReplaceAll coerces req.Values (ApplyListVerb); a DICT Merge/ReplaceAll
             // coerces req.Entries' values (ApplyDictVerb). Scope each loop to its slot's cardinality so a stray
-            // off-cardinality slot apply IGNORES (e.g. req.Entries supplied on a list ReplaceAll) is not over-rejected —
-            // mirrors the singular-value verb/key-faithfulness above (review polish).
+            // off-cardinality slot apply IGNORES (e.g. req.Entries supplied on a list ReplaceAll) is not over-rejected.
             if (leaf.Cardinality == "list" && req.Verb is "ReplaceAll")
                 foreach (var v in req.Values ?? Array.Empty<string>())
                     if (ElemShape(v) is { } valsErr) return valsErr;
@@ -877,89 +796,52 @@ public sealed class CorpusRulebook
                 foreach (var kv in req.Entries ?? new())
                     if (ElemShape(kv.Value) is { } entErr) return entErr;
         }
-        // (step 4-rec) RECORD-ELEMENT collection verb — a list/dict whose ELEMENT is an owned child RECORD
-        // (SchemaClassifier classifies record-families ElementKind.Record: DialogTopic.Responses -> DialogResponses;
-        // Cell.Persistent/Temporary -> the all-record Placed arms; the typed record groups). A record element is neither
-        // IsComposableElement (Record is excluded from Struct/Arm) nor IsValueCoercibleElement nor formlink, so an
-        // Add/SetAtIndex/ReplaceAll fell through to `return null` (ACCEPT) and then THREW at apply: with a compose,
-        // BuildStruct -> Instantiate -> CompositionRequiredException (the record class has no public parameterless ctor);
-        // with a plain value, Coerce(value, <record getter>) -> "No coercion rule" — both Q3 accept-then-throw (the
-        // second NAMED-but-misleading: it points at composition/coercion, not at "use housecarl_create"). A child record is
-        // allocated on the record axis, never built into a parent's collection by the verb engine; the supported path is
-        // housecarl_create with parent=. Redirect by construction (one classifier
-        // predicate, no per-record-type list). Verb-scoped to the create-oriented verbs (Add/SetAtIndex/InsertAtIndex/ReplaceAll); a
-        // record Remove BY INDEX (RemoveAt) is throw-free and stays accepted, and a record Remove BY VALUE is the
-        // non-plain-value Remove surface closed by the unified Remove-by-value reject in the step-4-rmv block below.
-        // InsertAtIndex is create-oriented in exactly the sense this block means — it puts a NEW element into the
-        // collection — so it redirects with the other three. Left out, an InsertAtIndex on a record-element list
-        // (DialogTopic.Responses, Cell.Persistent) would fall through to ACCEPT and then throw at apply on the same
-        // two paths: BuildStruct -> Instantiate -> CompositionRequiredException with a compose, "No coercion rule"
-        // with a plain value. Its position argument changes nothing about that — a child record is allocated on the
-        // record axis whichever slot of a parent's list it would land in.
-        //
-        // The SENTENCE moved to OwnedChildRecordCollectionRefusal and the PREDICATE to
-        // IsOwnedChildRecordCollection, because composes= reaches this same shape through a door that never gets
-        // here (it short-circuits at 3a-composes, well above step 4) and answered it with a hand-written label
-        // instead. One recogniser and one sentence, so the doors cannot disagree about what the field holds.
+        // RECORD-ELEMENT collection verb — a list/dict whose ELEMENT is an owned child RECORD (DialogTopic.Responses ->
+        // DialogResponses; Cell.Persistent/Temporary -> the all-record Placed arms; the typed record groups). A record
+        // element is neither composable (Record is excluded from Struct/Arm) nor value-coercible nor formlink, so
+        // without this an Add/SetAtIndex/InsertAtIndex/ReplaceAll falls through to `return null` and throws at apply:
+        // with a compose, BuildStruct -> Instantiate -> CompositionRequiredException (the record class has no public
+        // parameterless ctor); with a plain value, "No coercion rule". A child record is allocated on the record axis,
+        // never built into a parent's collection by the verb engine. Verb-scoped to the create-oriented verbs; a record
+        // Remove BY INDEX (RemoveAt) is throw-free and stays accepted, and a record Remove BY VALUE is caught by the
+        // Remove-by-value block below. Sentence and predicate are shared with the composes= door, which short-circuits
+        // above and would otherwise answer the same shape with its own label.
         if (IsOwnedChildRecordCollection(leaf) && req.Verb is "Add" or "SetAtIndex" or "InsertAtIndex" or "ReplaceAll")
             return OwnedChildRecordCollectionRefusal(leaf);
-        // (step 4) collection-verb value legality. A struct-element OR arm-element list takes a build-from-parts
-        // StructSpec on Add — NOT a plain value — which is wave-1 half B composition (an ARM element composes by its
-        // concrete arm type, validated against that arm's own schema — the VMAD shape, #35; before this, arm-element
-        // Adds fell through pre-flight UNVALIDATED and only failed at runtime — an accept-then-throw Q3 hole). A
-        // coercible-element list takes a plain value the engine coerces (proven by the collection waves).
+        // Collection-verb value legality. A struct-element OR arm-element list takes a build-from-parts StructSpec on
+        // Add, NOT a plain value: an ARM element composes by its concrete arm type and is validated against that arm's
+        // own schema (the VMAD shape). A coercible-element list takes a plain value the engine coerces.
         if (leaf.Cardinality is "list" or "dict" && IsComposableElement(leaf))
         {
-            // Add composes a build-from-parts element against the element type — LIST and DICT alike (Gap 3 opened dict
-            // Add: ApplyDictVerb now builds the entry value via BuildStruct(req.Struct) when composing, mirroring
-            // ApplyListVerb's Add, so admitting a dict compose is apply-faithful — no longer the accept-then-throw the
-            // earlier PR-review note guarded against). StructElementLegality resolves a polymorphic-base element's arm
-            // (Package.Data -> an APackageData arm) + validates contents recursively. (A composable dict SET is gated at
-            // the dict-Set block above — same StructElementLegality.)
-            // Add (append a new element) and SetAtIndex (overwrite the element at an index) both build the element FROM
-            // PARTS against the element type, validated by the SAME StructElementLegality (poly-base arm resolution +
-            // recursive contents; a null spec → "supply a compose spec, not a plain value"). SetAtIndex's index PRESENCE
-            // (VerbLegality) and SHAPE (step-4-key block above) are already gated by the time control reaches here, and
-            // the in-RANGE bound is apply's (no live list at the gate) — so the only thing left for a SetAtIndex compose
-            // is the spec, identical to Add. This closes HCBR-2026-07-10: an in-place condition-row REPLACEMENT no longer
-            // needs Remove+Add (which moved the row to the list END — harmless for an AND row, but breaking an OR-group).
-            // The composable fence (IsComposableElement = Struct/Arm ONLY) keeps this off owned-record elements, which
-            // step-4-rec above already redirects to the record axis.
-            // InsertAtIndex composes identically (#302): its apply arm builds the element through the SAME
-            // BuildStruct(req.Struct), so admitting it through the SAME StructElementLegality is apply-faithful and
-            // keeps a composed condition row the same element whether it is appended or inserted. Its index PRESENCE
-            // and SHAPE are already gated above; its in-RANGE bound — the one thing that differs from SetAtIndex,
-            // since insert admits the append slot — is apply's, so nothing else is left for the gate to check.
+            // Add (append), SetAtIndex (overwrite at an index) and InsertAtIndex (insert at a position) all build the
+            // element FROM PARTS against the element type — LIST and DICT alike, since ApplyDictVerb builds the entry
+            // value via the same BuildStruct(req.Struct) ApplyListVerb's Add uses. All three go through the SAME
+            // StructElementLegality (poly-base arm resolution — Package.Data -> an APackageData arm — plus recursive
+            // contents; a null spec → "supply a compose spec, not a plain value"), so a composed element is identical
+            // whichever slot it lands in. Index PRESENCE (VerbLegality) and SHAPE (the key block above) are already
+            // gated by the time control reaches here, and the in-RANGE bound is apply's (no live list at the gate),
+            // which is also where insert's admission of the append slot is enforced. The composable fence
+            // (IsComposableElement = Struct/Arm ONLY) keeps this off owned-record elements, redirected above.
+            // (A composable dict SET is gated at the dict-Set block above — same StructElementLegality.)
             if (req.Verb is "Add" or "SetAtIndex" or "InsertAtIndex")
                 return StructElementLegality(leaf, req.Struct, siblingEditorIds);
-            // ReplaceAll/Merge of modeled elements stay deferred: ReplaceAll would need a LIST of compose specs and Merge
-            // a dict of them (req.Values / req.Entries are plain-string shapes), distinct input surfaces not opened here.
-            // Merge is dict-only and was previously OMITTED, so a Package.Data Merge fell through to ACCEPT then threw
-            // 'No coercion rule' at apply (matrix-critic finding) — folding it in closes that. Verb named in the message.
+            // ReplaceAll/Merge of modeled elements stay deferred: ReplaceAll would need a LIST of compose specs and
+            // Merge a dict of them (req.Values / req.Entries are plain-string shapes), distinct input surfaces not
+            // opened here. Merge must stay listed — a dict-only verb, it would otherwise fall through to ACCEPT and
+            // throw 'No coercion rule' at apply.
             if (req.Verb is "ReplaceAll" or "Merge")
-                // THE class-A medium. This message is emitted for a list OR a dict, and it recited the LIST verbs
-                // to both: a Package.Data Merge was answered with "InsertAtIndex to insert AT an index", and
-                // following it returns "InsertAtIndex is only valid on list; 'Data' is dict." The alternatives now
-                // come from the leaf's own shape, so the dict caller gets Set/Add with a key and the list caller
-                // gets the index verbs — structurally, not by a condition somebody has to remember to write.
-                // The tail sentence is derived too, because the old one ("{Verb} of modeled elements is a later
-                // surface") was false on a list: a modeled list DOES have a batch replace — ReplaceAll with
-                // composes=. It says what is MISSING (a build-from-parts input on this call) rather than what the
-                // caller sent: composes= is diverted upstream, but req.Values / req.Entries are not required, so a
-                // bare ReplaceAll with no input at all lands here too and "carrying plain values" would be a
-                // statement about the request that the request does not support. The shape's own placing set names
-                // the batch form that exists (composes= on a list; none on a dict, which is why its remedy names
-                // only the singular keyed verbs) without a sentence claiming either.
+                // This message is emitted for a list OR a dict, so its alternatives come from the leaf's own shape —
+                // the dict caller gets Set/Add with a key, the list caller the index verbs — rather than one recited
+                // set that would hand a dict caller list verbs. It says what is MISSING (a build-from-parts input on
+                // this call) rather than what the caller sent: a bare ReplaceAll with no input at all also lands here.
                 return $"'{leaf.Name}' holds modeled elements ({leaf.ElementTypeRef}); {req.Verb} has no " +
                        $"build-from-parts input on this call — {PlacingRemedy(leaf)}.";
         }
-        // (step 4-rmv) Remove-BY-VALUE on a NON-PLAIN-VALUE element — a list Remove with NO key is by-value
-        // (ApplyListVerb -> Coerce(req.Value!, elem)); an element that is neither coercible (step-4b) nor formlink
-        // (step-4a) has NO plain-value form, so the coerce throws 'No coercion rule' at apply (or an NRE if the value is
-        // also null). ONE by-construction predicate covers composable (struct/arm), record, AND the dormant uncoercible
-        // case — the value twin none of the other branches catch for Remove. A Remove BY INDEX (Key present -> RemoveAt,
-        // no coercion) stays accepted, and a dict Remove (by key only, key-gated) is excluded (list-only). Redirect to
-        // remove-by-index; value-based removal of a modeled/record element is a later surface.
+        // Remove-BY-VALUE on a NON-PLAIN-VALUE element — a list Remove with NO key is by-value (ApplyListVerb ->
+        // Coerce(req.Value!, elem)); an element that is neither coercible nor formlink has NO plain-value form, so the
+        // coerce throws 'No coercion rule' at apply (or an NRE if the value is also null). One predicate covers
+        // composable (struct/arm), record, and the dormant uncoercible case. A Remove BY INDEX (Key present ->
+        // RemoveAt, no coercion) stays accepted, and a dict Remove (by key only, key-gated) is excluded.
         if (req.Verb == "Remove" && leaf.Cardinality == "list" && req.Key is null
             && leaf.FormLinkTarget is null && !IsValueCoercibleElement(leaf))
             return $"'{leaf.Name}' holds modeled/record elements ({leaf.ElementTypeRef ?? leaf.ElementType}); remove one " +
@@ -970,7 +852,7 @@ public sealed class CorpusRulebook
 
     /// <summary>True iff the leaf is a collection whose ELEMENT is built FROM PARTS on Add (so Add takes a
     /// StructSpec): a modeled-struct element, or a polymorphic-union (arm) element composed by its concrete arm
-    /// type. Record-elements (nested-group wave) are resolved on their own axis, and a WHOLE-COERCIBLE element
+    /// type. Record-elements are resolved on their own axis, and a WHOLE-COERCIBLE element
     /// (an AssetLink path) is set as one value — both fall through to the plain-value Add path, never demanding
     /// a spec. Derived via the shared <see cref="SchemaClassifier"/> so the partition cannot be defined twice.</summary>
     bool IsComposableElement(FieldSchema leaf)
@@ -989,7 +871,7 @@ public sealed class CorpusRulebook
         => SchemaClassifier.ClassifyElement(leaf, _corpus) is ElementKind.ScalarCoercible or ElementKind.WholeCoercible;
 
     /// <summary>Validate a struct-element Add: the spec must be present, its type must match the list's element
-    /// type — or, when the element type is a <b>polymorphic-base</b>, be one of its ARMS (the VMAD shape, #35:
+    /// type — or, when the element type is a <b>polymorphic-base</b>, be one of its ARMS (the VMAD shape:
     /// <c>ScriptEntry.Properties</c> is a list of the base <c>ScriptProperty</c>, but a real new element is a
     /// concrete arm like <c>ScriptObjectProperty</c>) — and its contents must validate against the SPEC's own
     /// schema (the arm's fields, not the base's), recursively via the shared validator. Generic over every
@@ -1002,16 +884,15 @@ public sealed class CorpusRulebook
         var elemSchema = Type(er);
         if (elemSchema is null) return $"Element type '{er}' for '{leaf.Name}' absent from corpus.";
 
-        // (G8) A polymorphic BASE is composed by choosing a concrete ARM, never the base itself. Naming the base
-        // ({Type:"APackageData"} on the Package.Data dict, {Type:"Condition"} on a *.Conditions list) is a gate/apply
-        // drift the validator must reject: the spec.Type==er short-circuit below would validate it against the base's
-        // OWN fields and ACCEPT, then apply either SILENTLY writes a degenerate base instance (a CONCRETE base like
-        // APackageData — Instantiate finds its public parameterless ctor: a Q3 silent-wrong-write) or THROWS at Invoke
-        // ("cannot create an abstract class" — an ABSTRACT base like Condition). The recognizer is the corpus poly-base
-        // KIND, NOT Type.IsAbstract: APackageData is concrete (IsAbstract=false), so an IsAbstract check would miss the
-        // silent-write case — the worse one. A concrete poly-base also lists ITSELF among its arms (FindUnionArms keeps
-        // a non-abstract base), so the base is filtered out of the legal-arms set everywhere it is used (the arm-match
-        // check AND every message) — neither path can admit or advertise it. Generic over every poly-base; no per-type wiring.
+        // A polymorphic BASE is composed by choosing a concrete ARM, never the base itself. Naming the base
+        // ({Type:"APackageData"} on the Package.Data dict, {Type:"Condition"} on a *.Conditions list) must be rejected:
+        // the spec.Type==er short-circuit below would validate it against the base's OWN fields and ACCEPT, then apply
+        // either silently writes a degenerate base instance (a CONCRETE base like APackageData — Instantiate finds its
+        // public parameterless ctor) or throws at Invoke ("cannot create an abstract class", an ABSTRACT base like
+        // Condition). The recognizer is the corpus poly-base KIND, NOT Type.IsAbstract: APackageData is concrete, so an
+        // IsAbstract check would miss the silent-write case. A concrete poly-base also lists ITSELF among its arms
+        // (FindUnionArms keeps a non-abstract base), so it is filtered out of the legal-arms set everywhere — the
+        // arm-match check AND every message — and neither path can admit or advertise it.
         bool isPolyBase = elemSchema is { Kind: "polymorphic-base" };
         var legalArms = (elemSchema.Arms ?? new()).Where(a => a != er).ToList();
 
@@ -1041,7 +922,7 @@ public sealed class CorpusRulebook
     /// (flat Fields + nested Sets + ctor-args) — the SAME recognizer the struct-element Add and polymorphic-arm Set use, so
     /// the three composition entry points can't disagree. A substruct leaf reaching HERE has a TypeRef that is a CONCRETE
     /// struct/arm (a polymorphic FIELD is cardinality "polymorphic", handled above; an owned child RECORD — a substruct
-    /// TypeRef of Kind "record" since #335 — is excluded by the same <see cref="SchemaClassifier.IsComposableSubstructLeaf"/>
+    /// TypeRef of Kind "record" — is excluded by the same <see cref="SchemaClassifier.IsComposableSubstructLeaf"/>
     /// guard, and refused upstream in its own words), so a straight name-match is correct — no poly-base arm resolution.
     /// Reached only for a <see cref="SchemaClassifier.IsComposableSubstructLeaf"/> leaf (TypeRef non-null,
     /// corpus-present, apply-instantiable) — the null-spec branch replaces the misleading scalar "requires a value".</summary>
@@ -1064,19 +945,18 @@ public sealed class CorpusRulebook
     /// composition entry points can never disagree.</summary>
     string? StructSpecContents(StructSpec spec, TypeSchema structSchema, IReadOnlyCollection<string>? siblingEditorIds = null)
     {
-        // (G4) positional ctor_args value-SHAPE + ARITY — the one compose part the gate never checked. A malformed arg
-        // or a wrong arity passed pre-flight then threw at apply (Instantiate: Coerce(arg, paramType) / "no constructor
-        // taking N arg(s)"). WriteEngine.TryRecognizeCtorArgs mirrors Instantiate EXACTLY (same ResolveStructType + ctor
-        // selector + TryCoerce), so gate and apply can't drift. Checked at the TOP so it runs for BOTH StructSpecContents
-        // call sites (ArmLegality + StructElementLegality) and reports before the per-field checks. Skipped when CtorArgs
-        // is null (the common compose path — parameterless/fields only, unchanged).
+        // Positional ctor_args value-SHAPE + ARITY. A malformed arg or a wrong arity would otherwise throw at apply
+        // (Instantiate: Coerce(arg, paramType) / "no constructor taking N arg(s)"). WriteEngine.TryRecognizeCtorArgs
+        // mirrors Instantiate EXACTLY (same ResolveStructType + ctor selector + TryCoerce), so gate and apply can't
+        // drift. Checked at the TOP so it runs for BOTH call sites (ArmLegality + StructElementLegality) and reports
+        // before the per-field checks. Skipped when CtorArgs is null (the parameterless/fields-only compose path).
         if (spec.CtorArgs is { } ctorArgs && WriteEngine.TryRecognizeCtorArgs(spec.Type, ctorArgs) is { } ctorErr)
             return ctorErr;
         foreach (var f in spec.Fields ?? new())
         {
             var af = structSchema.Fields.FirstOrDefault(x => x.Name == f.Key);
             if (af is null) return FieldNotFound(structSchema, f.Key);
-            // A '@editorid' same-call reference in a compose FIELD (HCBR-2026-07-10-01: the VMAD alias-fragment
+            // A '@editorid' same-call reference in a compose FIELD (the VMAD alias-fragment
             // Property.Object=@<the quest itself> shape) — legal on a singular FORMLINK field in CREATE context only,
             // mirroring the top-level singular-value gate exactly (formlink-only + declared-earlier-or-self); the
             // create path substitutes it with the allocated FormKey (WritePatchBuilder.ResolveSiblingRefs). Gated
@@ -1101,9 +981,9 @@ public sealed class CorpusRulebook
         }
         foreach (var s in spec.Sets ?? new())
             // siblingEditorIds threads through — a same-call @editorid ref inside a COMPOSED struct's nested Sets
-            // (e.g. a VMAD quest-fragment's Property.Object=@<own quest>, HCBR-2026-07-10-01) validates by the SAME
-            // gates as a top-level value (formlink-only + declared-earlier-or-self), recursively; on the edit path
-            // (null) it still rejects loud rather than being silently accepted (Q3).
+            // (e.g. a VMAD quest-fragment's Property.Object=@<own quest>) validates by the SAME gates as a top-level
+            // value (formlink-only + declared-earlier-or-self), recursively; on the edit path (null) it still rejects
+            // loud rather than being silently accepted.
             if (ValidateFromType(structSchema, s, siblingEditorIds) is { } e) return e;
         return null;
     }
@@ -1124,8 +1004,8 @@ public sealed class CorpusRulebook
 
     /// <summary>The loud per-element rejection for a malformed FormLink collection ELEMENT — the SAME legal-set copy
     /// as the singular formlink Set reject, with "target" reading "element" so the two are visibly the one check at
-    /// two cardinalities. The offending value is named (per-element, Q3): the gate says exactly which element it
-    /// refused and what shape is legal, never a bare "internal inconsistency" surfaced from an apply-time throw.</summary>
+    /// two cardinalities. The offending value is named, so the gate says exactly which element it refused and what
+    /// shape is legal, never a bare "internal inconsistency" surfaced from an apply-time throw.</summary>
     static string FormLinkElementReject(string value, FieldSchema leaf) =>
         $"Illegal FormLink element '{value}' for '{leaf.Name}': expected a FormID (XXXXXX:Plugin.esp) " +
         "or a null-clear ('0', '00000000', 'Null', '000000:Null').";
@@ -1135,18 +1015,16 @@ public sealed class CorpusRulebook
     string? ArmLegality(FieldSchema leaf, StructSpec? arm, IReadOnlyCollection<string>? siblingEditorIds = null)
     {
         if (arm is null) return $"Set on polymorphic field '{leaf.Name}' requires an arm (which arm + its data).";
-        // (G8) The standalone-poly-FIELD twin of the StructElementLegality base-reject. A CONCRETE poly-base (e.g.
-        // ScriptFragments on DialogResponsesAdapter.ScriptFragments) lists ITSELF among its arms, so legal.Contains(base)
-        // would otherwise admit a Set composing the base by its OWN name, and apply then SILENTLY writes a degenerate
-        // base instance. Filter the base (leaf.TypeRef — this method is only reached for a polymorphic field) out of the
-        // legal set, and reject composing the base itself. Symmetric with StructElementLegality; closes the SECOND
-        // composition entry point so the poly-base-by-own-name class is shut at both, by construction.
+        // The standalone-poly-FIELD twin of the StructElementLegality base-reject. A CONCRETE poly-base (e.g.
+        // ScriptFragments on DialogResponsesAdapter.ScriptFragments) lists ITSELF among its arms, so
+        // legal.Contains(base) would otherwise admit a Set composing the base by its OWN name and apply would silently
+        // write a degenerate base instance. Filter the base (leaf.TypeRef — this method is only reached for a
+        // polymorphic field) out of the legal set, and reject composing the base itself.
         // A concrete base is ALSO the one shape where "no listed arm fits" is real — the field's live type can BE the
-        // base (DialogResponses' ScriptFragments: only arm is the SCENE one), so the refusal must name the working
-        // lane (dotted-subfield Sets, pre-flight-descended since the poly-field-descend fix) or it dead-ends the
-        // caller (#211). Recognizer: the field's MUTABLE AQ resolves to a concrete CLASS (the emitted arm lists have
-        // the base's self-listing stripped, so arms can't tell). An abstract base resolves abstract — there a listed
-        // arm always fits, so the hint stays off.
+        // base (DialogResponses' ScriptFragments: only arm is the SCENE one) — so the refusal must name the working
+        // lane (dotted-subfield Sets, which pre-flight descends) or it dead-ends the caller. Recognizer: the field's
+        // MUTABLE AQ resolves to a concrete CLASS (the emitted arm lists have the base's self-listing stripped, so
+        // arms can't tell). An abstract base resolves abstract — there a listed arm always fits, so the hint stays off.
         var baseName = leaf.TypeRef;
         var legal = (leaf.Arms ?? (baseName is { } tr ? Type(tr)?.Arms : null) ?? new()).Where(a => a != baseName).ToList();
         if (baseName is not null && arm.Type == baseName)
@@ -1241,14 +1119,14 @@ public sealed class CorpusRulebook
     }
 
     /// <summary>Find <paramref name="name"/> on <paramref name="owner"/>, looking through a <b>polymorphic-base</b>'s
-    /// ARMS when the base itself lacks it — the VMAD shape (#35): <c>ScriptEntry.Properties</c> is modeled as a list
+    /// ARMS when the base itself lacks it — the VMAD shape: <c>ScriptEntry.Properties</c> is modeled as a list
     /// of the base <c>ScriptProperty</c> (Name/Flags only), but every REAL element is a concrete arm
     /// (<c>ScriptObjectProperty</c> carries Object/Alias), so a path like <c>Properties[0].Object</c> is legal even
     /// though the BASE schema lacks 'Object'. Generic over every polymorphic-base family — no per-type wiring
     /// (cornerstone). The static validator cannot know WHICH arm sits at a given index, so: a name found on arms
     /// must AGREE in shape across all the arms that declare it (one shape validates for whichever arm the element
     /// turns out to be — the engine then resolves on the element's RUNTIME type and fails loud on a real mismatch);
-    /// arms that DISAGREE reject named (Q3), never guess. <paramref name="effectiveOwner"/> is the schema the found
+    /// arms that DISAGREE reject by name, never guess. <paramref name="effectiveOwner"/> is the schema the found
     /// field belongs to (the arm for an arm-found field), so downstream messages name the real owner.</summary>
     FieldSchema? FindField(TypeSchema owner, string name, out TypeSchema effectiveOwner, out string? error)
     {
@@ -1263,7 +1141,7 @@ public sealed class CorpusRulebook
             if (Type(armName) is not { } arm)
             {
                 // Arms and the catalog come out of the same reflection walk, so a listed-but-absent arm is a real
-                // corpus defect — surfaced loud (Q3), never skipped: skipping could fake shape-agreement over an
+                // corpus defect — surfaced loud, never skipped: skipping could fake shape-agreement over an
                 // incomplete arm set, or fake "no such field" for a field the missing arm exclusively declares.
                 error = $"Arm '{armName}' of polymorphic-base '{owner.Name}' is listed but ABSENT from the corpus — " +
                         "corpus.json is stale or incompletely generated; regenerate it (dotnet run --project src/housecarl-generator).";
@@ -1291,10 +1169,10 @@ public sealed class CorpusRulebook
     /// matches — cardinality, display + referenced types, element type, writability, AND the assembly-qualified
     /// CLR types (two arms can share a display name like 'Flags' while binding DIFFERENT enum types; ValueLegality
     /// validates against the AQ-resolved type, so AQ disagreement means the value would be checked against the
-    /// wrong arm's legal set — PR review). Identity by what the validator USES, so "agrees" can never silently
-    /// mean "close enough".
+    /// wrong arm's legal set). Identity by what the validator USES, so "agrees" can never silently mean
+    /// "close enough".
     ///
-    /// The CLR-type facets compare write-legal EQUIVALENCE, not raw-string identity (HCBR 1.2 / PR-B): a type and
+    /// The CLR-type facets compare write-legal EQUIVALENCE, not raw-string identity: a type and
     /// its <c>Nullable&lt;T&gt;</c> wrapper admit the identical value set, because <see cref="WriteEngine"/>'s
     /// Coerce/CanCoerce unwrap <c>Nullable&lt;T&gt;</c> before checking. So a field declared <c>float</c> on one
     /// arm and <c>float?</c> on another (the one such corpus field — <c>APerkEffect.Value</c>) AGREES: the
@@ -1313,7 +1191,7 @@ public sealed class CorpusRulebook
     /// runtime type after unwrapping <c>Nullable&lt;T&gt;</c> — mirroring <see cref="WriteEngine"/>'s own
     /// Coerce/CanCoerce, which unwrap <c>Nullable&lt;T&gt;</c> before validating, so <c>float</c> and <c>float?</c>
     /// admit the identical value set. A name that will not resolve to a runtime Type falls back to RAW-string
-    /// identity, so a genuinely unknown type can never be silently widened (Q3 — fail loud, never "close enough").
+    /// identity, so a genuinely unknown type can never be silently widened.
     /// Null matches only null (one arm declaring the facet and the other not is a real difference).</summary>
     static bool SameWriteLegalType(string? a, string? b)
     {
@@ -1321,7 +1199,7 @@ public sealed class CorpusRulebook
         if (a is null || b is null) return false;     // one present, one absent → genuinely different
         var ta = WriteEngine.ResolveType(a);
         var tb = WriteEngine.ResolveType(b);
-        if (ta is null || tb is null) return a == b;  // unresolvable → raw-string fallback (false here → stay rejected, Q3)
+        if (ta is null || tb is null) return a == b;  // unresolvable → raw-string fallback (false here → stay rejected)
         return (Nullable.GetUnderlyingType(ta) ?? ta) == (Nullable.GetUnderlyingType(tb) ?? tb);
     }
 }

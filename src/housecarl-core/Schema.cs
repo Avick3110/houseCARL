@@ -32,14 +32,13 @@ public sealed class TypeSchema
     /// <summary>For a polymorphic-base: the catalog names of its permitted arms.</summary>
     public List<string>? Arms { get; set; }
 
-    /// <summary>For a record: its xEdit 4-char signature (Armor -> "ARMO"). Read from the registration's
-    /// TriggeringRecordType — verified identical to the concrete class's GrupRecordType across all 133
-    /// records (Probe.RunSig). The sig is one-to-many onto catalog names (GMST -> 4 GameSetting* variants),
+    /// <summary>For a record: its xEdit 4-char signature (Armor -> "ARMO"), read from the registration's
+    /// TriggeringRecordType. The sig is one-to-many onto catalog names (GMST -> 4 GameSetting* variants),
     /// so the index carries one row per name and disambiguation happens at lookup, not here.</summary>
     public string? Signature { get; set; }
 
     /// <summary>For an enum-kind entry: the legal value names, listed once here and referenced by name from
-    /// every field of this enum type (decision #6 — avoids inlining e.g. ActorValue's 156 values per field).</summary>
+    /// every field of this enum type, rather than inlining e.g. ActorValue's 156 values per field.</summary>
     public List<string>? EnumValues { get; set; }
 
     public int FieldCount { get; set; }
@@ -85,7 +84,7 @@ public sealed class FieldSchema
     /// <summary>For a formlink (or list of formlinks): the linked record type.</summary>
     public string? FormLinkTarget { get; set; }
 
-    // ---- Assembly-qualified names: consumed by the step-4 write surface to resolve types at runtime. ----
+    // ---- Assembly-qualified names: consumed by the write surface to resolve types at runtime. ----
     public string GetterTypeAssemblyQualified { get; set; } = "";
     public string? MutableTypeAssemblyQualified { get; set; }
     public string? ElementTypeAssemblyQualified { get; set; }

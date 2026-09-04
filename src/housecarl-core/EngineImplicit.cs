@@ -9,18 +9,12 @@ namespace HousecarlCore;
 /// links) and the Player base NPC_ (a GetIsID Player form param). Any tool that flags "target not in the active load
 /// order" must exempt them or it false-warns on the standard player-state pattern — so the SINGLE source of truth lives
 /// here, shared by the dialogue condition lints (<see cref="DialogueValidate"/>), the integrity sweep
-/// (<see cref="ErrorCheck"/>), AND the identity resolver behind housecarl_resolve / resolve_names (issue #230 — the
-/// same false positive resurfaced there as "unresolved: target not in the active order"), keeping every exemption in
-/// lockstep. Public because that resolver lives in the MCP server assembly, not this core.
+/// (<see cref="ErrorCheck"/>), AND the identity resolver behind housecarl_resolve / resolve_names, keeping every
+/// exemption in lockstep. Public because that resolver lives in the MCP server assembly, not this core.
 ///
-/// Evidence: Junti 2026-07-03 — xEdit resolves 000014 as PlayerRef and the gates are proven working in game (the
-/// validate_dialogue manifestation, fixed in PR #139); the identical class then surfaced in check_errors, which
-/// reported 531/531 dangling refs ALL → 000014:Skyrim.esm, overflowing the tool response
-/// (HCBR checkerrors-playerref-dangling-false-positive).
-///
-/// Scoped to the two the reports prove — a PRECISE set, NOT the whole reserved sub-0x800 range, so a genuinely-typo'd
-/// low FormID still surfaces as a real error. Skyrim.esm is the SSE base master (houseCARL is SSE-only). Extend the set
-/// here if more engine-implicit forms surface — one edit updates every tool.</summary>
+/// A PRECISE set, NOT the whole reserved sub-0x800 range, so a genuinely-typo'd low FormID still surfaces as a real
+/// error. Skyrim.esm is the SSE base master (houseCARL is SSE-only). Extend the set here if more engine-implicit forms
+/// surface — one edit updates every tool.</summary>
 public static class EngineImplicit
 {
     static readonly ModKey SkyrimBaseMaster = new("Skyrim", ModType.Master);
