@@ -589,15 +589,18 @@ public static class WriteTools
     }
 
     // A plugin the external-reference pass could not read through — shared by compact and merge, one render home.
-    // "Not fully" rather than "not at all": the pass lands a plugin here whether it could not be opened or faulted
-    // partway, and a plugin that faulted partway can already be in the referencer list above.
-    static void AppendUnscannablePlugins(StringBuilder sb, IReadOnlyList<string>? plugins)
+    // Each plugin gets the sentence its own cause earns (WriteSentences.UnscannablePlugin): a file that would not
+    // open is held by another program, a file that faulted mid-enumeration is not, and one blanket claim would be
+    // wrong for half of them. "The external-referencer check", not "the list above": the referencer list prints
+    // only on some shapes, and a plugin that faulted partway can already be in it.
+    static void AppendUnscannablePlugins(StringBuilder sb, IReadOnlyList<RemapEngine.UnscannablePlugin>? plugins)
     {
         if (plugins is not { Count: > 0 }) return;
-        sb.Append("note: the external-reference pass could not fully read ").Append(string.Join(", ", plugins.Take(25)))
-          .Append(plugins.Count > 25 ? $" (+{plugins.Count - 25} more)" : "")
-          .Append(" — probably held open by another program, so close xEdit, MO2 or Skyrim and run this again; ")
-          .Append("until then the referencer list above does not cover that plugin.\n");
+        sb.Append("note: the external-reference pass could not fully read ").Append(plugins.Count)
+          .Append(plugins.Count == 1 ? " plugin, so the external-referencer check does not cover it:\n"
+                                     : " plugins, so the external-referencer check does not cover them:\n");
+        foreach (var p in plugins.Take(25)) sb.Append("  ! ").Append(WriteSentences.UnscannablePlugin(p)).Append('\n');
+        if (plugins.Count > 25) sb.Append("  ! … (+").Append(plugins.Count - 25).Append(" more)\n");
     }
 
     // FormID-keyed assets carried WITH the renumber — shared by compact and merge, one render home. The renumber moves
