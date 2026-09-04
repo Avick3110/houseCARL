@@ -207,6 +207,8 @@ public sealed class ShadowedCopyWorld : IDisposable
     public const int WinnerDamage = 99;
     public const int LoserDamage = 44;
     public string SubjectFid { get; }
+    /// <summary>A second record both copies override, so a batch has more than one row to refuse.</summary>
+    public string SecondFid { get; }
     /// <summary>The full path to one mod folder's copy.</summary>
     public string PathIn(string mod) => Path.Combine(Root, "instance", "mods", mod, FileName);
 
@@ -237,12 +239,17 @@ public sealed class ShadowedCopyWorld : IDisposable
         subject.EditorID = "SSubject";
         subject.BasicStats = new WeaponBasicStats { Damage = 10 };
         SubjectFid = $"{subject.FormKey.ID:X6}:{mKey.FileName}";
+        var second = m.Weapons.AddNew();
+        second.EditorID = "SSecond";
+        second.BasicStats = new WeaponBasicStats { Damage = 10 };
+        SecondFid = $"{second.FormKey.ID:X6}:{mKey.FileName}";
         m.BeginWrite.ToPath(P("SMaster", mKey)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
         foreach (var (folder, damage) in new[] { (WinnerMod, WinnerDamage), (LoserMod, LoserDamage) })
         {
             var r = new SkyrimMod(rKey, SkyrimRelease.SkyrimSE);
-            ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(r, subject)).BasicStats = new WeaponBasicStats { Damage = (ushort)damage };
+            foreach (var src in new[] { subject, second })
+                ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(r, src)).BasicStats = new WeaponBasicStats { Damage = (ushort)damage };
             r.BeginWrite.ToPath(P(folder, rKey)).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
         }
 
@@ -340,5 +347,49 @@ public sealed class RecordsModFolderSourceTests : IClassFixture<ShadowedCopyFixt
                                      versus: JsonDocument.Parse("\"previous_provider\"").RootElement.Clone(),
                                      project: new RecordsTools.RecordsProject { form = "delta" });
         Assert.Contains("no position in the active touching stack", r);
+    }
+
+    /// <summary>The previous_provider refusal is uniform for the whole call — the subject's arm decides it — so a
+    /// batch is refused ONCE, before any record is read, rather than per row.</summary>
+    [Fact]
+    public void PreviousProviderAgainstAnOffOrderSubjectIsRefusedOncePerCallNotOncePerRecord()
+    {
+        var r = RecordsTools.Records(_w.Svc, formids: new[] { _w.SubjectFid, _w.SecondFid },
+                                     source: JsonDocument.Parse("{\"file\": \"" + _w.FileName + "\", \"mod\": \"" + _w.LoserMod + "\"}").RootElement.Clone(),
+                                     versus: JsonDocument.Parse("\"previous_provider\"").RootElement.Clone(),
+                                     project: new RecordsTools.RecordsProject { form = "delta" });
+        Assert.StartsWith("error:", r);
+        Assert.Equal(1, Occurrences(r, "no position in the active touching stack"));
+    }
+
+    /// <summary>The tree form's reference is an off-order copy whose FILENAME is also active. The active copy is a
+    /// different file, so it is a provider node with a real delta, never the reference itself.</summary>
+    [Fact]
+    public void ATreeAgainstTheShadowedCopyShowsTheActiveCopysDeltaRatherThanCallingItTheReference()
+    {
+        var r = RecordsTools.Records(_w.Svc, formids: new[] { _w.SubjectFid },
+                                     versus: JsonDocument.Parse("{\"file\": \"" + _w.FileName + "\", \"mod\": \"" + _w.LoserMod + "\"}").RootElement.Clone(),
+                                     project: new RecordsTools.RecordsProject { form = "tree" });
+        Assert.Contains("BasicStats.Damage=" + ShadowedCopyWorld.WinnerDamage, r);
+    }
+
+    /// <summary>Two copies of one filename on opposite arms: the delta line itself says which side is which,
+    /// without leaning on the pole lines above it.</summary>
+    [Fact]
+    public void ADeltaBetweenTwoCopiesOfOneFilenameQualifiesTheOffOrderSideOnTheDeltaLine()
+    {
+        var r = RecordsTools.Records(_w.Svc, formids: new[] { _w.SubjectFid },
+                                     source: JsonDocument.Parse("\"" + _w.FileName + "\"").RootElement.Clone(),
+                                     versus: JsonDocument.Parse("{\"file\": \"" + _w.FileName + "\", \"mod\": \"" + _w.LoserMod + "\"}").RootElement.Clone(),
+                                     project: new RecordsTools.RecordsProject { form = "delta" });
+        var line = Assert.Single(r.Split('\n'), l => l.Contains("- BasicStats.Damage=", StringComparison.Ordinal));
+        Assert.Contains(_w.LoserMod, line);
+    }
+
+    static int Occurrences(string haystack, string needle)
+    {
+        int n = 0, i = 0;
+        while ((i = haystack.IndexOf(needle, i, StringComparison.Ordinal)) >= 0) { n++; i += needle.Length; }
+        return n;
     }
 }

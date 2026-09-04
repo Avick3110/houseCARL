@@ -18,6 +18,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
   and MO2 serves one of them; naming a folder addresses that folder's file. When the named copy is not the one the
   game loads, the response says so and names the mod folder that provides the served copy. A folder that does not
   carry the filename is refused as before, and the plain-filename and direct-path forms are unchanged.
+  Two copies of one filename can now sit on opposite sides of a comparison, so: `form=tree` treats a provider node
+  as the reference only when the reference resolved in the load order, and both renders name the off-order side's
+  mod folder on the delta line when the two sides share a filename. A `versus="previous_provider"` against an
+  off-order `source=` is refused once for the call, before any record is read, instead of once per record.
 
 - **A FormID from the game, a log or a crash log now works as an input, and comes back as an output.**
   Wherever a parameter holds nothing but FormIDs, houseCARL now also takes the runtime form the game, the

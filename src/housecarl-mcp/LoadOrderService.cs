@@ -2518,7 +2518,19 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>One side of a housecarl_diff_record comparison: the plugin named, WHERE its version was found (active
     /// order, or OUT-OF-LOAD-ORDER on disk), whether it's in the active order, and the record identity it carries.</summary>
-    public sealed record DiffPole(string Plugin, string Where, bool InOrder, string? RecordType, string? EditorId);
+    public sealed record DiffPole(string Plugin, string Where, bool InOrder, string? RecordType, string? EditorId)
+    {
+        /// <summary>What tells this pole apart from a same-named one on the other arm — the mod folder it was read
+        /// out of, or "off-order" when the layer names nothing. Set on the off-order arm only: two poles can share a
+        /// filename and be different files, and the active one is then the unqualified side.</summary>
+        internal string? Qualifier { get; init; }
+
+        /// <summary>The pole's label for a render that shows both sides. Qualified only when the other side carries
+        /// the same filename, so the ordinary one-pole-per-name case reads unchanged.</summary>
+        public string LabelVersus(string? otherPlugin) =>
+            Qualifier is { } q && string.Equals(Plugin, otherPlugin, StringComparison.OrdinalIgnoreCase)
+                ? $"{Plugin} ({q})" : Plugin;
+    }
 
     // ---- batch ------------------------------------------------------------------------------------------
 
@@ -2575,6 +2587,11 @@ public sealed class LoadOrderService : IDisposable
         /// consuming lane can open the file without re-running the locate.</summary>
         internal string? Path { get; init; }
 
+        /// <summary>The layer the off-order copy came from ("mod 'X'", the overwrite folder), when the locate's own
+        /// label names one — carried as a fact rather than re-derived from <see cref="Where"/>, so a render that has
+        /// to tell two same-named copies apart names the folder instead of parsing a sentence.</summary>
+        internal string? Layer { get; init; }
+
         /// <summary>The epoch of the build the arm was judged against. The caller compares it against its dispatch's
         /// own stamp, so a load-order change between probe and dispatch surfaces as a loud retry refusal instead of
         /// an arm statement about a different build.</summary>
@@ -2626,7 +2643,8 @@ public sealed class LoadOrderService : IDisposable
         if (activeFilename && loc.Enabled)
             return (new PoleInfo(plugin, "active in the load order", InOrder: true, EpochCoversPole: true), null);
         var poleWhere = $"OUT-OF-LOAD-ORDER ({loc.Where}{(loc.WhyNotActive is { } why ? $"; NOT active — {why}" : "")})";
-        return (new PoleInfo(plugin, poleWhere, InOrder: false, EpochCoversPole: false) { Path = loc.Path }, null);
+        return (new PoleInfo(plugin, poleWhere, InOrder: false, EpochCoversPole: false)
+                { Path = loc.Path, Layer = loc.WhereNamesLayer ? loc.Where : null }, null);
     }
 
     /// <summary>The tool-layer probe: WHICH arm would this source= pole resolve to (active / off-order / neither)?
@@ -2834,11 +2852,21 @@ public sealed class LoadOrderService : IDisposable
         }
 
         // Resolve the uniform arms once (named poles; winner/overlay are per-record but uniform in statement).
-        var sReader = MakePoleReader(view, session, subject, fields, wanted, out subjectArm, out var sCovers, out var sErr);
+        var sReader = MakePoleReader(view, session, subject, fields, wanted, out subjectArm, out var sCovers, out var sErr, out var sOffOrder);
         if (sErr is not null) { refusal = "source: " + sErr; return Array.Empty<DeltaRow>(); }
-        var rReader = MakePoleReader(view, session, reference, fields, wanted, out referenceArm, out var rCovers, out var rErr);
+        var rReader = MakePoleReader(view, session, reference, fields, wanted, out referenceArm, out var rCovers, out var rErr, out _);
         if (rErr is not null) { refusal = "versus: " + rErr; return Array.Empty<DeltaRow>(); }
         epochCoversAll = sCovers && rCovers;
+
+        // previous_provider is measured from the SUBJECT's position in the active touching stack, which an off-order
+        // subject holds in no record — and its filename can be active as a DIFFERENT file. That is a fact about the
+        // arm, not about any record, so it refuses the whole call here rather than deep-reading every match first.
+        if (reference.Kind == PoleKind.PreviousProvider && sOffOrder is not null)
+        {
+            refusal = $"versus: the subject is the off-order file '{sOffOrder.Plugin}' ({sOffOrder.Where}), which holds no position in the " +
+                      "active touching stack previous_provider is measured in. Name an active plugin as source=, or compare against a named versus= plugin.";
+            return Array.Empty<DeltaRow>();
+        }
 
         var rows = new List<DeltaRow>(formids.Count);
         foreach (var (raw, fkOpt, parseError) in parsed)
@@ -2849,20 +2877,17 @@ public sealed class LoadOrderService : IDisposable
             var s = sReader(fk, null);
             if (s.Error is not null) { rows.Add(new DeltaRow(fk.ToString(), s.Pole, null, null, null, null, "subject: " + s.Error)); continue; }
             // previous_provider is measured from the SUBJECT, so hand the reference reader the subject's resolved
-            // plugin for this record and it anchors on the right stack position. An off-order subject holds no
-            // position in that stack — and its filename can be active as a DIFFERENT file — so it is refused rather
-            // than anchored by name on whatever the order serves.
-            var r = reference.Kind == PoleKind.PreviousProvider && !s.Pole!.InOrder
-                ? new PoleReading(null, null, null,
-                    $"the subject is the off-order file '{s.Pole.Plugin}' ({s.Pole.Where}), which holds no position in the " +
-                    "active touching stack previous_provider is measured in. Name an active plugin as source=, or compare against a named versus= plugin.")
-                : rReader(fk, s.Pole!.Plugin);
+            // plugin for this record and it anchors on the right stack position. The off-order subject is already
+            // refused for the whole call above.
+            var r = rReader(fk, s.Pole!.Plugin);
             if (r.Error is not null) { rows.Add(new DeltaRow(fk.ToString(), s.Pole, r.Pole, null, r.StackAbove, null, "versus: " + r.Error)); continue; }
 
             string? note = string.Equals(s.Pole.Plugin, r.Pole!.Plugin, StringComparison.OrdinalIgnoreCase) && s.Pole.Where == r.Pole.Where
                 ? "the two poles resolved to the SAME provider — the diff is trivially empty by construction"
                 : null;
-            var diff = FieldsDiff.Compare(s.Fields!, r.Fields!, referenceLabel: r.Pole.Plugin);
+            // Two copies of one filename on opposite arms: the delta line names the off-order side's mod folder, or
+            // the reader cannot tell which side a value came from without the pole lines above.
+            var diff = FieldsDiff.Compare(s.Fields!, r.Fields!, referenceLabel: r.Pole.LabelVersus(s.Pole.Plugin));
             rows.Add(new DeltaRow(fk.ToString(), s.Pole, r.Pole, diff, r.StackAbove, note, null));
         }
         return rows;
@@ -2879,12 +2904,13 @@ public sealed class LoadOrderService : IDisposable
     /// resolution — a named plugin's active-versus-off-order arm, or an off-order file opened and swept lazily on
     /// first use — happens here once; per-record work stays in the returned reader. <paramref name="covers"/> is
     /// false when the pole reads content outside the epoch fingerprint, such as an off-order file or the overlay's
-    /// INIs.</summary>
+    /// INIs. <paramref name="offOrderArm"/> is the resolved arm when it is an on-disk file outside the order, and
+    /// null otherwise — a uniform fact about the whole call, so a caller can judge it once instead of per record.</summary>
     PoleReader MakePoleReader(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                               PoleSpec spec, IReadOnlyList<string>? fields, IReadOnlyCollection<FormKey>? wanted,
-                              out string? armStatement, out bool covers, out string? error)
+                              out string? armStatement, out bool covers, out string? error, out PoleInfo? offOrderArm)
     {
-        error = null; covers = true;
+        error = null; covers = true; offOrderArm = null;
         switch (spec.Kind)
         {
             case PoleKind.Winner:
@@ -2968,6 +2994,7 @@ public sealed class LoadOrderService : IDisposable
                 // Off-order arm: open the overlay lazily once; per-record lookups sweep it on first use and memoise
                 // every record seen on the way, so one enumeration pass serves the whole batch.
                 covers = false;   // the file's content sits outside the epoch fingerprint
+                offOrderArm = arm;
                 var lazy = new OffOrderPoleCache(this, arm, fields, wanted);
                 return (fk, _) =>
                 {
@@ -2982,7 +3009,8 @@ public sealed class LoadOrderService : IDisposable
                                 ? $"Touched by (active order, winner last): {string.Join(", ", touchers)}."
                                 : "No active plugin touches it either."));
                     }
-                    return new PoleReading(rec, new DiffPole(arm.Plugin, arm.Where, false, rec.Type, rec.EditorId), null, null);
+                    return new PoleReading(rec, new DiffPole(arm.Plugin, arm.Where, false, rec.Type, rec.EditorId)
+                                                { Qualifier = arm.Layer ?? "off-order" }, null, null);
                 };
         }
     }
@@ -3269,7 +3297,7 @@ public sealed class LoadOrderService : IDisposable
         PoleReader? refReader = null;
         if (reference.Kind is not PoleKind.Winner)
         {
-            refReader = MakePoleReader(view, session, reference, fields, wantedT, out referenceArm, out var rCovers, out var rErr);
+            refReader = MakePoleReader(view, session, reference, fields, wantedT, out referenceArm, out var rCovers, out var rErr, out _);
             if (rErr is not null) { refusal = "versus: " + rErr; return Array.Empty<TreeRow>(); }
             epochCoversAll = rCovers;
         }
@@ -3296,7 +3324,7 @@ public sealed class LoadOrderService : IDisposable
                 continue;
             }
 
-            RecordFields? refFields; string refPlugin;
+            RecordFields? refFields; string refPlugin; DiffPole? refPole = null;
             if (refReader is null)
             {
                 var winnerNode = tree.Winner;
@@ -3312,25 +3340,32 @@ public sealed class LoadOrderService : IDisposable
                                          Array.Empty<ChildDeclarers>()));
                     continue;
                 }
-                refFields = r.Fields; refPlugin = r.Pole!.Plugin;
+                refFields = r.Fields; refPlugin = r.Pole!.Plugin; refPole = r.Pole;
             }
+
+            // A node IS the reference only when the reference resolved IN the order: an off-order pole is never one
+            // of the active providers, even when its filename is also active as a different file. Where they share
+            // that filename, the reference's label names its mod folder so the two are told apart.
+            bool refIsActiveProvider = refPole is null || refPole.InOrder;
+            string refLabel = refPole is not null && tree.Nodes.Any(n => string.Equals(n.Plugin, refPlugin, StringComparison.OrdinalIgnoreCase))
+                            ? refPole.LabelVersus(refPlugin) : refPlugin;
 
             var nodes = new List<TreeNodeDelta>(tree.Nodes.Count);
             foreach (var node in tree.Nodes)
             {
                 bool isWinner = ReferenceEquals(node, tree.Winner);
                 bool isRef = refReader is null ? isWinner
-                           : string.Equals(node.Plugin, refPlugin, StringComparison.OrdinalIgnoreCase);
+                           : refIsActiveProvider && string.Equals(node.Plugin, refPlugin, StringComparison.OrdinalIgnoreCase);
                 if (isRef)
                 {
                     nodes.Add(new TreeNodeDelta(node.Plugin, isWinner, true, Array.Empty<string>(), 0, true, null));
                     continue;
                 }
-                var d = FieldsDiff.Compare(node.Record, refFields!, referenceLabel: refPlugin);
+                var d = FieldsDiff.Compare(node.Record, refFields!, referenceLabel: refLabel);
                 nodes.Add(new TreeNodeDelta(node.Plugin, isWinner, false, d.Deltas, d.AgreedCount, d.Complete, null));
             }
             rows.Add(new TreeRow(fk.ToString(), tree.Winner.Record.Type, tree.Winner.Record.EditorId,
-                                 touchers, refPlugin, nodes, null, tree.ChildDeclarers));
+                                 touchers, refLabel, nodes, null, tree.ChildDeclarers));
         }
         return rows;
     }
