@@ -5669,36 +5669,33 @@ public sealed class LoadOrderService : IDisposable
             var outPath = Path.Combine(folder, plugin);
 
             var outcome = WritePatchBuilder.CreatePlugin(outPath, esl, author, description);
-            if (!outcome.Success) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused create leaves no orphan
+            if (!outcome.Success) RemoveFolderCreatedThisCall(outPath);   // a refused create leaves no orphan folder
             return outcome;
         }
     }
 
-    /// <summary>COMPACT / ESL-renumber a plugin (housecarl_compact_plugin, A2) — the data-layer twin of xEdit's "Compact
-    /// FormIDs for ESL". Renumbers <paramref name="pluginName"/>'s ORIGINATING records (flat AND nested — cells, placed
-    /// refs, dialog INFOs) into the light range 0x800–0xFFF (the 2048-ID window; <paramref name="esl"/>=false renumbers
-    /// contiguously without the light flag / ceiling), repoints every internal reference, keeps overrides at their master
-    /// FormIDs, and emits the result. Output model (Aaron 2026-06-26): a NEW plugin P′ keeping the source's EXACT basename
-    /// (so external masters still resolve) in a fresh houseCARL mod folder by default — original UNTOUCHED, reviewable in
-    /// xEdit before you swap; <paramref name="inPlace"/>=true overwrites the original instead (the xEdit norm; rides the
-    /// in-place consent, no backup).
-    ///
-    /// <para>The load-bearing safety (Q3, plan §2): renumbering breaks any reference from OUTSIDE the plugin (they'd point
-    /// at FormIDs that no longer exist). The identify-pass finds those external referencers across the whole order. NO
-    /// external referencers ⇒ the clean default path (emit P′, done). External referencers present ⇒ REFUSED LOUD with the
-    /// list, UNLESS <paramref name="repointExternals"/>=true, which ALSO rewrites each of them in place to follow the
-    /// renumber. Any in-place overwrite (the target in the in-place lane, and/or the external referencers) requires
-    /// <paramref name="acknowledge"/>=true — a first call without it returns a CONFIRM prompt listing exactly what will be
-    /// rewritten (never a silent original-file edit).</para>
-    ///
-    /// <para>An INACTIVE target (on disk but not in the load order — the fresh houseCARL patch pre-MO2-refresh, or a
-    /// disabled mod) is resolved by filename via the shared locate contract and compacted OFF-ORDER; its declared
-    /// masters must still be active (HCBR-2026-07-14-02 gap 3). An override-only target with esl=true takes the
-    /// FLAG-ONLY lane (empty remap; the write sets the light flag).</para>
-    /// <para>Refuses loud + writes nothing on: the plugin not found on disk / ambiguous / excluded (unparseable); MORE than the
-    /// light window holds (the hard ESL ceiling — named, never truncated); a declared master not active; a serialize fault.
-    /// Renumber mechanism + nested coverage: <see cref="RemapEngine.RenumberModInto"/> (remap-wave1/2). Serialized on the
-    /// write gate; the identify-pass is one whole-order link walk (~25s at full scale — a deliberate, one-shot operation).</para></summary>
+    /// <summary>Compact / ESL-renumber a plugin — the data-layer twin of xEdit's "Compact FormIDs for ESL".
+    /// Renumbers <paramref name="pluginName"/>'s originating records, flat and nested (cells, placed refs, dialog
+    /// INFOs), into the light range 0x800–0xFFF; with <paramref name="esl"/> false it renumbers contiguously without
+    /// the light flag or ceiling. It repoints every internal reference, keeps overrides at their master FormIDs, and
+    /// emits the result. By default the output is a new plugin keeping the source's exact basename, so external
+    /// masters still resolve, in a fresh houseCARL mod folder, leaving the original untouched and reviewable before
+    /// the swap; <paramref name="inPlace"/> overwrites the original instead, under the in-place consent and with no
+    /// backup.
+    /// <para>The load-bearing safety: renumbering breaks any reference from OUTSIDE the plugin, which would point at
+    /// FormIDs that no longer exist. The identify pass finds those external referencers across the whole order. With
+    /// none, the default path just emits the new plugin; with some, the call is refused loudly with the list unless
+    /// <paramref name="repointExternals"/> is set, which also rewrites each of them in place to follow the renumber.
+    /// Any in-place overwrite requires <paramref name="acknowledge"/>, and a first call without it returns a confirm
+    /// prompt listing exactly what will be rewritten.</para>
+    /// <para>An inactive target — on disk but not in the load order, such as a fresh patch before an MO2 refresh, or
+    /// a disabled mod — is resolved by filename via the shared locate contract and compacted off-order; its declared
+    /// masters must still be active. An override-only target with esl=true takes the flag-only lane, with an empty
+    /// remap and the write setting the light flag.</para>
+    /// <para>Refuses loudly and writes nothing when the plugin is not found on disk, is ambiguous, was excluded as
+    /// unparseable, needs more IDs than the light window holds, declares a master that is not active, or hits a
+    /// serialize fault. Serialized on the write gate; the identify pass is one whole-order link walk, a deliberate
+    /// one-shot cost.</para></summary>
     public WritePatchBuilder.CompactOutcome CompactPlugin(
         string pluginName, bool esl = true, bool inPlace = false, bool repointExternals = false,
         bool acknowledge = false, string? patchName = null)
@@ -5727,12 +5724,11 @@ public sealed class LoadOrderService : IDisposable
             }
             else
             {
-                // NOT in the active order → resolve the FILE on disk (enabled, disabled, AND unlisted mod folders — the
-                // shared locate contract). This is the pre-enable finishing lane (HCBR-2026-07-14-02 gap 3): ESL-flagging
-                // the patch houseCARL just wrote, BEFORE the MO2 refresh puts it in plugins.txt. The requirement that
-                // actually protects correctness is unchanged: every DECLARED MASTER must be active (CompactBuild refuses
-                // otherwise), and the external-referencer scan still runs over the active order — which, for a plugin
-                // nothing active can master, is exactly the right (empty) answer.
+                // Not in the active order → resolve the file on disk through the shared locate contract, covering
+                // enabled, disabled and unlisted mod folders. This is the pre-enable finishing lane: ESL-flagging a
+                // patch before an MO2 refresh puts it in plugins.txt. The requirement that protects correctness is
+                // unchanged — every declared master must be active — and the external-referencer scan still runs
+                // over the active order, which for a plugin nothing active masters is correctly empty.
                 string modsDir, dataDir, overwriteDir, profileDir;
                 lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; }
                 var comp = Mo2LoadOrder.ReadComposition(profileDir);
@@ -5754,35 +5750,26 @@ public sealed class LoadOrderService : IDisposable
             try { modKey = ModKey.FromFileName(name); }
             catch (Exception ex) { return WritePatchBuilder.CompactOutcome.Fail($"'{name}' is not a valid plugin filename ({ex.Message})."); }
 
-            // LOCALIZED TARGET, in-place only. Earliest possible: before the identify pass, before the consent gate,
-            // before anything is written or staged. Early on purpose — a caller whose target ALSO has external
-            // referencers would otherwise meet the referencer refusal first, follow its "re-run with
-            // repoint_externals=true" remedy, and only then be told the operation was never possible.
-            //
-            // This is NOT the in-place write's choke point reaching further: it cannot fire here. A compaction does not
-            // re-serialize the target, it builds a FRESH plugin and writes that over the original, so the mod handed to
-            // the write is never flagged localized and the check keyed on it never sees this case. What makes it
-            // refusable is what the rebuild DOES to a localized plugin, and there are two outcomes, both silent and both
-            // landing on a file with no review step and no undo: when the strings resolve, the result is DE-LOCALIZED —
-            // one language baked into the plugin, the mod's .STRINGS set no longer describing it, and nobody chose that;
+            // A localized target refuses the in-place lane, checked as early as possible: before the identify pass,
+            // the consent gate, and anything written or staged. A caller whose target also has external referencers
+            // would otherwise meet the referencer refusal first, follow its repoint remedy, and only then be told the
+            // operation was never possible.
+            // The in-place write's own check cannot fire here: a compaction does not re-serialize the target, it
+            // builds a fresh plugin and writes that over the original, so the mod handed to the write is never
+            // flagged localized. What makes it refusable is what the rebuild does to a localized plugin, and both
+            // outcomes are silent and land on a file with no review step and no undo: when the strings resolve, the
+            // result is de-localized, with one language baked in and the mod's .STRINGS set no longer describing it;
             // when they do not, the same path bakes in blanks.
-            //
-            // Keyed on the header FLAG, deliberately wider than the strings-resolve-nowhere case. Detecting that case
-            // precisely is separate machinery that does not exist yet, and neither outcome above may happen silently.
-            // The NEW-FILE lane is untouched: its output is a plugin the modder reviews before swapping it in, which is
-            // the distinction this whole refusal rests on.
-            // Read once: the in-place lane refuses on it, and the new-file lane reports on it (below).
-            //
-            // EVERY shape refuses in place, and a source houseCARL could not READ refuses too — Unreadable is not
-            // NotLocalized, and treating it as such is how this decision failed open once already. The shape decides
-            // only which sentence the caller gets, never the outcome.
-            //
-            // No arrangement earns an in-place rebuild over the modder's own file. The new-file output is always
-            // de-localized, which the refusal states plainly rather than promising a lane that keeps the text as it
-            // found it: Q2-A, which did keep it for one arrangement, was cut (2026-08-26).
+            // Keyed on the header flag, deliberately wider than the strings-resolve-nowhere case, because detecting
+            // that case precisely is machinery that does not exist and neither outcome may happen silently. The
+            // new-file lane is untouched: its output is a plugin the modder reviews before swapping it in, which is
+            // the distinction this refusal rests on. Read once: the in-place lane refuses on it, the new-file lane
+            // reports on it below.
+            // Every shape refuses in place, and a source houseCARL could not READ refuses too — unreadable is not
+            // not-localized. The shape decides only which sentence the caller gets, never the outcome.
             var srcShape = LocalizedStrings.Assess(srcPath, view.DataDir);
-            // THE DECISION collapses, and stays fail-closed: anything that is not a read-and-clear flag refuses. The
-            // WORDS do not — see CompactInPlaceRefusal. Same boolean, two jobs, and only one of them may collapse.
+            // The decision collapses and stays fail-closed: anything that is not a read-and-clear flag refuses. The
+            // WORDS do not — see CompactInPlaceRefusal. Same boolean, two jobs, only one of which may collapse.
             bool srcLocalized = srcShape.Shape != LocalizedShape.NotLocalized;
             if (inPlace && srcLocalized)
                 return WritePatchBuilder.CompactOutcome.Fail(CompactInPlaceRefusal(name, srcShape));
@@ -5795,10 +5782,10 @@ public sealed class LoadOrderService : IDisposable
             IReadOnlyDictionary<FormKey, FormKey> remapDict;
             if (keys.Count == 0)
             {
-                // Override-only (or empty) plugin: nothing to RENUMBER — but with esl=true the job the caller actually
-                // wants (make it light) is trivially satisfiable, because the light window only constrains ORIGINATING
-                // records. Proceed with an empty remap: every record copies verbatim and the write sets the light flag
-                // (the flag-only lane — the all-override compatibility patch, HCBR-2026-07-14-02 gap 3's ESL endgame).
+                // An override-only or empty plugin has nothing to renumber, but with esl=true the job the caller
+                // wants — make it light — is trivially satisfiable, because the light window only constrains
+                // originating records. Proceed with an empty remap: every record copies verbatim and the write sets
+                // the light flag.
                 if (!esl)
                     return WritePatchBuilder.CompactOutcome.Fail(
                         $"'{name}' defines no originating records to renumber (it carries only overrides, or is empty) — nothing to compact. " +
@@ -5814,8 +5801,8 @@ public sealed class LoadOrderService : IDisposable
                 remapDict = plan.Dict;
             }
 
-            // 2. identify-pass — which plugins OUTSIDE the target reference a record being renumbered (the break risk).
-            //    Nothing being renumbered ⇒ nothing can break ⇒ the scan has nothing to ask (skip the whole-order walk).
+            // The identify pass: which plugins outside the target reference a record being renumbered — the break
+            // risk. Nothing being renumbered means nothing can break, so the whole-order walk is skipped.
             var targets = remapDict.Keys.ToHashSet();
             var transformSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { name };
             var id = targets.Count == 0
@@ -5823,32 +5810,30 @@ public sealed class LoadOrderService : IDisposable
                                                  Array.Empty<string>(), Array.Empty<RemapEngine.ExternalOverride>(), Array.Empty<string>())
                 : RemapEngine.IdentifyExternalReferencers(resolver, targets, transformSet);
 
-            // 3. external-referencer policy (Q3 — never silently ship a compaction that dangles an external reference).
+            // External-referencer policy: never silently ship a compaction that dangles an external reference.
             if (id.HasExternalReferencers)
             {
                 var refList = $"{string.Join(", ", id.ExternalPlugins.Take(25))}{(id.ExternalPlugins.Count > 25 ? $", … (+{id.ExternalPlugins.Count - 25} more)" : "")}";
                 if (!repointExternals)
                 {
-                    // #374: this refusal's remedy is "re-run with repoint_externals" — so it has to know whether that
-                    // re-run would itself be refused. It is refused when a referencer's strings are in a state houseCARL
-                    // cannot rewrite, and the caller learns that here rather than by following the instruction and
-                    // meeting a second refusal. The check runs only on the referencers already named, and only on this
-                    // branch: the repoint branch below has its own, which refuses before anything is written.
+                    // This refusal's remedy is "re-run with repoint_externals", so it has to know whether that re-run
+                    // would itself be refused — which happens when a referencer's strings are in a state houseCARL
+                    // cannot rewrite. The caller learns that here rather than by following the instruction into a
+                    // second refusal. The check runs only on the referencers already named, and only on this branch;
+                    // the repoint branch below has its own, which refuses before anything is written.
                     var blocked = RemapEngine.LocalizedAmong(resolver, id.ExternalPlugins);
                     var repointClause = blocked.Count == 0
                         ? "Re-run with repoint_externals=true AND in_place=true (+ acknowledge=true) to ALSO rewrite those plugins in place to follow "
                           + "the renumber, or handle them yourself first."
-                        // SPLIT BY CLASS. LocalizedAmong deliberately fails closed on a referencer it could not read,
-                        // so its hits are not homogeneous — and rendering them as one list called every one of them
-                        // "is localized", including the file nobody managed to open.
+                        // Split by class: LocalizedAmong fails closed on a referencer it could not read, so its hits
+                        // are not homogeneous, and one list would call every one of them localized including the
+                        // file nobody managed to open.
                         : $"Re-running with repoint_externals=true will NOT work here: {BlockedReferencerCensus(blocked)}. "
                           + "houseCARL rewrites neither a localized plugin nor one it cannot read in place, so the "
                           + "repoint would refuse before touching anything. "
-                          // ATTRIBUTED, and now once per CLASS. Blocked referencers can be in different shapes, so
-                          // an unattributed reason reads as the reason for all of them and hands one plugin's account
-                          // of where its text lives to another — and with only the first hit attributed, a whole class
-                          // could go unmentioned, sending the modder to look for .STRINGS files instead of for the
-                          // file they cannot open.
+                          // Reasons are attributed once per class: blocked referencers can be in different shapes,
+                          // so an unattributed reason reads as the reason for all of them and hands one plugin's
+                          // account of where its text lives to another.
                           + BlockedReferencerReasons(blocked)
                           + " Until that is resolved, handle the references yourself instead.";
                     return WritePatchBuilder.CompactOutcome.Fail(
@@ -5856,9 +5841,9 @@ public sealed class LoadOrderService : IDisposable
                         $"WOULD BREAK those references (they would point at FormIDs that no longer exist). Referencers: {refList}. " +
                         repointClause + " Nothing was written.");
                 }
-                // repoint is only COHERENT paired with in_place (PR #122 review #1): in the new-file lane the renumbered
-                // records live ONLY in the not-yet-active P′, so repointing the externals now would leave them dangling
-                // against the still-active original until the MO2 swap — and broken if the user rejects P′. Couple them.
+                // Repointing is only coherent paired with in_place: in the new-file lane the renumbered records live
+                // only in the not-yet-active output, so repointing the externals now would leave them dangling
+                // against the still-active original until the MO2 swap, and broken if the user rejects the output.
                 if (!inPlace)
                     return WritePatchBuilder.CompactOutcome.Fail(
                         $"refused — repoint_externals requires in_place=true. {id.ExternalPlugins.Count} plugin(s) reference records being renumbered " +
@@ -5867,36 +5852,32 @@ public sealed class LoadOrderService : IDisposable
                         "PLACE (in_place=true) so the target and its referrers move together, or handle the externals yourself after enabling P′. Nothing was written.");
             }
 
-            // 4. consent gate — any in-place overwrite (the target, and/or the external referencers) needs acknowledge=true.
+            // The consent gate: any in-place overwrite — the target, the external referencers, or both — needs acknowledge.
             bool willOverwriteTarget = inPlace;
             bool willRepoint = id.HasExternalReferencers && repointExternals;
 
             // Before the consent gate, not after it: houseCARL cannot re-serialize a localized plugin without
-            // scrambling its text, so a run whose referencer rewrites include one is never going to happen — and the
-            // gate below would otherwise ask the modder to accept an irreversible rewrite of their originals to
-            // authorize it. Also before ANY write, because the referencer rewrites run only after the compacted plugin
-            // is already on disk: a refusal discovered there would leave the target renumbered and its referencers
-            // still on the old FormIDs, which nothing downstream can undo.
-            //
-            // No remedy named. "Repoint them yourself first" was measured and is FALSE: the new FormIDs do not exist
-            // until the compaction runs and this verb never discloses the mapping, so a caller cannot repoint to them —
-            // and a referencer repointed to guessed ids stops matching the identify pass, so the follow-up compaction
-            // SUCCEEDS and reports a clean run over links that now point nowhere. A dead end stated plainly beats a
-            // remedy that ends in silent breakage.
+            // scrambling its text, so a run whose referencer rewrites include one can never happen, and the gate
+            // below would otherwise ask the modder to authorize an irreversible rewrite of their originals. Also
+            // before ANY write, because the referencer rewrites run only after the compacted plugin is on disk: a
+            // refusal discovered there would leave the target renumbered and its referencers on the old FormIDs,
+            // which nothing downstream can undo.
+            // No remedy is named. "Repoint them yourself first" is false: the new FormIDs do not exist until the
+            // compaction runs and this verb never discloses the mapping, and a referencer repointed to guessed ids
+            // stops matching the identify pass, so the follow-up compaction succeeds and reports a clean run over
+            // links that now point nowhere.
             if (willRepoint)
             {
                 var localized = RemapEngine.LocalizedAmong(resolver, id.ExternalPlugins);
                 if (localized.Count > 0)
                     return WritePatchBuilder.CompactOutcome.Fail(
                         $"refused — compacting '{name}' means rewriting the plugins that reference it, and houseCARL " +
-                        // SPLIT BY CLASS, count and label both. "N of them are flagged LOCALIZED: A.esp, B.esp" was
-                        // false about every hit houseCARL could not open — a different problem with a different fix,
-                        // reported as the one it is not.
+                        // Split by class, count and label both: calling every hit localized would be false about the
+                        // ones houseCARL could not open, a different problem with a different fix.
                         $"cannot rewrite all of them: {BlockedReferencerCensus(localized)}. " +
-                        // The referencer's OWN reason, verbatim from the same decision the write would have made, and
-                        // ATTRIBUTED once per CLASS: a caller refused here is being told about a plugin they did not
-                        // name, so "it is localized" is not enough to act on — what they need is where that plugin's
-                        // text actually is, or that houseCARL could not open it.
+                        // The referencer's own reason, verbatim from the same decision the write would have made,
+                        // attributed once per class: a caller refused here is being told about a plugin they did not
+                        // name, so they need where that plugin's text is, or that it could not be opened.
                         $"{BlockedReferencerReasons(localized)} " +
                         "NOTHING was written and nothing was staged — " +
                         $"'{name}' is untouched. Following the renumber means rewriting those referencers in place, and " +
@@ -5917,14 +5898,14 @@ public sealed class LoadOrderService : IDisposable
                 return WritePatchBuilder.CompactOutcome.Confirm(c.ToString());
             }
 
-            // pre-flight the in-place target's parent is writable BEFORE any work — the in-place edit lane's layer-3 check,
-            // a nicer early refusal than failing deep in the atomic swap (PR #122 review #2). Each external referencer gets
-            // the same guarantee inside RepointInPlace's own all-or-nothing write.
+            // Pre-flight that the in-place target's parent is writable before any work — an early refusal rather than
+            // a failure deep in the atomic swap. Each external referencer gets the same guarantee inside
+            // RepointInPlace's own all-or-nothing write.
             if (inPlace && InPlaceParentUnwritable(srcPath, out var unwritable))
                 return WritePatchBuilder.CompactOutcome.Fail(unwritable);
 
-            // 5. output location — in-place (overwrite the original) or a NEW file keeping the source's EXACT basename in
-            //    a fresh houseCARL mod folder (so its masters still resolve; the user swaps the folder in MO2 to use it).
+            // Output location: in place over the original, or a new file keeping the source's exact basename in a
+            // fresh houseCARL mod folder, so its masters still resolve and the user swaps the folder in MO2.
             string outPath; bool createdFresh = false; RiderFolder rf = default;
             if (inPlace) outPath = srcPath;
             else
@@ -5932,11 +5913,11 @@ public sealed class LoadOrderService : IDisposable
                 try { rf = ResolvePatchModFolder(patchName, null, Path.GetFileNameWithoutExtension(name) + " compacted"); }
                 catch (InvalidOperationException ex) { return WritePatchBuilder.CompactOutcome.Fail(ex.Message); }
                 createdFresh = rf.CreatedFresh;
-                WriteOwnerMeta(rf.ModFolder, name);                       // P′ keeps the source's exact basename
+                WriteOwnerMeta(rf.ModFolder, name);                       // the output keeps the source's exact basename
                 outPath = Path.Combine(rf.OutputDir, name);
             }
 
-            // 6. build + write the compacted plugin.
+            // Build and write the compacted plugin.
             var build = WritePatchBuilder.CompactBuild(srcPath, modKey, remapDict, view.PluginPath, outPath, esl, floor, view.DataDir);
             if (!build.Success)
             {
@@ -5944,7 +5925,7 @@ public sealed class LoadOrderService : IDisposable
                 return WritePatchBuilder.CompactOutcome.Fail(build.Error!);
             }
 
-            // 7. opt-in: repoint each external referencer in place (per-plugin all-or-nothing; every result reported, Q3).
+            // Opt-in: repoint each external referencer in place, per-plugin all-or-nothing, with every result reported.
             var repointed = new List<WritePatchBuilder.RepointReport>();
             if (willRepoint)
                 foreach (var ext in id.ExternalPlugins)
@@ -5953,10 +5934,10 @@ public sealed class LoadOrderService : IDisposable
                     repointed.Add(new WritePatchBuilder.RepointReport(ext, rep.Success, rep.Error));
                 }
 
-            // 7b. carry the FormID-keyed assets a renumber moves — FaceGen head mesh/tint (A1) + voice .fuz/.lip (A2). The
-            //     records renumbered, so the asset FILES the engine looks up BY FormID must follow, or a compacted NPC mod
-            //     silently dark-faces and a voiced mod goes mute (the gap this research exposed in the shipped tool). ONE
-            //     captured asset view feeds both carries AND the 7c SEQ gate, so all three agree on what's in the VFS. Best-
+            // Carry the FormID-keyed assets a renumber moves: FaceGen head mesh and tint, and voice .fuz/.lip. The
+            // records were renumbered, so the asset files the engine looks up BY FormID must follow, or a compacted
+            // NPC mod silently dark-faces and a voiced mod goes mute. One captured asset view feeds both carries and
+            // the SEQ check below, so all three agree on what is in the VFS. Best-
             //     effort + REPORTED (Q3): the records are already written, so an asset we can't carry is a NAMED warning in the
             //     outcome, never a failure of the compaction — and the asset layer failing to build never fails the compact
             //     either. outDir = the P′ mod-folder root (the directory holding the plugin) in BOTH lanes (new-file: the
@@ -5972,7 +5953,7 @@ public sealed class LoadOrderService : IDisposable
             try
             {
                 AssetResolver assetResolver;
-                lock (_gate) { assetResolver = Assets; }                  // reentrant under the held _writeGate (the PlaceAssets idiom)
+                lock (_gate) { assetResolver = Assets; }                  // reentrant under the held _writeGate
                 var assetView = assetResolver.Capture();
                 seqGate = assetView.ResolveForPlacement(srcSeqRel).Sources.Count > 0;   // VFS-aware (loose roots + active BSAs)
                 var outDir = Path.GetDirectoryName(outPath)!;
@@ -5986,18 +5967,16 @@ public sealed class LoadOrderService : IDisposable
                 voiceRename = new VoiceCarryOutcome(0, 0, 0,
                     new[] { $"voice carry skipped — the asset layer could not be built ({ex.Message}); verify voiced lines in-game." }, false);
             }
-            // The gate is the VFS answer whenever the view resolved — even if a LATER carry threw, a carry failure must NOT
-            // downgrade a good gate result (re-review). Only when the view never resolved (seqGate still null — the asset layer
-            // couldn't be built) fall back to the loose-only check (degraded, never worse than the pre-fix behavior).
+            // The check is the VFS answer whenever the view resolved: a later carry throwing must not downgrade a good
+            // result. Only when the view never resolved does it fall back to the degraded loose-only check.
             bool sourceHadSeq = seqGate ?? File.Exists(Path.Combine(Path.GetDirectoryName(srcPath)!, srcSeqRel));
 
-            // 7c. REFRESH the start-game-enabled-quest .seq from the RENUMBERED plugin when the source SHIPPED one (the VFS
-            //     gate above). A renumber shifts every SGE quest's master-relative on-disk FormID, so a shipped .seq is now
-            //     STALE — its quests would silently never start (the failure SeqFile exists to prevent). REFRESH-ONLY
-            //     (maintainer's call): if the source shipped NO .seq we do NOT invent one (xEdit-compaction parity) —
-            //     RegenerateSeq returns a named advisory. The REGEN itself is off P′ (SeqFile.Build — the write_seq path) and
-            //     needs no resolver; only the gate consults the view. Best-effort + REPORTED (Q3): RegenerateSeq never throws
-            //     and never fails the compact; the outer guard is belt-and-suspenders.
+            // Refresh the start-game-enabled-quest .seq from the renumbered plugin when the source shipped one. A
+            // renumber shifts every SGE quest's master-relative on-disk FormID, so a shipped .seq is now stale and
+            // its quests would silently never start. Refresh only: if the source shipped no .seq, none is invented,
+            // and RegenerateSeq returns a named advisory. The regeneration reads the new plugin and needs no
+            // resolver; only the check above consults the view. Best-effort and reported: it never throws and never
+            // fails the compact, and the outer try is belt and braces.
             SeqRegenOutcome seqRegen;
             try { seqRegen = AssetRenameService.RegenerateSeq(outPath, Path.GetDirectoryName(outPath)!, sourceHadSeq); }
             catch (Exception ex)
@@ -6006,38 +5985,25 @@ public sealed class LoadOrderService : IDisposable
                     new[] { $"SEQ regenerate skipped ({ex.Message}) — if '{name}' has start-game-enabled quests, run {ToolNames.WriteSeq} on the compacted plugin." });
             }
 
-            // 8. audit markers (PR #122 review #2): stamp the distinct editedInPlace= breadcrumb into the meta.ini of EVERY
-            //    file rewritten IN PLACE — the target (in-place lane) + each successfully repointed external — matching the
-            //    traceability the in-place EDIT lane gives. The CONSENT model deliberately stays compact's own per-call
-            //    confirm (NOT the persistent _store ack the edit lane uses): a compaction can rewrite a broad surface (the
-            //    target + N externals), so each one re-confirms with its exact overwrite list rather than letting a stale
-            //    field-edit ack silently authorize a full renumber. Markers are best-effort (a miss never fails the done
-            //    write, Q3) — any miss is surfaced in Note.
+            // Audit markers: stamp the editedInPlace breadcrumb into the meta.ini of every file rewritten in place —
+            // the target and each successfully repointed external — matching the traceability the in-place edit lane
+            // gives. The consent model deliberately stays compact's own per-call confirm rather than the persistent
+            // acknowledgement the edit lane uses: a compaction can rewrite a broad surface, so each call re-confirms
+            // with its exact overwrite list rather than letting a stale field-edit acknowledgement authorize a full
+            // renumber. Markers are best-effort; a miss never fails the done write and is surfaced in Note.
             var markerNotes = new List<string>();
             if (offOrderNote is not null) markerNotes.Add(offOrderNote);
             // The new-file lane produces the SAME de-localized plugin the in-place lane is refused for; only where it
-            // lands differs. A caller who never meets that refusal was getting no word of it, so the standard the
-            // refusal invokes was being applied to one lane and not the other — and the quiet one is the lane the
-            // refusal recommends. Own-behaviour only: it does NOT claim the strings resolved, because when they resolve
-            // nowhere this same path writes blanks and the sentence has to stay true there too.
-            //
-            // NO COUNT. The sentence this replaces said "including the N other language(s) it shipped (English,
-            // French)" with N computed as (languages − 1) — so a two-language source announced "the 1 other language
-            // (English, French)", a count and a list contradicting each other in one clause, and the list named the
-            // language the output had actually baked IN as one it had lost. What the source shipped is a fact about
-            // the source and is stated as one; which of them survived into the plugin is not something this can read
-            // back out of a de-localized output, so it is not claimed.
-            //
-            // The claim about the OUTPUT — that it is not localized and has no tables beside it — is not computed from
-            // the source folder's file list. It is pinned by compact-service-guard's arm, which reads P′ back and
-            // asserts both. (The de-localized-vs-kept conditional the old note carried is gone with Q2-A.)
-            //
-            // GATED ON THE SHAPE, NOT ON srcLocalized. That boolean is deliberately fail-CLOSED for the refusal above
-            // — an unreadable source must not be rewritten in place — and fail-closed is the wrong answer for a note,
-            // where the honest response to "houseCARL never read the file" is to say nothing. With it gating this,
-            // a plain non-localized plugin locked for the instant of the Assess (an AV scan, MO2 refreshing) and
-            // readable again seventeen lines later compacted fine and was then told its text lives in .STRINGS files
-            // that do not exist. ConfirmedLocalized is the narrower question: was the flag actually read and set.
+            // lands differs, so a caller who never meets that refusal still needs to be told. It states its own
+            // behaviour only and does not claim the strings resolved, because when they resolve nowhere this same
+            // path writes blanks and the sentence must stay true there too. It names no count of surviving languages:
+            // what the source shipped is a fact about the source, but which of them survived into the plugin cannot
+            // be read back out of a de-localized output.
+            // Gated on the SHAPE, not on srcLocalized. That boolean is deliberately fail-closed for the refusal
+            // above, and fail-closed is the wrong answer for a note, where the honest response to "houseCARL never
+            // read the file" is to say nothing: a plain non-localized plugin briefly locked during the assessment
+            // would otherwise be told its text lives in .STRINGS files that do not exist. ConfirmedLocalized asks the
+            // narrower question — was the flag actually read and set.
             if (!inPlace && LocalizedStrings.ConfirmedLocalized(srcShape.Shape))
                 markerNotes.Add(
                     $"'{name}' is flagged LOCALIZED — its text lives in separate .STRINGS files rather than in the "
@@ -6062,12 +6028,10 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
-    /// <summary>A blocked referencer list, split into the two classes it actually holds.
-    ///
-    /// <para><see cref="RemapEngine.LocalizedAmong"/> fails CLOSED on a referencer it could not open — right, and this
-    /// branch's own change — so its hits are a mix of "flagged LOCALIZED" and "houseCARL could not read this". Both
-    /// block the repoint; they are not the same problem and they do not have the same fix. Rendered as one list, the
-    /// count and the label both went to the wider class and the unreadable file was reported as localized.</para></summary>
+    /// <summary>A blocked referencer list, split into the two classes it holds.
+    /// <see cref="RemapEngine.LocalizedAmong"/> fails closed on a referencer it could not open, so its hits are a mix
+    /// of "flagged LOCALIZED" and "could not be read". Both block the repoint, but they are not the same problem and
+    /// do not have the same fix, so rendering them as one list would report the unreadable file as localized.</summary>
     static (IReadOnlyList<(string Plugin, LocalizedShape Shape, string Why)> Localized,
             IReadOnlyList<(string Plugin, LocalizedShape Shape, string Why)> Unread)
         SplitBlockedReferencers(IReadOnlyList<(string Plugin, LocalizedShape Shape, string Why)> blocked)
@@ -6088,8 +6052,8 @@ public sealed class LoadOrderService : IDisposable
             => string.Join(", ", l.Take(25).Select(x => x.Plugin)) + (l.Count > 25 ? $", … (+{l.Count - 25} more)" : "");
     }
 
-    /// <summary>An attributed reason for the FIRST of EACH class — never only the first hit overall, which left a
-    /// whole class unmentioned and sent the modder looking for .STRINGS files instead of for the file they cannot
+    /// <summary>An attributed reason for the first of EACH class, never only the first hit overall, which would leave
+    /// a whole class unmentioned and send the modder looking for .STRINGS files instead of for the file they cannot
     /// open. The lead-in differs because the two facts differ.</summary>
     internal static string BlockedReferencerReasons(IReadOnlyList<(string Plugin, LocalizedShape Shape, string Why)> blocked)
     {
@@ -6110,22 +6074,19 @@ public sealed class LoadOrderService : IDisposable
         return string.Join(" ", parts);
     }
 
-    /// <summary>The in-place compaction's refusal, rendered per SHAPE.
-    ///
-    /// <para>The refusal DECISION is one boolean and stays that way — anything but a read-and-clear flag refuses,
-    /// fail-closed, which is right. The refusal's WORDS cannot be, because the localized arm's every clause is about a
-    /// translated plugin's <c>.STRINGS</c> files and the remedy it ends on is the new-file lane. Told to a source
-    /// houseCARL could not OPEN, that describes tables nobody established exist and points at a lane that reads the
-    /// same file and meets the same failure — a remedy that dead-ends, which is #374's shape reappearing on this
-    /// arm.</para></summary>
+    /// <summary>The in-place compaction's refusal, rendered per shape. The refusal decision is one fail-closed
+    /// boolean, but its words cannot be: the localized arm's clauses are all about a translated plugin's
+    /// <c>.STRINGS</c> files and end on the new-file lane, and told to a source houseCARL could not open that would
+    /// describe tables nobody established exist and point at a lane that reads the same file and fails the same
+    /// way.</summary>
     static string CompactInPlaceRefusal(string name, LocalizedAssessment a)
     {
         var head = $"houseCARL did not compact '{name}' in place — the file is unchanged and nothing was staged. "
                  + LocalizedTargetUnsupportedException.ShapeClause(a) + " ";
         return a.Shape switch
         {
-            // Never opened. No claim about tables, and no lane to switch to — measured, not assumed: the compact
-            // guard drives the new-file lane against the same held file and requires it to fail.
+            // Never opened: no claim about tables, and no lane to switch to, because the new-file lane reads the
+            // same file and fails the same way.
             LocalizedShape.Unreadable =>
                 head + "houseCARL does not rewrite a destination it cannot classify. Compacting into a NEW plugin is "
                      + "not the lane to switch to either — it reads the same file and fails the same way. "
@@ -6143,43 +6104,41 @@ public sealed class LoadOrderService : IDisposable
                      + "carries the text that resolved when houseCARL read the source, written into the plugin itself, "
                      + "and the source's .STRINGS files do not describe it. Read it before you swap it in.",
 
-            // NotLocalized cannot reach here (the caller's gate excludes it) and a later shape has no wording — so
-            // this arm says only what is certain, rather than borrowing either branch above (Q3).
+            // NotLocalized cannot reach here — the caller's check excludes it — and a new shape has no wording, so
+            // this arm says only what is certain rather than borrowing either branch above.
             _ => head + "houseCARL will not compact this plugin in place.",
         };
     }
 
-    /// <summary>Merge one or more ACTIVE plugins into ONE new plugin (housecarl_merge_plugins — the A4 orchestration
-    /// over the compact spine). Merge = a RECORDS operation: the donors' records combine into a fresh plugin under a
-    /// NEW name (collision-only renumber — the first donor in load order keeps its object IDs; cross-donor conflicts
-    /// on the same record resolve to the LOAD-ORDER WINNER and are reported; a losing donor's un-relisted nested
-    /// children graft into the winner). The donors are NEVER touched — new-file lane only, no consent gate; the user
-    /// reviews M in xEdit, enables its folder, and deactivates the donor PLUGINS in MO2 (the donor MOD FOLDERS stay
-    /// enabled — the merged records still reference the donors' path-keyed assets, which only those folders serve;
-    /// the carries cover ONLY the FormID-keyed facegen/voice/seq). External referencers AND overriders
-    /// of donor records are WARNED loud and named (never a refusal: nothing breaks at write time — the donors stay
-    /// active until the user swaps; the remedy is to include the patch in the merge set or repoint it before disabling
-    /// the donors). The FormID-keyed assets follow per donor: EVERY donor NPC's facegen and EVERY voiced line move to
-    /// the new plugin-name folders (the plugin NAME is part of those paths, so this is the full donor set, not just
-    /// collisions), and a <c>.seq</c> is refreshed when any donor shipped one. With a SINGLE donor there is nothing to
-    /// combine and the operation IS a rename (#345): the same records under a new plugin identity, keeping every object
-    /// id already inside the writable range — nothing can collide, but an id BELOW the write floor renumbers exactly as
-    /// it does for the first donor of any merge, and the per-donor line reports it. Its side effects are inherent to any rename and are REPORTED, never refused — the
-    /// output lands in a NEW mod folder beside the donor's and the swap instruction applies unchanged (deactivate the old
-    /// PLUGIN, keep its mod FOLDER enabled — the renamed records still load that mod's path-keyed assets), and the
-    /// existing saves warning covers the break that a changed plugin name causes.</summary>
+    /// <summary>Merge one or more active plugins into one new plugin. A merge is a records operation: the donors'
+    /// records combine into a fresh plugin under a new name, with a collision-only renumber — the first donor in load
+    /// order keeps its object IDs, cross-donor conflicts on the same record resolve to the load-order winner and are
+    /// reported, and a losing donor's un-relisted nested children graft into the winner. The donors are never
+    /// touched: new-file lane only, no consent gate. The user reviews the output, enables its folder, and deactivates
+    /// the donor PLUGINS in MO2 while leaving the donor mod FOLDERS enabled, because the merged records still
+    /// reference the donors' path-keyed assets, which only those folders serve; the carries cover only the
+    /// FormID-keyed facegen, voice and .seq. External referencers and overriders of donor records are warned about
+    /// and named rather than refused, because nothing breaks at write time — the donors stay active until the user
+    /// swaps — and the remedy is to include the patch in the merge set or repoint it before disabling the donors.
+    /// The FormID-keyed assets follow per donor: every donor NPC's facegen and every voiced line move to the new
+    /// plugin-name folders, since the plugin name is part of those paths, and a <c>.seq</c> is refreshed when any
+    /// donor shipped one. With a single donor there is nothing to combine and the operation IS a rename: the same
+    /// records under a new plugin identity, keeping every object id already inside the writable range, though an id
+    /// below the write floor renumbers exactly as it does for the first donor of any merge and the per-donor line
+    /// reports it. A rename's side effects are reported rather than refused: the output lands in a new mod folder
+    /// beside the donor's, the swap instruction applies unchanged, and the existing-saves warning covers the break a
+    /// changed plugin name causes.</summary>
     public WritePatchBuilder.MergeOutcome MergePlugins(
         IReadOnlyList<string>? plugins, string? outputName, string? patchName = null)
     {
-        // ---- 0. argument shape (Q3 — every refusal names the fix) ----
+        // ---- argument shape; every refusal names the fix ----
         var donorsRaw = (plugins ?? Array.Empty<string>()).Select(p => (p ?? "").Trim()).Where(p => p.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        // ONE donor is legitimate and IS the rename (#345): the remap moves every donor key to the output ModKey
-        // whether or not anything collided, and the facegen/voice carry + .seq refresh are per-DONOR (the plugin NAME
-        // is a folder segment of those paths), so the single-donor path needs no machinery the multi-donor path
-        // lacks — it is the same walk with an empty collision set (below-floor ids still renumber: BuildMergeRemap queues
-        // them with the collisions, so "nothing can collide" is not "every id is kept"). The donor list stays a SET: duplicate names
-        // collapse here exactly as they do for many donors, so plugins=["A.esp","A.esp"] is one donor, a rename.
+        // One donor is legitimate and IS the rename: the remap moves every donor key to the output ModKey whether or
+        // not anything collided, and the facegen/voice carry and .seq refresh are per-donor because the plugin name
+        // is a folder segment of those paths. So the single-donor path is the same walk with an empty collision set;
+        // below-floor ids still renumber, so "nothing can collide" is not "every id is kept". The donor list stays a
+        // SET, so duplicate names collapse here exactly as they do for many donors.
         if (donorsRaw.Count == 0)
             return WritePatchBuilder.MergeOutcome.Fail(
                 "merge needs at least ONE donor plugin — pass plugins=[\"A.esp\"] to move one plugin's records to a new " +
@@ -6199,7 +6158,7 @@ public sealed class LoadOrderService : IDisposable
         if (donorsRaw.Any(d => string.Equals(d, outName, StringComparison.OrdinalIgnoreCase)))
             return WritePatchBuilder.MergeOutcome.Fail($"the output '{outName}' cannot also be a donor — name a NEW plugin file.");
 
-        lock (_writeGate)                                                 // one write at a time (the compact discipline)
+        lock (_writeGate)                                                 // one write at a time
         {
             var resolver = Resolver;
             var view = resolver.Capture();
@@ -6210,8 +6169,8 @@ public sealed class LoadOrderService : IDisposable
                     $"'{outName}' is already an active plugin in your load order — the merge output must be a NEW plugin name " +
                     "(merging over an existing plugin would shadow it in MO2).");
 
-            // ---- 1. validate + load-order-sort the donors (merge semantics are load-order semantics — Q3: sort, don't
-            //      trust arg order). ONE name→position index serves the donor sort here and the master sort in step 4. ----
+            // ---- validate and load-order-sort the donors: merge semantics are load-order semantics, so sort rather
+            //      than trusting argument order. One name-to-position index serves this sort and the master sort. ----
             var orderIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             for (int i = 0; i < resolver.PluginNames.Count; i++) orderIndex[resolver.PluginNames[i]] = i;
             var donorInfos = new List<(string Name, string Path, ModKey Key, int Order)>();
@@ -6219,10 +6178,9 @@ public sealed class LoadOrderService : IDisposable
             {
                 if (!view.ContainsPlugin(d))
                 {
-                    // Same trim as read_record's: once a cause is stated it carries its own remedy, and the legacy
-                    // "Enable it in MO2 first (pass the exact filename)" both conflates the vocabulary this change is
-                    // fixing (a MOD is enabled; a PLUGIN is activated) and asks for a filename that has already
-                    // resolved to a real installed plugin (review of PR #274, round 2).
+                    // Once a cause is stated it carries its own remedy. An unconditional "Enable it in MO2 first
+                    // (pass the exact filename)" both conflates the vocabulary — a MOD is enabled, a PLUGIN is
+                    // activated — and asks for a filename that has already resolved to a real installed plugin.
                     var dWhy = view.ExplainAbsence(d);
                     return WritePatchBuilder.MergeOutcome.Fail(
                         $"donor '{d}' is not an active plugin in your load order." +
@@ -6233,15 +6191,15 @@ public sealed class LoadOrderService : IDisposable
                 if (view.ExcludedPlugins.TryGetValue(d, out var excluded))
                     return WritePatchBuilder.MergeOutcome.Fail(
                         $"cannot merge '{d}': it was EXCLUDED from this session ({excluded}) — houseCARL won't merge a plugin it " +
-                        "can't fully parse (it would risk dropping records it couldn't read, Q3). Nothing was written.");
+                        "can't fully parse (it would risk dropping records it couldn't read). Nothing was written.");
                 var p = view.PluginPath(d);
                 if (p is null || !File.Exists(p))
                     return WritePatchBuilder.MergeOutcome.Fail($"donor '{d}' not found on disk at {p ?? "<unresolved>"} — nothing to merge.");
                 ModKey dk;
                 try { dk = ModKey.FromFileName(d); }
                 catch (Exception ex) { return WritePatchBuilder.MergeOutcome.Fail($"'{d}' is not a valid plugin filename ({ex.Message})."); }
-                if (!orderIndex.TryGetValue(d, out var order))            // unreachable after ContainsPlugin (same source table) — refuse loud, never mis-sort
-                    return WritePatchBuilder.MergeOutcome.Fail($"donor '{d}' has no load-order position (index inconsistency, Q3). Nothing was written.");
+                if (!orderIndex.TryGetValue(d, out var order))            // unreachable after ContainsPlugin (same source table) — refuse rather than mis-sort
+                    return WritePatchBuilder.MergeOutcome.Fail($"donor '{d}' has no load-order position (index inconsistency). Nothing was written.");
                 donorInfos.Add((d, p, dk, order));
             }
             donorInfos.Sort((a, b) => a.Order.CompareTo(b.Order));
@@ -6310,7 +6268,7 @@ public sealed class LoadOrderService : IDisposable
             try
             {
                 AssetResolver assetResolver;
-                lock (_gate) { assetResolver = Assets; }                  // reentrant under the held _writeGate (the PlaceAssets idiom)
+                lock (_gate) { assetResolver = Assets; }                  // reentrant under the held _writeGate
                 var assetView = assetResolver.Capture();
                 seqGate = false;                                          // the view resolved — the answer below is authoritative
                 foreach (var (dName, _, _, _) in donorInfos)              // "did ANY donor ship a .seq?" — VFS-aware, per donor
