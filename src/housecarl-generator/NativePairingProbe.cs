@@ -286,6 +286,22 @@ public static class NativePairingProbe
                 Render(mixedData, filter: "MixedUtil").Contains("debug CRT"));
         }
         {
+            // Arm A4 (review finding): a version-LOCKED debug build with the runtime unknown lands on VERIFY, and the
+            // debug CRT is just as fatal for everyone else there as on LOADS — the inventory family flags the same file
+            // regardless of the version question, so this render must not go quiet about it.
+            var lockedDbgInfo = new SksePluginReader.SksePluginInfo("LockedDbg.dll", SksePluginReader.SksePluginKind.Modern, true,
+                Ver(independent: false, compat: new[] { "1.5.97" }), null, new[] { "kernel32.dll", "vcruntime140d.dll" });
+            var lockedDbgDll = new NativePairedDll(@"SKSE\Plugins\LockedDbg.dll", "LockedDbg.dll", "", "LockedDbgMod", lockedDbgInfo, null);
+            var data = Data(new[] { Cls("LockedDbgUtil", NativeProvenance.ThirdParty, NativePairingRung.SameMod, "LockedDbgMod", new[] { lockedDbgDll }) }, runtime: null);
+            var s = Render(data);
+            Check("A4a: a version-locked debug build still reads [VERIFY] — the verdict is untouched by the note",
+                s.Contains("[VERIFY]") && s.Contains("need a version check") && !s.Contains("[DEAD]"));
+            Check("A4b: …and the VERIFY line names the debug CRT and error 126, as the LOADS line does",
+                s.Contains("vcruntime140d.dll") && s.Contains("debug CRT") && s.Contains("error 126"));
+            Check("A4c: …in the filter= view too, from the same Judge",
+                Render(data, filter: "LockedDbgUtil").Contains("debug CRT"));
+        }
+        {
             // Arm C: a static blocker (BSA-only) is dead regardless of runtime knowledge.
             var bsaDll = new NativePairedDll(@"SKSE\Plugins\X.dll", "X.dll", "", "XMod", null,
                 "provided only inside a BSA — the SKSE loader scans loose DLLs only, so it will not load");

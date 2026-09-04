@@ -852,15 +852,24 @@ static class NativePairingWire
     /// static blocker or a locked-runtime mismatch).</summary>
     enum DllFate { Loads, Verify, Dead }
 
-    /// <summary>The verdict a DLL line carries, with the debug-build note appended when it applies. Reaching a LOADS
-    /// fate with debug-CRT imports means the debug runtime resolved on THIS machine — the DLL loads for its author and
-    /// for nobody else, which the fate alone does not say (#417). The verdict itself is untouched: it does load here.</summary>
+    /// <summary>The verdict a DLL line carries, with the debug-build note appended when it applies. Reaching a LOADS or
+    /// VERIFY fate with debug-CRT imports means the debug runtime resolved on THIS machine — the DLL loads for its
+    /// author and for nobody else, which the fate alone does not say (#417). A DEAD verdict already names the debug
+    /// build in its blocker. The verdict itself is untouched by the note.</summary>
     static (DllFate Fate, string Detail) Judge(NativePairedDll d, string? runtime)
     {
         var (fate, detail) = Verdict(d, runtime);
-        if (fate == DllFate.Loads && d.Info is { } info && info.DebugCrtImports.Count > 0)
-            detail += $" — but it imports the debug CRT ({string.Join(", ", info.DebugCrtImports)}), so it loads HERE and " +
-                      "fails with error 126 for anyone without the debug runtime";
+        if (fate != DllFate.Dead && d.Info is { } info && info.DebugCrtImports.Count > 0)
+        {
+            var crt = string.Join(", ", info.DebugCrtImports);
+            // VERIFY is a version question, so the clause is additive there rather than a 'but': the version lock is
+            // still unresolved, AND the debug runtime is a second, independent reason it will not load elsewhere.
+            detail += fate == DllFate.Loads
+                ? $" — but it imports the debug CRT ({crt}), so it loads HERE and fails with error 126 for anyone " +
+                  "without the debug runtime"
+                : $" — and it imports the debug CRT ({crt}), so even where the version matches it loads HERE only and " +
+                  "fails with error 126 for anyone without the debug runtime";
+        }
         return (fate, detail);
     }
 
