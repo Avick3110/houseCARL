@@ -215,7 +215,7 @@ public static class NativePairingProbe
         {
             // Arm A2 (tier D, Aaron-go 2026-07-17): the DEBUG-build blocker — the audit's 7th, and the one that used to
             // read as healthy. This DLL is loose, top-level, x64, readable and version-INDEPENDENT: every other check
-            // passes it, so before this the audit rendered [LOADS] while skse_inventory called the same DLL broken.
+            // passes it, so before this the audit rendered [LOADS] while the inventory family called the same DLL broken.
             // The blocker rides LoadBlocker, so it lands in PAIRED-BUT-DEAD by construction — no Judge arm needed.
             // Drives the REAL service chain (LoadOrderService.LooseDllBlocker), not a hand-built blocker — the wiring is
             // the one link no live gate can reach here (ARR has zero debug plugins; the dev box HAS the debug runtime,
@@ -237,6 +237,29 @@ public static class NativePairingProbe
             Check("A2: a DEBUG-built version-INDEPENDENT DLL → 'PAIRED BUT DEAD', not healthy (the tier-D blind spot)",
                 s.Contains("PAIRED BUT DEAD") && s.Contains("DEBUG build") && s.Contains("error 126")
                 && !s.Contains("paired healthy (1"));
+        }
+        {
+            // Arm A3 (#417): the SAME debug build on the AUTHOR's own box, where the debug runtime resolves — so
+            // LooseDllBlocker returns null and every other check passes it. The verdict is right (it does load here) and
+            // stays LOADS; what used to be missing is any mention of the debug build, leaving the author who ships one
+            // told everything is healthy. The filter= view is the one that renders a healthy class's DLL line.
+            var dbgInfo = new SksePluginReader.SksePluginInfo("Dbg.dll", SksePluginReader.SksePluginKind.Modern, true,
+                Ver(independent: true, compat: Array.Empty<string>()), null, new[] { "kernel32.dll", "vcruntime140d.dll" });
+            Check("A3a: on a box WITH the debug runtime the DLL has no blocker (the author's own machine)",
+                LoadOrderService.LooseDllBlocker(dbgInfo, _ => true) is null);
+            var dbgDll = new NativePairedDll(@"SKSE\Plugins\Dbg.dll", "Dbg.dll", "", "DbgMod", dbgInfo, null);
+            var data = Data(new[] { Cls("DbgUtil", NativeProvenance.ThirdParty, NativePairingRung.SameMod, "DbgMod", new[] { dbgDll }) }, "1.6.1170.0");
+            var s = Render(data, filter: "DbgUtil");
+            Check("A3b: it still renders [LOADS] — the verdict is untouched, because it does load here",
+                s.Contains("[LOADS]") && !s.Contains("[DEAD]"));
+            Check("A3c: …and the line now names the debug CRT and error 126 for everyone else (#417)",
+                s.Contains("vcruntime140d.dll") && s.Contains("error 126") && s.Contains("debug CRT"));
+            // The healthy roster must not gain the sentence: it lists class names, not DLL lines, so a leak there would
+            // mean the note escaped Judge into the summary.
+            Check("A3d: a clean version-independent DLL gets no debug note",
+                !Render(Data(new[] { Cls("CleanUtil", NativeProvenance.ThirdParty, NativePairingRung.SameMod, "CleanMod",
+                    new[] { new NativePairedDll(@"SKSE\Plugins\PapyrusUtil.dll", "PapyrusUtil.dll", "", "CleanMod", indepInfo, null) }) }, "1.6.1170.0"),
+                    filter: "CleanUtil").Contains("debug CRT"));
         }
         {
             // Arm C: a static blocker (BSA-only) is dead regardless of runtime knowledge.
