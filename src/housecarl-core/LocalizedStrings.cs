@@ -287,6 +287,53 @@ public static class LocalizedStrings
         return (a.Shape, LocalizedTargetUnsupportedException.ShapeBody(a));
     }
 
+    /// <summary>Does the plugin's OWN folder carry a strings source FOR THIS PLUGIN — a loose table beside it, or a
+    /// <c>.bsa</c> there that embeds one? The read side's redirect gate (<see cref="LoadOrderResolver.OpenOverlay"/>):
+    /// false means the folder-adjacent lookup would resolve nothing for this plugin, so the open points at game-Data
+    /// instead.
+    ///
+    /// <para>Answers for the NAMED plugin, never for the folder in general. A <c>Strings\</c> folder holding only a
+    /// NEIGHBOUR's tables, and an asset-only <c>.bsa</c> (meshes/textures — the common case), are not this plugin's
+    /// source; counting either suppressed the redirect for a whole population of localized plugins whose text was
+    /// reachable in game-Data and read back blank everywhere (#369).</para>
+    ///
+    /// <para>Cost: the loose look is one directory listing, and the archive look is the folder-keyed
+    /// <see cref="ArchiveStrings"/> cache the classifier already builds — so a mod folder's archives are enumerated
+    /// once per server process rather than once per open. Any IO fault answers TRUE, keeping the unchanged
+    /// folder-adjacent open: we only ever redirect on a clean, empty read.</para></summary>
+    public static bool OwnFolderCarriesStringsFor(string pluginPath)
+    {
+        try
+        {
+            var folder = Path.GetDirectoryName(pluginPath);
+            if (folder is null) return true;
+            var stem = Path.GetFileNameWithoutExtension(pluginPath);
+            var loose = ReadStringsFolder(Path.Combine(folder, "Strings"), stem);
+            // A folder that is there and could not be LISTED tells us nothing about what is in it — keep the default.
+            if (loose.Read == StringsFolderRead.Unlistable) return true;
+            if (loose.Languages.Count > 0) return true;
+            // BsaEmbedding returns the archive's path both when it embeds this plugin's tables and when it could not
+            // be parsed at all, so a non-null answer covers "found it" and "cannot see in there" alike — and the
+            // second keeps the unchanged open rather than redirecting past an archive that may hold the strings.
+            return BsaEmbedding(folder, stem).Path is not null;
+        }
+        catch { return true; }
+    }
+
+    /// <summary>Could houseCARL find NO strings source at all for a plugin it read and found flagged localized? True
+    /// for the two shapes where a read resolves nothing: nothing found anywhere, and a <c>Strings\</c> folder beside
+    /// the plugin that could not be listed. Every value such a plugin carries reads EMPTY, so a lane that would bake
+    /// that read into a new file refuses rather than writing blanks (#371).
+    ///
+    /// <para><see cref="LocalizedShape.Unreadable"/> is deliberately NOT here: the plugin's own header was never
+    /// read, so nothing is known about its strings, and a lane that must act on that answers it as unreadable in its
+    /// own words.</para></summary>
+    public static bool ResolvesNowhere(LocalizedShape shape) => shape switch
+    {
+        LocalizedShape.Nowhere or LocalizedShape.StringsFolderUnreadable => true,
+        _ => false,
+    };
+
     /// <summary>The loose table files this plugin's own folder carries — what a read resolves against, and what a
     /// refusal has to leave byte-identical.</summary>
     public static IReadOnlyList<string> OwnTableFiles(string pluginPath)

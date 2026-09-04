@@ -454,9 +454,11 @@ public sealed class LoadOrderResolver : IDisposable
     /// — the near-universal "Cleaned Base Game Masters" pattern, whose <c>.STRINGS</c> live in the game-Data BSAs beside
     /// Skyrim.esm — otherwise reads every localized field EMPTY: <see cref="ReadEngine.EmitToken"/> turns the
     /// unresolved <c>TranslatedString</c> into a blank token, so a name filter silently matches nothing. When the
-    /// plugin's own folder carries NO strings source, point the lookup at the real game-Data
+    /// plugin's own folder carries NO strings source FOR THIS PLUGIN, point the lookup at the real game-Data
     /// folder so those archived strings resolve; otherwise leave the folder-adjacent default UNTOUCHED, so a mod whose
-    /// strings sit in its own folder (loose OR in its own BSA) is never redirected away from them — no regression. A
+    /// strings sit in its own folder (loose OR in its own BSA) is never redirected away from them — no regression.
+    /// The gate asks about THIS plugin, not about the folder: an asset-only <c>.bsa</c> beside a plugin whose tables
+    /// live in game-Data used to suppress the redirect and blank every value it read (#369). A
     /// non-localized plugin needs no strings at all, so the override is simply never consulted.
     ///
     /// <para>Public because it is also the open path for a raw, out-of-load-order read of an inactive or arbitrary
@@ -480,21 +482,12 @@ public sealed class LoadOrderResolver : IDisposable
         return SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
     }
 
-    /// <summary>True if the plugin's OWN folder carries a strings source Mutagen's folder-adjacent default would find —
-    /// a loose <c>Strings\</c> subfolder or any <c>.bsa</c> (which may embed strings). Cheap (one dir stat + a lazy,
-    /// short-circuited <c>.bsa</c> scan; negligible beside the per-plugin overlay open it precedes). Defensive: any IO
-    /// fault answers "has its own", keeping the unchanged default open — we only ever REDIRECT on a clean, empty read.</summary>
-    internal static bool FolderHasOwnStrings(string path)
-    {
-        try
-        {
-            var folder = Path.GetDirectoryName(path);
-            if (folder is null) return true;
-            if (Directory.Exists(Path.Combine(folder, "Strings"))) return true;
-            return Directory.EnumerateFiles(folder, "*.bsa").Any();
-        }
-        catch { return true; }
-    }
+    /// <summary>True if the plugin's OWN folder carries a strings source FOR THIS PLUGIN — a loose table matching its
+    /// name, or a <c>.bsa</c> beside it that embeds one. One home, <see cref="LocalizedStrings.OwnFolderCarriesStringsFor"/>:
+    /// the same question the strings classifier answers, so the read side and the refusal side cannot disagree about
+    /// whether a source exists. Defensive there too: any IO fault answers "has its own", keeping the unchanged default
+    /// open — we only ever REDIRECT on a clean, empty read.</summary>
+    internal static bool FolderHasOwnStrings(string path) => LocalizedStrings.OwnFolderCarriesStringsFor(path);
 
     /// <summary>Take the plugin paths already in priority order and build the index, without holding any plugin open.
     /// Names and mtimes come from the path list plus a stat (no parse, no handle); the index build
