@@ -2590,10 +2590,13 @@ public sealed class LoadOrderService : IDisposable
     /// game loads. A plain filename and a direct path are unchanged.</para></summary>
     (PoleInfo? Pole, string? Error) ResolvePoleArm(LoadOrderResolver.IndexView view, string plugin, string? mod)
     {
+        // Judged on the argument as given: the rewrite below turns a path into a bare filename, which would flip a
+        // path pole into the mod= lane and read a file the caller did not name.
+        bool namesMod = !string.IsNullOrWhiteSpace(mod) && !LooksLikePath(plugin);
+
         // A pole addressed by path that IS the active order's file resolves back to its plugin name.
         if (LooksLikePath(plugin) && ActiveNameForPath(view, plugin) is { } activeName) plugin = activeName;
 
-        bool namesMod = !string.IsNullOrWhiteSpace(mod) && !LooksLikePath(plugin);
         bool activeFilename = view.ContainsPlugin(plugin);
         if (!namesMod && activeFilename)
             return (new PoleInfo(plugin, "active in the load order", InOrder: true, EpochCoversPole: true), null);
@@ -2603,7 +2606,7 @@ public sealed class LoadOrderService : IDisposable
         catch (Exception ex)
         {
             return (null, activeFilename
-                ? $"source '{plugin}' names a mod folder, and the MO2 roots couldn't be derived to read that folder's copy: {ex.Message}"
+                ? $"source '{plugin}' names mod folder '{mod!.Trim()}', and the MO2 roots couldn't be derived to read that folder's copy: {ex.Message}"
                 : $"source '{plugin}' is not active in the load order, and the MO2 roots couldn't be derived to search for it on disk: {ex.Message}");
         }
         var comp = Mo2LoadOrder.ReadComposition(profileDir);
@@ -2846,8 +2849,14 @@ public sealed class LoadOrderService : IDisposable
             var s = sReader(fk, null);
             if (s.Error is not null) { rows.Add(new DeltaRow(fk.ToString(), s.Pole, null, null, null, null, "subject: " + s.Error)); continue; }
             // previous_provider is measured from the SUBJECT, so hand the reference reader the subject's resolved
-            // plugin for this record and it anchors on the right stack position.
-            var r = rReader(fk, s.Pole!.Plugin);
+            // plugin for this record and it anchors on the right stack position. An off-order subject holds no
+            // position in that stack — and its filename can be active as a DIFFERENT file — so it is refused rather
+            // than anchored by name on whatever the order serves.
+            var r = reference.Kind == PoleKind.PreviousProvider && !s.Pole!.InOrder
+                ? new PoleReading(null, null, null,
+                    $"the subject is the off-order file '{s.Pole.Plugin}' ({s.Pole.Where}), which holds no position in the " +
+                    "active touching stack previous_provider is measured in. Name an active plugin as source=, or compare against a named versus= plugin.")
+                : rReader(fk, s.Pole!.Plugin);
             if (r.Error is not null) { rows.Add(new DeltaRow(fk.ToString(), s.Pole, r.Pole, null, r.StackAbove, null, "versus: " + r.Error)); continue; }
 
             string? note = string.Equals(s.Pole.Plugin, r.Pole!.Plugin, StringComparison.OrdinalIgnoreCase) && s.Pole.Where == r.Pole.Where
