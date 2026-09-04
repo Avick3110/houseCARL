@@ -2103,7 +2103,8 @@ public static class WritePatchBuilder
         AssetRenameOutcome? AssetRename = null, VoiceCarryOutcome? VoiceRename = null, SeqRegenOutcome? SeqRegen = null,
         IReadOnlyList<string>? LightDonors = null, IReadOnlyList<string>? HeaderMetaDonors = null,
         IReadOnlyList<string>? MasterDonors = null, IReadOnlyList<RemapEngine.UnscannablePlugin>? UnscannablePlugins = null,
-        IReadOnlyList<string>? LocalizedDonors = null)
+        IReadOnlyList<string>? LocalizedDonors = null,
+        IReadOnlyList<RemapEngine.MasterDeclarer>? MasterDeclarers = null)
     {
         public static MergeOutcome Fail(string error) =>
             new(false, error, "", "", Array.Empty<string>(), Array.Empty<string>(), 0, 0,

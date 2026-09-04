@@ -748,17 +748,31 @@ public static class WriteTools
             foreach (var pl in o.ExternalOverriders.Take(25)) sb.Append("  ! ").Append(pl).Append('\n');
             if (o.ExternalOverriders.Count > 25) sb.Append("  ! … (+").Append(o.ExternalOverriders.Count - 25).Append(" more)\n");
         }
+        // The third dependent kind, and the one a merge breaks hardest: a plugin that lists a donor as a master while
+        // referencing none of its records keeps loading only while the donor does. The game refuses to load a plugin
+        // missing a master, so this is a WARN with the same standing as the two above — nothing breaks until the swap.
+        if (o.MasterDeclarers is { Count: > 0 } declarers)
+        {
+            sb.Append("WARNING — ").Append(declarers.Count).Append(" plugin(s) OUTSIDE the merge DECLARE a donor as a MASTER ")
+              .Append("without referencing any of its records. They are not in the lists above (nothing links to a donor ")
+              .Append("record), but a plugin missing a master does not load at all, so each one breaks the moment you ")
+              .Append(isRename ? "deactivate the donor plugin" : "deactivate the donor plugins")
+              .Append(". Add '").Append(o.OutputName).Append("' as a master in xEdit and remove the donor, or include them ")
+              .Append("in the merge set:\n");
+            foreach (var d in declarers.Take(25))
+                sb.Append("  ! ").Append(d.Plugin).Append("  — declares ").Append(string.Join(", ", d.Declared)).Append('\n');
+            if (declarers.Count > 25) sb.Append("  ! … (+").Append(declarers.Count - 25).Append(" more)\n");
+        }
         if (o.UnscannableRecords > 0)
             sb.Append("note: ").Append(o.UnscannableRecords).Append(" record(s) couldn't be scanned in the external-reference pass, so a ")
               .Append("'none' above may be incomplete — verify in xEdit. Samples: ").Append(string.Join("; ", o.UnscannableSamples)).Append('\n');
         AppendUnscannablePlugins(sb, o.UnscannablePlugins);
         // The coverage caveat belongs to the PASS, not to either outcome: a "none" and a populated list are incomplete
-        // the same way. The pass reads record links and record identity, never a plugin header, so a dependent that
-        // merely DECLARES a donor as a master is invisible to it and loses a master at the swap.
-        sb.Append("identify-pass scanned ").Append(o.PluginsScanned).Append(" plugin(s) — it reads record links and ")
-          .Append("record identity, NOT declared masters or runtime config files (SPID, KID, SkyPatcher, Open Animation ")
-          .Append("Replacer), so a plugin that only lists a donor as a master, or only names one in such a file, is not ")
-          .Append("counted above.\n");
+        // the same way. Declared masters ARE read now; runtime config files still are not, and naming what is left out
+        // is what keeps the pass from claiming more than it measured.
+        sb.Append("identify-pass scanned ").Append(o.PluginsScanned).Append(" plugin(s) — it reads record links, record ")
+          .Append("identity and declared masters, NOT runtime config files (SPID, KID, SkyPatcher, Open Animation ")
+          .Append("Replacer), so a plugin that only names a donor in such a file is not counted above.\n");
         // The caveat above says those files are not READ; this says what that costs, which a caller cannot derive from
         // "not counted". Both are bounded by the claim rule at WriteSentences.MergeRuntimeConfigs: this tool's own
         // behaviour, plus a break entailed by the swap this same report instructs.
