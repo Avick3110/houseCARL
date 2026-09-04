@@ -36,8 +36,10 @@ internal static class AliasTable
         // plugin_name becomes patch, else a plugin scope word. `patch` is suppressed on write_seq: there it names
         // the OUTPUT FOLDER, so plugin_name= would silently put the .seq in a folder named after the plugin.
         // `source` goes last so a tool declaring both a scope word and the pole keeps getting the scope word.
+        // `patch` is suppressed on the two tools where it names an output FOLDER rather than a plugin: write_seq
+        // and place. On both, plugin_name= would silently name the folder after a plugin.
         new("pluginname",  new[] { "patch", "plugins", "plugin", "pluginnames", "source" },
-            ExceptTools: new[] { (ToolNames.WriteSeq, "patch") }),
+            ExceptTools: new[] { (ToolNames.WriteSeq, "patch"), (ToolNames.Place, "patch") }),
         new("pluginnames", new[] { "plugins", "plugin", "pluginname", "source" }),
         // Reverse: the pole spelling on not-yet-renamed tools. nexus_mod is excepted — its mod= is a Nexus mod
         // ID, not the provider disambiguator, and the Nexus tools are not part of the rename.
