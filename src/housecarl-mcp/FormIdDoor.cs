@@ -26,6 +26,11 @@ internal sealed class FormIdDoor
     /// <summary>A door that captures a build on the first runtime FormID, and never if none arrives.</summary>
     public static FormIdDoor For(LoadOrderService svc) => new(svc, null);
 
+    /// <summary>The build this door captured, or null when no runtime FormID arrived and it never reached for one.
+    /// A caller that goes on to scan passes it down, so the tokens it parsed and the records it matches come from
+    /// the same index build rather than two adjacent ones.</summary>
+    public LoadOrderResolver.IndexView? CapturedView => _view;
+
     /// <summary>Parse one token — see <see cref="LoadOrderResolver.IndexView.ParseFormId"/>. Throws one plain
     /// sentence on anything it cannot answer.</summary>
     public FormKey Parse(string? raw)

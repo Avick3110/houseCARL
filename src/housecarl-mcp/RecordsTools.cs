@@ -193,6 +193,11 @@ public static class RecordsTools
         bool json = fmt is Wire.QueryFormat.Json;
         bool dense = fmt is Wire.QueryFormat.Dense;
 
+        // ONE FormID door for the whole call, shared by every lane below: formids=, references= and the walk seeds
+        // all resolve against one index build, and the scan then runs on that same build. A door per list would let
+        // a freshness rebuild land between two lists, so a call's own tokens could name records in different orders.
+        var door = svc.OpenFormIdDoor();
+
         // ---- PROJECT: form + form-scoping ---------------------------------------------------------------
         var form = project?.form?.Trim().ToLowerInvariant() ?? "summary";
         switch (form)
@@ -616,11 +621,10 @@ public static class RecordsTools
                 // The typed MGEF lane: each seed must resolve to a MagicEffect, and a non-MGEF seed fails loud
                 // per item rather than reading as '0 carriers'.
                 var results = new List<(string Seed, EffectChainResult Result)>(ids.Length);
-                var seedDoor = svc.OpenFormIdDoor();
                 foreach (var raw in ids)
                 {
                     FormKey fk;
-                    try { fk = seedDoor.Parse(raw); }
+                    try { fk = door.Parse(raw); }
                     catch (Exception ex) { results.Add((raw?.Trim() ?? "", EffectChainResult.Fail($"bad FormID '{raw}': {ex.Message}"))); continue; }
                     // The per-seed carrier bound is the walk's own reach budget; limit=/offset= stay the SEED
                     // window, never a second silent cut on the carrier axis.
@@ -950,11 +954,10 @@ public static class RecordsTools
                 if (fxerr is not null) return Wire.Refuse(json, fxerr);
                 fidDemand = fdemand; fidEcho = fecho;
                 var fkList = new List<FormKey>();
-                var fidDoor = svc.OpenFormIdDoor();
                 foreach (var t in ftoks!)
                 {
                     if (string.IsNullOrWhiteSpace(t)) continue;
-                    try { fkList.Add(fidDoor.Parse(t)); }
+                    try { fkList.Add(door.Parse(t)); }
                     catch (Exception ex) { return Wire.Refuse(json, $"error: bad formids entry '{t}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
                 }
                 if (fkList.Count == 0) return Wire.Refuse(json, "error: formids= expanded to an empty list — nothing to intersect the scan with.");
@@ -1009,11 +1012,10 @@ public static class RecordsTools
             if (refs is { Length: > 0 })
             {
                 var list = new List<FormKey>();
-                var refDoor = svc.OpenFormIdDoor();
                 foreach (var r in refs)
                 {
                     if (string.IsNullOrWhiteSpace(r)) continue;
-                    try { list.Add(refDoor.Parse(r)); }
+                    try { list.Add(door.Parse(r)); }
                     catch (Exception ex) { return Wire.Refuse(json, $"error: bad references FormID '{r}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
                 }
                 if (list.Count > 0) refFks = list.Distinct().ToList();
@@ -1035,7 +1037,7 @@ public static class RecordsTools
             if (fidDemand is not null) demandsList.Add(fidDemand);
             var outcome = svc.CrossQuery(types, refFks, null, conflicts_only, scanPlugins, where,
                                          effLimit, definedIn, groupBy, offset, where_source,
-                                         demandsList.Count > 0 ? demandsList : null, formidSet);
+                                         demandsList.Count > 0 ? demandsList : null, formidSet, door.CapturedView);
             // The probe-to-scan seam is epoch-compared: the source statement must describe the same build the
             // rows were scanned from.
             if (probeEpoch is not null && outcome.Error is null && outcome.Epoch is not null && outcome.Epoch != probeEpoch)
@@ -1308,11 +1310,10 @@ public static class RecordsTools
             if (refs is { Length: > 0 })
             {
                 var list = new List<FormKey>();
-                var refDoor = svc.OpenFormIdDoor();
                 foreach (var r in refs)
                 {
                     if (string.IsNullOrWhiteSpace(r)) continue;
-                    try { list.Add(refDoor.Parse(r)); }
+                    try { list.Add(door.Parse(r)); }
                     catch (Exception ex) { return Wire.Refuse(json, $"error: bad references FormID '{r}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
                 }
                 if (list.Count > 0) refFks = list.Distinct().ToList();
@@ -1325,11 +1326,10 @@ public static class RecordsTools
                 if (fxerr is not null) return Wire.Refuse(json, fxerr);
                 fidDemand = fdemand; fidEcho = fecho;
                 var fkList = new List<FormKey>();
-                var fidDoor = svc.OpenFormIdDoor();
                 foreach (var t in ftoks!)
                 {
                     if (string.IsNullOrWhiteSpace(t)) continue;
-                    try { fkList.Add(fidDoor.Parse(t)); }
+                    try { fkList.Add(door.Parse(t)); }
                     catch (Exception ex) { return Wire.Refuse(json, $"error: bad formids entry '{t}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
                 }
                 if (fkList.Count == 0) return Wire.Refuse(json, "error: formids= expanded to an empty list — nothing to intersect the scan with.");
@@ -1344,7 +1344,7 @@ public static class RecordsTools
 
             var outcome = svc.OffOrderQuery(pole, types, refFks, null, plugins?.names,
                                             plugins?.defined_in ?? false, where, offLimit, offGroupBy, offset,
-                                            formidSet, offDemands.Count > 0 ? offDemands : null);
+                                            formidSet, offDemands.Count > 0 ? offDemands : null, door.CapturedView);
 
             List<KeyValuePair<string, string>> Echo()
             {
