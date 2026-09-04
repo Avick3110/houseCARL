@@ -7361,9 +7361,9 @@ public sealed class LoadOrderService : IDisposable
         return Path.GetFullPath(a).TrimEnd('\\', '/').Equals(Path.GetFullPath(b).TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>The <c>Source\Scripts\</c> output folder for a DECOMPILED .psc (the decompile rider) — the SE-canonical
-    /// source layout, and the same default patch stem as the compile rider so decompile → edit → compile naturally
-    /// accumulates in one houseCARL patch folder via <c>into=</c>. Carries the root + fresh flag through for cleanup.</summary>
+    /// <summary>The <c>Source\Scripts\</c> output folder for a decompiled .psc — the SE-canonical source layout, and
+    /// the same default patch stem as the compile lane so decompile, edit and compile accumulate in one folder via
+    /// <c>into=</c>. Carries the root and fresh flag through for cleanup.</summary>
     public RiderFolder ResolveDecompiledSourceFolder(string? patchName, string? into)
     {
         var f = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts");
@@ -7372,14 +7372,13 @@ public sealed class LoadOrderService : IDisposable
         return f with { OutputDir = src };
     }
 
-    /// <summary>Hunt H2 (Aaron 2026-06-13): a NON-.esp rider (compile / decompile / repack) that FAILED after creating a
-    /// fresh houseCARL mod folder cleans up after itself — the .esp F4 "a refusal leaves no orphan folder" principle,
-    /// generalised to the riders. If the fresh folder is GENUINELY EMPTY (holds NOTHING but our own meta.ini marker
-    /// anywhere in its tree) it is DELETED, so "no output written" is true of the disk; if real output DID land (a
-    /// partial .bsa, some written .psc/.pex), the folder STAYS and its path is RETURNED so the rider can NAME it —
-    /// houseCARL never deletes content it didn't recognise as its own marker. A REUSED into= folder
-    /// (<see cref="RiderFolder.CreatedFresh"/> = false) is never touched: the user owns it. Returns the leftover path to
-    /// name, or null (deleted, or nothing to do). Best-effort: a cleanup hiccup never masks the rider's own outcome.</summary>
+    /// <summary>A non-.esp rider that failed after creating a fresh houseCARL mod folder cleans up after itself, the
+    /// same "a refusal leaves no orphan folder" principle the .esp lane follows. If the fresh folder is genuinely
+    /// empty — holding nothing but our own meta.ini marker anywhere in its tree — it is deleted, so "no output
+    /// written" is true of the disk; if real output landed, the folder stays and its path is returned so the caller
+    /// can name it, because houseCARL never deletes content it did not recognise as its own. A reused into= folder
+    /// is never touched: the user owns it. Returns the leftover path to name, or null. Best-effort: a cleanup hiccup
+    /// never masks the rider's own outcome.</summary>
     internal string? RemoveOrNameRiderResidue(RiderFolder folder)
     {
         if (!folder.CreatedFresh) return null;             // into= reuse — the user owns it, never deleted or named
@@ -7396,12 +7395,11 @@ public sealed class LoadOrderService : IDisposable
         catch (UnauthorizedAccessException) { return Directory.Exists(root) ? root : null; }
     }
 
-    // ---- Layer B unit D: write the start-game-enabled-quest .seq file (housecarl_write_seq) ----
+    // ---- write the start-game-enabled-quest .seq file ----
 
-    /// <summary>The <c>SEQ\</c> output folder for a generated <c>.seq</c> (the SEQ rider) — a houseCARL mod folder via
-    /// <see cref="ResolvePatchModFolder"/> plus its <c>SEQ\</c> subfolder, where MO2 deploys it into the game's
-    /// <c>Data\SEQ</c>. Sibling of <see cref="ResolveCompiledScriptFolder"/>; carries the mod-folder root + fresh flag
-    /// through for residue cleanup.</summary>
+    /// <summary>The <c>SEQ\</c> output folder for a generated <c>.seq</c>: a houseCARL mod folder via
+    /// <see cref="ResolvePatchModFolder"/> plus its <c>SEQ\</c> subfolder, which MO2 deploys into the game's
+    /// <c>Data\SEQ</c>. Carries the mod-folder root and fresh flag through for cleanup.</summary>
     public RiderFolder ResolveSeqFolder(string? patchName, string? into)
     {
         var f = ResolvePatchModFolder(patchName, into, "houseCARL_SEQ");
@@ -7410,11 +7408,11 @@ public sealed class LoadOrderService : IDisposable
         return f with { OutputDir = seq };
     }
 
-    /// <summary>If <paramref name="pluginPath"/> lives in a houseCARL-owned mod folder DIRECTLY under ModsDir, return that
-    /// folder's patch STEM, so the <c>.seq</c> defaults into the SAME folder as the <c>.esp</c> — one mod to enable, and
-    /// no second fresh folder the user might forget to enable (a real Q3 footgun: a .seq in an un-enabled folder leaves the
-    /// quest silently dead). Only when the folder is the canonical <c>houseCARL - &lt;stem&gt;</c> for THIS plugin (so a
-    /// later <c>into=&lt;stem&gt;</c> resolves to exactly this folder); otherwise null → the caller cuts a fresh folder.</summary>
+    /// <summary>If <paramref name="pluginPath"/> lives in a houseCARL-owned mod folder directly under ModsDir, return
+    /// that folder's patch stem, so the <c>.seq</c> defaults into the same folder as the <c>.esp</c>: one mod to
+    /// enable, and no second folder the user might forget, which would leave the quest silently dead. Only when the
+    /// folder is the canonical one for this plugin, so a later <c>into=</c> resolves to exactly it; otherwise null,
+    /// and the caller cuts a fresh folder.</summary>
     string? OwnedPluginFolderStem(string pluginPath)
     {
         var dir = Path.GetDirectoryName(pluginPath);
@@ -7424,33 +7422,30 @@ public sealed class LoadOrderService : IDisposable
         return Path.GetFileName(dir).Equals(ModFolderName(stem), StringComparison.OrdinalIgnoreCase) ? stem : null;
     }
 
-    /// <summary>Write a plugin's start-game-enabled-quest <c>.seq</c> (housecarl_write_seq). Opens <paramref name="plugin"/>
-    /// (a path to an .esp/.esm/.esl), collects every Start-Game-Enabled quest it defines, and writes
-    /// <c>&lt;ModFolder&gt;\SEQ\&lt;plugin&gt;.seq</c> — the file the engine reads to actually START those quests (the flag
-    /// alone does nothing; the same gated, crash-atomic, non-destructive folder-per-patch model as the compile/asset
-    /// riders). Output folder DEFAULTS to the plugin's OWN houseCARL folder when it lives in one (so the .seq deploys with
-    /// the .esp); else a fresh folder, or <paramref name="into"/>/<paramref name="patchName"/> when given. A plugin with NO
-    /// SGE quests writes NOTHING and cuts no folder (a .seq is only needed for SGE quests — Q3, not a silent empty file).
-    /// Serialized on the write gate (one write at a time), like its sibling writers.
-    /// <para><paramref name="outputDir"/> (#312) is the compile lane's output_dir= contract on this rider: the user names
-    /// a mod-folder ROOT — typically the plugin's OWN mod, after an IN-PLACE .esp edit — and the .seq lands in its
-    /// <c>SEQ\</c> where the mod's own copy already lives. It WINS over <paramref name="patchName"/>/<paramref name="into"/>
-    /// (the caller says so out loud) and cuts no houseCARL folder.</para>
-    /// <para>A destination already holding these EXACT bytes is reported as such and NOT rewritten (#312) — the reported
-    /// workflow regenerates the .seq after every in-place edit, and the answer is byte-identical nearly every time. The
-    /// no-op is stated explicitly, never as a bare success: an unstated skip is indistinguishable from a silent failure
-    /// (Q3).</para></summary>
+    /// <summary>Write a plugin's start-game-enabled-quest <c>.seq</c>. Opens <paramref name="plugin"/>, collects
+    /// every start-game-enabled quest it defines, and writes <c>&lt;ModFolder&gt;\SEQ\&lt;plugin&gt;.seq</c> — the
+    /// file the engine reads to actually start those quests, since the flag alone does nothing — under the same
+    /// crash-atomic, non-destructive folder-per-patch model as the other riders. The output folder defaults to the
+    /// plugin's own houseCARL folder when it lives in one, so the .seq deploys with the .esp; else a fresh folder, or
+    /// <paramref name="into"/> / <paramref name="patchName"/> when given. A plugin with no such quests writes nothing
+    /// and cuts no folder, stated explicitly rather than as a silent empty file. Serialized on the write gate.
+    /// <para><paramref name="outputDir"/> is the same output_dir= contract the compile lane carries: the user names a
+    /// mod-folder root — typically the plugin's own mod, after an in-place .esp edit — and the .seq lands in its
+    /// <c>SEQ\</c>. It wins over <paramref name="patchName"/> and <paramref name="into"/>, and cuts no houseCARL
+    /// folder.</para>
+    /// <para>A destination already holding exactly these bytes is reported as such and not rewritten, because the
+    /// workflow regenerates the .seq after every in-place edit and the answer is byte-identical nearly every time.
+    /// The no-op is stated explicitly: an unstated skip is indistinguishable from a silent failure.</para></summary>
     public SeqOutcome WriteSeq(string plugin, string? patchName, string? into, string? outputDir = null)
     {
         if (string.IsNullOrWhiteSpace(plugin))
             return SeqOutcome.Fail("no source given. Pass source= the plugin whose start-game-enabled quests need a .seq — its filename (e.g. 'MyQuestMod.esp') or an absolute path.");
         plugin = plugin.Trim().Trim('"');
 
-        // SOURCE resolution (§4.2's pole, W3 PR 2): a bare FILENAME is located across the MO2 folders — enabled,
-        // disabled, not-yet-listed, overwrite, and game Data — exactly as read_plugin_file and the copy donor lane
-        // locate one, through the SAME shared contract so two tools can never find different files for one name. An
-        // absolute path is still used verbatim (the 1.x spelling, and the "any file on disk" case). The arm that
-        // resolved is REPORTED, never silent: which copy was read decides which .seq you get.
+        // Source resolution: a bare filename is located across the MO2 folders — enabled, disabled, not-yet-listed,
+        // overwrite and game Data — through the same shared contract every other lane uses, so two tools can never
+        // find different files for one name. An absolute path is used verbatim. The arm that resolved is reported
+        // rather than silent: which copy was read decides which .seq you get.
         string pluginPath, resolvedFrom;
         try
         {
@@ -7458,9 +7453,8 @@ public sealed class LoadOrderService : IDisposable
             lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; }
             var comp = Mo2LoadOrder.ReadComposition(profileDir);        // cheap text parse — no index build
             var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, plugin, null, offerModParam: false);
-            // The locate contract's own refusal names WHAT it couldn't find; this adds what THIS tool wants
-            // instead, so the caller isn't left to infer that a filename is allowed at all (the 1.x refusal said
-            // "pass the full path", which is now only one of the two accepted spellings).
+            // The locate contract's refusal names what it could not find; this adds what THIS tool accepts, so the
+            // caller is not left to infer that a bare filename is allowed at all.
             if (loc.Error is not null)
                 return SeqOutcome.Fail($"{loc.Error} Pass source= the plugin's FILENAME (located across your MO2 mod folders, the overwrite folder and game Data) or an ABSOLUTE path to the .esp/.esm/.esl.");
             if (loc.Ambiguous is { } hits)
@@ -7474,27 +7468,27 @@ public sealed class LoadOrderService : IDisposable
         if (!PluginExts.Contains(Path.GetExtension(pluginPath), StringComparer.OrdinalIgnoreCase))
             return SeqOutcome.Fail($"'{Path.GetFileName(pluginPath)}' is not a plugin (.esp/.esm/.esl).");
 
-        lock (_writeGate)                                                // one write at a time (hunt F2 sibling): build → resolve → commit
+        lock (_writeGate)                                                // one write at a time: build, resolve, commit
         {
             if (ConfigPromptOrNull() is { } cfgPrompt) return SeqOutcome.Fail(cfgPrompt);   // need ModsDir for the output folder
-            lock (_gate) EnsurePathsDerived();                          // derive ModsDir for the owned-folder check (lock order: _writeGate → _gate)
+            lock (_gate) EnsurePathsDerived();                          // derive ModsDir for the owned-folder check; lock order is _writeGate then _gate
 
-            // Build the .seq from the plugin (read-only overlay, disposed inside — zero handles at rest).
+            // Build the .seq from the plugin: a read-only overlay, disposed inside, so no handle is held at rest.
             SeqFile.SeqBuild built;
             try { built = SeqFile.Build(pluginPath); }
             catch (Exception ex)
             { return SeqOutcome.Fail($"could not read '{Path.GetFileName(pluginPath)}' as a plugin: {ex.Message}"); }
 
-            // No SGE quests → no .seq needed; write nothing, cut no folder (Q3: a clean, explicit "nothing to do").
-            // It still carries UserChoseOutput: the lane the caller named is a fact about the CALL, and reporting
-            // "you chose no output_dir" here made the json twin contradict its own lane note (review round 1).
+            // No start-game-enabled quests means no .seq is needed: write nothing, cut no folder, and say so.
+            // It still carries UserChoseOutput, because the lane the caller named is a fact about the CALL, and
+            // dropping it here would make the json twin contradict its own lane note.
             if (built.Quests.Count == 0)
                 return new SeqOutcome(true, null, null, null, built.Quests, built.PluginFileName, false)
                     { ResolvedFrom = resolvedFrom, PluginPath = pluginPath, UserChoseOutput = !string.IsNullOrWhiteSpace(outputDir) };
 
-            // Output folder: output_dir= (the USER's own mod folder, #312) wins; else the plugin's OWN houseCARL folder;
-            // else fresh / explicit into=/patch_name. The output_dir arm cuts no houseCARL folder at all, so the
-            // owned-folder default is not consulted there — the caller named the destination outright.
+            // Output folder: output_dir=, the user's own mod folder, wins; else the plugin's own houseCARL folder;
+            // else a fresh one or an explicit into= / patch_name. The output_dir arm cuts no houseCARL folder, so
+            // the owned-folder default is not consulted there — the caller named the destination outright.
             bool chosenOutput = !string.IsNullOrWhiteSpace(outputDir);
             string? autoInto = (!chosenOutput && string.IsNullOrWhiteSpace(into) && string.IsNullOrWhiteSpace(patchName))
                 ? OwnedPluginFolderStem(pluginPath) : null;
@@ -7511,18 +7505,15 @@ public sealed class LoadOrderService : IDisposable
             var seqName = Path.GetFileNameWithoutExtension(pluginPath) + ".seq";
             var dest = Path.Combine(rf.OutputDir, seqName);
 
-            // #312 — the destination already holds EXACTLY these bytes: report it, write nothing. Every in-place edit
-            // regenerates the .seq and the answer rarely changes, so the common case was a file rewrite (and, before
-            // output_dir=, a whole fresh mod folder) that changed nothing. Compared against the bytes already built in
-            // memory, so this costs one read of a file that is typically a few hundred bytes. Reported as its OWN state
-            // rather than folded into success (Q3): "nothing written" and "written" must not look alike.
-            // …with one thing the skip must NOT take with it: the TIMESTAMP. validate_dialogue's SEQ lint reads
-            // mtime, not content (`SeqNewerThanPlugin`, DialogueValidate) — a .seq older than its plugin is reported
-            // as stale even when it is byte-perfect. Skipping the write after an in-place edit (the exact loop this
-            // feature exists for) would therefore leave a permanent advisory no houseCARL tool could clear, with two
-            // tools contradicting each other about one file. So an identical-but-older file has its timestamp
-            // refreshed — no content churn, and the sibling lint stays true. If the touch fails, fall THROUGH to the
-            // real write rather than reporting a no-op that leaves the lint wrong (Q3).
+            // When the destination already holds exactly these bytes, report it and write nothing: the regenerate
+            // loop rarely changes the answer, so the common case was a rewrite that changed nothing. Compared
+            // against the bytes already built in memory, so this costs one read of a file that is typically a few
+            // hundred bytes, and it is reported as its own state rather than folded into success.
+            // One thing the skip must NOT take with it is the timestamp. The dialogue check's .seq staleness test
+            // reads mtime, not content, so a .seq older than its plugin is reported stale even when byte-perfect,
+            // and skipping the write after an in-place edit would leave a permanent advisory no tool could clear.
+            // So an identical-but-older file has its timestamp refreshed. If the touch fails, fall THROUGH to the
+            // real write rather than reporting a no-op that leaves the staleness test wrong.
             bool sameBytes = SameBytesOnDisk(dest, built.Bytes), identical = sameBytes, touched = false;
             if (identical && !RefreshSeqTimestamp(dest, pluginPath, out touched)) identical = false;
             if (identical)
@@ -7530,34 +7521,31 @@ public sealed class LoadOrderService : IDisposable
                     { ResolvedFrom = resolvedFrom, PluginPath = pluginPath, Unchanged = true, TimestampRefreshed = touched,
                       UserChoseOutput = chosenOutput, DeployWarning = deployWarning };
 
-            // Is there something HERE already? An output_dir= destination is a folder houseCARL does not own, so the
-            // file being replaced may be the mod's OWN shipped .seq — "wrote" and "replaced yours" are different facts
-            // about the disk, and the same Q3 argument that split the no-op out applies to them (review round 1).
+            // Is there something here already? An output_dir= destination is a folder houseCARL does not own, so the
+            // file being replaced may be the mod's own shipped .seq, and "wrote" and "replaced yours" are different
+            // facts about the disk.
             bool replaced = File.Exists(dest);
-            // …and WHETHER ANYTHING WAS LOST. The one path that reaches the write with sameBytes true is a timestamp
-            // refresh that failed (a share that accepts SetLastWriteTimeUtc without persisting it), and calling that
-            // "OVERWRITTEN, no backup is kept" is an alarm about a file whose bytes we just re-wrote identically
-            // (PR #318 review [low]). Same event, materially different fact.
+            // And whether anything was lost. The one path that reaches the write with sameBytes true is a timestamp
+            // refresh that failed — a share that accepts the stamp without persisting it — and calling that
+            // "overwritten, no backup is kept" would be an alarm about a file whose bytes were re-written identically.
             bool replacedSameBytes = replaced && sameBytes;
 
-            // Crash-atomic write of <plugin>.seq under SEQ\ (originals untouched — a houseCARL-owned folder, or the
-            // folder the caller named in output_dir=).
+            // Crash-atomic write of <plugin>.seq under SEQ\, into a houseCARL-owned folder or the folder the caller
+            // named in output_dir=.
             try { AtomicFile.WriteAllBytes(dest, built.Bytes); }
             catch (Exception ex)
             {
                 var residue = RemoveOrNameRiderResidue(rf);             // nothing landed → a fresh folder is an orphan
                 return SeqOutcome.Fail($"could not write '{seqName}': {ex.Message}"
                     + (residue is null ? "" : $" The freshly created folder was left at '{residue}'.")
-                    // …and on the output_dir lane cleanup is bypassed BY DESIGN (the folder is the user's), so the
-                    // SEQ\ directory this call created is still there. Say so — "nothing was written" is true of the
-                    // FILE and not of the disk (review round 1).
-                    // …worded for what is KNOWN: the folder is there and houseCARL will not remove it. Claiming this
-                    // call CREATED it would be false whenever the mod already ships a SEQ\ — the feature's own
-                    // headline case (review round 2).
+                    // On the output_dir lane cleanup is bypassed by design, since the folder is the user's, so the
+                    // SEQ\ directory is still there and "nothing was written" is true of the file, not the disk.
+                    // Worded for what is known — the folder is there and houseCARL will not remove it — because
+                    // claiming this call created it would be false whenever the mod already ships a SEQ\ folder.
                     + (chosenOutput ? $" (the '{rf.OutputDir}' folder is left in place — houseCARL never removes a folder you named.)" : ""));
             }
 
-            // Integrity (Q3: THIS run wrote it; on-disk size matches the bytes we built — no false success).
+            // Integrity: the on-disk size matches the bytes built, so success is never claimed falsely.
             long size; try { size = new FileInfo(dest).Length; } catch { size = -1; }
             if (size != built.Bytes.Length)
                 return SeqOutcome.Fail($"wrote '{seqName}' but its on-disk size ({size}) does not match the {built.Bytes.Length} expected byte(s) — verify before relying on it.");
@@ -7569,12 +7557,11 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
-    /// <summary>#312 — keep a SKIPPED write honest against the mtime-based SEQ lint: if <paramref name="seqPath"/> is
-    /// byte-identical but OLDER than <paramref name="pluginPath"/>, stamp it now. <paramref name="touched"/> reports
-    /// whether a stamp was actually needed (so the response can say so rather than implying one silently happened).
-    /// Returns false when the stamp was needed and FAILED — the caller then does the real write instead of reporting a
-    /// no-op that leaves validate_dialogue calling the file stale (Q3: never trade a loud rewrite for a silent
-    /// inconsistency between two tools).</summary>
+    /// <summary>Keep a skipped write honest against the mtime-based .seq staleness test: if
+    /// <paramref name="seqPath"/> is byte-identical but older than <paramref name="pluginPath"/>, stamp it now.
+    /// <paramref name="touched"/> reports whether a stamp was actually needed, so the response can say so rather than
+    /// implying one silently happened. Returns false when the stamp was needed and failed, so the caller does the
+    /// real write instead of reporting a no-op that leaves the dialogue check calling the file stale.</summary>
     static bool RefreshSeqTimestamp(string seqPath, string pluginPath, out bool touched)
     {
         touched = false;
@@ -7582,12 +7569,11 @@ public sealed class LoadOrderService : IDisposable
         {
             var seqTime = File.GetLastWriteTimeUtc(seqPath);
             var pluginTime = File.GetLastWriteTimeUtc(pluginPath);
-            if (seqTime >= pluginTime) return true;                 // already newer — the lint is satisfied, leave it alone
-            // NOW is not necessarily enough: a plugin can be stamped in the FUTURE relative to this machine's clock
-            // (a restored backup, a synced share, a dual-boot local-vs-UTC BIOS clock), and stamping UtcNow there
-            // would mutate the file, report a refresh, and leave the comparison exactly as it was — a claim without a
-            // fact behind it (review round 2). Stamp past the plugin, then VERIFY, and let a stamp that did not
-            // achieve the predicate fall through to the real write.
+            if (seqTime >= pluginTime) return true;                 // already newer — the staleness test is satisfied
+            // Now is not necessarily enough: a plugin can be stamped in the FUTURE relative to this machine's clock —
+            // a restored backup, a synced share, a dual-boot local-versus-UTC BIOS clock — and stamping the current
+            // time there would mutate the file, report a refresh, and leave the comparison exactly as it was. Stamp
+            // past the plugin, then verify, and let a stamp that did not achieve it fall through to the real write.
             var target = pluginTime > DateTime.UtcNow ? pluginTime.AddSeconds(1) : DateTime.UtcNow;
             File.SetLastWriteTimeUtc(seqPath, target);
             if (File.GetLastWriteTimeUtc(seqPath) < File.GetLastWriteTimeUtc(pluginPath)) return false;
@@ -7597,10 +7583,9 @@ public sealed class LoadOrderService : IDisposable
         catch { return false; }
     }
 
-    /// <summary>Does <paramref name="path"/> already hold EXACTLY <paramref name="bytes"/>? Length first (the cheap
-    /// discriminator), then a full compare. Any IO problem answers FALSE — "I could not prove it is identical" must fall
-    /// through to the write, never skip one (Q3: the failure mode of a wrong TRUE here is a stale .seq reported as
-    /// current, which is precisely the silent failure this tool exists to prevent).</summary>
+    /// <summary>Does <paramref name="path"/> already hold exactly <paramref name="bytes"/>? Length first as the cheap
+    /// discriminator, then a full compare. Any IO problem answers false: "could not prove it is identical" must fall
+    /// through to the write, because a wrong true here leaves a stale .seq reported as current.</summary>
     static bool SameBytesOnDisk(string path, byte[] bytes)
     {
         try
@@ -7618,19 +7603,18 @@ public sealed class LoadOrderService : IDisposable
     string? _classParentsNote;
     readonly object _classParentsLock = new();
 
-    /// <summary>Drop the cached hierarchy whenever <see cref="_modsDir"/> can have changed (instance switch /
-    /// profile re-derive) — a stale tree's edges could suppress a cast the NEW order's hierarchy doesn't
-    /// justify (a recompile-fail, not silent wrong semantics — but stale is stale). Rebuilds lazily.</summary>
+    /// <summary>Drop the cached hierarchy whenever <see cref="_modsDir"/> can have changed — an instance switch or a
+    /// profile re-derive — because a stale tree's edges could suppress a cast the new order's hierarchy does not
+    /// justify. Rebuilds lazily.</summary>
     void InvalidateClassParents() { lock (_classParentsLock) { _classParents = null; _classParentsNote = null; } }
 
-    /// <summary>The decompiler's child→parent class map: committed vanilla baseline (beside the exe) + loose .psc
-    /// headers across the MO2 mods tree (mods that ship sources — SKSE, PO3, …). Built on FIRST decompile call,
-    /// cached for process lifetime (a SOFT input by construction: missing pieces = explicit casts in the output,
-    /// never wrong code — the note names any degraded mode, Q3). The input pex's own folder is topped up per call
-    /// by the tool, not here (it varies per input). Paths derive FIRST (under the gate — the established
-    /// gate→parents lock order): in instance mode ModsDir is lazy, and a decompile-first session used to build
-    /// and cache the baseline-only map for process lifetime with the mods-tree harvest silently skipped
-    /// (2026-06-12 adversarial hunt F1, proven — the third _modsDir-mutation site missed by the PR #47 fix).</summary>
+    /// <summary>The decompiler's child-to-parent class map: the committed vanilla baseline beside the exe, plus
+    /// loose .psc headers across the MO2 mods tree from mods that ship sources. Built on the first decompile call and
+    /// cached for the process lifetime. It is a soft input by construction — missing pieces mean explicit casts in
+    /// the output, never wrong code — and the note names any degraded mode. The input pex's own folder is topped up
+    /// per call by the caller, since it varies per input. Paths derive FIRST, under the gate, because in instance
+    /// mode ModsDir is lazy: otherwise a decompile-first session caches a baseline-only map for the process lifetime
+    /// with the mods-tree harvest silently skipped. Lock order is _gate then _classParentsLock.</summary>
     public (Dictionary<string, string> Edges, string? Note) ClassParentsForDecompile()
     {
         lock (_gate)
@@ -7679,12 +7663,12 @@ public sealed class LoadOrderService : IDisposable
         return string.IsNullOrEmpty(name) ? "Patch" : name;
     }
 
-    /// <summary>The given stem if it's free, else the first free "<c>&lt;stem&gt;_NNN</c>". "Free" means BOTH: no mod
-    /// folder "<c>houseCARL - &lt;stem&gt;</c>" already exists (houseCARL's own OR a user's), AND no plugin
-    /// "<c>&lt;stem&gt;.esp</c>" is already in the active load order. The load-order arm stops a GENERIC default stem
-    /// (e.g. "Patch") from emitting a "Patch.esp" that DUPLICATES a foreign active plugin — the engine forbids two active
-    /// plugins sharing a basename, and mod-folder uniqueness alone never sees a same-named plugin that lives in another
-    /// mod (PR #192 review). into= remains the way to grow an existing houseCARL patch; this is only the fresh path.</summary>
+    /// <summary>The given stem if it is free, else the first free "<c>&lt;stem&gt;_NNN</c>". Free means both that no
+    /// mod folder "<c>houseCARL - &lt;stem&gt;</c>" already exists, houseCARL's own or a user's, and that no plugin
+    /// "<c>&lt;stem&gt;.esp</c>" is already in the active load order. The load-order half stops a generic default
+    /// stem from emitting a plugin that duplicates a foreign active one: the engine forbids two active plugins
+    /// sharing a basename, and mod-folder uniqueness alone never sees a same-named plugin in another mod. into=
+    /// remains the way to grow an existing patch; this is only the fresh path.</summary>
     string UniqueStem(string stem)
     {
         var active = ActivePluginBasenames();
@@ -7702,12 +7686,11 @@ public sealed class LoadOrderService : IDisposable
     bool IsStemFree(string stem, IReadOnlySet<string> activePlugins)
         => !Directory.Exists(Path.Combine(_modsDir, ModFolderName(stem))) && !activePlugins.Contains(stem + ".esp");
 
-    /// <summary>The active load order's plugin filenames (case-insensitive) for the UniqueStem collision arm. Read from
-    /// the already-built resolver if present, else the SAME cheap composition it builds from — deliberately NOT via the
-    /// <see cref="Resolver"/> getter, which REFUSES a zero-plugin instance (a legitimate minimal write). BEST-EFFORT: any
-    /// read failure (or no active plugins) yields an EMPTY set — folder-only uniqueness, exactly the behaviour before the
-    /// load-order arm. So the collision check is a pure safety net; it never turns a previously-valid write into a failure
-    /// (Q3 degrade — the write itself, if it needs the load order, still surfaces a genuine problem through its own read).</summary>
+    /// <summary>The active load order's plugin filenames, case-insensitive, for the UniqueStem collision check. Read
+    /// from the already-built resolver if present, else the same cheap composition it builds from — deliberately not
+    /// via the <see cref="Resolver"/> getter, which refuses a zero-plugin instance, a legitimate minimal write.
+    /// Best-effort: any read failure, or no active plugins, yields an empty set and folder-only uniqueness, so the
+    /// collision check is a safety net that never turns a previously-valid write into a failure.</summary>
     IReadOnlySet<string> ActivePluginBasenames()
     {
         var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -7719,38 +7702,38 @@ public sealed class LoadOrderService : IDisposable
                     .OrderedPaths.Select(Path.GetFileName).Where(n => !string.IsNullOrEmpty(n)).ToList()!;
             foreach (var n in names) set.Add(n);
         }
-        catch { /* unreadable / empty load order → folder-only uniqueness (the pre-guard behaviour) */ }
+        catch { /* unreadable or empty load order → folder-only uniqueness */ }
         return set;
     }
 
-    /// <summary>The 4-step <c>into=</c> EXTEND resolver, SHARED by the .esp write path (<see cref="ResolveOutputPath"/>)
-    /// and the rider/asset path (<see cref="ResolvePatchModFolder"/>) so "extend my renamed patch" behaves IDENTICALLY
-    /// across records, scripts, BSAs, and assets (HCBR-2026-06-23 — the record lane was fixed first; this closes the
-    /// sibling). Resolves <paramref name="into"/> to the houseCARL-OWNED mod FOLDER it names: (1) the canonical
-    /// "houseCARL - &lt;stem&gt;" fast path; (2) by the &lt;stem&gt;.esp it HOLDS (the folder was renamed — the .esp basename
-    /// is fixed by SPID/CSF/masters); (3) by the folder's OWN name (the catch-all; folder &amp; plugin names need not match);
-    /// (4) loud Q3 refusals naming every place searched, a FOREIGN (un-owned) collision distinguished from a genuine miss.
-    /// Ownership-gated at every step — a plugin houseCARL didn't make stays refused (no foreign-plugin door; that's the
-    /// separate in-place lane). <paramref name="needEsp"/> tightens the canonical fast path for the RECORD lane (the folder
-    /// must actually hold &lt;stem&gt;.esp to short-circuit, else fall through); the rider lane targets the folder itself, so
-    /// it short-circuits on folder-exists+owned. Caller holds <see cref="_gate"/>.
-    /// <paramref name="freshPatch"/> is the calling operation's own statement about how — or whether — IT can create a
-    /// patch, which decides only the not-found refusal's remedy (see the throw); <paramref name="laneClause"/> is that
-    /// same lane's own extra next step, appended to that one arm. Both are separate from <paramref name="needEsp"/> on
-    /// purpose: the lanes and the naming semantics do not coincide.</summary>
+    /// <summary>The four-step <c>into=</c> extend resolver, shared by the .esp write path
+    /// (<see cref="ResolveOutputPath"/>) and the rider and asset path (<see cref="ResolvePatchModFolder"/>) so
+    /// "extend my renamed patch" behaves identically across records, scripts, BSAs and assets. Resolves
+    /// <paramref name="into"/> to the houseCARL-owned mod folder it names: the canonical "houseCARL - &lt;stem&gt;"
+    /// fast path; then by the &lt;stem&gt;.esp it holds, for a renamed folder, since the .esp basename is fixed by
+    /// whatever binds it; then by the folder's own name, since folder and plugin names need not match; then loud
+    /// refusals naming every place searched, distinguishing a foreign un-owned collision from a genuine miss. Every
+    /// step is ownership-gated, so a plugin houseCARL did not make stays refused — editing one is the separate
+    /// in-place lane. <paramref name="needEsp"/> tightens the canonical fast path for the record lane, where the
+    /// folder must actually hold &lt;stem&gt;.esp to short-circuit; the rider lane targets the folder itself. Caller
+    /// holds <see cref="_gate"/>.
+    /// <paramref name="freshPatch"/> is the calling operation's own statement about how, or whether, it can create a
+    /// patch, and decides only the not-found refusal's remedy; <paramref name="laneClause"/> is that same lane's
+    /// extra next step, appended to that one arm. Both are deliberately separate from
+    /// <paramref name="needEsp"/>.</summary>
     string ResolveOwnedPatchFolder(string into, bool needEsp,
                                    FreshPatchRemedy freshPatch = FreshPatchRemedy.None, string? laneClause = null)
     {
         var stem = PatchStem(into);                             // strips a trailing .esp/.esm/.esl; no directory parts (can't escape ModsDir)
         var espName = stem + ".esp";
 
-        // (1) CANONICAL fast path — "houseCARL - <stem>" still owns the patch (common case; no scan). The record lane also
-        //     requires it to HOLD <stem>.esp (needEsp); the rider lane only needs the owned folder.
+        // Canonical fast path: "houseCARL - <stem>" still owns the patch, the common case, with no scan. The record
+        // lane also requires it to hold <stem>.esp; the rider lane only needs the owned folder.
         var canonical = Path.Combine(_modsDir, ModFolderName(stem));
         if (Directory.Exists(canonical) && IsHouseCarlOwned(canonical) && (!needEsp || File.Exists(Path.Combine(canonical, espName))))
             return canonical;
 
-        // (2) by PLUGIN name — the owned folder HOLDING <stem>.esp, whatever it's now called (the renamed-folder case).
+        // By plugin name: the owned folder holding <stem>.esp, whatever it is now called — the renamed-folder case.
         var byEsp = OwnedFoldersHolding(espName)
             .Select(p => Path.GetDirectoryName(p)!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (byEsp.Count == 1) return byEsp[0];
@@ -7760,14 +7743,13 @@ public sealed class LoadOrderService : IDisposable
                 "Pass the CONTAINING mod-folder name as into= to pick one (folder & plugin names need not match): " +
                 string.Join("  |  ", byEsp.Select(d => $"into=\"{Path.GetFileName(d)}\"")) + ".");
 
-        // (3) FOLDER catch-all — into= NAMES the mod folder itself (the same-named-plugin disambiguator, and the way to
-        //     point at a renamed folder by its new name).
+        // Folder catch-all: into= names the mod folder itself — the same-named-plugin disambiguator, and the way to
+        // point at a renamed folder by its new name.
         var named = ResolveOwnedFolderByName(into);
         if (named is not null) return named;
 
-        // (4) Nothing matched. Distinguish a FOREIGN (un-owned) name collision — refused for the same reason as ever
-        //     (originals untouched, Q3) — from a genuine miss, NAMING every place searched (the report asked the refusal
-        //     to reveal all the required pieces at once, not one half per failed call).
+        // Nothing matched. Distinguish a foreign, un-owned name collision — refused so originals stay untouched —
+        // from a genuine miss, naming every place searched so the refusal reveals all the pieces at once.
         var bareName = Path.GetFileName(into.Trim());
         foreach (var cand in new[] { ModFolderName(stem), bareName })
         {
@@ -7777,49 +7759,25 @@ public sealed class LoadOrderService : IDisposable
                     $"cannot extend: mod folder '{cand}' exists but was NOT created by houseCARL (no marker) — " +
                     "refusing to write into a folder houseCARL doesn't own (originals untouched, Q3). Use a different patch name.");
         }
-        // The fresh-write remedy is the CALLER'S to authorize (#343). "Omit into= to create it fresh" was the whole
-        // remedy, and it is exactly the call that yields a generically-named Patch.esp — while patch=, the way to
-        // name a new patch, was in no doc a caller reads. The stronger sentence names patch= and hands back the
-        // working call with the caller's own guessed name in it.
-        //
-        // THE RULE, not a roster: each operation states its OWN fresh-write path, because it is not inferable here
-        // and the lane bit does not separate it. Three independent ways a shared assumption goes false, stated as
-        // PROPERTIES rather than as tools that have them — this comment's own list of tools was wrong twice before it
-        // became a rule, and naming them here just moves the roster into prose. (1) The operation cannot create a
-        // patch at all: it edits an artifact that must already exist, so a create remedy is false for it whatever it
-        // spells the lane. (2) It creates one, but names it off something other than the "Patch" default — a
-        // caller-supplied identifier, or a stem its own call site fixes. (3) The spelling names a DIFFERENT artifact
-        // on that operation, because it declares more than one output name and §5.3 routes patch= to the artifact.
-        // Which operation is which is answered at the call sites, which are the authority; a reader who wants the set
-        // greps the enum, and gets an answer that cannot be stale.
-        //
-        // Hence the DEFAULT claims no fresh-write path at all (#356). It used to be case (1)'s opposite — the weaker
-        // "Omit into= to create it fresh", justified as "merely less helpful, never wrong" — and the removal lane,
-        // which cannot create anything, reached exactly that default and told its callers to omit the lane,
-        // which is itself refused. A default that is wrong for a whole class of caller is not a weak default, so the
-        // safe sentence is now the one that promises nothing: a caller added later without a thought about any of
-        // this gets "Check the name.", and every stronger claim is one an operation makes for itself.
-        //
-        // laneClause is the same statement one step further: a lane whose next step is its OWN
-        // (removal's is the in-place lane, which no other caller here has) hands the sentence in rather than having
-        // it inferred from a semantic bit — the shape LocalizedTargetUnsupportedException.Text already uses. It rides
-        // THIS arm only: the foreign-folder arm's remedy is #359's open design question, and the ambiguous and
-        // multi-plugin arms name a call rather than a lane. That is NOT a claim that those two arms are correct.
-        // They instruct every caller to "pass into=", which housecarl_remove_record does not declare, and the alias
-        // table has no row whose OLD spelling is "into" — it is bidirectional, so the miss is that specific row's
-        // absence rather than any one-way rule. Measured: that tool answers "unknown parameter: into". Same defect
-        // as this one, one arm over; it is on main untouched by this change, and filed as #377 rather than fixed
-        // here.
-        //
-        // It is rendered BEFORE the fallback above, not after: the lane's own diagnosis is what makes the fallback
-        // the right thing left to do, and reading the instruction first was the order two reviewers stumbled on.
-        //
-        // Note what the sentence does NOT do: predict the resulting filename. UniqueStem takes a stem only when it
-        // is free on BOTH of IsStemFree's tests — no "houseCARL - <stem>" folder already exists, AND no active
-        // plugin is named "<stem>.esp" — and suffixes it otherwise. Either trigger is ordinary: the folder arm is
-        // the repeat caller who passes patch= again instead of into=, the active-plugin arm the caller who guessed
-        // into= off a name in their load order. The qualifier scopes BOTH names the sentence mentions, the chosen
-        // one and the "Patch" default, because either can be suffixed by either trigger.
+        // The fresh-write remedy is the caller's to authorize: each operation states its OWN fresh-write path,
+        // because it is not inferable here and the lane bit does not separate it. Three independent properties make
+        // a shared assumption false. An operation may be unable to create a patch at all, editing an artifact that
+        // must already exist, so a create remedy is false for it. It may create one but name it off something other
+        // than the default — a caller-supplied identifier, or a stem its own call site fixes. Or the spelling may
+        // name a DIFFERENT artifact on that operation, because it declares more than one output name. Which
+        // operation is which is answered at the call sites, so a reader who wants the set greps the enum.
+        // Hence the default claims no fresh-write path at all: a weaker "omit into= to create it fresh" is wrong for
+        // any lane that cannot create anything, and telling such a caller to omit the lane sends them into a second
+        // refusal. A caller added later without a thought about any of this gets "Check the name.", and every
+        // stronger claim is one an operation makes for itself.
+        // laneClause is the same statement one step further: a lane whose next step is its own hands the sentence in
+        // rather than having it inferred from a semantic bit. It rides THIS arm only.
+        // It is rendered BEFORE the fallback: the lane's own diagnosis is what makes the fallback the right thing
+        // left to do.
+        // The sentence deliberately does not predict the resulting filename. UniqueStem takes a stem only when it is
+        // free on both tests — no "houseCARL - <stem>" folder exists, and no active plugin is named "<stem>.esp" —
+        // and suffixes it otherwise. Either trigger is ordinary, so the qualifier scopes both names the sentence
+        // mentions.
         throw new InvalidOperationException(
             $"cannot extend: no houseCARL plugin '{espName}' in any houseCARL folder, and no houseCARL folder named " +
             $"'{ModFolderName(stem)}'" +
@@ -7835,11 +7793,11 @@ public sealed class LoadOrderService : IDisposable
             });
     }
 
-    /// <summary>houseCARL-OWNED mod folders under ModsDir holding a plugin file named <paramref name="espFileName"/> at
-    /// their root — the decoupled resolver behind <c>into=</c>. The .esp basename is FIXED (SPID <c>_DISTR</c>, the CSF
-    /// JSON, and masters all bind the patch by its filename), while the MO2 mod-FOLDER name is the user's to rename for
-    /// organization; so an extend finds the patch by the plugin it holds, not by the folder's current name. Ownership-gated
-    /// (the marker) so a user mod that merely shares the basename is NEVER returned (originals untouched, Q3). Full .esp paths.</summary>
+    /// <summary>houseCARL-owned mod folders under ModsDir holding a plugin file named <paramref name="espFileName"/>
+    /// at their root. The .esp basename is fixed — SPID files, config JSON and masters all bind the patch by its
+    /// filename — while the MO2 mod-folder name is the user's to rename, so an extend finds the patch by the plugin
+    /// it holds rather than the folder's current name. Ownership-gated by the marker, so a user mod that merely
+    /// shares the basename is never returned. Returns full .esp paths.</summary>
     List<string> OwnedFoldersHolding(string espFileName)
     {
         var hits = new List<string>();
@@ -7851,10 +7809,11 @@ public sealed class LoadOrderService : IDisposable
         return hits;
     }
 
-    /// <summary>A houseCARL-OWNED mod folder named exactly <paramref name="rawName"/> or "<c>houseCARL - &lt;rawName&gt;</c>"
-    /// — the FOLDER catch-all behind <c>into=</c>: the user NAMES the containing mod folder when the plugin basename is
-    /// ambiguous (or to point at a renamed folder by its new name), and the folder name need NOT match the .esp inside.
-    /// Bare name only (no directory parts — can't escape ModsDir). Null when no such folder is houseCARL-owned.</summary>
+    /// <summary>A houseCARL-owned mod folder named exactly <paramref name="rawName"/> or
+    /// "<c>houseCARL - &lt;rawName&gt;</c>" — the folder catch-all behind <c>into=</c>, where the user names the
+    /// containing mod folder because the plugin basename is ambiguous or the folder was renamed. The folder name need
+    /// not match the .esp inside. Bare name only, with no directory parts, so it cannot escape ModsDir. Null when no
+    /// such folder is houseCARL-owned.</summary>
     string? ResolveOwnedFolderByName(string rawName)
     {
         var bare = Path.GetFileName(rawName.Trim());
@@ -7867,9 +7826,9 @@ public sealed class LoadOrderService : IDisposable
         return null;
     }
 
-    /// <summary>The single top-level plugin (.esp/.esm/.esl) in a houseCARL folder, so <c>into=</c> a folder NAME can edit
-    /// "the plugin in this folder" without re-stating its basename. Null + a named <paramref name="reason"/> when the folder
-    /// holds none or more than one (Q3 — never guess which of several to extend).</summary>
+    /// <summary>The single top-level plugin in a houseCARL folder, so <c>into=</c> a folder name can edit "the plugin
+    /// in this folder" without re-stating its basename. Null plus a named <paramref name="reason"/> when the folder
+    /// holds none or more than one, rather than guessing which of several to extend.</summary>
     static string? SoleEspInFolder(string folder, out string reason)
     {
         var plugins = Directory.EnumerateFiles(folder)
@@ -7883,8 +7842,8 @@ public sealed class LoadOrderService : IDisposable
     }
 
     /// <summary>A mod folder is houseCARL-owned iff its <c>meta.ini</c> carries the <c>[houseCARL] generated=true</c>
-    /// marker. The marker lives in meta.ini — the one mod-root file MO2 does NOT deploy into the game Data folder — so it
-    /// never pollutes Data. FAIL-SAFE (Q3): a missing / stripped marker reads as NOT owned, so houseCARL refuses to
+    /// marker. The marker lives in meta.ini, the one mod-root file MO2 does not deploy into the game Data folder, so
+    /// it never pollutes Data. Fail-safe: a missing or stripped marker reads as NOT owned, so houseCARL refuses to
     /// modify the folder rather than risk touching a user mod.</summary>
     static bool IsHouseCarlOwned(string folder)
     {
@@ -7902,9 +7861,9 @@ public sealed class LoadOrderService : IDisposable
         return false;
     }
 
-    /// <summary>Write the new mod folder's <c>meta.ini</c>: the <c>[houseCARL]</c> ownership marker (MO2-undeployed) plus a
-    /// minimal <c>[General]</c> for MO2's display. Format grounded against real MO2 meta.ini (a minimal one is valid;
-    /// the custom section is ours). A fresh folder has none, so this just writes it.</summary>
+    /// <summary>Write the new mod folder's <c>meta.ini</c>: the <c>[houseCARL]</c> ownership marker, which MO2 does
+    /// not deploy, plus a minimal <c>[General]</c> for MO2's display. A minimal meta.ini is valid and the custom
+    /// section is ours. A fresh folder has none, so this just writes it.</summary>
     static void WriteOwnerMeta(string folder, string plugin)
     {
         var content =
