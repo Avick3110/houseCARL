@@ -62,8 +62,8 @@ public static class ArchiveDiscovery
         // (1) base archives — Skyrim.ini [Archive] sResourceArchiveList/2; loaded first → the LOW rank block.
         foreach (var fn in ReadBaseArchiveNames(profileDir, gamePath, warnings))
         {
-            if (archiveMap.TryGetValue(fn, out var path))
-                archives.Add(new ActiveArchive(path, IniArchiveOwner, rank));
+            if (archiveMap.TryGetValue(fn, out var found))
+                archives.Add(new ActiveArchive(found.Path, IniArchiveOwner, rank, found.OwningMod));
             rank++;   // a distinct rank per INI entry (later in the list = later loaded); absent-on-disk just isn't added
         }
 
@@ -72,31 +72,33 @@ public static class ArchiveDiscovery
         {
             var baseName = Path.GetFileNameWithoutExtension(name);
             foreach (var candidate in new[] { baseName + ".bsa", baseName + " - Textures.bsa" })
-                if (archiveMap.TryGetValue(candidate, out var path))
-                    archives.Add(new ActiveArchive(path, name, rank));
+                if (archiveMap.TryGetValue(candidate, out var found))
+                    archives.Add(new ActiveArchive(found.Path, name, rank, found.OwningMod));
             rank++;   // both of a plugin's archives share its rank; advance once per plugin
         }
 
         return new ArchiveDiscoveryResult(archives, warnings);
     }
 
-    /// <summary>Build archive-filename → winning real path, the .bsa twin of <see cref="Mo2LoadOrder"/>'s plugin
-    /// filename map: MO2's overwrite layer first (beats every mod), then enabled mods highest-priority-first
-    /// (first sighting wins), then the game Data folder last (base game = lowest). OrdinalIgnoreCase keys.</summary>
-    static Dictionary<string, string> BuildArchiveMap(
+    /// <summary>Build archive-filename → the winning real path AND the MO2 layer it came from, the .bsa twin of
+    /// <see cref="Mo2LoadOrder"/>'s plugin filename map: MO2's overwrite layer first (beats every mod), then enabled
+    /// mods highest-priority-first (first sighting wins), then the game Data folder last (base game = lowest).
+    /// OrdinalIgnoreCase keys. The layer rides along so a caller can address an archive by naming the mod it lives
+    /// in, not only by its filename (#388).</summary>
+    static Dictionary<string, (string Path, string OwningMod)> BuildArchiveMap(
         IReadOnlyList<string> enabledModsByPriority, string modsDir, string dataDir, string overwriteDir)
     {
-        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var map = new Dictionary<string, (string, string)>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var (fn, full) in EnumerateArchives(overwriteDir))   // overwrite — beats every mod
-            map[fn] = full;
+            map[fn] = (full, "overwrite");
 
         foreach (var mod in enabledModsByPriority)                    // highest priority first
             foreach (var (fn, full) in EnumerateArchives(Path.Combine(modsDir, mod)))
-                if (!map.ContainsKey(fn)) map[fn] = full;             // first (highest-priority) wins
+                if (!map.ContainsKey(fn)) map[fn] = (full, mod);      // first (highest-priority) wins
 
         foreach (var (fn, full) in EnumerateArchives(dataDir))        // base game / vanilla — lowest priority
-            if (!map.ContainsKey(fn)) map[fn] = full;
+            if (!map.ContainsKey(fn)) map[fn] = (full, "Data");
 
         return map;
     }

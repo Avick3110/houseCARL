@@ -70,7 +70,10 @@ public static class NifTools
                      "silent fallback to the summary). Empty = summary only (header + block census + shape names).")]
             string sections = "",
         [Description("Optional. Inspect a specific provider's copy instead of the VFS winner — the mod folder " +
-                     "name, 'overwrite', 'Data', or a BSA filename as listed in the providers chain. Applies to every mesh " +
+                     "name, 'overwrite', 'Data', or a BSA filename. Pass the name EXACTLY as the providers chain " +
+                     "shows it INSIDE the double quotes; the kind after them ('loose' / 'BSA') is not part of the name. " +
+                     "Naming a MOD reaches that mod's loose files AND its own root archives, whether or not MO2 is " +
+                     "loading it, so a donor mod can be read without enabling it. Applies to every mesh " +
                      "in the batch. Empty = the winner.")]
             string mod = "",
         [Description("Optional. Max characters before the output is cut with an explicit notice. 0 = the server default (~80k).")]
@@ -159,7 +162,10 @@ public static class NifTools
         [Description("set_path: the new texture path (Data-relative, e.g. 'textures\\...\\facetint\\Mod.esp\\00000ABC.dds').")] string path = "",
         [Description("set_shader_value: which lighting value — 'glossiness', 'specular_strength', 'specular_color', 'emissive_color', 'emissive_multiple', or 'alpha'.")] string shader_value = "",
         [Description("set_shader_value: the new value — one number for a scalar ('30'), or three comma-separated components for a colour ('1,0.5,0.25'). Colours and alpha are conventionally 0-1 (NOT 0-255); a value outside that is written as asked but WARNED about.")] string value = "",
-        [Description("Optional. Edit a specific provider's copy instead of the VFS winner — the mod folder name, 'overwrite', 'Data', or a BSA filename from the providers chain. Empty = the winner.")]
+        [Description("Optional. Edit a specific provider's copy instead of the VFS winner — the mod folder name, 'overwrite', " +
+                     "'Data', or a BSA filename. Pass the name EXACTLY as the providers chain shows it INSIDE the double " +
+                     "quotes; the kind after them ('loose' / 'BSA') is not part of the name. Naming a MOD reaches that mod's " +
+                     "loose files AND its own root archives, whether or not MO2 is loading it. Empty = the winner.")]
             string mod = "",
         [Description("Optional. Base name for the NEW mod folder the edited mesh is written into (default lane; auto-suffixed if taken). Ignored with in_place=true.")]
             string patch_name = "",
@@ -312,7 +318,7 @@ static class NifWire
         }
 
         var nif = d.Inspect;
-        sb.Append("  read from: ").Append(d.Inspected!.Name).Append(" (").Append(d.Inspected.Kind).Append(")\n");
+        sb.Append("  read from: ").Append(d.Inspected!.Text).Append('\n');
         AppendProviders(sb, d.Providers);
         if (d.Ambiguous)
             sb.Append("  note: more than one source provides this mesh — the winner above was read (loose beats BSA). " +
@@ -358,7 +364,7 @@ static class NifWire
         for (int i = 0; i < providers.Count; i++)
         {
             if (i > 0) sb.Append(" > ");
-            sb.Append(providers[i].Name).Append(" (").Append(providers[i].Kind).Append(')');
+            sb.Append(providers[i].Text);
         }
         sb.Append('\n');
     }
@@ -666,7 +672,7 @@ static class NifSetWire
         }
 
         // success.
-        if (d.Edited is not null) sb.Append("  edited copy: ").Append(d.Edited.Name).Append(" (").Append(d.Edited.Kind).Append(")\n");
+        if (d.Edited is not null) sb.Append("  edited copy: ").Append(d.Edited.Text).Append('\n');
         AppendProviders(sb, d.Providers);
         if (d.Ambiguous)
             sb.Append("  note: more than one source provides this mesh — the winner above was edited (loose beats BSA). Pass mod= to edit another copy.\n");
@@ -711,7 +717,7 @@ static class NifSetWire
         for (int i = 0; i < providers.Count; i++)
         {
             if (i > 0) sb.Append(" > ");
-            sb.Append(providers[i].Name).Append(" (").Append(providers[i].Kind).Append(')');
+            sb.Append(providers[i].Text);
         }
         sb.Append('\n');
     }

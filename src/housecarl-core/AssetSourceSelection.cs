@@ -99,7 +99,20 @@ public static class AssetSourceSelection
     /// double quotes cannot occur inside one. Same construction as the '*' sigil on the pole token.</para>
     /// <para>The name must be copyable verbatim out of a message and back into a selector, so the kind stays outside
     /// the quotes; a CI round-trip over hostile names feeds these strings back through the real tool.</para></summary>
-    public static string Describe(PlacementSource s) => $"\"{s.ProviderName}\" ({(s.Kind == AssetKind.Bsa ? "BSA" : "loose")})";
+    public static string Describe(PlacementSource s) => Describe(s.ProviderName, s.Kind == AssetKind.Bsa ? "BSA" : "loose");
+
+    /// <summary>The same formatter for a caller that already holds the name and a rendered kind label — the NIF
+    /// surface's provider chain, whose kind label is produced upstream. One format string for both, so a listing
+    /// cannot drift from the spelling the selector accepts.</summary>
+    public static string Describe(string providerName, string kindLabel) => $"\"{providerName}\" ({kindLabel})";
+
+    /// <summary>Does <paramref name="name"/> address this source? Its provider name — the mod folder for a loose
+    /// copy, the archive filename for a BSA — or, for a BSA, the MOD FOLDER the archive file lives in. The second
+    /// arm is #388: a caller addresses a donor by naming the mod, and a mod's own root archives are part of what
+    /// naming that mod means. OrdinalIgnoreCase, the same way the providers themselves are matched.</summary>
+    public static bool NameMatches(PlacementSource s, string name)
+        => string.Equals(s.ProviderName, name, StringComparison.OrdinalIgnoreCase)
+        || (s.OwningMod is { } owner && string.Equals(owner, name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Pick the provider to read from, under <paramref name="choice"/>'s pole. Every refusal verdict carries
     /// the provider names so the caller can render its own.
@@ -122,8 +135,10 @@ public static class AssetSourceSelection
         // supplies — under that return the caller's name would never be consulted at all.
         if (choice.Pole == AssetSourcePole.Named)
         {
+            // Winner-first order decides among a mod's own copies: its loose file before its own archive, exactly the
+            // layering the engine applies to that mod.
             foreach (var s in res.Sources)
-                if (string.Equals(s.ProviderName, choice.Spelling ?? "", StringComparison.OrdinalIgnoreCase))
+                if (NameMatches(s, choice.Spelling ?? ""))
                     return new AssetSourcePick(AssetSourceVerdict.Selected, s, names);
             var off = offOrderLookup?.Invoke(choice.Spelling) ?? OffOrderLookup.NotConsulted;
             if (off.Source is { } offOrder)

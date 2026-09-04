@@ -12,10 +12,11 @@ namespace HousecarlCore;
 //  provider, the winner pole, or a contention listing: a mod nobody named must never contend
 //  silently or be reported as the winner.
 //
-//  UNIVERSE FIRST. A name the built universe already knows is answered by the universe and never
-//  reaches disk (the caller passes the test in; this type does not know what is enabled). So no
-//  enabled name changes behaviour, and the disk look is paid only on a name the universe has no
-//  answer for.
+//  RESERVED NAMES FIRST. A name that means something other than a mod folder — MO2's overwrite
+//  layer, the game's Data folder, an active archive's filename — is answered by the universe and
+//  never reaches disk (the caller passes the test in; this type does not know what is enabled), so
+//  a mod folder called "Data" can never shadow the layer that name means. Every other name reaches
+//  the folder scan, and only after the universe has already failed to answer it.
 //
 //  Lane shape: loose file at the rel path first, then the folder's ROOT archives
 //  (NpcAppearanceAssets.DonorDisk). Root archives are the capability a path guess cannot supply —
@@ -65,8 +66,9 @@ public readonly record struct OffOrderLookup(PlacementSource? Source, OffOrderRe
 public static class OffOrderAssetSource
 {
     /// <summary>The named mod folder's copy of <paramref name="relPath"/>, or null when that name resolves to no
-    /// reachable copy. <paramref name="isUniverseProviderName"/> is the universe-first gate — a name it accepts
-    /// returns null here, so the caller's own (enabled) answer stands and this lane cannot shadow it.
+    /// reachable copy. <paramref name="isReservedProviderName"/> is the reserved-name gate — a name it accepts is one
+    /// that means a layer rather than a mod folder, so it returns null here and cannot be shadowed by a folder of
+    /// that name.
     ///
     /// <para><paramref name="relPath"/> must already be through <see cref="AssetResolver.ValidateRelPath"/>; the
     /// PROVIDER name is validated here instead, because it arrives raw off the wire and is about to be joined to
@@ -78,14 +80,14 @@ public static class OffOrderAssetSource
     /// Never throws, and never converts a failure into an absence: an unreadable folder, file or archive comes back
     /// as <see cref="OffOrderReason.FolderUnreadable"/> with a name and a cause, so the caller can say "unknown"
     /// rather than "this mod does not have it".</para></summary>
-    public static OffOrderLookup Resolve(string modsDir, Func<string, bool> isUniverseProviderName,
+    public static OffOrderLookup Resolve(string modsDir, Func<string, bool> isReservedProviderName,
                                          string? providerName, string relPath)
     {
         var name = providerName?.Trim() ?? "";
         if (name.Length == 0 || modsDir.Length == 0 || relPath.Length == 0) return OffOrderLookup.NotConsulted;
 
-        // UNIVERSE FIRST — the one line that keeps every enabled name on its existing path.
-        if (isUniverseProviderName(name)) return new OffOrderLookup(null, OffOrderReason.UniverseName);
+        // RESERVED FIRST — the one line that keeps a layer name meaning the layer, never a folder called that.
+        if (isReservedProviderName(name)) return new OffOrderLookup(null, OffOrderReason.UniverseName);
 
         // A name that cannot BE a folder is its own outcome, NOT the gate's — collapsed, a drive-rooted path
         // refuses as "a name the active load order already provides files under", which is false.
