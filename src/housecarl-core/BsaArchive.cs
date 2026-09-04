@@ -212,12 +212,11 @@ public static class BsaArchive
     /// <summary>Pack <paramref name="srcFolder"/> into a .bsa at <paramref name="archive"/> with the given format flag
     /// (e.g. "-sse") and optional compression, via BSArch (Mutagen has no BSA writer). NON-DESTRUCTIVE:
     /// an existing archive at the target is NEVER overwritten unless this run successfully packs a new one — BSArch writes
-    /// to a houseCARL-internal temp beside the target, and only a clean pack THIS RUN (temp exists, non-empty, AND written
-    /// at/after the run's mtime baseline) is moved over the target; a stale scratch from a previous run that cannot be
-    /// removed REFUSES up front (nothing runs, the prior .bsa untouched), and any failure (BSArch error, non-zero exit,
-    /// timeout, empty output, stale-mtime scratch) deletes the temp and leaves the prior .bsa untouched. The mtime gate
-    /// assumes an NTFS-class timestamp resolution — on a FAT-class target a same-second pack could read as stale and fail
-    /// LOUD (never falsely succeed). The source is enumerated first and the produced archive's own header count is checked against it
+    /// to a houseCARL-internal temp beside the target, and only a clean pack THIS RUN (the scratch is cleared before the
+    /// run, so the temp existing, non-empty, after a zero-exit run is this run's) is moved over the target; a stale
+    /// scratch from a previous run that cannot be removed REFUSES up front (nothing runs, the prior .bsa untouched), and
+    /// any failure (BSArch error, non-zero exit, timeout, empty
+    /// output) deletes the temp and leaves the prior .bsa untouched. The source is enumerated first and the produced archive's own header count is checked against it
     /// before the move, so a short pack refuses instead of reporting success; files at the source ROOT are counted apart
     /// because BSArch drops them, and a source that cannot be fully enumerated packs unverified rather than refusing. NOTE the caller must surface BSArch's caveat: a COMPRESSED archive breaks any
     /// sounds/voices it contains. The write itself runs through <paramref name="packer"/>, which defaults to the BSArch
@@ -246,8 +245,6 @@ public static class BsaArchive
         try { scan = ScanPackSource(srcFolder); }
         catch { scan = null; }
 
-        var baselineUtc = DateTime.UtcNow;
-
         var run = (packer ?? ShellBsArch)(bsarchExe, srcFolder, tmp, formatFlag, compress, timeoutMs);
 
         // A non-zero exit is a failed pack whatever it left behind: BSArch can abort partway and still leave a scratch
@@ -261,10 +258,10 @@ public static class BsaArchive
                 $"BSArch exited with code {run.exit} — {said}. Nothing was packed; the existing archive, if any, is untouched.", null);
         }
 
-        // Provenance: THIS run must have written the scratch (mtime at/after the pre-run baseline) —
-        // existence alone proved nothing about who made it.
-        bool packed = run.runError is null && File.Exists(tmp) && new FileInfo(tmp).Length > 0
-                      && File.GetLastWriteTimeUtc(tmp) >= baselineUtc;
+        // Provenance: the scratch was cleared before the run (a stuck one already refused), so a non-empty scratch after
+        // a zero-exit run is this run's. No mtime compare — an NTFS write stamp can read older than a precise-clock
+        // baseline taken microseconds earlier, which failed a good fast pack with no sentence saying why (#522).
+        bool packed = run.runError is null && File.Exists(tmp) && new FileInfo(tmp).Length > 0;
         if (!packed)   // BSArch couldn't run, or produced no/empty output — leave any prior archive untouched
         {
             try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best-effort */ }
