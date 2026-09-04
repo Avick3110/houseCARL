@@ -45,7 +45,7 @@ public abstract class RecordsTestBase
         foreach (var s in mustName) Assert.Contains(s, response);
     }
 
-    /// <summary>Served, not refused, and naming what the arm claims.</summary>
+    /// <summary>Served, not refused, and naming what the test claims.</summary>
     protected static void Served(string response, params string[] mustName)
     {
         Assert.False(response.StartsWith("error:", StringComparison.Ordinal), "refused: " + First(response));

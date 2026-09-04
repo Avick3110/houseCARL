@@ -1,16 +1,11 @@
-// Converted-from: RecordsGuardProbe
 using HousecarlMcp;
 using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// SPEC §2.1.1 — to_file artifacts and @artifact re-entry, epoch-checked. (RecordsGuardProbe arm 5.)
-///
-/// <para>This class owns its OWN world: the staleness arm changes a plugin's mtime, which re-fingerprints
-/// the build. In the linear probe that mutation sat in the middle of one procedure and every arm after it
-/// silently inherited a different world; here the blast radius is one class.</para>
-/// </summary>
+/// <summary>to_file artifacts and @artifact re-entry, epoch-checked. This class owns its OWN world because
+/// the staleness test changes a plugin's mtime, which re-fingerprints the build for anything sharing
+/// it.</summary>
 [Trait("tier", "integration")]
 public sealed class RecordsTransportTests : IDisposable
 {
@@ -31,12 +26,8 @@ public sealed class RecordsTransportTests : IDisposable
                                     { form = "fields", fields = new[] { "BasicStats.Damage" } });
     }
 
-    /// <summary>
-    /// to_file creates the artifact's parent directory. In the linear probe this was covered by accident —
-    /// three arms wrote into results/ before anything created it — and the conversion pre-creates the
-    /// directory everywhere, so the coverage was lost silently. Asserted deliberately here: a change making
-    /// to_file throw or refuse on a missing parent would otherwise ship with the whole suite green.
-    /// </summary>
+    /// <summary>to_file creates the artifact's parent directory. Every other test here pre-creates it, so
+    /// without this one a to_file that threw or refused on a missing parent would ship green.</summary>
     [Fact]
     public void ToFile_CreatesItsParentDirectory_TheCallerNeedNotMakeItFirst()
     {

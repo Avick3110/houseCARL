@@ -1,4 +1,3 @@
-// Converted-from: BindingShimProbe
 using System.ComponentModel;
 using System.Reflection;
 using System.Text.Json;
@@ -12,12 +11,10 @@ namespace HousecarlMcpTests;
 
 /// <summary>
 /// The tool surface as the SDK's schema generator emits it, BEFORE <c>ToolSchemas.PublishSchemas</c> runs,
-/// plus the pointer arithmetic the published-schema arms stand on.
-///
-/// <para>Guard machinery, not product code — the probe carried the same functions, and the two
-/// <c>SCHEMA-FIXTURE</c> arms in <see cref="PublishedSchemaShapeTests"/> guard THESE, exactly as they guarded
-/// the probe's copies. Kept here rather than reached across into <c>housecarl-generator</c>'s
-/// <c>PreFlattenSurface</c>, which is internal to a project this test assembly is not a friend of.</para>
+/// plus the pointer arithmetic the published-schema tests stand on. Test machinery, not product code; the
+/// derivation rules here are themselves checked in <see cref="PublishedSchemaShapeTests"/>. Kept here rather
+/// than reached across into <c>housecarl-generator</c>'s <c>PreFlattenSurface</c>, which is internal to a
+/// project this test assembly is not a friend of.
 ///
 /// <para>The registration mirrors the server's own scan line and stops there: no transport, no server
 /// identity, and above all no schema publication pass, because that pass mutates <c>InputSchema</c> in place
@@ -29,8 +26,7 @@ internal static class PreFlattenSchemas
     internal readonly record struct Tool(string Name, JsonObject Schema);
 
     /// <summary>Every registered tool's pre-flatten schema, in registration order. Throws rather than
-    /// returning empty: a derivation that finds no tools is a broken derivation, and every arm built on it
-    /// would pass vacuously.</summary>
+    /// returning empty: an empty result would make every test built on it pass vacuously.</summary>
     internal static IReadOnlyList<Tool> Read()
     {
         var services = new ServiceCollection();
@@ -123,8 +119,8 @@ internal static class PreFlattenSchemas
     }
 
     /// <summary>The <c>$ref</c> pointer on a node, or null when the member is absent or does not hold a JSON
-    /// string. The safe spelling on purpose: a non-string <c>$ref</c> is a form neither pass understands, and
-    /// the invariant arm is what reports it — reading it as a string here would take the guard down first.</summary>
+    /// string. Safe on purpose: a non-string <c>$ref</c> is a form neither pass understands, and the invariant
+    /// test is what reports it — reading it as a string here would throw before that test could.</summary>
     internal static string? RefPointer(JsonObject node) =>
         node["$ref"] is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;
 
@@ -133,16 +129,11 @@ internal static class PreFlattenSchemas
     /// pointer is a proper ancestor of its own path is a positional back-reference, and the path segment
     /// between them is one turn of that cycle.
     ///
-    /// <para>Two rules make the derivation say what it means, and neither is visible on today's surface —
-    /// which is why the fixture arms exist:</para>
-    /// <list type="bullet">
-    /// <item>the prefix must end ON a JSON-pointer segment boundary. A bare string prefix makes a sibling
-    /// whose wire name EXTENDS the target's into a false ancestor, and the derived step is then a fragment of
-    /// a member name that resolves nowhere — a RED on a schema the pass flattened correctly.</item>
-    /// <item>every distinct pair is returned, never the last one. The caller refuses a tool that yields more
-    /// than one: a later pair overwriting the first leaves the guard measuring one cycle while claiming the
-    /// tool's coverage.</item>
-    /// </list>
+    /// <para>Two rules, neither exercised by today's surface, so each has its own fixture test: the prefix must
+    /// end ON a JSON-pointer segment boundary, or a sibling whose wire name merely EXTENDS the target's reads as
+    /// a false ancestor and the derived step resolves nowhere; and every distinct pair is returned rather than
+    /// the last, so a caller can refuse a tool carrying more than one cycle instead of measuring whichever the
+    /// walk saw last.</para>
     /// </summary>
     internal static List<(string Step, string Cycle)> DeriveRecursions(
         IEnumerable<(string Path, JsonObject Node)> sites)
@@ -220,7 +211,7 @@ internal static class PreFlattenSchemas
         }
     }
 
-    /// <summary>Anything not starting with '#' is external and counts as resolvable — these arms police the
+    /// <summary>Anything not starting with '#' is external and counts as resolvable — these tests police the
     /// pointers the publication pass rebases, not the whole of JSON Schema.</summary>
     internal static bool PointerResolves(JsonElement root, string reference)
         => !reference.StartsWith('#') || Pointer(root, reference) is not null;

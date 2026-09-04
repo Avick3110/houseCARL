@@ -1,20 +1,17 @@
-// Converted-from: RecordsGuardProbe
 using HousecarlMcp;
 using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// SPEC §2.2 / §6.1 — the types=/plugins= (scan) lane, form-scoping, the off-order scan arm, and the
-/// PR #307 review folds. (RecordsGuardProbe arms 4 and 4b.)
-/// </summary>
+/// <summary>The types=/plugins= (scan) lane: form-scoping, the off-order scan case, and the composition and
+/// refusal rules over it.</summary>
 [Collection("records")]
 [Trait("tier", "integration")]
 public sealed class RecordsScanLaneTests : RecordsTestBase
 {
     public RecordsScanLaneTests(RecordsFixture f) : base(f) { }
 
-    // ---- 4: the scan lane ------------------------------------------------------------------------
+    // ---- the scan lane ---------------------------------------------------------------------------
 
     [Fact]
     public void TypesIsASet_TheScanStreamsTheUnionOfWeapAndArmo() =>
@@ -118,7 +115,7 @@ public sealed class RecordsScanLaneTests : RecordsTestBase
         Served(RecordsTools.Records(Svc, source: Plugin(W.OldName), types: new[] { "WEAP" },
                                     where: new[] { "BasicStats.Damage >= 50" }), "HcRecW1");
 
-    // ---- 4b: PR #307 review folds ----------------------------------------------------------------
+    // ---- composition, deleted records, paging and the refusals -----------------------------------
 
     [Fact]
     public void TheWinnerTermSeesADeletedRecord_ResolutionIsARealFactAboutIt() =>

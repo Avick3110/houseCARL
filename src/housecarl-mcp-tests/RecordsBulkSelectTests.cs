@@ -7,13 +7,6 @@ namespace HousecarlMcpTests;
 /// <summary>
 /// The list lane of <c>housecarl_records</c>: the identity form's rows, the per-item error shape, the
 /// named-plugin SOURCE pole, the record object's json contract, and link annotation.
-///
-/// <para>These arms come from the tool-layer blocks of <c>BulkPrimitivesWave2Probe</c>, which drove the
-/// same claims through <c>housecarl_resolve</c>, <c>housecarl_read_record</c> and
-/// <c>housecarl_batch_record_detail</c>. Those three tools are deleted; the probe file survives, because
-/// the rest of it drives <c>LoadOrderService</c> directly. Arms that pinned a 1.x-only shape — the sibling
-/// batch tool's shared memo, the conflict_tree/json refusal, the retired cross-tool redirect — are not
-/// carried over: they have no spelling on the 2.0 surface.</para>
 /// </summary>
 [Collection("bulk-records")]
 [Trait("tier", "integration")]
@@ -79,10 +72,7 @@ public sealed class RecordsBulkSelectTests : BulkRecordsTestBase
 
     // ---- max_chars on the identity lane -----------------------------------------------------------
 
-    /// <summary>
-    /// The 1.x tool DROPPED rows at the ceiling and said so. On this surface max_chars caps the RENDER
-    /// only — the complete result spills to an artifact — so the surviving claim is that nothing is lost.
-    /// </summary>
+    /// <summary>max_chars caps the RENDER only — the complete result spills to an artifact, so no row is lost.</summary>
     [Fact]
     public void AnIdentityRenderOverMaxCharsSpillsTheCompleteResultInsteadOfDroppingRows()
     {
@@ -236,12 +226,11 @@ public sealed class RecordsBulkSelectTests : BulkRecordsTestBase
 }
 
 /// <summary>
-/// #230 — the two hardcoded engine references (PlayerRef 000014, Player 000007) resolve to their identity
-/// instead of reading as unresolved, and the exemption stays exactly two forms wide.
+/// The two hardcoded engine references (PlayerRef 000014, Player 000007) resolve to their identity instead of
+/// reading as unresolved, and the exemption stays exactly two forms wide.
 ///
-/// <para>Its own world: the carrier plugin masters a Skyrim.esm that is deliberately not in the active
-/// order, so both 000014 and 000015 fail ordinary winner resolution and only the exemption separates
-/// them. (From <c>BulkPrimitivesWave2Probe</c>'s P3/P7 #230 blocks.)</para>
+/// <para>Its own world: the carrier plugin masters a Skyrim.esm deliberately kept out of the active order, so
+/// both 000014 and 000015 fail ordinary winner resolution and only the exemption separates them.</para>
 /// </summary>
 [Trait("tier", "integration")]
 public sealed class RecordsEngineImplicitLinkTests : IDisposable

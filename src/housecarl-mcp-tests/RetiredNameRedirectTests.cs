@@ -7,22 +7,12 @@ using Xunit.Abstractions;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// #472 — the retired-name redirect, swept against what 1.9 actually PUBLISHED rather than against a
-/// maintained list.
+/// The retired-name redirect, swept against what 1.9 actually published rather than against a maintained list.
 ///
-/// <para>BindingShimProbe's D3 arm takes its subjects from <c>AliasTable.AllRetiredTools</c> minus the
-/// running server's registered set. The right-hand side is derived from the wire; the left-hand side is a
-/// list somebody maintains. So D3 proves every retired name the table KNOWS ABOUT redirects to a live tool
-/// — it cannot prove the table is complete. Delete a tool, forget its row, and D3 sweeps the rows it has,
-/// reports clean, and a caller on old docs gets a bare "Unknown tool".</para>
-///
-/// <para>Here the subject set is every tool houseCARL 1.9.0 published, captured off the shipped 1.9 server
-/// (see data/tools-list-1.9.0.json for its provenance). Each one is either still on the surface or must
-/// redirect — a deleted tool with no row is a RED cell by construction, not an invisible omission.</para>
-///
-/// <para>This replaced BindingShimProbe's D3 arm, which converted whole at the cut. It is the stronger form:
-/// D3's subjects came from the alias table itself, so a deleted tool nobody added a row for was invisible to
-/// it; these come from the frozen capture, so that case is RED.</para>
+/// <para>The subject set is every tool houseCARL 1.9.0 published, captured off the shipped 1.9 server
+/// (data/tools-list-1.9.0.json). Each one is either still on the surface or must redirect. Taking the subjects
+/// from <c>AliasTable</c> instead would only prove the rows it already has: a tool deleted with no row added
+/// would be invisible, and a caller on old docs would get a bare "Unknown tool".</para>
 /// </summary>
 [Collection("server")]
 [Trait("tier", "stdio")]
@@ -95,8 +85,8 @@ public sealed class RetiredNameRedirectTests
     }
 
     /// <summary>
-    /// The vacuity canary. If every 1.9 name is still registered, the theory above asserts nothing and
-    /// passes 45 times — a broken sweep reported as a clean one.
+    /// If every 1.9 name is still registered, the theory above asserts nothing and passes on every row — a
+    /// vacuous sweep reported as a clean one.
     /// </summary>
     [Fact]
     public void TheSweepHasSubjects_SomeToolNineteenPublishedIsGoneFromTheSurface()

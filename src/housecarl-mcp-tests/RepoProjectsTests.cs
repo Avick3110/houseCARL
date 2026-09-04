@@ -3,11 +3,9 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// <see cref="RepoProjects"/>'s own arms. The class decides which BUILD every repo-wide population reflects,
-/// so a wrong choice here is not a test failure — it is every derived population quietly measuring a
-/// different build from the one under test.
-/// </summary>
+/// <summary><see cref="RepoProjects"/> decides which BUILD every repo-wide population reflects, so a wrong
+/// choice here means every derived population quietly measures a different build from the one under
+/// test.</summary>
 [Trait("tier", "unit")]
 public sealed class RepoProjectsTests
 {
@@ -19,16 +17,10 @@ public sealed class RepoProjectsTests
         File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(ageDays));
     }
 
-    /// <summary>
-    /// The dll beside the test assembly wins over a NEWER one in the project tree.
-    ///
-    /// <para>The decoy is the failure as it happened: a project tree carrying a second configuration's build,
-    /// more recently written than the one under test. "Newest under bin/" loaded that one, into the default
-    /// load context, where every later Assembly.Load for the same name resolved to it too.</para>
-    ///
-    /// <para>Nothing is loaded here — the assertion is over the path chosen, and the arm ends by confirming no
-    /// assembly of that name entered the process.</para>
-    /// </summary>
+    /// <summary>The dll beside the test assembly wins over a NEWER one in the project tree — picking by
+    /// timestamp would load a second configuration's build into the default context, where every later
+    /// Assembly.Load for that name resolves to it too. Nothing is loaded here: the assertion is over the path
+    /// chosen, and the test ends by confirming no assembly of that name entered the process.</summary>
     [Fact]
     public void TheDllBesideTheTestAssemblyWinsOverANewerOneInTheProjectTree_TheBuildUnderTestIsTheOneReflected()
     {
@@ -57,10 +49,8 @@ public sealed class RepoProjectsTests
         Assert.False(Directory.Exists(projectDir), $"The fixture left {projectDir} behind.");
     }
 
-    /// <summary>
-    /// The project tree is still the fallback. A project whose output is not copied beside the test assembly
-    /// has to be found where it was built, or the population this class exists to derive goes short.
-    /// </summary>
+    /// <summary>The project tree is still the fallback: a project whose output is not copied beside the test
+    /// assembly has to be found where it was built, or the derived population goes short.</summary>
     [Fact]
     public void WithNothingBesideTheTestAssemblyTheProjectsOwnBuildOutputIsUsed_TheFallbackIsNotDead()
     {

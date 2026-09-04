@@ -9,31 +9,17 @@ using Xunit.Abstractions;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// #498 — the wrong-lever grammar grid over the TREE form, with its subject set derived from the record
-/// types the records surface can render a declarers block for.
+/// The wrong-lever grammar grid over the TREE form, with its subject set derived from the record types the
+/// records surface can render a declarers block for.
 ///
-/// <para><b>The gap this closes.</b> <see cref="RemedyHarvest"/> reaches the tree form only through
-/// <c>RecordsWorld</c>, whose whole record population is weapons, spells, an armour, magic effects, a form
-/// list and two NPCs — not one child-bearing type among them. So every cut notice the declarers block emits
-/// was outside the grid, and the grid stayed green across the gap. That is the hand-enumerated-population
-/// failure at a guard: the subject set came from whatever a shared fixture happened to contain rather than
-/// from the surface the guard claims to cover.</para>
+/// <para>The owner set is <c>WriteEngine.ChildBearingProperties</c> over every concrete record type Mutagen
+/// models — the same by-construction set <c>OwnedChildContent.Fields</c> splits by shape. The subjects are
+/// found by asking the fixture's own load order for a record of each owner type, so nothing here names a
+/// FormKey, and <see cref="TheSubjectSetCoversEveryShapeTheSurfaceRendersADeclarersBlockFor"/> fails by name
+/// when a shape the surface renders has no subject.</para>
 ///
-/// <para><b>What is derived here.</b> The owner set is
-/// <c>WriteEngine.ChildBearingProperties</c> over every concrete record type Mutagen models — the same
-/// by-construction set <c>OwnedChildContent.Fields</c> splits by shape and <c>ReadSentences.FieldList</c>
-/// consumes. The SUBJECTS are then found by asking the fixture's own load order for a record of each owner
-/// type, so nothing here names a FormKey. And the completeness of that is itself asserted: a shape the
-/// surface renders that no subject covers fails
-/// <see cref="TheSubjectSetCoversEveryShapeTheSurfaceRendersADeclarersBlockFor"/> by name. The grid's own
-/// theory cases still run, narrowed past the missing subject — the class goes red either way, but it is the
-/// completeness arm that says so, not a refusal that stops the run.</para>
-///
-/// <para><c>RecordsWorld</c> stays frozen, and <see cref="RecordsRemedyGrammarTests"/>' arms are untouched.
-/// The lever vocabulary, the remedy discriminant, the per-lane harvest and the lane list all come from
-/// <see cref="RemedyHarvest"/>, so there is one home for each. The first cut of this grid spelled its own
-/// two-lane list and so covered two of the four lanes the surface renders, which is the
-/// hand-enumerated-population failure #498 was filed about arriving one level above the subjects.</para>
+/// <para>The lever vocabulary, the remedy discriminant, the per-lane harvest and the lane list all come from
+/// <see cref="RemedyHarvest"/>, so there is one home for each.</para>
 /// </summary>
 [Trait("tier", "integration")]
 public sealed class OwnedChildRemedyGrammarTests : IClassFixture<OwnedChildFixture>
@@ -49,12 +35,9 @@ public sealed class OwnedChildRemedyGrammarTests : IClassFixture<OwnedChildFixtu
 
     // ---- the surface's own child-bearing set ------------------------------------------------------------
 
-    /// <summary>
-    /// Every concrete record type Mutagen models. The twin of
-    /// <c>WriteSurfaceGuardProbe.ConcreteRecordTypes</c>, which is internal to a project this one cannot see;
-    /// the two converge when that probe converts. The rule is a Mutagen fact, not a houseCARL one: a class in
-    /// Mutagen's own assembly, not abstract, not a binary overlay, that is an <c>IMajorRecord</c>.
-    /// </summary>
+    /// <summary>Every concrete record type Mutagen models. The rule is a Mutagen fact, not a houseCARL one: a
+    /// class in Mutagen's own assembly, not abstract, not a binary overlay, that is an
+    /// <c>IMajorRecord</c>.</summary>
     static IReadOnlyList<Type> ConcreteRecordTypes() =>
         typeof(Weapon).Assembly.GetTypes()
             .Where(t => t.IsClass && !t.IsAbstract && !t.Name.EndsWith("BinaryOverlay", StringComparison.Ordinal)
@@ -75,8 +58,8 @@ public sealed class OwnedChildRemedyGrammarTests : IClassFixture<OwnedChildFixtu
             try
             {
                 // Every IMajorRecord is an IMajorRecordGetter, so the cast cannot yield null and a null check
-                // here would be an arm that cannot fail. What CAN happen is that the type has no
-                // (FormKey, SkyrimRelease) constructor, and that throws — which is the case this explains.
+                // here could not fail. What CAN happen is that the type has no (FormKey, SkyrimRelease)
+                // constructor, and that throws — which is the case this catch explains.
                 blank = (IMajorRecordGetter)System.Activator.CreateInstance(t, FormKey.Null, SkyrimRelease.SkyrimSE)!;
             }
             catch (Exception ex)
@@ -102,16 +85,11 @@ public sealed class OwnedChildRemedyGrammarTests : IClassFixture<OwnedChildFixtu
 
     Dictionary<Type, string>? _subjects;
 
-    /// <summary>
-    /// One subject per child-bearing owner type the fixture actually carries, FOUND rather than named: every
-    /// plugin in the world is walked, and each record is mapped to its concrete type through the product's own
-    /// getter mapping (<c>WriteEngine.PrimaryGetter</c> → <c>ConcreteOf</c>, the same two steps
-    /// <c>OwnedChildContent.Fields</c> takes, and for the same reason — an overlay body is not the type it was
-    /// written against, and asking the runtime type directly loses exactly the SINGULAR owned children).
-    ///
-    /// <para>Not a <c>types=</c> scan: that lane needs the generated corpus, which this world does not stand
-    /// up. Walking the plugins needs nothing but the files the fixture already wrote.</para>
-    /// </summary>
+    /// <summary>One subject per child-bearing owner type the fixture carries, found rather than named: each
+    /// record is mapped to its concrete type through <c>WriteEngine.PrimaryGetter</c> → <c>ConcreteOf</c>,
+    /// because an overlay body is not the type it was written against and asking the runtime type directly
+    /// loses the SINGULAR owned children. Walking the plugin files rather than a <c>types=</c> scan, which
+    /// would need the generated corpus this world does not stand up.</summary>
     IReadOnlyDictionary<Type, string> Subjects()
     {
         if (_subjects is not null) return _subjects;
@@ -138,11 +116,8 @@ public sealed class OwnedChildRemedyGrammarTests : IClassFixture<OwnedChildFixtu
 
     string? SubjectOf(Type type) => Subjects().TryGetValue(type, out var fid) ? fid : null;
 
-    /// <summary>
-    /// THE COMPLETENESS REFUSAL. The grid below is only worth its runtime if its subjects cover the shapes
-    /// the surface renders; a subject set that has drifted short of the surface must stop the run rather
-    /// than shrink the grid in silence.
-    /// </summary>
+    /// <summary>The grid below is only worth its runtime if its subjects cover the shapes the surface renders,
+    /// so a subject set short of the surface fails here rather than shrinking the grid in silence.</summary>
     [Fact]
     public void TheSubjectSetCoversEveryShapeTheSurfaceRendersADeclarersBlockFor()
     {
@@ -185,8 +160,7 @@ public sealed class OwnedChildRemedyGrammarTests : IClassFixture<OwnedChildFixtu
 
     // ---- the grid ---------------------------------------------------------------------------------------
 
-    /// <summary>The tree form, on every child-bearing owner type, in every lane the harvest knows — the
-    /// population <see cref="RemedyHarvest"/> could not reach.</summary>
+    /// <summary>The tree form, on every child-bearing owner type, in every lane the harvest knows.</summary>
     public static TheoryData<string, string> LanesAndLevers()
     {
         var data = new TheoryData<string, string>();
@@ -218,13 +192,10 @@ public sealed class OwnedChildRemedyGrammarTests : IClassFixture<OwnedChildFixtu
         return data;
     }
 
-    /// <summary>
-    /// Per lane, the grid is measuring something: the lane either rendered sentences this harvest could read,
-    /// or the product REFUSED the tree form on that lane by name. Both are real outcomes and the second is a
-    /// fact about the surface — <c>format='dense'</c> renders positional columns against a fixed field set
-    /// and the tree form's rows are variable-length, so the product refuses the pair outright. A lane that
-    /// rendered nothing AND refused nothing is a lane this grid is running blind over.
-    /// </summary>
+    /// <summary>Per lane, the grid must be measuring something: the lane either rendered sentences this harvest
+    /// could read, or the product refused the tree form on that lane by name (<c>format='dense'</c> renders
+    /// positional columns against a fixed field set, and the tree form's rows are variable-length, so the pair
+    /// is refused outright). Rendering nothing and refusing nothing means the grid is running blind.</summary>
     [Theory, MemberData(nameof(EveryLane))]
     public void EveryLaneEitherRendersSentencesThisGridReads_OrRefusesTheTreeFormByName(string lane)
     {
@@ -243,11 +214,8 @@ public sealed class OwnedChildRemedyGrammarTests : IClassFixture<OwnedChildFixtu
             "rather than create.");
     }
 
-    /// <summary>
-    /// The cut notices are reached SOMEWHERE. Held across the lanes rather than per lane, because a lane can
-    /// legitimately never cut: the artifact lane spills the complete result by definition, so its rows carry
-    /// the declarers block and never a "raise max_chars" tail.
-    /// </summary>
+    /// <summary>The cut notices are reached somewhere. Held across the lanes rather than per lane, because the
+    /// artifact lane spills the complete result by definition and so never cuts.</summary>
     [Fact]
     public void TheTreeFormsCutNoticesAreReachedOverAChildBearingRecord()
     {
@@ -276,10 +244,8 @@ public sealed class OwnedChildRemedyGrammarTests : IClassFixture<OwnedChildFixtu
         return _responses[lane];
     }
 
-    /// <summary>
-    /// Every string one lane emits for the tree form over one subject per child-bearing owner type, at a cap
-    /// low enough to make the declarers block and the node walk render their cut notices.
-    /// </summary>
+    /// <summary>Every string one lane emits for the tree form over one subject per child-bearing owner type, at
+    /// a cap low enough to make the declarers block and the node walk render their cut notices.</summary>
     IReadOnlyList<string> Harvest(string lane)
     {
         if (_harvest.TryGetValue(lane, out var got)) return got;
@@ -291,7 +257,7 @@ public sealed class OwnedChildRemedyGrammarTests : IClassFixture<OwnedChildFixtu
         foreach (var type in SurfaceOwners().Keys.OrderBy(t => t.Name, StringComparer.Ordinal))
         {
             var subject = SubjectOf(type);
-            if (subject is null) continue;   // the completeness arm above is what fails on this
+            if (subject is null) continue;   // the completeness test above is what fails on this
 
             foreach (var cap in new[] { 0, 900, 400 })
             {

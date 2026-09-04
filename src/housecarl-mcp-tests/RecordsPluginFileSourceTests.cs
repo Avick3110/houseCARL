@@ -8,13 +8,8 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// The source pole that reads a plugin FILE rather than the load order: the arms come from the tool-layer half of
-/// <c>ReadPluginFileProbe</c> (the four <c>ReadTools.ReadPluginFile</c> renders — the rest of that probe drives
-/// <c>LoadOrderService.ReadPluginFile</c> directly and survives the cut untouched) and from the two
-/// <c>ReadTools.DiffRecord</c> renders in <c>BulkPrimitivesWave3Probe</c> — that renderer went with the 1.x
-/// pairwise-diff service at #486, so these arms are where those two facts are stated now.
-/// </summary>
+/// <summary>The source pole that reads a plugin FILE rather than the load order, and the delta projection's
+/// two renders. Driven at the tool layer, so what is held is the rendered form.</summary>
 [Collection("records")]
 [Trait("tier", "integration")]
 public sealed class RecordsPluginFileSourceTests : RecordsTestBase
@@ -59,7 +54,7 @@ public sealed class RecordsPluginFileSourceTests : RecordsTestBase
         Assert.Contains("OUT-OF-LOAD-ORDER", doc.RootElement.GetProperty("source").GetString());
     }
 
-    // ---- the delta render (diff_record's two tool-layer arms) -------------------------------------
+    // ---- the delta render ------------------------------------------------------------------------
 
     [Fact]
     public void TheDeltaTextRenderCarriesTheRecordHeaderTheFieldDeltaAndTheReferenceLabel()
@@ -80,12 +75,8 @@ public sealed class RecordsPluginFileSourceTests : RecordsTestBase
     }
 }
 
-/// <summary>
-/// A three-plugin order whose middle plugin is a valid header followed by a truncated body — the overlay open
-/// throws, so the load-order index EXCLUDES it. The reads below are the two <c>read_record</c> arms of
-/// <c>ExcludedMasterWriteProbe</c>, whose subject is the read side of that exclusion; that probe's write arms
-/// drive shipped 2.0 tools and stay where they are.
-/// </summary>
+/// <summary>A three-plugin order whose middle plugin is a valid header followed by a truncated body — the
+/// overlay open throws, so the load-order index EXCLUDES it.</summary>
 public sealed class ExcludedPluginWorld : IDisposable
 {
     public string Root { get; }
@@ -168,8 +159,8 @@ public sealed class RecordsExcludedPluginSourceTests : IClassFixture<ExcludedPlu
     readonly ExcludedPluginWorld _w;
     public RecordsExcludedPluginSourceTests(ExcludedPluginFixture f) => _w = f.W;
 
-    /// <summary>1.x refused the whole call; the records lane answers per item, which is its own contract. What
-    /// carries over unchanged is that the plugin is NAMED with the reason, never quietly served some other body.</summary>
+    /// <summary>The records lane answers per item, and the excluded plugin is NAMED with the reason rather
+    /// than quietly served some other body.</summary>
     [Fact]
     public void APoleNamingTheExcludedPluginAnswersAPerItemErrorNamingItAndTheReason()
     {

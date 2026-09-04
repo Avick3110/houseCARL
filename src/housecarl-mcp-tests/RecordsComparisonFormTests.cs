@@ -1,14 +1,10 @@
-// Converted-from: RecordsGuardProbe
 using HousecarlMcp;
 using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// SPEC §3 / §4.3 / §6.1 — the comparison and traversal forms (delta, tree, chain, info_order), the
-/// source/versus poles, and the compositions between them, plus the PR #309 review folds.
-/// (RecordsGuardProbe arm 6.)
-/// </summary>
+/// <summary>The comparison and traversal forms (delta, tree, chain, info_order), the source/versus poles, and
+/// the compositions between them.</summary>
 [Collection("records")]
 [Trait("tier", "integration")]
 public sealed class RecordsComparisonFormTests : RecordsTestBase
@@ -22,7 +18,7 @@ public sealed class RecordsComparisonFormTests : RecordsTestBase
         RecordsTools.Records(Svc, formids: new[] { Fid(rec) }, source: Plugin(subject),
                              versus: Plugin("previous_provider"), project: Delta);
 
-    // ---- the four §4.3 pins over the 3-deep stack on W0 (master < mid < override) -----------------
+    // ---- delta over the 3-deep stack on W0 (master < mid < override) ------------------------------
 
     [Fact]
     public void DeltaP1_SubjectWins_TheReferenceIsThePluginImmediatelyBelow() =>
@@ -174,7 +170,7 @@ public sealed class RecordsComparisonFormTests : RecordsTestBase
     public void ScopeVsPolePlusSummaryRefusesByName_ThePoleChangesNothingThere() =>
         Refused(RecordsTools.Records(Svc, plugins: Scope(W.MasterName), source: Plugin(W.OverrideName)), "identity facts");
 
-    // ---- PR #309 review folds -------------------------------------------------------------------------
+    // ---- selection, walk and artifact compositions ----------------------------------------------------
 
     [Fact]
     public void FoldF1_ConflictsOnlyPlusFormidsEvaluatesWhere_TheContestedButNonMatchingKeyDropsOut()
@@ -241,7 +237,7 @@ public sealed class RecordsComparisonFormTests : RecordsTestBase
                                     walk: new RecordsTools.RecordsWalk { direction = "reverse" }, limit: 1, project: Chain),
                "HcRecSpellA", "HcRecSpellC");
 
-    // ---- PR #309 round-3 folds -------------------------------------------------------------------------
+    // ---- json envelopes and fields_source compositions -------------------------------------------------
 
     [Fact]
     public void Fold3F1_AScanLaneDeltasJsonEnvelopeCarriesExactlyOneSourceProperty() =>
@@ -285,7 +281,7 @@ public sealed class RecordsComparisonFormTests : RecordsTestBase
         Refused(RecordsTools.Records(Svc, types: new[] { "SPEL" }, format: "dense", walk: new RecordsTools.RecordsWalk()),
                 "dense");
 
-    // ---- PR #309 round-4 folds --------------------------------------------------------------------------
+    // ---- tree envelopes and fields_source under a walk --------------------------------------------------
 
     [Fact]
     public void Fold4R31_AnOffOrderTreesEnvelopeKeepsTheSelectionArmInSourceAndTheReferenceInVersus()

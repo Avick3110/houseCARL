@@ -4,14 +4,13 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// An install with one plugin file in EVERY layer <c>CandidateFolders</c> covers, plus one name that is in none
-/// of them. It exists to pin what "installed" means for the install-vs-enable split: the split's answer has to
-/// be the same set of places a locate searches, or the remedy names a file the locate cannot find.
+/// An install with one plugin file in every layer <c>CandidateFolders</c> covers, plus one name in none of
+/// them. It pins what "installed" means for the install-vs-enable split: the split's answer has to cover the
+/// same places a locate searches, or the remedy names a file the locate cannot find.
 ///
-/// <para>The files here are empty — the split stats and enumerates NAMES and never opens anything, so a real
-/// Mutagen plugin would only make the fixture slower. That is also why this world needs no
-/// <c>LoadOrderService</c>: the name set comes from <see cref="Mo2LoadOrder.AllPluginFileNames"/>, which takes
-/// the composition and the three directories directly.</para>
+/// <para>The files are empty — the split enumerates names and never opens anything. That is also why this
+/// world needs no <c>LoadOrderService</c>: the name set comes from
+/// <see cref="Mo2LoadOrder.AllPluginFileNames"/>, which takes the composition and the three directories.</para>
 /// </summary>
 public sealed class MasterSplitInstallLocationsWorld : IDisposable
 {
@@ -74,17 +73,11 @@ public sealed class MasterSplitInstallLocationsFixture : IDisposable
 
 /// <summary>
 /// <see cref="Mo2LoadOrder.SplitUnsatisfiedMasters"/> files each unsatisfied master by whether the install
-/// provides a copy of it, reading the name set its caller already built.
+/// provides a copy of it, reading the name set its caller already built — one install walk per sweep rather
+/// than one per name.
 ///
-/// <para><b>Why it takes the set.</b> A whole-order sweep makes this split once per report, and the form that
-/// walked the install itself re-derived it per NAME: a master installed nowhere short-circuits nothing, so it
-/// paid the enabled mods, the disabled mods, the unlisted-folder listing and Data before answering, and the
-/// next plugin declaring the same name paid it all again. The answer never depended on which report asked, so
-/// neither does the read — the caller pays one walk for the sweep and asks it per report.</para>
-///
-/// <para><b>What is asserted.</b> Fixture-known lists. The fixture decides where each file lives and the arms
-/// name the list each master has to land in, so a change that moved the split off, say, the unlisted-folder
-/// layer fails here on the name rather than on a count.</para>
+/// <para>Asserted against fixture-known lists: the fixture decides where each file lives and each test names
+/// the list a master has to land in, so a split that dropped one install layer fails on the name, not a count.</para>
 /// </summary>
 [Trait("tier", "unit")]
 public sealed class MasterSplitInstallLocationsTests : IClassFixture<MasterSplitInstallLocationsFixture>
@@ -99,10 +92,8 @@ public sealed class MasterSplitInstallLocationsTests : IClassFixture<MasterSplit
     };
 
     /// <summary>Everything installed anywhere the locate looks is the ENABLE case; the one name in none of those
-    /// folders is the INSTALL case. Five layers, because a split blind to one of them hands out the wrong remedy
-    /// for every master that lives there — and the set it reads is the one
-    /// <see cref="Mo2LoadOrder.AllPluginFileNames"/> builds, so the layers it covers are the layers a locate
-    /// searches.</summary>
+    /// folders is the INSTALL case. All five layers, because a split blind to one hands out the wrong remedy for
+    /// every master living there.</summary>
     [Fact]
     public void TheSplitFilesEachMasterByWhichInstallLayerHoldsItsFile()
     {
@@ -130,9 +121,9 @@ public sealed class MasterSplitInstallLocationsTests : IClassFixture<MasterSplit
         Assert.Equal(new[] { W.InOverwrite, W.InEnabledMod }, inactive);
     }
 
-    /// <summary>A name is reduced to its FILENAME, and padding trimmed, before it is looked up. The per-name
-    /// stat this replaced did that reduction itself; dropping it would file a name that is not already bare as
-    /// uninstalled while the file sits in the install, which is the wrong remedy rather than a missing one.</summary>
+    /// <summary>A name is reduced to its filename, and padding trimmed, before it is looked up. Without that, a
+    /// name that is not already bare is filed as uninstalled while its file sits in the install — the wrong
+    /// remedy rather than a missing one.</summary>
     [Fact]
     public void ANameIsReducedToItsFilenameBeforeItIsLookedUp()
     {

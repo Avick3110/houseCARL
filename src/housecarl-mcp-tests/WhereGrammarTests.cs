@@ -1,4 +1,3 @@
-// Converted-from: RecordsGuardProbe
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using HousecarlCore;
@@ -6,15 +5,9 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// SPEC §2.2 / §4.2 — the W2 where-grammar terms, evaluated in memory over synthesized bodies against
-/// brute-force oracles. No load order, no service: these are predicate semantics.
-/// (RecordsGuardProbe arms 1 and 2, and the arm-4b polarity folds that belong with them.)
-///
-/// Tier note: "unit" names what these tests ASSERT — predicate semantics in memory, no service call.
-/// They still draw their synthesized bodies from the shared collection fixture, so `--filter tier=unit`
-/// pays the world build until those bodies are lifted off the world. Stated, not hidden.
-/// </summary>
+/// <summary>The where-grammar terms, evaluated in memory over synthesized bodies against brute-force oracles.
+/// No load order and no service call, which is what the "unit" tier names — but the bodies still come from the
+/// shared collection fixture, so <c>--filter tier=unit</c> pays the world build.</summary>
 [Collection("records")]
 [Trait("tier", "unit")]
 public sealed class WhereGrammarTests
@@ -132,7 +125,7 @@ public sealed class WhereGrammarTests
         Assert.Contains("NoSuchField->editorid", set.AccountingNote() ?? "");
     }
 
-    // ---- 4b polarity folds over the no-EditorID record --------------------------------------------
+    // ---- polarity over the no-EditorID record -----------------------------------------------------
 
     [Fact]
     public void EditoridNotEqual_KeepsTheNoEditoridRecord_NotEqualIsUnambiguouslyTrueThere() =>
@@ -148,10 +141,8 @@ public sealed class WhereGrammarTests
         Assert.Equal(WeaponsExcept(_w.Weapons[0]), Run("editorid not in [HcRecW0]", _w.WeaponBodies));
 }
 
-/// <summary>
-/// SPEC §2.2 — the parse refusals, named before any scan. One row per refusal: the clause and the word the
-/// caller needs to see in the sentence.
-/// </summary>
+/// <summary>The parse refusals, named before any scan. One row per refusal: the clause and the word the
+/// caller needs to see in the sentence.</summary>
 [Trait("tier", "unit")]
 public sealed class WhereParseRefusalTests
 {

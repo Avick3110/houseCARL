@@ -8,9 +8,9 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The synthetic MO2 instance the errors family's own arms are driven over — the world #486 PR 2 owed, built
-/// because <see cref="CheckWorld"/> is frozen (its arms take fixture-known totals from it, so a later need gets
-/// its own world rather than an edit to that one).
+/// The synthetic MO2 instance the errors family's tests are driven over. Its own world because
+/// <see cref="CheckWorld"/> is frozen: tests take fixture-known totals from it, so a later need gets its own
+/// world rather than an edit to that one.
 ///
 /// <para>What it carries, and why each piece is here:</para>
 /// <list type="bullet">
@@ -31,10 +31,10 @@ namespace HousecarlMcpTests;
 /// so a fixture drift fails there rather than everywhere): six dangling refs over three plugins, three of them
 /// baseline; one missing master; one unparseable plugin.</para>
 ///
-/// <para><b>The world is frozen</b>, in the sense <see cref="BulkRecordsWorld"/> states: arms take those totals
-/// from it, so a later need builds its own world instead of editing this one. It does not repoint
-/// <c>CorpusRulebook.CorpusPath</c> — the errors sweep reads master tables and FormLinks, never the record
-/// rulebook — so it generates no corpus and touches no process-global.</para>
+/// <para><b>The world is frozen</b>: tests take those totals from it, so a later need builds its own world
+/// instead of editing this one. It does not repoint <c>CorpusRulebook.CorpusPath</c> — the errors sweep reads
+/// master tables and FormLinks, never the record rulebook — so it generates no corpus and touches no
+/// process-global.</para>
 /// </summary>
 public sealed class CheckErrorsWorld : IDisposable
 {
@@ -125,9 +125,9 @@ public sealed class CheckErrorsWorld : IDisposable
     }
 }
 
-/// <summary>The world, built once for the whole <c>check-errors</c> collection. Every arm over it is read-only, and
-/// two test classes share it — a class fixture would build the four Mutagen plugin writes and the index once per
-/// class, which is twice.</summary>
+/// <summary>The world, built once for the whole <c>check-errors</c> collection. Every test over it is read-only,
+/// and two test classes share it — a class fixture would build the four Mutagen plugin writes and the index once
+/// per class, which is twice.</summary>
 public sealed class CheckErrorsWorldFixture : IDisposable
 {
     public CheckErrorsWorld W { get; } = new();

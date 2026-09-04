@@ -1,4 +1,3 @@
-// Converted-from: BindingShimProbe
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -10,18 +9,14 @@ using Xunit.Abstractions;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The schemas the server actually SERVES: the SPEC §5.1 <c>@file</c> union on the JsonElement-typed list
-/// parameters, and the no-same-document-<c>$ref</c> invariant every published schema must satisfy (#451).
-/// (BindingShimProbe's SCHEMA arms.)
+/// The schemas the server actually SERVES: the <c>@file</c> union on the JsonElement-typed list parameters, and
+/// the no-<c>$ref</c> invariant every published schema must satisfy. Read off the served surface rather than the
+/// generator's output because a strict provider rejects a recursive schema by refusing the WHOLE server at
+/// <c>tools/list</c>, naming no tool.
 ///
-/// <para>Why the served surface and not the generator's output: a strict provider rejects a recursive schema
-/// and refuses the WHOLE server at <c>tools/list</c>, naming no tool. The <c>StructInput → NestedSet.compose</c>
-/// chain published one on five tools.</para>
-///
-/// <para>Every subject set here is DERIVED. The union rows come off <see cref="ToolSchemas.FileListParams"/>
-/// and their expected members off each row's own element type; the <c>$ref</c> sites come off the pre-flatten
-/// surface. The predecessor named its tools by hand and four of the five ref-carrying tools had no expansion
-/// arm at all, so a bound of 0 applied to their subtrees would have collapsed them with both guards green.</para>
+/// <para>Every subject set here is DERIVED, never named by hand: the union rows come off
+/// <see cref="ToolSchemas.FileListParams"/> and their expected members off each row's own element type, and the
+/// <c>$ref</c> sites come off the pre-flatten surface.</para>
 /// </summary>
 [Collection("server")]
 [Trait("tier", "stdio")]
@@ -63,11 +58,9 @@ public sealed class PublishedSchemaShapeTests
             "to dangle, so the generic sweep passes over it silently.");
     }
 
-    /// <summary>
-    /// No C# type expresses "an array of ops OR the string '@path'", so the generator publishes <c>{}</c> for
-    /// the declared <c>JsonElement</c>; the publication pass republishes the union. Asserted per row — an
-    /// earlier version hard-coded one tool, and the row it missed was covered only by the generic sweep.
-    /// </summary>
+    /// <summary>No C# type expresses "an array of ops OR the string '@path'", so the generator publishes
+    /// <c>{}</c> for the declared <c>JsonElement</c> and the publication pass republishes the union. Asserted
+    /// once per row.</summary>
     [Theory]
     [MemberData(nameof(FileListUnions))]
     public void EveryFileListUnionPublishesAnyOfGeneratedArrayOrString(string tool, string parameter)
@@ -81,11 +74,9 @@ public sealed class PublishedSchemaShapeTests
         Assert.Equal("string", arms[1].GetProperty("type").GetString());
     }
 
-    /// <summary>
-    /// The array arm must be the GENERATED element schema, not an empty placeholder. The expected member set
-    /// is reflected off the row's own element type, so adding a member to the DTO tracks here by construction
-    /// — the predecessor named one sample member per row by hand.
-    /// </summary>
+    /// <summary>The array arm must be the GENERATED element schema, not an empty placeholder. The expected
+    /// member set is reflected off the row's own element type, so adding a member to the DTO tracks here by
+    /// construction.</summary>
     [Theory]
     [MemberData(nameof(FileListUnions))]
     public void EveryFileListUnionsArrayArmCarriesItsGeneratedElementMembers(string tool, string parameter)
@@ -99,17 +90,16 @@ public sealed class PublishedSchemaShapeTests
         Assert.Equal(WireMembersOf(Row(tool, parameter).ElementArrayType), published);
     }
 
-    // ---- #451: the $ref invariant -----------------------------------------------------------------------
+    // ---- the $ref invariant -----------------------------------------------------------------------------
 
     /// <summary>
     /// Zero <c>$ref</c> members anywhere in any published schema, whatever they hold.
     ///
     /// <para>The predicate is deliberately WIDER than the flattener's and shares no code with it: the
-    /// publication pass gates inlining on a same-document pointer because that is what it knows how to
-    /// resolve, and this arm asks only whether the MEMBER is there. Spelling them the same way is what made
-    /// the earlier version vacuous — an anchor-form <c>{"$ref":"Node"}</c> injected into all 51 schemas
-    /// passed green, because a ref the pass could not see was also one the detector could not see. Whether a
-    /// survivor resolves is reported as detail, since that says WHICH failure it is.</para>
+    /// publication pass gates inlining on a same-document pointer because that is what it knows how to resolve,
+    /// while this asks only whether the MEMBER is there. Spelled the same way, a ref the pass cannot see would
+    /// also be one the detector cannot see. Whether a survivor resolves is reported as detail, since that says
+    /// WHICH failure it is.</para>
     /// </summary>
     [Fact]
     public void NoPublishedToolSchemaCarriesARefMemberInAnySpelling()
@@ -131,9 +121,9 @@ public sealed class PublishedSchemaShapeTests
 
     // ---- anti-amputation, over subjects derived from the pre-flatten surface ----------------------------
     //
-    // The invariant above is satisfied just as well by DELETING every recursive branch, which would tell
-    // callers a nested compose is not a thing — a narrowing of the published contract with nothing to notice.
-    // So every site that carried a $ref BEFORE the pass must still be spelled out after it.
+    // The invariant above is satisfied just as well by DELETING every recursive branch, which would narrow the
+    // published contract silently. So every site that carried a $ref BEFORE the pass must still be spelled out
+    // after it.
     //
     // The @file union pass is replayed on the pre-flatten document because the published one has it and the
     // pointers must line up. The flatten replaces each ref node IN PLACE, so a pre-flatten ref path is the
@@ -183,13 +173,9 @@ public sealed class PublishedSchemaShapeTests
         Assert.True(_s.PublishedTools.ContainsKey(tool),
                     $"{tool} carries pre-flatten $ref sites but tools/list does not publish it.");
 
-    /// <summary>
-    /// EXACTLY one recursion step must be derivable from a tool's own refs. A tool carrying two distinct
-    /// cycles is refused here rather than measured on whichever the walk saw last — that is a claim
-    /// quantified over a population and verified over a narrower subset, which is the class this arm exists
-    /// to stop. (Measured 2026-09-01: a second recursive family took the recursive population from 10 of 30
-    /// sites to 5 of 45, the original cycle measured on NO tool, with the guard fully green.)
-    /// </summary>
+    /// <summary>EXACTLY one recursion step must be derivable from a tool's own refs. A tool carrying two
+    /// distinct cycles is refused here rather than measured on whichever the walk saw last, which would leave
+    /// the tests below claiming a whole population while checking a narrower subset of it.</summary>
     [Theory]
     [MemberData(nameof(RefCarryingTools))]
     public void ExactlyOneRecursionStepIsDerivableFromACarriersOwnRefSites(string tool)
@@ -216,12 +202,9 @@ public sealed class PublishedSchemaShapeTests
             (node is { } got ? PreFlattenSchemas.Trunc(got) : "<path does not resolve in the published schema>"));
     }
 
-    /// <summary>
-    /// The bound is a RULED value, spelled here independently of the constant on purpose: reading
-    /// <c>ToolSchemas.MaxSelfExpansions</c> would make this arm agree with any bound, including the 0 that
-    /// open-nodes the non-cyclic leaves too. Changing it reddens here, which is the point — it is a
-    /// published-contract change and has to be re-ratified, not slid in.
-    /// </summary>
+    /// <summary>The bound is spelled here independently of <c>ToolSchemas.MaxSelfExpansions</c> on purpose:
+    /// reading the constant would make this agree with any bound, including the 0 that open-nodes the non-cyclic
+    /// leaves too. Changing the bound is a published-contract change, and it has to fail here.</summary>
     [Theory]
     [MemberData(nameof(RecursiveSites))]
     public void EveryRecursiveSiteExpandsExactlyOneLevelBeforeClosing(string tool, string path)
@@ -245,8 +228,8 @@ public sealed class PublishedSchemaShapeTests
         Assert.True(closedOpen, $"{tool} {PreFlattenSchemas.Tail(path)}: {detail}");
     }
 
-    /// <summary>Without this, every derived arm above is vacuously green the moment the pre-flatten read
-    /// stops returning what it is supposed to.</summary>
+    /// <summary>Without this, every derived test above passes vacuously the moment the pre-flatten read stops
+    /// returning what it is supposed to.</summary>
     [Fact]
     public void TheDerivedSubjectSetIsNonEmpty()
     {
@@ -268,17 +251,16 @@ public sealed class PublishedSchemaShapeTests
 
     // ---- the derivation's own fixtures -------------------------------------------------------------------
     //
-    // Both shapes were measured on the real surface under sabotage (a second NestedSet[] member on
-    // StructInput, 2026-09-01) and neither is producible by the DTOs as they stand, so the rules they pin
-    // have no end-to-end producer to redden.
+    // Neither shape is producible by the DTOs as they stand, so the derivation rules they pin have nothing
+    // end to end that would fail if the rules broke. They are pinned here instead.
 
     const string R = "#/properties/operations/items/properties";
 
     static (string, JsonObject) Site(string path, string pointer) =>
         (path, new JsonObject { ["$ref"] = pointer });
 
-    /// <summary>Both pairs must come back: reporting one is how the guard claimed a tool's coverage while
-    /// measuring a single cycle of it.</summary>
+    /// <summary>Both pairs must come back; reporting only one would let a tool's coverage be claimed while a
+    /// single cycle of it was checked.</summary>
     [Fact]
     [Trait("tier", "unit")]
     public void ASurfaceCarryingTwoDistinctCyclesDerivesBothSoTheCallerCanRefuseIt()

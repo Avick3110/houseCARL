@@ -5,11 +5,9 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// The shapes and readers the errors family's DTO-level arms share. Rationale — why these facts are driven at the
-/// render rather than end to end, and what each reader is for — is in
-/// <c>docs/architecture/check-family-tests.md</c>.
-/// </summary>
+/// <summary>The shapes and readers the errors family's DTO-level tests share. Why these facts are driven at the
+/// render rather than end to end, and what each reader is for, is in
+/// <c>docs/architecture/check-family-tests.md</c>.</summary>
 internal static class CheckErrorsFixtures
 {
     /// <summary>The epoch every hand-shaped result carries, so a stamp is never the thing that varies.</summary>
@@ -65,12 +63,9 @@ internal static class CheckErrorsFixtures
         JsonDocument.Parse(json).RootElement.GetProperty("families")
                     .GetProperty(SweepFamilySelection.Token(SweepFamily.Errors));
 
-    /// <summary>ONE plugin's own <c>[ERROR]</c> section — its header line plus the indented body lines that belong
-    /// to it, stopping at the first line that is not one of them. Read section-scoped, because a whole-response
-    /// search for a span composed ACROSS two of a section's lines cannot distinguish "the renderer stopped
-    /// emitting this" from "the renderer never emits those two lines adjacent" — the second is what a
-    /// <c>DoesNotContain(plugin + "\n  dangling reference(s)")</c> was actually asserting, and it could not fail
-    /// (pre-green review 1a, finding 1: the missing-master line always sits between the two).</summary>
+    /// <summary>One plugin's <c>[ERROR]</c> section: its header plus the indented lines under it. Read
+    /// section-scoped — the composer never emits two of a section's lines adjacent, so a whole-response search
+    /// for a span across them cannot fail.</summary>
     internal static string PluginSection(string response, string plugin)
     {
         var lines = response.Split('\n');

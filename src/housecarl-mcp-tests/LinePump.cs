@@ -2,21 +2,10 @@ using System.Collections.Concurrent;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// One background reader draining a text stream into a queue, so that a caller which gives up waiting
-/// cannot orphan a read.
-///
-/// <para>This exists because of the shape it replaces. Reading a line under a deadline as
-/// <c>Task.Run(reader.ReadLine)</c> plus <c>Wait(remaining)</c> looks like a bounded read and is not one:
-/// <see cref="TextReader.ReadLine"/> is not cancellable, so when the wait expires the read is still parked
-/// on the shared stream and consumes the next line that arrives. In a shared stdio fixture that is not one
-/// failed test — the accounting is one line behind from then on, every later call waits its whole deadline,
-/// and the original slow call is indistinguishable from the wreckage it caused.</para>
-///
-/// <para>With exactly one reader on the stream, forever, there is no second read to orphan: a line that
-/// arrives late is queued, and the caller it was meant for either takes it or skips it by id. The class of
-/// defect is gone rather than handled.</para>
-/// </summary>
+/// <summary>One background reader draining a text stream into a queue, so a caller that gives up waiting
+/// cannot orphan a read. <see cref="TextReader.ReadLine"/> is not cancellable, so a per-call timed read left
+/// parked on a shared stream would swallow the next line and put every later caller one line behind; with
+/// exactly one reader, a late line is simply queued for whoever wants it.</summary>
 public sealed class LinePump : IDisposable
 {
     readonly BlockingCollection<string> _lines = new();

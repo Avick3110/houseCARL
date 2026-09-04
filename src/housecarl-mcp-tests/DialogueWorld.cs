@@ -8,27 +8,24 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The synthetic MO2 world the dialogue family's info-order and CK-parity facts are driven against. Ported
-/// from <c>DialogueInfoOrderProbe</c> / <c>DialogueValidateGuardProbe</c> (#486 PR 2) as a real MO2 instance.
+/// The synthetic MO2 world the dialogue family's info-order and CK-parity facts are driven against.
 ///
 /// <para>Three plugins: <see cref="MasterName"/> (the topic + the CK-parity-complete view/branch/quest seeds),
 /// <see cref="MidName"/> (re-lists 6 of the topic's 8 INFOs, PNAM-chained, in reverse — moves nothing),
-/// <see cref="LastName"/> — the WINNER — (re-lists ONLY INFO 0 with no PNAM, which evicts it to the tail: the
-/// reported #275 shape). <see cref="Order"/>'s expected sequence proves the merge.</para>
+/// <see cref="LastName"/> — the WINNER — (re-lists ONLY INFO 0 with no PNAM, which evicts it to the
+/// tail).</para>
 ///
 /// <para><b>Never the shared instance for a test that locks a file.</b> Each of the three dialogue lock facts
 /// (<c>UNREAD-WIRED</c>, <c>DEFINER-LOCK-LOUD</c>, <c>WINNER-LOCK-LOUD</c>) constructs its OWN
 /// <see cref="DialogueWorld"/> via <c>new()</c> rather than the shared collection fixture — a held file is
 /// unreadable to anything else in the process, so sharing it would make every other test's readability depend
-/// on scheduling (the same rule <c>ScriptsWorld</c>'s own doc states, and why <c>HeldOpenTests</c> builds its
-/// own one-plugin world instead of locking the shared one).</para>
+/// on scheduling.</para>
 ///
 /// <para><b>A lock test must force the index build FIRST</b> — call <c>Svc.Stats()</c> on a fresh world before
-/// taking the hold. Measured on this fixture: locking a plugin before the first real query makes the index build
-/// SILENTLY EXCLUDE it, which changes the topic's winner instead of surfacing a read failure, so the lock facts
-/// would quietly assert something else. The silent exclusion itself is the product-level concern in issue #353,
-/// not a property of this fixture; the <c>Stats()</c> call is how these tests stay out of its way, and deleting
-/// it changes what the three lock tests measure without failing anything.</para>
+/// taking the hold. Locking a plugin before the first real query makes the index build SILENTLY EXCLUDE it,
+/// which changes the topic's winner instead of surfacing a read failure, so the lock facts would quietly
+/// assert something else. Deleting the <c>Stats()</c> call changes what those tests measure without failing
+/// anything.</para>
 /// </summary>
 public sealed class DialogueWorld : IDisposable
 {
@@ -50,7 +47,7 @@ public sealed class DialogueWorld : IDisposable
     /// <summary>The 8 INFO FormKeys in their ORIGINAL (master) order.</summary>
     public IReadOnlyList<FormKey> Info { get; }
 
-    /// <summary>The line evicted from #1 to #8 by <see cref="LastName"/>'s no-PNAM re-list — the #275 shape.</summary>
+    /// <summary>The line evicted from #1 to #8 by <see cref="LastName"/>'s no-PNAM re-list.</summary>
     public FormKey MovedLine => Info[0];
 
     public FormKey ViewOk { get; }

@@ -1,4 +1,3 @@
-// Converted-from: RecordsGuardProbe
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
@@ -16,8 +15,7 @@ namespace HousecarlMcpTests;
 /// old patch that serves as the off-order pole.
 ///
 /// <para>One instance is shared by every read-only test through <see cref="RecordsFixture"/>. A test that
-/// MUTATES the world (the epoch-staleness arm rewrites a plugin's mtime) constructs its own instance —
-/// the linear probe could hide that ordering dependency inside one procedure; a test project cannot.</para>
+/// MUTATES the world (rewriting a plugin's mtime, say) constructs its own instance.</para>
 /// </summary>
 public sealed class RecordsWorld : IDisposable
 {
@@ -59,11 +57,9 @@ public sealed class RecordsWorld : IDisposable
 
     public RecordsWorld()
     {
-        // CorpusRulebook.CorpusPath is a process-global that this world has to repoint at its own generated
-        // corpus. Capture the prior value HERE so Dispose can put it back: Dispose deletes Root, and a
-        // static left naming Root/corpus-gen/corpus.json would then name a directory that no longer exists,
-        // breaking whatever runs next. Which tests survive that is an accident of collection scheduling, not
-        // a property — so the restore happens by construction instead.
+        // CorpusRulebook.CorpusPath is a process-global this world repoints at its own generated corpus.
+        // Capture the prior value here so Dispose can put it back: Dispose deletes Root, and a static left
+        // naming a path under Root would name a directory that no longer exists.
         _priorCorpusPath = CorpusRulebook.CorpusPath;
 
         Root = Path.Combine(Path.GetTempPath(), "hc-records-tests-" + Guid.NewGuid().ToString("N"));
@@ -192,8 +188,8 @@ public sealed class RecordsFixture : IDisposable
     readonly Dictionary<Type, object> _memo = new();
 
     /// <summary>
-    /// Build-once-per-collection derived state. xUnit constructs the test CLASS per test method, so a
-    /// derivation that drives dozens of tool calls (the remedy harvest) belongs on the fixture, not the class.
+    /// Build-once-per-collection derived state. xUnit constructs the test class per test method, so a
+    /// derivation that drives dozens of tool calls belongs on the fixture, not the class.
     /// </summary>
     public T Shared<T>(Func<RecordsWorld, T> make) where T : class
     {

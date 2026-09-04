@@ -3,18 +3,11 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// What a <see cref="RecordsWorld"/> leaves behind when it disposes.
-///
-/// <para>A world repoints <c>CorpusRulebook.CorpusPath</c> — a process-global — at its own generated corpus,
-/// and its Dispose deletes the directory that corpus lives in. If the static is not put back, everything
-/// after the last private world resolves types against a path that no longer exists. The retired harness
-/// carried this protection (a captured prior value restored in a finally); the conversion dropped it, and
-/// what hid the loss was which collection xUnit happened to run first.</para>
-///
-/// <para>Deliberately NOT in the "records" collection: that collection's fixture repoints the static when it
-/// is constructed, which is precisely the accident that made the missing restore invisible.</para>
-/// </summary>
+/// <summary>What a <see cref="RecordsWorld"/> leaves behind when it disposes: it repoints the process-global
+/// <c>CorpusRulebook.CorpusPath</c> at its own generated corpus and deletes that directory on Dispose, so an
+/// unrestored static leaves everything after it resolving types against a path that no longer exists.
+/// Deliberately NOT in the "records" collection — that collection's fixture repoints the static itself, which
+/// would hide a missing restore.</summary>
 [Trait("tier", "integration")]
 public sealed class RecordsWorldLifecycleTests
 {
@@ -38,8 +31,8 @@ public sealed class RecordsWorldLifecycleTests
             {
                 worldCorpus = CorpusRulebook.CorpusPath;
 
-                // Vacuity canary: if a world stopped repointing the static there would be nothing to restore
-                // and every claim below would pass for the wrong reason.
+                // If a world stopped repointing the static there would be nothing to restore, and every claim
+                // below would pass for the wrong reason.
                 Assert.NotEqual(prior, worldCorpus);
                 Assert.StartsWith(w.Root, worldCorpus, StringComparison.OrdinalIgnoreCase);
             }

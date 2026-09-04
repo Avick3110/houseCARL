@@ -9,13 +9,8 @@ namespace HousecarlMcpTests;
 /// dense columnar render, container expansion at depth, the reverse-lookup un-merge, exact-window paging,
 /// and the scoped-body-vs-winner notes on both the match axis and the display axis.
 ///
-/// <para>These arms come from the tool-layer blocks of <c>BulkQueryPrimitivesProbe</c> and
-/// <c>BulkPrimitivesWave2Probe</c>, which drove them through <c>housecarl_cross_plugin_query</c>. That
-/// tool is deleted; both probe files survive, because the rest of each drives
-/// <c>LoadOrderService.CrossQuery</c> directly. Arms that pinned pairings 2.0 has no spelling for —
-/// group_by with fields=, group_by with conflict_tree, depth outside its forms, dense rendering an
-/// aggregate — are not carried over; the form-scoping rule that replaced them is asserted in
-/// <c>RecordsScanLaneTests</c>.</para>
+/// <para>The rule that a projection form scopes which pairings are legal is asserted in
+/// <c>RecordsScanLaneTests</c>, not here.</para>
 /// </summary>
 [Collection("bulk-records")]
 [Trait("tier", "integration")]
@@ -67,8 +62,8 @@ public sealed class RecordsScanProjectionTests : BulkRecordsTestBase
         Assert.Contains("before hitting max_chars=", r);
     }
 
-    /// <summary>The same Q3 note must reach BOTH transports — json is never the degraded one — so the
-    /// json sentence is compared VERBATIM against the text render rather than re-spelled here.</summary>
+    /// <summary>The same note must reach BOTH transports — json is never the degraded one — so the json
+    /// sentence is compared verbatim against the text render rather than re-spelled here.</summary>
     [Fact]
     public void AWrongPredicatePathsAccountingNoteReachesBothTransportsVerbatim()
     {
@@ -219,8 +214,8 @@ public sealed class RecordsScanProjectionTests : BulkRecordsTestBase
         RecordsTools.Records(Svc, types: Weap, plugins: MasterScope, fields_source: fieldsSource,
                              format: "json", project: Fields(DamagePath));
 
-    /// <summary>The trap is that a scoped value reads as load-order truth. The note must name the lever
-    /// THIS tool has — the 1.x sentence pointed at a parameter housecarl_records does not carry.</summary>
+    /// <summary>The trap is that a scoped value reads as load-order truth, so the note has to name a lever
+    /// this tool actually carries.</summary>
     [Fact]
     public void TheScopedValuesNoteNamesTheDisplayRetargetLeverThisToolHas() =>
         Served(ScopedText(), "SCOPED plugin's OWN version", "fields_source=\"winner\"");

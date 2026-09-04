@@ -8,22 +8,9 @@ using static HousecarlMcpTests.CheckErrorsFixtures;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// The errors family's own 28 facts <c>CheckErrorsProbe.cs</c> asserted through the deleted 1.x single-family
-/// renderer (<c>Wire.RenderCheckErrors</c> / <c>JsonWire.RenderCheckErrors</c>), re-asserted here against the
-/// merged <c>Wire.RenderCheck</c> / <c>JsonWire.RenderCheck</c> a surviving tool (<c>housecarl_check</c>) actually
-/// calls. Numbered per <c>dev/session-handoffs/render-halves-scratch/PHASE-1-record.md</c> §5's fact list, as
-/// narrowed by <c>checkmerge-coverage-audit.md</c> (facts 21 and 29 are dropped — already covered on the merged
-/// surface by <c>CheckMergeProbe</c>'s <c>CAP-LADDER</c> and <c>RESERVE-DECLARED-IS-RESERVE-DEMANDED</c> arms — and
-/// fact 25 is narrowed to its uncovered MINIMALITY half). Rationale for the DTO-vs-live driving-lane split is in
-/// <c>docs/architecture/check-family-tests.md</c>.
-///
-/// <para>Every PARTIAL the audit found stays on this list because the covered half belongs to another family
-/// (scripts or dialogue) — each such test says so in its own comment.</para>
-///
-/// <para><b>Converted-from: CheckErrorsProbe</b>. <c>CheckErrorsProbe.cs</c> is deleted in the same commit
-/// that lands the last fact below.</para>
-/// </summary>
+/// <summary>The errors family's facts, asserted against the merged <c>Wire.RenderCheck</c> /
+/// <c>JsonWire.RenderCheck</c> that <c>housecarl_check</c> calls. Why some facts are driven at the DTO and others
+/// live is in <c>docs/architecture/check-family-tests.md</c>.</summary>
 [Trait("tier", "integration")]
 [Collection("check-errors")]
 public sealed class CheckErrorsFamilyTests
@@ -42,8 +29,8 @@ public sealed class CheckErrorsFamilyTests
         var r = Svc.CheckErrors(null, 1000, findings: new[] { "missing_masters" });
 
         var text = Text(r, 20000);
-        // Anchored on the surrounding bullet separators the head composes it between, so an insertion right
-        // after the "· " that precedes this clause cannot hide behind a same-suffix match.
+        // Anchored on the surrounding bullet separators, so an inserted line right after the "· " that precedes
+        // this clause cannot hide behind a same-suffix match.
         Assert.Contains("· dangling refs NOT CHECKED (findings= excluded 'dangling') · ", text);
         Assert.DoesNotContain("0 dangling ref(s)", text);
 
@@ -64,8 +51,8 @@ public sealed class CheckErrorsFamilyTests
     }
 
     // ---- fact 2 -------------------------------------------------------------------------------------
-    // The json head restates the text head's totals, and under counts_only carries the histogram OBJECT (not
-    // merely the flat totals CheckMergeProbe's ACCOUNTING-PER-FAMILY already covers).
+    // The json head restates the text head's totals, and under counts_only carries the histogram OBJECT, not
+    // merely the flat totals.
 
     [Fact]
     public void Fact2_JsonHeadRestatesTextTotals_AndCountsOnlyCarriesTheHistogramObjects()
@@ -143,14 +130,14 @@ public sealed class CheckErrorsFamilyTests
         Assert.DoesNotContain("plugin(s) that could not be parsed are named above", whole);
 
         var cut = Text(r, 400);
-        // Anchored on the PRECEDING clause's own full stop so a sabotage inserted right after the sentence's
+        // Anchored on the PRECEDING clause's own full stop so a line inserted right after the sentence's
         // leading space (before the "0") cannot hide behind a same-suffix match.
         Assert.Contains("plugin section(s) were rendered. 0 of 1 plugin(s) that could not be parsed are named " +
                          "above.", cut);
     }
 
     // ---- fact 7 -------------------------------------------------------------------------------------
-    // The counts_only unread honesty tail states rows-named-of-total per transport, and json wraps it as
+    // The counts_only unread tail states rows-named-of-total per transport, and json wraps it as
     // total/rows/rendered/truncated. Driven DTO-level: the live world has no per-record scan error to plant.
 
     [Fact]
@@ -180,8 +167,7 @@ public sealed class CheckErrorsFamilyTests
 
     // ---- fact 8 -------------------------------------------------------------------------------------
     // A response cut only by limit= names the budget as the cause, states visible-of-found, and offers limit= and
-    // NOT max_chars= — the errors family's own arm; CheckMergeProbe's DIALOGUE-SEED-BUDGET cluster covers this
-    // shape for the dialogue family only (checkmerge-coverage-audit.md, fact 8).
+    // NOT max_chars=.
 
     [Fact]
     public void Fact8_LimitOnlyCut_NamesTheBudget_StatesVisibleOfFound_OffersLimitNotMaxChars()
@@ -207,10 +193,9 @@ public sealed class CheckErrorsFamilyTests
         var text = Text(r, 400);
         Assert.Contains("[accounting: 0 of the 6 dangling ref(s) found by this sweep appear above. 6 did not fit " +
                          "this response (max_chars=400). 0 of 3 plugin section(s) were rendered.", text);
-        // Positive control for EntryLines, whose only consumer is the Assert.Empty below. Without it, rewording
-        // the dangling-entry render (dropping "any", say) makes the helper return an empty array for EVERY
-        // response, and the emptiness assertion passes for every possible render including one that emits all
-        // six. Six is the accounting line's own number, one line up.
+        // Positive control for EntryLines: a reworded dangling-entry render would make it return empty for every
+        // response, and the emptiness assertion below would pass whatever was emitted. Six is the accounting
+        // line's own number, one line up.
         Assert.Equal(6, EntryLines(Text(r, 0)).Length);
         Assert.Empty(EntryLines(text));
         Assert.DoesNotContain("Raise limit=", text);
@@ -255,7 +240,7 @@ public sealed class CheckErrorsFamilyTests
     public void Fact12_BySourceRoster_NamesWholeDroppedPlugins_EmptyWhenNothingDropped()
     {
         var capped = Text(Svc.CheckErrors(null, 1, findings: null), 20000);
-        // Anchored on the PRECEDING clause's own full stop, so a sabotage inserted right after the lead's leading
+        // Anchored on the PRECEDING clause's own full stop, so a line inserted right after the lead's leading
         // space cannot hide behind a same-suffix match.
         Assert.Contains("ran out. Missing here, by source plugin: " + W.BaseName + " (3), " + W.ModName +
                          " (1), " + W.PatchName + " (1).", capped);
@@ -272,11 +257,9 @@ public sealed class CheckErrorsFamilyTests
     {
         var r = Svc.CheckErrors(null, 1000, findings: null);
 
-        // Driven at a PARTIAL cut, searched rather than pinned. At any cap this world's json renders empty
-        // (everything below ~4000 chars) both agreements read 0 == 0, so the arm could only ever have caught an
-        // OVER-count: measured, an under-report of either number stayed green on both verification surfaces
-        // (round 1). A partial cut is the shape the old RESPONSE-CUT-JSON-NUMBERS-MATCH-THE-DOCUMENT arm drove,
-        // and it is the only shape in which "the number disagrees with its own document" is observable.
+        // Driven at a PARTIAL cut, searched for rather than pinned: where the json renders empty or whole both
+        // agreements read 0 == 0 or N == N, and a partial cut is the only shape in which "the number disagrees
+        // with its own document" is observable.
         JsonElement fam = default;
         int visible = 0, entries = 0, rendered = 0, objects = 0;
         for (int cap = 400; cap <= 20000; cap += 100)
@@ -295,8 +278,8 @@ public sealed class CheckErrorsFamilyTests
         Assert.Equal(entries, visible);
         Assert.Equal(objects, rendered);
 
-        // The three conjuncts the conversion dropped: the section total is the sweep's, not the render's; the
-        // response cut is named as the cause; and the listing budget is named as NOT a cause (limit=1000 here).
+        // The section total is the sweep's, not the render's; the response cut is named as the cause; and the
+        // listing budget is named as NOT a cause (limit=1000 here).
         var acct = fam.GetProperty("accounting");
         Assert.Equal(r.Reports.Count, acct.GetProperty("sections_with_findings").GetInt32());
         Assert.True(acct.GetProperty("dangling_missing_by_response_cut").GetInt32() > 0,
@@ -312,8 +295,8 @@ public sealed class CheckErrorsFamilyTests
     public void Fact14_BaselineLinePrintsOnlyWhereABaseMasterWasSwept_AndNamesThatSubset()
     {
         var swept = Text(Svc.CheckErrors(null, 1000, findings: null), 20000);
-        // Extended past the plugin-name parenthesis into the very next clause, so a sabotage inserted right
-        // after it cannot hide behind a same-prefix match.
+        // Extended past the plugin-name parenthesis into the very next clause, so a line inserted right after
+        // it cannot hide behind a same-prefix match.
         Assert.Contains("baseline: " + CheckErrorsWorld.BaselineDangling + " of " + CheckErrorsWorld.TotalDangling +
                          " dangling ref(s) come from the base-game master(s) this sweep covered (" + W.BaseName +
                          ") — vanilla leftovers rather than anything this load order introduced; " +
@@ -368,17 +351,17 @@ public sealed class CheckErrorsFamilyTests
         Assert.Contains("dangling ref(s) by SOURCE plugin (the plugin the broken refs come FROM) (3 distinct):", text);
         Assert.Contains("... [3 more row(s) — raise max_chars= to see them]", text);
 
-        // Both axes are cut before their first row fits — the tight max_chars=900 cap is what stops them here,
-        // not histogramLimit=1 (SweepEmission.HistogramCut: a row-limit break never sets cutByBudget, so a row
-        // limit that actually bound would name "limit" — this cap binds first, and both axes report "max_chars").
+        // Both axes are cut before their first row fits, and it is max_chars=900 that stops them, not
+        // histogramLimit=1: a row-limit break would name "limit" instead, so the cap binding first is what makes
+        // both axes report "max_chars".
         var fam = ErrorsFamily(Json(r, 900, histogramLimit: 1));
         Assert.Equal(0, fam.GetProperty("dangling_by_target_plugin").GetProperty("rendered").GetInt32());
         Assert.Equal("max_chars", fam.GetProperty("dangling_by_target_plugin").GetProperty("cut_by").GetString());
         Assert.Equal(0, fam.GetProperty("dangling_by_source_plugin").GetProperty("rendered").GetInt32());
         Assert.Equal("max_chars", fam.GetProperty("dangling_by_source_plugin").GetProperty("cut_by").GetString());
 
-        // The OTHER knob: a cap wide enough that the row limit itself is what stops the axis names "limit"
-        // instead — the two knobs move different things, and the disclosure has to name the one that fired.
+        // The other knob: at a cap wide enough that the row limit itself stops the axis, the disclosure names
+        // "limit" instead — it has to name the knob that fired.
         var wideCap = Text(r, 4000, histogramLimit: 1);
         Assert.Contains("... [1 more row(s) — raise limit= to see them]", wideCap);
         Assert.Contains("... [2 more row(s) — raise limit= to see them]", wideCap);
@@ -462,7 +445,7 @@ public sealed class CheckErrorsFamilyTests
         }
     }
 
-    // ---- fact 25 (narrowed to its uncovered MINIMALITY half; sufficiency is CAP-LADDER's) -----------------
+    // ---- fact 25 -----------------------------------------------------------------------------------------
     // The overrun remedy names the smallest cap that fits within the digit-width slack, and re-rendering at that
     // number clears the notice.
 
@@ -478,16 +461,15 @@ public sealed class CheckErrorsFamilyTests
 
         // Sufficient: the notice clears exactly at the named cap.
         Assert.DoesNotContain("raise it to at least", Text(r, raiseTo));
-        // Minimal within slack: two below the named cap, the notice is still present — the remedy is not
-        // wildly larger than the true floor (measured true floor on this world: raiseTo - 1).
+        // Minimal within slack: two below the named cap the notice is still present, so the remedy is not
+        // wildly larger than the true floor (which is one below the named cap on this world).
         Assert.Contains("raise it to at least", Text(r, raiseTo - 2));
     }
 
     // ---- fact 26 ------------------------------------------------------------------------------------------
     // A section is whole or absent: a rendered section carries its scan error, its missing-master line and its
-    // unscannable count, and the only droppable units are a whole section or one entry. The missing-master half
-    // is covered by CheckMasterRemedyTests; this proves the section stays WHOLE even when its entries got no
-    // listing budget at all (checkmerge-coverage-audit.md, fact 26).
+    // unscannable count, and the only droppable units are a whole section or one entry. Here the section stays
+    // whole even when its entries got no listing budget at all.
 
     [Fact]
     public void Fact26_ASectionIsWholeOrAbsent_ItsFixedPartRendersEvenWithZeroEntryBudget()
@@ -496,10 +478,8 @@ public sealed class CheckErrorsFamilyTests
 
         Assert.Contains("[ERROR] " + W.PatchName, text);
         Assert.Contains("missing master(s) NOT installed anywhere in the MO2 install: " + W.GoneName, text);
-        // The section rendered whole even though this plugin's OWN dangling entry got none of the budget — read
-        // SECTION-SCOPED. The old spelling searched the whole response for the plugin name immediately followed by
-        // the dangling header, a span the composer never emits at ANY budget (the missing-master line always sits
-        // between them), so it passed identically at limit=1000 and never exercised the zero-entry-budget case.
+        // Read SECTION-SCOPED: the missing-master line always sits between the plugin name and the dangling
+        // header, so a whole-response search for those two adjacent cannot fail at any budget.
         Assert.DoesNotContain("dangling reference(s)", PluginSection(text, W.PatchName));
 
         // The control that gives the absence its meaning: with budget to spare the SAME section DOES carry its
@@ -528,9 +508,6 @@ public sealed class CheckErrorsFamilyTests
 
     // ---- fact 28 ------------------------------------------------------------------------------------------
     // exclude= narrowing is stated in the response, and a fully-excluded base master leaves no baseline line.
-    // The narrowing note itself is covered on the SCRIPTS family by ORCH-EXCLUDE-FILTER-NOTE-IS-STATED
-    // (checkmerge-coverage-audit.md, fact 28); this is the errors-family half plus the baseline suppression,
-    // neither of which that arm reaches.
 
     [Fact]
     public void Fact28_ExcludeNarrowingIsStated_AndAFullyExcludedBaseMasterLeavesNoBaselineLine()
@@ -542,13 +519,13 @@ public sealed class CheckErrorsFamilyTests
     }
 
     // ---- fact 30 ------------------------------------------------------------------------------------------
-    // The overrun sentence enumerates the closing lines the response cannot drop, and reads true in the lane
-    // that owes none (only ONE of the two causes fired, not both).
+    // The overrun sentence enumerates the closing lines the response cannot drop, and reads true when only ONE
+    // of the two cut causes fired.
 
     [Fact]
     public void Fact30_TheOverrunSentenceEnumeratesTheUndroppableLines_TrueEvenWhenOnlyOneCauseFired()
     {
-        // Only a max_chars cut fires here (limit is ample) — the lane that "owes" nothing to the listing budget.
+        // Only a max_chars cut fires here; limit is ample, so nothing is missing for want of listing budget.
         var text = Text(Svc.CheckErrors(null, 1000, findings: null), 400);
 
         Assert.Contains("what it must carry whatever the budget — its header, the accounting above, the closing " +

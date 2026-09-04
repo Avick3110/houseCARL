@@ -7,23 +7,20 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// #207's exemption, re-homed. A container item owned by a FACTION carries a COED block of two words: the owner
-/// FormID, and a second word that is a <c>RequiredRank</c> int. When the owner faction lives in a MASTER — every
-/// override this sweep reads — Mutagen cannot type the owner arm and falls back to <c>UntypedOwner</c>, which
-/// exposes BOTH words as FormLinks; a rank of <c>-1</c> (<c>0xFFFFFFFF</c>, id <c>FFFFFF</c>) then read as a
-/// dangling reference. <c>ErrorCheck.UntypedOwnerVariableData</c> drops only that SECOND word.
+/// A container item owned by a FACTION carries a COED block of two words: the owner FormID, and a second word
+/// that is a <c>RequiredRank</c> int. When the owner faction lives in a MASTER — every override this sweep
+/// reads — Mutagen cannot type the owner arm and falls back to <c>UntypedOwner</c>, which exposes BOTH words as
+/// FormLinks; a rank of <c>-1</c> (<c>0xFFFFFFFF</c>, id <c>FFFFFF</c>) then reads as a dangling reference.
+/// <c>ErrorCheck.UntypedOwnerVariableData</c> drops only that SECOND word.
 ///
-/// <para>The exemption trades off in both directions and both directions are armed here: exempt too little and
-/// #207 returns; exempt too much and the owner FORM stops being swept, so a genuinely broken owner goes silent.
-/// The three arms were <c>OWNER-RANK</c> / <c>OWNER-DATA-CHECKED</c> / <c>OWNER-RANK-TOTAL</c> in
-/// <c>CheckErrorsProbe.cs</c>; they never called a deleted renderer, and #486 PR 2's whole-file deletion took
-/// them with it. Aaron ruled this cluster back on the branch (2026-09-03) while the rest of that population is
-/// chartered separately.</para>
+/// <para>The exemption trades off both ways and both are covered here: exempt too little and the rank word is
+/// reported as dangling again; exempt too much and the owner FORM stops being swept, so a genuinely broken
+/// owner goes silent.</para>
 ///
 /// <para>Driven at DTO level on <c>ErrorCheck.Run</c> over a fixture of this file's own — never a shared world,
 /// because a faction-owned container with an absent owner master is a shape no other test wants. Asserted
-/// STRUCTURALLY, keyed by record (#492's shape): the FormKeys in <c>Dangling</c> and the names in
-/// <c>MissingMasters</c>, never a rendered sentence.</para>
+/// structurally, keyed by record: the FormKeys in <c>Dangling</c> and the names in <c>MissingMasters</c>, never
+/// a rendered sentence.</para>
 /// </summary>
 [Trait("tier", "integration")]
 public sealed class OwnerRankExemptionTests : IDisposable

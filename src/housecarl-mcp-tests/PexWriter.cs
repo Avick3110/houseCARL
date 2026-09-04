@@ -3,11 +3,8 @@ using Mutagen.Bethesda.Pex;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// Writes byte-valid single-object Skyrim <c>.pex</c> files with a chosen table of Auto properties. Ported
-/// from <c>src/housecarl-generator/ScriptPropertyCheckProbe.cs</c> rather than referenced; why, and what
-/// the fixture uses it for: <c>docs/architecture/test-project-fixtures.md</c>.
-/// </summary>
+/// <summary>Writes byte-valid single-object Skyrim <c>.pex</c> files with a chosen table of Auto properties.
+/// What the fixture uses it for: <c>docs/architecture/test-project-fixtures.md</c>.</summary>
 public static class PexWriter
 {
     /// <summary>One Auto property: the property record plus its <c>::Name_var</c> backing variable, which

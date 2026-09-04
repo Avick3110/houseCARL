@@ -6,27 +6,11 @@ using static HousecarlMcpTests.ScriptsFixtures;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// The scripts family's own 13 facts <c>ScriptPropertyCheckProbe.cs</c> asserted through the deleted 1.x
-/// single-family renderer (<c>Wire.RenderScriptCheck</c> / <c>JsonWire.RenderScriptCheck</c>), re-asserted here
-/// against the merged <c>Wire.RenderCheck</c> / <c>JsonWire.RenderCheck</c> a surviving tool
-/// (<c>housecarl_check</c>) actually calls. Numbered S1-S13 per
-/// <c>dev/session-handoffs/render-halves-scratch/PHASE-1-record.md</c> §5's phase-3 fact list — the probe's 27
-/// old <c>Check(...)</c> arms consolidate into these 13 facts, one test per fact rather than per old assertion.
-///
-/// <para>Facts drivable on the shared, frozen <see cref="ScriptsWorld"/> go through
-/// <c>LoadOrderService.ValidateScripts</c> (the engine member <c>housecarl_check</c> calls); facts needing a scan
-/// error, an excluded-plugin roster, or a cap-band the shared world cannot produce are driven DTO-level through
-/// <see cref="ScriptsFixtures.Result"/>, the same split <c>CheckErrorsFamilyTests</c> uses. Every hand-shaped
-/// value below was captured from the LIVE render (a scratch harness against the built assemblies, never
-/// committed) rather than composed from memory of the source — the wording a merged accounting produces is not
-/// always what the old single-family probe assumed.</para>
-///
-/// <para><b>Converted-from: ScriptPropertyCheckProbe</b>. <c>ScriptPropertyCheckProbe.cs</c> is deleted in
-/// the same commit that lands the last fact below — the commit that ends the overlap
-/// <c>docs/architecture/test-project-fixtures.md</c> describes, where the scripts family lived in both the
-/// probe harness and this one.</para>
-/// </summary>
+/// <summary>The scripts family's 13 facts (S1-S13) against <c>Wire.RenderCheck</c> /
+/// <c>JsonWire.RenderCheck</c>, the renderers <c>housecarl_check</c> calls. Facts drivable on the shared,
+/// frozen <see cref="ScriptsWorld"/> go through <c>LoadOrderService.ValidateScripts</c>; facts needing a scan
+/// error, an excluded-plugin roster, or a cap band that world cannot produce are driven DTO-level through
+/// <see cref="ScriptsFixtures.Result"/>, the same split <c>CheckErrorsFamilyTests</c> uses.</summary>
 [Collection("scripts")]
 [Trait("tier", "integration")]
 public sealed class ScriptsFamilyTests
@@ -250,7 +234,7 @@ public sealed class ScriptsFamilyTests
 
     // ---- fact S10 -------------------------------------------------------------------------------------
     // The counts_only histogram axis is in the response at every cap and states how many of its rows are
-    // missing — the axis is never silently dropped (#392).
+    // missing — the axis is never silently dropped.
 
     [Fact]
     public void FactS10_HistogramAxisNeverDropsSilently_AcrossABand()
@@ -279,9 +263,8 @@ public sealed class ScriptsFamilyTests
             Enumerable.Range(0, 3).ToDictionary(i => $"HcSpBroken{i}.esp", i => new string('r', 300)));
 
         // Searched, not a fixed number: which cap admits the accounting but not a single roster row is a fact
-        // about the fixture's own size, not a literal that survives an unrelated wording change elsewhere in
-        // the same response. (The comment said this before; the code held a hardcoded 200 — pre-green review 1a,
-        // finding 3. S12 below walks the band the same way for the PARTIAL split.)
+        // about the fixture's own size, and a literal would not survive an unrelated wording change elsewhere
+        // in the same response.
         string? cut = null;
         for (int cap = 100; cap <= 3000 && cut is null; cap += 10)
         {
@@ -308,10 +291,9 @@ public sealed class ScriptsFamilyTests
         var excludedFat = Result(countsOnly: true, excludedPlugins:
             Enumerable.Range(0, 3).ToDictionary(i => $"HcSpBroken{i}.esp", i => new string('r', 300)));
 
-        // Walk the band rather than pin one measured cap: the first partial split (neither 0 nor all 3 named)
-        // is a fact about the fixture's own size, and pinning the literal cap that produces it would make this
-        // arm fragile to any unrelated wording change elsewhere in the same response (measured: a sabotage of
-        // an unrelated sentence shifted this fixture's split point by ~10 chars).
+        // Walk the band rather than pin one cap: the first partial split (neither 0 nor all 3 named) is a fact
+        // about the fixture's own size, and a pinned literal would break on any unrelated wording change
+        // elsewhere in the same response, which can shift the split point by ~10 chars.
         bool sawPartial = false;
         for (int cap = 200; cap <= 3000 && !sawPartial; cap += 10)
         {

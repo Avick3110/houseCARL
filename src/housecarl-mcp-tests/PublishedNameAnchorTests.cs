@@ -4,18 +4,11 @@ using Xunit.Abstractions;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// The rename oracle for the published tool names.
-///
-/// <para>Since the tool-name registry landed (ADR 0004), shipped code and almost every test name a tool by
-/// referencing a <c>ToolNames</c> constant. That is what makes deleting a tool a compile error — and it also
-/// means a typo in a constant's VALUE moves the declared set, the registered set and the published set
-/// together, so every set-equality cell stays green while the surface renames itself.</para>
-///
-/// <para>The 1.9 capture anchors the names 1.9 published as literals, which covers 39 of the 46. The seven
-/// 2.0-era names had no literal anchor outside the guard harness that is being retired. This holds the
-/// published set against a checked-in capture of literals, in both directions.</para>
-/// </summary>
+/// <summary>The rename oracle for the published tool names. Shipped code and almost every test name a tool
+/// through a <c>ToolNames</c> constant, so a typo in a constant's VALUE moves the declared, registered and
+/// published sets together and every set-equality test stays green while the surface renames itself. The
+/// checked-in capture is the only place the names are spelled as literals; it is held against the published
+/// set in both directions.</summary>
 [Collection("server")]
 [Trait("tier", "stdio")]
 public sealed class PublishedNameAnchorTests
@@ -35,7 +28,7 @@ public sealed class PublishedNameAnchorTests
                        .OrderBy(n => n, StringComparer.Ordinal)
                        .ToArray();
 
-        // Vacuity canary: an emptied or reshaped capture would satisfy both claims below it.
+        // An emptied or reshaped capture would satisfy both claims below it.
         Assert.True(names.Length > 0,
             $"'{CapturePath}' lists no tools, so both anchor claims are vacuous. The capture is the only " +
             "place these names are spelled as literals; an empty one is a broken oracle, not an empty surface.");

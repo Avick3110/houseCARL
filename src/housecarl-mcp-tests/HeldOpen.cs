@@ -1,10 +1,7 @@
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// Holds one file open with <see cref="FileShare.None"/> for the lifetime of the object — MO2 or xEdit
-/// sitting on a plugin. Where it was ported from and what it is for:
-/// <c>docs/architecture/test-project-fixtures.md</c>.
-/// </summary>
+/// <summary>Holds one file open with <see cref="FileShare.None"/> for the lifetime of the object — MO2 or xEdit
+/// sitting on a plugin. Details: <c>docs/architecture/test-project-fixtures.md</c>.</summary>
 public sealed class HeldOpen : IDisposable
 {
     readonly FileStream _stream;

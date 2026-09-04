@@ -8,17 +8,16 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The one standing <see cref="CheckMasterRemedyWorld"/> does not carry: a master that is TICKED in
-/// <c>plugins.txt</c> and has no on-disk copy anywhere in the install — the state MO2 is left in when a mod
-/// folder is deleted outside it and the profile keeps the stale tick.
+/// A master TICKED in <c>plugins.txt</c> with no on-disk copy anywhere in the install — the state MO2 is left
+/// in when a mod folder is deleted outside it and the profile keeps the stale tick.
 ///
-/// <para>It is its own world because the tick is a property of the PROFILE, not of a plugin: the same
-/// <c>plugins.txt</c> cannot carry a name both ticked and unticked, so the L1 world's untick-and-absent case
-/// and this one cannot share a fixture.</para>
+/// <para>Its own world because the tick is a property of the PROFILE, not of a plugin: one
+/// <c>plugins.txt</c> cannot carry a name both ticked and unticked, so this case cannot share a fixture with
+/// the unticked-and-absent one in <see cref="CheckMasterRemedyWorld"/>.</para>
 ///
 /// <list type="bullet">
 /// <item><c>Skyrim.esm</c> — in <c>loadorder.txt</c>, absent from <c>plugins.txt</c>, so force-loaded and
-///   SATISFIED. The control that keeps an assertion about the absent master from being a blanket claim.</item>
+///   SATISFIED. The control that keeps a claim about the absent master from being a blanket one.</item>
 /// <item><c>HcTaAbsent.esm</c> — listed in <c>loadorder.txt</c> AND ticked in <c>plugins.txt</c>, while the
 ///   file itself was written outside the instance (no mod folder, no overwrite layer, not game Data). It is
 ///   active by the profile's account and installed nowhere. Its remedy is install.</item>
@@ -88,7 +87,7 @@ public sealed class CheckMasterTickedButAbsentWorld : IDisposable
     }
 }
 
-/// <summary>The world, built once for the class. Every arm below is read-only over it.</summary>
+/// <summary>The world, built once for the class. Every test below is read-only over it.</summary>
 public sealed class CheckMasterTickedButAbsentFixture : IDisposable
 {
     public CheckMasterTickedButAbsentWorld W { get; } = new();
@@ -99,22 +98,20 @@ public sealed class CheckMasterTickedButAbsentFixture : IDisposable
 /// A declared master that is ticked in <c>plugins.txt</c> but has no on-disk copy is reported — by BOTH
 /// surfaces that classify declared masters — and it is reported as NOT INSTALLED.
 ///
-/// <para><b>The shortfall a tick cannot cure.</b> Whether a master will load is two facts, not one: the
-/// profile has to list it as active AND the install has to provide a file. A profile can assert the first
-/// with the second false — that is exactly what a stale tick is — so a filter that tests only the active
-/// half drops the name before anything looks for the file, and the plugin's refs into it dangle with nothing
-/// said. Q3: the "won't load without them" warning must fire exactly when it applies.</para>
+/// <para>Whether a master will load is two facts, not one: the profile has to list it as active AND the
+/// install has to provide a file. A stale tick asserts the first with the second false, so a filter testing
+/// only the active half drops the name before anything looks for the file and the plugin's refs into it
+/// dangle with nothing said.</para>
 ///
 /// <para><b>Two surfaces, one fixture.</b> <see cref="LoadOrderService.ReadPluginFile"/> decides
 /// unsatisfied-ness from the COMPOSITION it just parsed; <c>housecarl_check</c>'s errors family decides it
-/// from the BUILT active order, which drops a listed name the install does not provide. They are different
-/// derivations of the same question, so both are armed here over one install — a divergence is then a
-/// disagreement about this instance rather than about two.</para>
+/// from the BUILT active order, which drops a listed name the install does not provide. Different derivations
+/// of the same question, so both run over one install and a divergence is a disagreement about this instance
+/// rather than about two.</para>
 ///
-/// <para>Driven through <see cref="CheckTools.CheckTool"/> for the same reason
-/// <see cref="CheckMasterRemedyTests"/> is: it is the method the MCP server publishes and binds arguments
-/// into, and the stdio <c>ServerFixture</c> runs an UNCONFIGURED server that answers before any value is
-/// interpreted, so no wire-driven call there can reach a sweep at all.</para>
+/// <para>Driven through <see cref="CheckTools.CheckTool"/> because it is the method the MCP server publishes
+/// and binds arguments into; the stdio <c>ServerFixture</c> runs an unconfigured server that answers before
+/// any value is interpreted, so no wire-driven call there reaches a sweep.</para>
 /// </summary>
 [Trait("tier", "integration")]
 public sealed class CheckMasterTickedButAbsentTests : IClassFixture<CheckMasterTickedButAbsentFixture>
@@ -131,8 +128,8 @@ public sealed class CheckMasterTickedButAbsentTests : IClassFixture<CheckMasterT
         response.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.StartsWith(prefix, StringComparison.Ordinal));
 
     /// <summary>The ENGINE half. <c>ReadPluginFile</c>'s advisory splits declared masters into the two
-    /// shortfalls; a ticked-but-absent one belongs in the INSTALL list, and the arm asserts the union first so
-    /// a name dropped from both is distinguishable from a name filed under the wrong remedy.</summary>
+    /// shortfalls; a ticked-but-absent one belongs in the INSTALL list. The union is asserted first so a name
+    /// dropped from both is distinguishable from a name filed under the wrong remedy.</summary>
     [Fact]
     public void ReadPluginFileNamesATickedButAbsentMasterAsMissing_NotInNeitherList()
     {
@@ -140,14 +137,14 @@ public sealed class CheckMasterTickedButAbsentTests : IClassFixture<CheckMasterT
 
         Assert.Null(o.Error);
         Assert.Contains(W.AbsentName, o.Masters);
-        // The union FIRST: the regression this arm exists for is a name reported in neither list.
+        // The union first: the failure this guards against is a name reported in neither list.
         Assert.Contains(W.AbsentName, o.MissingMasters.Concat(o.InactiveMasters));
         // And it is the INSTALL case — no copy exists anywhere, so "enable it" would be a remedy that cannot work.
         Assert.Equal(new[] { W.AbsentName }, o.MissingMasters);
         Assert.Empty(o.InactiveMasters);
     }
 
-    /// <summary>The satisfied master stays out of both lists — without this the arm above would pass over an
+    /// <summary>The satisfied master stays out of both lists — without this the test above would pass over an
     /// advisory that listed every declared master as unsatisfied.</summary>
     [Fact]
     public void ReadPluginFileLeavesTheForceLoadedMasterOutOfBothShortfalls()
@@ -160,8 +157,7 @@ public sealed class CheckMasterTickedButAbsentTests : IClassFixture<CheckMasterT
 
     /// <summary>The LIVE half, over the same install: <c>housecarl_check</c>'s missing-master remedy names the
     /// ticked-but-absent master on the INSTALL line. Its derivation differs — the built active order drops a
-    /// listed name nothing provides, so the name arrives at the splitter already unsatisfied — and this arm is
-    /// what makes that a measured fact about the shipped surface rather than a reading of the code.</summary>
+    /// listed name nothing provides, so the name arrives at the splitter already unsatisfied.</summary>
     [Fact]
     public void TheCheckRemedyNamesTheTickedButAbsentMasterOnTheInstallLine()
     {

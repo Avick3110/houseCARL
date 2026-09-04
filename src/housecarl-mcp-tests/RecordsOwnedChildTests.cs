@@ -10,12 +10,10 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The synthetic MO2 world for the owned-child content annotation (#342): a BASE master that DECLARES child
-/// records, a MID plugin that touches the same cell declaring nothing, and a TOP winner shaped like an
-/// Occlusion.esp override — it touches the parent and carries no children at all.
-///
-/// <para>Its own world rather than the shared one: every arm here needs a parent record whose winner carries an
-/// EMPTY child collection that a lower plugin fills, and no shared-world record has that shape.</para>
+/// The synthetic MO2 world for the owned-child content annotation: a BASE master that declares child records,
+/// a MID plugin that touches the same cell declaring nothing, and a TOP winner that touches the parent and
+/// carries no children at all. Its own world — no shared-world record has a winner whose child collection is
+/// empty while a lower plugin fills it.
 /// </summary>
 public sealed class OwnedChildWorld : IDisposable
 {
@@ -37,8 +35,8 @@ public sealed class OwnedChildWorld : IDisposable
     /// <summary>SELF — only the winner declares.</summary>
     public FormKey CellE { get; }
     /// <summary>TWO LOWER DECLARERS — base AND mid declare Temporary and Persistent; the winner declares nothing,
-    /// and nothing anywhere declares Landscape or NavigationMeshes. The precise tier's own fixture (#485): the
-    /// positive names two plugins, and the two untouched fields are the negative it must state rather than omit.</summary>
+    /// and nothing anywhere declares Landscape or NavigationMeshes, so the precise tier has both a positive
+    /// naming two plugins and a negative it must state rather than omit.</summary>
     public FormKey CellF { get; }
     public FormKey Topic { get; }
     /// <summary>A 3-toucher record with no child-bearing field at all.</summary>
@@ -157,8 +155,7 @@ public sealed class OwnedChildWorld : IDisposable
             e.Temporary.Add(new PlacedObject(new FormKey(topKey, 0xB50), SkyrimRelease.SkyrimSE) { EditorID = "HcOcTopETemp0" });
             FileInterior(m, e);
 
-            // CellF's winner: it touches the cell and declares NOTHING — the Occlusion.esp shape, with two lower
-            // plugins declaring below it.
+            // CellF's winner touches the cell and declares nothing, with two lower plugins declaring below it.
             FileInterior(m, new Cell(CellF, SkyrimRelease.SkyrimSE) { EditorID = "HcOcCellF", Flags = Cell.Flag.IsInteriorCell });
 
             var t = new DialogTopic(Topic, SkyrimRelease.SkyrimSE) { EditorID = "HcOcTopic" };
@@ -215,7 +212,7 @@ public sealed class OwnedChildWorld : IDisposable
     }
 }
 
-/// <summary>One world per class — every arm below is a read.</summary>
+/// <summary>One world per class — every test below is a read.</summary>
 public sealed class OwnedChildFixture : IDisposable
 {
     public OwnedChildWorld W { get; } = new();
@@ -223,17 +220,11 @@ public sealed class OwnedChildFixture : IDisposable
 }
 
 /// <summary>
-/// #342 — the owned-child content annotation, driven through <c>housecarl_records</c>: a parent's child records
-/// (a cell's placed references, a topic's INFO lines, a worldspace's cells) are declared per plugin and assembled
+/// The owned-child content annotation, driven through <c>housecarl_records</c>: a parent's child records (a
+/// cell's placed references, a topic's INFO lines, a worldspace's cells) are declared per plugin and assembled
 /// by the game from every plugin that declares them, so a winner that touches the parent for an unrelated reason
-/// reports an empty collection the game fills.
-///
-/// <para>The arms come from the tool-layer half of <c>OwnedChildContentProbe</c> — the ones whose subject was a
-/// value returned by <c>read_record</c> / <c>batch_record_detail</c>. Both tiers are here now: the CHEAP one on
-/// the default read, and — restored by #485 after the cut deleted it with the <c>conflict_tree=true</c> lever
-/// that was its only caller — the PRECISE one on <c>project={"form":"tree"}</c>, the 2.0 form that fetches every
-/// provider body anyway. The probe's engine-level arms (<c>OwnedChildContent.DeclaresChild</c> / <c>ShapeOf</c> /
-/// <c>Fields</c>, and <c>ReadSentences.DeclarersNote</c>'s own composition) stay where they are.</para>
+/// reports an empty collection the game fills. Both tiers are covered: the cheap one on the default read, and
+/// the precise one on <c>project={"form":"tree"}</c>, the form that fetches every provider body anyway.
 /// </summary>
 [Trait("tier", "integration")]
 public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
@@ -503,9 +494,8 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     // ---- the remedy the clause names ------------------------------------------------------------
     //
     // The clause tells the caller where to get the read this one did not do: the same formids under
-    // project={"form": "tree"}. These arms MAKE that call, so the remedy is pinned by what comes back rather
-    // than by the wording — a sentence naming a lane nobody drives is how the clause came to name two deleted
-    // tools in the first place. One test per promise the sentence makes.
+    // project={"form": "tree"}. These tests MAKE that call, so the remedy is pinned by what comes back rather
+    // than by the wording. One test per promise the sentence makes.
 
     string Tree(FormKey fk, string? format = null, string? toFile = null, int maxChars = 0) =>
         RecordsTools.Records(Svc, formids: new[] { OwnedChildWorld.Fid(fk) }, format: format, to_file: toFile,
@@ -565,11 +555,11 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.Contains(art, r);
     }
 
-    // ---- the precise tier the remedy now carries (#485) -------------------------------------------
+    // ---- the precise tier the remedy carries -------------------------------------------------------
     //
     // The cheap tier says "other plugins touch this record and their declarations were not read". The tree
     // form has already read them, so it says WHICH — and, the half no cheap tier can reach, that NONE do.
-    // Every arm below pins a WHOLE rendered line composed from the sentence consts and the fixture's own
+    // Each test below pins a WHOLE rendered line composed from the sentence consts and the fixture's own
     // plugin names, so a second branch of DeclarersNote cannot satisfy it.
 
     [Fact]
@@ -577,11 +567,10 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.Contains($"Temporary: {ReadSentences.DeclaredBy} {_w.BaseName}, {_w.MidName}",
                         DeclarersBlock(Tree(_w.CellF)));
 
-    /// <summary>The whole block for the two-declarer cell, in one assertion: two collection fields naming both
-    /// lower plugins, and two fields nobody declares stating so — Landscape in its own SINGULAR voice (a count,
-    /// never the collection negative's plural "declares child record**s**"), NavigationMeshes
-    /// in the collection one. A tier that emitted only the positives, or only the fields it had something to say
-    /// about, fails here rather than passing on a substring.</summary>
+    /// <summary>The whole block for the two-declarer cell in one assertion: two collection fields naming both
+    /// lower plugins, and two fields nobody declares stating so — Landscape in the SINGULAR voice (a count, never
+    /// the collection negative's plural), NavigationMeshes in the collection one. A tier that emitted only the
+    /// positives, or only the fields it had something to say about, fails here.</summary>
     [Fact]
     public void ThePreciseTierStatesEveryChildBearingFieldOfTheType_PositiveAndNegativeAlike() =>
         Assert.Equal(new[]
@@ -592,9 +581,8 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
             $"Temporary: {ReadSentences.DeclaredBy} {_w.BaseName}, {_w.MidName}",
         }, DeclarersBlock(Tree(_w.CellF)));
 
-    /// <summary>The SINGULAR negative, on its own: a count of zero, never the collection voice's plural claim
-    /// ("not the merged total" is simply false about a singular child — the same objection applies
-    /// just as hard to the empty answer as to the positive one).</summary>
+    /// <summary>The SINGULAR negative on its own: a count of zero, never the collection voice's plural claim,
+    /// which is false about a singular child whether the answer is empty or not.</summary>
     [Fact]
     public void ASingularFieldNobodyCarriesIsCountedZero_NeverTheCollectionVoice()
     {
@@ -603,13 +591,13 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.DoesNotContain("child records", line);
     }
 
-    /// <summary>The NEGATIVE on its own, and the claim is that it is a SENTENCE. The tier this restores said
-    /// nothing at all here, which a caller cannot tell apart from the tier not having run.</summary>
+    /// <summary>The negative on its own, and the claim is that it is a SENTENCE: silence here is
+    /// indistinguishable to a caller from the tier not having run.</summary>
     [Fact]
     public void AFieldNoProviderDeclaresInGetsTheNoneSentence_NeverSilence() =>
         Assert.Contains($"NavigationMeshes: {ReadSentences.NoDeclarers}", DeclarersBlock(Tree(_w.CellF)));
 
-    /// <summary>The SINGULAR arm: Cell.Landscape is ONE record its providers override, so the line is a COUNT.
+    /// <summary>The SINGULAR case: Cell.Landscape is ONE record its providers override, so the line is a COUNT.
     /// Naming them would be the collection sentence, which is false of this shape.</summary>
     [Fact]
     public void ASingularChildFieldIsCountedNotNamed() =>
@@ -627,9 +615,8 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     public void ARecordTypeThatOwnsNoChildrenGetsNoBlockAtAll() =>
         Assert.DoesNotContain(ReadSentences.DeclarersLead, Tree(_w.Weapon));
 
-    /// <summary>The remedy arm the review standard asks for: the cheap tier's clause tells a caller the tree form
-    /// names the declarers. This MAKES that call, on the fields the clause itself named, and asserts every one of
-    /// them comes back with a precise answer — so the promise is pinned by what returns, not by the wording.</summary>
+    /// <summary>The cheap tier's clause tells a caller the tree form names the declarers. This MAKES that call, on
+    /// the fields the clause itself named, so the promise is pinned by what returns, not by the wording.</summary>
     [Fact]
     public void TheRemedyNamedByTheCheapClauseAnswersPreciselyForEveryFieldTheClauseNamed()
     {
@@ -679,18 +666,15 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
 
     // ---- the declarers block respects max_chars like every other row content ------------------------------
     //
-    // AppendChildDeclarers/WriteTreeRow used to append the whole block with no cap check of their own. A
-    // sole-provider row (CellC: nothing to diff, so nothing else in the row loop would ever notice the overrun)
-    // measurably returned its full text (844 chars uncapped, as the SINGULAR-voice fix in round 1 left it)
-    // against a 200-char max_chars with truncated=false — the ClauseReserve class of bug (ReadSentences.cs's own
-    // docstring on that const), which means the auto-spill that exists to make an over-cap answer complete never
-    // fires.
+    // A sole-provider row has nothing to diff, so nothing else in the row loop notices an overrun: without a cap
+    // check in AppendChildDeclarers/WriteTreeRow the block returns its full text with truncated=false, and the
+    // auto-spill that exists to make an over-cap answer complete never fires.
 
     [Fact]
     public void ATextRowsDeclarersBlockAloneCanTripMaxChars_AndTheResponseIsMarkedTruncated()
     {
         // CellC is a SOLE-toucher row: row.Nodes.Count <= 1, so the diff loop (which has its own cap check) never
-        // runs — before the fix this was the one path with NO cap check between the block and the end of the row.
+        // runs, leaving the block-to-end-of-row stretch as the only path a cap check has to cover.
         var r = Tree(_w.CellC, maxChars: 200);
         Assert.Contains("spilled: complete result", r);
     }
@@ -698,10 +682,9 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     [Fact]
     public void Json_ATextRowsDeclarersBlockAloneCanTripMaxChars_AndTheResponseIsMarkedTruncated()
     {
-        // 400: past the envelope + row header + declarers block (so WriteTreeRow's own cap check fires and cuts
-        // it mid-row, writing an inline "[child declarers cut …]" note), short of the whole row (1911 chars
-        // uncapped in json) — the shape that used to leave the RESPONSE-level truncated flag false while the
-        // row's own content already says it was cut.
+        // 400 is past the envelope + row header + declarers block, so WriteTreeRow's cap check fires and cuts
+        // mid-row with an inline "[child declarers cut …]" note, and short of the whole row (1911 chars uncapped
+        // in json) — the shape where the response-level truncated flag has to agree with the row's own note.
         using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 400));
         Assert.True(doc.RootElement.GetProperty("truncated").GetBoolean());
         Assert.True(doc.RootElement.TryGetProperty("spilled", out _));
@@ -710,24 +693,21 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     [Fact]
     public void ARowWithRoomForItsDeclarersBlockIsNotMarkedTruncatedByIt()
     {
-        // The control: the same sole-provider shape, but a cap generous enough that nothing spills — proves the
-        // fix's cap check does not fire on every row, only an over-cap one.
+        // The control: the same sole-provider shape at a cap generous enough that nothing spills, so the cap
+        // check is shown to fire only on an over-cap row.
         var r = Tree(_w.CellC, maxChars: 4000);
         Assert.DoesNotContain("spilled:", r);
     }
 
     // ---- the block's own TAIL, not just its per-line checks -------------------------------------------------
     //
-    // The per-field checks run BEFORE each line and never after the last one, so the LAST line pushing sb.Length
-    // past cap goes unnoticed — nothing downstream catches it once the row ends there. Measured on CellC (4-line
-    // block, full text 844 chars, its SINGULAR Landscape line reading "carried by 0 provider(s)"): a
-    // StringBuilder holding cap-or-more AFTER the final line (before TrimEnd('\n') removes one char) is the
-    // boundary, at max_chars=845; 846 is the first cap the same content fits inside.
+    // The per-field checks run BEFORE each line and never after the last one, so a final line that pushes
+    // sb.Length past the cap goes unnoticed — nothing downstream catches it once the row ends there.
     //
-    // The tail-trip arm is driven on CellF (3 touchers), not CellC: `truncated` says the ANSWER is incomplete and
-    // drives the spill, so it is set at the tail only for a row that LOST something — the diff a multi-provider
-    // row never reached. CellC at the same tail loses nothing and is the DoesNotContain control two arms down
-    // (ASoleProviderRowWhoseCompleteBlockEndsPastTheCapClaimsNothingWasCut).
+    // The tail-trip case is driven on CellF (3 touchers), not CellC: `truncated` says the ANSWER is incomplete
+    // and drives the spill, so it is set at the tail only for a row that LOST something — the diff a
+    // multi-provider row never reached. CellC at the same tail loses nothing and is the DoesNotContain control
+    // two tests down (ASoleProviderRowWhoseCompleteBlockEndsPastTheCapClaimsNothingWasCut).
 
     [Fact]
     public void ATextRowsDeclarersBlockTailAloneCanTripMaxChars_AndTheResponseIsMarkedTruncated() =>
@@ -737,10 +717,9 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     public void ARowWhoseDeclarersBlockFitsExactlyAtTheTailIsNotMarkedTruncated() =>
         Assert.DoesNotContain("spilled:", Tree(_w.CellC, maxChars: 846));
 
-    /// <summary>When the block IS cut on a multi-provider row, the row stops there — it used to fall through into
-    /// an unconditional "diff (field deltas…):" header for a section the cap already forbade. Measured on CellF
-    /// (3 touchers): at every cap that cuts the declarers block, no diff header follows it. The row DOES carry
-    /// the "[nodes cut" notice — the diff it never reached is a real loss, and each notice claims one thing.</summary>
+    /// <summary>When the block is cut on a multi-provider row the row stops there: no "diff (field deltas…):"
+    /// header may follow for a section the cap already forbade. The row does carry the "[nodes cut" notice — the
+    /// diff it never reached is a real loss, and each notice claims one thing.</summary>
     [Fact]
     public void ACutDeclarersBlockEndsTheRow_NoEmptyDiffHeaderOverASectionThatNeverRendered()
     {
@@ -755,8 +734,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     // The tail is reachable only when the field loop ran to completion, so at the tail nothing in the block was
     // ever cut. A "[child declarers cut …]" notice there is false in every case it can fire, and its remedy
     // (project.fields=) points at narrowing a block that is already complete. What the row loses at the tail is
-    // its DIFF — or, on a sole-provider row, nothing at all. Measured windows on the current render: CellC
-    // (sole provider) 806-845, CellF (3 touchers) 812-864.
+    // its DIFF — or, on a sole-provider row, nothing at all.
 
     [Fact]
     public void ASoleProviderRowWhoseCompleteBlockEndsPastTheCapClaimsNothingWasCut()
@@ -766,7 +744,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.Contains("NavigationMeshes: ", r);
         Assert.DoesNotContain("[child declarers cut", r);   // …so nothing may say it was cut,
         Assert.DoesNotContain("[nodes cut", r);             // and a sole provider loses no diff either.
-        // …and nothing ELSE may say it either: `truncated` reaches TreeResponse, which writes a JSONL artifact
+        // …and nothing else may say it either: `truncated` reaches TreeResponse, which writes a JSONL artifact
         // and re-renders with "spilled: complete result". A row that lost nothing does not spill.
         Assert.DoesNotContain("spilled", r);
     }
@@ -798,8 +776,8 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
 
     /// <summary>The SOLE-provider control for the same cut branch: CellC at 700 drops declarer lines (its block
     /// runs 588-805 before completing), so the declarers notice fires — and there is no diff to lose, so the
-    /// nodes notice must NOT. This arm stays green whether or not the `!declarersCut` guard is there; it is what
-    /// pins the notice to the row's actual loss rather than to the branch it came back through.</summary>
+    /// nodes notice must NOT — which pins each notice to the row's actual loss rather than to the branch it
+    /// came back through.</summary>
     [Fact]
     public void ASoleProviderRowCutMidBlockSaysTheDeclarersWereCutAndNamesNoDiff()
     {
@@ -812,8 +790,8 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
 
     /// <summary>The block's OTHER early return — the framing reserve, which returns before a single declarer line
     /// is written — comes back through the same caller line, so a multi-provider row refused the framing carries
-    /// both notices too. Measured on CellF the way 587 was measured on CellC: 625 is the last cap that refuses the
-    /// framing line, 626 the first it fits inside.</summary>
+    /// both notices too. On CellF, 625 is the last cap that refuses the framing line and 626 the first it fits
+    /// inside.</summary>
     [Fact]
     public void TheFramingReserveBranchOnAMultiProviderRowNamesBothTheDeclarersAndTheDiff()
     {
@@ -828,8 +806,8 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     // The block's framing line is invariant text of a known length, so checking only sb.Length < cap before it
     // writes its whole length past the cap with nothing able to take it back — json reserves the identical
     // sentence (JsonWire's DeclarersLeadReserve) and the cheap tier reserves its own clause (ClauseReserve).
-    // Measured on CellC: the block starts at 294 chars, so 587 is the last cap the framing does not fit in and
-    // 588 the first that it does.
+    // On CellC the block starts at 294 chars, so 587 is the last cap the framing does not fit in and 588 the
+    // first that it does.
 
     [Fact]
     public void TheFramingLineIsReservedAgainstMaxChars_NotWrittenPastIt()
@@ -876,11 +854,10 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
 
     // ---- the new remedy sentences never name a lever housecarl_records lacks -------------------------------
     //
-    // RecordsRemedyGrammarTests' own harvest (RemedyHarvest.cs) probes the tree form only through RecordsWorld's
-    // fixture, which has no child-bearing record type at all — WEAP owns no children, so the four
-    // "[child declarers cut ...]" notices this branch adds never entered that harvest and the wrong-lever grid
-    // never saw them. RecordsWorld is a frozen shared fixture (not touched here); the same check, run directly
-    // against a fixture that HAS a child-bearing type, closes the gap without it.
+    // RecordsRemedyGrammarTests' harvest (RemedyHarvest.cs) reaches the tree form only through RecordsWorld,
+    // which carries no child-bearing record type — WEAP owns no children — so the "[child declarers cut ...]"
+    // notices never reach the wrong-lever grid there. RecordsWorld is a frozen shared fixture, so the same check
+    // runs here instead, against a fixture that has a child-bearing type.
 
     [Fact]
     public void TheChildDeclarersCutNoticesNameNoWrongLever()
@@ -904,9 +881,9 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     // ---- WriteTreeRow's bool return, isolated from the declarers path ---------------------------------------
     //
     // On a row WITH declarers, the response-level lead-reserve check covers for a missing return value, so the
-    // existing cap arms pass whether or not WriteTreeRow's own return is plumbed into rowsTruncated. WEAP has no
-    // child-bearing fields at all — anyDeclarers is false, so this arm depends ONLY on the nodes-branch return
-    // value plumbed into rowsTruncated, with nothing else able to cover for it.
+    // existing cap tests pass whether or not WriteTreeRow's own return is plumbed into rowsTruncated. WEAP has
+    // no child-bearing fields at all — anyDeclarers is false, so this test depends ONLY on the nodes-branch
+    // return value plumbed into rowsTruncated, with nothing else able to cover for it.
 
     [Fact]
     public void Json_ANoChildrenRowsNodesCutStillSetsTruncated_NotCoveredByTheDeclarersLeadCheck()
@@ -923,10 +900,10 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.False(doc.RootElement.GetProperty("truncated").GetBoolean());
     }
 
-    // ---- the block's fields= narrowing (settled item 14) — documented and deliberate, previously UNGUARDED ----
+    // ---- the block's fields= narrowing -----------------------------------------------------------------------
     //
-    // Deleting the fields= filter from ResolveTreePinned's `wanted` derivation left the FULL 885-test suite green
-    // — a documented, deliberate behavior that had no arm anywhere pinning it.
+    // Nothing else in the suite pins the fields= filter in ResolveTreePinned's `wanted` derivation: deleting it
+    // reddens only what follows.
 
     [Fact]
     public void FieldsNarrowsTheBlockToTheNamedTopLevelField_NotTheWholeType()
@@ -939,8 +916,8 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.DoesNotContain("NavigationMeshes:", r);
     }
 
-    /// <summary>A path INSIDE a child-bearing field (settled item 14's bracketed-path case) narrows the block to
-    /// NOTHING — it matches the caller's request by NAME, not the path the response emitted.</summary>
+    /// <summary>A path INSIDE a child-bearing field narrows the block to NOTHING: it matches the caller's request
+    /// by NAME, not by the path the response emitted.</summary>
     [Fact]
     public void FieldsWithABracketedPathInsideAChildBearingFieldYieldsNoBlockAtAll()
     {
@@ -992,9 +969,9 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     // ---- …and the UNREADABLE half of the same sentence elides the same way, so it gets the same remedy -------
     //
     // DeclarersNote drops unreadable names past DeclarerNameCap behind a bare ", …", on a field of EITHER shape.
-    // The remedy used to be appended only for a COLLECTION field's `declaring` overflow, so the structurally
-    // identical elision one clause later in the same sentence had no pointer at all — and a SINGULAR field
-    // (Cell.Landscape) could never get one, because the Collection guard never fires there.
+    // The remedy has to be appended for the unreadable elision as well as a COLLECTION field's `declaring`
+    // overflow: a SINGULAR field (Cell.Landscape) never reaches the Collection guard, so gating on it alone
+    // leaves that elision with no pointer at all.
 
     static LoadOrderService.TreeRow UnreadableRow(OwnedChildShape shape, int declaring, int unreadable) => new(
         "000001:Test.esm", "Cell", "TestCell",
@@ -1053,14 +1030,11 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
 
     // ---- json's response-level lead respects cap too, not just the row-level array --------------------------
     //
-    // child_declarers_note used to be written unconditionally after `truncated` was already computed — a
-    // Utf8JsonWriter cannot un-write it once appended, so the cap has to be checked BEFORE deciding to write it,
-    // not after, and against every byte that still lands afterwards: the note's own cost (DeclarersLeadReserve),
-    // the `truncated` boolean written between the check and the note (TruncatedPropertyReserve), and the root
-    // close (Framing.RootClose). Reserving only the first left the framing landing past cap by the width of the
-    // other two. Re-measured on CellC's json tree (full 1911 chars) against the current reserve: 1911 is the last
-    // cap that drops the note and spills, 1912 the first that keeps it — and at 1912 the document is 1911 chars,
-    // inside the cap rather than one line past it.
+    // A Utf8JsonWriter cannot un-write child_declarers_note once appended, so the cap is checked BEFORE deciding
+    // to write it, and against every byte that still lands afterwards: the note's own cost
+    // (DeclarersLeadReserve), the `truncated` boolean written between the check and the note
+    // (TruncatedPropertyReserve), and the root close (Framing.RootClose). On CellC's json tree (1911 chars full),
+    // 1911 is the last cap that drops the note and spills, 1912 the first that keeps it.
 
     [Fact]
     public void Json_TheResponseLevelLeadIsDroppedRatherThanOverrunningCap_AndTruncatedIsSet()
@@ -1152,8 +1126,8 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.False(doc.RootElement.TryGetProperty("notes", out _));
     }
 
-    /// <summary>The tree's owned-child block: the lines under its lead, trimmed — so an arm about what the block
-    /// says cannot pass on a match in the toucher list above it or the diff below it.</summary>
+    /// <summary>The tree's owned-child block: the lines under its lead, trimmed, so an assertion about what the
+    /// block says cannot pass on a match in the toucher list above it or the diff below it.</summary>
     static IReadOnlyList<string> DeclarersBlock(string tree)
     {
         var lines = tree.Replace("\r\n", "\n").Split('\n');
@@ -1166,7 +1140,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     }
 
     /// <summary>The tree's per-plugin delta block, i.e. everything after the "diff (field deltas…)" header —
-    /// so an arm about what the diff says cannot pass on a match in the toucher list above it.</summary>
+    /// so an assertion about what the diff says cannot pass on a match in the toucher list above it.</summary>
     static string DiffBlock(string tree)
     {
         int i = tree.IndexOf("diff (field deltas", StringComparison.Ordinal);

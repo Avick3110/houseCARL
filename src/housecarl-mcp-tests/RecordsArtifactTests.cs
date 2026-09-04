@@ -6,16 +6,9 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-// SPEC §2.1.1 — the artifact disposition on housecarl_records: to_file, auto-spill at the render ceiling,
-// @artifact re-entry, the epoch check, the results store's own hygiene, and error-row identity.
-//
-// The arms come from the tool-surface-2.0 W1 artifact guard, which drove the retired 1.x read tools
-// (batch_record_detail / cross_plugin_query / resolve). The machinery is shared and unchanged — Artifacts,
-// ResultArtifact, ResultsStore — so what those arms claimed is re-asserted here against the 2.0 lanes that
-// absorbed them: project.form='identity' for the resolve lane, 'everything' for the batch lane, and the
-// types=/where= scan for the cross-query lane. Two of the old arms have no 2.0 expression and are not
-// carried: conflict_tree= has no spelling on this schema, and the successor form='tree' HAS a row form
-// and spills like any other (see RecordsComparisonFormTests).
+// The artifact disposition on housecarl_records: to_file, auto-spill at the render ceiling, @artifact
+// re-entry, the epoch check, the results store's own hygiene, and error-row identity. The lanes exercised are
+// project.form='identity', 'everything', and the types=/where= scan.
 
 /// <summary>to_file, auto-spill, re-entry, the store's refusals, and error-row identity — everything that
 /// reads one stable build.</summary>
@@ -24,12 +17,12 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
 {
     public RecordsArtifactTests(ArtifactFixture f) : base(f) { }
 
-    /// <summary>The scan population the artifact arms measure against, read off the product's own accounting
-    /// rather than counted by hand here.</summary>
+    /// <summary>The scan population these tests measure against, read off the product's own accounting rather
+    /// than counted by hand here.</summary>
     int SpellTotal => Je(RecordsTools.Records(Svc, types: new[] { "SPEL" }, format: "json")).GetProperty("total").GetInt32();
     int WeaponTotal => Je(RecordsTools.Records(Svc, types: new[] { "WEAP" }, format: "json")).GetProperty("total").GetInt32();
 
-    // ---- 2: to_file — the forced disposition -------------------------------------------------------
+    // ---- to_file — the forced disposition ----------------------------------------------------------
 
     [Fact]
     public void ToFile_TheArtifactIsCompleteAndStampedWithTheScannedBuild()
@@ -42,12 +35,9 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         Assert.Equal(W.Epoch0, m.Epoch);
     }
 
-    /// <summary>The manifest's provenance stamp. It records WHICH TOOL wrote the artifact and is read back
-    /// into a live re-entry refusal ("artifact '…' (from X) …"), so a stamp naming a deleted tool is a dead
-    /// name in a sentence a caller reads. THREE of the writers were shared with 1.x tools the cut deleted —
-    /// the scan writer, the batch writer and the identity writer — and nothing asserted any stamp until these
-    /// arms. The population is derived below rather than counted by hand, which is how the batch writer was
-    /// missed the first time.</summary>
+    /// <summary>The manifest's provenance stamp records WHICH TOOL wrote the artifact, and it is read back into
+    /// a live re-entry refusal ("artifact '…' (from X) …"), so a wrong stamp is a wrong name in a sentence a
+    /// caller reads.</summary>
     [Fact]
     public void ToFile_TheManifestStampsTheToolThatActuallyWroteIt_Scan()
     {
@@ -57,8 +47,8 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         Assert.Equal(ToolNames.Records, ManifestOf(art).Tool);
     }
 
-    /// <summary>The identity writer is the second stamp site, and it is a different code path — a per-writer
-    /// arm, not one arm standing in for both.</summary>
+    /// <summary>The identity writer is a second stamp site on a different code path, so it gets its own
+    /// test.</summary>
     [Fact]
     public void ToFile_TheManifestStampsTheToolThatActuallyWroteIt_Identity()
     {
@@ -69,10 +59,9 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         Assert.Equal(ToolNames.Records, ManifestOf(art).Tool);
     }
 
-    /// <summary>The stamp population, DERIVED from the writer's own source rather than from a list: every
+    /// <summary>The stamp population read out of the writer's own source rather than listed here: every
     /// <c>writer.Save(path, …)</c> call site in <c>Artifacts.cs</c> must pass the <c>ToolNames</c> constant, not
-    /// a literal. A new writer added tomorrow is in the population without an edit here, and a literal spelling
-    /// anywhere — dead name or live one — is RED.</summary>
+    /// a literal, so a new writer is covered without an edit here.</summary>
     [Fact]
     public void EveryArtifactWritersProvenanceStampInterpolatesTheToolNameConstant()
     {
@@ -84,9 +73,9 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
             Assert.Equal("ToolNames.Records", m.Groups[1].Value.Trim());
     }
 
-    /// <summary>And driven: for every form the tool declares — the list read out of the tool's OWN refusal, so
-    /// it cannot drift from the surface — a <c>to_file=</c> call that is served must stamp the constant. Forms
-    /// that refuse <c>to_file=</c> are skipped and counted, never silently passed.</summary>
+    /// <summary>For every form the tool declares — the list read out of the tool's own refusal, so it cannot
+    /// drift from the surface — a served <c>to_file=</c> call must stamp the constant. Forms that refuse
+    /// <c>to_file=</c> are skipped and counted, never silently passed.</summary>
     [Fact]
     public void EveryFormThatSpillsToAFile_StampsTheToolThatWroteIt()
     {
@@ -154,8 +143,8 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [Fact]
     public void AnArtifactDeclaringNoIdentityColumnRefusesReEntryByName()
     {
-        // The count-table artifact the aggregate form used to produce: records now refuses aggregate+to_file
-        // up front, so the file is built through the same writer that lane used.
+        // records refuses aggregate+to_file up front, so the count-table file is built here through the same
+        // writer that lane used.
         var p = CountTableArtifact("counts.jsonl");
         var (_, _, err) = ResultArtifact.ReadIdentity(p, File.ReadAllText(p));
         Assert.Contains("NO identity column", err);
@@ -173,7 +162,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     public void ToFilePlusOffset_IsRefusedBecauseTheArtifactIsNeverAWindow() =>
         Refused(RecordsTools.Records(Svc, types: new[] { "SPEL" }, offset: 2, to_file: Art("y.jsonl")), "offset");
 
-    // ---- 3: auto-spill at the inline ceiling -------------------------------------------------------
+    // ---- auto-spill at the inline ceiling ----------------------------------------------------------
 
     const int TinyScan = 200;    // below the scan render's floor for this world
     const int TinyList = 120;    // below the identity render's floor for three rows
@@ -262,7 +251,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         Assert.True(doc.TryGetProperty("spill_error", out _));
     }
 
-    // ---- 4: @file re-entry against the same build --------------------------------------------------
+    // ---- @file re-entry against the same build -----------------------------------------------------
 
     [Fact]
     public void ArtifactReEntry_TheBodyLaneReadsEveryIdentityInTheFile()
@@ -304,7 +293,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         Refused(RecordsTools.Records(Svc, formids: new[] { "@" + CountTableArtifact("counts-door.jsonl") }),
                 "NO identity column");
 
-    // ---- 7: the honesty folds ----------------------------------------------------------------------
+    // ---- the spill marker tells the truth about what it holds --------------------------------------
 
     [Fact]
     public void AWindowedAutoSpillSaysWindowAndNeverClaimsTheCompleteResult()
@@ -376,7 +365,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         Refused(RecordsTools.Records(Svc, types: new[] { "SPEL" }, to_file: Path.Combine(ResultsDir, "mine.jsonl")),
                 "pruned by age");
 
-    // ---- 8: error rows are not identity-bearing ----------------------------------------------------
+    // ---- error rows are not identity-bearing -------------------------------------------------------
 
     [Fact]
     public void AnArtifactKeepsItsErrorRowWhileIdentityExtractionYieldsOnlyTheResolvedFormids()
@@ -428,7 +417,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
 
     // ---- fixture builders --------------------------------------------------------------------------
 
-    /// <summary>An identity artifact over the world's weapons — the file the re-entry arms read back.</summary>
+    /// <summary>An identity artifact over the world's weapons — the file the re-entry tests read back.</summary>
     string IdentityArtifact(string name)
     {
         var art = Art(name);
@@ -481,7 +470,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
 }
 
 /// <summary>
-/// The epoch check. This class owns its OWN world per test: every arm changes a plugin's mtime, which
+/// The epoch check. This class owns its own world per test: every test changes a plugin's mtime, which
 /// re-fingerprints the build — a shared world would hand the change to whatever ran next.
 /// </summary>
 [Trait("tier", "integration")]
@@ -559,8 +548,8 @@ public sealed class RecordsArtifactEpochTests : IDisposable
         var art = Stale("stale-stamp.jsonl");
         var now = Now;
         var r = RecordsTools.Records(_w.Svc, formids: new[] { "@" + art }, project: Everything);
-        // The stamp alone cannot carry this arm: a SERVED response stamps the same epoch, so without the
-        // refusal assertion the test stays green while the epoch check is gone entirely.
+        // A served response stamps the same epoch, so without the refusal assertion this test would pass with
+        // the epoch check gone entirely.
         Assert.StartsWith("error:", r);
         Assert.Contains($"epoch={now}", r);
     }

@@ -6,24 +6,10 @@ using static HousecarlMcpTests.CheckErrorsFixtures;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// <c>EpochGuardProbe</c>'s epoch-stamp facts that survive #486 PR 2, re-asserted against the merged
-/// <c>Wire.RenderCheck</c> / <c>JsonWire.RenderCheck</c> and <c>housecarl_records</c> — the surfaces that emit
-/// them today (the probe drove the deleted 1.x single-family renderers). Numbered E1-E8 per
-/// <c>dev/session-handoffs/render-halves-scratch/PHASE-1-record.md</c> §5's phase-3 fact list.
-///
-/// <para>E1 (the three response-shape stamp arms) and E3 (a post-capture refusal's own DTO stamp) are NOT
-/// re-tested here: E1 was repaired in place in phase 1 (an arity fix on a surviving renderer, not a fact this PR
-/// owes) and E3 is already covered — <c>RecordsArtifactTests.StaleReEntry_TheRefusalIsStampedWithTheBuildItConsulted</c>
-/// / <c>.StaleReEntryJson_IsAnErrorAndEpochDocument</c> and <c>RecordsRefusalGrammarTests.TheOffOrderRefusalCarriesTheBuildItConsultedNotEpochNull</c>.
-/// E2's TEXT half is covered by <c>RecordsListLaneTests.IdentityForm_LabelsTheListStatesTheFormAndStampsTheEpoch</c>;
-/// only its JSON half is fresh here.</para>
-///
-/// <para>Driven on <see cref="EpochWorld"/> — a dedicated fixture (never the shared errors/scripts worlds) because
-/// E7/E8 need an OFF-ORDER plugin and E5 needs an ENABLED-but-unparseable one, neither of which
-/// <see cref="ScriptsWorld"/> or the errors family's world carries. Every hand-shaped value below was captured
-/// from the live render, not composed from memory of the source.</para>
-/// </summary>
+/// <summary>The epoch-stamp facts of <c>Wire.RenderCheck</c> / <c>JsonWire.RenderCheck</c> and
+/// <c>housecarl_records</c>. Driven on <see cref="EpochWorld"/> rather than a shared world because the off-order
+/// tests need an OFF-ORDER plugin and the refusal test an ENABLED-but-unparseable one, which no other fixture
+/// carries.</summary>
 [Collection("epoch")]
 [Trait("tier", "integration")]
 public sealed class EpochCheckSweepTests
@@ -33,8 +19,9 @@ public sealed class EpochCheckSweepTests
 
     LoadOrderService Svc => W.Svc;
 
-    // ---- fact E2 (json half only — the text half is covered elsewhere) ------------------------------------
+    // ---- fact E2 -----------------------------------------------------------------------------------------
     // A single successful record read's JSON render carries the capture's epoch at the document's top level.
+    // Its text half is covered by RecordsListLaneTests.
 
     [Fact]
     public void FactE2_ASingleRecordReadsJsonRenderCarriesTheCapturesEpoch()
@@ -93,15 +80,14 @@ public sealed class EpochCheckSweepTests
         var locateDoc = JsonDocument.Parse(locateJson).RootElement;
         Assert.False(locateDoc.GetProperty("ok").GetBoolean());
         Assert.Equal(current, locateDoc.GetProperty("epoch").GetString());
-        // Read over the WHOLE document, not its root: the key's one writer is inside the family object, so a root
-        // TryGetProperty is false whatever the refusal path does and could never have failed. A refusal that grew
-        // a coverage claim anywhere reddens this (pre-green review 1b, finding 4). FactE8 is the proven-positive
-        // counterpart — it reads the key back off the success path.
+        // Read over the WHOLE document, not its root: the key's one writer sits inside the family object, so a
+        // root TryGetProperty is false whatever the refusal path does and could never fail. FactE8 reads the same
+        // key back off the success path, so this negative is not vacuous.
         Assert.DoesNotContain("epoch_covers_all_inputs", locateJson);
 
         var excluded = Svc.CheckErrors(new[] { EpochWorld.BadName }, 1000);
-        // The whole composed refusal, anchored to the plugin it names, rather than the bare word "excluded" — the
-        // word alone survives any rewriting of the sentence around it and is emitted by other refusals too.
+        // The whole composed refusal, anchored to the plugin it names: the bare word "excluded" is emitted by
+        // other refusals too and survives any rewording around it.
         Assert.Contains($"plugin '{EpochWorld.BadName}' was excluded from this session because it could not be " +
                          "parsed", excluded.Error);
         Assert.Contains("fix or remove it upstream; it cannot be checked.", excluded.Error);
@@ -128,15 +114,12 @@ public sealed class EpochCheckSweepTests
         var offOrder = Svc.CheckErrors(new[] { EpochWorld.OldName }, 1000);
         Assert.True(offOrder.Error is null && offOrder.OffOrderScanned is { Count: > 0 });
         var offOrderText = Wire.RenderCheck(new CheckSweep(Sel("errors"), Errors: offOrder), 20000);
-        // The WHOLE qualifier. A 22-character prefix of a 72-character sentence leaves the half that says what the
-        // qualifier MEANS unpinned — the tail could be replaced wholesale and this stayed green (pre-green review
-        // 1a, finding 2).
+        // The WHOLE qualifier: a prefix of it leaves the half saying what the qualifier MEANS unpinned.
         Assert.Contains("(indexed plugins only — off-order file content is outside the fingerprint)", offOrderText);
 
         var allIndexed = Svc.CheckErrors(null, 1000);
         var allIndexedText = Wire.RenderCheck(new CheckSweep(Sel("errors"), Errors: allIndexed), 20000);
-        // The negative stays on the SHORT needle deliberately — a negative is strongest with the least text, and a
-        // long one would pass over a qualifier that came back reworded.
+        // The negative stays on the SHORT needle: a longer one would pass over a reworded qualifier.
         Assert.DoesNotContain("(indexed plugins only", allIndexedText);
     }
 

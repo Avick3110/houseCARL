@@ -7,9 +7,9 @@ namespace HousecarlMcpTests;
 /// The stdio transport underneath <see cref="ServerFixture"/>: exactly one reader on the server's stream,
 /// and one timeout that stops the run rather than repeating itself once per remaining test.
 ///
-/// <para>Both properties are about the SHARED fixture. 73 stdio tests drive one server process, so a read
-/// that outlives its caller, or a hang that every later test re-discovers on its own 60-second budget, are
-/// run-level failures wearing a single test's name.</para>
+/// <para>Both properties are about the SHARED fixture: every stdio test drives one server process, so a read
+/// that outlives its caller, or a hang each later test re-discovers on its own 60-second budget, is a
+/// run-level failure wearing a single test's name.</para>
 /// </summary>
 public sealed class ServerTransportTests
 {
@@ -38,9 +38,8 @@ public sealed class ServerTransportTests
     }
 
     /// <summary>
-    /// The orphaned-read defect, stated as a property. Measured RED against the shape this replaced: with
-    /// a per-call <c>Task.Run(ReadLine)</c> the abandoned read takes "A" and the next caller is handed "B",
-    /// one line behind for the rest of the process.
+    /// A read that outlives its caller must not consume a line: with a per-call read the abandoned one takes
+    /// "A" and the next caller is handed "B", one line behind for the rest of the process.
     /// </summary>
     [Fact]
     [Trait("tier", "unit")]
@@ -82,18 +81,12 @@ public sealed class ServerTransportTests
     }
 
     /// <summary>
-    /// One timeout is terminal for the fixture. The later call fails immediately, and its message names the
-    /// method and id of the FIRST timeout — so a slow runner produces one cause instead of seventy copies
-    /// of its own wreckage.
+    /// One timeout is terminal for the fixture: the later call fails at once, and its message names the method
+    /// and id of the first timeout.
     ///
-    /// <para>Driven on a PRIVATE fixture with its deadline shortened; poisoning the shared one would be the
-    /// very failure this arm describes.</para>
-    ///
-    /// <para>What discriminates here is the exception and its wording, not the clock. Measured: with the
-    /// poison removed, this scenario's second call SUCCEEDS — the pump queued the late response and the id
-    /// check skipped it — so the run would carry on past a timeout it had already suffered. The 60-second
-    /// cascade the poison is really aimed at needs a server that is hung rather than merely slow, which is
-    /// not honestly fixturable here; the elapsed bound below is a floor on "immediately", not the proof.</para>
+    /// <para>Driven on a PRIVATE fixture with its deadline shortened — poisoning the shared one is the very
+    /// failure described here. What discriminates is the exception and its wording, not the clock: a genuinely
+    /// hung server is not fixturable, so the elapsed bound below is only a floor on "immediately".</para>
     /// </summary>
     [Fact]
     [Trait("tier", "stdio")]

@@ -9,15 +9,13 @@ namespace HousecarlMcpTests;
 /// The json twin of the missing-master remedy: <c>format='json'</c> carries the SAME install-vs-enable split the
 /// text render prints, as a member of the plugin object rather than as a sentence.
 ///
-/// <para><b>Why it has to.</b> The text lane says "NOT installed anywhere … [install them]" for one master and
-/// "installed but NOT ACTIVE … [enable them]" for another. The json lane carried one undifferentiated
-/// <c>missing_masters</c> array, so the identical call in the other format returned two names with nothing to
-/// tell them apart, and a json caller could not pick the remedy that would work. Two transports saying different
-/// things about one sweep is the divergence the merged surface exists to make impossible.</para>
+/// <para>The text lane says "NOT installed anywhere … [install them]" for one master and "installed but NOT
+/// ACTIVE … [enable them]" for another. Without the split in json, a caller in that format gets two names with
+/// nothing to tell them apart and cannot pick the remedy that works.</para>
 ///
 /// <para><b>null is not empty.</b> <c>installed_but_inactive_masters</c> is an array where the split was made and
 /// <c>null</c> where it was not — the rule <see cref="PluginErrors"/>'s own summary states. Empty would claim
-/// "none of these is merely disabled", which is an assertion about an install nobody looked at.</para>
+/// "none of these is merely disabled", an assertion about an install nobody looked at.</para>
 ///
 /// <para>Driven over the same synthetic MO2 instance as <see cref="CheckMasterRemedyTests"/>, through the method
 /// the MCP server publishes, for the reason that class states.</para>
@@ -34,10 +32,9 @@ public sealed class CheckMasterRemedyJsonTests : IClassFixture<CheckMasterRemedy
 
     static string[] Strings(JsonElement a) => a.EnumerateArray().Select(e => e.GetString()!).ToArray();
 
-    /// <summary>Both shortfalls in <c>missing_masters</c> — the count and the list are unchanged — and exactly the
-    /// one whose file is in a disabled mod in <c>installed_but_inactive_masters</c>. The absent master must NOT be
-    /// in the subset: telling a caller to enable a file that is not in the install is the wrong remedy delivered
-    /// confidently, which is worse than the union sentence this replaced.</summary>
+    /// <summary>Both shortfalls stay in <c>missing_masters</c>, and exactly the one whose file is in a disabled
+    /// mod appears in <c>installed_but_inactive_masters</c>. The absent master must NOT be in the subset —
+    /// telling a caller to enable a file that is not installed is a confident wrong remedy.</summary>
     [Fact]
     public void TheJsonPluginObjectCarriesTheInstalledButInactiveSubsetAlongsideTheUnionList()
     {
@@ -75,11 +72,10 @@ public sealed class CheckMasterRemedyJsonTests : IClassFixture<CheckMasterRemedy
     /// what <c>ClassifyMissingMasters</c> returns unchanged when the composition cannot be read — leaves the member
     /// <c>null</c>, not <c>[]</c>.
     ///
-    /// <para>Driven at the render rather than end to end, and deliberately: reaching that catch needs an MO2
-    /// profile whose composition read THROWS, which a fixture can only produce by making the instance
-    /// unreadable mid-call. The unclassified report is the same input the catch hands the render, and the text
-    /// lane's twin arm (<c>AnUnclassifiedReportKeepsTheUnionRemedy_NullIsNotAnEmptySubset</c>) is driven the
-    /// same way for the same reason.</para></summary>
+    /// <para>Driven at the render rather than end to end: reaching that catch needs a composition read that
+    /// THROWS, which a fixture can only produce by making the instance unreadable mid-call. The unclassified
+    /// report is the same input the catch hands the render, and the text lane's twin
+    /// (<c>AnUnclassifiedReportKeepsTheUnionRemedy_NullIsNotAnEmptySubset</c>) is driven the same way.</para></summary>
     [Fact]
     public void AnUnclassifiedReportLeavesTheJsonSubsetNull_NotAnEmptyArray()
     {

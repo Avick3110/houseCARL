@@ -5,22 +5,18 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// <c>housecarl_check</c> driven over stdio — the path #470 left unproven.
+/// <c>housecarl_check</c> driven over stdio. Every other check test calls <c>CheckTools.CheckTool</c> as a
+/// C# method, so none of them exercises its published schema, its argument binding, or the ToolCallShim.
 ///
-/// Every existing check guard calls <c>CheckTools.CheckTool</c> as a C# method, which is why none of them
-/// noticed the tool was unpublished, and why none of them has ever exercised its published schema, its
-/// argument binding, or the ToolCallShim. These are fresh tests against the JSON-RPC response.
+/// <para>The config check runs BEFORE the <c>findings=</c> vocabulary is parsed, so every value that binds —
+/// a legal family, a class, or a nonsense token — comes back with the same config prompt. These tests
+/// therefore prove exactly two things: the argument binds, and the tool body was entered. They cannot prove
+/// the vocabulary, which is covered over <c>SweepFamilySelection.TryParse</c>; the ones that can fail here
+/// are the negative ones below.</para>
 ///
-/// <para><b>What an unconfigured server can and cannot prove.</b> The config check runs BEFORE the
-/// <c>findings=</c> vocabulary is parsed, so every value that binds — a legal family, a class, or a
-/// nonsense token — comes back with the same config prompt. So these arms prove exactly two things: the
-/// argument BINDS, and the tool BODY was entered. They do not and cannot prove the vocabulary; that is
-/// guarded where it lives, over <c>SweepFamilySelection.TryParse</c>. The arms that CAN fail here are the
-/// negative ones below, and they are measured RED.</para>
-///
-/// <para>The subject set is derived from <see cref="SweepFamilySelection.Registered"/> — the same list the
-/// product builds its own refusal vocabulary from — so a family added to the surface arrives here as a new
-/// named cell rather than needing a line in a list somebody has to remember.</para>
+/// <para>The subject set is derived from <see cref="SweepFamilySelection.Registered"/>, the same list the
+/// product builds its refusal vocabulary from, so a family added to the surface arrives here as a new named
+/// case rather than needing a line in a hand-kept list.</para>
 /// </summary>
 [Collection("server")]
 [Trait("tier", "stdio")]
@@ -34,13 +30,10 @@ public sealed class CheckWirePathTests
 
     // ---- the parameter population ----------------------------------------------------------------------
 
-    /// <summary>
-    /// The tool's caller-facing parameters, off the method the SDK builds the schema FROM. MemberData has to
-    /// be static, so this cannot read the running server; the arm below pins it to the wire instead, which is
-    /// the stronger statement anyway — it fails if the two ever disagree.
-    /// The method also takes an injected service argument, which carries no <c>[Description]</c> and is not a
-    /// caller parameter; the pin is what proves that filter right rather than my say-so.
-    /// </summary>
+    /// <summary>The tool's caller-facing parameters, off the method the SDK builds the schema from. MemberData
+    /// must be static, so this cannot read the running server; the test below pins it to the wire instead. The
+    /// method also takes an injected service argument, which carries no <c>[Description]</c> and is not a
+    /// caller parameter — that pin is what proves the filter right.</summary>
     public static IEnumerable<object[]> DeclaredParameters() =>
         CheckToolParameters().Select(p => new object[] { p.Name! });
 
@@ -51,11 +44,9 @@ public sealed class CheckWirePathTests
             .Where(p => p.GetCustomAttribute<System.ComponentModel.DescriptionAttribute>() is not null)
             .ToArray();
 
-    /// <summary>
-    /// The population pin AND the vacuity canary in one: the parameters this sweep drives are exactly the
-    /// properties the server publishes. A parameter added without a description, or published under another
-    /// spelling, shows up here rather than quietly leaving the sweep short.
-    /// </summary>
+    /// <summary>The parameters this sweep drives are exactly the properties the server publishes — an empty
+    /// population, a parameter added without a description, or one published under another spelling shows up
+    /// here rather than quietly leaving the sweep short.</summary>
     [Fact]
     public void TheParametersDrivenAreExactlyTheOnesPublished_SoTheSweepIsNotShort()
     {
@@ -69,18 +60,10 @@ public sealed class CheckWirePathTests
         Assert.Equal(published, declared);
     }
 
-    /// <summary>
-    /// Every caller-facing parameter, sent over the wire on its own. Three of the twelve were driven when
-    /// this file was written and nine had never been sent at all, on the one tool whose wire path had never
-    /// been driven before this PR — a hand-picked population, short by exactly what nobody thought of.
-    ///
-    /// <para>The value is generated from the declared TYPE and is deliberately nonsense content ("zzz", a
-    /// formid that cannot parse). That is sound because of the property this class's summary states: on an
-    /// unconfigured server the config check runs before any value is interpreted, so anything that BINDS
-    /// answers with the config prompt whatever it says. Measured before this test was written — all twelve
-    /// parameters driven with garbage-but-well-typed values reached the body. So a RED here means the
-    /// argument did not bind, which is the only thing this sweep claims.</para>
-    /// </summary>
+    /// <summary>Every caller-facing parameter, sent over the wire on its own. The value is generated from the
+    /// declared type and its content is deliberately nonsense: on an unconfigured server the config check runs
+    /// before any value is interpreted, so anything that binds answers with the config prompt whatever it
+    /// says. A failure here therefore means the argument did not bind, which is all this sweep claims.</summary>
     [Theory]
     [MemberData(nameof(DeclaredParameters))]
     public void EveryPublishedParameterBindsOverTheWireAndReachesTheToolBody(string parameter)
@@ -127,15 +110,10 @@ public sealed class CheckWirePathTests
         Assert.True(r.BodyRan, r.Describe());
     }
 
-    /// <summary>
-    /// The ToolCallShim's coercion path, on a check argument. HCBR-2026-06-11-01's live shape was a
-    /// list-valued parameter sent as a bare string; the shim wraps it. Never exercised on this tool before.
-    ///
-    /// <para>This arm proves the bare string BINDS and reaches the body — it cannot see what the shim
-    /// produced, because an unconfigured server answers the same for any value that binds. A coercion
-    /// yielding an empty array would pass here. The value itself is asserted in
-    /// <see cref="ToolCallShimCoercionTests"/>; the name says only what this one measures.</para>
-    /// </summary>
+    /// <summary>The ToolCallShim's coercion path on a check argument: a list-valued parameter sent as a bare
+    /// string, which the shim wraps. This proves only that the bare string binds and reaches the body — an
+    /// unconfigured server answers the same for any value that binds, so a coercion yielding an empty array
+    /// would pass here. The produced value is asserted in <see cref="ToolCallShimCoercionTests"/>.</summary>
     [Fact]
     public void FindingsSentAsABareStringBindsAndReachesTheBody()
     {
@@ -145,7 +123,7 @@ public sealed class CheckWirePathTests
         Assert.True(r.BodyRan, r.Describe());
     }
 
-    // ---- the arms that can actually fail: binding refusals, named --------------------------------------
+    // ---- the tests that can actually fail: binding refusals, named -------------------------------------
 
     [Fact]
     public void FindingsSentAsAnObjectIsRefusedByTypeAndTheRefusalNamesTheParameterAndBothTypes()

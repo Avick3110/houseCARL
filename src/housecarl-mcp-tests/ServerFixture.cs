@@ -6,16 +6,12 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The built housecarl-mcp.exe, spun up ONCE and driven over stdio — the wire, not a C# method call.
+/// The built housecarl-mcp.exe, started once and driven over stdio — what a caller can reach is
+/// <c>tools/list</c>, never the <c>[McpServerTool]</c> attributes in source.
 ///
-/// This is the oracle #470 asks for: what a caller can actually reach is `tools/list`, never the
-/// <c>[McpServerTool]</c> attributes in source. Those two diverged silently for twelve days and no guard
-/// noticed, because every check-family guard called <c>CheckTools.CheckTool</c> directly.
-///
-/// The server boots against a FRESH EMPTY data dir, so there is no houseCARL.user.json and it is
-/// deterministically unconfigured — on a dev box too, where a real user config may sit beside the exe.
-/// "The tool body ran" is then observable as the trained config prompt: binding failures answer with the
-/// SDK's generic error instead, which is exactly the difference these tests are about.
+/// The server boots against a fresh empty data dir, so there is no houseCARL.user.json and it is
+/// deterministically unconfigured even on a dev box where a real user config sits beside the exe. "The tool
+/// body ran" is then observable as the config prompt; a binding failure answers with the SDK's generic error.
 /// </summary>
 public sealed class ServerFixture : IDisposable
 {
@@ -131,10 +127,8 @@ public sealed class ServerFixture : IDisposable
 
     JsonElement Rpc(string method, object @params)
     {
-        // One timeout poisons the fixture. This server is shared by every stdio test in the run, so a
-        // genuinely hung call is a property of the server, not of the one test that happened to find it —
-        // letting each later test spend its own full deadline turns one cause into seventy identical
-        // timeouts and buries it. Fail fast, and name the call that actually broke.
+        // One timeout poisons the fixture. Every stdio test shares this server, so letting each later test
+        // spend its own full deadline turns one hung call into a run full of identical timeouts.
         if (_poison is { } first)
             throw new InvalidOperationException(
                 $"The shared server fixture is poisoned by an earlier timeout — {first} This call was not " +

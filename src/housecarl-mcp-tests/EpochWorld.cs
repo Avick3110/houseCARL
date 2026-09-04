@@ -7,15 +7,14 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The synthetic MO2 world the epoch stamp's off-order and excluded-plugin facts are driven against (SPEC
-/// §2.1.1). Three plugins: an ACTIVE master every sweep indexes, an OFF-ORDER plugin sitting in a DISABLED mod
-/// folder (on disk, not in the active order — the "diff against a disabled old patch" shape), and an
-/// UNPARSEABLE plugin that is ENABLED, so the index build excludes it wholesale and a scope naming it hits the
-/// CORE sweep frame's excluded-plugin refusal.
+/// The synthetic MO2 world the epoch stamp's off-order and excluded-plugin facts are driven against. Three
+/// plugins: an ACTIVE master every sweep indexes, an OFF-ORDER plugin sitting in a DISABLED mod folder (on
+/// disk, not in the active order — the "diff against a disabled old patch" shape), and an UNPARSEABLE plugin
+/// that is ENABLED, so the index build excludes it wholesale and a scope naming it hits the CORE sweep frame's
+/// excluded-plugin refusal.
 ///
-/// <para>Ported from <c>EpochGuardProbe</c>'s world (#486 PR 2) as a real MO2 instance, in
-/// <see cref="RecordsWorld"/>'s shape, so it is reachable both by <see cref="LoadOrderService"/> directly and by
-/// <c>housecarl_check</c> off the built server.</para>
+/// <para>A real MO2 instance in <see cref="RecordsWorld"/>'s shape, so it is reachable both by
+/// <see cref="LoadOrderService"/> directly and by <c>housecarl_check</c> off the built server.</para>
 ///
 /// <para><b>Frozen</b>: tests take fixture-known names from it; a later need gets its own world.</para>
 /// </summary>

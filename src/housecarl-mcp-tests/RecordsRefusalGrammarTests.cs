@@ -1,19 +1,13 @@
-// Converted-from: RecordsGuardProbe
 using System.Text.Json;
 using HousecarlMcp;
 using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// #403 — one refusal shape per transport: a json caller gets a json refusal every time, a per-ROW failure
-/// is never a refused call, and a served census does not answer to the refusal discriminant.
-/// (RecordsGuardProbe arm 6 — refusal grammar.)
-///
-/// <para>Content pins, deliberately not wiring pins: `ok`, `false`, `error` and the text lane's `error: `
-/// prefix are spelled out here, so emptying or renaming the render-side construction fails these tests
-/// instead of moving with them.</para>
-/// </summary>
+/// <summary>One refusal shape per transport: a json caller gets a json refusal every time, a per-ROW failure
+/// is never a refused call, and a served census does not answer to the refusal discriminant. The literals
+/// (<c>ok</c>, <c>error</c>, the text lane's <c>error: </c> prefix) are spelled out rather than read off the
+/// render side, so a rename fails these tests instead of moving with them.</summary>
 [Collection("records")]
 [Trait("tier", "integration")]
 public sealed class RecordsRefusalGrammarTests : RecordsTestBase
@@ -43,8 +37,8 @@ public sealed class RecordsRefusalGrammarTests : RecordsTestBase
     public void TheSentenceIsTheOneTheCallerNeeds_ItNamesTheRuleItBroke() =>
         Assert.Contains("is not a form", Doc(RefusalJson()).GetProperty("error").GetString()!);
 
-    // StartsWith rather than a [..7] slice: the slice threw ArgumentOutOfRangeException on any sentence
-    // shorter than seven characters, turning a clean assertion failure into an unrelated exception.
+    // StartsWith rather than a [..7] slice: a sentence shorter than seven characters would throw
+    // ArgumentOutOfRangeException instead of failing the assertion.
     [Fact]
     public void TheJsonSentenceCarriesNoTextLaneErrorPrefix_ThePropertyNameAlreadySaysWhatItIs() =>
         Assert.False(Doc(RefusalJson()).GetProperty("error").GetString()!.StartsWith("error: ", StringComparison.Ordinal),
@@ -54,9 +48,8 @@ public sealed class RecordsRefusalGrammarTests : RecordsTestBase
     public void TheTextTwinIsStillProseOpeningErrorColon() =>
         Assert.StartsWith("error: ", RefusalText());
 
-    // Same slice hazard the comment above records, one test down: on a text lane that answered empty — the
-    // regression this file exists to catch — the range operator threw ArgumentOutOfRangeException before the
-    // two sentences were ever compared. Assert the prefix first, then slice what is known to carry it.
+    // Same slice hazard: on a text lane that answers empty the range operator throws before the two sentences
+    // are compared. Assert the prefix first, then slice what is known to carry it.
     [Fact]
     public void BothTransportsStateOneSentenceNotTwoSpellingsOfIt()
     {
@@ -116,7 +109,7 @@ public sealed class RecordsRefusalGrammarTests : RecordsTestBase
     public void TheResolvedCountIsResolvedBesideErrorsSayingWhatItCounts() =>
         Assert.Equal(JsonValueKind.Number, CensusDoc().GetProperty("resolved").ValueKind);
 
-    // ---- settled #4: a POST-capture refusal is stamped with the build it consulted ---------------------
+    // ---- a POST-capture refusal is stamped with the build it consulted --------------------------------
 
     JsonElement OffOrderRefusal() =>
         Doc(RecordsTools.Records(Svc, types: new[] { "WEAP" }, source: Plugin(W.OldName),

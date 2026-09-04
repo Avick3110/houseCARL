@@ -1,4 +1,3 @@
-// Converted-from: RecordsGuardProbe
 using System.Text.RegularExpressions;
 using HousecarlCore;
 using HousecarlMcp;
@@ -6,16 +5,10 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// A remedy predicts what a later call produces. <c>housecarl_records</c> spells its field selector
-/// <c>project.fields=</c>; the 1.x read tools spell it <c>fields=</c>, and the json body renderers are shared
-/// by both generations — so a remedy composed inside one can name the other's vocabulary.
-/// (RecordsGuardProbe arm 7.)
-///
-/// <para>The two grids the probe wrote as nested loops are <c>[Theory]</c>s here: the per-probe bite check
-/// and the lane × wrong-lever sweep. Each cell is now a named, individually-runnable test that reports which
-/// probe or which lever failed, instead of one label per iteration in a console log.</para>
-/// </summary>
+/// <summary>A remedy predicts what a later call produces. <c>housecarl_records</c> spells its field selector
+/// <c>project.fields=</c> while the 1.x read tools spell it <c>fields=</c>, and the json body renderers are
+/// shared by both, so a remedy composed inside one can name the other's vocabulary. The theories are the
+/// per-family sentence check and the lane × wrong-lever sweep.</summary>
 [Collection("records")]
 [Trait("tier", "integration")]
 public sealed class RecordsRemedyGrammarTests : RecordsTestBase
@@ -74,7 +67,7 @@ public sealed class RecordsRemedyGrammarTests : RecordsTestBase
         Assert.True(bad.Count == 0, $"{lane} sentences tell the caller to {claim}:\n  " + string.Join("\n  ", bad));
     }
 
-    // ---- the single-response arms -----------------------------------------------------------------------
+    // ---- the single-response checks ---------------------------------------------------------------------
 
     [Fact]
     public void AMaxCharsStarvedFieldsReadEmitsATruncationNoticeAtAll() =>
