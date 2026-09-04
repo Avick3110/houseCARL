@@ -2,7 +2,7 @@ using System.Text;
 
 namespace HousecarlMcp;
 
-/// <summary>The shared batch-render skeleton behind housecarl_asset_status and housecarl_nif_inspect: a header count line, the batch-level
+/// <summary>The shared batch-render skeleton behind housecarl_asset_status, housecarl_nif_inspect and housecarl_place: a header count line, the batch-level
 /// alarms once and first (so a long batch cannot truncate them away), a cap-checked per-item loop whose FIRST item
 /// always renders its core answer, and an explicit omitted-count cut. max_chars bounds the batch tail, never a
 /// single-item call's own answer, and a cut is always named — never a silent truncation. Callers supply the header,

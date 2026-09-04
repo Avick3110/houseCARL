@@ -1513,7 +1513,7 @@ public sealed class LoadOrderService : IDisposable
             // excludes every other writer and instance switch throughout, so no profile refresh can land between them.
             // Do not call PlaceOne or Assets here outside this _writeGate hold.
             RiderFolder rf;
-            try { rf = ResolvePatchModFolder(patchName, into, "houseCARL_Assets", new RiderNaming("patch")); }   // neutral default stem; a caller with a better name passes patch_name
+            try { rf = ResolvePatchModFolder(patchName, into, "houseCARL_Assets", new RiderNaming("patch")); }   // neutral default stem; a caller with a better name passes patch
             catch (InvalidOperationException ex) { return PlaceOutcome.Fail(ex.Message); }
 
             // One asset build for the whole batch, reentrant on _gate. Captured rather than the live resolver, so every
@@ -1761,15 +1761,6 @@ public sealed class LoadOrderService : IDisposable
         return string.IsNullOrEmpty(s) ? null : s;
     }
 
-    /// <summary>Does this source= name a copy through the VFS (a Data-relative path) rather than one exact file on
-    /// disk? Expects an already-<see cref="NormalizeSourceArg"/>d string. The on-disk forms are tested in the same
-    /// order <see cref="ReadExplicitSource"/> routes them.
-    /// <para>Fully qualified, not merely rooted: on Windows <c>Path.IsPathRooted</c> is true for a leading '\' or '/',
-    /// but <c>AssetResolver.Normalize</c> trims exactly those, so <c>\meshes\…</c> is a legal Data-relative
-    /// destination. A path is on-disk only when it names a volume (<c>C:\…</c>) or a UNC share.</para>
-    /// <para>The qualified test runs BEFORE the extension test, because an extension says nothing about where the
-    /// file is: a mod can legitimately ship <c>meshes\thing.bsa</c> as a Data-relative asset. A '.bsa' means "an
-    /// archive to open" only once the caller is known to have named a file on disk.</para></summary>
     /// <summary>Whether a <c>source=</c> is one a provider pole can even apply to — nothing named (the pole then
     /// says whose copy of the DESTINATION to place), or a Data-relative path resolved through the VFS. False for an
     /// on-disk file, which already names one exact copy: <see cref="PlaceOne"/> refuses a pole there rather than
@@ -1781,6 +1772,15 @@ public sealed class LoadOrderService : IDisposable
         return string.IsNullOrEmpty(s) || IsVfsSource(s!);
     }
 
+    /// <summary>Does this source= name a copy through the VFS (a Data-relative path) rather than one exact file on
+    /// disk? Expects an already-<see cref="NormalizeSourceArg"/>d string. The on-disk forms are tested in the same
+    /// order <see cref="ReadExplicitSource"/> routes them.
+    /// <para>Fully qualified, not merely rooted: on Windows <c>Path.IsPathRooted</c> is true for a leading '\' or '/',
+    /// but <c>AssetResolver.Normalize</c> trims exactly those, so <c>\meshes\…</c> is a legal Data-relative
+    /// destination. A path is on-disk only when it names a volume (<c>C:\…</c>) or a UNC share.</para>
+    /// <para>The qualified test runs BEFORE the extension test, because an extension says nothing about where the
+    /// file is: a mod can legitimately ship <c>meshes\thing.bsa</c> as a Data-relative asset. A '.bsa' means "an
+    /// archive to open" only once the caller is known to have named a file on disk.</para></summary>
     static bool IsVfsSource(string source)
     {
         if (source.IndexOf('|') >= 0) return false;                      // '<archive.bsa>|<entry>' — an entry, not a path
