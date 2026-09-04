@@ -254,12 +254,22 @@ public static class NativePairingProbe
                 s.Contains("[LOADS]") && !s.Contains("[DEAD]"));
             Check("A3c: …and the line now names the debug CRT and error 126 for everyone else (#417)",
                 s.Contains("vcruntime140d.dll") && s.Contains("error 126") && s.Contains("debug CRT"));
+            // The DEFAULT view is the one the author runs first, and it prints no DLL lines for a loading class — so
+            // the finding has to reach it as its own section, or #417's whole scenario survives the fix.
+            var whole = Render(data);
+            Check("A3e: the default (unfiltered) view names the debug build as a finding, not only under filter=",
+                whole.Contains("DEBUG BUILD") && whole.Contains("vcruntime140d.dll") && whole.Contains("error 126"));
+            Check("A3f: …and it no longer claims the clean bill of health over that same file",
+                !whole.Contains("nothing dead, nothing unpaired") && !whole.Contains("paired healthy (1 class"));
             // The healthy roster must not gain the sentence: it lists class names, not DLL lines, so a leak there would
             // mean the note escaped Judge into the summary.
+            var cleanData = Data(new[] { Cls("CleanUtil", NativeProvenance.ThirdParty, NativePairingRung.SameMod, "CleanMod",
+                new[] { new NativePairedDll(@"SKSE\Plugins\PapyrusUtil.dll", "PapyrusUtil.dll", "", "CleanMod", indepInfo, null) }) }, "1.6.1170.0");
             Check("A3d: a clean version-independent DLL gets no debug note",
-                !Render(Data(new[] { Cls("CleanUtil", NativeProvenance.ThirdParty, NativePairingRung.SameMod, "CleanMod",
-                    new[] { new NativePairedDll(@"SKSE\Plugins\PapyrusUtil.dll", "PapyrusUtil.dll", "", "CleanMod", indepInfo, null) }) }, "1.6.1170.0"),
-                    filter: "CleanUtil").Contains("debug CRT"));
+                !Render(cleanData, filter: "CleanUtil").Contains("debug CRT"));
+            Check("A3g: …and it still earns the clean bill of health in the default view",
+                Render(cleanData).Contains("nothing dead, nothing unpaired")
+                && !Render(cleanData).Contains("DEBUG BUILD"));
         }
         {
             // Arm C: a static blocker (BSA-only) is dead regardless of runtime knowledge.

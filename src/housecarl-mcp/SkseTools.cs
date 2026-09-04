@@ -36,9 +36,14 @@ public static class SkseTools
             case "pairing": family = SkseFamily.Pairing; return true;
             case "config": family = SkseFamily.Config; return true;
         }
+        // A list-shaped value is the housecarl_check habit, where findings= names several families. Naming the shape is
+        // what turns the refusal into a fix; "not a family" alone reads as the wrong word rather than the wrong shape.
+        var shape = token.Contains(',') || token.Contains('[')
+            ? " findings= here takes ONE value, not a list — this tool runs one family per call."
+            : "";
         error = $"error: findings='{token}' is not a family on this tool — pass findings='inventory' (the DLL and config " +
                 "layer), 'pairing' (native Papyrus declarations vs the DLLs that implement them) or 'config' (the form " +
-                "references SKSE configs declare vs your load order). One family per call.";
+                $"references SKSE configs declare vs your load order).{shape} One family per call.";
         return false;
     }
 
@@ -91,7 +96,9 @@ public static class SkseTools
     public static string Skse(
         LoadOrderService svc,
         [Description(
-            "Optional. WHICH FAMILY to run — exactly one; the default when omitted is 'inventory'. " +
+            "Optional. WHICH FAMILY to run — exactly one; the default when omitted is 'inventory'. ONE STRING, not a " +
+            "list: unlike " + ToolNames.Check + "'s findings=, which names several families at once, this tool runs one " +
+            "family per call, so findings=['inventory'] and findings='inventory,pairing' are both refused. " +
             // ---- family: inventory (harvested from housecarl_skse_inventory) -------------------------
             "'inventory' — the SKSE-plugin layer itself, over the FULL depth of Data\\SKSE\\Plugins: every .dll and " +
             "every .ini/.toml/.json/.yaml config beneath it, each with the MOD that wins the VFS for it. Configs are " +
@@ -163,9 +170,10 @@ public static class SkseTools
         if (PeekFamilyError(peek, family) is { } peekErr) return peekErr;
         if (SkseInventoryWire.PeekArgError(peek, filter) is { } err) return err;
 
-        // The footer is priced into the cap rather than appended past it, so max_chars stays the whole response.
+        // The footer is priced into the cap rather than appended past it, so max_chars bounds the whole response. Under
+        // a cap too small to hold both, the footer wins: it is the line that says which family answered.
         var footer = FamilyFooter(family);
-        int cap = Math.Max(1_000, (max_chars > 0 ? max_chars : 80_000) - footer.Length);
+        int cap = Math.Max(1, (max_chars > 0 ? max_chars : 80_000) - footer.Length);
         var body = family switch
         {
             SkseFamily.Inventory => SkseInventoryWire.Render(svc.SkseInventory(peek ? filter!.Trim() : null), filter, cap),
@@ -833,7 +841,8 @@ static class SkseConfigAuditWire
 /// <summary>Renders <see cref="NativePairingAuditData"/>: a health summary, then the diagnostics in full —
 /// paired-but-dead (every candidate DLL statically will not load, version-locked mismatches included where the
 /// installed runtime is known), locked-but-unverifiable pairings where the runtime is unknown, unpaired classes as a
-/// verify flag, and unreadable-.pex notes — then the accounted-for baseline of engine and skse-core counts and
+/// verify flag, debug builds that load on this machine alone, and unreadable-.pex notes — then the accounted-for
+/// baseline of engine and skse-core counts and
 /// paired-healthy classes grouped by implementing mod. Bounded by max_chars with explicit cut notices. filter= shows a
 /// class in full: native function names, pairing evidence, per-DLL manifests and load verdicts, conflict
 /// chains.</summary>
@@ -909,7 +918,12 @@ static class NativePairingWire
             .ToLookup(c => BestFate(c, d.InstalledRuntime));
         var dead = byFate[DllFate.Dead].ToList();
         var verify = byFate[DllFate.Verify].ToList();
-        var healthy = byFate[DllFate.Loads].ToList();
+        var loads = byFate[DllFate.Loads].ToList();
+        // #417: a class whose only loadable candidate is a DEBUG build loads on THIS machine and nowhere else, so it is
+        // a finding in its own right rather than a line of the healthy roster — which prints class names, not DLLs, and
+        // would have carried the clean checkmark over exactly the file the author needs to hear about.
+        var debugBuilds = loads.Where(c => c.PairedDlls.Any(x => x.Info is { } i && i.DebugCrtImports.Count > 0)).ToList();
+        var healthy = loads.Except(debugBuilds).ToList();
 
         var sb = new StringBuilder();
         sb.Append("native pairing audit — profile '").Append(d.ProfileName).Append("' — ")
@@ -918,7 +932,7 @@ static class NativePairingWire
         if (d.InstalledRuntime is { } rt) sb.Append("installed game runtime: ").Append(rt).Append('\n');
         else sb.Append("installed game runtime: could not be resolved — version-LOCKED findings degrade to 'verify'\n");
 
-        if (dead.Count == 0 && unpaired.Count == 0 && verify.Count == 0)
+        if (dead.Count == 0 && unpaired.Count == 0 && verify.Count == 0 && debugBuilds.Count == 0)
         {
             sb.Append("✓ every third-party native class pairs to a mod whose DLL statically loads — nothing dead, nothing unpaired");
             // The checkmark must not claim a universal the scan did not verify: unreadable .pex files were never
@@ -931,6 +945,8 @@ static class NativePairingWire
             if (dead.Count > 0) sb.Append(dead.Count).Append(" class(es) PAIRED BUT DEAD — scripts installed, nothing that could implement them loads");
             if (verify.Count > 0) sb.Append(dead.Count > 0 ? "   ·   " : "").Append(verify.Count).Append(" pairing(s) need a version check");
             if (unpaired.Count > 0) sb.Append(dead.Count > 0 || verify.Count > 0 ? "   ·   " : "").Append(unpaired.Count).Append(" class(es) UNPAIRED (verify)");
+            if (debugBuilds.Count > 0) sb.Append(dead.Count > 0 || verify.Count > 0 || unpaired.Count > 0 ? "   ·   " : "")
+                                         .Append(debugBuilds.Count).Append(" class(es) paired only to a DEBUG BUILD");
             sb.Append('\n');
         }
 
@@ -951,6 +967,14 @@ static class NativePairingWire
               .Append("). A VERIFY flag, not 'broken': most often a declaration copy of a framework that isn't installed — the calls will silently no-op if anything uses them:\n");
             AppendCapped(sb, unpaired, cap, c =>
                 $"  - {c.ClassName} ({c.NativeCount} native fn) ← {c.WinningProvider ?? "(no provider)"} ({c.ProviderKind})");
+        }
+        if (debugBuilds.Count > 0)
+        {
+            sb.Append("\nDEBUG BUILD — these load on THIS machine and nowhere else (").Append(debugBuilds.Count)
+              .Append("). The debug C runtime ships with Visual Studio and is not redistributable, so the DLL fails with " +
+                      "error 126 for anyone without it and every native these scripts declare is a silent no-op there. " +
+                      "If you built it, ship a Release build; if you installed it, ask its author for one:\n");
+            AppendCapped(sb, debugBuilds, cap, c => DeadLine(c, d.InstalledRuntime));
         }
         if (d.Unreadable.Count > 0)
         {

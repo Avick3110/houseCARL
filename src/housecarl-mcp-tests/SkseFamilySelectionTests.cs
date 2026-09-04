@@ -54,6 +54,19 @@ public sealed class SkseFamilySelectionTests
         Assert.Contains("One family per call", error);
     }
 
+    /// <summary>A list-shaped value carries the housecarl_check habit, where findings= names several families at once.
+    /// The refusal names the SHAPE as well as the word, so the caller knows to drop the list rather than hunt for a
+    /// spelling that does not exist.</summary>
+    [Theory]
+    [InlineData("inventory,pairing")]
+    [InlineData("[\"inventory\"]")]
+    public void AListShapedFindingsValueIsRefusedNamingTheShape(string token)
+    {
+        Assert.False(SkseTools.TryParseFamily(token, out _, out var error));
+        Assert.Contains("takes ONE value, not a list", error);
+        Assert.Contains("one family per call", error);
+    }
+
     /// <summary>peek= reads one DLL image, which only the inventory family looks at. Passing it with another family is
     /// refused rather than ignored: a silently dropped flag reads as a peek that found nothing.</summary>
     [Fact]
