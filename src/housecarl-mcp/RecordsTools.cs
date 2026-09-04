@@ -1846,7 +1846,7 @@ public static class RecordsTools
                 break;
             }
             sb.Append('\n').Append("seed ").Append(seed).Append('\n');
-            sb.Append(Wire.RenderEffectChain(result, cap)).Append('\n');
+            sb.Append(Wire.RenderEffectChain(result, cap, "walk.max_nodes")).Append('\n');
             rendered++;
         }
         if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);

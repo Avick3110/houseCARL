@@ -353,14 +353,17 @@ static class Wire
     /// unused MGEF renders a clean "none" line rather than an error — the error path is the bad or mistyped
     /// FormID, handled in core. Over max_chars it stops with the same explicit notice the other reads
     /// use.</summary>
-    public static string RenderEffectChain(EffectChainResult r, int maxChars)
+    /// <param name="carrierBound">How the CALLING tool spells the per-seed carrier bound this render may have hit.
+    /// On housecarl_records that is walk.max_nodes — limit= there windows the SEEDS and raising it changes nothing
+    /// about a capped carrier list, so the sentence has to carry the caller's own knob.</param>
+    public static string RenderEffectChain(EffectChainResult r, int maxChars, string carrierBound = "limit=")
     {
         if (r.Error is not null) return "error: " + r.Error + (r.Epoch is not null ? $"\nepoch={r.Epoch}" : "");
         int cap = Cap(maxChars);
         var sb = new StringBuilder();
         sb.Append("chain for ").Append(r.Mgef).Append(" (").Append(r.MgefEditorId).Append(", MagicEffect): ")
           .Append(r.Total).Append(r.Total == 1 ? " carrier row" : " carrier rows");
-        if (r.Capped) sb.Append(" (showing first ").Append(r.Rows.Count).Append("; raise limit= or narrow to see more)");
+        if (r.Capped) sb.Append(" (showing first ").Append(r.Rows.Count).Append("; raise ").Append(carrierBound).Append(" or narrow to see more)");
         if (r.Epoch is not null) sb.Append("  epoch=").Append(r.Epoch);
         sb.Append('\n');
         // The whole-order negative is only the scan's to make when the scan read the whole order; with a plugin left
