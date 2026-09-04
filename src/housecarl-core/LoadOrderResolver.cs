@@ -859,7 +859,10 @@ public sealed class LoadOrderResolver : IDisposable
     /// with that PLUGIN'S body in hand — the plugin-scoped path behind a plugin dump or content audit. A FormKey
     /// touched by more than one scoped plugin is yielded once per scoped plugin; the SERVICE de-dupes.
     /// Yields (FormKey, whole-order override-depth, the scoped plugin's body, the scoped plugin's
-    /// filename — so a caller can DISPLAY from the same body it filtered, not the winner). Holds nothing.</summary>
+    /// filename — so a caller can DISPLAY from the same body it filtered, not the winner). Holds nothing.
+    /// Throws <see cref="PluginUnreadableException"/> on a scoped plugin that opened at index-build time but cannot be
+    /// opened now, ending the stream — a caller must report that plugin rather than treat the scan as complete. With a
+    /// multi-plugin scope the throw ends the whole stream, so the plugins after it are unread too.</summary>
     public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string source)> RecordsIn(
         IReadOnlyList<string> plugins, IReadOnlyList<Type>? getterTypes)
         => RecordsIn(plugins, getterTypes, _snap);                         // ONE build for the whole scan (captured here, at the call)

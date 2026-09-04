@@ -5894,6 +5894,14 @@ public sealed class LoadOrderService : IDisposable
                     foreach (var pl in id.ExternalPlugins.Take(25)) c.Append($"      · {pl}\n");
                     if (id.ExternalPlugins.Count > 25) c.Append($"      · … (+{id.ExternalPlugins.Count - 25} more)\n");
                 }
+                // The referencer list is only as good as the scan behind it, and this prompt is the last point the
+                // modder can decline — so a plugin the pass could not read is named HERE, not only in the report.
+                if (id.UnscannablePlugins is { Count: > 0 } unread)
+                {
+                    c.Append($"  ! the external-reference pass could not fully read {string.Join(", ", unread.Take(25))}");
+                    if (unread.Count > 25) c.Append($" (+{unread.Count - 25} more)");
+                    c.Append(", probably held open by another program, so the list above does not cover it. Close xEdit, MO2 or Skyrim and run this again.\n");
+                }
                 c.Append("Re-call with acknowledge=true to proceed.");
                 return WritePatchBuilder.CompactOutcome.Confirm(c.ToString());
             }
