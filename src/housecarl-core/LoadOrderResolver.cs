@@ -144,10 +144,71 @@ public sealed class LoadOrderResolver : IDisposable
         public readonly int MaxDepth;
         public readonly string Epoch;                                         // this build's fingerprint — immutable with the snapshot
 
+        /// <summary>Per plugin index: is it a LIGHT plugin? Read off the header while the build already had the
+        /// overlay open (the .esl extension counts too — the engine force-treats it as light). This is what decides
+        /// whether the game addresses the plugin through the shared 0xFE light block or through its own load
+        /// index, so it is the only extra fact the runtime-FormID tables need.</summary>
+        public readonly bool[] Light;
+
+        /// <summary>Active plugins whose light flag could NOT be read, because the file could not be opened at all.
+        /// Their kind decides every runtime index AFTER them, so a runtime FormID cannot be answered while one is in
+        /// the order — named here so the refusal can say which plugin, rather than guessing from the extension.</summary>
+        public readonly IReadOnlyList<string> LightFlagUnknown;
+
+        /// <summary>The runtime address tables, built on first use (a load order that never sees a runtime FormID
+        /// never pays for them) and thrown away with this snapshot, so they refresh with the index.</summary>
+        public readonly Lazy<RuntimeSlots> Slots;
+
         public IndexSnapshot(Dictionary<FormKey, (int winner, int count)> index, Dictionary<FormKey, int[]> overriders,
                              List<string> loadFailures, HashSet<int> excluded, HashSet<int> unopenable,
-                             Dictionary<string, string> excludedPlugins, int maxDepth, string epoch)
-        { Index = index; Overriders = overriders; LoadFailures = loadFailures; Excluded = excluded; Unopenable = unopenable; ExcludedPlugins = excludedPlugins; MaxDepth = maxDepth; Epoch = epoch; }
+                             Dictionary<string, string> excludedPlugins, int maxDepth, string epoch,
+                             bool[] light, IReadOnlyList<string> lightFlagUnknown)
+        {
+            Index = index; Overriders = overriders; LoadFailures = loadFailures; Excluded = excluded; Unopenable = unopenable;
+            ExcludedPlugins = excludedPlugins; MaxDepth = maxDepth; Epoch = epoch; Light = light; LightFlagUnknown = lightFlagUnknown;
+            Slots = new Lazy<RuntimeSlots>(() => RuntimeSlots.Build(light));
+        }
+    }
+
+    /// <summary>The runtime address tables for ONE index build: which plugin the game loads at each load index and at
+    /// each light index. The engine numbers the two kinds separately — full plugins take 0x00, 0x01, … in order,
+    /// light plugins all share the 0xFE index and take 0x000, 0x001, … in order among themselves — so a runtime
+    /// FormID's high byte says which table to read.</summary>
+    internal sealed class RuntimeSlots
+    {
+        /// <summary>Load index → plugin index; -1 where no active plugin occupies the slot.</summary>
+        public readonly int[] FullToPlugin;
+        /// <summary>Light index → plugin index; -1 where no active plugin occupies the slot.</summary>
+        public readonly int[] LightToPlugin;
+        /// <summary>Plugin index → its own runtime slot; -1 for a plugin past the end of its block.</summary>
+        public readonly int[] SlotOfPlugin;
+        public readonly int FullCount;
+        public readonly int LightCount;
+
+        RuntimeSlots(int[] fullToPlugin, int[] lightToPlugin, int[] slotOfPlugin, int fullCount, int lightCount)
+        { FullToPlugin = fullToPlugin; LightToPlugin = lightToPlugin; SlotOfPlugin = slotOfPlugin; FullCount = fullCount; LightCount = lightCount; }
+
+        /// <summary>0xFE is the light block and 0xFF the runtime-dynamic block, so a full plugin can only load at
+        /// 0x00–0xFD.</summary>
+        public const int MaxFullSlots = 0xFE;
+        /// <summary>The light index is 12 bits.</summary>
+        public const int MaxLightSlots = 0x1000;
+
+        public static RuntimeSlots Build(bool[] light)
+        {
+            var full = new int[MaxFullSlots];
+            var lite = new int[MaxLightSlots];
+            Array.Fill(full, -1);
+            Array.Fill(lite, -1);
+            var slotOf = new int[light.Length];
+            int nFull = 0, nLight = 0;
+            for (int i = 0; i < light.Length; i++)
+            {
+                if (light[i]) { slotOf[i] = nLight < MaxLightSlots ? nLight : -1; if (nLight < MaxLightSlots) lite[nLight] = i; nLight++; }
+                else { slotOf[i] = nFull < MaxFullSlots ? nFull : -1; if (nFull < MaxFullSlots) full[nFull] = i; nFull++; }
+            }
+            return new RuntimeSlots(full, lite, slotOf, nFull, nLight);
+        }
     }
 
     volatile IndexSnapshot _snap;
@@ -477,6 +538,8 @@ public sealed class LoadOrderResolver : IDisposable
         var excluded = new HashSet<int>();
         var unopenable = new HashSet<int>();                          // the could-not-be-OPENED subset
         var excludedPlugins = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var light = new bool[_paths.Length];
+        var lightUnknown = new List<string>();
         int maxDepth = 0;
 
         for (int i = 0; i < _paths.Length; i++)
@@ -487,8 +550,13 @@ public sealed class LoadOrderResolver : IDisposable
             {
                 Exclude(i, $"could not be opened — {Concise(ex)}", failures, excluded, excludedPlugins);
                 unopenable.Add(i);   // cannot serve as a master overlay either; the write path must skip it
+                lightUnknown.Add(_names[i]);   // its kind decides every runtime index after it, and we cannot read it
                 continue;
             }
+
+            // Both ways, like the merge report reads it: the engine force-treats the .esl extension as light
+            // whatever the header bit says, and an esp-fe carries the bit without the extension.
+            light[i] = ov.IsSmallMaster || ov.ModKey.Type == ModType.Light;
 
             // Buffer the WHOLE plugin's keys first (plugin-atomic). EnumerateMajorRecords() constructs each record
             // body as it advances, so a record Mutagen rejects (e.g. a malformed PKCU data-count) throws HERE. The
@@ -528,7 +596,8 @@ public sealed class LoadOrderResolver : IDisposable
         return new IndexSnapshot(
             index,
             overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),  // trim List overhead → int[]
-            failures, excluded, unopenable, excludedPlugins, maxDepth, ComputeEpoch(_names, _paths, _mtimes, excludedPlugins));
+            failures, excluded, unopenable, excludedPlugins, maxDepth, ComputeEpoch(_names, _paths, _mtimes, excludedPlugins),
+            light, lightUnknown);
     }
 
     /// <summary>The epoch fingerprint: a compact, deterministic identity for ONE index build, derived from the
@@ -601,6 +670,62 @@ public sealed class LoadOrderResolver : IDisposable
     /// the operation reports. Pure data over the immutable snapshot — no handles, safe to hold for a call.</summary>
     public IndexView Capture() => new(this, _snap);
 
+    // ---- runtime FormIDs: the eight-hex form the game, the console and the logs print --------------------
+
+    /// <summary>Single-shot <see cref="IndexView.ParseFormId"/> for a caller holding the resolver rather than a
+    /// captured view. A door parsing a LIST should capture once and parse off the view.</summary>
+    public FormKey ParseFormId(string? raw) => Capture().ParseFormId(raw);
+
+    /// <summary>Turn a runtime FormID into the FormKey it names in THIS build, or throw one plain sentence saying
+    /// which index was not found and what to try instead. The high byte picks the table: 0xFE is the light block,
+    /// 0xFF is a dynamic form that no plugin defines, anything else is a load index.</summary>
+    FormKey RuntimeToFormKey(IndexSnapshot s, uint value)
+    {
+        if (RuntimeFormId.IsDynamic(value))
+            throw new FormatException(
+                $"{RuntimeFormId.Format(value)} is a dynamic form — the game creates FF...... FormIDs while playing and " +
+                "they exist only in a save game, so no plugin defines one.");
+
+        if (s.LightFlagUnknown.Count > 0)
+            throw new FormatException(
+                $"a runtime FormID cannot be resolved this session: '{s.LightFlagUnknown[0]}' could not be opened, so " +
+                "whether it is light — and therefore every index after it — is unknown; address the record as " +
+                "'XXXXXX:Plugin.esp' instead.");
+
+        var slots = s.Slots.Value;
+        if (RuntimeFormId.IsLight(value))
+        {
+            int slot = (int)RuntimeFormId.LightIndex(value);
+            int p = slot < slots.LightToPlugin.Length ? slots.LightToPlugin[slot] : -1;
+            if (p < 0)
+                throw new FormatException(
+                    $"{RuntimeFormId.Format(value)} names light index 0x{slot:X3}, which no active plugin occupies " +
+                    $"(the load order has {slots.LightCount} light plugin(s)) — the plugin may be inactive; read an " +
+                    "inactive plugin with 'XXXXXX:Plugin.esp'.");
+            return FormKey.Factory($"{value & FormIdRange.LightObjectIdMask:X6}:{_names[p]}");
+        }
+
+        int idx = (int)RuntimeFormId.LoadIndex(value);
+        int fp = idx < slots.FullToPlugin.Length ? slots.FullToPlugin[idx] : -1;
+        if (fp < 0)
+            throw new FormatException(
+                $"{RuntimeFormId.Format(value)} names load index 0x{idx:X2}, which no active plugin occupies " +
+                $"(the load order has {slots.FullCount} full plugin(s); light plugins are addressed as FExxxYYY) — " +
+                "the plugin may be inactive; read an inactive plugin with 'XXXXXX:Plugin.esp'.");
+        return FormKey.Factory($"{value & FormIdRange.ObjectIdMask:X6}:{_names[fp]}");
+    }
+
+    /// <summary>The runtime FormID the game, the console and the logs print for this record, or null when its plugin
+    /// is not active in this build (nothing in the order addresses it) or its kind could not be read.</summary>
+    string? RuntimeFormIdFor(IndexSnapshot s, FormKey fk)
+    {
+        if (fk.IsNull || s.LightFlagUnknown.Count > 0) return null;
+        if (!_nameToIdx.TryGetValue(fk.ModKey.FileName.ToString(), out int p)) return null;
+        int slot = s.Slots.Value.SlotOfPlugin[p];
+        if (slot < 0) return null;
+        return RuntimeFormId.Format(RuntimeFormId.Compose(s.Light[p], slot, fk.ID));
+    }
+
     /// <summary>A read view pinned to ONE captured index build (see <see cref="Capture"/>). Every member answers
     /// from the SAME build — winner, touching list, counters, and the scan streams can never disagree about which
     /// build they describe. Bodies are still fetched from the files on disk (none are held), so a
@@ -627,6 +752,18 @@ public sealed class LoadOrderResolver : IDisposable
         /// <summary>THIS captured build's epoch fingerprint — the stamp a bulk response computed off this view
         /// must carry. Immutable with the snapshot: a concurrent rebuild changes nothing here.</summary>
         public string Epoch => _s.Epoch;
+
+        /// <summary>The one FormID door: parse a caller's token into a FormKey. An eight-hex token with no colon is a
+        /// RUNTIME FormID (<c>FExxxYYY</c> or <c>XX######</c>, with or without <c>0x</c>) and is resolved against this
+        /// build's runtime address tables; anything else is the <c>XXXXXX:Plugin.esp</c> form and is unchanged. Throws
+        /// one plain sentence either way, which every door already renders as its own "bad FormID" refusal.</summary>
+        public FormKey ParseFormId(string? raw)
+            => RuntimeFormId.TryParse(raw, out uint v) ? _r.RuntimeToFormKey(_s, v) : FormKey.Factory((raw ?? "").Trim());
+
+        /// <summary>The runtime FormID this record prints as in the game, the console and the logs, or null when its
+        /// plugin is not active in this build. Rendered beside the <c>XXXXXX:Plugin.esp</c> form so a reader can
+        /// round-trip to the console and back.</summary>
+        public string? RuntimeFormIdOf(FormKey fk) => _r.RuntimeFormIdFor(_s, fk);
 
         /// <summary>Whether a plugin filename is in the indexed load order — the same OrdinalIgnoreCase name table
         /// <see cref="LoadOrderResolver.GetRecord"/> resolves against (fixed for the resolver's lifetime, like
