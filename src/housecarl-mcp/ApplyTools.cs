@@ -7,31 +7,12 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// housecarl_apply — the 2.0 S1 field-write surface (tool-surface-2.0 W3; SPEC §2.2 ACT, §4.5, §5.1/§5.2, §6.1).
-///
-/// ONE field-edit tool: the ACT verbs (Set / Add / Remove / SetAtIndex / InsertAtIndex / ReplaceAll / Merge / CopyFrom) × the LANE
-/// (new patch | <c>into</c> an existing one | <c>in_place</c> + consent | <c>dry_run</c>) × TRANSPORT, over the SAME
-/// proven write cleave the 1.x tools drive (<see cref="LoadOrderService.ApplyEdits"/> → WritePatchBuilder.Apply) —
-/// consolidation of the surface, not a re-implementation of the engine. Absorbs <c>housecarl_set_field</c> (the
-/// degenerate one-op call) and <c>housecarl_bulk_apply</c>.
-///
-/// Three things are new rather than renamed:
-/// <list type="bullet">
-/// <item><b>The §4.5 zip</b> — <c>bundle=</c> (field paths, uniform across pairs) × <c>assignments=</c>
-/// ([{target, from, from_source}]) is a cross-RECORD field-bundle copy, the generic core under
-/// "give this record that record's Keywords/stats/appearance frame". Which paths form a bundle is skill-carried
-/// data; the tool stays generic (CLAUDE.md §3, second cornerstone).</item>
-/// <item><b>One list spelling</b> — <c>ops=</c> takes the inline array OR <c>"@&lt;absolute path&gt;"</c>
-/// (SPEC §5.1's @file convention), retiring <c>from_file=</c> and its inline-vs-file mutual exclusion. Both lanes
-/// now parse through the SAME strict reader, so an unknown member is refused BY NAME inline too — the SDK binder
-/// silently DROPS one, which in a 700-op job points every downstream refusal away from the typo.</item>
-/// <item><b>in_place is the file's NAME</b> (§5.2) — the <c>target=</c>+<c>in_place=true</c> pair collapses into one
-/// string naming the file being overwritten. Restating it is deliberate consent-adjacent explicitness.</item>
-/// </list>
-/// The 1.x write tools stay registered and unchanged through the build waves; they retire at 2.0.0 (clean cut,
-/// CHARTER_PHASE4 §3.4a).
-/// </summary>
+/// <summary>housecarl_apply — the field-write surface: the write verbs × the lane (new patch, <c>into=</c> an
+/// existing one, <c>in_place=</c> with consent, or <c>dry_run</c>) × transport, over
+/// <see cref="LoadOrderService.ApplyEdits"/>. <c>bundle=</c> × <c>assignments=</c> is the cross-record field-bundle
+/// copy; which paths form a bundle is caller data, so the tool stays generic (the second cornerstone). Every list
+/// input takes the inline array or <c>"@&lt;absolute path&gt;"</c> through the same strict reader, which refuses an
+/// unknown member BY NAME where the SDK binder would silently drop it.</summary>
 [McpServerToolType]
 public static class ApplyTools
 {
@@ -138,26 +119,21 @@ public static class ApplyTools
             int max_chars = 0) => Guard.Tool(ToolNames.Apply, () =>
     {
         // ---- TRANSPORT: format --------------------------------------------------------------------------
-        // Ahead of the unconfigured-MO2 prompt (PR #311 review 5 [low]): that prompt is prose, and a json caller
-        // got it verbatim — unparseable, with no ok/error to branch on. Inherited from PR #310, fixed here with
-        // its three siblings rather than left as the one tool of the four that still does it.
+        // Ahead of the unconfigured-MO2 prompt: that prompt is prose, and a json caller handed it verbatim gets
+        // something unparseable, with no ok/error to branch on.
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;   // the format value itself is unparsed — there is no known render to answer in
         if (svc.ConfigPromptOrNull() is { } prompt)
             return json ? JsonWire.RenderError(prompt, null) : prompt;
 
-        // EVERY refusal below this point answers in the caller's requested format. RenderPatchOutcome's contract
-        // says a json caller must never have to parse "error: …" out of a string, and the sites a caller hits most
-        // (a mixed inline/@file list, an undeclared op member, a LANE conflict, half a zip) are all decided HERE,
-        // before any engine outcome exists to render. Epoch is null on all of them: none has consulted a build yet.
+        // EVERY refusal below this point answers in the caller's requested format — a json caller must never have to
+        // parse "error: …" out of a string. Epoch is null on all of them: none has consulted a build yet.
         string Refuse(string message) => json ? JsonWire.RenderError(message, null) : "error: " + message;
 
         // ---- LANE: the three destinations are mutually exclusive, and a dropped one is named ------------
-        // (SPEC §2.1 LANE; the W2 review's recurring theme carried to the write side — a parameter is honored
-        //  or refused BY NAME, never accepted-and-ignored. 1.x silently ignored patch_name= under into=.)
-        // Emptiness is judged ONE way for a lane string: whitespace-only is absent, and the forwarded value uses
-        // the same rule (`patch` is normalized below), so the exclusivity checks and what actually gets written
-        // can never disagree about whether a lane was named.
+        // A parameter is honoured or refused BY NAME, never accepted-and-ignored. Emptiness is judged ONE way for a
+        // lane string — whitespace-only is absent, and the forwarded value uses the same rule — so the exclusivity
+        // checks and what actually gets written can never disagree about whether a lane was named.
         var patchName = string.IsNullOrWhiteSpace(patch) ? null : patch.Trim();
         bool hasPatch = patchName is not null;
         bool hasInto = !string.IsNullOrWhiteSpace(into);
@@ -171,7 +147,7 @@ public static class ApplyTools
         if (acknowledge && !hasInPlace)
             return Refuse("acknowledge= confirms the in-place trade-off and is meaningless without in_place=<plugin filename>. Drop it, or name the file to overwrite.");
 
-        // ---- The edit sources: ops= and/or the §4.5 zip -------------------------------------------------
+        // ---- The edit sources: ops= and/or the copy zip -------------------------------------------------
         var edits = new List<ApplyOp>();
         if (ops is { } opsEl && opsEl.ValueKind is not JsonValueKind.Null)
         {
@@ -180,9 +156,8 @@ public static class ApplyTools
             edits.AddRange(parsed!);
         }
 
-        // An explicitly EMPTY bundle= is a supplied parameter, not an absent one — reading it as absent is the
-        // accepted-and-silently-dropped class this tool exists to close, and it is exactly what `ops=[]` already
-        // refuses by name. Judge presence on the ARRAY, then refuse emptiness on its own terms.
+        // An explicitly EMPTY bundle= is a supplied parameter, not an absent one: judge presence on the ARRAY, then
+        // refuse emptiness on its own terms, or the parameter is accepted and silently dropped.
         bool hasBundle = bundle is not null;
         bool hasAssignments = assignments is { } aEl && aEl.ValueKind is not JsonValueKind.Null;
         if (hasBundle && bundle!.Length == 0)
@@ -204,10 +179,9 @@ public static class ApplyTools
             return Refuse("nothing to apply. Pass ops=[{formid, field_path, …}, …] (or ops=\"@<absolute path>\"), " +
                           "and/or the copy zip bundle=[\"<field path>\", …] + assignments=[{target, from}, …].");
 
-        // ---- Map the 2.0 op shape onto the proven cleave ------------------------------------------------
-        // The 2.0 spellings are a RENAME over the same engine inputs: op -> verb, from_source -> the source
-        // plugin, from -> the source RECORD (§4.5's cross-record copy, carried alongside since it has no 1.x
-        // wire member). Mapping problems are collected per element, all at once, like every other refusal.
+        // ---- Map the op shape onto the engine's inputs --------------------------------------------------
+        // A rename over the same engine inputs: op -> verb, from_source -> the source plugin; from (the source
+        // RECORD) has no engine wire member and rides alongside. Mapping problems are collected all at once.
         var wire = new List<BulkOp>(edits.Count);
         var fromRecords = new List<string?>(edits.Count);
         var origins = new List<string?>(edits.Count);
@@ -215,9 +189,8 @@ public static class ApplyTools
         for (int i = 0; i < edits.Count; i++)
         {
             var e = edits[i];
-            // Zip-generated edits carry the caller's OWN spelling (assignments[i] x bundle[j]); inline ops fall
-            // back to their real index. Both this loop and the service's mapper use it, so a refusal never points
-            // at an op index the caller did not write.
+            // Zip-generated edits carry the caller's OWN spelling (assignments[i] x bundle[j]); inline ops fall back
+            // to their real index. The service's mapper uses it too, so no refusal names an index nobody wrote.
             var where = e.Origin ?? $"op[{i}]";
             if (e.From is not null && !string.Equals(e.Op ?? "Set", "CopyFrom", StringComparison.OrdinalIgnoreCase))
             {
@@ -239,7 +212,7 @@ public static class ApplyTools
 
         var outcome = svc.ApplyEdits(wire, patchName ?? "Patch", into, readback, in_place, hasInPlace, acknowledge, dry_run, fromRecords, origins);
         // The lane the CALL named — stated, not derived from the outcome's flags, which are at their defaults on a
-        // refusal and on the consent prompt (PR #311 review [medium]).
+        // refusal and on the consent prompt.
         return json
             ? JsonWire.RenderPatchOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "into" : "patch")
             : WriteTools.Render(outcome, max_chars, readback);
@@ -247,32 +220,28 @@ public static class ApplyTools
 
     // ---- input readers -------------------------------------------------------------------------------
 
-    /// <summary>Read <c>ops=</c>: either the inline JSON array of op objects, or the SPEC §5.1 <c>@file</c> spelling
-    /// — a bare <c>"@&lt;path&gt;"</c> string, or the one-element <c>["@&lt;path&gt;"]</c> form that matches how
-    /// <c>formids=</c> spells it (both accepted so the convention reads the same on a typed list and a string list).
-    /// BOTH lanes deserialize through the same strict options, so an unknown member is refused by name inline too —
-    /// the SDK's own binder silently drops one, and in a large generated batch a misspelled <c>field_path</c> would
-    /// then surface as a downstream refusal pointing away from the typo.</summary>
+    /// <summary>Read <c>ops=</c>: the inline JSON array of op objects, or the <c>@file</c> spelling — a bare
+    /// <c>"@&lt;path&gt;"</c> string or the one-element <c>["@&lt;path&gt;"]</c> form, both accepted so the convention
+    /// reads the same on a typed list and a string list. Both lanes deserialize through the same strict options, so an
+    /// unknown member is refused by name inline too rather than being dropped by the SDK binder.</summary>
     static (ApplyOp[]? Items, string? Error) ReadOps(JsonElement el)
         => ListParams.Read<ApplyOp>(el, "ops", "{formid, field_path, op?, value?, values?, key?, entries?, compose?, composes?, from?, from_source?}");
 
-    /// <summary>Read <c>assignments=</c> — the §4.5 zip's per-target source mapping. Same two spellings and the same
+    /// <summary>Read <c>assignments=</c> — the copy zip's per-target source mapping. Same two spellings and the same
     /// strict element contract as <see cref="ReadOps"/>.</summary>
     static (Assignment[]? Items, string? Error) ReadAssignments(JsonElement el)
         => ListParams.Read<Assignment>(el, "assignments", "{target, from, from_source?}");
 
 
-    // ---- the §4.5 zip --------------------------------------------------------------------------------
+    // ---- the copy zip --------------------------------------------------------------------------------
 
     /// <summary>Resolve <c>bundle=</c> to its field-path list, honoring the <c>["@&lt;path&gt;"]</c> spelling (a
     /// newline/comma-free JSON string array on disk) so a long, reused bundle can live in a file like any other
     /// list input.</summary>
     static (IReadOnlyList<string>? Paths, string? Error) ReadBundlePaths(string[] bundle)
     {
-        // A MIXED inline/@file list has no meaning here either — and it used to slip through, because the @file
-        // branch only fired at Length == 1: an "@path" sitting beside real paths became a literal dotted FIELD
-        // path, and the caller got an engine "no such field" refusal naming something they never meant as a field
-        // (review [low]). Named here with ListParams.Read's wording, so all three list inputs answer alike.
+        // A MIXED inline/@file list has no meaning: the @file branch only fires at Length == 1, so an "@path" beside
+        // real paths would become a literal dotted FIELD path. Worded as ListParams.Read does, so all three agree.
         int atCount = bundle.Count(b => b?.TrimStart().StartsWith('@') == true);
         if (atCount > 0 && bundle.Length != 1)
             return (null, $"bundle: \"@<path>\" reads the WHOLE list from a file, so it cannot be mixed with inline elements " +
@@ -298,12 +267,11 @@ public static class ApplyTools
         return (clean, null);
     }
 
-    /// <summary>Expand the §4.5 zip into ops: for each assignment, ONE CopyFrom op per bundle path. A zip, never a
-    /// product — each target reads its OWN paired source record, so N targets x M paths is N*M ops over N sources,
-    /// not N*N. Pair-level shape is validated here (both halves present, and not the same record); FormID SYNTAX,
-    /// the same-record-type gate, and the per-path legality rulebook are the engine's pre-flight, which reports
-    /// EVERY failure at once before anything is written (§4.5: "legality does not shrink"). Each generated op
-    /// carries the caller's own spelling as its <see cref="ApplyOp.Origin"/>, so a downstream refusal names
+    /// <summary>Expand the copy zip into ops: for each assignment, ONE CopyFrom op per bundle path. A zip, never a
+    /// product — each target reads its OWN paired source record, so N targets x M paths is N*M ops over N sources.
+    /// Only pair-level shape is checked here (both halves present, and not the same record); FormID syntax, the
+    /// same-record-type gate and the per-path legality rulebook are the engine's pre-flight. Each generated op carries
+    /// the caller's own spelling as its <see cref="ApplyOp.Origin"/>, so a downstream refusal names
     /// <c>assignments[i] x bundle[j]</c> rather than an op index that exists only after this expansion.</summary>
     static (IReadOnlyList<ApplyOp>? Ops, string? Error) ExpandZip(IReadOnlyList<string> paths, JsonElement assignments)
     {
@@ -335,14 +303,12 @@ public static class ApplyTools
     }
 }
 
-// ---- wire DTOs (the 2.0 op + zip shapes) ---------------------------------------------------------------
+// ---- wire DTOs (the op + zip shapes) -------------------------------------------------------------------
 
-/// <summary>One field edit off the 2.0 wire (housecarl_apply). The 1.x <see cref="BulkOp"/> with the SPEC §5.1
-/// vocabulary — <c>verb</c> is <c>op</c> (§5.1's one verb-name, AT THE OP LEVEL: a nested set inside
-/// <c>compose=</c> is a <see cref="NestedSet"/>, shared verbatim with the 1.x wire shape, and still spells
-/// <c>verb</c>; the §5.3 row renames the op member, not every verb-shaped member beneath it), <c>from_plugin</c> splits into the
-/// §4.5 pair <c>from</c> (the source RECORD) + <c>from_source</c> (the pole it is read from). Its own record rather
-/// than a reshaped BulkOp so the 1.x tools' published schemas stay untouched through the build waves.</summary>
+/// <summary>One field edit off housecarl_apply's wire — <see cref="BulkOp"/> with this surface's vocabulary:
+/// <c>verb</c> is <c>op</c> AT THE OP LEVEL only (a nested set inside <c>compose=</c> is a <see cref="NestedSet"/>
+/// and still spells <c>verb</c>), and the source plugin splits into <c>from</c> (the source RECORD) plus
+/// <c>from_source</c> (the pole it is read at).</summary>
 public sealed record ApplyOp
 {
     [JsonPropertyName("formid"), Description("The record to edit, as 'XXXXXX:Plugin.esp'.")]
@@ -378,17 +344,16 @@ public sealed record ApplyOp
     [JsonPropertyName("from_source"), Description("op='CopyFrom' only: WHOSE version of the source record to copy — an ACTIVE plugin, or a plugin FILE on disk that isn't in the load order (a disabled old patch). With from= it defaults to the source record's load-order winner; without from= it is required (there is no other source to name).")]
     public string? FromSource { get; init; }
 
-    /// <summary>NOT a wire member — never deserialized from a caller (<see cref="JsonIgnoreAttribute"/> keeps it out
-    /// of the published schema and out of the strict reader's member set). It is how an op the §4.5 zip GENERATED
-    /// remembers the caller's own spelling, so a refusal reads "assignments[0] x bundle[1]" instead of an op index
-    /// that only exists after expansion.</summary>
+    /// <summary>NOT a wire member — <see cref="JsonIgnoreAttribute"/> keeps it out of the published schema and out of
+    /// the strict reader's member set. It is how a zip-generated op remembers the caller's own spelling, so a refusal
+    /// reads "assignments[0] x bundle[1]" instead of an op index that only exists after expansion.</summary>
     [JsonIgnore]
     public string? Origin { get; init; }
 }
 
-/// <summary>One pair of the SPEC §4.5 <c>assignments=</c> zip: the record being written, the record its bundle is
-/// copied FROM, and optionally the pole that source is read at. Explicit pairing is the whole point — a join here
-/// is a ZIP, never a product, so N targets never silently fan out to N*N copies.</summary>
+/// <summary>One pair of the <c>assignments=</c> zip: the record being written, the record its bundle is copied FROM,
+/// and optionally the pole that source is read at. The join is a ZIP, never a product, so N targets never silently
+/// fan out to N*N copies.</summary>
 public sealed record Assignment
 {
     [JsonPropertyName("target"), Description("The record being WRITTEN, as 'XXXXXX:Plugin.esp' — the §5.2 meaning of the bare word 'target': a copy's destination record.")]
