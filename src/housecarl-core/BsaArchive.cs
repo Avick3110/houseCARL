@@ -26,8 +26,8 @@ public sealed record BsaResult(bool Success, string Raw, string? RunError)
 /// source root, which BSArch silently drops — the full root listing, not just the ones BSArch would have taken.</summary>
 public sealed record BsaSourceScan(int Archivable, IReadOnlyList<string> RootFiles);
 
-/// <summary>The result of a pack (BSArch). <see cref="RunError"/> non-null ⇒ the pack never really ran (BSArch couldn't
-/// be launched / a stuck stale scratch refused up front); <see cref="CountError"/> non-null ⇒ it
+/// <summary>The result of a pack (BSArch). <see cref="RunError"/> non-null ⇒ the pack produced nothing usable (BSArch
+/// couldn't be launched, exited non-zero, or a stuck stale scratch refused up front); <see cref="CountError"/> non-null ⇒ it
 /// ran but the produced archive's header count disagreed with the source, so nothing was placed. <see cref="Packed"/> is
 /// the produced archive's own file count, or null when it could not be read — the header oracle reads .bsa only, so a
 /// BA2 (fo4/sf1) or Morrowind archive packs unverified. <see cref="Expected"/> is what the source offered, or null when
@@ -40,10 +40,11 @@ public sealed record BsaPackResult(
 }
 
 /// <summary>How a pack writes the archive: produce <paramref name="tmpArchive"/> from <paramref name="srcFolder"/> and
-/// report what the run said, with <c>runError</c> non-null when it never really ran. <see cref="BsaArchive.Pack"/>
+/// report what the run said, with <c>runError</c> non-null when it never really ran and <c>exit</c> the packer's own
+/// exit code (0 = clean; anything else is a failed pack, whatever it left on disk). <see cref="BsaArchive.Pack"/>
 /// defaults to the BSArch shell; a test substitutes a packer that writes a known archive, so the count read-back around
 /// it can be exercised without BSArch.</summary>
-public delegate (string stdout, string stderr, string? runError) BsaPacker(
+public delegate (int exit, string stdout, string stderr, string? runError) BsaPacker(
     string bsarchExe, string srcFolder, string tmpArchive, string formatFlag, bool compress, int timeoutMs);
 
 /// <summary>
@@ -213,13 +214,15 @@ public static class BsaArchive
     /// an existing archive at the target is NEVER overwritten unless this run successfully packs a new one — BSArch writes
     /// to a houseCARL-internal temp beside the target, and only a clean pack THIS RUN (temp exists, non-empty, AND written
     /// at/after the run's mtime baseline) is moved over the target; a stale scratch from a previous run that cannot be
-    /// removed REFUSES up front (nothing runs, the prior .bsa untouched), and any failure (BSArch error, timeout, empty
-    /// output, stale-mtime scratch) deletes the temp and leaves the prior .bsa untouched. The mtime gate assumes an
-    /// NTFS-class timestamp resolution — on a FAT-class target a same-second pack could read as stale and fail LOUD (never
-    /// falsely succeed). The source is enumerated first and the produced archive's own header count is checked against it
+    /// removed REFUSES up front (nothing runs, the prior .bsa untouched), and any failure (BSArch error, non-zero exit,
+    /// timeout, empty output, stale-mtime scratch) deletes the temp and leaves the prior .bsa untouched. The mtime gate
+    /// assumes an NTFS-class timestamp resolution — on a FAT-class target a same-second pack could read as stale and fail
+    /// LOUD (never falsely succeed). The source is enumerated first and the produced archive's own header count is checked against it
     /// before the move, so a short pack refuses instead of reporting success; files at the source ROOT are counted apart
     /// because BSArch drops them, and a source that cannot be fully enumerated packs unverified rather than refusing. NOTE the caller must surface BSArch's caveat: a COMPRESSED archive breaks any
-    /// sounds/voices it contains.</summary>
+    /// sounds/voices it contains. The write itself runs through <paramref name="packer"/>, which defaults to the BSArch
+    /// shell — everything above about "BSArch" is that default; a test substitutes a packer to drive the checks around
+    /// the write without BSArch.</summary>
     public static BsaPackResult Pack(string bsarchExe, string srcFolder, string archive, string formatFlag, bool compress, int timeoutMs = 600_000, BsaPacker? packer = null)
     {
         var nothing = Array.Empty<string>();
@@ -242,9 +245,21 @@ public static class BsaArchive
         BsaSourceScan? scan;
         try { scan = ScanPackSource(srcFolder); }
         catch { scan = null; }
+
         var baselineUtc = DateTime.UtcNow;
 
         var run = (packer ?? ShellBsArch)(bsarchExe, srcFolder, tmp, formatFlag, compress, timeoutMs);
+
+        // A non-zero exit is a failed pack whatever it left behind: BSArch can abort partway and still leave a scratch
+        // whose header count happens to agree with the source, which would otherwise ship over the user's archive.
+        if (run.runError is null && run.exit != 0)
+        {
+            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best-effort */ }
+            var said = string.IsNullOrWhiteSpace(run.stderr) ? "it printed no error output" : run.stderr.Trim();
+            return new BsaPackResult(false, null, scan?.Archivable, scan?.RootFiles ?? nothing,
+                (run.stdout + "\n" + run.stderr).Trim(),
+                $"BSArch exited with code {run.exit} — {said}. Nothing was packed; the existing archive, if any, is untouched.", null);
+        }
 
         // Provenance: THIS run must have written the scratch (mtime at/after the pre-run baseline) —
         // existence alone proved nothing about who made it.
@@ -321,13 +336,13 @@ public static class BsaArchive
     };
 
     /// <summary>Run BSArch's pack for real: the shipped packer, and <see cref="Pack"/>'s default.</summary>
-    static (string stdout, string stderr, string? runError) ShellBsArch(
+    static (int exit, string stdout, string stderr, string? runError) ShellBsArch(
         string bsarchExe, string srcFolder, string tmpArchive, string formatFlag, bool compress, int timeoutMs)
     {
         var args = new List<string> { "pack", srcFolder, tmpArchive, formatFlag, "-mt" };
         if (compress) args.Add("-z");
         var run = Run(bsarchExe, args, timeoutMs);
-        return (run.stdout, run.stderr, run.runError);
+        return (run.exit, run.stdout, run.stderr, run.runError);
     }
 
     static (bool ran, int exit, string stdout, string stderr, string? runError) Run(string exe, IReadOnlyList<string> args, int timeoutMs)
