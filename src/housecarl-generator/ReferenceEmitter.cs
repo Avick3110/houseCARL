@@ -5,19 +5,17 @@ using System.Text.Json.Serialization;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// First-wave step 3 — emits the slim reference tree the <c>mutagen-reference</c> skill ships:
-/// per-type JSON schema blocks (one compact line each — JSONL) sharded by kind, plus
-/// <c>index.jsonl</c> mapping every type name + xEdit signature to its {file, line}. This is the
-/// SAME catalog <c>corpus.json</c> holds, minus the assembly-qualified type names (the write tool
-/// keeps those; Claude never needs them) — so the skill's read-content and the write tool's rulebook
-/// physically can't disagree about field names or types: one generator walk, two renderings.
+/// Emits the slim reference tree the <c>mutagen-reference</c> skill ships: per-type JSON schema blocks
+/// (one compact line each — JSONL) sharded by kind, plus <c>index.jsonl</c> mapping every type name +
+/// xEdit signature to its {file, line}. It is the SAME catalog <c>corpus.json</c> holds, minus the
+/// assembly-qualified type names the write tool needs, so one generator walk gives two renderings that
+/// cannot disagree about field names or types.
 ///
-/// Lookup pattern the skill follows: grep <c>index.jsonl</c> for the name/signature, take {file, line},
-/// then read exactly that one line from the shard. The block is one line, so the read is one line —
-/// never whole-load a shard, never answer a schema question from memory (decision #4).
+/// The lookup the skill does: grep <c>index.jsonl</c> for the name or signature, take {file, line}, read
+/// exactly that one line from the shard. Keep every block on ONE line, or that read stops working.
 ///
-/// Terse field keys (n/t/c/w + sparse refs) keep the JSON within ~15% of markdown; the legend lives
-/// once in the skill's SKILL.md. Aaron's human-readable view stays <c>corpus.summary.md</c>.
+/// Terse field keys (n/t/c/w + sparse refs) keep the JSON small; the legend lives once in the skill's
+/// SKILL.md. The human-readable view is <c>corpus.summary.md</c>.
 /// </summary>
 public static class ReferenceEmitter
 {

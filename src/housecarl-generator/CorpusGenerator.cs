@@ -9,7 +9,7 @@ using Mutagen.Bethesda.Skyrim;           // IArmorGetter (assembly anchor)
 namespace HousecarlGenerator;
 
 /// <summary>
-/// First-wave step 2 — the cornerstone in code. Walks the entire
+/// The cornerstone in code. Walks the entire
 /// Mutagen.Bethesda.Skyrim type universe via reflection and emits a flat type
 /// catalog covering <b>literally every type Mutagen models</b>: the mod header,
 /// every major record (top-level and nested), every reachable sub-struct, and
@@ -26,13 +26,13 @@ public static class CorpusGenerator
     static readonly List<string> Warnings = new();
 
     /// <summary>
-    /// The #397 coverage-gap anomaly lines, kept in their OWN channel rather than in <see cref="Warnings"/>.
+    /// The coverage-gap anomaly lines, kept in their OWN channel rather than in <see cref="Warnings"/>.
     ///
     /// <see cref="Warnings"/> is an unbounded stream printed under a fixed cap, so a coverage-gap line sharing
-    /// that budget can be truncated away by unrelated warnings that happen to be added first — silently losing
-    /// the one output #397 exists to produce. This channel is printed IN FULL and BEFORE the warnings, so the
-    /// two can never compete for the same budget. It is also the channel the arm-classification-guard's D arm
-    /// reads, so what the guard asserts against is the untruncated set.
+    /// that budget can be truncated away by unrelated warnings added first — silently losing the one output
+    /// this channel exists to produce. It is printed IN FULL and BEFORE the warnings, so the two can never
+    /// compete for the same budget, and it is what arm-classification-guard reads, so the guard asserts
+    /// against the untruncated set.
     /// </summary>
     static readonly List<string> CoverageAnomalies = new();
 
@@ -95,7 +95,7 @@ public static class CorpusGenerator
             }
         }
 
-        // The mod CONTAINER itself (Aaron-go 2026-05-30: in scope). It is neither the header nor a major record,
+        // The mod CONTAINER itself, which is in scope. It is neither the header nor a major record,
         // so record-reachability never reaches it — seed it explicitly. Seeding walks the SkyrimGroup<T> /
         // SkyrimListGroup<T> record-group surface (now handled as collections in IsList), the only path to types
         // like CellBlock. ISkyrimModGetter has two implementers — the writable SkyrimMod and the read-only
@@ -106,8 +106,8 @@ public static class CorpusGenerator
         if (modGetter != null) EnqueueModeledRef(modGetter, seeds);
         else Warnings.Add("ISkyrimModGetter not found — mod container omitted (investigate).");
 
-        // The PEX subsystem (Aaron-go 2026-05-30: in scope; tools prefer .psc source + Papyrus compile, PEX is the
-        // sourceless fallback). Compiled-Papyrus types live in Mutagen.Bethesda.Core, a different assembly than the
+        // The PEX subsystem, also in scope: tools prefer .psc source plus a Papyrus compile, and PEX is the
+        // sourceless fallback. Compiled-Papyrus types live in Mutagen.Bethesda.Core, a different assembly than the
         // Skyrim records, so seed the PEX root (IPexFileGetter) to bring the 16 PEX types into the catalog.
         var pexGetter = typeof(IMajorRecordGetter).Assembly.GetType("Mutagen.Bethesda.Pex.IPexFileGetter");
         if (pexGetter != null) EnqueueModeledRef(pexGetter, seeds);
@@ -123,7 +123,7 @@ public static class CorpusGenerator
         {
             var item = queue.Dequeue();
 
-            // Enums are catalogued as their own kind (decision #6): listed once with their legal values and
+            // Enums are catalogued as their own kind: listed once with their legal values and
             // referenced by name from every field, instead of inlining e.g. ActorValue's 156 values on each
             // of the dozens of fields that use it. An enum's catalog name is its raw type name — enum names
             // don't need the I-/Getter- normalization records and structs go through.
@@ -134,8 +134,8 @@ public static class CorpusGenerator
                 if (catalog.TryGetValue(ename, out var existing))
                 {
                     // Same key + same underlying type = the normal dedup (one enum referenced by many fields).
-                    // Same key + a DIFFERENT type = a residual collision the qualified name failed to resolve —
-                    // fail LOUD (the old code silently skipped enum-vs-enum clashes, the root of the Flag x90 bug).
+                    // Same key + a DIFFERENT type = a collision the qualified name failed to resolve — fail LOUD.
+                    // Silently skipping enum-vs-enum clashes catalogues one enum's values under another's name.
                     if (existing.Kind != "enum" || existing.GetterInterface != efull)
                         Warnings.Add($"Name collision: enum '{ename}' ({efull}) clashes with existing {existing.Kind} '{existing.GetterInterface}' — disambiguate the catalog key.");
                     continue;
@@ -233,12 +233,12 @@ public static class CorpusGenerator
             // DialogResponsesAdapter.ScriptFragments or Npc.Sound) with no new write path. Same Mutagen reflection that
             // builds the write surface, so schema and engine can't disagree. value/enum/formlink already carry correct
             // nullability (Nullable<T> + the FormLinkNullable name-check in ClassifyField).
-            // NOT A REQUIRED-ARM SIGNAL: this poly nullability is a faithful "can this field be absent?", but it is NOT a
-            // "required arm at serialize" predicate, and NO pre-flight gate keys on it. NpcConfiguration.Level reads
-            // Nullable=false yet a null Level serializes fine (nullarm-guard B2), while Condition.Data (also Nullable=false)
-            // throws — same flag, opposite serialize behavior. A gate on the flag would over-reject a legitimately-absent
-            // field or need a hand-curated required-arm list (cornerstone §3), so a genuinely-missing required arm stays
-            // caught at the serialize boundary (WriteEngine.WritePatch's NullArmSerializeException), the honest failure point.
+            // NOT A REQUIRED-ARM SIGNAL: this poly nullability faithfully says "can this field be absent?", but it is
+            // NOT a "required arm at serialize" predicate, and no pre-flight gate may key on it. NpcConfiguration.Level
+            // reads Nullable=false yet a null Level serializes fine, while Condition.Data (also Nullable=false) throws —
+            // same flag, opposite serialize behaviour. A gate on the flag would over-reject a legitimately-absent field,
+            // or need a hand-written required-arm list, which the cornerstone forbids. A genuinely-missing required arm
+            // stays caught at the serialize boundary (WriteEngine.WritePatch's NullArmSerializeException).
             if ((f.Cardinality is "substruct" or "polymorphic") && !f.Nullable
                 && nullCtx.Create(p).ReadState == System.Reflection.NullabilityState.Nullable)
                 f.Nullable = true;
@@ -281,7 +281,7 @@ public static class CorpusGenerator
         }
         if (t.IsEnum)
         {
-            // Reference the enum's catalog entry by name (decision #6); its values live once on that entry
+            // Reference the enum's catalog entry by name; its values live once on that entry
             // and are resolved on demand, not copied onto every field of this enum type. The catalog key is the
             // enum's UNIQUE qualified name (DeclaringType.Name + "." + Name for nested enums), not the bare name:
             // ~90 distinct per-record enums are all named "Flag", and a bare-name catalog silently collapses them
@@ -385,7 +385,7 @@ public static class CorpusGenerator
         // FormLink machinery reaching here as the bare IFormLinkIdentifier (the generic
         // IFormLink<T> is handled above) -> mirror as a form reference, not a struct.
         //
-        // A MAJOR RECORD is cut from that rule first (#335). IMajorRecordGetter itself carries
+        // A MAJOR RECORD is cut from that rule first. IMajorRecordGetter itself carries
         // IFormLinkIdentifier — a record identifies itself (FormKey + Type) exactly the way a link identifies
         // its target — so the bare-link test cannot tell "points at a record" from "IS a record". Every field
         // whose type is a major record is an OWNED CHILD (Cell.Landscape, Worldspace.TopCell): the parent holds
@@ -456,8 +456,8 @@ public static class CorpusGenerator
     /// self-entry is load-bearing for arm DETECTION — it is part of the &gt;1 count that classifies the
     /// union, and dropping it BEFORE the count would demote two-entry unions like ScriptFragments
     /// (<c>[ScriptFragments, SceneScriptFragments]</c>) / SimpleModel (<c>[SimpleModel, Model]</c>)
-    /// back to plain structs, silently losing their real second arm (WRITE_PREFLIGHT_GAP_AUDIT_2026-06-18
-    /// §9). But a base is not a legal arm of ITSELF (the runtime G8 gate already rejects composing one),
+    /// back to plain structs, silently losing their real second arm. But a base is not a legal arm of ITSELF
+    /// (the runtime gate already rejects composing one),
     /// so it must never appear in the emitted list. Strip it here, at emit only, keyed on the base's own
     /// catalog name — detection upstream still counts the raw arm set, so coverage is unchanged.
     /// </summary>
@@ -528,12 +528,11 @@ public static class CorpusGenerator
                     arms.Add(t);
                     break;
                 case ArmClass.WritableButUnextractable:
-                    // #397's Q3 half. This candidate is dropped from the union with the same silence as a
-                    // type that carries nothing, but it is not one: it has settable state, and the drop is
-                    // therefore worth reporting so a human can check it. Whether it is a genuine coverage
-                    // hole is NOT decided here and the line does not claim it — see UnextractableWarning
-                    // and #424. The drop itself is unchanged, and the schema is deliberately NOT extracted
-                    // from the concrete class (see ClassifyArm).
+                    // This candidate is dropped from the union as silently as a type carrying nothing, but it
+                    // is not one: it has settable state, so the drop is reported for a human to check. Whether
+                    // it is a genuine coverage hole is NOT decided here and the line must not claim it — see
+                    // UnextractableWarning. The schema is deliberately NOT extracted from the concrete class
+                    // (see ClassifyArm).
                     if (ReportedUnextractable.Add(t))
                         CoverageAnomalies.Add(UnextractableWarning("union arm", t));
                     break;
@@ -548,9 +547,9 @@ public static class CorpusGenerator
     }
 
     /// <summary>
-    /// Why a concrete union implementer is not an authorable arm — the distinction #397 was filed for.
-    /// Both non-authorable answers are excluded identically (behavior is unchanged by this split); they are
-    /// separated so the emitted anomaly list can tell an exclusion that loses nothing from one that may not.
+    /// Why a concrete union implementer is not an authorable arm. Both non-authorable answers are excluded
+    /// identically; they are separated only so the emitted anomaly list can tell an exclusion that loses
+    /// nothing from one that may not.
     /// </summary>
     internal enum ArmClass
     {
@@ -561,8 +560,8 @@ public static class CorpusGenerator
         ReadOnlyProjection,
         /// <summary>No <c>I{Name}Getter</c> resolved BY NAME, yet the class carries settable state. Reported,
         /// not diagnosed: the name probe misses a type whose getter interface is generic or differently
-        /// named (#424), so this verdict does NOT establish a coverage gap — it establishes that a human
-        /// should check whether the data is reachable elsewhere in the catalogue.</summary>
+        /// named, so this verdict does NOT establish a coverage gap — only that a human should check whether
+        /// the data is reachable elsewhere in the catalogue.</summary>
         WritableButUnextractable,
     }
 
@@ -586,26 +585,24 @@ public static class CorpusGenerator
     /// BookTeachesNothing) — a marker DOES implement its mutable interface, so it stays authorable. It also
     /// leaves a CONCRETE self-listing poly-base (APackageData, ScriptFragments, SimpleModel) in the raw arm
     /// set — those are authorable, so the &gt;1 count is preserved and the self-entry is stripped at emit by
-    /// <see cref="EmittedArmNames"/>, exactly as before.
+    /// <see cref="EmittedArmNames"/>.
     ///
-    /// THE #397 SPLIT. When a getter interface EXISTS, authorability is whether its mutable twin does; no
-    /// twin means a read-only projection, the correct exclusion. When NO getter interface exists, the former
-    /// <c>MutableInterfaceFor(GetterInterfaceFor(t) ?? t)</c> handed the concrete class to
-    /// <see cref="MutableInterfaceFor"/>, whose <c>EndsWith("Getter")</c> test a concrete class never passes —
-    /// so the answer was always "excluded", and "has no getter interface" became indistinguishable in the
-    /// output from "is a read-only projection", though only the second is a correct reason to exclude. That
-    /// conflation is the bug. Split here on whether the class actually carries writable state.
+    /// THE SPLIT. When a getter interface EXISTS, authorability is whether its mutable twin does; no twin
+    /// means a read-only projection, the correct exclusion. When NO getter interface exists, handing the
+    /// concrete class to <see cref="MutableInterfaceFor"/> always answers "excluded" — its
+    /// <c>EndsWith("Getter")</c> test a concrete class never passes — which makes "has no getter interface"
+    /// indistinguishable in the output from "is a read-only projection", though only the second is a correct
+    /// reason to exclude. So split here on whether the class actually carries writable state.
     /// </summary>
     internal static ArmClass ClassifyArm(Type t)
     {
         var gi = GetterInterfaceFor(t);
 
-        // The pre-#397 predicate, reproduced LITERALLY — including the `?? t` fallback, which is load-bearing and
-        // not the dead branch it looks like. A concrete class whose OWN name ends in "Getter"
-        // (FormLinkNullableGetter`1, FormLinkOrIndexGetter`1 in Mutagen.Bethesda.Core) passes
-        // MutableInterfaceFor's arity-stripped EndsWith test and resolves a mutable twin through the fallback,
-        // so it was authorable before and must stay authorable. Computing this from `gi` alone silently flipped
-        // both types; they are in the walk, because BuildCorpus seeds IPexFileGetter from that same assembly.
+        // The `?? t` fallback is load-bearing, not the dead branch it looks like. A concrete class whose OWN name
+        // ends in "Getter" (FormLinkNullableGetter`1, FormLinkOrIndexGetter`1 in Mutagen.Bethesda.Core) passes
+        // MutableInterfaceFor's arity-stripped EndsWith test and resolves a mutable twin through it, so it is
+        // authorable and must stay so. Computing this from `gi` alone silently flips both types, and both are in
+        // the walk because BuildCorpus seeds IPexFileGetter from that same assembly.
         if (MutableInterfaceFor(gi ?? t) != null) return ArmClass.Authorable;
 
         // Not authorable. Everything below only decides WHICH exclusion to report — never whether to exclude.
@@ -618,8 +615,8 @@ public static class CorpusGenerator
     ///
     /// DIAGNOSTIC ONLY, and it decides only which of two ANOMALY LINES is printed — never whether a type is
     /// excluded. It counts against the CONCRETE CLASS, whereas every cataloged entry's writability is computed
-    /// against a MUTABLE INTERFACE (see <see cref="ExtractType"/>). That difference is exactly why #397 rules
-    /// out extracting such a type's schema. The count never reaches the catalog; it only sizes the anomaly.
+    /// against a MUTABLE INTERFACE (see <see cref="ExtractType"/>) — which is why such a type's schema must not
+    /// be extracted. The count never reaches the catalog; it only sizes the anomaly.
     /// </summary>
     static bool HasWritableSurface(Type t) => WritableSurfaceCount(t).writable > 0;
 
@@ -629,8 +626,8 @@ public static class CorpusGenerator
     /// Deliberately NOT <see cref="CollectAllProperties"/>, which the emit path uses (<see cref="ExtractType"/>)
     /// and which this must not perturb: it reads DeclaredOnly and never walks BaseType, so a class inheriting
     /// its state would count zero here and take the deliberately-silent ReadOnlyProjection branch — the silent
-    /// drop #397 exists to remove, in the direction that prints nothing. Keeping the fix classifier-local is why
-    /// this walks itself instead of tightening the shared helper.
+    /// drop this exists to remove, in the direction that prints nothing. Keeping it classifier-local is why this
+    /// walks itself instead of tightening the shared helper.
     ///
     /// The measure is "authorable", and it sits between the two obvious readings — the label the caller prints
     /// says so in both directions, because neither alone describes it. It is NARROWER than
@@ -677,7 +674,7 @@ public static class CorpusGenerator
         "coverage gap.";
 
     /// <summary>
-    /// The anomaly line for a type with no getter interface (#397 part 1).
+    /// The anomaly line for a type with no getter interface.
     ///
     /// It states the MEASUREMENT and nothing else. It deliberately does NOT say the type is a real coverage
     /// gap, and does NOT say the fix belongs upstream in Mutagen — neither is established by "no
@@ -686,8 +683,8 @@ public static class CorpusGenerator
     /// its data ships in the reference today as <c>GenderedItem&lt;Boolean&gt;</c>, 2/2 writable. The name probe
     /// is <c>I{Name}Getter</c> built from <c>Type.Name</c>, which carries the generic arity, so a type whose
     /// getter interface is named differently — or is generic — resolves null here while being perfectly
-    /// extractable. That is a real defect in <see cref="GetterInterfaceFor"/>, filed separately; until it is
-    /// fixed this line must not diagnose, only report, and hand the reader the one check that settles it.
+    /// extractable. That is a real defect in <see cref="GetterInterfaceFor"/>; until it is fixed this line must
+    /// not diagnose, only report, and hand the reader the one check that settles it.
     ///
     /// Shared by the record path and the union-arm path so both name the same thing the same way.
     /// </summary>
@@ -884,14 +881,11 @@ public static class CorpusGenerator
     // ---------------------------------------------------------------- writability guard
     //
     // Companion to Probe's `vocab` check (which guards the mutable-COLLECTION-shape whitelist).
-    // This guards the field-WRITABILITY surface: every field Mutagen models read-only falls into
-    // one of the categories below, verified field-by-field 2026-05-30 against Mutagen 0.53.1 (8424/9087
-    // writable; all 663 read-only accounted for, 0 residue) — a dated measurement, not a current count;
-    // the guard below is dynamic and re-derives the residue on whatever version is referenced.
-    // A non-writable field fitting NONE of them is a possible
-    // regression — a content field that lost its setter via a Mutagen bump or a reflection miss (the
-    // failure mode the generic-getter `1 bug was, CorpusGenerator §MutableInterfaceFor) — and is
-    // surfaced loud in Report's anomaly list, never passed over silently (CLAUDE.md §3 fail-loud).
+    // This guards the field-WRITABILITY surface: every field Mutagen models read-only must fall into one of the
+    // categories below. The guard is dynamic and re-derives the leftovers on whatever Mutagen version is
+    // referenced. A non-writable field fitting NONE of the categories is a possible regression — a content field
+    // that lost its setter to a Mutagen bump, or a reflection miss — and is surfaced loud in Report's anomaly
+    // list, never passed over silently.
     //
     //   R0 identity          — FormKey / ModKey: record identity, read-only by design, any type.
     //   R1 no-mutable-iface  — the type exposes no mutable interface at all (read-only construct:
@@ -1016,7 +1010,7 @@ public static class CorpusGenerator
             sb.AppendLine($"### {t.Name}  _({t.Kind})_");
             sb.AppendLine();
 
-            // Enum entries (decision #6): listed once with their legal values; fields reference them by name.
+            // Enum entries: listed once with their legal values; fields reference them by name.
             if (t.Kind == "enum")
             {
                 sb.AppendLine($"- Values ({t.EnumValues?.Count ?? 0}): {string.Join(", ", t.EnumValues ?? new())}");
@@ -1077,8 +1071,8 @@ public static class CorpusGenerator
             Spotlight(c, name);
 
         // The coverage-gap channel prints FIRST and IN FULL. It deliberately does not share the warning stream's
-        // truncation budget: the warnings are unbounded, so a cap they share is a channel on which the #397 line
-        // can silently vanish behind unrelated noise.
+        // truncation budget: the warnings are unbounded, so a shared cap lets a coverage-gap line vanish silently
+        // behind unrelated noise.
         if (CoverageAnomalies.Count > 0)
         {
             Console.WriteLine($"COVERAGE ANOMALIES ({CoverageAnomalies.Count}) — printed in full, never truncated:");

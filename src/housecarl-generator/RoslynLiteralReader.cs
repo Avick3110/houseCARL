@@ -10,22 +10,19 @@ namespace HousecarlGenerator;
 /// <para><b>Why the compiler rather than a hand lexer here.</b> <c>description-vocab-guard</c>'s net is "every
 /// string literal in the shipped source trees", and the set of string literals in a C# file is not a matter of
 /// opinion — it is what the compiler decides. Roslyn IS that decision, so this reader cannot disagree with the
-/// build about what a literal is, what an escape decodes to, or where an interpolation hole begins. The second
-/// design's hand lexer got exactly those wrong (a literal inside a hole was invisible; an apostrophe inside such a
-/// literal flipped it into character-literal mode and swallowed the rest of the file) and every arm stayed green,
-/// because the only thing checking the lexer was the lexer.</para>
+/// build about what a literal is, what an escape decodes to, or where an interpolation hole begins.</para>
 ///
-/// <para><b>What it is NOT.</b> It is not the completeness proof. A reader that certifies itself certifies
-/// nothing, which is the failure both prior designs died of — so this reader's output is held against
-/// <see cref="HandLiteralLexer"/>'s, written independently from C#'s lexical grammar and sharing no code with it
-/// (<see cref="SourceLiteral"/> is a data shape, not a tokenizer). <c>INV6-AGREE</c> is the arm; either reader
-/// stopping early makes the two disagree and turns it red, naming the file.</para>
+/// <para><b>What it is NOT.</b> It is not the completeness proof — a reader that certifies itself certifies
+/// nothing. Its output is held against <see cref="HandLiteralLexer"/>'s, written independently from C#'s lexical
+/// grammar and sharing no code with it (<see cref="SourceLiteral"/> is a data shape, not a tokenizer).
+/// <c>INV6-AGREE</c> is the arm; either reader stopping early makes the two disagree and turns it red, naming the
+/// file.</para>
 ///
 /// <para><b>Parsing, not compiling.</b> No references are resolved and no semantic model is built — this is a
-/// syntax parse of one file at a time, and it dominates the guard's cost: the whole run over the shipped surface
-/// takes about two seconds end to end rather than milliseconds. The parse is
-/// run at <see cref="LanguageVersion.Preview"/> so a language feature newer than the pinned package is a PARSE
-/// ERROR that <c>INV6-PARSE</c> reports by name, rather than a construct silently misread into fewer literals.</para>
+/// syntax parse of one file at a time, and it dominates the guard's cost (seconds, not milliseconds, over the
+/// shipped surface). The parse runs at <see cref="LanguageVersion.Preview"/> so a language feature newer than the
+/// pinned package is a PARSE ERROR that <c>INV6-PARSE</c> reports by name, rather than a construct silently
+/// misread into fewer literals.</para>
 /// </summary>
 public static class RoslynLiteralReader
 {
@@ -79,15 +76,13 @@ public static class RoslynLiteralReader
 
     /// <summary>The text-adding calls in a file, keyed by the END offset of the literal each one takes — the key
     /// a merged run carries forward, so a run's TAIL is what gets looked up.
-    /// <para><b>Why the tree and not the text in front of the literal.</b> Until 2026-08-26 the merge asked a
-    /// regex what stood before a literal and read a receiver NAME out of it, which is a guess at a receiver
-    /// rather than the receiver. It got two shipped shapes wrong, both measured: a call with a VALUE argument
-    /// earlier in the chain (<c>sb.Append(count).Append("a"); sb.Append("b");</c>) left a <c>)</c> where the
-    /// pattern wanted a name, and an INDEXER-spelled receiver (<c>cells[i].Sb</c>) could not be spelled by an
-    /// identifier pattern at all. Both refused a run this guard PRINTS that it reads, so a phrase split across
-    /// one reached a caller with INV1 green. Asking the syntax tree instead makes both correct by construction
-    /// rather than by two more alternations: the head receiver is a NODE, whatever it is spelled like, and a
-    /// chain is a parent relation rather than a window of characters.</para>
+    /// <para><b>Why the tree and not the text in front of the literal.</b> Reading a receiver NAME out of the
+    /// characters before a literal is a guess at a receiver rather than the receiver, and it cannot spell two
+    /// shipped shapes at all: a call with a VALUE argument earlier in the chain
+    /// (<c>sb.Append(count).Append("a"); sb.Append("b");</c>) leaves a <c>)</c> where a name is wanted, and an
+    /// INDEXER-spelled receiver (<c>cells[i].Sb</c>) is not an identifier. Both are runs this guard claims to read,
+    /// so a phrase split across one would reach a caller with INV1 green. From the tree the head receiver is a
+    /// NODE whatever it is spelled like, and a chain is a parent relation rather than a window of characters.</para>
     /// <para>This is READER A's knowledge alone, which is why <see cref="AppendCall"/> lives here and not beside
     /// <see cref="SourceLiteral"/>: reader B never sees it, and <c>INV6-AGREE</c> compares the two readers'
     /// LITERALS, below and before any merging. Nothing here can make the two agree.</para></summary>
@@ -103,8 +98,7 @@ public static class RoslynLiteralReader
             // ONE argument, and it must BE the literal: a second argument is a value between the two halves, and
             // a named or by-ref argument is not the text-adding shape either. "Be" rather than "end with" —
             // `sb.Append(name == "…")` closes on a string and appends a bool, so its literal is read by nobody,
-            // and keying that call at the literal's end would merge text no caller sees. Measured: admitting an
-            // expression that merely ends on a literal joins 114 further pairs in the shipped trees.
+            // and keying that call at the literal's end would merge text no caller sees.
             var args = inv.ArgumentList.Arguments;
             if (args.Count != 1 || args[0].NameColon is not null
                 || !args[0].RefKindKeyword.IsKind(SyntaxKind.None)) continue;
@@ -181,13 +175,12 @@ public static class RoslynLiteralReader
     /// <para>The doubled braces are collapsed here rather than taken from the token. A text segment's
     /// <c>ValueText</c> resolves backslash escapes but leaves <c>{{</c> and <c>}}</c> as written — brace
     /// un-doubling happens later, when the compiler lowers the interpolation — so the token's value is not yet the
-    /// string the program prints. Found by <c>INV6-AGREE</c> on shipped GraphQL and JSON-shaped messages, which is
-    /// the disagreement that arm exists to produce.</para>
+    /// string the program prints. It shows up on GraphQL and JSON-shaped messages.</para>
     /// <para><b>Only for the flavours that HAVE escapes.</b> Doubling is how a brace is spelled in the two regular
     /// interpolated forms, so there a doubled brace can only BE an escape and the collapse is exact. A RAW
     /// interpolated string escapes nothing: its hole opens on a run of as many braces as it has dollar signs, and
     /// any shorter run is ordinary content — so collapsing there would hand back a value the compiler never
-    /// builds, and INV6-AGREE would red on correct source naming neither reader. The start token says which
+    /// builds, and INV6-AGREE would go red on correct source naming neither reader. The start token says which
     /// flavour this is, so the question is answered by the parse rather than assumed.</para></summary>
     static string Interpolated(InterpolatedStringExpressionSyntax interp)
     {
