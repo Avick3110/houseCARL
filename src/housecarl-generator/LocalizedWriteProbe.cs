@@ -286,7 +286,8 @@ public static class LocalizedWriteProbe
             Row("M3-langset", null,
                 $"{langs.Count} files → {{{string.Join(", ", langs.OrderBy(x => x))}}}; {sw.Elapsed.TotalMilliseconds / 1000:F4} ms per check");
 
-            // (b) the cheap BSA presence test the read side already runs (LoadOrderResolver.FolderHasOwnStrings).
+            // (b) the cheap BSA presence test the read side USED to run as its gate — kept as the cost baseline the
+            // stem-keyed test in (d) is measured against.
             sw.Restart();
             bool anyBsa = false;
             for (int i = 0; i < 1000; i++) anyBsa = Directory.EnumerateFiles(folder, "*.bsa").Any();
@@ -294,8 +295,9 @@ public static class LocalizedWriteProbe
             Row("M3-bsa-cheap", null,
                 $"any .bsa beside the plugin = {anyBsa}; {sw.Elapsed.TotalMilliseconds / 1000:F4} ms per check (no archive opened)");
 
-            // (c) #369's interaction, measured: drop an EMPTY-of-strings .bsa beside a plugin whose strings live in
-            // game-Data. FolderHasOwnStrings answers "has its own" on the .bsa alone, so OpenOverlay does not redirect.
+            // (c) #369, measured: drop an EMPTY-of-strings .bsa beside a plugin whose strings live in game-Data. The
+            // gate now asks whether the archive embeds strings for THIS plugin, so the redirect survives it and the
+            // values resolve — this arm reads 0 blanks where it used to read all of them.
             var small = SmallRealBsa();
             if (small is null) { Row("M3-369", null, "no Skyrim install on this machine — #369 arm skipped"); return; }
             var g = BuildFixture(NewRoot(), relocate: true, secondLanguage: false, bsaBeside: small);
@@ -305,7 +307,7 @@ public static class LocalizedWriteProbe
                 var blank = without.Values.Count(v => string.IsNullOrEmpty(v));
                 Row("M3-369", null,
                     $"a .bsa beside a game-Data-strings plugin: FolderHasOwnStrings={LoadOrderResolver.FolderHasOwnStrings(g.PluginPath)}, "
-                    + $"{blank}/{without.Count} values read BLANK through OpenOverlay (#369, measured not fixed)");
+                    + $"{blank}/{without.Count} values read BLANK through OpenOverlay (#369, fixed)");
             }
             finally { Nuke(Path.GetDirectoryName(Path.GetDirectoryName(g.DataDir)!)!); }
         }
