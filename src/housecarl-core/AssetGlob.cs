@@ -33,20 +33,23 @@ public static class AssetGlob
     /// normalized to backslashes.</summary>
     public static bool IsMatch(string pattern, string path) => ToRegex(pattern).IsMatch(path);
 
-    /// <summary>Every Data-relative path the selector names, sorted. Throws ArgumentException (naming the input) for a
-    /// drive-rooted or parent-escaping selector, the same gate every other asset query passes.</summary>
+    /// <summary>Every Data-relative path the selector names, sorted. Throws ArgumentException (naming the input, never
+    /// a parameter) for a drive-rooted or parent-escaping selector, the same gate every other asset query passes, and
+    /// for one that names no directory at all.</summary>
     public static IReadOnlyList<string> Select(AssetResolver.AssetView view, string selector)
     {
         var norm = AssetResolver.ValidateRelPath(selector).TrimEnd('\\');
-        if (!HasWildcard(norm)) return Sorted(view.EnumerateUnder(norm));
-
         var prefix = LiteralPrefix(norm);
-        // A glob with no literal directory in front of it would enumerate the whole VFS — every loose file in every
+        // A selector with no literal directory in front of it would enumerate the whole VFS — every loose file in every
         // enabled mod and every entry of every archive — before a single path is rendered. Refused rather than paid.
+        // Tested on the PREFIX, not on the presence of a wildcard: "/", "\" and "//" all normalize to the Data root and
+        // sweep exactly as wide as an unanchored glob does.
         if (prefix.Length == 0)
             throw new ArgumentException(
-                "a glob has to be anchored under a directory, or it sweeps the whole load order — " +
-                $"put a folder in front of it, e.g. 'meshes/actors/character/**/*.nif': '{selector}'", nameof(selector));
+                "under has to be anchored under a directory, or it sweeps the whole load order — " +
+                $"name a folder, e.g. 'meshes/actors/character' or 'meshes/actors/character/**/*.nif': '{selector}'");
+
+        if (!HasWildcard(norm)) return Sorted(view.EnumerateUnder(norm));
 
         var rx = ToRegex(norm);                                  // compiled ONCE, not per candidate path
         return Sorted(view.EnumerateUnder(prefix).Where(p => rx.IsMatch(p)));

@@ -139,6 +139,48 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         Assert.Contains(d.SelectorNotes, n => n.Contains("parent-escaping", StringComparison.Ordinal));
     }
 
+    /// <summary>A selector that normalizes to nothing — "/", "\", "//" — names the Data root, and enumerating it
+    /// sweeps every loose file and every archive table in the order. It is refused for the same reason an unanchored
+    /// glob is, in one plain sentence.</summary>
+    [Fact]
+    public void ASelectorThatNamesNoDirectoryIsRefusedTheSameWayAnUnanchoredGlobIs()
+    {
+        foreach (var root in new[] { "/", @"\", "//" })
+        {
+            var d = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { root });
+
+            Assert.Empty(d.Results);
+            var note = Assert.Single(d.SelectorNotes!);
+            Assert.Contains("anchored under a directory", note, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>"./meshes" and "meshes" are the same folder. Left in, a "." segment survives into the loose walk but
+    /// never matches a BSA table entry, so the archive-only files drop out of the sweep without a word.</summary>
+    [Fact]
+    public void ADotSegmentSelectsTheSameSetAsThePlainSpellingIncludingArchiveOnlyFiles()
+    {
+        var plain = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { "meshes" });
+        var dotted = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { "./meshes" });
+
+        Assert.Equal(AssetSelectWorld.FaceGeomFiles, plain.Selected);
+        Assert.Equal(Paths(plain), Paths(dotted));
+        // The BSA-only file is in both, not just the loose lane's answer.
+        Assert.Contains(Paths(dotted), p => Leaf(p) == "0005.nif");
+        Assert.Empty(dotted.SelectorNotes ?? Array.Empty<string>());
+    }
+
+    /// <summary>A refusal reads as one plain sentence — no .NET exception furniture trailing off the end of it.</summary>
+    [Fact]
+    public void ARefusedSelectorReadsAsOnePlainSentenceWithNoParameterSuffix()
+    {
+        var d = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { @"**\*.nif", @"C:\Windows", @"meshes\..\secrets" });
+
+        var text = AssetWire.Render(d, 80_000);
+        Assert.DoesNotContain("(Parameter", text, StringComparison.Ordinal);
+        Assert.All(d.SelectorNotes!, n => Assert.DoesNotContain("(Parameter", n, StringComparison.Ordinal));
+    }
+
     /// <summary>The window pages, and the accounting says how much of the selection it left behind and where the next
     /// page starts.</summary>
     [Fact]
