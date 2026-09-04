@@ -1,0 +1,40 @@
+{
+  "_comment": "Shipped packages whose NuGet metadata carries no SPDX licence expression, with the licence determined by hand and how. Read by scripts/generate-notices.ps1: a package that ships with no expression and no entry here stops the build. Keep the reason with the entry so no determination has to be made twice.",
+
+  "Loqui": {
+    "licence": "GPL-3.0-only",
+    "why": "No licence element of any kind in the nuspec. github.com/Noggog/Loqui is GPL-3.0-only, as is the rest of the Mutagen first-party ecosystem it belongs to."
+  },
+  "Noggog.CSharpExt": {
+    "licence": "GPL-3.0-only",
+    "why": "No licence element of any kind in the nuspec. github.com/Noggog/CSharpExt is GPL-3.0-only, as is the rest of the Mutagen first-party ecosystem it belongs to."
+  },
+  "Nifly": {
+    "licence": "GPL-3.0-only",
+    "why": "The nuspec embeds the licence as a file rather than an expression. The bundled LICENSE and github.com/ousnius/NiflySharp are GPL-3.0-only."
+  },
+  "Reloaded.Memory": {
+    "licence": "GPL-3.0-only",
+    "why": "The nuspec embeds the licence as a file rather than an expression. The bundled LICENSE.md is GPL-3.0-only. It reaches the package as a dependency of NexusMods.Paths."
+  },
+  "K4os.Compression.LZ4": {
+    "licence": "MIT",
+    "why": "The nuspec uses the deprecated licenseUrl form, pointing at the MIT LICENSE in github.com/MiloszKrajewski/K4os.Compression.LZ4."
+  },
+  "K4os.Compression.LZ4.Streams": {
+    "licence": "MIT",
+    "why": "The nuspec uses the deprecated licenseUrl form, pointing at the MIT LICENSE in github.com/MiloszKrajewski/K4os.Compression.LZ4."
+  },
+  "K4os.Hash.xxHash": {
+    "licence": "MIT",
+    "why": "The nuspec uses the deprecated licenseUrl form, pointing at the MIT LICENSE in github.com/MiloszKrajewski/K4os.Hash.xxHash."
+  },
+  "OneOf": {
+    "licence": "MIT",
+    "why": "The nuspec uses the deprecated licenseUrl form, pointing at the MIT licence.md in github.com/mcintyre321/OneOf."
+  },
+  "TransparentValueObjects.Abstractions": {
+    "licence": "MIT",
+    "why": "No licence element, no licenseUrl and no projectUrl in the nuspec. The package owner on nuget.org is erri120, the upstream github.com/erri120/TransparentValueObjects is MIT, and the repository commit the nuspec itself records - ff32127019b0f53480f5e9c1867924b14138999c - resolves in that repository. It reaches the package as a dependency of GameFinder and NexusMods.Paths."
+  }
+}
