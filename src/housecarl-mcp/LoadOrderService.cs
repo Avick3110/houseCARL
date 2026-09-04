@@ -5856,6 +5856,29 @@ public sealed class LoadOrderService : IDisposable
             bool willOverwriteTarget = inPlace;
             bool willRepoint = id.HasExternalReferencers && repointExternals;
 
+            // A plugin the identify pass could not read through REFUSES the in-place lane, before anything is
+            // written and whatever acknowledge says. The referencer list is only as good as the scan behind it: an
+            // unread plugin may reference records about to be renumbered, and nothing downstream would catch it —
+            // the repoint pre-flight is fed only the referencers the scan DID find. In place there is no backup and
+            // no review step, so a note in a prompt is the wrong instrument (and acknowledge=true on the first call
+            // skips the prompt entirely). This matches the existing refusal for a referencer houseCARL cannot
+            // rewrite: the better-known case already refuses, and this is the strictly less-known one.
+            // The new-plugin lane keeps the note — its output is reviewed before it replaces anything.
+            if ((willOverwriteTarget || willRepoint) && id.UnscannablePlugins is { Count: > 0 } unread)
+            {
+                var c = new System.Text.StringBuilder();
+                c.Append($"refused — this is an IN-PLACE rewrite (no houseCARL backup or undo) and the external-reference pass could not read ")
+                 .Append(unread.Count).Append(unread.Count == 1 ? " plugin, so houseCARL cannot tell whether it references records "
+                                                               : " plugins, so houseCARL cannot tell whether they reference records ")
+                 .Append($"'{name}' is about to renumber: ");
+                c.Append(string.Join("; ", unread.Take(25).Select(WriteSentences.UnscannablePlugin)));
+                if (unread.Count > 25) c.Append($"; … (+{unread.Count - 25} more)");
+                c.Append(". NOTHING was written — ").Append($"'{name}' is untouched. ")
+                 .Append("Either resolve that and run this again, or compact into a NEW plugin (in_place=false), which renumbers the same records into a ")
+                 .Append("file you review and swap in yourself, leaving the original and its referencers alone.");
+                return WritePatchBuilder.CompactOutcome.Fail(c.ToString());
+            }
+
             // Before the consent gate, not after it: houseCARL cannot re-serialize a localized plugin without
             // scrambling its text, so a run whose referencer rewrites include one can never happen, and the gate
             // below would otherwise ask the modder to authorize an irreversible rewrite of their originals. Also
@@ -5894,14 +5917,8 @@ public sealed class LoadOrderService : IDisposable
                     foreach (var pl in id.ExternalPlugins.Take(25)) c.Append($"      · {pl}\n");
                     if (id.ExternalPlugins.Count > 25) c.Append($"      · … (+{id.ExternalPlugins.Count - 25} more)\n");
                 }
-                // The referencer list is only as good as the scan behind it, and this prompt is the last point the
-                // modder can decline — so a plugin the pass could not read is named HERE, not only in the report.
-                if (id.UnscannablePlugins is { Count: > 0 } unread)
-                {
-                    c.Append($"  ! the external-reference pass could not fully read {string.Join(", ", unread.Take(25))}");
-                    if (unread.Count > 25) c.Append($" (+{unread.Count - 25} more)");
-                    c.Append(", probably held open by another program, so the list above does not cover it. Close xEdit, MO2 or Skyrim and run this again.\n");
-                }
+                // No unread-plugin note here: this lane refuses above when the scan could not read a plugin
+                // through, so by the time the prompt is composed the referencer list is the whole story.
                 c.Append("Re-call with acknowledge=true to proceed.");
                 return WritePatchBuilder.CompactOutcome.Confirm(c.ToString());
             }
