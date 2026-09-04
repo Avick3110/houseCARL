@@ -183,6 +183,38 @@ public sealed class RuntimeFormIdTests
         RefusedNothingWritten(w, outcome.Error);
     }
 
+    /// <summary>A runtime token the index cannot translate — an FF dynamic form — is bad input, so it comes back as
+    /// this record's own problem rather than escaping as an internal failure.</summary>
+    [Fact]
+    public void CreateReportsAnUntranslatableRuntimeParentAsThisRecordsProblem()
+    {
+        using var w = new World();
+        var outcome = w.Svc.CreateRecordsBatch(
+            new[] { new CreateOp { RecordType = "Weapon", Editorid = "HcRtDynParent", Parent = "FF001234" } },
+            "HcRtPatch", null);
+        Assert.False(outcome.Success);
+        Assert.NotNull(outcome.Error);
+        Assert.Contains("parent:", outcome.Error);
+        Assert.Contains("dynamic form", outcome.Error);
+        Assert.Equal(w.ModFolders, Directory.GetDirectories(w.ModsDir).Length);
+    }
+
+    /// <summary>parent= also takes a same-call sibling's EditorID, and modders write eight-hex ones — such a parent
+    /// is a reference, never a FormID, so the nested create still lands.</summary>
+    [Fact]
+    public void CreateTakesAnEightHexSiblingEditoridAsAParent()
+    {
+        using var w = new World();
+        var outcome = w.Svc.CreateRecordsBatch(
+            new[]
+            {
+                new CreateOp { RecordType = "DialogTopic", Editorid = "DEADBEEF" },
+                new CreateOp { RecordType = "DialogResponses", Editorid = "HcRtSiblingLine", Parent = "DEADBEEF" },
+            },
+            "HcRtSiblingPatch", null);
+        Assert.True(outcome.Success, "refused: " + outcome.Error);
+    }
+
     [Fact]
     public void RemoveRefusesARuntimeFormIdAndNamesThePluginForm()
     {
