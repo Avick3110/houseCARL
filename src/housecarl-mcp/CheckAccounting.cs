@@ -5,47 +5,17 @@ using HousecarlCore;
 namespace HousecarlMcp;
 
 /// <summary>
-/// ONE ACCOUNTING for the integrity sweep's response, consumed by BOTH transports (#337's one-source-per-sentence,
-/// applied to the numbers underneath the prose rather than only to the prose).
+/// One accounting of what a sweep response left out, shared by both transports so the text and json answers cannot
+/// disagree.
 ///
-/// <para><b>What it replaces, and why the replacement is structural.</b> The response used to describe its own
-/// omissions from TWO independent counters in two different units: core's listing budget (<c>limit=</c>, counted
-/// while the sweep ran) and the render's own cut (<c>max_chars</c>, counted at a break point). Neither could see
-/// the other, so neither could answer the question a caller actually has — how many of these findings can I see —
-/// and on the live ARR order at plain defaults the two together said "3996 not listed" and "554 of the 1000
-/// budget-listed appear above" while the answer was 554 of 4996. Every omission claim here is a SUBTRACTION against
-/// the sweep's own totals, taken after emission stops, so there is one number and one source for it. The 2026-08-18
-/// layer rule survives as this class's internal discipline: the causes are still named separately, but they are
-/// decomposed out of one computation instead of raced by two.</para>
+/// <para>Every omission it states is a subtraction against the sweep's own totals, taken after emission stops, so
+/// the separate causes sum to the total exactly rather than by two counters happening to agree. The accounting
+/// line and the boundary footer are reserved out of the caller's <c>max_chars</c> before the body renders, never
+/// appended past it.</para>
 ///
-/// <para><b>The DECLARED SUBJECT set, and the boolean it replaces.</b> The first cut of this class carried one
-/// <c>_listing</c> flag standing for two different lane facts — "did the dangling walk run" and "does this mode
-/// build a per-plugin listing" — and a section count read unconditionally off <c>Reports</c>, which means different
-/// things per lane. Six distinct wrong sentences came out of that in two review rounds, three of them created by
-/// the folds for the other three: a <c>findings=["missing_masters"]</c> json response that reported no sections at
-/// all, a <c>counts_only</c> response claiming "0 of 3 plugin section(s) were rendered" over a response that
-/// dropped nothing, an opener inside the gate and its closer outside it. So the accounting is now CONSTRUCTED with
-/// the subjects the lane actually has (<see cref="SweepSubject"/>), each carrying what the sweep FOUND and what the
-/// render EMITTED. Every sentence, every json field, the remedy and the reserve derive from that set. A lane
-/// without sections cannot claim about them, and a lane with them cannot fail to — by construction rather than by
-/// each clause remembering its own gate.</para>
-///
-/// <para><b>How #361 dies here rather than being patched.</b> Two invariants, neither of them a code path that has
-/// to remember to run:
-/// <list type="number">
-/// <item>Being missing is MEASURED AT THE TOTAL, never reported at an exit. There is no flag set where a loop
-/// breaks, so there is no "the cut landed somewhere that never set the flag" — the silent last-section cut, in both
-/// transports, is unrepresentable rather than fixed.</item>
-/// <item>The accounting and the boundary footer are RESERVED out of the caller's <c>max_chars</c> before the body
-/// renders, never appended past it. This is <see cref="ReadSentences.ClauseReserve"/>'s construction, which #342's
-/// review arrived at over the same overshoot one tool over: a 2000-char batch returning ~3100, with the overrun
-/// invisible to the <c>truncated</c> flag the auto-spill trigger reads.</item>
-/// </list></para>
-///
-/// <para><b>Deliberately findings-family-agnostic, and deliberately no further.</b> Its subjects are lane facts —
-/// entries, sections, roster rows — which carry to any findings family without knowing what a family is. It takes
-/// no taxonomy parameter and holds no family enum: the merged <c>check</c> surface (SPEC §6.1) is a separate PR
-/// with its own design, and building its machinery here on speculation is what CLAUDE.md §8 names.</para>
+/// <para>A lane declares the subjects it actually has (<see cref="SweepSubject"/>); every sentence, json field,
+/// remedy and reserve derives from that set, so a lane without sections cannot claim about them and a lane with
+/// them cannot fail to. Subjects are lane facts, never a findings taxonomy.</para>
 /// </summary>
 internal sealed class CheckAccounting
 {
@@ -60,49 +30,31 @@ internal sealed class CheckAccounting
     readonly int _cap;
     readonly int _limit;
     readonly int _jsonDepth = 1;   // where this accounting's json lands; see MeasureJson
-    // The scripts family's own listing budget, decomposed exactly as the dangling subject's is: the population the
-    // sweep found, and the subset the budget admitted into the reports. Both zero on the errors lane, whose
-    // findings are the dangling entries above.
+    // The scripts family's listing budget, decomposed as the dangling subject's is: what the sweep found, and the
+    // subset the budget admitted into the reports. Both zero on the errors lane.
     readonly int _scriptFindingsFound;
     readonly int _scriptFindingsListed;
     readonly string _scriptTotals = "";   // the class-aware true totals, restated where the cut is reported
-    // THE DIALOGUE FAMILY'S QUANTITIES, as ONE value off the response's outcome rather than as loose ints copied in
-    // here. Null exactly where that family did not answer. It is one field on purpose: as four separate ints, the
-    // measuring constructor below copied none of them, so the json reserve never measured the four seed fields this
-    // lane writes and was covered only by slack meant for something else (round-2 finding B6). One field is one
-    // line to copy, and forgetting it is a compile error rather than a silent under-measure.
+    // The dialogue family's quantities, as one value rather than loose ints: the measuring constructor below has to
+    // copy them, and one field cannot be half-copied. Null exactly where that family did not answer.
     readonly DialogueOutcome? _dialogue;
-    // What THIS lane closes with. The two families state different boundaries, and the response's reserve loop
-    // (ReadTools.RenderCheck) holds room per family for the one that will actually be written — a reserve sized off
-    // the other family's sentence is room for a sentence this lane cannot write, which is the defect
-    // CanStateAccounting exists to name. The 1.x TextReserve that bundled the two went with #486.
+    // What this lane closes with. Families state different boundaries and the render reserves room per family for
+    // the one that will actually be written, so the boundary is read from here rather than chosen at the render.
     readonly string _boundary;
 
     /// <summary>Build the accounting for one response, declaring the subjects this lane has.
     ///
-    /// <para>Each declaration is a lane fact stated once, here, instead of a gate repeated at every clause:</para>
-    /// <list type="bullet">
-    /// <item><b>Dangling entries</b> — only where a per-plugin listing is built AND the walk that fills it ran.
-    /// Under <c>counts_only</c> nothing is listed BY DESIGN, and "the budget omitted everything" would report a
-    /// mode working correctly as a failure.</item>
-    /// <item><b>Plugin sections</b> — in EVERY listing lane, entries or not. With <c>findings=["missing_masters"]</c>
-    /// the sweep lists no dangling refs at all, and the section loop still cuts; gated on the listing flag those
-    /// responses said nothing in text and wrote no <c>rendered</c>/<c>truncated</c> in json.</item>
-    /// <item><b>Unread rows</b> — only under <c>counts_only</c>, where <c>Reports</c> carries the honesty layer
-    /// rather than findings. In the listing lane those same plugins ARE the sections, so the two subjects exist in
-    /// different lanes and can never double-count a row.</item>
-    /// <item><b>Excluded rows</b> — wherever the index actually excluded something.</item>
-    /// </list></summary>
-    /// <param name="declareExcluded">whether THIS accounting owns the excluded-plugin roster. The roster is a
-    /// SCOPE fact — which plugins the index could not parse — emitted once per response however many families ran,
-    /// so exactly one accounting may declare its rows. Two that declared it would each subtract the same rows from
-    /// the same total and the response would state the cut twice, which is the double count that keeping one
-    /// subject per lane fact exists to make unrepresentable.</param>
-    /// <param name="jsonDepth">the depth this accounting's json is WRITTEN at — 1 in an ancestor tool's root
-    /// document, 3 inside a merged one's <c>families.&lt;token&gt;</c>. <see cref="MeasureJson"/> serializes the
-    /// worst case to size the reserve, and the document is indented, so a measurement taken at depth 1 for an
-    /// object written at depth 3 is short by two levels of indentation on every line of it — roughly 500 bytes
-    /// across three families with a ten-row roster (round-2 finding A3).</param>
+    /// <para>Dangling entries only where a per-plugin listing is built and the walk that fills it ran; plugin
+    /// sections in every listing lane, entries or not, because the section loop still cuts; unread rows only under
+    /// <c>counts_only</c>, where those same plugins are the sections in the listing lane, so the two subjects live
+    /// in different lanes and cannot double-count a row; excluded rows wherever the index excluded something.</para>
+    /// </summary>
+    /// <param name="declareExcluded">whether this accounting owns the excluded-plugin roster. The roster is a scope
+    /// fact emitted once per response however many families ran, so exactly one accounting may declare its rows or
+    /// the response states the same cut twice.</param>
+    /// <param name="jsonDepth">the depth this accounting's json is written at — 1 in a root document, 3 inside a
+    /// merged one's <c>families.&lt;token&gt;</c>. The document is indented, so <see cref="MeasureJson"/> must size
+    /// the reserve at the depth the object actually lands at.</param>
     internal CheckAccounting(ErrorCheckResult r, int cap, int jsonDepth = 1, bool declareExcluded = true)
     {
         _cap = cap;
@@ -111,10 +63,9 @@ internal sealed class CheckAccounting
         _boundary = ReadSentences.SweepBoundary;
         _bySource = r.DanglingBySource ?? Array.Empty<SweepCount>();
         _budgetListed = r.Reports.Sum(p => p.Dangling.Count);
-        // A REFUSED family declares NOTHING — the rule the dialogue lane already follows. A family-local refusal
-        // now renders as its own section rather than as the whole call's error, so this writer is reachable with
-        // a failed result for the first time: declaring its subjects anyway would state "all 0 plugin section(s)
-        // appear above" over a sweep that never ran.
+        // A refused family declares nothing: a family-local refusal renders as its own section, so this writer is
+        // reachable with a failed result, and declaring subjects anyway asserts completeness over a sweep that
+        // never ran.
         if (!r.Success) return;
 
         if (!r.CountsOnly && r.Classes.HasFlag(ErrorFindingClass.Dangling)) Declare(SweepSubject.DanglingEntries, r.TotalDangling);
@@ -123,24 +74,10 @@ internal sealed class CheckAccounting
         if (declareExcluded && r.ExcludedPlugins.Count > 0) Declare(SweepSubject.ExcludedRows, r.ExcludedPlugins.Count);
     }
 
-    /// <summary>The scripts family's accounting — the same class, declaring that family's own subjects.
-    ///
-    /// <para><b>Why the scripts family gets one at all.</b> Its listing used to test <c>sb.Length &gt;= cap</c>
-    /// inline, write its own truncation marker and keep no accounting, so the two things a response owes about
-    /// what it dropped were neither computed nor bounded: on the live ARR 2.0 order at plain defaults
-    /// <c>validate_scripts</c> returned <b>80,673 chars against its own 80,000 cap</b>, with the marker and the
-    /// boundary footer appended unconditionally AFTER the test. Rendering through the reserved fixed part is what
-    /// closes that by construction rather than by a second length check.</para>
-    ///
-    /// <para>The subjects, and why each is declared where it is:</para>
-    /// <list type="bullet">
-    /// <item><b>Record sections</b> — in the LISTING lane, findings or not. Under <c>counts_only</c> nothing is
-    /// listed by design.</item>
-    /// <item><b>Script scan rows</b> — only under <c>counts_only</c>, where <c>Reports</c> carries the honesty
-    /// layer alone. In the listing lane those same entries ARE sections, so the two subjects live in different
-    /// lanes and cannot double-count a row.</item>
-    /// <item><b>Excluded rows</b> — wherever the index excluded something AND this accounting owns the roster.</item>
-    /// </list></summary>
+    /// <summary>The scripts family's accounting — the same class, declaring that family's own subjects: record
+    /// sections in the listing lane, script scan rows only under <c>counts_only</c> (in the listing lane those same
+    /// entries are the sections, so the two cannot double-count a row), and excluded rows where this accounting
+    /// owns the roster.</summary>
     internal CheckAccounting(ScriptCheckResult r, int cap, int jsonDepth = 1, bool declareExcluded = true)
     {
         _cap = cap;
@@ -148,9 +85,8 @@ internal sealed class CheckAccounting
         _limit = r.Limit;
         _boundary = ReadSentences.SweepScriptBoundary;
         _bySource = Array.Empty<SweepCount>();
-        // The dangling subject's decomposition, in the scripts family's own population: what the sweep found, and
-        // what its finding budget admitted into the reports. Both MEASURED off the result — the totals the sweep
-        // counted regardless of the cap, and the findings the reports actually carry.
+        // Both measured off the result: the totals the sweep counted regardless of the cap, and the findings the
+        // reports actually carry.
         _scriptFindingsFound = r.CountsOnly ? 0 : r.TotalUnbound + r.TotalNullObject;
         _scriptFindingsListed = r.CountsOnly ? 0 : r.Reports.Sum(x => x.Unbound.Count + x.NullObjects.Count);
         _scriptTotals = ReadSentences.ScriptTotals(r);
@@ -161,49 +97,38 @@ internal sealed class CheckAccounting
         if (declareExcluded && r.ExcludedPlugins.Count > 0) Declare(SweepSubject.ExcludedRows, r.ExcludedPlugins.Count);
     }
 
-    /// <summary>The DIALOGUE family's accounting — the same class again, declaring the subjects a SEEDED family has.
+    /// <summary>The dialogue family's accounting — the same class again, declaring the subjects a seeded family has.
     ///
-    /// <para><b>It declares no excluded-plugin roster, and that is the answer rather than an omission.</b> The
-    /// roster is which plugins the INDEX could not parse; a dialogue validation does not produce one, and its
-    /// ancestor never reported one either. What this family cannot reach is a SEED, which is a different fact about
-    /// a different thing — so it gets its own subject (<see cref="SweepSubject.DialogueSeedRefusals"/>) inside this
-    /// family's own section, and the response-level roster stays declared by exactly one accounting.</para>
+    /// <para>It declares no excluded-plugin roster: that roster is which plugins the index could not parse, and a
+    /// seeded validation does not produce one. A seed it could not reach gets its own subject
+    /// (<see cref="SweepSubject.DialogueSeedRefusals"/>) instead.</para>
     ///
-    /// <para>The BOUNDARY carries the standing-limits footer <c>validate_dialogue</c> always printed. Making it the
-    /// boundary is what makes it unrefusable: it is reserved out of <c>max_chars</c> before the body renders, so the
-    /// sentence saying a clean structural pass is not "this will play" cannot be dropped by the pressure that cut
-    /// the findings it qualifies.</para></summary>
-    /// <param name="outcome">this family's quantities off the response's <see cref="CheckOutcome"/> — null exactly
-    /// where the family did not answer. The accounting derives NONE of them itself: it states what the response
-    /// RENDERED of each and which knob moves the rest, and every total it names in prose comes from here.</param>
+    /// <para>The boundary carries the standing-limits footer, so it is reserved out of <c>max_chars</c> and cannot
+    /// be dropped by the pressure that cut the findings it qualifies.</para></summary>
+    /// <param name="outcome">this family's quantities, null exactly where the family did not answer. The accounting
+    /// derives none of them itself; every total it names in prose comes from here.</param>
     internal CheckAccounting(DialogueCheckResult r, DialogueOutcome? outcome, int cap, int jsonDepth = 1)
     {
         _cap = cap;
         _jsonDepth = jsonDepth;
         _limit = r.Limit;
         _bySource = Array.Empty<SweepCount>();
-        // THE BOUNDARY IS COMPOSED FROM WHAT THE SEEDS ACTUALLY RAN, not from what this family can do. Where every
-        // seed this call reached was a DLVW or a DLBR — records that own no INFO list — the wide sentence asserted
-        // LinkTo and previous-link targets, each voiced line's .fuz, each result script and a condition subset,
-        // none of which had anything to run against (round-3 finding A1). The narrow arm is taken only where a
-        // record-level check RAN and no seed ran the graph checks: with nothing reached at all (a refused family,
-        // or every seed unreachable) the wide sentence is the family's standing claim and stays.
+        // The boundary states what the seeds actually ran, not what this family can do: DLVW and DLBR seeds own no
+        // INFO list, so the wide sentence would assert graph checks that had nothing to run against. The narrow arm
+        // is taken only where a record-level check ran and no seed ran the graph checks; with nothing reached at
+        // all the wide sentence is the family's standing claim and stays.
         var ran = outcome?.ChecksRun ?? DialogueChecks.None;
         bool recordLevelOnly = ran.HasFlag(DialogueChecks.RecordParity) && !ran.HasFlag(DialogueChecks.TopicGraph);
         _boundary = string.Format(
             recordLevelOnly ? ReadSentences.DialogueBoundaryRecordLevel : ReadSentences.DialogueBoundary,
             r.ConditionedInfos > 0 ? string.Format(ReadSentences.DialogueConditioned, r.ConditionedInfos) : "",
             r.ReadIncomplete ? ReadSentences.DialogueReadIncomplete : "");
-        // This lane HAS seeds whether or not it lists topics: how many were named and how many the budget let it
-        // reach are facts of the call, not of the listing. Gated on the topic subject instead, the json lane said
-        // nothing at all about a seed budget that had cut the call under counts_only, while the text lane stated
-        // it — one sweep, two transports, two different answers (round-1 review).
+        // Held whether or not this lane lists topics: how many seeds were named and how many the budget let it
+        // reach are facts of the call, not of the listing, and both transports must state them alike.
         _dialogue = outcome;
 
-        // A REFUSED family declares NOTHING. Declaring its subjects anyway made the accounting state "every one of
-        // the 0 topic(s) these seeds own is listed" under a section whose whole content is a cost-refusal — a
-        // completeness claim over a validation that never ran, which reads exactly like "looked, found none" (Q3).
-        // The refusal is that section's whole answer; a lane with nothing declared has no completeness to assert.
+        // A refused family declares nothing: a completeness claim over a validation that never ran reads exactly
+        // like "looked, found none".
         if (!r.Success) return;
 
         if (!r.CountsOnly) Declare(SweepSubject.DialogueSeeds, r.Resolved.Count());
@@ -225,13 +150,11 @@ internal sealed class CheckAccounting
     // ---- registration: the emission helper tells the accounting what it emitted ---------------------
 
     /// <summary>One unit of <paramref name="s"/> just went into the response. Called from
-    /// <see cref="BoundedBody.Emit"/> where the unit LANDED, never where a section is entered: a section total would
-    /// claim entries for a section the cut left half-written, which is the class of false number this construction
-    /// exists to make unrepresentable.
+    /// <see cref="BoundedBody.Emit"/> where the unit landed, never where a section is entered — a section total
+    /// would claim entries for a section the cut left half-written.
     ///
-    /// <para>A subject this lane did not declare is IGNORED rather than counted. That is what lets the histogram
-    /// rows share the one bounded-emission path without acquiring an accounting sentence of their own — the
-    /// histogram already discloses its own cut in both transports.</para></summary>
+    /// <para>A subject this lane did not declare is ignored rather than counted, which lets the histogram rows share
+    /// the one bounded-emission path without acquiring an accounting sentence of their own.</para></summary>
     internal void Emitted(SweepSubject s, string? source = null)
     {
         if (!_found.ContainsKey(s)) return;
@@ -242,29 +165,25 @@ internal sealed class CheckAccounting
 
     // ---- derived ------------------------------------------------------------------------------------
 
-    /// <summary>Refs the listing budget never admitted. A pure SWEEP fact, so it is readable before the body renders
-    /// — which is what lets the baseline block's phase-order sentence consult it without waiting for emission.
-    /// </summary>
+    /// <summary>Refs the listing budget never admitted. A pure sweep fact, so it is readable before the body
+    /// renders.</summary>
     internal int OmittedByBudget => Has(SweepSubject.DanglingEntries) ? Found(SweepSubject.DanglingEntries) - _budgetListed : 0;
 
-    /// <summary>Refs the budget admitted and this response then could not fit. The other half of the dangling
-    /// subject's omission BY CONSTRUCTION: both are subtractions off the same total, so the two causes sum to it
-    /// exactly rather than by two counters happening to agree.</summary>
+    /// <summary>Refs the budget admitted and this response then could not fit. Both halves are subtractions off the
+    /// same total, so the two causes sum to it exactly.</summary>
     internal int OmittedByCut => Has(SweepSubject.DanglingEntries) ? _budgetListed - Emitted(SweepSubject.DanglingEntries) : 0;
 
-    /// <summary>Property findings the scripts family's listing budget never admitted into the reports. A pure SWEEP
-    /// fact, like <see cref="OmittedByBudget"/> — both terms are counted while the sweep runs, so it is readable
-    /// before the body renders and is the same number in the worst case as in the real one.</summary>
+    /// <summary>Property findings the scripts family's listing budget never admitted into the reports. A pure sweep
+    /// fact like <see cref="OmittedByBudget"/>: readable before the body renders, and the same number in the worst
+    /// case as in the real one.</summary>
     int ScriptOmittedByBudget => Has(SweepSubject.ScriptRecords) ? _scriptFindingsFound - _scriptFindingsListed : 0;
 
-    /// <summary>Seeds the caller named that the seed budget never let this call try. A pure SWEEP fact like the two
-    /// above — counted before anything renders, and the same number in the worst case as in the real one. The
-    /// subtraction lives on <see cref="DialogueOutcome"/>, taken once for the whole response.</summary>
+    /// <summary>Seeds the caller named that the seed budget never let this call try. A pure sweep fact like the two
+    /// above; the subtraction is taken once for the whole response on <see cref="DialogueOutcome"/>.</summary>
     int DialogueSeedsUnreached => _dialogue?.SeedsNotReached ?? 0;
 
-    /// <summary>WHICH source plugins are missing entries from THIS response, largest first. Computed against what was
-    /// emitted, so it covers both causes at once: under the two-layer split, a plugin whose entries the budget listed
-    /// and the cut then dropped appeared in neither sentence.</summary>
+    /// <summary>Which source plugins are missing entries from this response, largest first. Computed against what
+    /// was emitted, so it covers both causes of omission at once.</summary>
     internal IReadOnlyList<SweepCount> MissingBySource
     {
         get
@@ -282,42 +201,27 @@ internal sealed class CheckAccounting
 
     // ---- the reserve --------------------------------------------------------------------------------
 
-    /// <summary>The chars held back from <c>max_chars</c> so the text accounting and the boundary footer are always
-    /// affordable. Two terms, and only the boundary's is unconditional: the boundary is written on every response,
-    /// the accounting line only where this lane can write one.
+    /// <summary>The chars held back from <c>max_chars</c> so this lane's text accounting line is always affordable.
+    /// The boundary's room is reserved separately, because a merged response has one boundary block but one
+    /// accounting per family.
     ///
-    /// <para><b>Reserved per LANE, off the same predicate the line itself uses.</b> <see cref="TextLine"/> returns
-    /// null unless the lane declared the dangling subject or something it declared is short, so in the plain
-    /// <c>counts_only</c> lane — no listing, nothing unparseable, nothing unread — no value of anything can make it
-    /// non-null. Reserved unconditionally, that lane held ~154 chars of worst-case accounting plus its wrap for a
-    /// sentence it is structurally unable to write: dead body budget in exactly the lane #392 is about, where every
-    /// held char is a histogram row the caller does not see. Measured on a 74/180-row fixture at
-    /// <c>max_chars=1200</c>, the response came back 315 chars under its own cap with both axes at zero rows.</para>
-    ///
-    /// <para>The <c>TextReserve</c> that summed this with the boundary's room went with the 1.x single-family
-    /// renderers (#486): a merged response has one boundary block and one accounting PER FAMILY, so the two are
-    /// only ever reserved apart, and summing them per family reserved the boundary once per family — room held for
-    /// a sentence written once, which is a subtraction from the answer.</para></summary>
+    /// <para>Reserved off the same predicate the line itself uses, so a lane that cannot write the line holds
+    /// nothing back for it — room held for an unwritable sentence is a subtraction from the answer.</para></summary>
     internal int TextAccountingReserve => _textReserve ??= CanStateAccounting ? Compose(Worst(escaped: false)).Length + TextWrap : 0;
     int? _textReserve;
 
-    /// <summary>Can this lane write an accounting line at ALL? Literally <see cref="TextLine"/>'s own test, asked
-    /// of the WORST case instead of the real one — so it is true wherever any rendering of this lane could produce
-    /// a line, and false only where none could. Written as the same expression rather than as a second list of
-    /// subjects, because the two disagreeing is the whole defect: a reserve is room for a specific sentence, and
-    /// room held for a sentence this lane cannot write is not a reserve, it is a subtraction from the
-    /// answer.</summary>
+    /// <summary>Can this lane write an accounting line at all? <see cref="TextLine"/>'s own test asked of the worst
+    /// case, so it is true wherever any rendering of this lane could produce a line. Kept as the same expression
+    /// rather than a second list of subjects: the two disagreeing is what makes a reserve stop matching the
+    /// sentence it reserves for.</summary>
     bool CanStateAccounting => Has(SweepSubject.DanglingEntries) || Has(SweepSubject.ScriptRecords)
                                || Has(SweepSubject.DialogueTopics)
                                || Missing(Worst(escaped: false));
 
-    /// <summary>This lane's accounting + boundary, in json bytes, WITHOUT the entry slack. Measured by SERIALIZING
-    /// the worst case, not by estimating it off the text line: the two encodings differ in escaping and syntax,
-    /// and a reserve that is an estimate is a reserve that is occasionally wrong in the direction that matters.
-    /// Separate from the entry slack for the same reason <see cref="TextAccountingReserve"/> is: a merged document
-    /// holds one accounting per family but only ever lands ONE unit over its budget, because the body stops the
-    /// moment a unit crosses — so the slack is the response's, not each family's. (The <c>JsonReserve</c> that
-    /// added the glue to this went with the 1.x single-family renderers, #486.)</summary>
+    /// <summary>This lane's accounting + boundary, in json bytes, without the entry slack. Measured by serializing
+    /// the worst case rather than estimating it off the text line — the two encodings differ in escaping and
+    /// syntax. The slack is separate because a merged document holds one accounting per family but only ever lands
+    /// one unit over its budget, so the slack belongs to the response, not to each family.</summary>
     internal int JsonAccountingReserve => _jsonReserve ??= MeasureJson(Worst(escaped: true));
     int? _jsonReserve;
 
@@ -326,62 +230,41 @@ internal sealed class CheckAccounting
     /// zero is tested before the write and lands over; this covers one whole entry.</summary>
     internal const int JsonEntrySlack = JsonGlue;
 
-    /// <summary>Slack over the measured worst case, and the two lanes need very different amounts of it.
+    /// <summary>Slack over the measured worst case; the two lanes need very different amounts.
     ///
-    /// <para>The TEXT lane composes each unit and tests <c>length + cost</c> before appending, so nothing it writes
-    /// can exceed the budget it was tested against. All it needs is the handful of newlines the accounting and
-    /// boundary are wrapped in. The JSON lane cannot do that for every unit — a <c>Utf8JsonWriter</c> has no way to
-    /// measure an object without writing it — so its per-entry test is taken before the write and the last entry
-    /// lands over. That slack has to cover one whole entry: two FormID strings, a type name and an EditorID. It is
-    /// also what absorbs <see cref="BoundedBody"/>'s post-check, which stops the body the moment a unit crosses the
-    /// budget rather than pretending it cannot happen.</para>
+    /// <para>The text lane composes each unit and tests <c>length + cost</c> before appending, so it needs only the
+    /// newlines the accounting and boundary are wrapped in. The json lane cannot do that — a
+    /// <c>Utf8JsonWriter</c> cannot measure an object without writing it — so its per-entry test is taken before the
+    /// write and the last entry lands over; the slack has to cover one whole entry, and it also absorbs
+    /// <see cref="BoundedBody"/>'s post-check.</para>
     ///
-    /// <para>One number for both cost the text lane a kilobyte of listing at every cap, which at small caps was the
-    /// whole listing. A reserve slightly too large costs characters; one slightly too small is #361. The cap sweep
-    /// in check-errors-guard is what holds both honest — not either number's plausibility.</para>
-    ///
-    /// <para><see cref="TextWrap"/> is the text lane's glue charged PER WRAPPED BLOCK rather than once for both,
-    /// because the two blocks are not both always written. Each is two newlines in the render; 32 is headroom, and
-    /// twice 32 is the 64 this was before the split, so a lane writing both reserves exactly what it always
-    /// did.</para></summary>
+    /// <para><see cref="TextWrap"/> is charged per wrapped block rather than once for both, because the accounting
+    /// and the boundary are not both always written.</para></summary>
     const int TextWrap = 32;
     const int JsonGlue = 1024;
 
     /// <summary>The values that make the longest line this sweep could produce. Every substitution is at or above
-    /// what a real render can reach: the counts are the totals themselves, so their digit widths bound every real
-    /// count; every optional clause is present; and the roster holds the LONGEST source names rather than the
-    /// largest, because a partly-listed response can promote a long-named small source into the roster that a
-    /// fully-omitted one would have pushed out — "largest" is not a bound and "longest" is.
+    /// what a real render can reach: the counts are the totals, so their digit widths bound every real count; every
+    /// optional clause is present; and the roster holds the longest source names rather than the largest, because a
+    /// partly-listed response can promote a long-named small source into the roster — "largest" is not a bound and
+    /// "longest" is.
     ///
-    /// <para>Length is measured in the LANE'S OWN encoding, which is why <paramref name="escaped"/> exists. Escaping
-    /// only ever adds characters, so a "longest by either spelling" rule is just the escaped one wearing a hat: it
-    /// ranks a short non-ASCII name above a much longer ASCII one, and a text reserve sized from that sample is
-    /// short by the difference. The two lanes disagree about which names are longest, so each asks its own
-    /// question.</para>
-    ///
-    /// <para><b>Which lane an arm can see this in, said rather than left to be discovered.</b> The TEXT half is
-    /// pinned: ranked by the escaped spelling instead, the escaped-names fixture overruns the text cap by 300-plus
-    /// characters at eight caps in the sweep. The JSON half is not — sabotaged to rank by the plain spelling, every
-    /// arm in both guards stays green, because the json reserve carries a kilobyte of slack sized for one whole
-    /// entry and it absorbs the difference at every cap a fixture can reach. Asking each lane its own question is
-    /// kept anyway: a reserve that happens to be covered by slack meant for something else is not a reserve, and
-    /// that posture is what produced four unbounded write sites in a row.</para></summary>
+    /// <para>Length is measured in the lane's own encoding, which is what <paramref name="escaped"/> selects. The
+    /// two lanes disagree about which names are longest, so each asks its own question rather than sharing one
+    /// ranking.</para></summary>
     Values Worst(bool escaped)
     {
         int danglingFound = Found(SweepSubject.DanglingEntries);
-        // The roster is the dangling subject's, so a lane without that subject reserves nothing for it. The
-        // by-source tally is collected on EVERY sweep, so a worst case built off it unconditionally held ~700 chars
-        // back from a counts_only response for a roster that lane can never emit — at max_chars=1500 that was the
-        // whole histogram.
+        // The roster is the dangling subject's, so a lane without that subject reserves nothing for it — the
+        // by-source tally is collected on every sweep, including lanes that can never emit the roster.
         var longest = Has(SweepSubject.DanglingEntries)
             ? _bySource.OrderByDescending(c => escaped ? JsonEncodedText.Encode(c.Key).Value.Length : c.Key.Length)
                        .Take(ReadSentences.SweepRosterRows)
                        .Select(c => new SweepCount(c.Key, danglingFound))
                        .ToList()
             : new List<SweepCount>();
-        // Every slot at its widest, not at zero. The counts are digits in the rendered line, and a real response's
-        // emitted counts are wider than 0 — so a worst case that passed 0 for them was bounded by the slack rather
-        // than by construction, which is not what its own summary claimed.
+        // Every slot at its widest, not at zero: the emitted counts are digits in the rendered line, and a real
+        // response's are wider than 0.
         var emitted = new Dictionary<SweepSubject, int>();
         foreach (var kv in _found) emitted[kv.Key] = kv.Value;
         emitted[SweepSubject.DanglingEntries] = danglingFound;
@@ -394,20 +277,16 @@ internal sealed class CheckAccounting
                          MissingBySource, MissingBySource.Count, _emitted, Worst: false);
 
     /// <summary>The numbers one rendering of the accounting states. A record rather than a parameter list so the
-    /// real case and the worst case go through ONE composer per transport — a second formatter would be a second
-    /// spelling, and a reserve computed off a spelling that has since drifted is a reserve that silently stops
-    /// bounding anything.</summary>
+    /// real case and the worst case go through one composer per transport — a second formatter would be a second
+    /// spelling, and the reserve would stop bounding what is written.</summary>
     readonly record struct Values(int Visible, int ByBudget, int ByCut, IReadOnlyList<SweepCount> Roster,
                                   int RosterTotal, IReadOnlyDictionary<SweepSubject, int> Emitted, bool Worst);
 
-    /// <summary>Is this subject short in this rendering? ONE test, used by the clause that states it, by
-    /// <see cref="Missing"/>, and by the remedy — so the three cannot disagree about the same subject.
+    /// <summary>Is this subject short in this rendering? One test, used by the clause that states it, by
+    /// <see cref="Missing"/> and by the remedy, so the three cannot disagree.
     ///
-    /// <para><c>Found(s) &gt; 0</c> is not a shortcut for the real case, where it is already implied — nothing can
-    /// be emitted short of zero. It is what makes the WORST case honest: a lane declares
-    /// <see cref="SweepSubject.UnreadRows"/> on every <c>counts_only</c> sweep, empty or not, and with
-    /// <c>v.Worst</c> alone a declared-but-empty subject reserved room for a clause no rendering of it can
-    /// write.</para></summary>
+    /// <para><c>Found(s) &gt; 0</c> is there for the worst case: a subject can be declared but empty, and without
+    /// this term it would reserve room for a clause no rendering of it can write.</para></summary>
     bool Short(Values v, SweepSubject s)
         => Has(s) && Found(s) > 0 && (v.Worst || (v.Emitted.TryGetValue(s, out var e) ? e : 0) < Found(s));
 
@@ -415,10 +294,10 @@ internal sealed class CheckAccounting
 
     // ---- the text lane ------------------------------------------------------------------------------
 
-    /// <summary>The accounting as the text transport states it, or null where there is nothing at all to account
-    /// for. Present on EVERY response that has a listing subject, complete or not: silence used to mean both "this
-    /// response carries everything" and "#361", and those two must never read alike. A lane with no listing has no
-    /// completeness to assert, so it states an accounting only when something is actually short.</summary>
+    /// <summary>The accounting as the text transport states it, or null where there is nothing to account for.
+    /// Present on every response that has a listing subject, complete or not, so that silence never has to mean
+    /// both "everything is here" and "something was dropped". A lane with no listing has no completeness to assert,
+    /// so it states an accounting only when something is actually short.</summary>
     internal string? TextLine()
     {
         var v = Real();
@@ -428,9 +307,8 @@ internal sealed class CheckAccounting
 
     string Compose(Values v)
     {
-        // The opener and the closer sit OUTSIDE every subject gate, because they are not about any subject. The
-        // opener used to be baked into the two listing leads, so a lane with no listing emitted a bare clause and
-        // an orphan "]" — the accounting's own framing had the shape it exists to forbid.
+        // The opener and the closer sit outside every subject gate — they are not about any subject, and a lane
+        // with no listing would otherwise emit a bare clause and an orphan closer.
         var sb = new StringBuilder(ReadSentences.SweepAccountingLead);
 
         if (Has(SweepSubject.DanglingEntries))
@@ -447,9 +325,8 @@ internal sealed class CheckAccounting
             if (causes.Count > 0) sb.Append(string.Join(",", causes)).Append('.');
         }
 
-        // The scripts family's own lead + budget clause, the same two-part shape the dangling subject has one
-        // family over: a completeness assertion off what the response emitted, then the listing budget's share of
-        // what is absent, decomposed against the sweep's own totals rather than reported as a bare "capped" flag.
+        // The scripts family's lead + budget clause: a completeness assertion off what the response emitted, then
+        // the listing budget's share of what is absent, against the sweep's own totals.
         if (Has(SweepSubject.ScriptRecords))
         {
             sb.Append(Short(v, SweepSubject.ScriptRecords)
@@ -460,10 +337,9 @@ internal sealed class CheckAccounting
                 sb.Append(string.Format(ReadSentences.SweepScriptFindings, _scriptFindingsListed,
                                         _scriptFindingsFound, _limit, _scriptTotals));
         }
-        // The dialogue family's own two-part shape, in the units a SEEDED family has: a completeness assertion over
-        // the topics its seeds own, then the seed budget's own share of what is absent. They are separate clauses
-        // because they are separate absences — a topic that did not fit is a rendering fact, a seed the budget never
-        // reached is a scope fact, and one sentence for both would tell a caller to raise the wrong knob.
+        // The same two-part shape in a seeded family's units. Separate clauses because they are separate absences:
+        // a topic that did not fit is a rendering fact, a seed the budget never reached is a scope fact, and one
+        // sentence for both would name the wrong knob.
         if (Has(SweepSubject.DialogueTopics))
         {
             sb.Append(Short(v, SweepSubject.DialogueTopics)
@@ -471,8 +347,8 @@ internal sealed class CheckAccounting
                                 Found(SweepSubject.DialogueTopics))
                 : string.Format(ReadSentences.SweepDialogueAllVisible, Found(SweepSubject.DialogueTopics)));
         }
-        // REACHED against NAMED, in the outcome's words — the same two quantities the scope sentence states, so the
-        // two cannot call different numbers by one name again.
+        // Reached against named, in the outcome's own words — the same two quantities the scope sentence states, so
+        // the two cannot call different numbers by one name.
         if (_dialogue is { } dlg && (DialogueSeedsUnreached > 0 || (v.Worst && Has(SweepSubject.DialogueSeedRefusals))))
             sb.Append(string.Format(ReadSentences.SweepDialogueSeedsCut, dlg.SeedsReached, dlg.SeedsNamed,
                                     dlg.SeedsNotReached, _limit));
@@ -489,16 +365,14 @@ internal sealed class CheckAccounting
             sb.Append(string.Format(ReadSentences.SweepDialogueRefusalsCut, Shown(v, SweepSubject.DialogueSeedRefusals),
                                     Found(SweepSubject.DialogueSeedRefusals)));
 
-        // The scripts family's counts_only honesty layer. Same rule as the errors family's unread rows, in that
-        // family's own subject — its rows are the plugins whose record enumeration faulted.
+        // The scripts family's counts_only honesty layer, in its own subject: the plugins whose record enumeration
+        // faulted.
         if (Short(v, SweepSubject.ScriptScanRows))
             sb.Append(string.Format(ReadSentences.SweepUnreadCut, Shown(v, SweepSubject.ScriptScanRows),
                                     Found(SweepSubject.ScriptScanRows)));
 
-        // One clause per short subject, each computed from the subject it names. A section is dropped by the RENDER,
-        // and the render runs whether or not the dangling walk did — with findings=["missing_masters"] the sweep
-        // lists nothing and the section loop still cuts, which is #361's own shape in the lane the tool's own
-        // description sells as the cheap "is any master missing anywhere" sweep.
+        // One clause per short subject, computed from the subject it names. A section is dropped by the render, and
+        // the render runs whether or not the dangling walk did.
         if (Short(v, SweepSubject.PluginSections))
             sb.Append(string.Format(ReadSentences.SweepSections, Shown(v, SweepSubject.PluginSections),
                                     Found(SweepSubject.PluginSections)));
@@ -543,16 +417,13 @@ internal sealed class CheckAccounting
         return sb.ToString();
     }
 
-    /// <summary>Is anything at all absent from this response? ONE test over EVERY DECLARED subject, so the remedy and
-    /// the clauses above it cannot disagree, and a subject the lane does not have cannot make it true. Dropped
-    /// sections belong here: a sweep whose findings are all missing masters omits no dangling ref, so without this
-    /// term a response missing 34 of 41 sections closed as complete — with no remedy, no roster, and a json twin that
-    /// said truncated.
-    /// <para>It does NOT take <c>v.Worst</c> as an answer on its own. The worst case is every DECLARED subject at
-    /// its widest, not every subject declared: read as "assume something is missing", it wrote the remedy clauses
-    /// into a reserve for a lane where nothing can be. The worst case still dominates the real one term by term —
-    /// its counts are the totals and <see cref="Short"/> is true of every subject that can ever be short — so the
-    /// reserve stays an upper bound while dropping what no rendering could reach.</para></summary>
+    /// <summary>Is anything at all absent from this response? One test over every declared subject, so the remedy
+    /// and the clauses above it cannot disagree, and a subject the lane does not have cannot make it true. Dropped
+    /// sections belong here: a sweep that omits no dangling ref can still have cut sections.
+    /// <para>It does not take <c>v.Worst</c> as an answer on its own — the worst case is every declared subject at
+    /// its widest, not every subject declared, so reading it as "assume something is missing" reserves remedy
+    /// clauses for a lane that cannot write them. The worst case still dominates the real one term by term, so the
+    /// reserve stays an upper bound.</para></summary>
     bool Missing(Values v)
         => v.ByBudget + v.ByCut > 0 || ScriptOmittedByBudget > 0 || DialogueSeedsUnreached > 0
            || Short(v, SweepSubject.PluginSections) || Short(v, SweepSubject.ExcludedRows)
@@ -563,31 +434,24 @@ internal sealed class CheckAccounting
 
     // ---- the json lane ------------------------------------------------------------------------------
 
-    /// <summary>The accounting as json states it — the same numbers, in the transport's own terms rather than as a
-    /// prose sentence a machine consumer would have to parse.
+    /// <summary>The accounting as json states it — the same numbers, in the transport's own terms.
     ///
-    /// <para>It writes §2.1's four required in-band fields too, flat, rather than leaving them at the call site. Not
-    /// tidiness: <see cref="JsonAccountingReserve"/> measures this method, so a field written anywhere else is a field outside
-    /// the reserve — which is how the first cut of this class under-reserved and let a 5000-char cap return 5673.
-    /// Everything the close emits is written here, and therefore measured.</para></summary>
+    /// <para>It writes the required in-band fields here too rather than at the call site:
+    /// <see cref="JsonAccountingReserve"/> measures this method, so a field written anywhere else is a field outside
+    /// the reserve.</para></summary>
     internal void WriteJson(Utf8JsonWriter w) => WriteJson(w, Real());
 
     void WriteJson(Utf8JsonWriter w, Values v)
     {
         // A field named for a subject is present exactly where that subject is, and absent otherwise — never a zero
-        // standing in for "this lane has no such thing". Written unconditionally, a counts_only sweep that found 240
-        // dangling refs reported "plugins_with_findings": 0; gated on the LISTING flag instead, a
-        // findings=["missing_masters"] sweep wrote no sections, no rendered and no truncated at all, so the json
-        // twin of a text response that stated its cut said nothing about it.
+        // standing in for "this lane has no such thing".
         bool sections = Has(SweepSubject.PluginSections);
         bool dangling = Has(SweepSubject.DanglingEntries);
-        // The scripts family's own listing subject. Its `capped` / `rendered` / `truncated` used to be written at
-        // the render's call site — outside what JsonAccountingReserve measures, which is exactly how that lane's roster ended
-        // up unbounded. Everything the close emits is written here, and therefore measured.
+        // The scripts family's listing subject.
         bool scriptSections = Has(SweepSubject.ScriptRecords);
-        // The dialogue family's listing subject. Its "capped" is the SEED budget — the knob that decides how many
-        // seeds a call expands — which is a different quantity from the sibling families' finding budgets even
-        // though all three are spelled limit=.
+        // The dialogue family's listing subject. Its "capped" is the SEED budget — how many seeds a call expands —
+        // which is a different quantity from the sibling families' finding budgets even though all three are
+        // spelled limit=.
         bool dialogueTopics = Has(SweepSubject.DialogueTopics);
         if (dangling) w.WriteBoolean("capped", v.ByBudget > 0);
         else if (scriptSections) w.WriteBoolean("capped", ScriptOmittedByBudget > 0);
@@ -596,8 +460,8 @@ internal sealed class CheckAccounting
         {
             w.WriteNumber("plugins_with_findings", Found(SweepSubject.PluginSections));
             w.WriteNumber("rendered", Shown(v, SweepSubject.PluginSections));
-            // truncated is THIS RESPONSE's fact over every subject it has, which is what a consumer deciding
-            // whether to re-ask actually needs; capped above is the listing budget's separate one.
+            // truncated is this response's fact over every subject it has; capped above is the listing budget's
+            // separate one.
             w.WriteBoolean("truncated", v.ByCut > 0 || Short(v, SweepSubject.PluginSections)
                                         || Short(v, SweepSubject.ExcludedRows) || Short(v, SweepSubject.UnreadRows));
         }
@@ -610,9 +474,9 @@ internal sealed class CheckAccounting
         }
         if (dialogueTopics)
         {
-            // No topic TOTAL here: the family head writes it as `topics_found`. Written in both places it was the
-            // same key twice in the same object (round-2 finding B5), and the sibling families' totals are not in
-            // their heads, which is why theirs stay.
+            // No topic total here: the family head already writes it as `topics_found`, and writing it here too
+            // would be the same key twice in one object. The sibling families' totals are not in their heads, so
+            // theirs stay.
             w.WriteNumber("rendered", Shown(v, SweepSubject.DialogueTopics));
             w.WriteBoolean("truncated", Short(v, SweepSubject.DialogueTopics) || Short(v, SweepSubject.DialogueSeeds)
                                         || Short(v, SweepSubject.DialogueSeedRefusals));
@@ -635,8 +499,8 @@ internal sealed class CheckAccounting
         }
         if (scriptSections)
         {
-            // The scripts family's decomposition, in its own units: the findings the sweep counted, the subset the
-            // listing budget admitted, and the record sections this response actually carried.
+            // In this family's own units: the findings the sweep counted, the subset the listing budget admitted,
+            // and the record sections this response carried.
             w.WriteNumber("script_findings_found", _scriptFindingsFound);
             w.WriteNumber("script_findings_listed", _scriptFindingsListed);
             w.WriteNumber("script_findings_missing_by_budget", ScriptOmittedByBudget);
@@ -649,35 +513,23 @@ internal sealed class CheckAccounting
             w.WriteNumber("script_scan_errors_total", Found(SweepSubject.ScriptScanRows));
             w.WriteNumber("script_scan_errors_named", Shown(v, SweepSubject.ScriptScanRows));
         }
-        // WHAT THIS RESPONSE DID WITH THE SEEDS — and NOT how many there were. The family head states every
-        // quantity the outcome holds (named, reached, validated, unreachable, topics, findings); this states what
-        // was rendered of them and which knob moves the rest. Written here as well, `seeds_named`, the topic total
-        // and the finding total were each a twin of a head field under a second name, and `topics_validated` was a
-        // literal duplicate KEY in the same family object (round-2 finding B5).
+        // What this response DID with the seeds, not how many there were: the family head states every quantity the
+        // outcome holds, so restating them here would be a duplicate key in the same object.
         if (_dialogue is not null)
         {
             w.WriteNumber("seeds_not_reached_by_budget", DialogueSeedsUnreached);
             w.WriteNumber("limit", _limit);
         }
         if (dialogueTopics) w.WriteNumber("dialogue_topics_rendered", Shown(v, SweepSubject.DialogueTopics));
-        // In BOTH lanes, for the reason the subject is declared in both: a seed nobody could reach bounds the answer
-        // rather than sitting inside it, so counts_only states how many of them this response NAMED too.
+        // In both lanes: a seed nobody could reach bounds the answer rather than sitting inside it, so counts_only
+        // states how many of them this response named too.
         if (Has(SweepSubject.DialogueSeedRefusals))
             w.WriteNumber("seeds_unreachable_named", Shown(v, SweepSubject.DialogueSeedRefusals));
-        // Facts about the CALL rather than about any subject, so they are true of every lane and written by every
-        // lane: what this section listed at all, and the cap it was given.
+        // A fact about the CALL rather than about any subject, so every lane writes it: the cap it was given.
         w.WriteNumber("max_chars", _cap);
-        // THE SAME RULE THE HEAD OF THIS METHOD STATES, applied to the three remaining unconditional blocks: a field
-        // named for a subject is present exactly where that subject is. Written unconditionally they were zeros
-        // standing in for "this lane has no such thing" — the very reading the rule exists to make unrepresentable.
-        // The shape that surfaced it is one this merge INVENTED: before it, a refusal early-returned {error, epoch}
-        // and never reached this writer, so no response could carry a section for a family that did not run beside
-        // sections for families that did. A dialogue family refused on cost then stated `excluded_plugins_total: 0`
-        // and `unread_plugins_total: 0` — about a plugin scope it does not have (it is seeded, not swept) — and an
-        // empty `dangling_missing_by_source`, which is the ERRORS family's roster, inside the dialogue family's
-        // object. Meanwhile the TEXT lane wrote no accounting line at all for that family (CanStateAccounting), so
-        // the two transports said different things about one family, which is the failure this branch's own
-        // one-source rule is about.
+        // The same rule as at the head of this method, applied to the three blocks below: a field named for a
+        // subject is present exactly where that subject is. A seeded family has no plugin scope and no dangling
+        // roster, so writing these unconditionally puts another family's zeros inside its object.
         if (Has(SweepSubject.ExcludedRows))
         {
             w.WriteNumber("excluded_plugins_total", Found(SweepSubject.ExcludedRows));
@@ -688,9 +540,8 @@ internal sealed class CheckAccounting
             w.WriteNumber("unread_plugins_total", Found(SweepSubject.UnreadRows));
             w.WriteNumber("unread_plugins_named", Shown(v, SweepSubject.UnreadRows));
         }
-        // The roster is the DANGLING subject's — Worst() already reserves for it on exactly that test, and a lane
-        // without that subject can never fill it. On findings=["missing_masters"] and under counts_only it was an
-        // empty array claiming no source plugin lost dangling findings, over a sweep that listed none.
+        // The roster is the dangling subject's — Worst() reserves for it on exactly this test, and a lane without
+        // that subject can never fill it, so an empty array here would claim no source plugin lost findings.
         if (dangling)
         {
             w.WriteStartArray("dangling_missing_by_source");
@@ -702,8 +553,8 @@ internal sealed class CheckAccounting
                 w.WriteEndObject();
             }
             w.WriteEndArray();
-            // The roster's own bound, disclosed rather than implied — the same rule the text line follows, so a
-            // machine consumer and a reading one learn the same thing about how complete the roster is.
+            // The roster's own bound, disclosed rather than implied — the same rule the text line follows, so both
+            // transports say the same thing about how complete the roster is.
             w.WriteNumber("dangling_missing_by_source_total", v.RosterTotal);
         }
         w.WriteEndObject();
@@ -712,18 +563,13 @@ internal sealed class CheckAccounting
     /// <summary>Serialize one accounting into a scratch buffer and measure it. Used for the worst case only — the
     /// real one is written straight into the response.
     ///
-    /// <para>Under the RESPONSE's writer options, not the default ones. Measuring unindented what is then written
-    /// indented is a reserve that is wrong by the whole indentation, and it was: the first cut of this measured with
-    /// a bare writer and a 5000-char cap returned 5673.</para></summary>
+    /// <para>Under the response's own writer options: measuring unindented what is then written indented gives a
+    /// reserve short by the whole indentation.</para></summary>
     int MeasureJson(Values v)
     {
-        // AT THE DEPTH IT WILL BE WRITTEN AT, and as a DELTA. A standalone writer needs an enclosing object for a
-        // named property; in a merged document that object is `families.<token>`, two levels further in, and the
-        // writer is indented — so two spaces per level per line of every accounting. Measured in a bare root object
-        // for an object written at depth 3, the reserve was short by that indentation on every line, roughly 500
-        // bytes across three families with a ten-row roster (round-2 finding A3). It could not be made to overrun on
-        // its own because JsonGlue absorbed it, which is precisely the posture that produced four unbounded write
-        // sites in a row, so it is measured rather than left to slack.
+        // At the depth it will be written at, and as a delta. A named property needs an enclosing object; in a
+        // merged document that object is `families.<token>`, two levels further in, and the writer is indented — so
+        // measuring at the wrong depth is short by two spaces per level on every line.
         using var ms = new MemoryStream();
         int before = 0;
         using (var w = new Utf8JsonWriter(ms, JsonWire.WriterOptions))
@@ -731,7 +577,7 @@ internal sealed class CheckAccounting
             w.WriteStartObject();
             for (int i = 1; i < _jsonDepth; i++) w.WriteStartObject("n");
             // The accounting is never the first member of a family object, so it pays the separator a later
-            // property owes — the same term MeasureUnit charges a subsequent array element.
+            // property owes.
             w.WriteString("before", "");
             before = (int)(ms.Length + w.BytesPending);
             new CheckAccounting(v, this).WriteJson(w, v);
@@ -746,13 +592,10 @@ internal sealed class CheckAccounting
     /// <summary>The measuring constructor: every subject declared at full width, so
     /// <see cref="WriteJson(Utf8JsonWriter, Values)"/> writes the worst case with no field missing. It is never
     /// registered against and never rendered into a response.</summary>
-    /// <param name="real">the accounting being measured FOR. It used to declare every non-histogram subject there
-    /// is, which made the worst case wider than any rendering of this lane could be — and once the scripts family's
-    /// subjects joined the enum, every errors-lane response would have reserved room for two numbers it can never
-    /// write. A field a lane cannot write is not a reserve, it is a subtraction from the answer (the text lane's
-    /// <see cref="CanStateAccounting"/>, in this transport). The scripts family's two finding counts are copied
-    /// rather than substituted, because they are SWEEP facts: the widest value they can print is the value they
-    /// will print, and a stand-in derived from the dangling roster is 0 on the very lane that writes them.</param>
+    /// <param name="real">the accounting being measured for. Only the subjects that accounting declared are
+    /// declared here: a field a lane cannot write is not a reserve, it is a subtraction from the answer. The
+    /// scripts family's two finding counts are copied rather than substituted, because they are sweep facts — the
+    /// widest value they can print is the value they will print.</param>
     CheckAccounting(Values v, CheckAccounting real)
     {
         _boundary = "";
@@ -764,16 +607,12 @@ internal sealed class CheckAccounting
         _scriptFindingsFound = real._scriptFindingsFound;
         _scriptFindingsListed = real._scriptFindingsListed;
         _scriptTotals = real._scriptTotals;
-        // The dialogue family's quantities, carried across for the same reason the scripts family's two counts are:
-        // they are SWEEP facts, so the widest value they can print is the value they will print. As four loose ints
-        // this line did not exist, so the worst case wrote none of the fields they gate and the reserve did not
-        // cover a lane it was measuring FOR (round-2 finding B6) — the constructor's own doc claimed the opposite.
-        // As one field it is one assignment, and it cannot be half-copied.
+        // Carried across for the reason the scripts counts are: sweep facts, so the widest value they can print is
+        // the value they will print. It gates fields the worst case must write, so it cannot be left out.
         _dialogue = real._dialogue;
-        // Each subject at the WIDEST number this lane can print for it: the dangling-derived worst case, or the
+        // Each subject at the widest number this lane can print for it: the dangling-derived worst case, or the
         // subject's own found count where that is larger. A subject whose population is neither the dangling total
-        // nor the roster — the scripts family's record sections — printed 0 in the worst case and its real count in
-        // the response, which is a reserve short by the difference in digits.
+        // nor the roster would otherwise print 0 here and its real count in the response.
         foreach (var s in real._found.Keys)
             if (!s.IsHistogram()) Declare(s, Math.Max(real.Found(s), Math.Max(v.ByBudget, v.RosterTotal)));
     }
@@ -781,92 +620,52 @@ internal sealed class CheckAccounting
     // ---- the cap floor ------------------------------------------------------------------------------
 
     /// <summary>The overrun notice, or null. Non-null on every response longer than the cap it was given, and it
-    /// names WHICH of the two overruns happened: a <c>max_chars</c> too small to hold the response's fixed part
+    /// names which of the two overruns happened: a <c>max_chars</c> too small to hold the response's fixed part
     /// (<see cref="ReadSentences.SweepCapTooSmall"/>), or a body unit that ran past what the budget had left after
-    /// that fixed part fit (<see cref="ReadSentences.SweepCapOvershot"/>). Both are arms where the response is
-    /// longer than it was asked to be: dropping the accounting would restore exactly the silence #361 is, and
-    /// refusing would turn a call that answers today into one that does not, so the accounting ships and the overrun
-    /// is named with the number that fixes it.
+    /// that fixed part fit (<see cref="ReadSentences.SweepCapOvershot"/>). One sentence cannot cover both, because
+    /// the fixed-part explanation is false of the second. The accounting ships either way and the overrun is named
+    /// with the number that fixes it — dropping it would leave the caller with silence.
     ///
-    /// <para>ONE sentence for both was tried and rejected: the fixed-part explanation is FALSE of the second, and
-    /// there is nothing true of both that is also a cause. The discriminator adds no state —
-    /// <paramref name="needed"/> is the fixed part's own size, which the caller of this method already has.</para>
+    /// <para>It is asked of the finished response's length and answers only about that; predicted from a header
+    /// length plus the reserve it would be a statement about the worst case instead. Every quantity it reads is
+    /// measured, none derived or kept as a running total.</para>
     ///
-    /// <para>It is asked of the FINISHED response's length, and answers only about that. Predicted from
-    /// <c>headerLength + reserve</c> it was a statement about the worst case the reserve is sized for, and it fired
-    /// over a thousand times in a 200–6000 cap sweep on responses that were well inside their cap.</para>
-    ///
-    /// <para><b>THE RULE THIS ARM IS BUILT ON: every quantity it reads is MEASURED, none derived.</b>
-    /// <paramref name="contentLength"/> is the finished response's own length; <paramref name="noticeLength"/> is
-    /// how much of that this notice is; <paramref name="needed"/> is that same length less what the emitter let
-    /// through, which <see cref="BoundedBody.FixedPart"/> measures at each unit as it lands. Not one of them is a
-    /// hand-kept running total or a worst case standing in for a real one.</para>
-    ///
-    /// <para>That is not a style preference. This branch fixed exactly this disease at the json writer's framing —
-    /// two constants kept by hand until <see cref="MeasureFraming"/> derived both from one measurement — and left
-    /// it alive one level up, where this arm's inputs were SUMMED from components captured at different moments: a
-    /// header measured before the histogram axes wrote their notes, a reserve total that still counted room
-    /// <see cref="BoundedBody.Release"/> had given back, and a lane's whole json entry slack. Each error was
-    /// invisible on its own, they did not cancel, and the first attempt to fix them by ADDING UP the write sites
-    /// instead missed json's empty <c>plugins</c> array. Subtracting the body is the form that cannot miss one.</para>
-    ///
-    /// <para><paramref name="needed"/> is what it takes to carry this response's fixed part plus the accounting —
-    /// the number a caller can set max_chars to and stop seeing this. It is not the current length: raising the cap
-    /// widens every max_chars this response prints back, so the remedy adds that growth in, from two measured
-    /// terms — how many places print it (<paramref name="capPrintSites"/>) and how many digits the number gains.
-    /// That replaced a flat eight-character cushion, which was sized when one accounting printed the cap and came
-    /// up short the moment three did. Arms follow the remedy at every cap in a band rather than trusting the
-    /// arithmetic. It is also never BELOW the cap the caller already passed: a remedy telling them to lower
-    /// max_chars is one they cannot act on, and the fixed part that does not fit is by definition bigger than the
-    /// budget it did not fit in.</para></summary>
-    /// <param name="contentLength">the WHOLE response, this notice included — it is part of what the caller
+    /// <para><paramref name="needed"/> is what it takes to carry this response's fixed part plus the accounting.
+    /// The remedy is not that length: raising the cap widens every <c>max_chars</c> this response prints back, so
+    /// the growth is added in from two measured terms — how many places print it and how many digits the number
+    /// gains. It is also never below the cap the caller already passed.</para></summary>
+    /// <param name="contentLength">the whole response, this notice included — it is part of what the caller
     /// receives, so the cap test is asked of it.</param>
-    /// <param name="needed">this response's fixed part, every term measured (see the summary).</param>
+    /// <param name="needed">this response's fixed part, every term measured.</param>
     /// <param name="noticeLength">how many of <paramref name="contentLength"/>'s chars are this notice. It
-    /// disappears the moment the response fits, so a remedy that counts it tells the caller to buy room for a
-    /// sentence they are paying to remove — measured at 234 chars over the true smallest fitting cap in the text
-    /// lane and 1,278 (85%) in json, the other half of that being the json slack the fixed part never needed.</param>
-    /// <param name="capPrintSites">how many times THIS response prints back the cap it was given — counted in the
+    /// disappears the moment the response fits, so a remedy that counted it would tell the caller to buy room for a
+    /// sentence they are paying to remove.</param>
+    /// <param name="capPrintSites">how many times this response prints back the cap it was given — counted in the
     /// finished response by <see cref="CapPrintsIn"/>, never assumed from the number of accountings. Raising the cap
-    /// widens every one of those numbers, so a response raised across a digit boundary comes back LONGER by one
-    /// character per site, and the remedy has to name a cap that already includes that. Merged responses print it
-    /// once per family: measured, a three-family json document told a caller to raise to 5,369 and came back 5,373
-    /// chars plus its notice, so the remedy never converged.
-    ///
-    /// <para>Only the JSON lane's count is load-bearing, and it is worth saying which half an arm can see. That
-    /// lane prints <c>max_chars</c> once per accounting, unconditionally, so a raise across a digit boundary makes
-    /// the document longer and the count decides by how much. The TEXT lane prints it only inside the clauses that
-    /// name what did not fit — and a raise big enough to fit removes those clauses, so its response gets SHORTER
-    /// and the count is an upper bound there rather than a requirement. Sabotaging the text lanes' counts to a
-    /// flat one leaves every arm green for that reason; the json lane's reddens.</para></param>
+    /// across a digit boundary makes the response longer by one character per site, and the remedy has to name a cap
+    /// that already includes that.</param>
     /// <returns>the notice, or null when the response is inside its cap.</returns>
     internal string? CapTooSmall(int contentLength, int needed, int noticeLength, int capPrintSites)
     {
         if (contentLength <= _cap) return null;
-        // WHICH overrun this is, from what the arm was already handed. A cap that cannot hold the fixed part is one
-        // story; a body unit that ran past the budget after the fixed part fit is a different one, and the first
-        // sentence told that caller their header and accounting did not fit in a cap holding them with room to
-        // spare. needed IS the fixed part's size, so no state is added to tell them apart.
+        // Which overrun this is, told apart with no added state: needed IS the fixed part's size, so a cap smaller
+        // than it is one story and a body unit running past the rest is another.
         var sentence = needed > _cap ? ReadSentences.SweepCapTooSmall : ReadSentences.SweepCapOvershot;
-        // The cap this response would have to be given to stop seeing this: the length it carries WITHOUT the
-        // notice, plus what the raise itself adds back. The raise widens every number this response prints the cap
-        // in, by however many digits the cap gains — and the answer can itself gain a digit from that widening, so
-        // the growth is taken at ONE MORE digit than the floor needs rather than iterated to a fixed point. That
-        // bound is always sufficient (the answer is at most a few characters above the floor, so it can cross at
-        // most one power of ten) and it overshoots by at most one character per printing site, which is a handful.
-        // Iterating instead put the second pass out of reach of every shape the guard carries — a branch no
-        // fixture can redden, which is a branch that goes.
+        // The cap this response would need to stop seeing this: its length without the notice, plus what the raise
+        // itself adds back. The raise widens every number this response prints the cap in, and the answer can gain
+        // a digit from that widening, so the growth is taken at one more digit than the floor needs rather than
+        // iterated. That bound is always sufficient — the answer is at most a few characters above the floor, so it
+        // can cross at most one power of ten — and it overshoots by at most one character per printing site.
         int floor = Math.Max(needed, contentLength - noticeLength);
         int raiseTo = floor + capPrintSites * Math.Max(0, Digits(floor) + 1 - Digits(_cap));
         return string.Format(sentence, _cap, raiseTo, contentLength);
     }
 
-    /// <summary>HOW MANY TIMES this response prints back the cap it was given — the number the remedy's arithmetic
-    /// needs, MEASURED in the finished response rather than derived from how many accountings it has. The two
-    /// transports print it differently and the text lane prints it a varying number of times (once per subject its
-    /// accounting reports as cut), so a count is the only honest source. Both spellings are searched here so
-    /// "a place this response prints the cap" has one definition.</summary>
-    /// <param name="content">the finished response, WITHOUT the overrun notice — the notice disappears the moment
+    /// <summary>How many times this response prints back the cap it was given, measured in the finished response
+    /// rather than derived from how many accountings it has: the text lane prints it once per subject its
+    /// accounting reports as cut, so the count varies. Both spellings are searched here so "a place this response
+    /// prints the cap" has one definition.</summary>
+    /// <param name="content">the finished response, without the overrun notice — the notice disappears the moment
     /// the response fits, so a site inside it is not a site the raise has to pay for.</param>
     internal int CapPrintsIn(string content)
     {
