@@ -39,12 +39,10 @@ public sealed class BsaPackReadBackTests : IDisposable
     }
 
     /// <summary>A packer that ignores BSArch and writes <paramref name="archive"/> at the scratch path, reporting
-    /// <paramref name="exit"/> as the run's exit code. The write time is stamped explicitly to get past the pack's own
-    /// provenance gate, which an instant write reads as stale (#522); drop the stamp once that is fixed.</summary>
+    /// <paramref name="exit"/> as the run's exit code.</summary>
     static BsaPacker Writes(byte[] archive, int exit = 0, string stderr = "") => (_, _, tmpArchive, _, _, _) =>
     {
         File.WriteAllBytes(tmpArchive, archive);
-        File.SetLastWriteTimeUtc(tmpArchive, DateTime.UtcNow);
         return (exit, "", stderr, null);
     };
 
@@ -102,5 +100,22 @@ public sealed class BsaPackReadBackTests : IDisposable
         Assert.Contains("code 1", refusal);
         Assert.Contains("aborted at meshes/b.nif", refusal);
         Assert.Equal("PRIOR ARCHIVE", File.ReadAllText(target));
+    }
+
+    /// <summary>A scratch written the instant the packer is called passes the pack's provenance gate. The gate used to
+    /// compare an NTFS write stamp against a precise-clock baseline, so an immediate write read as stale better than
+    /// half the time (#522) — hence the loop.</summary>
+    [Fact]
+    public void PackAcceptsAScratchWrittenImmediately()
+    {
+        var src = ThreeFileSource();
+        var archive = BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames, Contents);
+
+        for (var i = 0; i < 20; i++)
+        {
+            var target = Path.Combine(_root, $"Loop{i}.bsa");
+            var result = BsaArchive.Pack("bsarch.exe", src, target, "-sse", compress: false, packer: Writes(archive));
+            Assert.True(result.Success, $"run {i} was refused: {result.RunError ?? result.Raw}");
+        }
     }
 }
