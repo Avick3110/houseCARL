@@ -2072,7 +2072,7 @@ public static class WritePatchBuilder
         int PluginsScanned, int UnscannableRecords, IReadOnlyList<string> UnscannableSamples, string? Note = null,
         AssetRenameOutcome? AssetRename = null, IReadOnlyList<string>? ExternalOverriders = null,
         VoiceCarryOutcome? VoiceRename = null, SeqRegenOutcome? SeqRegen = null,
-        IReadOnlyList<string>? UnscannablePlugins = null)
+        IReadOnlyList<RemapEngine.UnscannablePlugin>? UnscannablePlugins = null)
     {
         public static CompactOutcome Fail(string error) =>
             new(false, error, false, "", "", false, false, Array.Empty<string>(), 0, 0, 0,
@@ -2100,7 +2100,7 @@ public static class WritePatchBuilder
         long Bytes, string? Note = null,
         AssetRenameOutcome? AssetRename = null, VoiceCarryOutcome? VoiceRename = null, SeqRegenOutcome? SeqRegen = null,
         IReadOnlyList<string>? LightDonors = null, IReadOnlyList<string>? HeaderMetaDonors = null,
-        IReadOnlyList<string>? MasterDonors = null, IReadOnlyList<string>? UnscannablePlugins = null)
+        IReadOnlyList<string>? MasterDonors = null, IReadOnlyList<RemapEngine.UnscannablePlugin>? UnscannablePlugins = null)
     {
         public static MergeOutcome Fail(string error) =>
             new(false, error, "", "", Array.Empty<string>(), Array.Empty<string>(), 0, 0,
