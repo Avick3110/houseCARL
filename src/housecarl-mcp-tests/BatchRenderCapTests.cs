@@ -26,6 +26,22 @@ public class BatchRenderCapTests
         Array.Empty<string>(),
         "TestProfile");
 
+    // Tighter than the header plus the read-failure heading, so only the alarm loop's first-line exemption keeps any
+    // failure from being cut.
+    const int AlarmCap = 60;
+
+    static AssetStatusData ThreeReadFailures() => new(
+        new[] { Absent("meshes/a/first.nif") },
+        new[]
+        {
+            "Broken - Textures.bsa (header refused)",
+            "Broken - Meshes.bsa (header refused)",
+            "Broken - Sounds.bsa (header refused)",
+        },
+        true,
+        Array.Empty<string>(),
+        "TestProfile");
+
     static AssetPathResult Absent(string path) =>
         new(path, new AssetHit(path, false, null, Array.Empty<AssetProvider>(), false), null);
 
@@ -51,6 +67,18 @@ public class BatchRenderCapTests
         Assert.Contains("meshes/a/first.nif", text);
         Assert.DoesNotContain("meshes/b/second.nif", text);
         Assert.Contains("2 more path(s) omitted at max_chars=100", text);
+    }
+
+    /// <summary>The alarm list keeps its first entry too: a cap the header and the alarm heading alone exhaust still
+    /// names one failed archive, then counts the rest as omitted.</summary>
+    [Fact]
+    public void AReadFailureListUnderATightCapStillRendersItsFirstEntry()
+    {
+        var text = AssetWire.Render(ThreeReadFailures(), AlarmCap);
+
+        Assert.Contains("Broken - Textures.bsa (header refused)", text);
+        Assert.DoesNotContain("Broken - Meshes.bsa", text);
+        Assert.Contains("2 more archive(s) omitted at max_chars=60", text);
     }
 
     /// <summary>The two callers agree under the same cap: each keeps its first item, and each names the cut with the
