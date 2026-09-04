@@ -1925,7 +1925,7 @@ public static class RecordsTools
             else
             {
                 sb.Append(o.FormKey);
-                if (o.RuntimeFormId is { } runtime) sb.Append("  runtime=").Append(runtime);
+                Wire.AppendRuntime(sb, o.RuntimeFormId, o.RuntimeFormIdNote);
                 sb.Append("  ").Append(o.Record!.Type)
                   .Append("  ").Append(o.Record.EditorId ?? "<no editorid>")
                   .Append("  source=").Append(o.SourcePlugin ?? "?");

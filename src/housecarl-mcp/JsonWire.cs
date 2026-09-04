@@ -29,6 +29,15 @@ static class JsonWire
         if (v is null) w.WriteNull(name); else w.WriteString(name, v);
     }
 
+    /// <summary>A record's runtime address on the json lanes: <c>runtime_formid</c> always present (null when the
+    /// order gives the record none), plus <c>runtime_formid_note</c> written ONLY when there is a reason to state —
+    /// a consumer reading the form gets a token or a null, never a sentence where a FormID belongs.</summary>
+    static void WriteRuntime(Utf8JsonWriter w, string? runtime, string? note)
+    {
+        WriteNullable(w, "runtime_formid", runtime);
+        if (note is not null) w.WriteString("runtime_formid_note", note);
+    }
+
     /// <summary>The array twin of <see cref="WriteNullable"/>, for a member whose null carries meaning: null says
     /// the value was NOT COMPUTED, an empty array says it was computed and came back empty. Writing <c>[]</c> for
     /// both leaves the consumer nothing to tell them apart.</summary>
@@ -284,7 +293,7 @@ static class JsonWire
         w.WriteStartObject();
         if (epoch is not null) w.WriteString("epoch", epoch);   // single-read top level ONLY
         w.WriteString("formid", r.FormKey);
-        WriteNullable(w, "runtime_formid", o.RuntimeFormId);
+        WriteRuntime(w, o.RuntimeFormId, o.RuntimeFormIdNote);
         w.WriteString("type", r.Type);
         WriteNullable(w, "editorid", r.EditorId);
         WriteNullable(w, "winner", o.WinnerPlugin);
@@ -424,7 +433,7 @@ static class JsonWire
                 if (ms.Length >= cap) { rowsTruncated = true; break; }
                 w.WriteStartObject();
                 w.WriteString("formid", o.FormKey.ToString());
-                WriteNullable(w, "runtime_formid", o.RuntimeFormId);
+                WriteRuntime(w, o.RuntimeFormId, o.RuntimeFormIdNote);
                 if (o.Error is not null) w.WriteString("error", o.Error);
                 else
                 {
@@ -1084,7 +1093,7 @@ static class JsonWire
                 w.WriteStartArray("columns");
                 if (detail)
                 {
-                    w.WriteStringValue("formid"); w.WriteStringValue("editorid");
+                    w.WriteStringValue("formid"); w.WriteStringValue("runtime_formid"); w.WriteStringValue("editorid");
                     foreach (var f in fields!) w.WriteStringValue(f);         // cells align positionally: ReadFields returns exactly one value per requested path, in order
                     // Under a plugins= scope each row's values are SOME scoped plugin's own body, and with 2+ scoped
                     // plugins the caller cannot reconstruct WHICH from the row alone — a defining esp's stale value
@@ -1093,7 +1102,7 @@ static class JsonWire
                     if (anyScoped) w.WriteStringValue("source");
                 }
                 else
-                    foreach (var c in new[] { "formid", "type", "editorid", "winner", "override_depth" }) w.WriteStringValue(c);
+                    foreach (var c in new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth" }) w.WriteStringValue(c);
                 if (hasMatches) w.WriteStringValue("matches");
                 w.WriteEndArray();
 
@@ -1116,6 +1125,7 @@ static class JsonWire
                         var r = o.Record!;
                         w.WriteStartArray();
                         w.WriteStringValue(r.FormKey);
+                        WriteCell(w, RuntimeCell(o.RuntimeFormId, o.RuntimeFormIdNote));
                         WriteCell(w, r.EditorId);
                         foreach (var f in r.Fields)
                         {
@@ -1134,6 +1144,7 @@ static class JsonWire
                         if (m.Error is not null) { (errors ??= new()).Add((m.FormKey.ToString(), m.Error)); rendered++; continue; }
                         w.WriteStartArray();
                         w.WriteStringValue(m.FormKey.ToString());
+                        WriteCell(w, RuntimeCell(m.RuntimeFormId, m.RuntimeFormIdNote));
                         w.WriteStringValue(m.Type);
                         WriteCell(w, m.EditorId);
                         w.WriteStringValue(m.Winner);
@@ -1173,6 +1184,10 @@ static class JsonWire
         return s;
     }
 
+    /// <summary>The runtime-FormID cell in a dense row: the eight-hex form, else the reason in the parenthetical
+    /// vocabulary every other dense cell uses for a value that is not a round-trip token, else null.</summary>
+    static string? RuntimeCell(string? runtime, string? note) => runtime ?? (note is null ? null : $"({note})");
+
     static void WriteCell(Utf8JsonWriter w, string? v)
     {
         if (v is null) w.WriteNullValue(); else w.WriteStringValue(v);
@@ -1182,6 +1197,7 @@ static class JsonWire
     {
         w.WriteStartObject();
         w.WriteString("formid", m.FormKey.ToString());
+        WriteRuntime(w, m.RuntimeFormId, m.RuntimeFormIdNote);
         if (m.Error is not null) w.WriteString("error", m.Error);
         else
         {

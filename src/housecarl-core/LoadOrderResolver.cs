@@ -707,7 +707,7 @@ public sealed class LoadOrderResolver : IDisposable
                     $"(the load order has {slots.LightCount} light plugin(s)) — the plugin may be inactive; read an " +
                     "inactive plugin with 'XXXXXX:Plugin.esp'.");
             EnsureKindKnownUpTo(s, p, value);
-            return FormKey.Factory($"{value & FormIdRange.LightObjectIdMask:X6}:{_names[p]}");
+            return FormKey.Factory($"{FormIdRange.LocalObjectId(value):X6}:{_names[p]}");
         }
 
         int idx = (int)RuntimeFormId.LoadIndex(value);
@@ -718,7 +718,7 @@ public sealed class LoadOrderResolver : IDisposable
                 $"(the load order has {slots.FullCount} full plugin(s); light plugins are addressed as FExxxYYY) — " +
                 "the plugin may be inactive; read an inactive plugin with 'XXXXXX:Plugin.esp'.");
         EnsureKindKnownUpTo(s, fp, value);
-        return FormKey.Factory($"{value & FormIdRange.ObjectIdMask:X6}:{_names[fp]}");
+        return FormKey.Factory($"{FormIdRange.LocalObjectId(value):X6}:{_names[fp]}");
     }
 
     /// <summary>Refuse when a plugin whose kind could not be read sits at or before the slot just resolved: its kind
@@ -733,17 +733,23 @@ public sealed class LoadOrderResolver : IDisposable
             "sits — is unknown; address the record as 'XXXXXX:Plugin.esp' instead.");
     }
 
-    /// <summary>The runtime FormID the game, the console and the logs print for this record, or null when the order
-    /// gives it no address: its plugin is not active, a plugin whose kind could not be read sits at or before it (see
-    /// <see cref="IndexSnapshot.FirstUnknownKind"/>), or it sits past the last runtime slot.</summary>
-    string? RuntimeFormIdFor(IndexSnapshot s, FormKey fk)
+    /// <summary>The runtime FormID the game, the console and the logs print for this record. Both halves are null
+    /// when the order gives it no address at all: its plugin is not active, a plugin whose kind could not be read
+    /// sits at or before it (see <see cref="IndexSnapshot.FirstUnknownKind"/>), or it sits past the last runtime
+    /// slot. The plugin IS addressable but this record is not when it sits above the ESL window in a light-flagged,
+    /// uncompacted plugin: then the form is null and the note says so, rather than an eight-hex answer that names
+    /// another record too.</summary>
+    RuntimeAddress RuntimeAddressFor(IndexSnapshot s, FormKey fk)
     {
-        if (fk.IsNull) return null;
-        if (!_nameToIdx.TryGetValue(fk.ModKey.FileName.ToString(), out int p)) return null;
-        if (s.FirstUnknownKind >= 0 && p >= s.FirstUnknownKind) return null;
+        if (fk.IsNull) return default;
+        var name = fk.ModKey.FileName.ToString();
+        if (!_nameToIdx.TryGetValue(name, out int p)) return default;
+        if (s.FirstUnknownKind >= 0 && p >= s.FirstUnknownKind) return default;
         int slot = s.Slots.Value.SlotOfPlugin[p];
-        if (slot < 0) return null;
-        return RuntimeFormId.Format(RuntimeFormId.Compose(s.Light[p], slot, fk.ID));
+        if (slot < 0) return default;
+        return RuntimeFormId.TryCompose(s.Light[p], slot, fk.ID, out uint value)
+            ? new RuntimeAddress(RuntimeFormId.Format(value), null)
+            : new RuntimeAddress(null, RuntimeFormId.OutOfWindowNote(name, fk.ID));
     }
 
     /// <summary>A read view pinned to ONE captured index build (see <see cref="Capture"/>). Every member answers
@@ -780,10 +786,10 @@ public sealed class LoadOrderResolver : IDisposable
         public FormKey ParseFormId(string? raw)
             => RuntimeFormId.TryParse(raw, out uint v) ? _r.RuntimeToFormKey(_s, v) : FormKey.Factory((raw ?? "").Trim());
 
-        /// <summary>The runtime FormID this record prints as in the game, the console and the logs, or null when its
-        /// plugin is not active in this build. Rendered beside the <c>XXXXXX:Plugin.esp</c> form so a reader can
-        /// round-trip to the console and back.</summary>
-        public string? RuntimeFormIdOf(FormKey fk) => _r.RuntimeFormIdFor(_s, fk);
+        /// <summary>The runtime FormID this record prints as in the game, the console and the logs — or, when there
+        /// is no unambiguous one, the sentence saying why. Rendered beside the <c>XXXXXX:Plugin.esp</c> form so a
+        /// reader can round-trip to the console and back.</summary>
+        public RuntimeAddress RuntimeAddressOf(FormKey fk) => _r.RuntimeAddressFor(_s, fk);
 
         /// <summary>Whether a plugin filename is in the indexed load order — the same OrdinalIgnoreCase name table
         /// <see cref="LoadOrderResolver.GetRecord"/> resolves against (fixed for the resolver's lifetime, like

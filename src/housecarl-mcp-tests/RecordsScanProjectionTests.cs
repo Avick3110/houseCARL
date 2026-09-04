@@ -110,8 +110,8 @@ public sealed class RecordsScanProjectionTests : BulkRecordsTestBase
     JsonElement DenseScoped() => Doc(RecordsTools.Records(Svc, plugins: BothScope, format: "dense", project: Fields(DamagePath)));
 
     [Fact]
-    public void TheDenseSummarysColumnsAreTheFiveIdentityColumnsInOrder() =>
-        Assert.Equal(new[] { "formid", "type", "editorid", "winner", "override_depth" }, DenseColumns(DenseSummary()));
+    public void TheDenseSummarysColumnsAreTheSixIdentityColumnsInOrder() =>
+        Assert.Equal(new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth" }, DenseColumns(DenseSummary()));
 
     [Fact]
     public void EveryDenseSummaryRowIsAPositionalArrayOfExactlyOneCellPerColumn()
@@ -128,21 +128,21 @@ public sealed class RecordsScanProjectionTests : BulkRecordsTestBase
     public void ADenseSummaryRowsWinnerCellNamesTheOverridingPlugin()
     {
         var row = DenseRow(DenseSummary(), Fid(W.W1));
-        Assert.Equal("Weapon", row[1].GetString());
-        Assert.Equal(W.ReplName, row[3].GetString());
+        Assert.Equal("Weapon", row[2].GetString());
+        Assert.Equal(W.ReplName, row[4].GetString());
     }
 
     [Fact]
-    public void TheDenseDetailColumnsAreFormidEditoridThenTheRequestedPaths() =>
-        Assert.Equal(new[] { "formid", "editorid", DamagePath }, DenseColumns(DenseDetail()));
+    public void TheDenseDetailColumnsAreFormidRuntimeEditoridThenTheRequestedPaths() =>
+        Assert.Equal(new[] { "formid", "runtime_formid", "editorid", DamagePath }, DenseColumns(DenseDetail()));
 
     [Fact]
     public void TheDenseDetailValueCellsCarryTheWinnersValuesUnderATypeScope()
     {
         var doc = DenseDetail();
-        Assert.Equal("15", DenseRow(doc, Fid(W.W1))[2].GetString());   // the override, not the master's 10
-        Assert.Equal("20", DenseRow(doc, Fid(W.W2))[2].GetString());
-        Assert.Equal("30", DenseRow(doc, Fid(W.W3))[2].GetString());
+        Assert.Equal("15", DenseRow(doc, Fid(W.W1))[3].GetString());   // the override, not the master's 10
+        Assert.Equal("20", DenseRow(doc, Fid(W.W2))[3].GetString());
+        Assert.Equal("30", DenseRow(doc, Fid(W.W3))[3].GetString());
     }
 
     /// <summary>The point of the transport: the same query, materially fewer characters than json.</summary>
@@ -156,14 +156,14 @@ public sealed class RecordsScanProjectionTests : BulkRecordsTestBase
 
     [Fact]
     public void UnderAPluginsScopeTheDenseColumnsGainASourceColumn() =>
-        Assert.Equal(new[] { "formid", "editorid", DamagePath, "source" }, DenseColumns(DenseScoped()));
+        Assert.Equal(new[] { "formid", "runtime_formid", "editorid", DamagePath, "source" }, DenseColumns(DenseScoped()));
 
     [Fact]
     public void TheScopedDenseRowCarriesTheScopedBodysValueBesideTheSourceThatProducedIt()
     {
         var row = DenseRow(DenseScoped(), Fid(W.W1));
-        Assert.Equal("10", row[2].GetString());            // the master's own body
-        Assert.Equal(W.MasterName, row[3].GetString());    // ... attributed in-row, so it cannot read as live truth
+        Assert.Equal("10", row[3].GetString());            // the master's own body
+        Assert.Equal(W.MasterName, row[4].GetString());    // ... attributed in-row, so it cannot read as live truth
     }
 
     [Fact]
@@ -265,8 +265,8 @@ public sealed class RecordsScanProjectionTests : BulkRecordsTestBase
         var doc = Doc(WinnerMatched(null));
         Assert.Equal(1, doc.GetProperty("rows").GetArrayLength());   // matched on the winner's 15...
         var row = DenseRow(doc, Fid(W.W1));
-        Assert.Equal("10", row[2].GetString());                      // ...and still shows the master's 10
-        Assert.Equal(W.MasterName, row[3].GetString());
+        Assert.Equal("10", row[3].GetString());                      // ...and still shows the master's 10
+        Assert.Equal(W.MasterName, row[4].GetString());
     }
 
     [Fact]
@@ -276,7 +276,7 @@ public sealed class RecordsScanProjectionTests : BulkRecordsTestBase
 
     [Fact]
     public void AddingTheWinnerDisplayPoleMovesTheValuesToTheWinnerToo() =>
-        Assert.Equal("15", DenseRow(Doc(WinnerMatched("winner")), Fid(W.W1))[2].GetString());
+        Assert.Equal("15", DenseRow(Doc(WinnerMatched("winner")), Fid(W.W1))[3].GetString());
 
     [Fact]
     public void TheBothPolesNoteSaysTheMatchAndTheValuesAreBothTheWinners() =>
@@ -341,5 +341,5 @@ public sealed class RecordsScanProjectionTests : BulkRecordsTestBase
     public void ADenseContainerCellHintsTheFormatHopRatherThanABlindKnob() =>
         Assert.Contains("pass project.depth=2 with format=text/json to expand",
                         DenseRow(Doc(RecordsTools.Records(Svc, types: Weap, format: "dense", project: Keywords())),
-                                 Fid(W.W1))[2].GetString());
+                                 Fid(W.W1))[3].GetString());
 }

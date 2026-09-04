@@ -138,7 +138,7 @@ internal static class Artifacts
         else if (fields is { Count: > 0 })                                    // detail rows — full record objects
         {
             identity = "formid";
-            schema = new[] { "formid", "type", "editorid", "winner", "override_depth", "source", "matches?", "fields" };
+            schema = new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "source", "matches?", "fields" };
             sort = "load-order scan order (deterministic within one epoch)";
             var linkMemo = resolveNames ? new Dictionary<FormKey, ResolvedRef>() : null;
             for (int i = 0; i < q.Keys.Count; i++)
@@ -166,7 +166,7 @@ internal static class Artifacts
         else                                                                  // summary rows
         {
             identity = "formid";
-            schema = new[] { "formid", "type", "editorid", "winner", "override_depth", "matches?" };
+            schema = new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "matches?" };
             sort = "load-order scan order (deterministic within one epoch)";
             for (int i = 0; i < q.Keys.Count; i++)
             {
@@ -228,7 +228,7 @@ internal static class Artifacts
         var epoch = outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch ?? "";
         // The manifest's tool stamp; see WriteResolve.
         var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
-                                          new[] { "formid", "type", "editorid", "winner", "override_depth", "source", "fields" },
+                                          new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "source", "fields" },
                                           "input order", outcomes.Count, epoch, OwnedChildNotes(AnnotatedFields(outcomes)));
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
     }

@@ -46,6 +46,29 @@ public static class FormIdRange
     /// copy flow), only the ceiling comparison is single-sourced here.</summary>
     public static bool ObjectIdSpaceExhausted(uint nextFormId) => nextFormId > ObjectIdMax;
 
+    /// <summary>The high-byte mask (0xFF000000) that isolates a FormID's INDEX byte — the load-order master index on a
+    /// full FormID, and the block signature (0xFE light, 0xFF dynamic) on a runtime one. Every prefix test masks with
+    /// this rather than restating the hex.</summary>
+    public const uint IndexByteMask = 0xFF000000;
+
+    /// <summary>The high-byte signature of a DYNAMIC runtime FormID (0xFF000000) — a form the game creates while
+    /// playing, which lives only in a save game, so no plugin defines one. The counterpart of
+    /// <see cref="LightMasterIndexPrefix"/> at the top of the index-byte space.</summary>
+    public const uint DynamicIndexPrefix = 0xFF000000;
+
+    /// <summary>How far a light plugin's 12-bit index sits above the record's local id in a runtime FormID
+    /// (<c>FExxxYYY</c>): the local id occupies the low 12 bits, so the index starts at bit 12.</summary>
+    public const int LightIndexShift = 12;
+
+    /// <summary>The 12-bit mask over a light plugin's ORDER index, once shifted down by
+    /// <see cref="LightIndexShift"/>. Same width as <see cref="LightObjectIdMask"/> — the two halves of the light
+    /// block are both 12 bits — but a different quantity, so a call site reads which half it means.</summary>
+    public const uint LightIndexMask = 0xFFF;
+
+    /// <summary>How far a full plugin's load index sits above its 24-bit object id in a FormID
+    /// (<c>XX######</c>): the object id occupies the low 3 bytes (<see cref="ObjectIdMask"/>), so the index is bit 24.</summary>
+    public const int FullIndexShift = 24;
+
     /// <summary>The high-byte signature of a light-master (ESL) RUNTIME FormID (0xFE000000). At load the engine gives every
     /// light master the shared <c>0xFE</c> index and packs a 12-bit light-order index into the next 12 bits, leaving the
     /// record its low 12 bits (<see cref="LightObjectIdMask"/>). A full plugin never loads at 0xFE (that slot is reserved
@@ -58,6 +81,11 @@ public static class FormIdRange
     /// <see cref="EslWindowCeiling"/> (the ESL window is 0x000–0xFFF); named for the masking use so a call site reads
     /// "mask off to the light local id", not "compare against the window ceiling".</summary>
     public const uint LightObjectIdMask = EslWindowCeiling;
+
+    /// <summary>Does this object ID sit ABOVE the light-master (ESL) window ceiling? True for a record in a
+    /// light-FLAGGED plugin that was never compacted: the engine masks it into the 12-bit window like any other, so
+    /// two of its records can share one runtime FormID and neither can be addressed unambiguously by that form.</summary>
+    public static bool AboveEslWindow(uint objectId) => objectId > EslWindowCeiling;
 
     /// <summary>Strip a config-token / runtime FormID down to the record's LOCAL object ID relative to its named plugin —
     /// the low 12 bits for a light-prefixed (<see cref="LightMasterIndexPrefix"/>) token (the light index is not part of the
@@ -74,7 +102,7 @@ public static class FormIdRange
     /// but no 0xFE prefix (e.g. <c>800123</c>): DSD masks it to 0x123 via the flag, this rule keeps 0x800123. DSD never
     /// EMITS that shape (its export trims ESL to ≤0xFFF), so it can only arise from a hand-authored config.</para></summary>
     public static uint LocalObjectId(uint runtimeFormId) =>
-        (runtimeFormId & 0xFF000000) == LightMasterIndexPrefix
+        (runtimeFormId & IndexByteMask) == LightMasterIndexPrefix
             ? runtimeFormId & LightObjectIdMask       // FExxxYYY light runtime FormID → the 12-bit local id (YYY)
             : runtimeFormId & ObjectIdMask;           // else the high byte is the master index → keep the low 24 bits
 }

@@ -301,6 +301,7 @@ static class Wire
                 if (m.Error is not null) sb.Append("  error=").Append(m.Error).Append('\n');
                 else
                 {
+                    AppendRuntime(sb, m.RuntimeFormId, m.RuntimeFormIdNote);
                     sb.Append("  type=").Append(m.Type).Append("  editorid=").Append(m.EditorId ?? "<none>")
                       .Append("  winner=").Append(m.Winner).Append("  override_depth=").Append(m.OverrideDepth);
                     if (matches is not null) sb.Append("  matches=").Append(matches);
@@ -918,6 +919,15 @@ static class Wire
 
     // ---- shared building blocks ---------------------------------------------------------------------
 
+    /// <summary>The runtime-FormID token every text lane prints beside a record's identity: the eight-hex form, or
+    /// the parenthetical sentence saying why there is none. Nothing when the order gives the record no runtime
+    /// address at all.</summary>
+    internal static void AppendRuntime(StringBuilder sb, string? runtime, string? note)
+    {
+        if (runtime is not null) sb.Append("  runtime=").Append(runtime);
+        else if (note is not null) sb.Append("  runtime=(").Append(note).Append(')');
+    }
+
     /// <summary><paramref name="notes"/> registers the owned-child clause as each annotated field line is written,
     /// so a field the cap truncates away earns nothing. Null on the lanes that render a record outside an
     /// annotated response, such as readback and verify.</summary>
@@ -930,7 +940,7 @@ static class Wire
         var r = o.Record!;
         sb.Append("type=").Append(r.Type)
           .Append("  formid=").Append(r.FormKey);
-        if (o.RuntimeFormId is { } runtime) sb.Append("  runtime=").Append(runtime);   // what the console and the logs print
+        AppendRuntime(sb, o.RuntimeFormId, o.RuntimeFormIdNote);   // what the console and the logs print, or why there is none
         sb.Append("  editorid=").Append(r.EditorId ?? "<none>")
           .Append("  winner=").Append(o.WinnerPlugin)
           .Append("  override_depth=").Append(o.OverrideDepth).Append('\n');

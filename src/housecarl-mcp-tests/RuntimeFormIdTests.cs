@@ -2,6 +2,7 @@ using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
+using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -107,6 +108,43 @@ public sealed class RuntimeFormIdTests
         Served(Read(w, printed), "HcRtLightWeapon", World.LightName);
     }
 
+    [Fact]
+    public void TheScanSummaryRowCarriesTheRuntimeFormId()
+    {
+        using var w = new World();
+        Served(Scan(w, World.LightName), "runtime=" + World.LightRuntime(0, w.LightWeapon));
+    }
+
+    [Fact]
+    public void TheDenseScanLaneCarriesTheRuntimeFormIdColumn()
+    {
+        using var w = new World();
+        var response = Scan(w, World.LightName, format: "dense");
+        Assert.Contains("runtime_formid", response);
+        Assert.Contains(World.LightRuntime(0, w.LightWeapon), response);
+    }
+
+    // ---- a light plugin whose records sit outside the ESL window -----------------------------------
+
+    /// <summary>An esp-fe flagged light but never compacted: masking its 0x001801 record down to 0x801 would
+    /// print the same eight digits as the plugin's own 0x000801 record, and reading that back returns the
+    /// other one. The answer must say the plugin is out of window instead of stating a form that lies.</summary>
+    [Fact]
+    public void ARecordOutsideTheEslWindowGetsNoRuntimeFormIdButAReason()
+    {
+        using var w = new World();
+        var response = Read(w, World.Fid(w.WideWeapon));
+        Assert.DoesNotContain("runtime=FE", response);
+        Assert.Contains("ESL window", response);
+    }
+
+    [Fact]
+    public void TheInWindowRecordOfTheSameUncompactedPluginStillPrintsItsRuntimeFormId()
+    {
+        using var w = new World();
+        Served(Read(w, World.Fid(w.NarrowWeapon)), "runtime=" + World.LightRuntime(1, w.NarrowWeapon));
+    }
+
     // ---- the tables follow the order --------------------------------------------------------------
 
     [Fact]
@@ -125,6 +163,11 @@ public sealed class RuntimeFormIdTests
 
     static string Read(World w, string formid)
         => RecordsTools.Records(w.Svc, formids: new[] { formid });
+
+    /// <summary>The cross-plugin scan lane over one plugin's weapons — the summary rows, not a formids= read.</summary>
+    static string Scan(World w, string plugin, string? format = null)
+        => RecordsTools.Records(w.Svc, types: new[] { "WEAP" },
+                                plugins: new RecordsTools.RecordsScope { names = new[] { plugin } }, format: format);
 
     static void Served(string response, params string[] mustName)
     {
@@ -151,13 +194,21 @@ public sealed class RuntimeFormIdTests
         public const string FullName = "HcRtFull.esp";
         public const string LightName = "HcRtLight.esp";
         public const string SpareLightName = "HcRtSpare.esp";
+        public const string WideName = "HcRtWide.esp";
 
         readonly string _root;
         readonly string _profileDir;
+        readonly string _priorCorpusPath;
 
         public LoadOrderService Svc { get; }
         public FormKey FullWeapon { get; }
         public FormKey LightWeapon { get; }
+
+        /// <summary>The 0x001801 record in the light-flagged, never-compacted plugin — outside the ESL window.</summary>
+        public FormKey WideWeapon { get; }
+
+        /// <summary>Its 0x000801 neighbour in the SAME plugin — the record a masked 0x001801 would collide with.</summary>
+        public FormKey NarrowWeapon { get; }
 
         public static string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
 
@@ -170,6 +221,8 @@ public sealed class RuntimeFormIdTests
 
         public World()
         {
+            // CorpusRulebook.CorpusPath is a process-global: capture before repointing, restore on dispose.
+            _priorCorpusPath = CorpusRulebook.CorpusPath;
             _root = Path.Combine(Path.GetTempPath(), "hc-runtime-formid-tests-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path.Combine(_root, "game", "Data"));
 
@@ -196,9 +249,21 @@ public sealed class RuntimeFormIdTests
             var sw = spare.Weapons.AddNew(); sw.EditorID = "HcRtSpareWeapon";
             sw.BasicStats = new WeaponBasicStats { Damage = 40, Weight = 1 };
 
+            // The light-flagged but NEVER COMPACTED plugin: one record inside the ESL window and one above it.
+            // It is written as a full plugin because Mutagen refuses to write an out-of-window record into a
+            // light one; the header flag is flipped on disk afterwards, which is how such a plugin is made.
+            var wideKey = new ModKey("HcRtWide", ModType.Plugin);
+            var wide = new SkyrimMod(wideKey, SkyrimRelease.SkyrimSE);
+            NarrowWeapon = new FormKey(wideKey, 0x000801);
+            WideWeapon = new FormKey(wideKey, 0x001801);
+            wide.Weapons.Add(new Weapon(NarrowWeapon, SkyrimRelease.SkyrimSE)
+                { EditorID = "HcRtNarrowWeapon", BasicStats = new WeaponBasicStats { Damage = 50, Weight = 1 } });
+            wide.Weapons.Add(new Weapon(WideWeapon, SkyrimRelease.SkyrimSE)
+                { EditorID = "HcRtWideWeapon", BasicStats = new WeaponBasicStats { Damage = 60, Weight = 1 } });
+
             var instance = Path.Combine(_root, "inst");
             var mods = Path.Combine(instance, "mods");
-            foreach (var d in new[] { "MasterMod", "FullMod", "LightMod", "SpareMod" })
+            foreach (var d in new[] { "MasterMod", "FullMod", "LightMod", "SpareMod", "WideMod" })
                 Directory.CreateDirectory(Path.Combine(mods, d));
             master.BeginWrite.ToPath(Path.Combine(mods, "MasterMod", MasterName))
                   .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
@@ -208,6 +273,10 @@ public sealed class RuntimeFormIdTests
                  .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
             spare.BeginWrite.ToPath(Path.Combine(mods, "SpareMod", SpareLightName))
                  .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            var widePath = Path.Combine(mods, "WideMod", WideName);
+            wide.BeginWrite.ToPath(widePath)
+                .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).NoNextFormIDProcessing().Write();
+            SetLightFlag(widePath);
 
             File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
                 "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -216,7 +285,11 @@ public sealed class RuntimeFormIdTests
             Directory.CreateDirectory(_profileDir);
             WriteOrder(spareFirst: false);
             File.WriteAllText(Path.Combine(_profileDir, "modlist.txt"),
-                "# header\r\n+SpareMod\r\n+LightMod\r\n+FullMod\r\n+MasterMod\r\n");
+                "# header\r\n+WideMod\r\n+SpareMod\r\n+LightMod\r\n+FullMod\r\n+MasterMod\r\n");
+
+            var genDir = Path.Combine(_root, "corpus-gen");
+            CorpusGenerator.GenerateAll(genDir, Path.Combine(_root, "corpus-ref"));
+            CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
             Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(_root, "user.json")));
         }
@@ -225,17 +298,27 @@ public sealed class RuntimeFormIdTests
         /// renumbers every light index below it.</summary>
         public void ActivateSecondLightPluginFirst() => WriteOrder(spareFirst: true);
 
+        /// <summary>Set the light (ESL) flag in a written plugin's TES4 header — the record flags are the four
+        /// bytes at offset 8, and 0x00000200 is the light bit.</summary>
+        static void SetLightFlag(string path)
+        {
+            var bytes = File.ReadAllBytes(path);
+            bytes[9] |= 0x02;
+            File.WriteAllBytes(path, bytes);
+        }
+
         void WriteOrder(bool spareFirst)
         {
             var names = spareFirst
-                ? new[] { MasterName, FullName, SpareLightName, LightName }
-                : new[] { MasterName, FullName, LightName };
+                ? new[] { MasterName, FullName, SpareLightName, LightName, WideName }
+                : new[] { MasterName, FullName, LightName, WideName };
             File.WriteAllText(Path.Combine(_profileDir, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", names) + "\r\n");
             File.WriteAllText(Path.Combine(_profileDir, "plugins.txt"), string.Join("\r\n", names.Select(n => "*" + n)) + "\r\n");
         }
 
         public void Dispose()
         {
+            CorpusRulebook.CorpusPath = _priorCorpusPath;
             Svc.Dispose();
             try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ }
         }
