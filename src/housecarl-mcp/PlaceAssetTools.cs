@@ -68,7 +68,7 @@ public static class PlaceAssetTools
             string? into = null) => Guard.Tool(ToolNames.PlaceAsset, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        var reqs = MapSpec(svc.OpenFormIdDoor().Parse, formid, kind, asset_path, source, source_provider, allowExpand: false, where: "", out var err);
+        var reqs = MapSpec(svc.OpenWriteFormIdDoor().Parse, formid, kind, asset_path, source, source_provider, allowExpand: false, where: "", out var err);
         if (err is not null) return "error: " + err;
         return PlaceWire.Render(svc.PlaceAssets(reqs!, patch_name, into));
     });
@@ -107,7 +107,7 @@ public static class PlaceAssetTools
         // (ambiguous/absent/unreadable source) are per-asset (the resolver isn't consulted until the place loop).
         var all = new List<PlaceRequest>();
         var problems = new List<string>();
-        var door = svc.OpenFormIdDoor();
+        var door = svc.OpenWriteFormIdDoor();
         for (int i = 0; i < assets.Length; i++)
         {
             var a = assets[i];

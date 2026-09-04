@@ -88,7 +88,7 @@ public static class CopyTools
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
 
         // One door for every token in the call, so the source and the target resolve against one index build.
-        var door = svc.OpenFormIdDoor();
+        var door = svc.OpenWriteFormIdDoor();
         FormKey fromKey;
         try { fromKey = door.Parse(from); }
         catch (Exception ex) { return $"error: bad from '{from}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."; }
