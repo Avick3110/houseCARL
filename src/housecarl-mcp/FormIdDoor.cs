@@ -62,6 +62,9 @@ internal sealed class FormIdDoor
         if (!RuntimeFormId.TryParse(raw, out _)) return null;
         try { Parse(raw); return null; }
         catch (WriteRefusal ex) { return ex.Message; }
+        // A well-formed runtime token the index cannot translate (an FF dynamic form, an unoccupied index) is bad
+        // input, not an internal fault — hand its sentence back as this record's problem.
+        catch (FormatException ex) { return ex.Message; }
     }
 
     /// <summary>What to report for a token this door threw on. A write refusal is a WELL-FORMED token being

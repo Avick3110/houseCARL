@@ -6761,15 +6761,21 @@ public sealed class LoadOrderService : IDisposable
         var problems = new List<string>();
         var specs = new List<WritePatchBuilder.CreateSpec>(records.Count);
         // One write door for the whole call, as the sibling verbs open: parent= is the only token here that can be
-        // a FormID, and it is a write's, so a runtime one is refused with the plugin form to use.
+        // a FormID, and it is a write's, so a runtime one that is not a sibling editorid is refused with the plugin
+        // form to use.
         var door = OpenWriteFormIdDoor();
+        // The editorids this call declares: a parent naming one of them is a sibling reference, not a FormID, even
+        // when it happens to read as eight hex characters ('DEADBEEF').
+        var siblings = new HashSet<string>(
+            records.Where(x => !string.IsNullOrWhiteSpace(x.Editorid)).Select(x => x.Editorid!.Trim()),
+            StringComparer.OrdinalIgnoreCase);
         for (int r = 0; r < records.Count; r++)
         {
             var rec = records[r];
             // origins[r] is the caller's own spelling for this spec, carried parallel to the list for the same
             // reason ApplyEdits carries opOrigins: a refusal must never name an index shape the caller did not write.
             var where = origins is not null && r < origins.Count && origins[r] is { } o ? o : $"record[{r}]";
-            var spec = BuildCreateSpec(door, rec.RecordType, rec.Editorid, rec.Operations ?? Array.Empty<BulkOp>(), rec.Parent, rec.Collection, rec.Grid, where, problems, naming ?? CreateOpNaming.Legacy);
+            var spec = BuildCreateSpec(door, rec.RecordType, rec.Editorid, rec.Operations ?? Array.Empty<BulkOp>(), rec.Parent, rec.Collection, rec.Grid, where, problems, naming ?? CreateOpNaming.Legacy, siblings);
             if (spec is not null) specs.Add(spec);
         }
         if (problems.Count > 0)
@@ -6785,14 +6791,17 @@ public sealed class LoadOrderService : IDisposable
     /// top-level record. Every problem, tagged with the optional <paramref name="where"/> label, is appended to
     /// <paramref name="problems"/>, and this returns null iff this record contributed any.</summary>
     WritePatchBuilder.CreateSpec? BuildCreateSpec(FormIdDoor door, string? recordType, string? editorid, IReadOnlyList<BulkOp> operations,
-        string? parent, string? collection, string? grid, string? where, List<string> problems, CreateOpNaming naming)
+        string? parent, string? collection, string? grid, string? where, List<string> problems, CreateOpNaming naming,
+        IReadOnlySet<string>? siblingEditorids = null)
     {
         var prefix = where is null ? "" : where + ": ";
         int before = problems.Count;
 
         // parent= takes an EditorID as well as a FormID, so only a runtime FormID is judged here; everything else
-        // is left to the core's own parse.
-        if (door.RuntimeRefusal(parent) is { } parentRefusal) problems.Add($"{prefix}parent: {parentRefusal}");
+        // is left to the core's own parse. An eight-hex EditorID this call declares is a sibling reference and is
+        // never read as a FormID, so the runtime refusal runs only once that lookup has missed.
+        bool parentIsSibling = parent is not null && siblingEditorids is not null && siblingEditorids.Contains(parent.Trim());
+        if (!parentIsSibling && door.RuntimeRefusal(parent) is { } parentRefusal) problems.Add($"{prefix}parent: {parentRefusal}");
 
         string? catalogName = null;
         if (string.IsNullOrWhiteSpace(recordType))
