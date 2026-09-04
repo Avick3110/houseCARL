@@ -487,13 +487,14 @@ internal static class WriteSentences
     internal const string PlaceSourceFolderUnreadable =
         "houseCARL also looked in the MO2 mod folder of that name, and something there could not be read";
 
-    /// <summary>The other arm: the name IS one the active order provides files under, so the off-order lane never
-    /// ran and no claim about a mod folder may be made. It states only what is true — the name resolved, the path did
-    /// not — and leaves the remedy to the provider list, which names the real candidates (including an archive's
-    /// filename, which is how a file inside an active mod's archive is reached).</summary>
+    /// <summary>The other arm: the name means a LAYER, not a mod folder — MO2's overwrite, the game's Data folder,
+    /// or an active archive's filename — so the folder scan never ran and no claim about a mod folder may be made.
+    /// A mod folder name is NOT this arm any more (#388): it reaches the scan, and one of the outcomes above says
+    /// what the scan found. It states only what is true — the name resolved, the path did not — and leaves the
+    /// remedy to the provider list, which names the real candidates.</summary>
     [MustState("active load order already provides")]
-    internal const string PlaceSourceUniverseName =
-        "that name is one the active load order already provides files under";
+    internal const string PlaceSourceReservedName =
+        "that name is one the active load order already provides files under, and it names a layer rather than a mod folder";
 
     /// <summary>The named provider supplies this path in NEITHER place searched. ONE sentence for both misses: what
     /// differs is only whether anyone ELSE supplies the path, which decides whether there is a name to suggest, never
@@ -510,7 +511,7 @@ internal static class WriteSentences
         {
             OffOrderReason.NotConsulted     => ". ",          // nothing on disk was looked at; claim nothing about it
             OffOrderReason.Found            => ". ",          // unreachable from a refusal, and silent if it ever is
-            OffOrderReason.UniverseName     => $" — {PlaceSourceUniverseName}. ",
+            OffOrderReason.ReservedName     => $" — {PlaceSourceReservedName}. ",
             OffOrderReason.NotAFolderName   => $" — {PlaceSourceNotAFolderName}. ",
             OffOrderReason.NoSuchFolder     => $" — {PlaceSourceNoSuchFolder}. ",
             OffOrderReason.NoCopyInFolder   => $" — {PlaceSourceDiskFolderSearched}. ",
@@ -532,9 +533,17 @@ internal static class WriteSentences
     /// <summary>The provenance line for bytes read out of a mod the active profile does NOT include. About the SOURCE
     /// and nothing else: the placed copy's own "does not win until you enable + sort" is the render's separate,
     /// unconditional line, and neither fact may be stated twice.</summary>
-    internal static string PlaceSourceOffOrder(string provider) =>
-        $"read from '{provider}', a mod folder that is NOT enabled in MO2 — you named it, so houseCARL read it off "
-      + "disk; the bytes are that mod's, and enabling it is not required for the copy just placed";
+    // TODO(#388): place_asset's render still calls this without the flag, so an enabled mod's unloaded archive gets
+    // the "NOT enabled in MO2" arm there. The fix is one argument at PlaceAssetTools.cs's call site, which the place
+    // rewrite owns this wave. The NIF surface passes it.
+    internal static string PlaceSourceOffOrder(string provider, bool ownerEnabled = false) => ownerEnabled
+        // The folder is ticked, so the mod is not the reason: the built universe already answers for an enabled
+        // mod's loose tree and every archive the engine loads, which leaves a root archive no active plugin binds.
+        ? $"read from '{provider}', out of a root archive the engine does NOT load (no active plugin binds it) — you "
+        + "named the mod, so houseCARL looked inside its own archives; the bytes are that mod's, and nothing about "
+        + "that archive has to change for the copy just placed"
+        : $"read from '{provider}', a mod folder that is NOT enabled in MO2 — you named it, so houseCARL read it off "
+        + "disk; the bytes are that mod's, and enabling it is not required for the copy just placed";
 
     /// <summary>The both-slots expansion's own constraint on the pole. A FormID with no kind derives TWO destination
     /// paths, so an explicit source= (one file) cannot serve them — but the pole can, because it names whose copy

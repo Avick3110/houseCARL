@@ -38,9 +38,9 @@ public enum OffOrderReason
     /// <summary>The lane was not consulted at all — no lookup supplied, or degenerate inputs. No claim about disk
     /// may be made, because nothing on disk was looked at.</summary>
     NotConsulted,
-    /// <summary>Universe-first answered: the name is one the built universe already provides files under, so the
-    /// disk was deliberately not consulted.</summary>
-    UniverseName,
+    /// <summary>The reserved-name gate answered: the name means a LAYER rather than a mod folder — "overwrite",
+    /// "Data", or an active archive's filename — so the disk was deliberately not consulted.</summary>
+    ReservedName,
     /// <summary>The name cannot BE a mod folder name — a separator, a drive, a '..', a trailing dot or space.</summary>
     NotAFolderName,
     /// <summary>A mod folder of that name was looked for and there is none.</summary>
@@ -87,7 +87,7 @@ public static class OffOrderAssetSource
         if (name.Length == 0 || modsDir.Length == 0 || relPath.Length == 0) return OffOrderLookup.NotConsulted;
 
         // RESERVED FIRST — the one line that keeps a layer name meaning the layer, never a folder called that.
-        if (isReservedProviderName(name)) return new OffOrderLookup(null, OffOrderReason.UniverseName);
+        if (isReservedProviderName(name)) return new OffOrderLookup(null, OffOrderReason.ReservedName);
 
         // A name that cannot BE a folder is its own outcome, NOT the gate's — collapsed, a drive-rooted path
         // refuses as "a name the active load order already provides files under", which is false.
@@ -154,10 +154,9 @@ public static class OffOrderAssetSource
     /// than throwing because a name that cannot be a folder is simply not a hit on this lane (the caller's existing
     /// named-provider refusal is the honest answer, and it already names what it searched).
     /// <para>A TRAILING DOT OR SPACE is refused, and that is not cosmetic. Windows strips both when it resolves a
-    /// path, so <c>mods\Data.</c> opens <c>mods\Data</c> — which walks straight around the universe-first gate, since
+    /// path, so <c>mods\Data.</c> opens <c>mods\Data</c> — which walks straight around the reserved-name gate, since
     /// the gate matches the name the caller typed and "Data." is not "Data". Left in, a caller could reach a folder
-    /// shadowed by a universe name, and worse, an ENABLED mod named with a trailing dot would be served off disk and
-    /// reported as "NOT enabled in MO2" — the one sentence this lane exists to keep honest.</para></summary>
+    /// shadowed by a layer name, which is the shadowing that gate exists to prevent.</para></summary>
     static bool IsPlainFolderName(string name)
     {
         if (name is "." or "..") return false;

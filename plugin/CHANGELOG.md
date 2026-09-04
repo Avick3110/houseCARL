@@ -30,7 +30,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
   donor whose mesh lives inside its own `.bsa` had to be addressed by the archive's filename instead, and the same
   folder switched off was reachable by its mod name. Both spellings now work either way. On the NIF tools the named
   provider is also answered before the ABSENT check, so a donor outside the active set produces a refusal that names
-  the mod and says where houseCARL looked, rather than reporting the mesh as absent.
+  the mod and says where houseCARL looked, rather than reporting the mesh as absent. When bytes do come from a copy
+  the game is not loading, the NIF response says so and says which of the two reasons it is — the mod is not enabled,
+  or the archive is one no active plugin binds — and `nif_set`'s `in_place` lane refuses such a copy, because its
+  handshake is written about the winning file.
 
 - **`housecarl_nif_inspect` takes `npc=`: NPC FormIDs whose FaceGen head mesh houseCARL derives and reads.** Each
   FormID becomes the `facegeom` `.nif` path its FormKey defines — the folder is the plugin that defines the NPC,

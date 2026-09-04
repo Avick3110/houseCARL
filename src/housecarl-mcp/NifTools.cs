@@ -84,7 +84,8 @@ public static class NifTools
                      "name, 'overwrite', 'Data', or a BSA filename. Pass the name EXACTLY as the providers chain " +
                      "shows it INSIDE the double quotes; the kind after them ('loose' / 'BSA') is not part of the name. " +
                      "Naming a MOD reaches that mod's loose files AND its own root archives, whether or not MO2 is " +
-                     "loading it, so a donor mod can be read without enabling it. Applies to every mesh " +
+                     "loading it, so a donor mod can be read without enabling it; the response then SAYS the game is " +
+                     "not loading that copy. '*winner' is the winner pole spelled out. Applies to every mesh " +
                      "in the batch. Empty = the winner.")]
             string mod = "",
         [Description("Optional. Max characters before the output is cut with an explicit notice. 0 = the server default (~80k).")]
@@ -205,7 +206,9 @@ public static class NifTools
         [Description("Optional. Edit a specific provider's copy instead of the VFS winner — the mod folder name, 'overwrite', " +
                      "'Data', or a BSA filename. Pass the name EXACTLY as the providers chain shows it INSIDE the double " +
                      "quotes; the kind after them ('loose' / 'BSA') is not part of the name. Naming a MOD reaches that mod's " +
-                     "loose files AND its own root archives, whether or not MO2 is loading it. Empty = the winner.")]
+                     "loose files AND its own root archives, whether or not MO2 is loading it — a copy the game is NOT " +
+                     "loading is stated on the default lane and refused by in_place. '*winner' is the winner pole spelled " +
+                     "out. Empty = the winner.")]
             string mod = "",
         [Description("Optional. Base name for the NEW mod folder the edited mesh is written into (default lane; auto-suffixed if taken). Ignored with in_place=true.")]
             string patch_name = "",
@@ -364,6 +367,7 @@ static class NifWire
 
         var nif = d.Inspect;
         sb.Append("  read from: ").Append(d.Inspected!.Text).Append('\n');
+        if (d.Inspected.Provenance is { } prov) sb.Append("  [!] ").Append(prov).Append(".\n");
         AppendProviders(sb, d.Providers);
         if (d.Ambiguous)
             sb.Append("  note: more than one source provides this mesh — the winner above was read (loose beats BSA). " +
@@ -405,6 +409,9 @@ static class NifWire
 
     static void AppendProviders(StringBuilder sb, IReadOnlyList<NifProvider> providers)
     {
+        // Nothing ACTIVE provides the path — routine once mod= can reach a copy the game is not loading. Say that
+        // rather than print a chain header with nothing after it.
+        if (providers.Count == 0) { sb.Append("  providers: none — nothing in the active load order supplies this path\n"); return; }
         sb.Append("  providers (").Append(providers.Count).Append("): ");
         for (int i = 0; i < providers.Count; i++)
         {
@@ -718,6 +725,7 @@ static class NifSetWire
 
         // success.
         if (d.Edited is not null) sb.Append("  edited copy: ").Append(d.Edited.Text).Append('\n');
+        if (d.Edited?.Provenance is { } prov) sb.Append("  [!] ").Append(prov).Append(".\n");
         AppendProviders(sb, d.Providers);
         if (d.Ambiguous)
             sb.Append("  note: more than one source provides this mesh — the winner above was edited (loose beats BSA). Pass mod= to edit another copy.\n");
@@ -757,7 +765,8 @@ static class NifSetWire
 
     static void AppendProviders(StringBuilder sb, IReadOnlyList<NifProvider> providers)
     {
-        if (providers.Count == 0) return;
+        // Same sentence as the inspect chain's: an empty chain is a fact, not a reason to print a bare header.
+        if (providers.Count == 0) { sb.Append("  providers: none — nothing in the active load order supplies this path\n"); return; }
         sb.Append("  providers (").Append(providers.Count).Append("): ");
         for (int i = 0; i < providers.Count; i++)
         {

@@ -950,7 +950,7 @@ internal static class PlaceAssetProbe
                           $"M16 a name the universe knows NEVER falls through to a mods\\ folder of that name  [RED arm] — {(r.Placed ? "PLACED from the folder" : "refused")}");
                     // …and the REFUSAL must not claim a search the gate prevented. This arm stopped at !Placed, so it
                     // passed while the sentence beside it told the caller houseCARL had looked in that very folder.
-                    Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceUniverseName, StringComparison.Ordinal)
+                    Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceReservedName, StringComparison.Ordinal)
                           && !r.Error.Contains(WriteSentences.PlaceSourceDiskFolderSearched, StringComparison.Ordinal),
                           $"…and SAYS the name is one the active order already provides, claiming no folder search  [RED arm] — {r.Error}");
                 }
@@ -964,7 +964,7 @@ internal static class PlaceAssetProbe
                     var r = svc.PlaceAssets(new[] { new PlaceRequest(OnlyDisabled, OnlyDisabled, "Enabled1") }, null, null).Results[0];
                     Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceDiskFolderSearched, StringComparison.Ordinal),
                           $"M17 naming an ENABLED mod that lacks the path says its folder AND its own archives were searched  [RED arm] — {r.Error}");
-                    Check(!r.Error!.Contains(WriteSentences.PlaceSourceUniverseName, StringComparison.Ordinal),
+                    Check(!r.Error!.Contains(WriteSentences.PlaceSourceReservedName, StringComparison.Ordinal),
                           "…and does NOT claim the name was answered by the active order without a look  [RED arm]");
                 }
 
@@ -1055,7 +1055,7 @@ internal static class PlaceAssetProbe
                     {
                         var r = svc.PlaceAssets(new[] { new PlaceRequest(OnlyDisabled, src, AssetSourceChoice.WinnerToken) }, null, null).Results[0];
                         Check(!r.Placed && !r.Error!.Contains(WriteSentences.PlaceSourceDiskFolderSearched, StringComparison.Ordinal)
-                              && !r.Error.Contains(WriteSentences.PlaceSourceUniverseName, StringComparison.Ordinal),
+                              && !r.Error.Contains(WriteSentences.PlaceSourceReservedName, StringComparison.Ordinal),
                               $"M23 {AssetSourceChoice.WinnerToken} ({label}) is never refused as a named PROVIDER  [RED arm] — {r.Error}");
                         Check(!r.Error!.Contains($"'{AssetSourceChoice.WinnerToken}' does not supply", StringComparison.Ordinal),
                               "…and the pole is not quoted back as though it were a mod name");
@@ -1105,7 +1105,7 @@ internal static class PlaceAssetProbe
                           $"M27 the Named pole with NO lookup supplied reports NotConsulted  [RED arm] — {pick.OffOrderReason}");
                     var sentence = WriteSentences.PlaceSourceNamedAbsent(
                         "NoSuchModAnywhere", Contended, pick.ProviderNames, pick.OffOrderReason);
-                    foreach (var claim in new[] { WriteSentences.PlaceSourceUniverseName,
+                    foreach (var claim in new[] { WriteSentences.PlaceSourceReservedName,
                                                   WriteSentences.PlaceSourceNotAFolderName,
                                                   WriteSentences.PlaceSourceNoSuchFolder,
                                                   WriteSentences.PlaceSourceDiskFolderSearched,
@@ -1255,8 +1255,8 @@ internal static class PlaceAssetProbe
                     finally { UndenyList(listDenied); }
             }
 
-            // ================= M26: the ARCHIVE half of the universe-first gate =================
-            // IsUniverseProviderName tests loose-root names AND active archive filenames. Arm M's fixture has NO
+            // ================= M26: the ARCHIVE half of the reserved-name gate =================
+            // IsReservedProviderName tests the two layer names AND active archive filenames. Arm M's fixture has NO
             // active archives at all, so deleting the archive clause left every cell green — one whole half of the
             // gate with no coverage (round 2). It gets its own instance rather than an archive in arm M's: making
             // FixtureA active there would put its facegen path INSIDE the enabled universe and move what M3, M14,
