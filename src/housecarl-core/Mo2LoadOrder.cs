@@ -308,9 +308,9 @@ public static class Mo2LoadOrder
     /// <summary>Split declared masters that are NOT satisfied by the active order into the two cases whose REMEDIES
     /// differ: <c>NotInstalled</c> — no copy anywhere in the install, so the answer is INSTALL it; and
     /// <c>InstalledButInactive</c> — a copy is there but the order does not load it (it sits in a disabled mod, or
-    /// the plugin is unticked), so the answer is ENABLE it. This is the ONE home for the split:
-    /// <c>read_plugin_file</c>'s master advisory and <c>housecarl_check</c>'s missing-master remedy both call it, so
-    /// the two surfaces cannot come to different conclusions about the same master.
+    /// the plugin is unticked), so the answer is ENABLE it. This is the ONE home for the split — every surface that
+    /// reports an unsatisfied master calls it (today <c>housecarl_check</c>'s missing-master remedy), so two of them
+    /// cannot come to different conclusions about the same master.
     /// <para>Every name handed in lands in exactly one of the two lists, in the order given: the caller decides what
     /// "unsatisfied" means against its own notion of the active order, and this decides only which of the two
     /// remedies each one wants.</para>

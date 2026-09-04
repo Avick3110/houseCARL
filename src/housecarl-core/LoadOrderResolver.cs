@@ -459,9 +459,10 @@ public sealed class LoadOrderResolver : IDisposable
     /// strings sit in its own folder (loose OR in its own BSA) is never redirected away from them — no regression. A
     /// non-localized plugin needs no strings at all, so the override is simply never consulted.
     ///
-    /// <para>Public because it is also the open path for <c>housecarl_read_plugin_file</c>'s raw, out-of-load-order
-    /// read of an inactive/arbitrary plugin — a pure <c>(path, dataDir) → overlay</c> factory that touches no resolver
-    /// index, so that tool reuses this one strings-correct choke point instead of re-deriving it.</para></summary>
+    /// <para>Public because it is also the open path for a raw, out-of-load-order read of an inactive or arbitrary
+    /// plugin (the records source= pole's off-order arm, the copy donor lane) — a pure <c>(path, dataDir) → overlay</c>
+    /// factory that touches no resolver index, so those lanes reuse this one strings-correct choke point instead of
+    /// re-deriving it.</para></summary>
     public static ISkyrimModGetter OpenOverlay(string path, string? dataDir)
     {
         if (dataDir is not null && !FolderHasOwnStrings(path))
