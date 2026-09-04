@@ -68,7 +68,7 @@ public static class BsaTools
         {
             if (svc.ConfigPromptOrNull() is { } cfg) return cfg;   // need ModsDir for the default managed folder
             // Extract names the folder it left behind on failure rather than deleting it, unlike repack below.
-            try { target = svc.ResolvePatchModFolder(Path.GetFileNameWithoutExtension(archive) + " (extracted)", into: null, "houseCARL_Extract").OutputDir; }
+            try { target = svc.ResolvePatchModFolder(Path.GetFileNameWithoutExtension(archive) + " (extracted)", into: null, "houseCARL_Extract", naming: null).OutputDir; }
             catch (InvalidOperationException ex) { return "error: " + ex.Message; }
         }
         else
@@ -90,6 +90,13 @@ public static class BsaTools
             : "(read the files you need from that folder.)");
         return sb.ToString();
     });
+
+    /// <summary>How the repack lane names its mod folder, for the into= not-found refusal (#357). It names
+    /// patch_name= and says why: this tool declares archive_name= as well, and the §5.3 candidate order routes a
+    /// bare patch= there — to the .bsa filename, not the folder — so the sibling lanes' patch= sentence would
+    /// rename the caller's archive and leave the folder defaulted.</summary>
+    public static readonly LoadOrderService.RiderNaming RepackNaming = new(
+        "patch_name", "On this tool a bare patch= names the ARCHIVE (archive_name=), not the folder.");
 
     [McpServerTool(Name = ToolNames.BsaRepack, Title = "Pack a folder into a .bsa archive"),
      Description(
@@ -126,7 +133,7 @@ public static class BsaTools
         if (!name.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase)) name += ".bsa";
 
         LoadOrderService.RiderFolder rf;
-        try { rf = svc.ResolvePatchModFolder(patch_name, into, "houseCARL_Archive"); }
+        try { rf = svc.ResolvePatchModFolder(patch_name, into, "houseCARL_Archive", RepackNaming); }
         catch (InvalidOperationException ex) { return "error: " + ex.Message; }
         var folder = rf.OutputDir;
 

@@ -189,22 +189,22 @@ internal static class WriteMutexProbe
             Console.WriteLine("--- 5: rider residue — fresh empty folder deleted, partial named, into= reuse untouched (hunt H2) ---");
             {
                 // (a) fresh + genuinely empty (only our meta.ini) → DELETED, nothing to name
-                var rfEmpty = svc.ResolvePatchModFolder("HcRiderEmpty", null, "houseCARL_Archive");
+                var rfEmpty = svc.ResolvePatchModFolder("HcRiderEmpty", null, "houseCARL_Archive", BsaTools.RepackNaming);
                 Check(rfEmpty.CreatedFresh && Directory.Exists(rfEmpty.ModFolder), "a fresh rider folder is created (only meta.ini)");
                 var leftEmpty = svc.RemoveOrNameRiderResidue(rfEmpty);
                 Check(leftEmpty is null && !Directory.Exists(rfEmpty.ModFolder),
                       "a genuinely-empty fresh rider folder is DELETED on failure (no orphan, nothing to name)");
 
                 // (b) fresh + a real artifact landed → KEPT and its path NAMED
-                var rfFull = svc.ResolvePatchModFolder("HcRiderFull", null, "houseCARL_Archive");
+                var rfFull = svc.ResolvePatchModFolder("HcRiderFull", null, "houseCARL_Archive", BsaTools.RepackNaming);
                 File.WriteAllText(Path.Combine(rfFull.OutputDir, "Output.bsa"), "data");        // real output before the failure
                 var leftFull = svc.RemoveOrNameRiderResidue(rfFull);
                 Check(leftFull == rfFull.ModFolder && Directory.Exists(rfFull.ModFolder),
                       "a fresh rider folder holding REAL output is KEPT and its path named (never delete tool output)");
 
                 // (c) into= reuse → NEVER touched (the user owns it)
-                svc.ResolvePatchModFolder("HcRiderInto", null, "houseCARL_Archive");             // create it fresh first
-                var reuse = svc.ResolvePatchModFolder(null, "HcRiderInto", "houseCARL_Archive");  // then reuse it via into=
+                svc.ResolvePatchModFolder("HcRiderInto", null, "houseCARL_Archive", BsaTools.RepackNaming);             // create it fresh first
+                var reuse = svc.ResolvePatchModFolder(null, "HcRiderInto", "houseCARL_Archive", BsaTools.RepackNaming);  // then reuse it via into=
                 Check(!reuse.CreatedFresh, "an into= reuse is not flagged fresh");
                 var leftReuse = svc.RemoveOrNameRiderResidue(reuse);
                 Check(leftReuse is null && Directory.Exists(reuse.ModFolder),
