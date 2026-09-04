@@ -39,8 +39,9 @@ public sealed class BsaPackReadBackTests : IDisposable
     }
 
     /// <summary>A packer that ignores BSArch and writes <paramref name="archive"/> at the scratch path. The write time is
-    /// stamped explicitly: a pack only ships a scratch written at or after its own start, and NTFS records a last-write
-    /// time coarser than the clock the baseline is read from, so an instant write can otherwise read as stale.</summary>
+    /// stamped explicitly to get past the pack's own provenance gate: NTFS records a last-write time coarser than the
+    /// clock that gate's baseline is read from, so an instant write reads as stale (#522). Drop the stamp once that is
+    /// fixed — these tests are about the count read-back, not the gate.</summary>
     static BsaPacker Writes(byte[] archive) => (_, _, tmpArchive, _, _, _) =>
     {
         File.WriteAllBytes(tmpArchive, archive);
