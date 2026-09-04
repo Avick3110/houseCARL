@@ -416,7 +416,7 @@ public static class BulkPrimitivesWave3Probe
               ownedReject is { } orr && orr.Contains("owned child records"));
 
         // create-context: CopyFrom isn't valid when creating a record
-        var createCopy = svc.CreateRecords("Weapon", "CfCreated",
+        var createCopy = svc.CreateOne("Weapon", "CfCreated",
             new[] { new BulkOp { FieldPath = "BasicStats.Damage", Verb = "CopyFrom", FromPlugin = masterName } },
             "CfCreate", null);
         Check("refusal: CopyFrom in a CREATE op → refused (isn't valid when creating)",
@@ -568,125 +568,71 @@ public static class BulkPrimitivesWave3Probe
         // .FactB5_ASameNamedCopyOutsideEveryInstallRootStaysOffOrder carry B4/B5, driven on RecordsWorld's own
         // OldFile (already a disabled-mod path) plus a scratch copy outside the install for B5.
 
-        // The same computed provenance through read_plugin_file: the enabled plugin's file, addressed by path, is
-        // NOT flagged inactive (the second consumer of the shared locate's enabled flag — #269).
-        var rpfPath = svc.ReadPluginFile(replPath, wFid, null, null, new[] { "BasicStats.Damage" }, 1, null, 10);
-        Check("read_plugin_file: an ENABLED plugin addressed by path reports enabled=true (still OUT-OF-LOAD-ORDER by contract)",
-              rpfPath.Error is null && rpfPath.Where == "direct path" && rpfPath.Enabled);
-        var rpfArchive = svc.ReadPluginFile(archivePath, wFid, null, null, new[] { "BasicStats.Damage" }, 1, null, 10);
-        Check("read_plugin_file: the same-named backup outside the install reports enabled=false",
-              rpfArchive.Error is null && rpfArchive.Where == "direct path" && !rpfArchive.Enabled);
-        // The flag tracks WHICH COPY the install provides, not merely "is this folder enabled" — a shadowed copy in
-        // a lower-priority ENABLED mod is not what loads, and reporting it enabled would be worse than the pre-#269
-        // hardcoded false (which was accidentally right here).
-        var rpfShadow = svc.ReadPluginFile(shadowPath, wFid, null, null, new[] { "BasicStats.Damage" }, 1, null, 10);
-        Check("read_plugin_file: a SHADOWED copy in a lower-priority enabled mod reports enabled=false",
-              rpfShadow.Error is null && rpfShadow.Where == "direct path" && !rpfShadow.Enabled);
-        Check("read_plugin_file: the shadowed copy still READS (66) — it is unreachable to the game, not to the tool",
-              rpfShadow.Error is null && rpfShadow.Record is not null);
+        // The same computed provenance, read through the records source= pole (svc.ProbeSourceArm — what
+        // housecarl_records resolves source= with). Its Where is the composed label: "active in the load order",
+        // or "OUT-OF-LOAD-ORDER (<where>; NOT active — <cause>)". These arms were always about the locate
+        // contract; LoadOrderService.ReadPluginFile, the entry point they used to reach it through, had no
+        // shipped caller and was deleted (#497).
+        string Arm(string plugin, string? mod = null)
+        {
+            var pole = svc.ProbeSourceArm(plugin, mod, out var err);
+            return err ?? pole!.Where;
+        }
+        // The cause on its own, so two address forms can be compared on the FACT rather than on the label that
+        // introduces it — each lane's label names a different thing, by design.
+        string? Cause(string plugin, string? mod = null)
+        {
+            const string marker = "; NOT active — ";
+            var label = Arm(plugin, mod);
+            var at = label.IndexOf(marker, StringComparison.Ordinal);
+            return at < 0 ? null : label[(at + marker.Length)..].TrimEnd(')');
+        }
+
+        Check("source pole: an ENABLED plugin addressed by path resolves to the ACTIVE arm, not a not-active one",
+              Arm(replPath) == "active in the load order");
+        Check("source pole: the same-named backup OUTSIDE the install says no layer provides it — not 'disabled'",
+              Cause(archivePath) is { } wA && wA.Contains("no MO2 layer was found providing this exact path"));
+        // The judgement tracks WHICH COPY the install provides, not merely "is this folder enabled" — a shadowed
+        // copy in a lower-priority ENABLED mod is not what loads, and calling it live would be worse than the
+        // pre-#269 hardcoded false (which was accidentally right here). Its remedy is the OPPOSITE of an unticked
+        // one's, so the two must never render alike: what is wrong is WHICH copy, and the pointer is the winner.
+        Check("source pole: a SHADOWED copy in a lower-priority enabled mod says SHADOWED and names the serving mod",
+              Cause(shadowPath) is { } wS && wS.Contains("SHADOWED") && wS.Contains("DiffRepl") && !wS.Contains("UNTICKED"));
         // The served copy is the first ENABLED-layer hit, not the first hit: a DISABLED folder holding the same
         // filename is listed ahead of game Data, and must not decide the live plugin's provenance.
-        string dswFid = $"{dswFk.ID:X6}:{dswFk.ModKey.FileName}";
-        var rpfData = svc.ReadPluginFile(dataServedPath, dswFid, null, null, new[] { "BasicStats.Damage" }, 1, null, 10);
-        Check("read_plugin_file: a game-Data-served plugin listed BEHIND a disabled copy still reports enabled=true",
-              rpfData.Error is null && rpfData.Where == "direct path" && rpfData.Enabled);
-        var rpfDecoy = svc.ReadPluginFile(decoyPath, dswFid, null, null, new[] { "BasicStats.Damage" }, 1, null, 10);
-        Check("read_plugin_file: that disabled copy itself reports enabled=false",
-              rpfDecoy.Error is null && rpfDecoy.Where == "direct path" && !rpfDecoy.Enabled);
-        string uwFid = $"{uwFk.ID:X6}:{uwFk.ModKey.FileName}";
+        Check("source pole: a game-Data-served plugin listed BEHIND a disabled copy still resolves ACTIVE",
+              Arm(dataServedPath) == "active in the load order");
+        // A copy in a switched-off mod: the remedy is the LEFT pane, and the cause must say so rather than blame
+        // the plugin's tick (the decoy is in plugins.txt nowhere, so a naive renderer would say "unticked"). The
+        // PATH lane's own where identifies no layer, so this cause must still name the mod.
+        Check("source pole: that disabled copy blames the MOD FOLDER by name, and never calls the plugin unticked",
+              Cause(decoyPath) is { } wD && wD.Contains("DataServedDecoy") && wD.Contains("switched OFF") && !wD.Contains("UNTICKED"));
         // UNTICKED: the served copy, in an ENABLED mod, but unchecked in plugins.txt — the game does not load it.
-        // The mod's switch and the plugin's tick are separate facts and the flag has to carry both (#271).
-        var rpfUnticked = svc.ReadPluginFile(untickedPath, uwFid, null, null, new[] { "BasicStats.Damage" }, 1, null, 10);
-        Check("read_plugin_file: a plugin in an ENABLED mod but UNTICKED in plugins.txt reports enabled=false",
-              rpfUnticked.Error is null && rpfUnticked.Where == "direct path" && !rpfUnticked.Enabled);
-        var rpfUntickedByName = svc.ReadPluginFile(Path.GetFileName(untickedPath), uwFid, null, null, null, 1, null, 10);
-        Check("read_plugin_file: the same plugin BY FILENAME agrees — the lanes state one fact, not two",
-              rpfUntickedByName.Error is null && !rpfUntickedByName.Enabled);
-        // The mod= lane is the third address form for one file, and it must answer identically. The shadow mod is
-        // ENABLED, so a lane testing only "is this mod switched on" would call its shadowed copy live.
-        var rpfModShadow = svc.ReadPluginFile(rKey.FileName.String, wFid, null, "DiffReplShadow", new[] { "BasicStats.Damage" }, 1, null, 10);
-        Check("read_plugin_file mod=: a shadowed copy in an ENABLED mod reports enabled=false, as the path lane does",
-              rpfModShadow.Error is null && !rpfModShadow.Enabled);
-        var rpfModServing = svc.ReadPluginFile(rKey.FileName.String, wFid, null, "DiffRepl", new[] { "BasicStats.Damage" }, 1, null, 10);
-        Check("read_plugin_file mod=: the SERVING mod's copy of the same name reports enabled=true",
-              rpfModServing.Error is null && rpfModServing.Enabled);
-        var rpfModUnticked = svc.ReadPluginFile(unKey.FileName.String, uwFid, null, "DiffUnticked", null, 1, null, 10);
-        Check("read_plugin_file mod=: the serving mod's copy of an UNTICKED plugin still reports enabled=false",
-              rpfModUnticked.Error is null && !rpfModUnticked.Enabled);
-
-        // ---- #271: the flag now EXPLAINS. Every not-active lane above must name its own cause, and the three causes
-        //      must be distinguishable — an agent that reads "NOT active" and cannot tell unticked from shadowed from
-        //      switched-off burns a search rediscovering what the tool already computed. Armed on EVERY address form,
-        //      because "armed the reported lane, missed its twin" is the mistake that cost #270 four review rounds. ----
-        Check("#271 why: an UNTICKED plugin by PATH says UNTICKED and names plugins.txt (not its mod's switch)",
-              rpfUnticked.WhyNotActive is { } wU && wU.Contains("UNTICKED") && wU.Contains("plugins.txt")
+        // The mod's switch and the plugin's tick are separate facts and the cause has to carry both (#271).
+        Check("source pole: a plugin in an ENABLED mod but UNTICKED in plugins.txt says so and names plugins.txt",
+              Cause(untickedPath) is { } wU && wU.Contains("UNTICKED") && wU.Contains("plugins.txt")
               && wU.Contains(unKey.FileName.String));
-        Check("#271 why: the same plugin BY FILENAME gives the SAME cause — one fact, however addressed",
-              rpfUntickedByName.WhyNotActive == rpfUnticked.WhyNotActive);
-        Check("#271 why: and via mod= too — all three address lanes agree on the cause, not just on the boolean",
-              rpfModUnticked.WhyNotActive == rpfUnticked.WhyNotActive);
-        // A shadowed copy's remedy is the OPPOSITE of an unticked one's, so the two must never render alike: this mod
-        // is enabled and this plugin is ticked — what's wrong is WHICH copy, and the useful pointer is the winner.
-        Check("#271 why: a SHADOWED copy says SHADOWED and points at the mod that serves the winning copy",
-              rpfShadow.WhyNotActive is { } wS && wS.Contains("SHADOWED") && wS.Contains("DiffRepl")
-              && !wS.Contains("UNTICKED"));
-        Check("#271 why: mod= reaches the same shadowed copy and states the same cause",
-              rpfModShadow.WhyNotActive is { } wMS && wMS.Contains("SHADOWED"));
-        // A copy in a switched-off mod: the remedy is the LEFT pane, and the label must say so rather than blame the
-        // plugin's tick (the decoy is not listed in plugins.txt at all, so a naive renderer would say "unticked").
-        Check("#271 why: a copy in a DISABLED mod blames the MOD FOLDER, and never claims the plugin is unticked",
-              rpfDecoy.WhyNotActive is { } wD && wD.Contains("DataServedDecoy") && wD.Contains("switched OFF")
-              && !wD.Contains("UNTICKED"));
-        Check("#271 why: a same-named backup OUTSIDE the install says it is not an install copy — not 'disabled'",
-              rpfArchive.WhyNotActive is { } wA && wA.Contains("no MO2 layer was found providing this exact path"));
-        // The other direction, and the one #269 was actually about: when the game DOES load the file, there must be
-        // no cause at all — a leftover explanation would re-assert the very falsehood this issue set out to remove.
-        Check("#271 why: the three ACTIVE lanes carry NO cause (null), so nothing contradicts the live file",
-              rpfPath.WhyNotActive is null && rpfData.WhyNotActive is null && rpfModServing.WhyNotActive is null);
-
-        // The RENDERED header — the "[mod 'X' (enabled); NOT active]" pairing named a folder and a file in one
-        // breath without saying which was which (#271 item 4) — DIES here (a): Wire.RenderPluginFile is one of
-        // #486's eight deleted render-halves members, and LoadOrderService.ReadPluginFile — whose DTO it rendered
-        // — has zero shipped callers of its own (phase-1 record §2; carried to the PR body as an open item for
-        // Aaron: delete ReadPluginFile too, or give it a 2.0 caller). No live surface renders this banner today,
-        // so the wording fact has nowhere to be tested from. The DTO-level half of the same fact — WhyNotActive
-        // NAMES the cause — is unaffected and still asserted below (line ~692 onward), untouched by this deletion.
-        // The FILENAME lane's Where is the located hit's OWN label, so a LayerOff cause that restates the layer says
-        // the same thing twice in one sentence — output strictly worse than the "NOT active" it replaced. The path-lane
-        // arms above cannot catch it: their Where is the constant "direct path", where the restatement is the only way
-        // the layer gets named at all. Armed on the lane where the bug can actually appear (review of PR #274).
-        Console.WriteLine("DBG byname=[" + (svc.ReadPluginFile(dKey.FileName.String, wFid, null, null, null, 1, null, 10).WhyNotActive ?? "<null>") + "]");
-        Console.WriteLine("DBG bymod=[" + (svc.ReadPluginFile(dKey.FileName.String, wFid, null, "DiffDonor", null, 1, null, 10).WhyNotActive ?? "<null>") + "]");
-        Console.WriteLine("DBG bypath=[" + (rpfDecoy.WhyNotActive ?? "<null>") + "]");
-        Console.WriteLine("DBG archive=[" + (rpfArchive.WhyNotActive ?? "<null>") + "]");
-        // B12 (the providing mod named EXACTLY ONCE in the composed label, all three address forms) and B13 (the
-        // remedy stated exactly once) were counting arms over the RENDERED read_plugin_file banner, and the banner
-        // is deleted — so the counting has nowhere to run HERE. The defect class is not dead with it: the live
-        // carrier is housecarl_records, which composes its off-order label from the same located Where plus
-        // WhyNotActive, and the counting moved there —
-        // RecordsOffOrderPathTests.FactB4_ADisabledModsPluginAddressedByPathStaysOffOrderAndNamesTheCause counts
-        // the mod name and the remedy inside ONE composed label. What is left below is the DTO half these arms also
-        // fed, which never called the deleted renderer: WhyNotActive NAMES the cause, and the two layer-off causes
-        // never render alike. The mod= address lane keeps no arm of its own on this branch — its only consumer was
-        // the banner (this is a real narrowing, stated rather than hidden).
-        var rpfDisabledByName = svc.ReadPluginFile(dKey.FileName.String, wFid, null, null, null, 1, null, 10);
-        // ...while the PATH lane, whose Where identifies nothing, must STILL name the mod — suppressing it everywhere
-        // would lose the only mention of which mod provides the file.
-        Check("#271 render: the same copy BY PATH still names the mod, since its Where cannot",
-              rpfDecoy.WhyNotActive is { } wD2 && wD2.Contains("DataServedDecoy"));
-        // The two layer-off causes carry DIFFERENT remedies and must never render alike: an UNLISTED folder has nothing
-        // in MO2's list to switch on. Both are flagged not-enabled by the locate, so a fix reading that flag alone
-        // cannot tell them apart — the standing is decided from modlist.txt membership instead.
-        string ulwFid = $"{ulwFk.ID:X6}:{ulwFk.ModKey.FileName}";
-        var rpfUnlisted = svc.ReadPluginFile(unlKey.FileName.String, ulwFid, null, null, null, 1, null, 10);
-        // The layer LABEL must not carry a remedy of its own, or the rendered line instructs twice — the same
-        // duplication class, one step milder. Only the cause line explains (live-check finding, #274). The
-        // RENDERED form dies with Wire.RenderPluginFile (see the note above); WhyNotActive's DTO-level half
-        // continues below.
-        Check("#271 why: a DISABLED mod says switch it on; an UNLISTED folder says refresh — never swapped",
-              rpfDisabledByName.WhyNotActive is { } wDis && wDis.Contains("switched OFF") && wDis.Contains("switch it on")
-              && rpfUnlisted.Error is null && rpfUnlisted.WhyNotActive is { } wUn
-              && wUn.Contains("not registered") && !wUn.Contains("switch it on"));
+        Check("source pole: the same plugin BY FILENAME gives the SAME cause — one fact, however addressed",
+              Cause(Path.GetFileName(untickedPath)) == Cause(untickedPath));
+        Check("source pole: and via mod= too — the address lanes agree on the cause, not just on the state",
+              Cause(unKey.FileName.String, "DiffUnticked") == Cause(untickedPath));
+        // The FILENAME lane's where is the located hit's OWN label, so a layer-off cause that restates the layer
+        // says the same thing twice in one sentence — output strictly worse than the "NOT active" it replaced.
+        // The path-lane arms above cannot catch that: their where is a constant that names no layer at all.
+        // The two layer-off causes also carry DIFFERENT remedies and must never render alike — an UNLISTED folder
+        // has nothing in MO2's list to switch on, and both are not-served, so a fix reading that alone cannot tell
+        // them apart; the standing is decided from modlist.txt membership instead.
+        Check("source pole: a DISABLED mod says switch it on; an UNLISTED folder says refresh — never swapped",
+              Cause(dKey.FileName.String) is { } wDis && wDis.Contains("switched OFF") && wDis.Contains("switch it on")
+              && Cause(unlKey.FileName.String) is { } wUn && wUn.Contains("not registered") && !wUn.Contains("switch it on"));
+        // B12 (the providing mod named EXACTLY ONCE in the composed label) and B13 (the remedy stated exactly once)
+        // were counting arms over the rendered read_plugin_file banner, which #486 deleted. The counting lives on
+        // housecarl_records, which composes its off-order label from the same where + cause:
+        // RecordsOffOrderPathTests.FactB4 counts them for the path form and
+        // RecordsPluginFileSourceTests.APluginNamedOutOfASwitchedOffModSaysThatModFolderIsOff for the filename form.
+        // #497: the mod= arms for a copy of an ACTIVE plugin name (the shadowed and the serving copy of
+        // HcW3DiffRepl.esp) have no home on this surface — source= is ONE pole, and a plugin active in the order
+        // resolves there before any folder is searched. Stated rather than quietly dropped.
 
         // ---- #271 item 2: the REFUSAL sweep. A tool that reads THROUGH the load order still refuses on an unticked
         //      plugin (correctly — Q3: a plugin the game does not load must never masquerade as load-order truth), but
@@ -717,10 +663,8 @@ public static class BulkPrimitivesWave3Probe
 
         // Serves + Unregistered: the served copy of a plugin MO2 has never written into its profile. Distinct from
         // unticked (there is nothing to untick) and from a switched-off mod (the folder is on), so it must say neither.
-        string urwFid = $"{urwFk.ID:X6}:{urwFk.ModKey.FileName}";
-        var rpfUnreg = svc.ReadPluginFile(unregKey.FileName.String, urwFid, null, null, null, 1, null, 10);
         Check("#271 why: the SERVED copy of an unregistered plugin says so, blaming neither the tick nor the mod",
-              rpfUnreg.Error is null && !rpfUnreg.Enabled && rpfUnreg.WhyNotActive is { } wR
+              Cause(unregKey.FileName.String) is { } wR
               && wR.Contains("not registered in MO2's load order") && !wR.Contains("UNTICKED")
               && !wR.Contains("which the game does not load"));
         // The explainer's stale-profile branch: TICKED, but no layer provides the file. "Unticked" would be a lie and

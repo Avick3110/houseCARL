@@ -82,14 +82,14 @@ internal static class BulkCreateGuardProbe
 
             // ---- FLAT: single flat Keyword create, no parent ----
             {
-                var o = svc.CreateRecords("Keyword", "HcBcGdKw", Array.Empty<BulkOp>(), "HcBcFlat", null);
+                var o = svc.CreateOne("Keyword", "HcBcGdKw", Array.Empty<BulkOp>(), "HcBcFlat", null);
                 Check(o.Success && o.Created.Count == 1 && o.Created[0].FormKey.ID >= 0x800,
                     $"FLAT single flat create still works — {(o.Success ? o.Created[0].FormKey.ToString() : "err=[" + o.Error + "]")}");
             }
 
             // ---- SINGLE-PARENT: single create_record with parent= an existing master topic ----
             {
-                var o = svc.CreateRecords("DialogResponses", "HcBcN2Info", Array.Empty<BulkOp>(), "HcBcSingleParent", null, parent: topicFk.ToString());
+                var o = svc.CreateOne("DialogResponses", "HcBcN2Info", Array.Empty<BulkOp>(), "HcBcSingleParent", null, parent: topicFk.ToString());
                 var responses = o.Success ? TopicResponses(o.OutputPath, topicFk) : null;
                 bool under = responses is not null && o.Success && responses.Contains(o.Created[0].FormKey);
                 Check(o.Success && o.Created.Count == 1 && o.Created[0].FormKey.ID >= 0x800 && under,
@@ -127,7 +127,7 @@ internal static class BulkCreateGuardProbe
 
             // ---- GUIDANCE: a nested create with no parent guides to parent= / housecarl_create ----
             {
-                var o = svc.CreateRecords("DialogResponses", "HcBcNoParent", Array.Empty<BulkOp>(), "HcBcGuidance", null);
+                var o = svc.CreateOne("DialogResponses", "HcBcNoParent", Array.Empty<BulkOp>(), "HcBcGuidance", null);
                 // The remedy must give the SPELLING as well as the name (#468 round 1, driven on the wire): the
                 // sentence used to say "pass parent= … collection=" at the top level, which was housecarl_create_record's
                 // shape and is nobody's now — housecarl_create declares only records/patch/into/in_place/acknowledge/
@@ -148,7 +148,7 @@ internal static class BulkCreateGuardProbe
             // ---- EXTERIOR-WIRE: create_record Cell with parent=<worldspace> + grid= → exterior cell + shell report ----
             //      Proves the grid= param threads service→core AND the CellShell teeth fire (Aaron's "you must fill" report).
             {
-                var o = svc.CreateRecords("Cell", "HcBcExtCell", Array.Empty<BulkOp>(), "HcBcExt", null, parent: worldFk.ToString(), grid: "1000,-1000");
+                var o = svc.CreateOne("Cell", "HcBcExtCell", Array.Empty<BulkOp>(), "HcBcExt", null, parent: worldFk.ToString(), grid: "1000,-1000");
                 var shell = o.CellShell;
                 bool ext = shell is not null && shell.Cells.Count == 1 && !shell.Cells[0].Interior && shell.Cells[0].MustProvide.Count > 0;
                 Check(o.Success && o.Created.Count == 1 && o.Created[0].FormKey.ID >= 0x800 && ext,
@@ -157,7 +157,7 @@ internal static class BulkCreateGuardProbe
 
             // ---- INTERIOR-WIRE: create_record Cell with NO parent + NO grid → interior cell + shell report ----
             {
-                var o = svc.CreateRecords("Cell", "HcBcIntCell", Array.Empty<BulkOp>(), "HcBcInt", null);
+                var o = svc.CreateOne("Cell", "HcBcIntCell", Array.Empty<BulkOp>(), "HcBcInt", null);
                 var shell = o.CellShell;
                 bool inter = shell is not null && shell.Cells.Count == 1 && shell.Cells[0].Interior && shell.Cells[0].MustProvide.Count > 0;
                 Check(o.Success && o.Created.Count == 1 && o.Created[0].FormKey.ID >= 0x800 && inter,

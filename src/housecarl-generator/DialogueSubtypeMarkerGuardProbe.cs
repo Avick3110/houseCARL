@@ -150,7 +150,7 @@ internal static class DialogueSubtypeMarkerGuardProbe
             // ---- AUTOFILL: create a DialogTopic with Subtype=Hello and no marker → written SNAM = HELO, reported ----
             {
                 var ops = new[] { new BulkOp { FieldPath = "Subtype", Verb = "Set", Value = "Hello" } };
-                var o = svc.CreateRecords("DialogTopic", "HcSnamAutofill", ops, "HcSnamAF", null);
+                var o = svc.CreateOne("DialogTopic", "HcSnamAutofill", ops, "HcSnamAF", null);
                 string? snam = o.Success ? TopicSnam(o.OutputPath, o.Created[0].FormKey) : null;
                 bool reported = o.Success && o.Created[0].Ops.Any(op => op.Label.Contains("SubtypeName", StringComparison.OrdinalIgnoreCase));
                 Check(o.Success && snam == "HELO" && reported,
@@ -159,7 +159,7 @@ internal static class DialogueSubtypeMarkerGuardProbe
 
             // ---- DEFAULT-CUST: create a bare DialogTopic (Subtype defaults Custom) → written SNAM = CUST ----
             {
-                var o = svc.CreateRecords("DialogTopic", "HcSnamBare", Array.Empty<BulkOp>(), "HcSnamBare", null);
+                var o = svc.CreateOne("DialogTopic", "HcSnamBare", Array.Empty<BulkOp>(), "HcSnamBare", null);
                 string? snam = o.Success ? TopicSnam(o.OutputPath, o.Created[0].FormKey) : null;
                 Check(o.Success && snam == "CUST",
                     $"DEFAULT-CUST bare topic (Subtype defaults Custom) → SNAM auto-set to CUST — {(o.Success ? $"snam={snam}" : "err=[" + o.Error + "]")}");
@@ -168,7 +168,7 @@ internal static class DialogueSubtypeMarkerGuardProbe
             // ---- EXPLICIT-WINS: an explicit SubtypeName is never overridden by the auto-fill ----
             {
                 var ops = new[] { new BulkOp { FieldPath = "SubtypeName", Verb = "Set", Value = "GBYE" } };
-                var o = svc.CreateRecords("DialogTopic", "HcSnamExplicit", ops, "HcSnamEx", null);
+                var o = svc.CreateOne("DialogTopic", "HcSnamExplicit", ops, "HcSnamEx", null);
                 string? snam = o.Success ? TopicSnam(o.OutputPath, o.Created[0].FormKey) : null;
                 Check(o.Success && snam == "GBYE",
                     $"EXPLICIT-WINS explicit SubtypeName=GBYE kept (not overridden to CUST) — {(o.Success ? $"snam={snam}" : "err=[" + o.Error + "]")}");
@@ -179,7 +179,7 @@ internal static class DialogueSubtypeMarkerGuardProbe
             //      Subtype=105 coerces — the create must catch it, not the enum parse). ----
             {
                 var ops = new[] { new BulkOp { FieldPath = "Subtype", Verb = "Set", Value = "105" } };
-                var o = svc.CreateRecords("DialogTopic", "HcSnamOob", ops, "HcSnamOob", null);
+                var o = svc.CreateOne("DialogTopic", "HcSnamOob", ops, "HcSnamOob", null);
                 bool refused = !o.Success && o.Error is not null
                     && o.Error.Contains("marker", StringComparison.OrdinalIgnoreCase)
                     && o.Error.Contains("modeled", StringComparison.OrdinalIgnoreCase);

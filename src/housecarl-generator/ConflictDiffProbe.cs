@@ -12,7 +12,7 @@ namespace HousecarlGenerator;
 /// that masked a real override regression (the report's USSEP PlayerFaction case).
 ///
 /// Self-contained: synthesizes ON DISK a master + an override of four factions exercising each comparison arm,
-/// then drives the REAL product path — <see cref="LoadOrderService.ResolveTree"/> (now a DEEP read, via the
+/// then drives the REAL product path — <see cref="LoadOrderService.ResolveTreePinned"/> (now a DEEP read, via the
 /// ForGuard seam) + <see cref="FieldsDiff.Compare"/> (the new content comparison) — and asserts:
 ///   A. equal-count, different-content Relations → a DELTA naming the element only in each side (RED before
 ///      the fix: depth-1 reads gave the comparator nothing but equal count tokens);
@@ -101,11 +101,11 @@ public static class ConflictDiffProbe
         Console.WriteLine($"-- synthesized {masterName} < {overName} (winner); subject factions, one comparison arm each --");
         Console.WriteLine();
 
-        // ---- Drive the PRODUCT path: service ResolveTree (deep) + FieldsDiff per node-vs-winner. ----
+        // ---- Drive the PRODUCT path: the service's pinned tree (deep) + FieldsDiff per node-vs-winner. ----
         using var resolver = LoadOrderResolver.Build(new[] { masterPath, overPath });
         var svc = LoadOrderService.ForGuard(resolver, new UserConfigStore(Path.Combine(dir, "houseCARL.user.json")));
 
-        var dA = DiffOf(svc, fA.FormKey);
+        var dA = DiffOf(svc, resolver, fA.FormKey);
         Check("A: equal-count content delta IS reported (the masked case)",
               dA.Deltas.Any(d => d.StartsWith("Relations:", StringComparison.Ordinal) && d.Contains("contents differ")));
         Check("A: the delta names the master-only element (t3)",
@@ -113,7 +113,7 @@ public static class ConflictDiffProbe
         Check("A: the delta names the winner-only element (t4)",
               dA.Deltas.Any(d => d.Contains(t[3].ToString())));
 
-        var dB = DiffOf(svc, fB.FormKey);
+        var dB = DiffOf(svc, resolver, fB.FormKey);
         // #275: a pure reorder is no longer folded into "no delta" — for an order-significant list (a DIAL's INFO
         // children) that silence is a wrong answer. It surfaces as an ORDER-DIFFERS note and NOTHING else (the
         // contents are equal, so no element-presence deltas). This assertion supersedes the pre-#275 "NO delta".
@@ -122,11 +122,11 @@ public static class ConflictDiffProbe
               && dB.Deltas.Count == 1
               && dB.Deltas[0].StartsWith("Relations: same 3 item(s), ORDER DIFFERS", StringComparison.Ordinal));
 
-        var dC = DiffOf(svc, fC.FormKey);
+        var dC = DiffOf(svc, resolver, fC.FormKey);
         Check("C: count delta still reported",
               dC.Deltas.Any(d => d.StartsWith("Relations: 2 vs winner 3", StringComparison.Ordinal)));
 
-        var dD = DiffOf(svc, fD.FormKey);
+        var dD = DiffOf(svc, resolver, fD.FormKey);
         Check("D: scalar delta still reported",
               dD.Deltas.Any(d => d.StartsWith("Flags=", StringComparison.Ordinal) && d.Contains("winner")));
 
@@ -136,7 +136,7 @@ public static class ConflictDiffProbe
         //      formlink reads through the read engine's "(absent)" sentinel; the symmetric "(null link)"
         //      sentinel (a present-but-FormKey.Null link) is handled identically by construction
         //      (IsAbsentSentinel covers both). ----
-        var dI = DiffOf(svc, fI.FormKey);
+        var dI = DiffOf(svc, resolver, fI.FormKey);
         Check("I: an absent nullable formlink renders as a FIRST-CLASS ABSENT state, not a phantom value delta",
               dI.Complete
               && dI.Deltas.Any(d => d.StartsWith("SharedCrimeFactionList: ABSENT here (winner has ", StringComparison.Ordinal))
@@ -151,7 +151,7 @@ public static class ConflictDiffProbe
         // ---- J (PR-G, item 4.3): the contributor RESTATES the formlink == winner (an ITM override). No delta,
         //      but AgreedCount must be STRICTLY HIGHER than arm I's (it agrees on the formlink that arm I left
         //      absent) — the signal that distinguishes a deliberate same-as-winner override from a no-op. ----
-        var dJ = DiffOf(svc, fJ.FormKey);
+        var dJ = DiffOf(svc, resolver, fJ.FormKey);
         Check("J: a present-==-winner (ITM) override carries NO delta",
               dJ.Complete && dJ.Deltas.Count == 0);
         Check("J: the ITM override is detectable — AgreedCount > arm-I (it restates the formlink arm I omits)",
@@ -167,7 +167,7 @@ public static class ConflictDiffProbe
         // ---- K (review finding #3): the SYMMETRIC absent branch — the contributor CARRIES the link, the WINNER
         //      cleared it. Distinct render string "<path>=<val> (winner has <path> ABSENT)", previously
         //      unexercised. The winner's null formlink reads through the "(absent)" sentinel. ----
-        var dK = DiffOf(svc, fK.FormKey);
+        var dK = DiffOf(svc, resolver, fK.FormKey);
         Check("K: a field the winner CLEARED renders as the contributor's value + 'winner has … ABSENT'",
               dK.Complete
               && dK.Deltas.Any(d => d.StartsWith("SharedCrimeFactionList=", StringComparison.Ordinal)
@@ -256,12 +256,16 @@ public static class ConflictDiffProbe
         return _fail == 0 ? 0 : 1;
     }
 
-    static FieldsDiff.Result DiffOf(LoadOrderService svc, FormKey fk)
+    static FieldsDiff.Result DiffOf(LoadOrderService svc, LoadOrderResolver resolver, FormKey fk)
     {
-        var tree = svc.ResolveTree(fk, null) ?? throw new InvalidOperationException($"no conflict tree for {fk}");
+        var tree = TreeOf(svc, resolver, fk) ?? throw new InvalidOperationException($"no conflict tree for {fk}");
         if (tree.Nodes.Count != 2) throw new InvalidOperationException($"expected 2 touching plugins for {fk}, got {tree.Nodes.Count}");
         return FieldsDiff.Compare(tree.Nodes[0].Record, tree.Winner.Record);   // master node vs the override (winner)
     }
+
+    // The tree the render layer consumes, off a fresh capture of the probe's own resolver.
+    static ConflictTreeView? TreeOf(LoadOrderService svc, LoadOrderResolver resolver, FormKey fk) =>
+        svc.ResolveTreePinned(new LoadOrderService.ViewPin(resolver, resolver.Capture()), fk, null);
 
     static Relation Rel(FormKey target)
     {
@@ -307,7 +311,7 @@ public static class ConflictDiffProbe
             Console.WriteLine($"-- {subject} --");
             FormKey fk;
             try { fk = FormKey.Factory(subject); } catch { Console.WriteLine("   (bad FormKey)"); continue; }
-            var tree = svc.ResolveTree(fk, null);
+            var tree = TreeOf(svc, resolver, fk);
             if (tree is null || tree.Nodes.Count < 2) { Console.WriteLine("   (not in this order, or only one plugin touches it — skipped)"); continue; }
             var winner = tree.Winner;
             Console.WriteLine($"   {tree.Nodes.Count} plugins touch it; winner = {winner.Plugin}");
