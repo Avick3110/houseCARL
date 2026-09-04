@@ -87,8 +87,10 @@ public static class CopyTools
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
 
+        // One door for every token in the call, so the source and the target resolve against one index build.
+        var door = svc.OpenFormIdDoor();
         FormKey fromKey;
-        try { fromKey = svc.OpenFormIdDoor().Parse(from); }
+        try { fromKey = door.Parse(from); }
         catch (Exception ex) { return $"error: bad from '{from}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."; }
 
         bool hasTarget = !string.IsNullOrWhiteSpace(target);
@@ -100,7 +102,7 @@ public static class CopyTools
         FormKey? targetKey = null;
         if (hasTarget)
         {
-            try { targetKey = svc.OpenFormIdDoor().Parse(target); }
+            try { targetKey = door.Parse(target); }
             catch (Exception ex) { return $"error: bad target '{target}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."; }
         }
 

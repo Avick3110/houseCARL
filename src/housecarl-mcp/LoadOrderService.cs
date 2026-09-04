@@ -3655,10 +3655,13 @@ public sealed class LoadOrderService : IDisposable
                                         bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
                                         bool definedIn = false, string? groupBy = null, int offset = 0, string? whereSource = null,
                                         IReadOnlyList<ArtifactDemand>? artifactDemands = null,
-                                        IReadOnlyList<FormKey>? formidSet = null)
+                                        IReadOnlyList<FormKey>? formidSet = null,
+                                        LoadOrderResolver.IndexView? pinnedView = null)
     {
         var resolver = Resolver;
-        var view = resolver.Capture();          // one build for the scan and every per-match fill it makes
+        // The caller's own build when its FormID door already captured one, so the tokens it parsed and the
+        // records this scan matches come from ONE build; otherwise one build for the scan and every fill it makes.
+        var view = pinnedView ?? resolver.Capture();
         bool hasPlugins = plugins is { Count: > 0 };
         bool hasType = typeSet is { Count: > 0 };
         bool hasWhere = where is { Count: > 0 };
@@ -4068,10 +4071,11 @@ public sealed class LoadOrderService : IDisposable
     public CrossQueryOutcome OffOrderQuery(PoleInfo pole, IReadOnlyList<string>? typeSet,
         IReadOnlyList<FormKey>? references, string? editoridContains, IReadOnlyList<string>? scopePlugins,
         bool definedIn, IReadOnlyList<string>? where, int limit, string? groupBy, int offset,
-        IReadOnlyList<FormKey>? formidSet, IReadOnlyList<ArtifactDemand>? artifactDemands)
+        IReadOnlyList<FormKey>? formidSet, IReadOnlyList<ArtifactDemand>? artifactDemands,
+        LoadOrderResolver.IndexView? pinnedView = null)
     {
         var resolver = Resolver;
-        var view = resolver.Capture();
+        var view = pinnedView ?? resolver.Capture();   // the caller's door build when it captured one — see CrossQuery
 
         if (groupBy is not null)
         {
@@ -6432,8 +6436,11 @@ public sealed class LoadOrderService : IDisposable
         string? patchName, string? into)
     {
         // ---- argument shape: exactly one target mode ----
+        // ONE door for both tokens: two doors would each capture their own build, and a re-sort between them
+        // would read the donor off one order and the target off another.
+        var door = OpenFormIdDoor();
         FormKey donorFk;
-        try { donorFk = OpenFormIdDoor().Parse(sourceFormid); }
+        try { donorFk = door.Parse(sourceFormid); }
         catch (Exception ex) { return NpcCopyOutcome.Fail($"bad source formid '{sourceFormid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '000D62:Vivace.esp'."); }
 
         bool apply = !string.IsNullOrWhiteSpace(targetFormid);
@@ -6445,7 +6452,7 @@ public sealed class LoadOrderService : IDisposable
         FormKey targetFk = default;
         if (apply)
         {
-            try { targetFk = OpenFormIdDoor().Parse(targetFormid); }
+            try { targetFk = door.Parse(targetFormid); }
             catch (Exception ex) { return NpcCopyOutcome.Fail($"bad target formid '{targetFormid}': {ex.Message}."); }
         }
 
