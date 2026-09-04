@@ -13,7 +13,7 @@ It is one C# process built on Mutagen. Users start at [README.md](README.md). Th
 - **Errors are one plain sentence: what went wrong and what to try.** A tool never returns a silently wrong answer or a silently degraded mode. When it cannot do the thing, it says so.
 - **Reads are lazy, freshness is cheap.** Records parse on access from a binary overlay; nothing holds the load order in memory or keeps plugin file handles open at rest; a change on disk is picked up by an mtime check. One process, no daemon, no live tracking of MO2.
 
-A design question that these four do not settle goes to the PRFAQ (`dev/PRFAQ/`, the problem statement and press release first) and then to Aaron. If something blocks you, say so before working around it.
+Code comments call the first two of these the cornerstones. A design question that these four do not settle goes to the PRFAQ (`dev/PRFAQ/`, the problem statement and press release first) and then to Aaron. If something blocks you, say so before working around it.
 
 ## How to work
 
