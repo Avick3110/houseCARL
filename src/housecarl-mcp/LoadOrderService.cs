@@ -5376,29 +5376,19 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.RemovalOutcome.Fail(
                 $"refused — {problems.Count} of {formids.Count} formid(s) malformed; NOTHING removed:\n  - " + string.Join("\n  - ", problems));
 
-        lock (_writeGate)                                                 // hunt F2: removal re-serializes the patch — same gate
+        lock (_writeGate)                                                 // removal re-serializes the patch — same gate
         {
-            var resolver = Resolver;                                      // builds/refreshes the index (Overlays for the re-serialize)
+            var resolver = Resolver;                                      // builds/refreshes the index and the overlays for the re-serialize
 
             if (inPlace)
                 return RemoveRecordsInPlace(resolver, keys, target!.Trim(), acknowledge);
 
-            // Resolve + ownership-gate the patch path via the into= (extend) path — must exist + carry the houseCARL marker.
-            // FreshPatchRemedy.None (the default) and must: removal cannot create a patch at all, and this tool's
-            // patch= names an EXISTING one — it IS the into= slot — so the naming remedy would tell the caller to
-            // re-issue the exact call that just failed. Pinned by the extend-resolver guard's remove arm.
-            //
-            // The lane clause is what #356 was: None used to render "Omit into= to create it fresh", and omitting the
-            // lane is itself refused, so the sentence sent callers to a second refusal. What this lane can honestly
-            // offer instead is measured — a patch created first carries no override of the record, so removal refuses
-            // there too; the in-place lane does remove it. Note what that lane costs, because the sentence does not
-            // say it: its consent is once per plugin, persisted, and shared with the edit and create in-place lanes,
-            // so a caller who follows this against an already-acknowledged plugin gets no prompt. #359 owns whether
-            // the remedy should say so.
-            //
-            // The in-place half comes from the TOOL (inPlaceRemedy), because the two tools spell that lane
-            // differently and the service cannot tell which one called it. Null — a direct service call — offers
-            // only the half that is true at every altitude, rather than guessing a spelling.
+            // Resolve and ownership-gate the patch path the same way an extend does: it must exist and carry the
+            // houseCARL marker. No fresh-patch remedy is offered, because removal cannot create a patch and this
+            // tool's patch= already names an existing one, so that remedy would tell the caller to re-issue the call
+            // that just failed. The lane clause instead offers what this lane can honestly offer.
+            // The in-place half comes from the TOOL, because the two calling tools spell that lane differently and
+            // the service cannot tell which one called it; null offers only the half true at every altitude.
             string outPath;
             try { outPath = ResolveOutputPath(patchName: null, into: patch, out _, out _,
                                               laneClause: WriteSentences.RemoveNoFreshPatch
@@ -5409,21 +5399,19 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
-    /// <summary>The in-place branch of <see cref="RemoveRecords"/> (in-place write lane, Wave 2) — runs under _writeGate.
-    /// The remove counterpart of <see cref="ApplyEditsInPlace"/>, and it REUSES every Wave-1 in-place seam: the same
-    /// foreign-target resolver (<see cref="ResolveActivePluginPath"/>), the same PERSISTENT first-touch CONSENT handshake
-    /// (keyed off the resolved path in <see cref="UserConfigStore"/>, SHARED with the edit + create lanes — acknowledging a
-    /// plugin once covers all three), the same writable-parent pre-flight, and the same distinct <c>editedInPlace=</c>
-    /// marker (NEVER <c>generated=true</c> — the user mod keeps failing <see cref="IsHouseCarlOwned"/> so a later into=
-    /// can't blind-overwrite it). It drives <see cref="WritePatchBuilder.RemoveRecordsInPlace"/> (drop the record from the
-    /// target's OWN file, with the absence verify forced ON). <paramref name="acknowledge"/> waives the CONSENT axis ONLY —
-    /// the verify is a corruption-axis fact no acknowledgement overrides. (No CorpusRulebook: a removal pre-flights nothing
-    /// — the present-check that the target carries the record is the whole gate.)</summary>
+    /// <summary>The in-place branch of <see cref="RemoveRecords"/>, running under _writeGate. The remove counterpart
+    /// of <see cref="ApplyEditsInPlace"/>, reusing every in-place seam: the same foreign-target resolver, the same
+    /// persistent first-touch consent handshake keyed off the resolved path and shared with the edit and create lanes
+    /// so acknowledging a plugin once covers all three, the same writable-parent pre-flight, and the same
+    /// <c>editedInPlace=</c> marker rather than <c>generated=true</c>. It drives
+    /// <see cref="WritePatchBuilder.RemoveRecordsInPlace"/> with the absence verify forced on.
+    /// <paramref name="acknowledge"/> waives the consent axis only. There is no rulebook here: a removal pre-flights
+    /// nothing, and the present-check that the target carries the record is the whole gate.</summary>
     WritePatchBuilder.RemovalOutcome RemoveRecordsInPlace(
         LoadOrderResolver resolver, IReadOnlyList<FormKey> keys, string target, bool acknowledge)
     {
-        // (1) Resolve target -> real on-disk path via the load order (by plugin FILENAME). Refuse loud if it isn't a real
-        //     active plugin (closes the coincidental-folder collision). Same resolver as the edit + create lanes.
+        // Resolve target to its real on-disk path via the load order, by plugin filename. Refuse loudly if it is not
+        // a real active plugin, which closes the coincidental-folder collision. Same resolver as the other lanes.
         var view = resolver.Capture();
         var targetPath = ResolveActivePluginPath(view, Path.GetFileName(target.Trim()), out var targetName);
         if (targetPath is null)
@@ -5432,39 +5420,33 @@ public sealed class LoadOrderService : IDisposable
                 "plugin filename (e.g. 'CoolWeapons.esp'). in-place removes from the file the game actually loads. Nothing was written.")
                 with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
-        // (1c) LOCALIZED target — predicted here rather than met at the write. houseCARL cannot re-serialize a
-        //      localized plugin without scrambling its text and WriteInPlace refuses outright, but that backstop's
-        //      sentence names no lane, and a caller refused here needs THIS lane's remedy clause. (Measured by the
-        //      guard's LOC arms: delete this and they go red on the missing clause.) It is no longer what keeps a
-        //      refusal from spending the acknowledgement — nothing records consent until the write has landed (see
-        //      PersistInPlaceConsent). The two lanes with a dry run need the prediction for a second reason — see
-        //      ApplyEditsInPlace.
+        // A localized target is predicted here rather than met at the write: houseCARL cannot re-serialize a
+        // localized plugin without scrambling its text, and the write's own backstop names no lane, while a caller
+        // refused here needs this lane's remedy clause.
         if (LocalizedStrings.RefusalFor(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemoveNoEquivalent) is { } locRefusal)
             return WritePatchBuilder.RemovalOutcome.Fail(locRefusal)
                 with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
-        // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path (shared
-        //     with the edit + create lanes: acknowledging a plugin once covers editing, creating into, AND removing from
-        //     it in place — it's the same "touch your original" trade-off). The CHECK gates entry here; the acknowledgement
-        //     is RECORDED at (5), once the removal has actually landed — see PersistInPlaceConsent.
+        // The consent axis: the persistent first-touch handshake keyed off the resolved path, shared with the edit
+        // and create lanes because it is the same "touch your original" trade-off. The check gates entry here; the
+        // acknowledgement is recorded only once the removal has landed.
         bool already = _store.IsInPlaceAcknowledged(targetPath);
         if (!already && !acknowledge)
-            // Stamped for the reason the edit lane's twin states (the most common in-place response shape).
+            // Stamped for the reason the edit lane's twin states: the most common in-place response shape.
             return WritePatchBuilder.RemovalOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath))
                 with { Epoch = view.Epoch };
         bool owesConsent = !already && acknowledge;
 
-        // (3) Writable, same-volume parent pre-flight — refuse rather than degrade (the swap stages a sibling temp here).
+        // Writable-parent pre-flight — refuse rather than degrade; the swap stages a sibling temp here.
         if (InPlaceParentUnwritable(targetPath, out var why))
             return WritePatchBuilder.RemovalOutcome.Fail(why) with { Epoch = view.Epoch };
 
-        // (4) The write — absence verify forced ON (the model-C substitute for the dropped whole-plugin floor).
+        // The write, with the absence verify forced on.
         var outcome = WritePatchBuilder.RemoveRecordsInPlace(resolver, keys, targetPath, targetName);
 
-        // (5) On success, record the acknowledgement, then stamp the distinct audit marker + auto-flag a now-stale .seq
-        //     (the marker and flag best-effort; neither miss fails the done removal, Q3-noted). SEQ flag (Track C): a
-        //     removal can drop the last reference to a master (a prune) and shift on-disk FormIDs, staling the plugin's
-        //     .seq — surfaced, never auto-regenerated.
+        // On success, record the acknowledgement, then stamp the audit marker and flag a now-stale .seq — both
+        // best-effort, and neither failing fails the done removal. A removal can drop the last reference to a master
+        // and shift on-disk FormIDs, staling the plugin's .seq; that is surfaced, never auto-regenerated.
         if (outcome.Success)
         {
             var ackNote = PersistInPlaceConsent(owesConsent, targetPath, "removal");
@@ -5477,21 +5459,18 @@ public sealed class LoadOrderService : IDisposable
         return outcome;
     }
 
-    /// <summary>Forward a NAMED plugin's version of one-or-more records into a patch as an override (housecarl_forward_record)
-    /// — xEdit's "copy as override into", the inverse of <see cref="ApplyEdits"/>'s winner-override. Parses every formid
-    /// (all-or-nothing on a malformed one), pre-locates <paramref name="fromPlugin"/> when the ACTIVE ORDER does not
-    /// contain it (<see cref="ResolveOffOrderForwardSource"/> — W3 PR 2b, both lanes), resolves the folder-per-patch
-    /// output (fresh, or <paramref name="into"/> an
-    /// existing houseCARL-owned patch), then drives <see cref="WritePatchBuilder.ForwardRecords"/> (resolve each source
-    /// body from <paramref name="fromPlugin"/> → deep-copy as override → multi-master serialize). The whole source record
-    /// is copied verbatim, so the SOURCE plugin (not the load-order winner) decides the content — and forwarding the
-    /// ORIGIN master reverts a record to vanilla. Originals are never touched in the default lane (only the patch folder
-    /// is written); <paramref name="target"/>+<paramref name="inPlace"/> is the explicit opt-in third route (in-place
-    /// write lane; HCBR-2026-07-08-01 F4) — forward INTO an existing plugin's own file, consent-gated like the sibling
-    /// write tools — see <see cref="ForwardRecordsInPlace"/>.</summary>
-    /// <param name="sourceParam">The SPELLING the calling tool exposes for the source pole — 1.x <c>from_plugin=</c>,
-    /// or <c>source=</c> on housecarl_forward (PR #311 review 4 [low]). Every refusal that names the parameter at all
-    /// renders the CALLING surface's word; a caller cannot fix a parameter its tool does not expose.</param>
+    /// <summary>Forward a named plugin's version of one or more records into a patch as an override — xEdit's "copy
+    /// as override into", the inverse of <see cref="ApplyEdits"/>'s winner-override. Parses every formid
+    /// all-or-nothing, pre-locates <paramref name="fromPlugin"/> when the active order does not contain it, resolves
+    /// the folder-per-patch output (fresh, or <paramref name="into"/> an existing houseCARL-owned patch), then drives
+    /// <see cref="WritePatchBuilder.ForwardRecords"/>. The whole source record is copied verbatim, so the SOURCE
+    /// plugin rather than the load-order winner decides the content — and forwarding the origin master reverts a
+    /// record to vanilla. Originals are never touched in the default lane;
+    /// <paramref name="target"/> with <paramref name="inPlace"/> is the explicit opt-in third route, forwarding into
+    /// an existing plugin's own file under the same consent gate as the sibling write tools.</summary>
+    /// <param name="sourceParam">The spelling the calling tool exposes for the source pole. Every refusal that names
+    /// the parameter renders the calling surface's word, because a caller cannot fix a parameter its tool does not
+    /// expose.</param>
     public WritePatchBuilder.ForwardOutcome ForwardRecords(IReadOnlyList<string> formids, string fromPlugin, string? patchName, string? into,
         bool fullReadback = false, string? target = null, bool inPlace = false, bool acknowledge = false,
         bool dryRun = false, string sourceParam = "from_plugin")
@@ -5502,9 +5481,9 @@ public sealed class LoadOrderService : IDisposable
         if (formids is null || formids.Count == 0)
             return WritePatchBuilder.ForwardOutcome.Fail("no formids supplied — pass the FormID(s) to forward from the source plugin.");
 
-        // In-place is the explicit, named-file opt-in (the same contract as the sibling write tools — Q3, name each
-        // misuse rather than silently ignore a parameter): in_place REQUIRES target=, is mutually exclusive with into=
-        // (the houseCARL-patch lane), and target= without in_place is a no-op the caller likely didn't mean.
+        // In-place is the explicit, named-file opt-in, with the same contract as the sibling write tools: in_place
+        // requires target=, is mutually exclusive with into=, and target= without in_place is a no-op the caller
+        // likely did not mean. Each misuse is named rather than silently ignored.
         if (inPlace && string.IsNullOrWhiteSpace(target))
             return WritePatchBuilder.ForwardOutcome.Fail(
                 "in_place=true requires target=<plugin filename> — name the existing plugin to forward into in place. (Omit in_place to write a new patch instead — the default, originals untouched.)");
@@ -5515,7 +5494,7 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.ForwardOutcome.Fail(
                 "target= is only meaningful with in_place=true (it names the plugin to forward into in place). For the default patch lane omit target=; use into= to extend an existing houseCARL patch.");
 
-        // Parse every formid first, collecting ALL problems (all-or-nothing, like the edit/remove paths). Pure — outside the gate.
+        // Parse every formid first, collecting all problems, like the edit and remove paths. Pure, so outside the gate.
         var fp = fromPlugin.Trim();
         var specs = new List<WritePatchBuilder.ForwardSpec>(formids.Count);
         var problems = new List<string>();
@@ -5532,19 +5511,18 @@ public sealed class LoadOrderService : IDisposable
 
         lock (_writeGate)                                                 // one write at a time, resolve through commit
         {
-            var resolver = Resolver;                                      // builds/refreshes the index (Overlays for the source fetch + serialize)
+            var resolver = Resolver;                                      // builds/refreshes the index and the overlays for the source fetch and serialize
 
-            // W3 PR 2b: a source= the ACTIVE ORDER doesn't contain is located on disk and pre-fetched here — the
-            // capability CLAUDE.md §1 names (read a DISABLED mod's records), on BOTH lanes, because LANE is uniform:
-            // the in-place TARGET must stay active (that lane's own contract), but the SOURCE has no such need. A no-op
-            // for an active source: null off, null error, no overlay. The overlay must outlive the serialize (the
-            // bodies are deep-copied during the write), so it is disposed in the finally below.
+            // A source the active order does not contain is located on disk and pre-fetched here, on both lanes: the
+            // in-place TARGET must stay active by that lane's contract, but the SOURCE has no such need. A no-op for
+            // an active source. The overlay must outlive the serialize, because the bodies are deep-copied during
+            // the write, so it is disposed in the finally below.
             var offOrder = ResolveOffOrderForwardSource(resolver, fp, specs, out var offOverlay, out var offEpoch, out var offError, out var sourceName);
             if (offError is not null)
                 return WritePatchBuilder.ForwardOutcome.Fail(offError) with { Epoch = offEpoch };
-            // A path that named the ACTIVE copy resolves as that PLUGIN: re-spell every spec's source so the engine
-            // looks it up in the index (a path is not a key there) — which is also what makes the winner comparison,
-            // the self-forward name check and the report's "copied from" all speak the order's own vocabulary.
+            // A path that named the ACTIVE copy resolves as that plugin, so re-spell every spec's source and the
+            // engine can look it up in the index — a path is not a key there. That is also what makes the winner
+            // comparison, the self-forward name check and the report's "copied from" speak the order's vocabulary.
             if (!string.Equals(sourceName, fp, StringComparison.Ordinal))
                 specs = specs.Select(s => new WritePatchBuilder.ForwardSpec { Target = s.Target, FromPlugin = sourceName }).ToList();
             try
@@ -5552,35 +5530,32 @@ public sealed class LoadOrderService : IDisposable
                 if (inPlace)
                     return ForwardRecordsInPlace(resolver, specs, target!.Trim(), acknowledge, dryRun, sourceParam, offOrder);
 
-                // #225: a dry run resolves the would-be output path WITHOUT creating the mod folder (see ApplyEdits).
+                // A dry run resolves the would-be output path without creating the mod folder.
                 string outPath; bool extend, created;
                 try { outPath = ResolveOutputPath(patchName, into, out extend, out created, create: !dryRun, FreshPatchRemedy.NamedByPatchParam); }
                 catch (Exception ex) { return WritePatchBuilder.ForwardOutcome.Fail(ex.Message); }
 
                 var outcome = WritePatchBuilder.ForwardRecords(resolver, specs, outPath, extend, fullReadback, dryRun, sourceParam, offOrder);
-                if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused forward leaves no orphan
+                if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // a refused forward leaves no orphan folder
                 return outcome;
             }
             finally { offOverlay?.Dispose(); }
         }
     }
 
-    /// <summary>The in-place branch of <see cref="ForwardRecords"/> (in-place write lane; HCBR-2026-07-08-01 F4) — runs
-    /// under _writeGate. REUSES every in-place seam the edit/create/remove lanes proved: the same foreign-target resolver
-    /// (<see cref="ResolveActivePluginPath"/>), the same PERSISTENT first-touch CONSENT handshake (keyed off the resolved
-    /// path, SHARED across all in-place lanes — acknowledging a plugin once covers edit, create, remove AND forward), the
-    /// same writable-parent pre-flight, and the same distinct <c>editedInPlace=</c> marker (NEVER <c>generated=true</c> —
-    /// the user mod keeps failing <see cref="IsHouseCarlOwned"/> so a later into= can't blind-overwrite it). Drives
-    /// <see cref="WritePatchBuilder.ForwardRecordsInPlace"/> (replace-or-copy into the target's OWN file, touched-record
-    /// verify forced ON). <paramref name="acknowledge"/> waives the CONSENT axis ONLY — the verify is a corruption-axis
-    /// fact no acknowledgement overrides.</summary>
+    /// <summary>The in-place branch of <see cref="ForwardRecords"/>, running under _writeGate. Reuses every in-place
+    /// seam: the same foreign-target resolver, the same persistent first-touch consent handshake keyed off the
+    /// resolved path and shared across all in-place lanes, the same writable-parent pre-flight, and the same
+    /// <c>editedInPlace=</c> marker rather than <c>generated=true</c>. Drives
+    /// <see cref="WritePatchBuilder.ForwardRecordsInPlace"/> with the touched-record verify forced on.
+    /// <paramref name="acknowledge"/> waives the consent axis only.</summary>
     WritePatchBuilder.ForwardOutcome ForwardRecordsInPlace(
         LoadOrderResolver resolver, IReadOnlyList<WritePatchBuilder.ForwardSpec> specs, string target, bool acknowledge,
         bool dryRun = false, string sourceParam = "from_plugin",
         WritePatchBuilder.OffOrderForwardSource? offOrder = null)
     {
-        // (1) Resolve target -> real on-disk path via the load order (by plugin FILENAME). Refuse loud if it isn't a
-        //     real active plugin. Same resolver as the edit + create + remove lanes.
+        // Resolve target to its real on-disk path via the load order, by plugin filename. Refuse loudly if it is not
+        // a real active plugin. Same resolver as the other in-place lanes.
         var view = resolver.Capture();
         var targetPath = ResolveActivePluginPath(view, Path.GetFileName(target.Trim()), out var targetName);
         if (targetPath is null)
@@ -5597,11 +5572,10 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.ForwardOutcome.Fail(locRefusal)
                 with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
-        // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path (shared
-        //     with the edit/create/remove lanes: it's the same "touch your original" trade-off).
-        //     #225: a DRY RUN bypasses the handshake and NEVER persists an acknowledgement (see ApplyEditsInPlace) —
-        //     the pending consent is surfaced as a note instead. The CHECK gates entry here; a real write's
-        //     acknowledgement is RECORDED at (5), once the forward has actually landed — see PersistInPlaceConsent.
+        // The consent axis: the persistent first-touch handshake keyed off the resolved path, shared with the other
+        // in-place lanes because it is the same "touch your original" trade-off. A dry run bypasses the handshake and
+        // never persists an acknowledgement, surfacing the pending consent as a note instead. The check gates entry
+        // here; a real write's acknowledgement is recorded only once the forward has landed.
         bool already = _store.IsInPlaceAcknowledged(targetPath);
         string? ackNote = null;
         bool owesConsent = false;
@@ -5620,20 +5594,20 @@ public sealed class LoadOrderService : IDisposable
             owesConsent = !already && acknowledge;
         }
 
-        // (3) Writable, same-volume parent pre-flight — refuse rather than degrade. Kept in the dry run (it predicts
-        //     exactly what the real write would refuse on).
+        // Writable-parent pre-flight — refuse rather than degrade. Kept in the dry run, which predicts exactly what
+        // the real write would refuse on.
         if (InPlaceParentUnwritable(targetPath, out var why))
             return WritePatchBuilder.ForwardOutcome.Fail(why) with { Epoch = view.Epoch };
 
-        // (4) The write — touched-record verify forced ON (the model-C substitute for the dropped whole-plugin floor).
+        // The write, with the touched-record verify forced on.
         var outcome = WritePatchBuilder.ForwardRecordsInPlace(resolver, specs, targetPath, targetName, fullReadback: true, dryRun, sourceParam, offOrder);
 
-        // (5-dry) #225: a successful dry run stamps NOTHING (no editedInPlace marker, no .seq note).
+        // A successful dry run stamps nothing — no editedInPlace marker and no .seq note.
         if (dryRun)
             return JoinNotes(outcome.Note, ackNote) is { } dn ? outcome with { Note = dn } : outcome;
 
-        // (5) On success, record the acknowledgement, then stamp the distinct audit marker + auto-flag a now-stale .seq
-        //     (the marker and flag best-effort; neither miss fails the done forward, Q3-noted).
+        // On success, record the acknowledgement, then stamp the audit marker and flag a now-stale .seq — both
+        // best-effort, and neither failing fails the done forward.
         if (outcome.Success)
         {
             // ackNote is null here: the only other writer is the dry-run branch, which returned above.
@@ -5647,15 +5621,15 @@ public sealed class LoadOrderService : IDisposable
         return outcome;
     }
 
-    /// <summary>Create an EMPTY, HEADER-ONLY plugin (housecarl_create_plugin) — a valid TES4 header with ZERO records,
-    /// no masters, optionally ESL-flagged, named EXACTLY <paramref name="pluginName"/>. The clean primitive for "I need
-    /// plugin <c>Foo.esp</c> to exist" (a basename-bound SKSE config trigger, a placeholder ESL, a dummy master) — it
-    /// authors no record, so it adds no conflict footprint (HCBR-2026-06-19-02). UNLIKE the patch-write paths, the name
-    /// is used VERBATIM — never auto-suffixed — because a trigger plugin's whole job is that its basename matches the
-    /// config bound to it; so a name collision REFUSES loud (Q3) rather than rename or overwrite: (a) a plugin of that
-    /// basename already active in the order (creating another would shadow it), or (b) a houseCARL mod folder of that
-    /// name already on disk. The core <see cref="WritePatchBuilder.CreatePlugin"/> builds + serializes + re-reads to
-    /// confirm; a refused create that just made the output folder leaves no orphan (hunt F4).</summary>
+    /// <summary>Create an empty, header-only plugin: a valid TES4 header with zero records, no masters, optionally
+    /// ESL-flagged, named exactly <paramref name="pluginName"/>. The primitive for "plugin Foo.esp needs to exist" —
+    /// a basename-bound SKSE config trigger, a placeholder ESL, a dummy master — and it authors no record, so it adds
+    /// no conflict footprint. Unlike the patch-write paths the name is used verbatim and never auto-suffixed, because
+    /// a trigger plugin's whole job is that its basename matches the config bound to it; a collision therefore
+    /// refuses loudly rather than renaming or overwriting, whether a plugin of that basename is already active in the
+    /// order or a houseCARL mod folder of that name is already on disk. The core
+    /// <see cref="WritePatchBuilder.CreatePlugin"/> builds, serializes and re-reads to confirm, and a refused create
+    /// that just made the output folder leaves no orphan.</summary>
     public WritePatchBuilder.CreatePluginOutcome CreatePlugin(string pluginName, bool esl = false, string? author = null, string? description = null)
     {
         if (string.IsNullOrWhiteSpace(pluginName))
@@ -5669,10 +5643,9 @@ public sealed class LoadOrderService : IDisposable
 
         lock (_writeGate)                                                 // one write at a time, resolve through commit
         {
-            // Touch Resolver FIRST: in instance mode _modsDir is derived LAZILY (EnsurePathsDerived runs inside the
-            // Resolver getter), so a cold first-call (create_plugin before any read warmed the index) would otherwise
-            // see _modsDir="" and misreport "ModsDir '' does not exist" (a Q3-adjacent wrong reason). Capturing the view
-            // here both derives the paths AND is what the collision check below needs.
+            // Touch Resolver FIRST: in instance mode _modsDir is derived lazily inside the Resolver getter, so a cold
+            // first call would otherwise see an empty _modsDir and misreport "ModsDir '' does not exist". Capturing
+            // the view here both derives the paths and gives the collision check below what it needs.
             var view = Resolver.Capture();
             if (!Directory.Exists(_modsDir))
                 return WritePatchBuilder.CreatePluginOutcome.Fail($"cannot write: ModsDir '{_modsDir}' does not exist. Check HouseCarl:ModsDir.");
@@ -6834,13 +6807,9 @@ public sealed class LoadOrderService : IDisposable
                 "plugin filename (e.g. 'CoolWeapons.esp'). in-place creates into the file the game actually loads. Nothing was written.")
                 with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
-        // (1c) LOCALIZED target — predicted here rather than met at the write. houseCARL cannot re-serialize a
-        //      localized plugin without scrambling its text and WriteInPlace refuses outright, but that backstop's
-        //      sentence names no lane, and a caller refused here needs THIS lane's remedy clause. (Measured by the
-        //      guard's LOC arms: delete this and they go red on the missing clause.) It is no longer what keeps a
-        //      refusal from spending the acknowledgement — nothing records consent until the write has landed (see
-        //      PersistInPlaceConsent). The two lanes with a dry run need the prediction for a second reason — see
-        //      ApplyEditsInPlace.
+        // A localized target is predicted here rather than met at the write: houseCARL cannot re-serialize a
+        // localized plugin without scrambling its text, and the write's own backstop names no lane, while a caller
+        // refused here needs this lane's remedy clause.
         if (LocalizedStrings.RefusalFor(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } locRefusal)
             return WritePatchBuilder.CreateOutcome.Fail(locRefusal)
                 with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
