@@ -185,9 +185,15 @@ public static class DialogueValidate
         foreach (var (plugin, wanted) in wantedIn)
         {
             var perTopic = new Dictionary<FormKey, IReadOnlyList<InfoLine>>();
-            foreach (var (rfk, _, body, _) in view.RecordsIn(new[] { plugin }, DialTypes))
-                if (wanted.Contains(rfk) && body is IDialogTopicGetter dt)
-                    perTopic[rfk] = DialogueInfoOrder.LinesOf(dt);
+            // A plugin that cannot be read now (moved, or held open by another program) leaves its topics
+            // unread, which the absentee accounting below states — never a silently thinner merge.
+            try
+            {
+                foreach (var (rfk, _, body, _) in view.RecordsIn(new[] { plugin }, DialTypes))
+                    if (wanted.Contains(rfk) && body is IDialogTopicGetter dt)
+                        perTopic[rfk] = DialogueInfoOrder.LinesOf(dt);
+            }
+            catch (PluginUnreadableException) { perTopic.Clear(); }
             lines[plugin] = perTopic;
         }
 
@@ -204,8 +210,8 @@ public static class DialogueValidate
                     unread.Add(p);                  // the index says it TOUCHES this topic — see below
             }
 
-            // RecordsIn swallows an overlay it cannot open, so a plugin moved or locked by MO2/xEdit mid-call
-            // vanishes silently — and if that drop leaves one contributor the render would claim "single plugin,
+            // A plugin moved or locked by MO2/xEdit mid-call contributes no lines — and if that drop leaves
+            // one contributor the render would claim "single plugin,
             // nothing merges here" for a genuinely contested topic, hiding the very reorder this exists to
             // surface. Carry the absentees so the note can state it.
             // Built UNCONDITIONALLY, including when nothing read: gating on groups.Count > 0 would leave

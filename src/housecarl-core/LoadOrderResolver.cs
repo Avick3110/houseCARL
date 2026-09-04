@@ -61,6 +61,19 @@ public readonly record struct WinnerInfo(FormKey FormKey, string WinnerPlugin, i
 public readonly record struct RecordStatus(
     FormKey FormKey, string RecordType, bool PluginWins, int OverrideDepth, IReadOnlyList<string> TouchingPlugins);
 
+/// <summary>A plugin in the load order could not be opened during a scan, although it opened when the index was
+/// built — it was moved, or another program (xEdit, MO2, the running game) is holding it. Thrown from the
+/// plugin-scoped record stream so a scan reports the plugin it could not read rather than skipping it silently.</summary>
+public sealed class PluginUnreadableException : Exception
+{
+    public string PluginName { get; }
+    public PluginUnreadableException(string pluginName, Exception inner)
+        : base($"could not read '{pluginName}': it opened when the load order was indexed but not now — another " +
+               "program is probably holding it open. Close that program and run this again. " +
+               $"({inner.GetType().Name}: {inner.Message})", inner)
+        => PluginName = pluginName;
+}
+
 /// <summary>A BASELINE master (Skyrim.esm / Update.esm) is active but cannot be opened. Every written plugin
 /// force-includes the baselines, and that force-include is derived from the known-master list, so quietly omitting one
 /// would emit a plugin missing a mandatory master. Thrown from the master-set builders — the single point every write
@@ -857,8 +870,10 @@ public sealed class LoadOrderResolver : IDisposable
         foreach (int i in ScopeIndices(plugins, s))
         {
             ISkyrimModGetter ov;
+            // A plugin that opened at build time but not now became unreadable after it — moved, or held open by
+            // another program. Surfaced with the name so a caller reports a partial scan instead of a clean one.
             try { ov = OpenOverlay(_paths[i], _dataDir); }
-            catch { continue; }
+            catch (Exception ex) { throw new PluginUnreadableException(_names[i], ex); }
             try
             {
                 IEnumerable<IMajorRecordGetter> recs = getterTypes is null

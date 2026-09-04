@@ -62,8 +62,9 @@ public static class RemapEngine
 
     /// <summary>The identify-pass result: every external reference found, the DISTINCT referencing plugins in load
     /// order (the opt-in-rewrite set), the external OVERRIDERS (detect and warn, not repointable), how many plugins
-    /// were scanned, and the per-record fault accounting — a record whose link walk threw is counted and sampled,
-    /// never silently skipped.</summary>
+    /// were scanned THROUGH (a plugin whose scan faulted is not one of them), and the fault accounting — a record
+    /// whose link walk threw is counted and sampled, and a plugin that could not be read at all is named in
+    /// <see cref="UnscannablePlugins"/>; neither is ever silently skipped.</summary>
     public sealed record IdentifyResult(
         IReadOnlyList<ExternalRef> Refs,
         IReadOnlyList<string> ExternalPlugins,
@@ -71,7 +72,8 @@ public static class RemapEngine
         int UnscannableRecords,
         IReadOnlyList<string> UnscannableSamples,
         IReadOnlyList<ExternalOverride> Overrides,
-        IReadOnlyList<string> ExternalOverriders)
+        IReadOnlyList<string> ExternalOverriders,
+        IReadOnlyList<string>? UnscannablePlugins = null)
     {
         /// <summary>True when at least one plugin OUTSIDE the transform set references a remapped FormKey — the
         /// signal the default new-plugin path must not pass silently: fail loud and offer the opt-in rewrite.</summary>
@@ -103,6 +105,7 @@ public static class RemapEngine
         var externalOverriders = new List<string>();      // distinct overriding plugins, load-order order
         int scanned = 0, unscannable = 0;
         var unscannableSamples = new List<string>();
+        var unscannablePlugins = new List<string>();     // plugins whose scan faulted — NOT counted as scanned
         // PluginNames CAN list a filename more than once in a degenerate order; scanning a name twice would
         // double-count + double-list it. A real MO2 VFS yields unique filenames, so this is belt-and-braces — but
         // it keeps the result correct regardless (the listing is, by contract, DISTINCT).
@@ -113,7 +116,6 @@ public static class RemapEngine
             if (transformSet.Contains(plugin)) continue;                 // inside the set → its refs are INTERNAL (RemapLinks handles them)
             if (view.ExcludedPlugins.ContainsKey(plugin)) continue;      // unparseable at build — already surfaced by the resolver
             if (!scannedNames.Add(plugin)) continue;                     // a duplicate name in the order — scan and list it once, never double-count
-            scanned++;
             bool pluginListed = false;
             bool pluginListedOverride = false;
 
@@ -159,17 +161,20 @@ public static class RemapEngine
                         if (unscannableSamples.Count < 5) unscannableSamples.Add($"{plugin} {fk} — {ex.GetType().Name}: {ex.Message}");
                     }
                 }
+                scanned++;                                               // counted only once the whole plugin has been read through
             }
-            // The plugin enumeration itself faulting (a record that throws on top-level enumeration rather than on a
-            // link walk) is counted per-plugin and the pass continues — never an opaque whole-pass abort.
+            // The plugin enumeration itself faulting — a record that throws on top-level enumeration, or a file that
+            // cannot be opened at all — is counted per-plugin and the pass continues, never an opaque whole-pass
+            // abort. The plugin is NOT counted as scanned: its coverage is what the caller has to know about.
             catch (Exception ex)
             {
                 unscannable++;
+                unscannablePlugins.Add(plugin);
                 if (unscannableSamples.Count < 5) unscannableSamples.Add($"{plugin} — record enumeration aborted: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
-        return new IdentifyResult(refs, externalPlugins, scanned, unscannable, unscannableSamples, overrides, externalOverriders);
+        return new IdentifyResult(refs, externalPlugins, scanned, unscannable, unscannableSamples, overrides, externalOverriders, unscannablePlugins);
     }
 
     // ======================================================================
