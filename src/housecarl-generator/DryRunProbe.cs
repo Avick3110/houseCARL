@@ -334,11 +334,8 @@ internal static class DryRunProbe
                 Check(unreadable.StartsWith("error:") && unreadable.Contains("could not read") && unreadable.Contains("no-such-manifest.json"),
                     "an unreadable file refuses naming the path");
                 var badJson = ApplyTools.Apply(svc, ops: AtPath(ManifestFile("bad.json", "[{\"formid\": }]")));
-                // States TODAY's behaviour, not the 1.x claim this replaces: the ancestor's refusal named the file
-                // ("bad.json"), apply's names the PARAMETER whose file it is ("the file named by ops") plus the
-                // position and the element path. Filed as #469 — two of ListParams' four post-read refusals drop the
-                // file identity — and deliberately not fixed in the deletion PR that repointed this arm. When #469
-                // lands, this assertion tightens to the file identity that issue settles on.
+                // The file lane names itself in every post-read refusal: "the file named by ops", plus the position
+                // and the element path.
                 Check(badJson.StartsWith("error:") && badJson.Contains("the file named by ops")
                    && badJson.Contains("line ") && badJson.Contains("$[0].formid"),
                     $"invalid JSON refuses naming the file lane + position + element  [{Snip(badJson)}]");
@@ -346,15 +343,19 @@ internal static class DryRunProbe
                 Check(objRoot.StartsWith("error:") && objRoot.Contains("JSON ARRAY"),
                     $"a non-array root refuses naming the expected shape  [{Snip(objRoot)}]");
                 var emptyArr = ApplyTools.Apply(svc, ops: AtPath(ManifestFile("empty.json", "[]")));
-                // Same #469 accommodation, one row further down its table: this refusal says "ops is an empty array"
-                // whether the array came inline or off disk, so the file identity the 1.x twin carried is not
-                // asserted here yet.
-                Check(emptyArr.StartsWith("error:") && emptyArr.Contains("empty array"),
-                    $"an empty manifest array refuses like empty operations  [{Snip(emptyArr)}]");
+                Check(emptyArr.StartsWith("error:") && emptyArr.Contains("empty array")
+                   && emptyArr.Contains("the file named by ops"),
+                    $"an empty manifest array refuses naming the file lane  [{Snip(emptyArr)}]");
                 var nullEl = ApplyTools.Apply(svc, ops: AtPath(ManifestFile("nullel.json",
                     $"[null, {{\"formid\": \"{fid}\", \"field_path\": \"BasicStats.Damage\", \"value\": \"1\"}}]")));
-                Check(nullEl.StartsWith("error:") && nullEl.Contains("[0]"),
-                    $"a null element refuses naming its index  [{Snip(nullEl)}]");
+                Check(nullEl.StartsWith("error:") && nullEl.Contains("[0]")
+                   && nullEl.Contains("the file named by ops"),
+                    $"a null element refuses naming its index and the file lane  [{Snip(nullEl)}]");
+                // The inline lane keeps the bare parameter name — there is no file to name there.
+                var inlineEmpty = ApplyTools.Apply(svc, ops: Json("[]"));
+                Check(inlineEmpty.StartsWith("error:") && inlineEmpty.Contains("ops is an empty array")
+                   && !inlineEmpty.Contains("the file named by"),
+                    $"an inline empty array names the parameter, not a file  [{Snip(inlineEmpty)}]");
                 var typo = ApplyTools.Apply(svc, ops: AtPath(ManifestFile("typo.json",
                     $"[{{\"formid\": \"{fid}\", \"feild_path\": \"BasicStats.Damage\", \"value\": \"5\"}}]")));
                 Check(typo.StartsWith("error:") && typo.Contains("feild_path"),
