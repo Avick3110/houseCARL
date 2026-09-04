@@ -4,20 +4,16 @@ using Mutagen.Bethesda.Plugins.Records;
 namespace HousecarlCore;
 
 /// <summary>
-/// The RECORD-level narrowing the sweep families share. It was written for the two 1.x sweep tools
-/// (housecarl_check_errors, housecarl_validate_scripts — #282), which the 1.x cut deleted; the families ride
-/// housecarl_check findings=["errors"] and findings=["scripts"] now.
-/// Both had exactly one scope knob, <c>plugins=</c>, and one script-heavy plugin (~183 scripted records, 711 unbound
-/// findings) renders past the tool-result token cap — so the common follow-up question ("did the unbound count for
-/// THESE few records change?") had no call that could ask it. This is that missing scope, in the vocabulary the sibling
-/// read tools already speak: <see cref="Types"/> (cross_plugin_query's <c>type=</c>), <see cref="Formids"/>
+/// The RECORD-level narrowing the sweep families (housecarl_check findings=["errors"] and ["scripts"]) share.
+/// A plugin-wide sweep of a script-heavy plugin renders past the tool-result token cap, so record-level scoping is
+/// what makes "did the unbound count for THESE few records change?" askable. The knobs deliberately reuse the sibling
+/// read tools' vocabulary: <see cref="Types"/> (cross_plugin_query's <c>type=</c>), <see cref="Formids"/>
 /// (batch_record_detail's <c>formids=</c>), and <see cref="EditorIdContains"/> (cross_plugin_query's
 /// <c>editorid_contains=</c>).
 ///
 /// <para><b>Narrowing narrows the NUMBERS.</b> A scoped sweep's totals are the totals FOR THE SCOPE, exactly as
-/// <c>plugins=</c> already behaves (scoping to one plugin reports that plugin's counts, not the order's). The
-/// render therefore carries <see cref="Label"/> on its own line whenever anything is applied, so a count can never be
-/// read as a wider claim than it is (Q3).</para>
+/// <c>plugins=</c> already behaves. The render therefore carries <see cref="Label"/> on its own line whenever
+/// anything is applied, so a count can never be read as a wider claim than it is.</para>
 ///
 /// <para><see cref="Types"/> is handed to the record STREAM (<c>RecordsIn</c>'s getter-type filter), so a type scope
 /// costs nothing per skipped record; <see cref="Formids"/> and <see cref="EditorIdContains"/> are per-record tests
@@ -89,7 +85,7 @@ public sealed record SweepCount(string Key, int Count);
 /// work that finds it — <see cref="Dangling"/> off skips the per-record link walk entirely, which is what turns "is any
 /// master missing anywhere in my order" from a full sweep into a master-table read. Parse failures are deliberately NOT
 /// a member: "houseCARL could not read this" is the honesty layer, not a finding class, and must never be filterable
-/// away (Q3).</summary>
+/// away.</summary>
 [Flags]
 public enum ErrorFindingClass
 {
@@ -105,7 +101,7 @@ public enum ErrorFindingClass
 /// an unbound OBJECT property is the silent-<c>None</c> footgun (HIGH), an unbound uninitialized SCALAR silently
 /// defaults (MEDIUM), a bound-but-null object property is advisory. Unverifiable attachments are deliberately NOT a
 /// member — same reason as the parse class above: an attachment houseCARL could not read must stay visible under every
-/// filter, or the filter manufactures a false clean (Q3).</summary>
+/// filter, or the filter manufactures a false clean.</summary>
 [Flags]
 public enum ScriptFindingClass
 {
@@ -120,8 +116,8 @@ public enum ScriptFindingClass
 }
 
 /// <summary>Parsers for the sweep tools' <c>findings=</c> vocabularies. A name outside the vocabulary is a NAMED
-/// refusal listing every legal value (never a silent drop to "all", which would answer a different question than the
-/// one asked — Q3). An empty/omitted list means "every class", the unfiltered default.</summary>
+/// refusal listing every legal value — never a silent drop to "all", which would answer a different question than the
+/// one asked. An empty/omitted list means "every class", the unfiltered default.</summary>
 public static class SweepFindings
 {
     /// <summary>The errors family's <c>findings=</c>: <c>dangling</c> / <c>missing_masters</c>.</summary>
@@ -186,8 +182,8 @@ public static class SweepFindings
 
     /// <summary>The class tokens a flag set spells, for a caller that has already PARSED a selection and has to
     /// hand one family's classes to that family's own sweep. Round-tripping through the same parser the ancestor
-    /// tools use is what keeps there being ONE vocabulary rather than a second path that can drift — and the round
-    /// trip is pinned by an arm over every flag combination rather than assumed.</summary>
+    /// tools use is what keeps there being ONE vocabulary rather than a second path that can drift; the round trip
+    /// must hold for every flag combination.</summary>
     public static IReadOnlyList<string> Tokens(ErrorFindingClass c) => Names(c).ToList();
 
     /// <summary>The same, for the scripts family's classes.</summary>
@@ -217,13 +213,13 @@ public static class SweepFindings
     /// nothing was narrowed at all.
     ///
     /// <para>The claim is the caller's call, not automatic, because narrowing a sweep and narrowing its COUNTS are
-    /// different things (PR #288 re-review, finding 3). A <c>findings=</c> class filter narrows which findings are
+    /// different things. A <c>findings=</c> class filter narrows which findings are
     /// counted but leaves every reported number COMPLETE for what it names — an excluded class already renders
     /// "NOT CHECKED" — so <c>check_errors findings=["dangling"]</c> with no record scope reports the true whole-order
     /// dangling total, and appending "not the whole plugin(s)" to it would be false. A record scope, or
     /// <c>property_contains=</c>, genuinely does make each count a subset of its own label, and there the claim belongs.
     /// Pass <see cref="ScopedCountsClaim"/> for the default wording, a bespoke string where some count is exempt
-    /// (check_errors' plugin-level master count — round-1 finding 3), or null for no claim.</para></summary>
+    /// (check_errors' plugin-level master count), or null for no claim.</para></summary>
     public static string? FilterNote(string? claim, params string?[] clauses)
     {
         var kept = clauses.Where(c => !string.IsNullOrEmpty(c)).ToList();

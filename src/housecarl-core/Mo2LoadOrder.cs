@@ -1,40 +1,22 @@
 namespace HousecarlCore;
 
 // ======================================================================
-//  Mo2LoadOrder — the TRUE active load order, read STATICALLY from an MO2
-//  portable instance's profile files (MCP step §8.5, decision 2026-06-01).
-//
-//  WHY static-file reads (not the USVFS, not live IOrganizer state):
-//    The legacy build resolved the order from MO2's live IOrganizer API and
-//    from the USVFS-merged Data folder. Both failed in practice — live state
-//    drifts from MO2's truth without manual refreshes, the sync/monitoring
-//    tooling crashed, and a subprocess-spawned server does NOT inherit the
-//    USVFS (only MO2's Executables-UI launch does, and that LOCKS MO2). So the
-//    safe, crash-free 1.0 path is to read the two files MO2 writes to disk:
-//      • loadorder.txt — every plugin in load ORDER (masters first; WINNER LAST).
-//      • modlist.txt   — the left-pane MOD priority (TOP = highest), which
-//                        resolves WHICH physical copy wins when the same plugin
-//                        filename is provided by more than one enabled mod
-//                        (~110 such duplicate names in a large modlist).
-//      • plugins.txt   — the active/inactive flag (`*` = active); used only to
-//                        drop a plugin that's present-but-unchecked.
-//    Output = an ordered list of REAL physical paths for LoadOrderResolver.Build
-//    (which is built to take exactly that). No VFS ⇒ the server runs standalone.
-//
-//  FRESHNESS: the resolver's cheap mtime check re-reads these files when they change
-//  (a mod/plugin toggle, a re-sort, or a profile SWITCH — the last seen via the
-//  configured instance's ModOrganizer.ini), lazily on the NEXT tool call — no manual
-//  restart, no live watcher. See memory project_mo2_load_order_resolution.
-//
-//  Q3: a plugin the load order lists but that no enabled mod (or the data folder)
-//  provides is COLLECTED into Warnings and surfaced — never silently dropped.
-//
-//  COMPOSITION: ReadComposition() parses just these three text files (no mod-folder
-//  walk) into the enabled/disabled breakdown the diagnostic (housecarl_load_order_status)
-//  surfaces; Build() calls it, then adds the heavier physical-path resolution on top.
+//  Mo2LoadOrder — the active load order, read from an MO2 portable instance's
+//  profile files on disk. Never from the USVFS or live IOrganizer state: a
+//  subprocess-spawned server does not inherit MO2's VFS (only MO2's own
+//  Executables launch does, and that locks MO2), so the three text files are
+//  the only standalone source of truth.
+//    • loadorder.txt — every plugin in load order (masters first, WINNER LAST).
+//    • modlist.txt   — mod priority, TOP = highest; decides which physical copy
+//                      wins when several enabled mods provide the same filename.
+//    • plugins.txt   — the `*` active flag; drops present-but-unchecked plugins.
+//  Output is an ordered list of real paths for LoadOrderResolver.Build.
+//  Freshness comes from the resolver's mtime check on these files (also on the
+//  instance's ModOrganizer.ini, which is where a profile SWITCH shows up).
+//  A listed plugin no folder provides goes into Warnings, never a silent drop.
 // ======================================================================
 
-/// <summary>The resolved active order plus any non-fatal problems (Q3 — surfaced, not swallowed).</summary>
+/// <summary>The resolved active order plus any non-fatal problems — surfaced, not swallowed.</summary>
 /// <param name="OrderedPaths">Real plugin paths, masters-first → highest priority LAST (resolver winner order).</param>
 /// <param name="Warnings">Plugins listed in the order with no resolvable file, or missing profile files.</param>
 /// <param name="ActiveCount">Active plugins in the load order (the resolution target).</param>
@@ -65,7 +47,7 @@ public sealed record Mo2Composition(
 /// <summary>One on-disk sighting of a plugin FILENAME: its real path plus a human label for WHERE it was found
 /// (the overwrite layer, a named mod folder, or the game Data folder) and whether that source is ENABLED in the
 /// profile. <see cref="Mo2LoadOrder.LocatePlugin"/> returns these so a caller can distinguish a name NO folder
-/// provides (missing), ONE folder provides (use it), or SEVERAL provide (ambiguous → surface, never guess — Q3).</summary>
+/// provides (missing), ONE folder provides (use it), or SEVERAL provide (ambiguous → surface, never guess).</summary>
 public sealed record PluginFileHit(string Path, string Where, bool Enabled);
 
 public static class Mo2LoadOrder
@@ -88,9 +70,8 @@ public static class Mo2LoadOrder
         var winningPath = BuildFilenameMap(comp.EnabledMods, modsDir, dataDir, overwriteDir);
         var inactive = new HashSet<string>(comp.InactivePluginNames, StringComparer.OrdinalIgnoreCase);
 
-        // The can't-resolve warning names the places actually searched. The overwrite folder is only one of them in
-        // MO2-instance mode; explicit-paths mode passes overwriteDir="" (no overwrite layer), so naming it there would
-        // overstate the search (Q3 — honest about what was checked).
+        // The can't-resolve warning names only the places actually searched: explicit-paths mode passes overwriteDir=""
+        // (no overwrite layer), so naming it there would overstate the search.
         var searchedPlaces = string.IsNullOrWhiteSpace(overwriteDir)
             ? "no enabled mod or the game Data folder"
             : "no enabled mod, the overwrite folder, or the game Data folder";
@@ -117,7 +98,7 @@ public static class Mo2LoadOrder
     /// files ONLY, no mod-folder enumeration, so it is cheap to call on demand. The diagnostic (housecarl_load_order_status)
     /// re-reads this FRESH each call (independent of the cached resolver), so a just-toggled mod/plugin shows immediately;
     /// <see cref="Build"/> calls it too, then adds the heavier physical-path resolution on top. <paramref name="warnings"/>
-    /// collects missing-file notes (Q3) when provided.</summary>
+    /// collects missing-file notes when provided.</summary>
     public static Mo2Composition ReadComposition(string profileDir, List<string>? warnings = null)
     {
         var enabled = new List<string>();
@@ -161,8 +142,7 @@ public static class Mo2LoadOrder
 
     /// <summary>Build filename → winning real path. MO2's OVERWRITE folder is scanned first — it is the top of MO2's
     /// VFS (a copy there beats every mod; tool outputs like Synthesis patches and xEdit "new file" plugins live there,
-    /// and MO2 lists them in the profile files — 2026-06-12 hunt F9: these were unresolvable and the warning
-    /// misdiagnosed them as a stale-profile problem a re-sort can't fix). Then enabled mods, highest-priority FIRST,
+    /// and MO2 lists them in the profile files, so skipping this layer leaves them unresolvable). Then enabled mods, highest-priority FIRST,
     /// first sighting of a filename wins (a higher-priority mod's copy beats a lower one's — MO2's own overwrite rule).
     /// The data folder is scanned LAST and only fills names no mod provided (vanilla masters / base game = lowest priority).</summary>
     static Dictionary<string, string> BuildFilenameMap(IReadOnlyList<string> enabledModsByPriority, string modsDir, string dataDir, string overwriteDir)
@@ -240,11 +220,11 @@ public static class Mo2LoadOrder
     /// winner map (<see cref="Build"/>, which resolves enabled mods only). This is what lets a read of an INACTIVE
     /// plugin reach a DISABLED donor's file — the realistic standalone-copy case (you standalone-ize a follower you're
     /// REMOVING from the active order). UNLISTED = a mod folder on disk that modlist.txt does not mention at all —
-    /// exactly the state of a patch houseCARL just wrote, before the MO2 refresh registers it (HCBR-2026-07-14-02
-    /// gap 3: writes resolved the fresh patch by filename while this read-side locate missed it). Priority-ordered
+    /// exactly the state of a patch houseCARL just wrote, before the MO2 refresh registers it; the write side resolves
+    /// such a patch by filename, so this read side must reach it too. Priority-ordered
     /// like the active map (overwrite → enabled by modlist priority → disabled → unlisted → Data), but ALL hits are
     /// returned, not just the first: a filename several folders provide is reported so the caller can ask WHICH
-    /// rather than silently pick one (Q3). One stat per LISTED candidate folder plus one directory listing of ModsDir
+    /// rather than silently pick one. One stat per LISTED candidate folder plus one directory listing of ModsDir
     /// for the unlisted sweep (no per-folder enumeration, opens no plugin). <paramref name="filename"/> is reduced to
     /// a bare name so a caller's stray path parts can't escape a folder; the direct-path case is the caller's to
     /// handle before here.</summary>
@@ -265,7 +245,7 @@ public static class Mo2LoadOrder
         {
             if (string.IsNullOrWhiteSpace(dir)) continue;
             try { var p = Path.Combine(dir, fn); if (File.Exists(p)) hits.Add(new PluginFileHit(p, where, enabled)); }
-            catch { /* an inaccessible candidate folder is simply not a hit — never a false 'found' (Q3) */ }
+            catch { /* an inaccessible candidate folder is simply not a hit — never a false 'found' */ }
         }
         return hits;
     }
@@ -277,11 +257,8 @@ public static class Mo2LoadOrder
     /// and <see cref="AllPluginFileNames"/> enumerates every plugin in the same folders. A "not found" answer and the
     /// "did you mean" that follows it must be drawn from the SAME set of places, or the second contradicts the first
     /// by suggesting nothing while the name sits in a folder the sweep covered.</para>
-    /// <para>The label IDENTIFIES the layer and its state; it does NOT carry a remedy. It used to end "— not in
-    /// modlist.txt yet; refresh MO2 to register it", which read fine alone but printed the same instruction twice once
-    /// the caller's own cause line began stating remedies ("refresh MO2, then tick the plugin and sort") — a milder
-    /// form of the duplication that #271 exists to remove, and one only a live run surfaced. Labels identify, causes
-    /// explain: the remedy belongs to whoever is explaining, not to the identifier.</para></summary>
+    /// <para>The label IDENTIFIES the layer and its state; it must NOT carry a remedy. Callers state the remedy in
+    /// their own cause line, so a remedy here prints the same instruction twice.</para></summary>
     static IEnumerable<(string dir, string where, bool enabled)> CandidateFolders(
         Mo2Composition comp, string modsDir, string dataDir, string overwriteDir)
     {
@@ -299,8 +276,8 @@ public static class Mo2LoadOrder
     /// NOWHERE, and the declared-master split's is-it-installed discriminant
     /// (<see cref="SplitUnsatisfiedMasters"/>). Deliberately NOT free: where the locate stats one name per folder,
     /// this lists each folder — so it is read ONCE per call and then asked many times, never re-derived per name.
-    /// De-duplicated case-insensitively; a missing or inaccessible folder contributes nothing rather than throwing
-    /// (Q3).</summary>
+    /// De-duplicated case-insensitively; a missing or inaccessible folder contributes nothing rather than
+    /// throwing.</summary>
     public static IReadOnlyCollection<string> AllPluginFileNames(
         Mo2Composition comp, string modsDir, string dataDir, string overwriteDir)
     {
@@ -313,8 +290,8 @@ public static class Mo2LoadOrder
 
     /// <summary>Mod folders that exist under <paramref name="modsDir"/> on disk but that modlist.txt mentions in
     /// NEITHER list — the state of a mod folder created since MO2 last rewrote the profile (houseCARL's own fresh
-    /// patches live here until the refresh). One directory listing; a missing/inaccessible ModsDir yields nothing
-    /// (never a false hit — Q3).</summary>
+    /// patches live here until the refresh). One directory listing; a missing/inaccessible ModsDir yields nothing —
+    /// never a false hit.</summary>
     static IEnumerable<string> UnlistedModFolders(Mo2Composition comp, string modsDir)
     {
         if (string.IsNullOrWhiteSpace(modsDir) || !Directory.Exists(modsDir)) yield break;
@@ -333,8 +310,7 @@ public static class Mo2LoadOrder
     /// <c>InstalledButInactive</c> — a copy is there but the order does not load it (it sits in a disabled mod, or
     /// the plugin is unticked), so the answer is ENABLE it. This is the ONE home for the split:
     /// <c>read_plugin_file</c>'s master advisory and <c>housecarl_check</c>'s missing-master remedy both call it, so
-    /// the two surfaces cannot come to different conclusions about the same master (PR #148's false negative was a
-    /// copy in a disabled mod counted as satisfied — the warning was suppressed exactly where it applied).
+    /// the two surfaces cannot come to different conclusions about the same master.
     /// <para>Every name handed in lands in exactly one of the two lists, in the order given: the caller decides what
     /// "unsatisfied" means against its own notion of the active order, and this decides only which of the two
     /// remedies each one wants.</para>
@@ -346,7 +322,7 @@ public static class Mo2LoadOrder
     /// different set of folders here than at a locate.</para>
     /// <para>The case-insensitive comparison is built HERE rather than assumed of the collection handed in: a set
     /// carrying an ordinal comparer would answer "not installed" for a name differing only in case, and a wrong
-    /// remedy delivered confidently is the failure this split exists to prevent (Q3). It is one pass over names
+    /// remedy delivered confidently is the failure this split exists to prevent. It is one pass over names
     /// already in memory — no filesystem work, whatever the caller passes.</para></summary>
     public static (IReadOnlyList<string> NotInstalled, IReadOnlyList<string> InstalledButInactive) SplitUnsatisfiedMasters(
         IReadOnlyCollection<string> installedPluginFiles, IEnumerable<string> unsatisfied)

@@ -5,37 +5,28 @@ using Mutagen.Bethesda.Plugins.Records;
 
 namespace HousecarlCore;
 
-// ======================================================================
-//  ClosureWalk — the generic link walk (SPEC §3, components in §3.1).
+// ClosureWalk — the generic link walk.
 //
-//  WHAT MAKES IT GENERIC: expansion is Mutagen's own EnumerateFormLinks, so the set of
-//  links followed is the set the record model declares — by construction, never a
-//  per-type hand list. Everything domain-specific arrives as DATA: which fields seed the
-//  walk, which record classes are excluded and how hard, which plugins the walk is
-//  standalone-izing away from. No appearance vocabulary appears in this file, and none
-//  may be added to it: a walk that knows what a head part is has stopped being a walk.
+// Expansion is Mutagen's own EnumerateFormLinks, so the links followed are the ones the record
+// model declares, never a per-type hand list. Everything domain-specific arrives as DATA: which
+// fields seed the walk, which record classes are excluded and how hard, which plugins the walk is
+// standalone-izing away from. No record-type vocabulary belongs in this file.
 //
-//  SENTENCE-FREE: every refusal is a typed WalkRefusal carrying its data (the key, the
-//  chain that reached it, the caps, the arms consulted). The render composes the prose
-//  from the shared sentence source — core owning refusal text is what #337 undid.
+// Every refusal is a typed WalkRefusal carrying its data (the key, the chain that reached it, the
+// caps, the arms consulted); the render owns the prose.
 //
-//  PROVENANCE IS PER NODE, NOT PER WALK. Each reached node records WHICH source arm
-//  produced its body (SourceChain's first-hit answer) and the full chain of keys that
-//  pulled it in. A chain-level "these sources were consulted" summary would be a
-//  different, weaker claim: with an ordered universe the interesting fact is that THIS
-//  record came from the override and THAT one fell through to the defining plugin.
+// Provenance is PER NODE: each reached node records which source arm produced its body and the
+// full chain of keys that pulled it in. A per-walk "these sources were consulted" summary would be
+// a weaker claim — with an ordered universe the fact worth having is that THIS record came from
+// the override and THAT one fell through to the defining plugin.
 //
-//  CYCLES ARE RECORDED, NOT MERELY SKIPPED (SPEC §3.1). A visited-set walk that simply
-//  drops a repeat link cannot tell a diamond (two paths to one record — ordinary and
-//  uninteresting) from a genuine cycle (a record that reaches itself). The first is
-//  noise; the second is a fact about the data worth reporting. They are told apart by a
-//  POST-WALK pass over the recorded edge set: a depth-first colouring where an edge into
-//  an on-stack node is a back edge, and therefore a cycle. It runs after the walk rather
-//  than during it because the traversal builds a TREE, and "is an ancestor in that tree"
-//  is a weaker question than "reaches itself in the graph" — a mutual reference between
-//  two SIBLINGS is a real cycle that no ancestry test can see (Aaron's review). Any other
-//  repeat is a re-convergence and is silently deduped.
-// ======================================================================
+// Cycles are recorded, not merely skipped. A visited-set walk cannot tell a diamond (two paths to
+// one record) from a genuine cycle (a record that reaches itself). They are told apart by a
+// POST-WALK pass over the recorded edge set: a depth-first colouring where an edge into an
+// on-stack node is a back edge. It runs after the walk because the traversal builds a TREE, and
+// "is an ancestor in that tree" is a weaker question than "reaches itself in the graph" — a mutual
+// reference between two SIBLINGS is a real cycle no ancestry test can see. Any other repeat is a
+// re-convergence and is deduped.
 
 /// <summary>How hard an exclusion bites when the walk reaches a matching record.</summary>
 public enum ExclusionSeverity
@@ -52,20 +43,20 @@ public enum ExclusionSeverity
 /// wire, which is the point of "domain knowledge as data".</summary>
 public sealed record WalkExclusion(string TypeName, ExclusionSeverity Severity, string Reason);
 
-/// <summary>The expand-vs-keep rule (SPEC §3.1's scope predicate). A reached record either EXPANDS (the walk
-/// enters it and it joins the reached set) or is KEPT as a boundary link (recorded, not entered).</summary>
+/// <summary>The expand-vs-keep rule. A reached record either EXPANDS (the walk enters it and it joins the reached
+/// set) or is KEPT as a boundary link (recorded, not entered).</summary>
 public sealed record WalkScope(Func<FormKey, bool> ShouldExpand)
 {
     /// <summary>The standalone-ization predicate: expand a record iff it is defined in one of the plugins being
     /// moved away from, OR it does not resolve in the active order (it would become a missing master). Everything
     /// else — vanilla, active shared resources — stays a link the artifact masters normally.
-    /// <para>Named here rather than inlined at the call site because it is the rule the ACT consumer is built on,
-    /// and a walk used for reading wants a different one.</para></summary>
+    /// <para>Named here rather than inlined because it is the rule the write consumer is built on; a walk used for
+    /// reading wants a different one.</para></summary>
     public static WalkScope StandaloneFrom(IReadOnlySet<ModKey> boundPlugins, Func<FormKey, bool> resolvesActively)
         => new(fk => boundPlugins.Contains(fk.ModKey) || !resolvesActively(fk));
 }
 
-/// <summary>One record the walk reached and will expand, with everything the report and the ACT consumer need.
+/// <summary>One record the walk reached and will expand, with everything the report and the write consumer need.
 /// <para><paramref name="ArmIndex"/>/<paramref name="ArmSpelling"/> are the per-node provenance: which element of
 /// the ordered source universe actually produced THIS body. <paramref name="Chain"/> is the full pull path from a
 /// seed, keys first-to-last — not a single parent label, because the cap refusal has to show how the walk got
@@ -79,8 +70,7 @@ public sealed record WalkNode(
 /// pruned it. Recorded so "kept" is a stated outcome rather than an absence.
 /// <para><paramref name="Excluded"/> tells the two APART, and it is not cosmetic. A scope boundary resolves OUTSIDE
 /// the source universe and masters normally; an exclusion boundary is INSIDE it and still points at it. Collapsing
-/// them let one response say a link was "kept and mastered normally" while the strip list showed the same link
-/// removed (review round 1). A render that cannot distinguish them cannot be honest about either.</para></summary>
+/// them lets one response call a link "kept and mastered normally" while the strip list shows it removed.</para></summary>
 public sealed record WalkBoundary(FormKey Key, string PulledBy, string Why, bool Excluded = false);
 
 /// <summary>A genuine cycle: <paramref name="Path"/> is the loop itself — the records from the one pointed back at
@@ -91,8 +81,8 @@ public sealed record WalkCycle(IReadOnlyList<FormKey> Path, FormKey Back, string
 /// <summary>Why a walk refused. Typed, so the render owns the words.</summary>
 public enum WalkRefusalKind
 {
-    /// <summary>The seed set resolved to nothing — a walk that would copy nothing at all (Q3: silently succeeding
-    /// here is how an ACT consumer blanks its target).</summary>
+    /// <summary>The seed set resolved to nothing — a walk that would copy nothing at all. Succeeding silently here
+    /// is how a write consumer blanks its target.</summary>
     NoSeeds,
     /// <summary>A seed path the caller named does not exist on the seed record — a typo in skill data must fail
     /// loud, never contribute zero links quietly.</summary>
@@ -109,7 +99,7 @@ public enum WalkRefusalKind
     Excluded,
     /// <summary>A seed path names a real, link-BEARING field whose shape seed_paths does not support — a list whose
     /// ELEMENTS carry links inside them rather than being links. Separate from <see cref="UnknownSeedPath"/> because
-    /// the remedy is different: the path is right and the LANE is wrong (shape ruling (a), 2026-08-15).</summary>
+    /// the remedy is different: the path is right and the LANE is wrong.</summary>
     UnsupportedSeedShape,
 }
 
@@ -125,8 +115,8 @@ public sealed record WalkRefusal(
     WalkExclusion? Exclusion = null,
     int Cap = 0);
 
-/// <summary>The walk's outcome. A refusal carries NOTHING usable — the ACT posture (SPEC §3.1): a write that
-/// breaches a bound refuses loud rather than truncating, because a silently partial copy is a broken artifact.</summary>
+/// <summary>The walk's outcome. A refusal carries NOTHING usable: a write that breaches a bound refuses loud rather
+/// than truncating, because a silently partial copy is a broken artifact.</summary>
 public sealed record WalkResult(
     bool Success,
     WalkRefusal? Refusal,
@@ -164,16 +154,14 @@ public static class ClosureWalk
     /// THE seed-shape judgement — one function, consumed by every site that needs it (seed resolution, the attach
     /// lane, and both refusal renders). No site keeps a private opinion.
     ///
-    /// <para><b>It reads the DECLARED type and never the value</b> (R3, Aaron-go 2026-08-15). That is not a style
-    /// preference: Mutagen's record model declares these list properties NON-nullable, and the binary overlay hands
-    /// back <c>null</c> when the subrecord is absent — so the value and the model disagree, and only the model
-    /// answers "what shape is this field". A value-based test called a supported field unsupported whenever the
-    /// donor happened to carry none of it, and then routed the caller to a different tool for a job this one does.
-    /// Both review rounds found that, at four separate sites, because each site decided for itself.</para>
+    /// <para><b>It reads the DECLARED type and never the value.</b> Mutagen's record model declares these list
+    /// properties NON-nullable while the binary overlay hands back <c>null</c> when the subrecord is absent, so the
+    /// value and the model disagree and only the model answers "what shape is this field". A value-based test calls
+    /// a supported field unsupported whenever the source happens to carry none of it.</para>
     ///
     /// <para><b>Null and empty are STATES of a shape, not shapes.</b> A link that is unset is still a link; a list
-    /// that is null is still a list of links. What the consumer does about "carrying nothing" is its own business
-    /// (the ACT consumer assigns, clearing the target's) — but it never has to re-derive what the field IS.</para>
+    /// that is null is still a list of links. What a consumer does about "carrying nothing" is its own business, but
+    /// it never has to re-derive what the field IS.</para>
     /// </summary>
     public static SeedShape ClassifySeed(PropertyInfo prop)
     {
@@ -190,9 +178,8 @@ public static class ClosureWalk
             {
                 if (typeof(IFormLinkGetter).IsAssignableFrom(element))
                     return new SeedShape(SeedShapeKind.LinkList, element);
-                // Named for what the entries ARE, not for what they might contain: an earlier wording called every
-                // rejected element "link-BEARING", which is false for a TintLayer and made the refusal misdescribe
-                // the record it was refusing.
+                // Named for what the entries ARE, not for what they might contain: calling every rejected element
+                // "link-bearing" is false for e.g. a TintLayer and makes the refusal misdescribe the field.
                 return new SeedShape(SeedShapeKind.Unsupported, element,
                     $"'{prop.Name}' is a list of {RecordNaming.StripOverlay(element.Name)} entries, which are not record links");
             }
@@ -202,8 +189,8 @@ public static class ClosureWalk
             $"'{prop.Name}' is {RecordNaming.StripOverlay(t.Name)}, which is neither a record link nor a list of record links");
     }
 
-    /// <summary>Default node cap. A real subtree is small; a walk past this is a runaway, and the ACT posture is to
-    /// refuse with the chain rather than truncate (SPEC §3.1). Caller-overridable and always NAMED in the refusal.</summary>
+    /// <summary>Default node cap. A real subtree is small; a walk past this is a runaway, and it refuses with the
+    /// chain rather than truncating. Caller-overridable and always NAMED in the refusal.</summary>
     public const int DefaultNodeCap = 128;
 
     /// <summary>Default depth cap. Bounded and named for the same reason; a cycle cannot run away (ancestry stops
@@ -212,10 +199,10 @@ public static class ClosureWalk
 
     /// <summary>Resolve the caller's seed PATHS against a seed record into seed links — the one place the walk
     /// touches named fields, and it does so by reflection over the record model, never a hand list.
-    /// <para>An unknown path is a REFUSAL, not zero links: seed paths arrive as skill data, and a typo that
-    /// silently seeded nothing would make the walk succeed having copied nothing — the exact shape that blanks an
-    /// ACT consumer's target. Top-level property names only for now; a dotted path is a stated gap rather than a
-    /// silent miss (it refuses as unknown, naming what was tried).</para></summary>
+    /// <para>An unknown path is a REFUSAL, not zero links: seed paths arrive as skill data, and a typo that silently
+    /// seeded nothing would make the walk succeed having copied nothing, blanking a write consumer's target.
+    /// Top-level property names only; a dotted path refuses as unknown, naming what was tried, rather than missing
+    /// silently.</para></summary>
     public static WalkResult? ResolveSeeds(
         IMajorRecordGetter seed, IReadOnlyList<string> paths, out List<WalkSeed> seeds)
     {
@@ -230,10 +217,9 @@ public static class ClosureWalk
                     WalkRefusalKind.UnknownSeedPath, seed.FormKey, "", Array.Empty<FormKey>(),
                     $"'{path}' is not a field on {RecordNaming.StripOverlay(type.Name)}"));
 
-            // THE SHAPE IS DECIDED FIRST, off the declared type — before the value is read at all, and before any
-            // null can be mistaken for an absence of shape. The old order read the value, skipped it when null,
-            // and never reached the shape test; that is what let a null Perks pass silently through the clone lane
-            // while the same argument list was refused in the attach lane.
+            // THE SHAPE IS DECIDED FIRST, off the declared type — before the value is read, so a null cannot be
+            // mistaken for an absence of shape. Reading the value first and skipping it when null never reaches the
+            // shape test, which lets one lane pass a field silently while the other refuses it.
             var shape = ClassifySeed(prop);
             if (shape.Kind == SeedShapeKind.Unsupported)
                 return WalkResult.Fail(new WalkRefusal(
@@ -249,7 +235,7 @@ public static class ClosureWalk
                     $"'{path}' could not be read on {RecordNaming.StripOverlay(type.Name)}: {ex.Message}"));
             }
             // Carrying nothing is a legal state of a supported shape, so it contributes no seeds and is not an
-            // error here. Whether that means "clear the target's" is the ACT consumer's call, not the walk's.
+            // error here. Whether that means "clear the target's" is the consumer's call, not the walk's.
             if (val is null) continue;
 
             if (shape.Kind == SeedShapeKind.Link)
@@ -261,17 +247,16 @@ public static class ClosureWalk
             if (val is IEnumerable list and not string)
             {
                 // A list is supported only when its ELEMENTS are links. A list of link-BEARING elements
-                // (RankPlacement, PerkPlacement, ContainerEntry…) is link-bearing but is not a link list, and
-                // walking it silently contributed zero seeds while the caller believed it had named a field —
-                // the same silent-zero class an unknown path already refuses for. Refused by shape, with the lane
-                // that does support it named (shape ruling (a), Aaron-go 2026-08-15).
+                // (RankPlacement, PerkPlacement, ContainerEntry…) is not a link list, and walking it would
+                // contribute zero seeds while the caller believed they had named a field — so it is refused by
+                // shape, with the lane that does support it named.
                 foreach (var e in list)
                     if (e is IFormLinkGetter l && l.FormKeyNullable is { } lk && !lk.IsNull)
                         seeds.Add(new WalkSeed(lk, path, $"{seedType}.{path}"));
                 continue;
             }
             // The shape said LinkList and the value is neither null nor enumerable — the model and the runtime
-            // disagree in a way ClassifySeed cannot see. Surfaced rather than guessed (Q3).
+            // disagree in a way ClassifySeed cannot see. Surfaced rather than guessed.
             return WalkResult.Fail(new WalkRefusal(
                 WalkRefusalKind.UnsupportedSeedShape, seed.FormKey, "", Array.Empty<FormKey>(),
                 $"'{path}' on {seedType} is declared a list of record links but did not read as one"));
@@ -280,8 +265,8 @@ public static class ClosureWalk
     }
 
     /// <summary>Walk forward from the seeds, resolving every link against the ordered source universe and applying
-    /// the scope predicate and exclusions. Returns the reached set (to be internalized by the ACT consumer), the
-    /// boundary links kept as-is, and any genuine cycles — or a typed refusal with nothing usable.</summary>
+    /// the scope predicate and exclusions. Returns the reached set (for the consumer to internalize), the boundary
+    /// links kept as-is, and any genuine cycles — or a typed refusal with nothing usable.</summary>
     public static WalkResult Run(
         IReadOnlyList<WalkSeed> seeds,
         SourceChain sources,
@@ -302,8 +287,8 @@ public static class ClosureWalk
         // found from this after the walk rather than during it: the BFS `parent` map is a TREE, and "reaches itself
         // in the graph" is not the same question as "is an ancestor in the tree". A mutual reference between two
         // SIBLINGS (seed -> X, seed -> Y, X -> Y, Y -> X) is a real cycle whose nodes are never each other's tree
-        // ancestors, so the ancestry test classified it as a diamond and §3.1's "every cycle is RECORDED" did not
-        // hold. The node cap bounds this set, so a full pass over it is cheap.
+        // ancestors, so an ancestry test would call it a diamond. The node cap bounds this set, so a full pass is
+        // cheap.
         var edges = new Dictionary<FormKey, List<FormKey>>();
         var labels = new Dictionary<FormKey, string>();
         // parent[k] = the key that pulled k in. The pull CHAIN is rebuilt from this, so every refusal can show the
@@ -388,10 +373,9 @@ public static class ClosureWalk
                 // diamond) is the post-walk pass's job now, and it needs the whole graph to do it.
                 outgoing.Add(target);
                 if (seen.Contains(target)) continue;
-                // No seed guard here, deliberately. Round 1 added one for a chain/PulledBy disagreement; round 2
-                // instrumented it and measured ZERO hits, because `seen` fills at DEQUEUE and every seed is
-                // dequeued before any child expands — so a link back to a seed always takes the `seen` branch
-                // above and never reaches this line. It was a fold without a test, and it was dead. Reverted.
+                // No seed guard here, deliberately: `seen` fills at DEQUEUE and every seed is dequeued before any
+                // child expands, so a link back to a seed always takes the `seen` branch above and never reaches
+                // this line. One added here would be dead code.
                 if (!parent.ContainsKey(target)) parent[target] = key;
                 queue.Enqueue((target, label, depth + 1));
             }
@@ -403,8 +387,8 @@ public static class ClosureWalk
     /// <summary>Every cycle in the walked graph, found from the recorded edges once the walk is done.
     /// <para>A depth-first pass colouring nodes unvisited / on-stack / finished: an edge into an ON-STACK node is a
     /// back edge, which is exactly "this record reaches itself", and the stack from that node down to the one
-    /// holding the edge IS the cycle. Unlike the BFS-ancestry test it replaces, this asks the graph rather than the
-    /// traversal tree, so a mutual reference between siblings reports.</para>
+    /// holding the edge IS the cycle. This asks the graph rather than the traversal tree, so a mutual reference
+    /// between siblings reports.</para>
     /// <para>Only nodes with recorded edges can be ON the cycle — a boundary the walk kept was never expanded, has
     /// no outgoing edges, and so cannot close one. Edges to those are skipped rather than treated as dead ends.</para></summary>
     static List<WalkCycle> FindCycles(

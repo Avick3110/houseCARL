@@ -1,27 +1,22 @@
 namespace HousecarlCore;
 
 /// <summary>
-/// The sweep's EXCLUSION axis (<c>exclude=</c>, #344): plugins the caller does not want swept at all.
+/// The sweep's EXCLUSION axis (<c>exclude=</c>): plugins the caller does not want swept at all.
 ///
-/// <para><b>Why an axis rather than a classification.</b> #344's complaint is that the dangling-ref budget is spent
-/// on the vanilla baseline before mod findings are reached. The budget half of that was fixed at the sweep layer;
-/// this is the other half — the caller saying which plugins are not their problem today. It is deliberately NOT a
-/// "skip the boring ones" rule baked into the sweep: the baseline the response splits out stays Mutagen's
-/// <see cref="ErrorCheck.BaseMasters"/> exactly, by construction, and what counts as noise is the caller's judgement
-/// (ruled 2026-08-18). Creation Club and <c>_ResourcePack.esl</c> live here, under <see cref="ImplicitToken"/>, and
+/// <para><b>An axis, not a classification.</b> The sweep itself has no "skip the boring ones" rule: the baseline the
+/// response splits out stays Mutagen's <see cref="ErrorCheck.BaseMasters"/> exactly, and what counts as noise is the
+/// caller's judgement. Creation Club and <c>_ResourcePack.esl</c> live here, under <see cref="ImplicitToken"/>, and
 /// nowhere in the sweep's own definitions.</para>
 ///
-/// <para><b>Names and tokens share one namespace, without a sigil, and that follows §5.5 rather than excepting it.</b>
-/// The rule sigils a pole token only where the co-resident name space can legally contain the bare token. These
-/// values are Bethesda plugin filenames, which are extension-mandatory — the exact ground of §5.5's standing S1
-/// exemption, stated again in SPEC's §3.1 amendment. So the discriminator is the extension itself: a value carrying
-/// one is a NAME, a value without one is a TOKEN, and an unknown token refuses by name rather than being matched
-/// loosely against a plugin whose stem happens to look like it.</para>
+/// <para><b>Names and tokens share one namespace without a sigil.</b> These values are Bethesda plugin filenames,
+/// which always carry an extension, so the extension is the discriminator: a value carrying one is a NAME, a value
+/// without one is a TOKEN, and an unknown token refuses by name rather than being matched loosely against a plugin
+/// whose stem happens to look like it.</para>
 /// </summary>
 public static class SweepExclusion
 {
     /// <summary>Mutagen's base masters — the five the game ships with. Excluding them is the "I know vanilla has
-    /// permanent dangling refs, do not spend my sweep on them" request that #344 is about.</summary>
+    /// permanent dangling refs, do not spend my sweep on them" request.</summary>
     public const string BaseMastersToken = "base_masters";
 
     /// <summary>Every plugin the order loads that <c>plugins.txt</c> does not list — the force-loaded set. This is
@@ -32,11 +27,8 @@ public static class SweepExclusion
     public const string ImplicitToken = "implicit";
 
     /// <summary>The accepted tokens, in the order a refusal lists them. The ONE place they are enumerated — the
-    /// parameter's own description is held against this list by a guard arm, so the caller-facing spelling and the
-    /// accepted spelling cannot drift (the second-spelling problem #341 is about). That arm is still the one doing
-    /// it: <c>description-vocab-guard</c> (#386) polices the description surface's VOCABULARY, not whether one
-    /// parameter's prose names a particular set, and <c>wire-names-guard</c> reads a description only for the brace
-    /// shape declaration it can parse out of one, which this parameter does not carry.</summary>
+    /// <c>exclude=</c> parameter's own description must name this same set, so the caller-facing spelling and the
+    /// accepted spelling cannot drift.</summary>
     public static readonly string[] Tokens = { BaseMastersToken, ImplicitToken };
 
     static readonly string[] PluginExtensions = { ".esp", ".esm", ".esl" };
@@ -48,13 +40,10 @@ public static class SweepExclusion
 
     /// <summary>A resolved <c>exclude=</c>, keeping the two kinds of value APART.
     ///
-    /// <para>They earn different treatment and conflating them produced a refusal naming a plugin the caller never
-    /// typed. A NAME is a claim that a specific plugin is in scope, so one that matches nothing is a typo and must
-    /// refuse. A GROUP is a filter — "whichever of these are here, drop them" — so a member that is not in scope is
-    /// the ordinary case, not an error. Expanded together and validated as one list, <c>plugins=["MyMod.esp"]</c>
-    /// with <c>exclude=["base_masters"]</c> refused with "exclude= names 'Update.esm', which is not in the scope
-    /// this sweep would cover" — a value the caller never wrote, from a group they cannot subtract from, with no
-    /// action available to them. Every narrowed scope refused every group token.</para></summary>
+    /// <para>The two must be validated separately. A NAME is a claim that a specific plugin is in scope, so one that
+    /// matches nothing is a typo and must refuse. A GROUP is a filter — "whichever of these are here, drop them" — so
+    /// a member that is not in scope is the ordinary case, not an error. Validated as one merged list instead, a
+    /// narrowed scope refuses every group token, naming a plugin the caller never wrote.</para></summary>
     /// <param name="Names">every filename to leave out, groups expanded.</param>
     /// <param name="TypedNames">only the filenames the CALLER wrote — the ones a scope must actually contain.</param>
     public sealed record Resolved(IReadOnlyCollection<string> Names, IReadOnlyList<string> TypedNames);
@@ -63,7 +52,7 @@ public static class SweepExclusion
     /// <paramref name="implicitNames"/> comes from the layer that reads the MO2 composition, because that is where
     /// the fact lives; passing it in keeps this parsable without a live order.
     ///
-    /// <para>Every malformed value refuses BEFORE the sweep runs and names what was expected (Q3): a typo'd
+    /// <para>Every malformed value refuses BEFORE the sweep runs and names what was expected: a typo'd
     /// exclusion that silently excluded nothing would hand back a wall of findings the caller asked not to see,
     /// with no hint that their spelling missed.</para>
     ///

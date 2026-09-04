@@ -2,14 +2,14 @@ using System.Text.Json;
 
 namespace HousecarlCore;
 
-/// <summary>The §2.1.1 result artifact (tool-surface 2.0, W1): ONE self-contained file that decouples result size
-/// from render size. Line 1 is the MANIFEST (what query produced it, what shape its rows are, and — load-bearing —
-/// the EPOCH fingerprint of the build it was read from); lines 2+ are one JSON row per line (JSONL). Immutable once
-/// written: the server never appends to or mutates an artifact — a re-run writes a NEW file (or overwrites a
-/// caller-named to_file= target wholesale). Line-addressable and greppable by design: the traversal ergonomics are
-/// the client's own file tools, inherited, not built.
+/// <summary>The result artifact: ONE self-contained file that decouples result size from render size. Line 1 is the
+/// MANIFEST (what query produced it, what shape its rows are, and — load-bearing — the EPOCH fingerprint of the
+/// build it was read from); lines 2+ are one JSON row per line (JSONL). Immutable once written: the server never
+/// appends to or mutates an artifact — a re-run writes a NEW file (or overwrites a caller-named to_file= target
+/// wholesale). Line-addressable and greppable by design: the traversal ergonomics are the client's own file tools,
+/// inherited, not built.
 ///
-/// <para>Re-entry contract (SPEC §2.1.1): an <c>@&lt;path&gt;</c> list input whose target is an artifact yields its
+/// <para>Re-entry contract: an <c>@&lt;path&gt;</c> list input whose target is an artifact yields its
 /// IDENTITY column as the list — scan once, project forever — and server-side consumption is EPOCH-CHECKED against
 /// the current build: mismatch is a loud refusal naming both epochs, with deliberately NO stale-override parameter
 /// (fresh re-projection goes through the server; honest-snapshot traversal of the file is the client's own lane,
@@ -28,8 +28,8 @@ public static class ResultArtifact
 
     /// <summary>Accumulates JSONL rows for one artifact, then <see cref="Save"/> writes manifest + rows atomically
     /// (temp file + move). Rows buffer in memory: an artifact is written in one call's scope and even a very large
-    /// result (100k+ rows) is tens of MB transiently — no server-side state survives the call (the retired-daemon
-    /// posture stays retired; the STATE is the file).</summary>
+    /// result (100k+ rows) is tens of MB transiently — no server-side state survives the call; the STATE is the
+    /// file.</summary>
     public sealed class Writer : IDisposable
     {
         readonly MemoryStream _rows = new();
@@ -40,7 +40,7 @@ public static class ResultArtifact
         /// writer; a newline is appended after it. <paramref name="type"/> — when the row has a record type —
         /// feeds the manifest's per-type counts. The row stream is handed in too so budget-aware row writers
         /// shared with the inline renders can take their (stream, cap) pair — the artifact passes an unreachable
-        /// cap, because an artifact row is NEVER truncated (the file being complete is the §2.1.1 contract).</summary>
+        /// cap, because an artifact row is NEVER truncated: the file must be complete.</summary>
         public void WriteRow(Action<Utf8JsonWriter, MemoryStream> write, string? type = null)
         {
             using (var w = new Utf8JsonWriter(_rows))   // deliberately NOT indented — one row, one line
@@ -57,13 +57,13 @@ public static class ResultArtifact
 
         /// <summary>Write the finished artifact: line 1 = manifest, lines 2+ = the accumulated rows. Returns the
         /// manifest it stamped (echoed into the response's spilled marker) or a named error — never throws for an
-        /// IO failure (the caller renders it; Q3). <paramref name="total"/> is the TRUE result total; it equals
+        /// IO failure; the caller renders it. <paramref name="total"/> is the TRUE result total; it equals
         /// <see cref="RowCount"/> unless the producing lane deliberately windowed (an auto-spill of an explicit
         /// limit= window writes the window and says so via total &gt; row_count).</summary>
         /// <param name="notes">Response-level statements the ROWS depend on for their meaning — a note a row's own
         /// annotation would otherwise leave unexplained. An artifact is re-entered later with no conversation
-        /// attached, so a label that ships without its meaning ships as noise (#342: rows carrying "also declared
-        /// by X" need the sentence that says what a child record is). Stated once here rather than per row, which
+        /// attached, so a label that ships without its meaning ships as noise — rows carrying "also declared by X"
+        /// need the sentence that says what a child record is. Stated once here rather than per row, which
         /// on a 100k-row artifact would be megabytes of one repeated sentence.</param>
         public (Manifest? Manifest, string? Error) Save(
             string path, string tool, IReadOnlyList<KeyValuePair<string, string>> query, string? identity,
@@ -95,9 +95,9 @@ public static class ResultArtifact
             }
             catch (Exception ex)
             {
-                // The temp is full artifact size and a failed write is likeliest exactly when the volume is tight
-                // (PR #306 review) — never leave it behind. Best-effort: the named error below is the contract; a
-                // second failure deleting the temp must not mask it.
+                // The temp is full artifact size and a failed write is likeliest exactly when the volume is tight,
+                // so never leave it behind. Best-effort: the named error below is the contract; a second failure
+                // deleting the temp must not mask it.
                 if (tmp is not null) try { File.Delete(tmp); } catch (Exception) { }
                 return (null, $"could not write the result artifact to '{path}' — {ex.GetType().Name}: {ex.Message}");
             }
@@ -107,7 +107,7 @@ public static class ResultArtifact
     }
 
     /// <summary>Line 1 of an artifact, parsed. <see cref="Identity"/> names the row column an <c>@file</c> re-entry
-    /// extracts (the §2.1.1 "identity column" — <c>formid</c> on every record lane); null means the rows carry no
+    /// extracts (the identity column — <c>formid</c> on every record lane); null means the rows carry no
     /// per-record identity (a group_by count table) and re-entry refuses by name. <see cref="Total"/> vs
     /// <see cref="RowCount"/>: equal unless the producing lane windowed (see <see cref="Writer.Save"/>).</summary>
     public sealed record Manifest(
@@ -147,7 +147,7 @@ public static class ResultArtifact
             }
             w.WriteString("epoch", Epoch);
             w.WriteString("created", Created);
-            if (Notes is { Count: > 0 })   // response-level statements the rows' own annotations rely on (#342)
+            if (Notes is { Count: > 0 })   // response-level statements the rows' own annotations rely on
             {
                 w.WriteStartArray("notes");
                 foreach (var n in Notes) w.WriteStringValue(n);
@@ -177,11 +177,11 @@ public static class ResultArtifact
     }
 
     /// <summary>Parse an artifact's manifest + extract its identity-column tokens, in row order. A named error
-    /// (never a throw, never a silent partial list — Q3) on: a malformed manifest, a manifest declaring NO identity
+    /// — never a throw, never a silent partial list — on: a malformed manifest, a manifest declaring NO identity
     /// column (a count-table artifact has no per-record identity to re-enter with), a non-error row missing the
     /// column, or a row that isn't valid JSON. <paramref name="content"/> is the file's full text (the callers
     /// already hold it — one read, two uses).
-    /// <para><b>Error rows are not identity-bearing (PR #306 re-review).</b> A row carrying an <c>error</c> member
+    /// <para><b>Error rows are not identity-bearing.</b> A row carrying an <c>error</c> member
     /// documents a failure — a malformed input token, an absent record — it does not name a record: resolve/batch
     /// write the caller's RAW token (or the null FormKey) into such rows, so their identity values are legitimately
     /// not FormIDs. Extraction SKIPS them by contract: re-entering an artifact means "the records this file
