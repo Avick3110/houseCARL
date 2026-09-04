@@ -955,16 +955,17 @@ internal static class PlaceAssetProbe
                           $"…and SAYS the name is one the active order already provides, claiming no folder search  [RED arm] — {r.Error}");
                 }
 
-                // ---- M17: the class three reviewers found in round 1. Naming an ENABLED mod that does not supply
-                // the path must not claim its folder was searched — the gate answered first, so no folder was
-                // opened. This is the commonest shape of all (the appearance skill tells callers to name the donor
-                // MOD), and the sentence was unconditional. ----
+                // ---- M17: naming an ENABLED mod that does not supply the path. Since #388 the name reaches that
+                // mod's folder — the folder scan is what enumerates root archives, and gating it on the MO2 tick was
+                // the asymmetry the issue names. The refusal must therefore report the search that DID happen, and
+                // must not fall back on the reserved-name arm, which would claim a look that never ran. This is the
+                // commonest shape of all: the appearance skill tells callers to name the donor MOD. ----
                 {
                     var r = svc.PlaceAssets(new[] { new PlaceRequest(OnlyDisabled, OnlyDisabled, "Enabled1") }, null, null).Results[0];
-                    Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceUniverseName, StringComparison.Ordinal),
-                          $"M17 naming an ENABLED mod that lacks the path says only that the name is already provided  [RED arm] — {r.Error}");
-                    Check(!r.Error!.Contains(WriteSentences.PlaceSourceDiskFolderSearched, StringComparison.Ordinal),
-                          "…and claims NO mod-folder search, because the gate stopped one from happening  [RED arm]");
+                    Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceDiskFolderSearched, StringComparison.Ordinal),
+                          $"M17 naming an ENABLED mod that lacks the path says its folder AND its own archives were searched  [RED arm] — {r.Error}");
+                    Check(!r.Error!.Contains(WriteSentences.PlaceSourceUniverseName, StringComparison.Ordinal),
+                          "…and does NOT claim the name was answered by the active order without a look  [RED arm]");
                 }
 
                 // ---- M18: PROVENANCE ON THE ARCHIVE BRANCH. M6 and M15 both assert it on a LOOSE read, so

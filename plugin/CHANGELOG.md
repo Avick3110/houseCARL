@@ -19,6 +19,29 @@ saying it sets an expectation their install may contradict. Say what is known, a
   reading `ProductVersion` off `housecarl-mcp.exe`. The line leads every answer the tool gives, including the
   setup prompt a server with no MO2 instance configured returns. A binary built without that stamp reports the
   same `0.0.0-dev` the MCP handshake reports, plus a short `(no build stamp)` clause, rather than printing a blank.
+- **The provider names `housecarl_nif_inspect` and `housecarl_nif_set` print are now the names their `mod=`
+  accepts.** A chain read `ModA (loose) > Base.bsa (BSA)`, and passing `ModA (loose)` straight back refused; the
+  names are now printed inside double quotes — a character a Windows folder or file name cannot contain — with the
+  kind outside them, so a name with a space, an apostrophe or parentheses copies back verbatim. Both tools take
+  the name through the same source policy `housecarl_place_asset`'s `source_provider=` uses.
+
+- **Naming a MOD now reaches that mod's own root archives, not only its loose files — for a mod MO2 is loading as
+  well as one it is not.** `mod=` and `source_provider=` previously reached an enabled mod's loose files only, so a
+  donor whose mesh lives inside its own `.bsa` had to be addressed by the archive's filename instead, and the same
+  folder switched off was reachable by its mod name. Both spellings now work either way. On the NIF tools the named
+  provider is also answered before the ABSENT check, so a donor outside the active set produces a refusal that names
+  the mod and says where houseCARL looked, rather than reporting the mesh as absent.
+
+- **`housecarl_nif_inspect` takes `npc=`: NPC FormIDs whose FaceGen head mesh houseCARL derives and reads.** Each
+  FormID becomes the `facegeom` `.nif` path its FormKey defines — the folder is the plugin that defines the NPC,
+  never the load-order winner — and joins the same batch as any `mesh_paths` in the call. One of the two is
+  required.
+
+- **`housecarl_nif_set`'s `set_path` now swaps a header string as well as a texture slot, so a material (`.bgsm`),
+  a `.tri` or a physics-xml reference can be rewritten.** Pass `target=` the string exactly as
+  `sections=strings` prints it (matching is case-sensitive) and no `texture_slot`. A string that is a shape's or
+  node's name is refused there and sent to `rename_shape` / `rename_node`, which carry the rename-onto-an-existing-
+  name guard. Both verification gates apply as they do to every other op.
 
 - **`housecarl_asset_status` under a `max_chars` its header and alarms already fill now renders the first path's
   answer instead of cutting to none.** `housecarl_nif_inspect` already did; both tools now render through one batch

@@ -2615,7 +2615,10 @@ public static class WriteSurfaceGuardProbe
             Render(new PlaceRequest(@"meshes\hcw2\nothing-provides-this.nif", null, null)),
             // The named-miss refusal keys ONE sentence per lookup outcome, and each has to reach a render or that
             // arm is half-wired. The W2NoSuchMod render above is the no-such-folder one; these are the rest.
-            Render(new PlaceRequest(rel, @"meshes\hcw2\absent-everywhere.nif", providers[0])),   // a universe name
+            // A RESERVED name — an active archive's filename. Since #388 an enabled MOD's name falls through to its
+            // own folder instead, so a mod name no longer reaches this outcome and the reserved half must be named
+            // to observe the sentence at all.
+            Render(new PlaceRequest(rel, @"meshes\hcw2\absent-everywhere.nif", "Dummy.bsa")),
             Render(new PlaceRequest(rel, rel, @"..\nope")),                                      // a path-shaped name
             Render(new PlaceRequest(rel, rel, "W2Offline")),                                     // a real folder, no copy
             Render(new PlaceRequest(rel, rel, "W2Broken")),                                      // a real folder, unreadable

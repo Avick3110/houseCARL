@@ -32,10 +32,14 @@ tail is identical. Paths are case-insensitive (the MO2 VFS already is). **The `.
 houseCARL** (it reads no tint/skin pixels) — but the `.nif` no longer is: `housecarl_nif_inspect` reads its
 **data values** (shape names, the embedded texture-set paths, NiAVObject flags, alpha, partitions, bones,
 node tree, header strings) and `housecarl_nif_set` **writes a whitelisted subset of them back** (texture-slot
-paths, shape/node names, flags, alpha, partitions, scale), verified before landing. What houseCARL still
-cannot do to either file is touch the **geometry**, read a `.dds`'s **image**, swap a **material/xml** string
-ref, or judge the **rendered** result — it edits data values and places/moves whole files; it does not remesh
+paths, header string refs — material / `.tri` / xml, shape/node names, flags, alpha, partitions, scale),
+verified before landing. What houseCARL still cannot do to either file is touch the **geometry**, read a
+`.dds`'s **image**, or judge the **rendered** result — it edits data values and places/moves whole files; it does not remesh
 a `.nif` or read a `.dds`'s pixels (§6).
+
+You do not have to spell the mesh path out to read it: `nif_inspect npc=["<FormID>"]` derives it from the
+FormKey by this same rule and reads the file, and takes several NPCs (and explicit `mesh_paths`) in one call.
+Spell it yourself when you need the `.dds` half, which `asset_status` answers.
 
 **The path is a pure function of the FormKey** — the engine links facegen to the NPC's FormID, not to any
 path stored in the record. There is no path field in the NPC record. So houseCARL derives the exact
@@ -119,13 +123,13 @@ broken skin texture → a texture-path problem (Cause R).
 
 Fix layers: **houseCARL-file** (`asset_status`/`place_asset`) · **houseCARL-record**
 (`read_record`/`set_field`/`create_record`) · **houseCARL-nif** (`nif_inspect` reads the `.nif`'s data
-values; `nif_set` writes the whitelisted ones — texture-slot paths, shape/node names, flags, alpha,
-partitions, scale — verified before landing) · **CK-instructed** (Ctrl+F4 bake — houseCARL cannot make
-geometry) · **nif-dds-instructed** (what's left for NifSkope / a texture tool: the `.dds` **pixels** and
-non-texture string refs — material / `.tri` / xml — that `set_path` doesn't reach) · **runtime-mod**.
+values; `nif_set` writes the whitelisted ones — texture-slot paths, header string refs (material / `.tri` /
+xml), shape/node names, flags, alpha, partitions, scale — verified before landing) · **CK-instructed**
+(Ctrl+F4 bake — houseCARL cannot make geometry) · **nif-dds-instructed** (what's left for NifSkope / a
+texture tool: the `.dds` **pixels**) · **runtime-mod**.
 Note the split shifted with Wave 2: `nif_inspect` turned "houseCARL can't see it" into "houseCARL reads it",
-and `nif_set` now turns most of the embedded-value edits (texture path, shape name, flags/alpha/partition)
-into "houseCARL fixes it at the data layer" — leaving only pixels, geometry, and material/xml refs
+and `nif_set` now turns the embedded-value edits (texture path, material/`.tri`/xml ref, shape name,
+flags/alpha/partition) into "houseCARL fixes it at the data layer" — leaving only pixels and geometry
 instructed.
 
 | # | Cause | Mechanism | houseCARL tell | Fix class |
@@ -327,12 +331,12 @@ Consequence — the boundary moved from *read* all the way to *verified write*: 
 form, and the FaceTint-path half of Fix E are now both DIAGNOSABLE *and* FIXABLE inside the file** — read the
 mesh, see which slot holds which path, name the exact mismatch (e.g. "slot 6 still points at the
 pre-compaction FormID"), then `set_path` it right. What houseCARL still cannot do is read the `.dds`'s
-**pixels**, swap a **material / `.tri` / xml** string ref (`set_path` only reaches `BSShaderTextureSet`
-texture slots), or vouch for the **render**. So the honest line is now: *"I read slot N — it pointed at X,
+**pixels** or vouch for the **render**. So the honest line is now: *"I read slot N — it pointed at X,
 wrong because Y — and rewrote it to Z; the write is verified at the data layer, so confirm the face in
 game."* Route by the slot you read: stale FaceTint (slot 6) → `set_path` slot 6 (was FaceGenEslify's manual
 NifSkope step); wrong skin diffuse/normal (slots 0/1) → `set_path` slot 0/1 (was NPC Facegen Patcher); a
-material path → still NifSkope; general missing tint → FDF; a **bulk** cross-mod rename → still faster in the
+material / `.tri` / xml ref → `set_path` with NO `texture_slot`, `target=` the string as `sections=strings`
+prints it; general missing tint → FDF; a **bulk** cross-mod rename → still faster in the
 batch tool. You no longer guess the broken slot, and for a single mesh you no longer hand off the edit.
 
 ---

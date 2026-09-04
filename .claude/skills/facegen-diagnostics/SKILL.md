@@ -37,10 +37,8 @@ backup**).
 
 **What houseCARL CANNOT do — instruct, never claim:** bake/regenerate facegen **geometry** (that is Creation
 Kit Ctrl+F4 — `nif_set` edits data *values*, never vertices/tris); read the `.dds` **pixel content or
-format** (it reads the `.nif`'s *reference* to a `.dds`, never the tint/skin image itself); edit the
-non-texture string refs — a **material / `.tri` / physics-xml** path (those live under `nif_inspect`
-`sections=strings`; `set_path` only swaps `BSShaderTextureSet` texture slots, so a material-path swap is
-still NifSkope); and judge whether the geometry or the final **rendered** face is *correct* (a written,
+format** (it reads the `.nif`'s *reference* to a `.dds`, never the tint/skin image itself); and judge whether
+the geometry or the final **rendered** face is *correct* (a written,
 verified value is provenance at the data layer, not a render — a name/path/flag can be right while the mesh
 still looks wrong, so the in-game check always stands). Anything needing the CK, a texture tool, a material
 edit, or a runtime SKSE mod is **instructed**. Saying these limits out loud is the Q3-honest move, not a
@@ -281,8 +279,9 @@ worse than a clear non-answer. Prefer the honest gap and the right external tool
   with `nif_set set_path texture_slot=<n>` (verified before it lands). This absorbs the embedded-path step
   the community tools leave to NifSkope: a stale FaceTint path (slot 6) — the FaceGenEslify manual step — is
   now houseCARL-doable; a wrong skin diffuse/normal path (slot 0/1) — the NPC Facegen Patcher edit — is now
-  houseCARL-doable; general missing tint still → FDF. What houseCARL still cannot do is read the `.dds`
-  **pixels** or swap a non-texture (material/`.tri`/xml) string ref (reference §6).
+  houseCARL-doable; general missing tint still → FDF. A **material / `.tri` / physics-xml** ref is the same op
+  with no `texture_slot`: read it under `sections=strings`, then `nif_set op=set_path target=<the string> path=<the
+  new one>`. What houseCARL still cannot do is read the `.dds` **pixels** (reference §6).
 - **FaceGenEslify renames files; it does NOT auto-edit the embedded `.nif` path** (its own README leaves that
   a manual NifSkope step). houseCARL can rename/place the files **and now performs that manual step itself** —
   read the slot-6 FaceTint path to confirm it's stale (≠ the current `<DefiningMaster>\<00…ID>.dds`), then
