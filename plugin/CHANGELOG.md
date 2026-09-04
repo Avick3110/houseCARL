@@ -13,6 +13,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **`housecarl_asset_status` under a `max_chars` its header and alarms already fill now renders the first path's
+  answer instead of cutting to none.** `housecarl_nif_inspect` already did; both tools now render through one batch
+  skeleton, so the first item always answers and the omitted-count cut reads the same in both.
+
 - **`housecarl_records` with `source={"file", "mod"}` now reads the copy in the named mod folder, even when that
   filename is active in the load order.** Several mod folders can ship the same plugin filename (an ESP replacer),
   and MO2 serves one of them; naming a folder addresses that folder's file. When the named copy is not the one the
