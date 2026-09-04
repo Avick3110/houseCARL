@@ -5,7 +5,7 @@ using Mutagen.Bethesda.Plugins;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// place-asset guard (facegen-diagnostics Phase 3 — housecarl_place_asset / housecarl_bulk_place_asset). Proves the
+/// place-asset guard (facegen-diagnostics Phase 3 — housecarl_place). Proves the
 /// WRITE side of dark-face repair: the FormKey→FaceGen-path keystone, the precise placer (explicit + auto-resolved
 /// source), in-process BSA single-entry extraction with ZERO handles at rest (the cornerstone), the crash-atomic
 /// non-destructive write, the wins-VFS end-to-end story through the REAL service, and the Q3 refusals.
