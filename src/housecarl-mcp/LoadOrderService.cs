@@ -6,63 +6,49 @@ using Mutagen.Bethesda.Skyrim;
 namespace HousecarlMcp;
 
 /// <summary>
-/// Owns the load-order resolver's lifecycle for the server and is the single place the tools reach the proven
-/// cores (<see cref="LoadOrderResolver"/> + <see cref="ReadEngine"/>; writes join in Beat C). This is the
-/// server-side half of the §8.4 cleave: tools call clean methods here; here calls the core's public API.
-///
-/// • LAZY build — the ~10s/180MB index build is deferred to first use, so startup + tools/list are instant.
-/// • FRESH — each query runs the cheap mtime stat-sweep (<see cref="LoadOrderResolver.RefreshIfStale"/>);
-///   a mid-session plugin edit auto-rebuilds (~11s), no restart needed.
-/// • THREAD-SAFE — the HTTP server is concurrent; build + refresh are serialized on one gate.
-///
-/// ORDER is the TRUE active order (§8.5), read statically from the MO2 profile's loadorder.txt + modlist.txt +
-/// plugins.txt via <see cref="Mo2LoadOrder"/> — masters first → highest-priority winner last, the ~110 duplicate-name
-/// plugins resolved by mod priority. No USVFS, no live MO2 state (both failed in the legacy build); the server reads
-/// REAL plugin paths and runs standalone. Freshness is AUTONOMOUS + lazy: the cheap mtime sweep re-reads the profile on
-/// the NEXT tool call whenever the user's MO2 edits changed it — no restart, no manual refresh step. See memory
-/// project_mo2_load_order_resolution.
+/// Owns the load-order resolver's lifecycle and is the single place the tools reach the core engines.
+/// The index build is lazy (deferred to first use, so startup and tools/list are instant), refreshed by a cheap
+/// mtime sweep on each query, and serialized on one gate because the server dispatches tool calls concurrently.
+/// The order is the true active order, read statically from the MO2 profile's loadorder.txt + modlist.txt +
+/// plugins.txt — masters first, highest-priority winner last, duplicate plugin names resolved by mod priority.
+/// No USVFS and no live MO2 state: the server reads real plugin paths and runs standalone.
 /// </summary>
 public sealed class LoadOrderService : IDisposable
 {
-    // INSTANCE mode (the product default): one configured path — the MO2 instance folder — from which ProfileDir/ModsDir/
-    // DataDir + the active profile are DERIVED (via Mo2Instance, reading ModOrganizer.ini), and a profile SWITCH is picked
-    // up on the next tool call. EXPLICIT mode (dev / non-portable override): the three paths are configured directly and
-    // _instanceDir stays null (no ini watch). UNCONFIGURED: neither was set — the server still BOOTS; every tool returns the
-    // trained prompt (so houseCARL asks the user for the path) until housecarl_set_mo2_instance is called.
+    // Three modes. INSTANCE (default): one MO2 instance folder, from which the roots and active profile are derived by
+    // reading ModOrganizer.ini, and a profile switch is picked up on the next tool call. EXPLICIT (dev override): the
+    // three paths are configured directly, _instanceDir stays null, no ini watch. UNCONFIGURED: the server still boots
+    // and every tool returns the prompt for the MO2 path until housecarl_set_mo2_instance is called.
     string? _instanceDir;                          // INSTANCE-mode source of truth; null in explicit/unconfigured mode
     string _dataDir;                               // DERIVED (instance mode) or configured (explicit); mutable for a live profile switch
     string _modsDir;
     string _profileDir;
     string _profileName;                           // the active profile (instance mode: from selected_profile)
-    string _overwriteDir = "";                     // MO2's overwrite layer (instance mode: derived; explicit mode: none) — hunt F9
+    string _overwriteDir = "";                     // MO2's overwrite layer (instance mode: derived; explicit mode: none)
     bool _configured;                              // false ⇒ tools return the trained prompt instead of resolving
     readonly UserConfigStore _store;               // the sole owner of houseCARL.user.json (MO2 instance dir + tool paths)
     readonly int _maxPlugins;
     readonly object _gate = new();
-    // Serializes the WHOLE resolve→stage→commit of every .esp write (2026-06-12 hunt F2): the MCP SDK dispatches tool
-    // calls CONCURRENTLY, and without this two same-name writes could allocate the same folder (UniqueStem TOCTOU) and
-    // cross-commit through the fixed .housecarl-tmp staging path — R1's success message shipping R2's bytes. Writes are
-    // seconds-long and rare; serializing them is correct (accuracy over perf). SetInstance takes it too, so an instance
-    // switch can never tear a write in flight across instances. Lock order where both are held: _writeGate THEN _gate.
+    // Serializes the whole resolve/stage/commit of every .esp write: tool calls are dispatched concurrently, and two
+    // same-name writes would otherwise allocate the same folder and cross-commit through the fixed .housecarl-tmp
+    // staging path. SetInstance takes it too, so an instance switch cannot tear a write in flight.
+    // Lock order where both are held: _writeGate THEN _gate.
     readonly object _writeGate = new();
     LoadOrderResolver? _resolver;
     CorpusRulebook? _rulebook;
     IReadOnlyList<string> _orderWarnings = Array.Empty<string>();
-    // facegen-diagnostics Phase 2: the VFS-aware asset resolver (housecarl_asset_status), built LAZILY and only on an
-    // ASSET query — a pure-record session never pays for it — and kept fresh the same way _resolver is. Dropped +
-    // rebuilt whenever the active profile changes (InvalidateAssetResolver in ReResolve / SetInstance): an enabled-mod
-    // toggle changes the loose roots and the active-archive set, not just the plugin order. CHEAP to build (it reads BSA
-    // file-TABLES, not the ~10s/180MB record index), so a full rebuild on a profile change is fine. See memory
-    // project_facegen_diagnostics_resolver.
+    // The VFS-aware asset resolver, built lazily and only on an asset query so a pure-record session never pays for it.
+    // Dropped and rebuilt whenever the active profile changes: an enabled-mod toggle changes the loose roots and the
+    // active-archive set, not just the plugin order. It reads BSA file tables rather than the record index, so a full
+    // rebuild on a profile change is cheap.
     AssetResolver? _assetResolver;
     IReadOnlyList<string> _assetWarnings = Array.Empty<string>();   // discovery warnings from the asset build (e.g. a Skyrim.ini we couldn't find → base BSAs unscanned)
-    IReadOnlyList<ActiveArchive> _activeArchives = Array.Empty<ActiveArchive>();   // the discovered active-BSA list behind the CURRENT asset build (archive → owning plugin — the native-pairing audit's provenance anchor); swapped with _assetResolver
-    IReadOnlyList<string> _enabledModsAtBuild = Array.Empty<string>();             // the enabled-mod list behind the CURRENT asset build (the native-pairing loader scan walks THESE mods' Root\ folders — same capture as the view, never a second unpinned profile read); swapped with _assetResolver
-    // Freshness baselines are the files' LAST-SEEN MTIMES compared by VALUE (!=), the same model the resolver itself
-    // uses — NOT wall-clock stamps compared by ORDER (2026-06-12 hunt F8: `mtime > builtUtc` was blind to an mtime
-    // REGRESSION, so MO2's "Restore Backup" — which restores a profile file with an OLDER mtime — stayed invisible
-    // for the process lifetime). Each baseline is statted BEFORE the read it baselines (TOCTOU: a write landing
-    // during/after the read shows as a changed mtime on the next check, never absorbed).
+    IReadOnlyList<ActiveArchive> _activeArchives = Array.Empty<ActiveArchive>();   // active BSAs behind the current asset build (archive → owning plugin); swapped with _assetResolver
+    IReadOnlyList<string> _enabledModsAtBuild = Array.Empty<string>();             // enabled mods behind the current asset build; the loader scan walks these mods' Root folders, from the same capture as the view rather than a second profile read
+    // Freshness baselines are last-seen mtimes compared by VALUE (!=), never wall-clock stamps compared by order:
+    // MO2's "Restore Backup" restores a profile file with an OLDER mtime, which an ordered comparison never sees.
+    // Each baseline is statted BEFORE the read it baselines, so a write landing during the read shows up on the
+    // next check rather than being absorbed.
     DateTime[] _profileMtimes = new DateTime[ProfileFileNames.Length];   // per ProfileFileNames, recorded at each order build
     DateTime _iniMtime = DateTime.MinValue;                              // ModOrganizer.ini (instance-mode profile-switch baseline)
     IReadOnlyList<string> _resolvedPaths = Array.Empty<string>();   // ordered paths the current snapshot was built from (the cheap "did the order actually change?" check)
@@ -93,10 +79,9 @@ public sealed class LoadOrderService : IDisposable
     public static LoadOrderService WithExplicitPaths(string dataDir, string modsDir, string profileDir, int maxPlugins, UserConfigStore store)
         => new(null, dataDir, modsDir, profileDir, configured: true, maxPlugins, store);
 
-    /// <summary>TEST SEAM (the harness' CI regression guards only): wrap a PREBUILT resolver so a guard can drive
-    /// the service-layer query logic (CrossQuery's scan loop) on synthetic plugins — no MO2 profile, no user config
-    /// on disk. Explicit-mode freshness checks no-op (no ini, empty profile dir); the caller owns the resolver's
-    /// lifetime. Never used by the product.</summary>
+    /// <summary>Test seam: wrap a prebuilt resolver so a test can drive the service-layer query logic on synthetic
+    /// plugins with no MO2 profile and no user config on disk. Freshness checks no-op here (no ini, empty profile
+    /// dir) and the caller owns the resolver's lifetime. Never used by the product.</summary>
     internal static LoadOrderService ForGuard(LoadOrderResolver resolver, UserConfigStore store)
     {
         var svc = new LoadOrderService(null, "", "", "", configured: true, maxPlugins: 0, store);
@@ -104,16 +89,16 @@ public sealed class LoadOrderService : IDisposable
         return svc;
     }
 
-    /// <summary>Non-fatal warnings from the last order build (Q3) — e.g. a plugin the load order lists that no enabled
-    /// mod provides (stale profile files). Surfaced, never swallowed. Empty until the resolver first builds.</summary>
+    /// <summary>Non-fatal warnings from the last order build — e.g. a plugin the load order lists that no enabled mod
+    /// provides. Surfaced, never swallowed. Empty until the resolver first builds.</summary>
     public IReadOnlyList<string> OrderWarnings => _orderWarnings;
 
-    /// <summary>The write pre-flight rulebook (corpus.json), loaded once. CorpusPath is set absolute at startup (§8.4),
-    /// so this resolves regardless of the MO2-launched process's CWD.</summary>
+    /// <summary>The write pre-flight rulebook (corpus.json), loaded once. CorpusPath is set absolute at startup, so
+    /// this resolves regardless of the MO2-launched process's working directory.</summary>
     CorpusRulebook Rulebook => _rulebook ??= CorpusRulebook.Load();
 
-    /// <summary>The resolver, built on first access and kept fresh on every subsequent access. Throws (loud, Q3)
-    /// if the configured roots yield no plugins.</summary>
+    /// <summary>The resolver, built on first access and kept fresh on every subsequent access. Throws loudly if the
+    /// configured roots yield no plugins.</summary>
     LoadOrderResolver Resolver
     {
         get
@@ -124,10 +109,8 @@ public sealed class LoadOrderService : IDisposable
                 if (_resolver is null)
                 {
                     EnsurePathsDerived();                         // instance mode: derive ProfileDir/ModsDir/DataDir + active profile from ModOrganizer.ini
-                    // §8.5: the TRUE active order, read statically from the MO2 profile (loadorder.txt + modlist.txt +
-                    // plugins.txt) — no VFS, no live MO2 state. See HousecarlCore.Mo2LoadOrder + memory
-                    // project_mo2_load_order_resolution.
-                    var profileMtimes = StatProfileFiles();      // stat BEFORE the read (TOCTOU): a profile write during the build is caught next call, not missed
+                    // The true active order, read statically from the MO2 profile files — no VFS, no live MO2 state.
+                    var profileMtimes = StatProfileFiles();      // stat BEFORE the read: a profile write during the build is caught next call, not missed
                     var order = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir);
                     _orderWarnings = order.Warnings;
                     var paths = order.OrderedPaths;
@@ -143,19 +126,15 @@ public sealed class LoadOrderService : IDisposable
                 }
                 else if (Monitor.TryEnter(_writeGate))
                 {
-                    // Lazy freshness, run on each tool call once the snapshot exists — but DEFERRED while a WRITE is
-                    // in flight (PR #51 review note): a refresh here can rebuild the index — transiently mmap-opening
-                    // every plugin INCLUDING the file a concurrent write is serializing (the PR #24 "no mapped handle
-                    // on the target survives the serialize" invariant, breached from the read path) — and dispose-swap
-                    // the resolver that write captured. TryEnter probes the write gate WITHOUT blocking: it cannot
-                    // deadlock (no blocking _gate→_writeGate wait — the established blocking order stays _writeGate
-                    // THEN _gate), and Monitor reentrancy keeps the write's OWN entry refresh working (it holds
-                    // _writeGate, so its TryEnter succeeds). A skipped refresh serves the last good snapshot and
-                    // re-checks on the next call — the freshness contract is per-call lazy, so deferral behind a
-                    // seconds-long write is honest staleness, never wrongness (freshness-capture-guard arm 5).
+                    // Lazy freshness on each tool call, deferred while a write is in flight: a refresh rebuilds the
+                    // index, transiently mmap-opening every plugin including the file a concurrent write is
+                    // serializing, and dispose-swaps the resolver that write captured. TryEnter probes the write gate
+                    // without blocking, so it cannot deadlock against the _writeGate-then-_gate order, and Monitor
+                    // reentrancy keeps a write's own entry refresh working. A skipped refresh serves the last good
+                    // snapshot and re-checks next call.
                     try
                     {
-                        RefreshOnProfileChange();     // to-do #6: lazy profile-membership refresh on THIS call (cheap-check first)
+                        RefreshOnProfileChange();     // lazy profile-membership refresh on this call (cheap check first)
                         _resolver.RefreshIfStale();   // plugin-CONTENT freshness: cheap stat sweep; rebuilds if a plugin's bytes changed
                     }
                     finally { Monitor.Exit(_writeGate); }
@@ -165,25 +144,23 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
-    // ---- facegen-diagnostics Phase 2: VFS asset resolution (housecarl_asset_status) ----------------------
+    // ---- VFS asset resolution (housecarl_asset_status) --------------------------------------------------
 
-    /// <summary>The VFS-aware asset resolver, built on first ASSET query and kept fresh on every subsequent one — the
-    /// asset twin of <see cref="Resolver"/>. Runs the SAME profile-freshness driver (a switch / toggle / re-sort drops it
-    /// via <see cref="ReResolve"/> → <see cref="InvalidateAssetResolver"/>, so it rebuilds against the new profile), then
-    /// its own cheap BSA-byte / warmed-loose-subtree content sweep. Crucially it does NOT force the heavy
-    /// <see cref="Resolver"/> build — an asset-only query stays cheap (the freshness driver is null-safe for _resolver).
-    /// The getter takes <see cref="_gate"/> (reentrant), so callers need not pre-hold it.</summary>
+    /// <summary>The VFS-aware asset resolver, built on first asset query and kept fresh on every subsequent one — the
+    /// asset twin of <see cref="Resolver"/>. It runs the same profile-freshness driver, then its own cheap BSA-byte
+    /// and loose-subtree content sweep. It deliberately does NOT force the heavy <see cref="Resolver"/> build, so an
+    /// asset-only query stays cheap. The getter takes <see cref="_gate"/>, so callers need not pre-hold it.</summary>
     AssetResolver Assets
     {
         get
         {
             lock (_gate)
             {
-                if (!_configured) throw NotConfigured();           // fresh install → the tool returns the trained prompt instead
+                if (!_configured) throw NotConfigured();           // fresh install → the tool returns the prompt for the MO2 path instead
                 EnsurePathsDerived();                              // derive the roots on first use (instance mode)
-                // Profile freshness (switch / toggle / re-sort) — shared with the record path, deferred behind an in-flight
-                // write like the record refresh. ReResolve is null-safe for _resolver, so this FOLLOWS a profile change
-                // WITHOUT building the record index, and drops _assetResolver when the active set changed.
+                // Profile freshness (switch / toggle / re-sort), shared with the record path and deferred behind an
+                // in-flight write the same way. ReResolve is null-safe for _resolver, so this follows a profile change
+                // without building the record index, and drops _assetResolver when the active set changed.
                 if (Monitor.TryEnter(_writeGate))
                 {
                     try { RefreshOnProfileChange(); }
@@ -203,20 +180,15 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
-    /// <summary>The injected answer to "why is this plugin filename NOT in the active order?" — handed to every
-    /// <see cref="LoadOrderResolver"/> this service builds, so a refusal names the cause and its remedy instead of a
-    /// flat not-found the reader has to go re-derive (#271). Returns null when nothing can be said, and the refusal
-    /// then reads exactly as it did before (a did-you-mean).
-    /// <para>Reads the profile FRESH on each call rather than closing over a parsed composition: the composition is a
-    /// cheap three-file text parse, this runs only on a REFUSAL (never on a hot path), and a stale answer here would be
-    /// the precise failure this whole issue is about — telling someone a plugin is unticked after they ticked it.</para>
-    /// <para>The ROOTS are read live from the service's own fields for the same reason, NOT captured when the resolver
-    /// was built: a profile switch reassigns them (RederiveIfIniChanged) but only rebuilds the resolver when the
-    /// resolved PATH LIST changed, so two profiles with identical active sets and different UNTICKED lists would leave
-    /// a captured closure reading the old profile's plugins.txt — answering "not registered" for a plugin that is
-    /// merely unticked, which is precisely the confusion this explainer exists to end (review of PR #274).</para>
-    /// <para>Vocabulary is deliberate throughout: a MOD is enabled/disabled (MO2's left pane), a PLUGIN is
-    /// active/inactive (its right pane). Conflating the two is what made the old output unreadable.</para></summary>
+    /// <summary>The injected answer to "why is this plugin filename not in the active order?", handed to every
+    /// <see cref="LoadOrderResolver"/> this service builds. Returns null when nothing can be said, and the refusal
+    /// then falls back to a did-you-mean.
+    /// <para>The profile and the roots are read fresh on each call rather than captured: a profile switch reassigns
+    /// the roots but only rebuilds the resolver when the resolved path list changed, so two profiles with identical
+    /// active sets and different unticked lists would leave a capture reading the old plugins.txt. This runs only on
+    /// a refusal, never on a hot path, so the extra three-file parse is free.</para>
+    /// <para>Vocabulary is deliberate: a MOD is enabled/disabled (MO2's left pane), a PLUGIN is active/inactive (its
+    /// right pane).</para></summary>
     string? ExplainPluginAbsence(string name)
     {
         // Snapshot the roots together under the gate so the four cannot be read across a mid-switch reassignment.
@@ -227,14 +199,13 @@ public sealed class LoadOrderService : IDisposable
         if (fn.Length == 0) return null;
         Mo2Composition comp;
         try { comp = Mo2LoadOrder.ReadComposition(profileDir); }
-        catch { return null; }                       // unreadable profile → say nothing rather than guess (Q3)
+        catch { return null; }                       // unreadable profile → say nothing rather than guess
 
         bool ticked = comp.ActivePluginNames.Contains(fn);
         bool unticked = comp.InactivePluginNames.Any(x => x.Equals(fn, StringComparison.OrdinalIgnoreCase));
 
-        // The headline case, and the reason this explainer exists: MO2's left pane says yes, its right pane says no.
-        // The file is sitting right there, so a bare "not in the load order" reads as "missing" and sends the reader
-        // hunting for something that is installed and one click from working.
+        // The headline case: MO2's left pane says yes, its right pane says no. The file is sitting right there, so a
+        // bare "not in the load order" reads as "missing" for something that is installed and one click from working.
         if (unticked)
             return $"'{fn}' IS installed, but it is UNTICKED in plugins.txt (MO2's right pane), so the game does not " +
                    "load it and houseCARL does not read it. Tick it in MO2 and re-sort — or, to read the file as-is " +
@@ -258,11 +229,10 @@ public sealed class LoadOrderService : IDisposable
 
         if (hits.Length == 0) return null;           // nothing on disk by that name → a typo; let the suggester answer
 
-        // On disk but the profile never mentions it. The remedy turns on WHICH layer holds it, read from the mod
-        // list rather than guessed from the hit's Enabled flag: an UNLISTED folder is flagged not-enabled exactly
-        // like a disabled one, but there is nothing in MO2 to switch on — and houseCARL's own just-written patches
-        // live in an unlisted folder, so "switch the mod on" was the wrong first instruction for the single most
-        // common way to reach this message (review of PR #274, round 2).
+        // On disk but the profile never mentions it. The remedy turns on which layer holds it, read from the mod list
+        // rather than guessed from the hit's Enabled flag: an unlisted folder is flagged not-enabled exactly like a
+        // disabled one, but there is nothing in MO2 to switch on — and houseCARL's own just-written patches live in
+        // an unlisted folder, which is the most common way to reach this message.
         var pick = hits.FirstOrDefault(h => !h.Enabled) ?? hits[0];
         var folder = Path.GetFileName(Path.GetDirectoryName(pick.Path) ?? "") ?? "";
         var remedy =
@@ -295,21 +265,16 @@ public sealed class LoadOrderService : IDisposable
     /// none is built (a pure-record session never pays for the asset resolver). Caller holds <see cref="_gate"/>.</summary>
     void InvalidateAssetResolver() { _assetResolver?.Dispose(); _assetResolver = null; }
 
-    /// <summary>The Papyrus SOURCE folders this modlist already ships (housecarl_compile_script's auto-import, #200):
-    /// every enabled mod's <c>Source\Scripts</c> / <c>Scripts\Source</c>, in MO2's own VFS precedence, so a framework
-    /// the modder already has installed (SKSE, PapyrusUtil, PO3, SkyUI, JContainers, …) lands on the compiler's import
+    /// <summary>The Papyrus source folders this modlist ships: every enabled mod's <c>Source\Scripts</c> /
+    /// <c>Scripts\Source</c>, in MO2's own VFS precedence, so an installed framework lands on the compiler's import
     /// path without being retyped per call.
-    /// <para>Reads the ORDER off <see cref="AssetResolver.LooseRoots"/> rather than re-deriving it: the precedence a
-    /// shadowed script resolves through must be the SAME list every other asset answer uses, and a second derivation
-    /// is a second thing to drift. The cost is that a compile-only session now builds the asset resolver (BSA file
-    /// tables — cheap next to the record index, and cached for the process/profile).</para>
-    /// <para>BEST-EFFORT BY CONTRACT (Q3): an unconfigured/unreadable profile returns an EMPTY list plus a warning the
-    /// rider renders, never an exception — losing the ergonomic default must not lose the compile, and the rendered
-    /// import summary makes a short list visible rather than silent.</para></summary>
-    /// <para>A FAILURE is flagged, not just warned about (<c>Failed</c>): an empty root list from a read that threw is
-    /// otherwise indistinguishable from a modlist that genuinely ships no source folders, and the rider renders the
-    /// two very differently — "the scan matched 0 of 0" is a conclusion, and a scan that never ran has not reached
-    /// one. Same shape as the scan's own TargetUnreadable / BudgetExhausted flags.</para>
+    /// <para>The order comes off <see cref="AssetResolver.LooseRoots"/> rather than being re-derived, so a shadowed
+    /// script resolves through the same precedence every other asset answer uses. The cost is that a compile-only
+    /// session builds the asset resolver.</para>
+    /// <para>Best-effort by contract: an unconfigured or unreadable profile returns an empty list plus a warning,
+    /// never an exception — losing the ergonomic default must not lose the compile. A read that THREW also sets
+    /// <c>Failed</c>, because an empty root list is otherwise indistinguishable from a modlist that genuinely ships
+    /// no source folders, and the caller renders the two differently.</para></summary>
     public (IReadOnlyList<PapyrusSourceRoot> Roots, string? GameDataSources, string? Warning, bool Failed) PapyrusSourceImportDirs()
     {
         IReadOnlyList<(string Name, string Dir)> roots;
@@ -317,21 +282,19 @@ public sealed class LoadOrderService : IDisposable
         try { lock (_gate) { roots = Assets.LooseRoots; dataDir = _dataDir; } }
         catch (Exception ex)
         {
-            // Says what failed and what it costs — and nothing about vanilla. The old tail ("…and the vanilla sources
-            // are on the import path") was a claim this method has no way to check, and it could print directly under
-            // a caveat stating there are none. Labelled "modlist scan", not "auto_imports", because the rider also
-            // reaches here with auto_imports OFF, purely to locate the vanilla fallback.
+            // Says what failed and what it costs, and nothing about vanilla — this method has no way to check whether
+            // the vanilla sources are on the import path. Labelled "modlist scan" rather than "auto_imports" because
+            // the caller also reaches here with auto_imports off, purely to locate the vanilla fallback.
             return (Array.Empty<PapyrusSourceRoot>(), null,
                     "modlist scan: could not read the MO2 modlist to discover Papyrus source folders " +
                     $"({ex.Message}) — none of your installed mods' source folders are on the import path for this compile.",
                     true);
         }
-        // The game's own Data root is SPLIT OUT here, where the data dir is known, rather than left to the rider's
-        // compiler-relative vanilla check: on a Stock Game setup those are deliberately different folders (the CK
-        // compiler lives in the real Steam install), so that check would never fire and the base game would rank as
-        // an ordinary mod. It is handed BACK rather than discarded — the rider uses it as the vanilla slot when the
-        // compiler-relative folder doesn't resolve, which is the only way both properties hold at once. See
-        // PapyrusSourceRoots.SplitGameData.
+        // The game's own Data root is split out here, where the data dir is known, rather than left to a
+        // compiler-relative vanilla check: on a Stock Game setup those are different folders (the CK compiler lives
+        // in the real Steam install), so that check would never fire and the base game would rank as an ordinary mod.
+        // It is handed back rather than discarded — the caller uses it as the vanilla slot when the compiler-relative
+        // folder doesn't resolve.
         try
         {
             var (mods, gameData) = PapyrusSourceRoots.SplitGameData(PapyrusSourceRoots.Discover(roots), dataDir);
@@ -347,10 +310,10 @@ public sealed class LoadOrderService : IDisposable
     }
 
     /// <summary>Resolve a batch of Data-relative asset paths through the MO2 VFS (housecarl_asset_status): for each,
-    /// which source provides it and which copy WINS (loose beats BSA; among BSAs the higher plugin rank). ONE
-    /// <see cref="AssetResolver.Capture"/> for the whole batch, so every path AND the build-level BsaFailures /
-    /// ReadIncomplete caveat describe a single build (Q3). A drive-rooted or '..'-escaping path is a per-path
-    /// recoverable error (Q3), never a batch failure.</summary>
+    /// which source provides it and which copy wins (loose beats BSA; among BSAs the higher plugin rank). One
+    /// <see cref="AssetResolver.Capture"/> for the whole batch, so every path and the build-level BsaFailures /
+    /// ReadIncomplete caveat describe a single build. A drive-rooted or '..'-escaping path is a per-path recoverable
+    /// error, never a batch failure.</summary>
     public AssetStatusData AssetStatus(IReadOnlyList<string> relPaths)
     {
         lock (_gate)
@@ -363,42 +326,37 @@ public sealed class LoadOrderService : IDisposable
                 try
                 {
                     var hit = view.Resolve(p);
-                    // ABSENT only: a path taken off a record is stored relative to its ROOT folder (a model path to
-                    // meshes\, a texture path to textures\), so the flat ABSENT was a dead end for the normal way
-                    // one arrives at an asset (#273). Both roots are tried because this lane, unlike nif_inspect,
-                    // doesn't know the path's kind. VERIFIED only here — no speculative note: asset_status legitimately
-                    // answers for sound\, scripts\, interface\ and the rest, where a meshes\ lecture would be noise.
+                    // Only on ABSENT: a path taken off a record is stored relative to its root folder (a model path
+                    // to meshes\, a texture path to textures\). Both roots are tried because this lane, unlike
+                    // nif_inspect, doesn't know the path's kind, and only VERIFIED prefixes are suggested — this tool
+                    // legitimately answers for sound\, scripts\, interface\ and the rest.
                     var suggest = hit.Exists ? Array.Empty<string>()
                                              : AssetPathHint.VerifiedPrefixes(view, p, AssetPathHint.AssetRoots);
                     results.Add(new AssetPathResult(p, hit, null, suggest));
                 }
-                catch (ArgumentException ex) { results.Add(new AssetPathResult(p, null, ex.Message)); }   // bad path → per-path Q3 note
+                catch (ArgumentException ex) { results.Add(new AssetPathResult(p, null, ex.Message)); }   // bad path → per-path note, never a batch failure
             }
             return new AssetStatusData(results, view.BsaFailures, view.ReadIncomplete, _assetWarnings, _profileName);
         }
     }
 
-    // ---- SKSE-plugin-layer visibility (gap 2026-06-08): inventory the DLLs + configs + winning provider (tier A) and
-    //      each plugin DLL's STATICALLY declared manifest (tier C). Read-only; reuses the asset VFS + the PE reader. ----
+    // ---- SKSE-plugin-layer visibility: inventory the DLLs, configs and winning provider, plus each plugin DLL's
+    //      statically declared manifest. Read-only; reuses the asset VFS and the PE reader. ----
 
-    /// <summary>Inventory the SKSE-plugin layer as the ACTIVE load order resolves it (housecarl_skse_inventory): the FULL
-    /// DEPTH of Data\SKSE\Plugins — every <c>.dll</c> plugin and every <c>.ini</c>/<c>.toml</c>/<c>.json</c>/<c>.yaml</c>
-    /// config at any depth — with the mod that WINS the VFS for each (tier A), and for every plugin DLL the statically-
-    /// declared manifest — name/author/version, Address Library vs version-LOCKED, target runtimes, XSE floor — via
-    /// <see cref="SksePluginReader"/> (tier C). Tier E (DLL behavior) stays out of reach by design. FULL VISIBILITY, by
-    /// construction: every file is accounted for — configs carry their derived subfolder <see cref="SkseFileEntry.Group"/>
-    /// (the immediate folder under SKSE\Plugins — SkyPatcher / DynamicStringDistributor / OStim / …, WHATEVER the modlist
-    /// ships, never a hardcoded set) so the renderer can group them compactly, and non-config content (animation data etc.)
-    /// is counted in <see cref="SkseInventoryData.OtherFileCount"/>, never silently dropped. DLLs keep their SKSE-loader
-    /// truth: a subfolder DLL is SEEN but flagged (SKSE scans Data\SKSE\Plugins*.dll top-level only, so it isn't loaded as a
-    /// plugin). ONE asset capture pins the whole scan (list + <see cref="AssetView.ReadIncomplete"/> caveat = one build); the
-    /// enumerate + resolve + PE reads run OUTSIDE the gate (the captured view is a handle-free immutable snapshot), so an
-    /// inventory never serializes other tool calls behind its file I/O. Distributor INIs (SPID <c>*_DISTR</c>, KID
-    /// <c>*_KID</c>) live in Data\ ROOT, not here, and are owned by their authoring skills — out of this scope by design.</summary>
-    /// <param name="peekFilter">Tier D. When non-null, every DLL entry matching it (<see cref="SkseFileEntry.MatchesDll"/> —
-    /// the same predicate the renderer filters on) also gets its image string-scanned into <see cref="SkseFileEntry.Peek"/>.
-    /// Null = no scan. Per-DLL by design: the scan reads the WHOLE image, unlike the import walk, which rides the manifest
-    /// read every DLL already gets.</param>
+    /// <summary>Inventory the SKSE-plugin layer as the active load order resolves it: the full depth of
+    /// Data\SKSE\Plugins — every <c>.dll</c> and every <c>.ini</c>/<c>.toml</c>/<c>.json</c>/<c>.yaml</c> config at any
+    /// depth — with the mod that wins the VFS for each, and for every DLL the statically declared manifest via
+    /// <see cref="SksePluginReader"/>. Every file is accounted for: configs carry their derived subfolder
+    /// <see cref="SkseFileEntry.Group"/> (whatever the modlist ships, never a hardcoded framework list) and non-config
+    /// content is counted in <see cref="SkseInventoryData.OtherFileCount"/> rather than dropped. A subfolder DLL is
+    /// listed but flagged: SKSE scans Data\SKSE\Plugins\*.dll top-level only, so it is not loaded as a plugin. One
+    /// asset capture pins the whole scan, and the enumerate, resolve and PE reads run outside the gate (the captured
+    /// view is a handle-free immutable snapshot) so an inventory never serializes other tool calls behind its file
+    /// I/O. Distributor INIs (SPID <c>*_DISTR</c>, KID <c>*_KID</c>) live in the Data root, not here.</summary>
+    /// <param name="peekFilter">When non-null, every DLL entry matching it (<see cref="SkseFileEntry.MatchesDll"/>,
+    /// the same predicate the renderer filters on) also gets its image string-scanned into
+    /// <see cref="SkseFileEntry.Peek"/>. Null = no scan. Per-DLL because the scan reads the whole image, unlike the
+    /// import walk, which rides the manifest read every DLL already gets.</param>
     public SkseInventoryData SkseInventory(string? peekFilter = null)
     {
         AssetResolver.AssetView view;
@@ -412,11 +370,11 @@ public sealed class LoadOrderService : IDisposable
             profileName = _profileName;
             profileDir = _profileDir;
         }
-        // Tier D only: the plugin names a peek's embedded-reference cross-check adjudicates against. A cheap three-file
-        // text parse (no index build), skipped entirely without peek= so a normal inventory pays nothing for it. The set
-        // is what the game actually LOADS: plugins.txt `*` entries PLUS the force-loaded base/CC masters, which load
-        // despite never appearing there — omitting the implicit ones would flag "Dawnguard.esm" ABSENT on an install
-        // that has it, exactly the false alarm this cross-check exists to prevent (Q3).
+        // The plugin names a peek's embedded-reference cross-check adjudicates against. A cheap three-file text parse
+        // with no index build, skipped entirely without peek= so a normal inventory pays nothing for it. The set is
+        // what the game actually loads: plugins.txt `*` entries plus the force-loaded base and CC masters, which load
+        // despite never appearing there — omitting the implicit ones would flag Dawnguard.esm absent on an install
+        // that has it.
         IReadOnlySet<string>? activePlugins = null;
         if (peekFilter is { Length: > 0 })
         {
@@ -424,9 +382,9 @@ public sealed class LoadOrderService : IDisposable
             activePlugins = PeekPluginSet(Mo2LoadOrder.ReadComposition(profileDir, compWarnings));
             if (compWarnings.Count > 0) warnings = [.. warnings, .. compWarnings];
         }
-        // OUTSIDE the gate: the view is pinned + handle-free (AssetResolver.Dispose is a no-op; Resolve reads only the
-        // captured snapshot + readonly roots), so enumerating + resolving + PE-reading here can't race a concurrent
-        // refresh into wrongness and doesn't block other tools behind our file reads.
+        // Outside the gate: the view is pinned and handle-free (Resolve reads only the captured snapshot and readonly
+        // roots), so enumerating, resolving and PE-reading here cannot race a concurrent refresh into wrongness and
+        // does not block other tools behind these file reads.
         const string pre = "SKSE\\Plugins\\";
         var dlls = new List<SkseFileEntry>();
         var configs = new List<SkseFileEntry>();
@@ -436,13 +394,13 @@ public sealed class LoadOrderService : IDisposable
             var ext = Path.GetExtension(rel).ToLowerInvariant();
             bool isDll = ext is ".dll";
             bool isConfig = ext is ".ini" or ".toml" or ".json" or ".yaml" or ".yml";
-            if (!isDll && !isConfig) { otherFiles++; continue; }  // content/other (.hkx/.txt/.pdb/…) — ACCOUNTED FOR, not listed
+            if (!isDll && !isConfig) { otherFiles++; continue; }  // content/other (.hkx/.txt/.pdb/…) — counted, not listed
 
             string group = SkseGroupOf(rel, pre);                 // "" = top-level; else the immediate subfolder (the derived group key)
             var place = view.ResolveForPlacement(rel);
-            // The FULL conflict chain, winner-first (asset-tool parity): keep every provider + its loose/BSA kind, not just a count.
+            // The full conflict chain, winner-first: every provider and its loose/BSA kind, not just a count.
             var providers = place.Sources
-                .Select(s => new SkseProvider(s.ProviderName, KindLabel(s.Kind)))   // shared kind→label helper (explicit switch, never a silent "loose")
+                .Select(s => new SkseProvider(s.ProviderName, KindLabel(s.Kind)))   // shared kind→label helper (explicit switch, never a defaulted "loose")
                 .ToList();
             var winner = place.Sources.Count > 0 ? place.Sources[0] : null;
 
@@ -457,8 +415,8 @@ public sealed class LoadOrderService : IDisposable
                 if (group.Length > 0 && note is null)
                     note = $"in subfolder '{group}' — NOT on SKSE's loader path (scans SKSE\\Plugins\\*.dll top-level only); a bundled/parent-loaded DLL, not a plugin SKSE loads";
                 var entry = new SkseFileEntry(rel, Path.GetFileName(rel), group, providers, info, note);
-                // Tier D string peek — ONLY for a filter-matched DLL with a loose winner (the copy SKSE would load; a
-                // BSA-only DLL never loads, so peeking it would describe an image the game never reads).
+                // String peek only for a filter-matched DLL with a loose winner — the copy SKSE would load. A BSA-only
+                // DLL never loads, so peeking it would describe an image the game never reads.
                 if (peekFilter is { Length: > 0 } && entry.MatchesDll(peekFilter)
                     && winner is { Kind: AssetKind.Loose, LooseFilePath: { } peekPath })
                     entry = entry with { Peek = SksePeek.Scan(peekPath) };
@@ -471,21 +429,13 @@ public sealed class LoadOrderService : IDisposable
             warnings, profileName, activePlugins, peekFilter is { Length: > 0 });
     }
 
-    /// <summary>Why a LOOSE, loader-scoped SKSE plugin DLL statically cannot load — or null when nothing stops it. The
-    /// native-pairing audit's blocker chain for the winning loose copy, in severity order; a non-null result makes the
-    /// pairing PAIRED-BUT-DEAD by construction (it rides <see cref="NativePairedDll.LoadBlocker"/>, which
-    /// <c>NativePairingWire.Judge</c> already treats as dead — no new verdict arm).
-    ///
-    /// The DEBUG-build arm is tier D's addition (Aaron-go 2026-07-17) and the reason this is a named function rather
-    /// than three inline branches: it is the audit's SEVENTH blocker and the one that read as healthy, because a
-    /// debug-built DLL is loose, top-level, x64, readable and usually version-INDEPENDENT — every other check passes it
-    /// while the loader refuses it with error 126. Before it, this audit said [LOADS] about the same DLL
-    /// <c>skse_inventory</c> called broken: two tools, one file, opposite answers.
-    ///
-    /// <paramref name="resolvable"/> is injected so the chain is pinnable without a live order or a live machine. That
-    /// matters more here than usual: this capability gets NO empirical gate — ARR carries zero debug-built plugins, and
-    /// the dev machine HAS the debug runtime (so the dead path cannot be reproduced there either). The guard is the only
-    /// evidence, which is exactly why the wiring is a testable function instead of a line inside a 100-line sweep.</summary>
+    /// <summary>Why a loose, loader-scoped SKSE plugin DLL statically cannot load, or null when nothing stops it. The
+    /// blocker chain for the winning loose copy, in severity order; a non-null result rides
+    /// <see cref="NativePairedDll.LoadBlocker"/>, which the pairing verdict already treats as dead.
+    /// The debug-build check matters because a debug-built DLL is loose, top-level, x64, readable and usually
+    /// version-independent — every other check passes it while the loader refuses it with error 126.
+    /// <paramref name="resolvable"/> is injected so the chain can be tested without a live order or a live machine
+    /// carrying the debug runtime.</summary>
     internal static string? LooseDllBlocker(SksePluginReader.SksePluginInfo info, Func<string, bool> resolvable)
     {
         if (info.Kind == SksePluginReader.SksePluginKind.Unreadable) return $"not a readable SKSE plugin ({info.Note})";
@@ -493,35 +443,27 @@ public sealed class LoadOrderService : IDisposable
         return SksePluginReader.DebugCrtBlocker(info, resolvable);
     }
 
-    /// <summary>The plugin names a tier-D peek adjudicates an embedded reference against — active PLUS the force-loaded
-    /// implicit masters (which load despite never appearing in plugins.txt; omitting them would flag Dawnguard.esm
-    /// ABSENT on an install that has it). Returns <c>null</c> — never a partial set — when the answer is UNKNOWABLE,
-    /// because "I could not determine your order" and "your order is empty" must never render the same (Q3).
-    ///
-    /// The gate is <see cref="Mo2Composition.OrderedPluginNames"/>, and that exact choice is load-bearing: the implicit
-    /// set is DERIVED by iterating <c>ordered</c>, so with loadorder.txt missing it collapses to empty while
-    /// plugins.txt can still hand back a perfectly non-empty <c>active</c>. Gating on the MERGED set being non-empty
-    /// therefore looks safe and isn't — it returns an active-only set whose force-loaded masters are silently gone, and
-    /// every embedded Dawnguard.esm reads "[!] NOT in your load order" on a healthy install. Keying on the input the
-    /// implicit half is derived FROM covers both states (both-files-missing is just the sub-case where active is empty
-    /// too). Reachable in practice: <see cref="Mo2LoadOrder.ReadComposition"/> never throws on a missing profile file,
-    /// the asset resolver needs only modlist.txt, and houseCARL already models the three profile files as
-    /// independently mutable (it stats each for freshness) — a mid-re-sort or a fresh profile is enough.
-    ///
-    /// internal + pure so the skse-peek guard pins THIS decision rather than a copy of it — the arm that missed the
-    /// original bug tested a hand-built null instead of the code that has to produce one.</summary>
+    /// <summary>The plugin names a peek adjudicates an embedded reference against — active plus the force-loaded
+    /// implicit masters, which load despite never appearing in plugins.txt. Returns <c>null</c>, never a partial set,
+    /// when the answer is unknowable, because "the order could not be determined" and "the order is empty" must not
+    /// render the same.
+    /// The gate is <see cref="Mo2Composition.OrderedPluginNames"/> and that choice is load-bearing: the implicit set
+    /// is derived by iterating the ordered list, so with loadorder.txt missing it collapses to empty while plugins.txt
+    /// can still hand back a non-empty active set. Gating on the merged set instead would return an active-only set
+    /// whose force-loaded masters are silently gone. Reachable in practice — reading the composition never throws on
+    /// a missing profile file, and the three profile files are independently mutable.</summary>
     internal static IReadOnlySet<string>? PeekPluginSet(Mo2Composition comp)
     {
-        if (comp.OrderedPluginNames.Count == 0) return null;   // no loadorder.txt ⇒ the implicit masters are UNKNOWABLE, not absent
+        if (comp.OrderedPluginNames.Count == 0) return null;   // no loadorder.txt ⇒ the implicit masters are unknowable, not absent
         var set = new HashSet<string>(comp.ActivePluginNames, StringComparer.OrdinalIgnoreCase);
         set.UnionWith(comp.ImplicitPluginNames);
         return set.Count > 0 ? set : null;
     }
 
-    /// <summary>The immediate subfolder under SKSE\Plugins a file sits in ("" = directly at top level) — the DERIVED,
-    /// by-construction grouping key for the SKSE inventory. Whatever a modlist ships becomes a group; there is NO hardcoded
-    /// framework list (a hand-maintained list would be a cornerstone violation + a Q3 silent-miscategorize for any framework
-    /// not on it). e.g. <c>SKSE\Plugins\SkyPatcher\Weapons\x.ini</c> → "SkyPatcher"; <c>SKSE\Plugins\EngineFixes.toml</c> → "".</summary>
+    /// <summary>The immediate subfolder under SKSE\Plugins a file sits in ("" = top level) — the derived grouping key
+    /// for the SKSE inventory. Whatever a modlist ships becomes a group; a hardcoded framework list would break the
+    /// generated-coverage cornerstone and silently miscategorize anything not on it.
+    /// e.g. <c>SKSE\Plugins\SkyPatcher\Weapons\x.ini</c> → "SkyPatcher"; <c>SKSE\Plugins\EngineFixes.toml</c> → "".</summary>
     static string SkseGroupOf(string rel, string pre)
     {
         if (!rel.StartsWith(pre, StringComparison.OrdinalIgnoreCase)) return "";
@@ -529,34 +471,29 @@ public sealed class LoadOrderService : IDisposable
         return slash < 0 ? "" : rel.Substring(pre.Length, slash - pre.Length);
     }
 
-    // ---- SKSE config audit (tier B, issue #199): cross-check the form references SKSE-plugin configs DECLARE against the
-    //      real records of the active load order. Plan: dev/plans/SKSE_TIER_B_CONFIG_AUDIT_PLAN_2026-07-16.md. ----
+    // ---- SKSE config audit: cross-check the form references SKSE-plugin configs declare against the real records
+    //      of the active load order. ----
 
-    /// <summary>Per-file byte cap for the config scan: a config larger than this is a NAMED skip (Q3), not fed to the token
-    /// scanner. Real distributor configs are KB-scale; a multi-MB "config" is content mislabeled or a runaway, and scanning
-    /// it would waste the whole-layer walk. 16 MB is far above any real config, so the cap trips only on the pathological
-    /// case it exists to name.</summary>
+    /// <summary>Per-file byte cap for the config scan: a config larger than this is a named skip, not fed to the token
+    /// scanner. Real distributor configs are KB-scale, so 16 MB trips only on content mislabeled as a config.</summary>
     const long SkseConfigSizeCap = 16L * 1024 * 1024;
 
-    /// <summary>Audit the SKSE-plugin config layer against the load order (housecarl_skse_config_audit, tier B). For every
-    /// .ini/.toml/.json/.yaml under Data\SKSE\Plugins, read the WINNING copy (VFS truth — losers are never read by the DLL),
-    /// extract the form-shaped references + path-segment plugin gates it declares (<see cref="SkseConfigReferenceExtractor"/>),
-    /// and resolve each against the active order into a verdict: OK, PLUGIN MISSING, DANGLING, or UNPARSEABLE. The generic,
-    /// framework-AGNOSTIC half of the SkyPatcher reader (inventory + reference validity) for the other config folders — it
-    /// never interprets what a reference is FOR (that's per-framework skill territory). ONE asset capture + ONE resolver
-    /// index pin the whole scan (the SkseInventory discipline); the enumerate + read + resolve run OUTSIDE the gate (the
-    /// captured view is handle-free, the index a pure snapshot read). "No references found" is a NORMAL per-file outcome,
-    /// accounted for, never a warning (Q3).</summary>
+    /// <summary>Audit the SKSE-plugin config layer against the load order. For every .ini/.toml/.json/.yaml under
+    /// Data\SKSE\Plugins, read the winning copy (the DLL never reads the losers), extract the form-shaped references
+    /// and path-segment plugin gates it declares, and resolve each against the active order into a verdict: OK,
+    /// PLUGIN MISSING, DANGLING, or UNPARSEABLE. Framework-agnostic — it never interprets what a reference is for.
+    /// One asset capture and one resolver index pin the whole scan; the enumerate, read and resolve run outside the
+    /// gate (the captured view is handle-free and the index a pure snapshot read). "No references found" is a normal
+    /// per-file outcome, accounted for rather than warned about.</summary>
     public SkseConfigAuditData SkseConfigAudit()
     {
         AssetResolver.AssetView view;
         LoadOrderResolver.IndexView index;
         IReadOnlyList<string> warnings;
         string profileName;
-        // Capture the asset view AND the record index under ONE gate hold, so a freshness rebuild can't interleave and pair
-        // a config read from asset-build-N against a record index from build-N+1 (both share _gate; the Resolver getter
-        // reenters it, doing its own per-call freshness inside our hold). Both are handle-free snapshots — the enumerate +
-        // read + resolve below then run OUTSIDE the gate without serializing other tools behind our file I/O.
+        // Capture the asset view AND the record index under one gate hold, so a freshness rebuild cannot interleave
+        // and pair a config read from one asset build against a record index from the next. Both are handle-free
+        // snapshots, so the enumerate, read and resolve below run outside the gate.
         lock (_gate)
         {
             view = Assets.Capture();
@@ -580,7 +517,7 @@ public sealed class LoadOrderService : IDisposable
             string? readError = null;
             string text = "";
             if (winner is null)
-                readError = "no active mod provides this config";   // shouldn't happen for an enumerated file — named, not assumed (Q3)
+                readError = "no active mod provides this config";   // shouldn't happen for an enumerated file — named, not assumed
             else if (winner.Kind == AssetKind.Loose && winner.LooseFilePath is { } lp && File.Exists(lp) && new FileInfo(lp).Length > SkseConfigSizeCap)
                 readError = OverCapNote(new FileInfo(lp).Length);
             else
@@ -591,8 +528,8 @@ public sealed class LoadOrderService : IDisposable
                 else text = DecodeConfigText(bytes);
             }
 
-            // Path-segment gates come from the relPath, so they surface even when the file couldn't be READ (the gate is a
-            // property of WHERE the file lives, not its content). Only the token scan needs the text.
+            // Path-segment gates come from the relPath, so they surface even when the file could not be read — the
+            // gate is a property of where the file lives, not its content. Only the token scan needs the text.
             var extracted = SkseConfigReferenceExtractor.Extract(rel, readError is null ? text : "");
             var audited = new List<SkseAuditedRef>(extracted.Count);
             foreach (var r in extracted) audited.Add(Adjudicate(r, index));
@@ -605,8 +542,8 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>Resolve one extracted reference into a verdict against the load-order index. A path-segment gate is
     /// plugin-presence only (OK / PLUGIN MISSING); a form token additionally checks the record exists (DANGLING when the
-    /// plugin is present but the masked FormID resolves to nothing). Never speculates about runtime behavior (Q3).</summary>
-    internal static SkseAuditedRef Adjudicate(SkseConfigRef r, LoadOrderResolver.IndexView index)   // internal: the config-audit guard drives it over a synthetic order
+    /// plugin is present but the masked FormID resolves to nothing). Never speculates about runtime behavior.</summary>
+    internal static SkseAuditedRef Adjudicate(SkseConfigRef r, LoadOrderResolver.IndexView index)   // internal: a test drives it over a synthetic order
     {
         if (r.Unparseable is not null)
             return new SkseAuditedRef(r, SkseRefVerdict.Unparseable, r.Unparseable);
@@ -635,37 +572,31 @@ public sealed class LoadOrderService : IDisposable
         return sr.ReadToEnd();
     }
 
-    /// <summary>The over-size-cap skip note — the actual size to ONE decimal MB so a 16.4 MB file reads "16.4 MB (> 16 MB
-    /// cap)", never the self-contradictory "16 MB (> 16 MB cap)" an integer-MB divide produced.</summary>
+    /// <summary>The over-size-cap skip note. The size carries one decimal so a 16.4 MB file reads "16.4 MB (> 16 MB
+    /// cap)" rather than the self-contradictory "16 MB (> 16 MB cap)" an integer divide would give.</summary>
     static string OverCapNote(long len) =>
         $"config is {len / (1024.0 * 1024):0.0} MB (> {SkseConfigSizeCap / (1024 * 1024)} MB cap) — not scanned";
 
-    // ---- Native-function pairing audit (housecarl_native_pairing_audit; plan
-    //      dev/plans/SKSE_NATIVE_PAIRING_AUDIT_PLAN_2026-07-16.md): cross-check the native Papyrus functions the
-    //      order's SCRIPTS declare against the DLLs that must implement them — the seam none of validate_scripts
-    //      (property binding), skse_inventory (DLL layer), or skse_config_audit (config layer) sees across. ----
+    // ---- Native-function pairing audit: cross-check the native Papyrus functions the order's scripts declare
+    //      against the DLLs that must implement them. ----
 
-    /// <summary>Audit the declaration↔implementation pairing of every native Papyrus class in the active order. One
-    /// pass over the winning <c>.pex</c> files (loose + BSA, the ScriptPropertyCheck resolution), extracting native-
-    /// flagged declarations (<see cref="HousecarlCore.NativePairing"/>); one pass over SKSE\Plugins for the DLL
-    /// candidates each mod ships; then per third-party class the evidence ladder — same-mod DLL, conflict-chain DLL,
-    /// or UNPAIRED (a verify flag, never "broken": registration is runtime behavior, the tier-E ceiling).
-    ///
-    /// The baseline carve-out (§4b — the whole ballgame): a class whose provider CHAIN includes an OFFICIAL archive
-    /// (Skyrim.ini base block or a BaseMaster-owned BSA) is ENGINE — implemented by the executable — even when a mod's
-    /// loose copy WINS it (SKSE overrides Actor/Game/… with native additions; the official-archive presence still marks
-    /// the class baseline, fixture-verified on ARR 2.0). A rung-3 class whose winning provider ALSO provides an
-    /// ENGINE class is SKSE CORE — the skse64 scripts payload structurally co-ships ~100+ vanilla overrides with its
-    /// new classes (StringUtil/UI/…), and its implementation is the game-root loader, not anything under SKSE\Plugins.
-    /// Residual edges, documented not smuggled: an INI-injected third-party BSA reads official (over-baseline), a
-    /// paid-CC archive isn't BaseMaster-owned (its engine-native classes read third-party → a verify flag), and a mod
-    /// co-shipping a vanilla-script override with a declaration copy of an absent framework gets its copy rescued into
-    /// SKSE CORE (visible in the accounting, unflagged) — all three watched at the live gate.
-    ///
-    /// ONE gate hold captures the asset view + the archive list + warnings (the SkseInventory discipline); the
-    /// enumerate + parse + classify run OUTSIDE the gate over the pinned, handle-free view. The per-file Pex parses are
-    /// parallelized (thousands of files; the view's caches are concurrency-safe by design) with deterministic output
-    /// ordering. An unreadable .pex is a NAMED entry, never a silent skip (Q3).</summary>
+    /// <summary>Audit the declaration-to-implementation pairing of every native Papyrus class in the active order. One
+    /// pass over the winning <c>.pex</c> files extracts native-flagged declarations; one pass over SKSE\Plugins finds
+    /// the DLL candidates each mod ships; then per third-party class an evidence ladder — same-mod DLL, conflict-chain
+    /// DLL, or UNPAIRED (a verify flag, never "broken": registration is runtime behavior this cannot see).
+    /// <para>A class whose provider chain includes an official archive (the Skyrim.ini base block or a BaseMaster-owned
+    /// BSA) is ENGINE, implemented by the executable, even when a mod's loose copy wins it — SKSE overrides Actor,
+    /// Game and others with native additions, and the official-archive presence still marks the class baseline. A
+    /// third-party class whose winning provider also provides an ENGINE class is SKSE CORE: the skse64 scripts payload
+    /// co-ships a hundred-odd vanilla overrides with its new classes, and its implementation is the game-root loader
+    /// rather than anything under SKSE\Plugins. Known residual edges: an INI-injected third-party BSA reads official;
+    /// a paid-CC archive is not BaseMaster-owned, so its engine-native classes read third-party and get a verify flag;
+    /// and a mod co-shipping a vanilla-script override with a declaration copy of an absent framework gets its copy
+    /// rescued into SKSE CORE, visible in the accounting and unflagged.</para>
+    /// <para>One gate hold captures the asset view, the archive list and the warnings; the enumerate, parse and
+    /// classify run outside the gate over the pinned handle-free view. The per-file Pex parses are parallelized (the
+    /// view's caches are concurrency-safe) with deterministic output ordering. An unreadable .pex is a named entry,
+    /// never a silent skip.</para></summary>
     public NativePairingAuditData NativePairingAudit()
     {
         AssetResolver.AssetView view;
@@ -676,8 +607,8 @@ public sealed class LoadOrderService : IDisposable
         lock (_gate)
         {
             view = Assets.Capture();
-            archives = _activeArchives;         // the SAME build as the view (both swapped under _gate)
-            enabledMods = _enabledModsAtBuild;  // ditto — the loader scan below walks the mod set the VIEW describes, never a second unpinned profile read
+            archives = _activeArchives;         // the same build as the view (both swapped under _gate)
+            enabledMods = _enabledModsAtBuild;  // ditto — the loader scan below walks the mod set the view describes, never a second unpinned profile read
             warnings = _assetWarnings;
             profileName = _profileName;
             dataDir = _dataDir;
@@ -685,26 +616,26 @@ public sealed class LoadOrderService : IDisposable
             overwriteDir = _overwriteDir;
         }
 
-        // ---- the official-archive set: the ENGINE anchor. Filenames, because a BSA provider's name IS the archive filename. ----
+        // ---- the official-archive set: the ENGINE anchor. Keyed by filename, because a BSA provider's name IS the archive filename. ----
         var officialArchives = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var baseMasters = Mutagen.Bethesda.Plugins.Implicits.Get(Mutagen.Bethesda.GameRelease.SkyrimSE).BaseMasters;
         foreach (var a in archives)
             if (IsOfficialArchive(a, baseMasters))
                 officialArchives.Add(Path.GetFileName(a.Path));
 
-        // A BSA provider's NAME is the archive filename — pairing identity needs the MOD that ships the archive
-        // (live-gate finding: moreHUD's scripts ride AHZmoreHUD.bsa while its DLL is loose in the SAME mod folder;
-        // untranslated, the ladder saw two unrelated providers and called it UNPAIRED). The winning physical path of
-        // each active archive names its shipper: mods\<mod>\X.bsa → that mod; overwrite\ → "overwrite"; Data → "Data".
+        // A BSA provider's name is the archive filename, but pairing identity needs the MOD that ships the archive: a
+        // mod's scripts can ride its own BSA while its DLL sits loose in the same folder, and untranslated the ladder
+        // would see two unrelated providers and call it UNPAIRED. The winning physical path of each active archive
+        // names its shipper: mods\<mod>\X.bsa → that mod; overwrite\ → "overwrite"; Data → "Data".
         var archiveShipper = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var a in archives)
             if (ShipperOfArchivePath(a.Path, modsDir, overwriteDir, dataDir) is { } shipper)
                 archiveShipper[Path.GetFileName(a.Path)] = shipper;
 
-        // ---- DLL candidates: one SKSE\Plugins pass. A mod "ships" a DLL when it appears ANYWHERE in that file's
-        //      chain (the bundling case pairs through the chain); the health verdict describes the WINNING copy. A
-        //      winner that PE-reads as NotSkse — loose OR BSA-packed (review finding: an unscreened packed dependency
-        //      fabricated candidacy) — is a bundled dependency, not an implementation candidate. ----
+        // ---- DLL candidates: one SKSE\Plugins pass. A mod "ships" a DLL when it appears anywhere in that file's
+        //      chain, so the bundling case pairs through the chain; the health verdict describes the winning copy. A
+        //      winner that PE-reads as NotSkse — loose or BSA-packed — is a bundled dependency, not an
+        //      implementation candidate. ----
         const string skseRootPre = "SKSE\\Plugins\\";
         var modDlls = new Dictionary<string, List<NativePairedDll>>(StringComparer.OrdinalIgnoreCase);
         foreach (var rel in view.EnumerateUnder("SKSE\\Plugins").OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
@@ -722,8 +653,8 @@ public sealed class LoadOrderService : IDisposable
                 blocker = "provided only inside a BSA — the SKSE loader scans loose DLLs only, so it will not load";
                 try
                 {
-                    // PE-screen the packed copy too (DLLs are few — the per-entry read is fine here): a packed
-                    // NotSkse dependency must not count as a candidate, or its mod gains phantom pairing evidence.
+                    // PE-screen the packed copy too (DLLs are few, so the per-entry read is fine): a packed NotSkse
+                    // dependency must not count as a candidate, or its mod gains pairing evidence it never earned.
                     if (AssetResolver.TryReadArchiveEntry(winner.ArchivePath!, winner.EntryPath) is { } bytes)
                         info = SksePluginReader.ReadBytes(Path.GetFileName(rel), bytes);
                 }
@@ -748,18 +679,17 @@ public sealed class LoadOrderService : IDisposable
             }
         }
 
-        // ---- the .pex sweep, two phases. Phase 1 (parallel): resolve every path; parse LOOSE winners in place;
-        //      defer BSA winners to a per-archive batch (review finding: per-entry TryReadArchiveEntry re-opens the
-        //      archive and walks its whole table each time — O(K·M) against the ~10k-script vanilla archives, the
-        //      dominant wall-clock). Phase 2: ONE table walk per archive collects all its wanted entries, then the
-        //      parses run parallel over the bytes. Per-file fault isolation throughout: an unreadable .pex is a
-        //      NAMED entry (Q3), never a silent skip. ----
+        // ---- the .pex sweep, two phases. Phase 1 (parallel): resolve every path, parse loose winners in place, and
+        //      defer BSA winners to a per-archive batch — a per-entry read re-opens the archive and walks its whole
+        //      table each time, which is the dominant cost against the ten-thousand-script vanilla archives. Phase 2:
+        //      one table walk per archive collects all its wanted entries, then the parses run parallel over the
+        //      bytes. An unreadable .pex is a named entry, never a silent skip. ----
         var pexPaths = view.EnumerateUnder("Scripts")
             .Where(p => Path.GetExtension(p).Equals(".pex", StringComparison.OrdinalIgnoreCase))
             .OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
 
-        // Only native-declaring files are kept (a ~48k-file order yields ~200 — carrying every file's providers was
-        // pure garbage, review finding); their conflict chains are re-resolved on collection, which is cheap at that count.
+        // Only native-declaring files are kept — a large order yields a couple of hundred — and their conflict chains
+        // are re-resolved on collection, which is cheap at that count.
         var natives = new System.Collections.Concurrent.ConcurrentBag<(string Rel, IReadOnlyList<HousecarlCore.NativeClassDecl> Decls)>();
         var unreadable = new System.Collections.Concurrent.ConcurrentBag<NativeUnreadablePex>();
         var bsaWanted = new System.Collections.Concurrent.ConcurrentBag<(string Rel, string ArchivePath, string EntryPath, string Provider)>();
@@ -811,9 +741,9 @@ public sealed class LoadOrderService : IDisposable
             });
         }
 
-        // ---- classify + pair (sequential — cheap set lookups over ~200 native files). Provenance and pairing key on
-        //      the enum-typed PlacementSource, never the render label (review finding: "BSA" the display string must
-        //      not double as the semantic discriminator). ----
+        // ---- classify and pair (sequential; cheap set lookups over a few hundred native files). Provenance and
+        //      pairing key on the enum-typed PlacementSource, never the render label — the display string must not
+        //      double as the semantic discriminator. ----
         var native = natives.OrderBy(s => s.Rel, StringComparer.OrdinalIgnoreCase)
             .Select(s => (s.Rel, s.Decls, Sources: view.ResolveForPlacement(s.Rel).Sources))
             .ToList();
@@ -825,10 +755,10 @@ public sealed class LoadOrderService : IDisposable
                 foreach (var src in s.Sources)
                     if (!(src.Kind == AssetKind.Bsa && officialArchives.Contains(src.ProviderName)))
                         engineProviders.Add(PairingIdentity(src, archiveShipper));
-        // "overwrite" is excluded from the rescue: a recompiled vanilla .pex in MO2's overwrite is routine (houseCARL's
-        // own compile lane writes there), and letting it baseline-rescue every orphan declaration copy that also lands
-        // in overwrite would silence exactly the flag this tool exists for (review finding). "Data" stays — the manual
-        // game-folder SKSE install is the layout the rescue must cover; its wider-net residual is documented on Classify.
+        // "overwrite" is excluded from the rescue: a recompiled vanilla .pex in MO2's overwrite is routine (the
+        // compile lane writes there), and letting it rescue every orphan declaration copy that also lands in overwrite
+        // would silence the flag this tool exists for. "Data" stays — the manual game-folder SKSE install is the
+        // layout the rescue must cover.
         engineProviders.Remove("overwrite");
 
         // Pass 2: build the entries (Classify carries the decision order: engine → ladder → rescue).
@@ -846,12 +776,10 @@ public sealed class LoadOrderService : IDisposable
             }
         }
 
-        // SKSE-CORE sanity input: is an skse64 loader visible at all? Two places to look (§4b's optional note):
-        // the game ROOT (a manual install), and each enabled mod's Root\ folder — the MO2 Root Builder layout, where
-        // the loader lives at mods\<mod>\Root\skse64_loader.exe and only materializes in the game root at launch
-        // (live-gate finding: ARR ships SKSE exactly this way, and the root-only check false-noted it). The mod list
-        // is the SAME capture as the view (never a second unpinned profile read). Tri-state (Q3, review finding): a
-        // check that THREW yields null — "could not check" — never a false "checked and absent".
+        // Is an skse64 loader visible at all? Two places to look: the game root (a manual install), and each enabled
+        // mod's Root\ folder — the MO2 Root Builder layout, where the loader lives at mods\<mod>\Root\skse64_loader.exe
+        // and only materializes in the game root at launch. The mod list is the same capture as the view. Tri-state:
+        // a check that threw yields null, "could not check", never a false "checked and absent".
         bool? loaderSeen;
         try
         {
@@ -872,11 +800,11 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>The MOD a physical archive path belongs to — the pairing identity behind a BSA provider name:
     /// mods\&lt;mod&gt;\X.bsa → that mod folder; the overwrite layer → "overwrite"; the game Data folder → "Data";
-    /// anywhere else → null (no translation — the archive name stands). internal for the guard.</summary>
+    /// anywhere else → null (no translation — the archive name stands).</summary>
     internal static string? ShipperOfArchivePath(string archivePath, string modsDir, string overwriteDir, string dataDir)
     {
-        // Full-path-normalize both sides (the IsUnderModsDir precedent) so forward slashes / '..' segments / a
-        // trailing-separator root from config can't make the under-root test disagree with the rest of the plumbing.
+        // Full-path-normalize both sides so forward slashes, '..' segments or a trailing-separator root from config
+        // cannot make the under-root test disagree with the rest of the plumbing.
         static string Norm(string p) { try { return Path.GetFullPath(p); } catch { return p; } }
         archivePath = Norm(archivePath);
         static bool Under(string path, string root, out string remainder)
@@ -900,39 +828,32 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>An archive is OFFICIAL — its scripts' natives are the engine's own — when it loads from Skyrim.ini's
     /// base [Archive] block or is owned by a base master (Mutagen's implicit list, by construction — never a name
-    /// list). internal: the native-pairing guard pins it over synthetic archives.</summary>
+    /// list).</summary>
     internal static bool IsOfficialArchive(ActiveArchive a, IReadOnlyList<ModKey> baseMasters) =>
-        a.OwningPlugin.Equals(ArchiveDiscovery.IniArchiveOwner, StringComparison.OrdinalIgnoreCase)   // ignore-case like every other archive-plumbing compare — the carve-out must not hinge on the marker's casing
+        a.OwningPlugin.Equals(ArchiveDiscovery.IniArchiveOwner, StringComparison.OrdinalIgnoreCase)   // ignore-case like every other archive compare — this must not hinge on the marker's casing
         || (ModKey.TryFromNameAndExtension(a.OwningPlugin, out var mk) && baseMasters.Contains(mk));
 
     /// <summary>True when any source in a file's chain is an official archive — the ENGINE provenance test. Keys on
-    /// the <see cref="AssetKind"/> ENUM + archive filename (a BSA source's provider name IS its archive filename), so
-    /// a LOOSE override winning the file (SKSE's Actor.pex over Skyrim - Misc.bsa's) still leaves the class baseline,
-    /// and a render-label change can never silently break the carve-out (review finding: the display string "BSA" must
-    /// not double as the semantic discriminator). internal for the guard.</summary>
+    /// the <see cref="AssetKind"/> enum plus the archive filename (a BSA source's provider name IS its archive
+    /// filename), so a loose override winning the file still leaves the class baseline, and a render-label change
+    /// cannot silently break it.</summary>
     internal static bool HasOfficialSource(IReadOnlyList<PlacementSource> sources, HashSet<string> officialArchives) =>
         sources.Any(s => s.Kind == AssetKind.Bsa && officialArchives.Contains(s.ProviderName));
 
     /// <summary>One source's PAIRING IDENTITY — the mod it means: a BSA source translates to the mod shipping the
-    /// archive (via the archiveShipper map); everything else is its provider name (mod folder / overwrite / Data).
-    /// internal for the guard.</summary>
+    /// archive (via the archiveShipper map); everything else is its provider name (mod folder / overwrite / Data).</summary>
     internal static string PairingIdentity(PlacementSource src, IReadOnlyDictionary<string, string> archiveShipper) =>
         src.Kind == AssetKind.Bsa && archiveShipper.TryGetValue(src.ProviderName, out var mod) ? mod : src.ProviderName;
 
-    /// <summary>The pairing-evidence ladder (§4c) for one third-party class, over the chain's pairing identities
-    /// (winner first): rung 1 — the WINNING identity ships ≥1 candidate DLL; rung 2 — an identity deeper in the chain
-    /// does (the bundling case: a patch mod wins the script, the framework beneath ships the DLL); rung 3 — nobody in
-    /// sight does → UNPAIRED, a verify flag. Within the walk, an identity whose candidates ALL carry a static
-    /// LoadBlocker does not stop the descent when a deeper identity has a loadable candidate (review finding: a
-    /// bundler shipping one dead helper DLL must not mask the real framework beneath it into a false PAIRED-BUT-DEAD);
-    /// if no identity has a loadable candidate, the shallowest with ANY candidate pairs (its deadness is then the
-    /// finding). Known residual (PR #210 review #2): "loadable" here means no STATIC blocker — version-locked-vs-
-    /// runtime deadness is adjudicated later by the renderer (deadness has one owner, and the ladder deliberately has
-    /// no runtime), so a chain-top mod shipping a locked-MISMATCHED DLL still pairs over a loadable framework beneath
-    /// it and renders a false PAIRED-BUT-DEAD. Contrived (two chain members implementing the same class, the top one
-    /// version-mismatched) and fails toward a false alarm, never a missed problem — accepted, not solved.
-    /// Structural (file co-location + VFS chains), never semantic — which DLL implements which class is
-    /// tier-E territory. internal for the guard.</summary>
+    /// <summary>The pairing-evidence ladder for one third-party class, over the chain's pairing identities, winner
+    /// first: rung 1, the winning identity ships at least one candidate DLL; rung 2, an identity deeper in the chain
+    /// does (a patch mod wins the script while the framework beneath ships the DLL); rung 3, nobody in sight does, so
+    /// UNPAIRED — a verify flag. An identity whose candidates all carry a static LoadBlocker does not stop the descent
+    /// when a deeper identity has a loadable candidate, so a bundler shipping one dead helper DLL cannot mask the real
+    /// framework beneath it; if no identity has a loadable candidate, the shallowest with any candidate pairs and its
+    /// deadness becomes the finding. "Loadable" here means no STATIC blocker — version-locked-versus-runtime deadness
+    /// is adjudicated by the renderer, which owns that decision. The evidence is structural (file co-location and VFS
+    /// chains), never semantic: which DLL implements which class is out of reach.</summary>
     internal static (NativePairingRung Rung, string? PairedMod, IReadOnlyList<NativePairedDll> Dlls) Ladder(
         IReadOnlyList<string> identities, IReadOnlyDictionary<string, List<NativePairedDll>> modDlls)
     {
@@ -949,15 +870,13 @@ public sealed class LoadOrderService : IDisposable
         return (NativePairingRung.Unpaired, null, Array.Empty<NativePairedDll>());
     }
 
-    /// <summary>The full per-class decision (§4b + §4c), in order: ENGINE (official-archive presence) → the pairing
-    /// ladder → the SKSE-CORE rescue for an UNPAIRED class whose WINNING identity also ships an ENGINE-class copy
-    /// (skse64's payload structurally co-ships ~100+ vanilla overrides with its new classes). Pairing evidence beats
-    /// the rescue — a class that pairs to a DLL stays third-party regardless of its provider's other files. Documented
-    /// residual (plan §7, widened by the "Data" identity): a provider that co-ships a vanilla-script override AND a
-    /// declaration copy of an absent framework gets that copy rescued into the unflagged baseline — for a mod folder
-    /// that's the rare bundler; for the game Data folder it covers everything manually installed there ("overwrite" is
-    /// excluded from the pool at the call site for exactly this reason). Visible in the accounting, watched at the
-    /// live gate. internal for the guard.</summary>
+    /// <summary>The full per-class decision, in order: ENGINE (official-archive presence), then the pairing ladder,
+    /// then the SKSE-CORE rescue for an UNPAIRED class whose winning identity also ships an ENGINE-class copy — the
+    /// skse64 payload co-ships many vanilla overrides with its new classes. Pairing evidence beats the rescue: a class
+    /// that pairs to a DLL stays third-party regardless of its provider's other files. Known residual: a provider that
+    /// co-ships a vanilla-script override AND a declaration copy of an absent framework gets that copy rescued into
+    /// the unflagged baseline, which for the game Data folder covers everything manually installed there. "overwrite"
+    /// is excluded from the pool at the call site for that reason.</summary>
     internal static (NativeProvenance Provenance, NativePairingRung? Rung, string? PairedMod, IReadOnlyList<NativePairedDll> Dlls) Classify(
         bool engine, IReadOnlyList<string> identities,
         IReadOnlyDictionary<string, List<NativePairedDll>> modDlls, HashSet<string> engineProviders)
@@ -969,8 +888,7 @@ public sealed class LoadOrderService : IDisposable
         return (NativeProvenance.ThirdParty, rung, pairedMod, dlls);
     }
 
-    // ---- SkyPatcher distributor Wave 1: the per-record TRUE post-SkyPatcher state (plan
-    //      dev/plans/SKYPATCHER_DISTRIBUTOR_TOOL_PLAN_2026-07-08.md — reader-only scope, 2026-07-09). ----
+    // ---- SkyPatcher distributor: the per-record true post-SkyPatcher state. Read-only. ----
 
     /// <summary>Cross-call INI parse cache (mtime+length keyed — see <see cref="SkyPatcherDiscovery.ParseCache"/>):
     /// repeat post-state calls over an untouched layer skip every per-file read+parse.</summary>
@@ -982,8 +900,8 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>The per-record SkyPatcher replay core, shared by the post-state read and the layer
     /// no-op (true-ITM) scan: resolve the winner, materialize a mutable scratch copy, apply every
-    /// type folder's ordered lines in field-map order. Error = the named reason the record can't be
-    /// replayed (Q3 — the caller decides whether that's a Fail or a skip-with-count).</summary>
+    /// type folder's ordered lines in field-map order. Error is the named reason the record cannot be
+    /// replayed; the caller decides whether that is a failure or a skip-with-count.</summary>
     (string? TypeName, string? WinnerPlugin, string? EditorId, List<SkyPatcherFolderOutcome> Folders, string? Error, IMajorRecord? Copy)
         ReplaySkyPatcher(
             LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
@@ -1008,8 +926,8 @@ public sealed class LoadOrderService : IDisposable
 
         // The running copy: the winner overridden into an in-memory scratch mod (never written to disk).
         // Nested-group types (CELL / REFR / INFO…) need the source link cache to rebuild their parent
-        // chain — the same RecordNeedsSourceCache + LinkCacheFor idiom every write path uses (PR #165
-        // review finding #1: without it, 2 of the 27 covered types threw unhandled instead of failing named).
+        // chain — the same RecordNeedsSourceCache + LinkCacheFor idiom every write path uses. Without it
+        // those types throw unhandled instead of failing by name.
         IMajorRecord copy;
         try
         {
@@ -1037,9 +955,9 @@ public sealed class LoadOrderService : IDisposable
             else if (!linesCache.TryGetValue(folder.Subfolder, out lines!))
                 linesCache[folder.Subfolder] = lines = SkyPatcherDiscovery.OrderedLines(folder);
             var result = SkyPatcherOverlay.Apply(copy, fk, body.EditorID, catalog, folder.Catalog, m, lines, formResolver);
-            // A toggled-off folder contributes NOTHING — reporting its files as "applied" would assert
-            // as live the INIs the DLL skips wholesale (review finding #7). Enabled rides along so the
-            // render can say WHY the counts are zero.
+            // A toggled-off folder contributes nothing: reporting its files as "applied" would assert as
+            // live the INIs the DLL skips wholesale. Enabled rides along so the render can say why the
+            // counts are zero.
             folders.Add(new SkyPatcherFolderOutcome(folder.Subfolder,
                 folder.PatchingEnabled ? folder.Files.Count(f => f.NotApplied is null) : 0, lines.Count, result,
                 folder.PatchingEnabled));
@@ -1049,19 +967,17 @@ public sealed class LoadOrderService : IDisposable
     }
 
     /// <summary>
-    /// Scan the WHOLE SkyPatcher layer (housecarl_skypatcher_layer): every loose INI as the DLL reads
-    /// it (ordered union, VFS same-path collisions surfaced, gates + toggles evaluated) plus the
-    /// INI-vs-INI same-field SET collisions and the three ITM classes — intra-file dead writes +
-    /// cross-INI duplicates (<see cref="SkyPatcherConflicts"/>) and the no-op writes (the per-record
-    /// replay below), all report-only. ONE record capture answers the filename gates + ONE asset
-    /// capture pins the scan (the SkseInventory discipline); the enumerate + parse + detect run
-    /// OUTSIDE the gate on the handle-free captured view. A layer with no INIs is a NAMED outcome,
-    /// never an empty guess (Q3).
+    /// Scan the whole SkyPatcher layer: every loose INI as the DLL reads it (ordered union, VFS
+    /// same-path collisions surfaced, gates and toggles evaluated), plus the INI-vs-INI same-field SET
+    /// collisions and the three ITM classes — intra-file dead writes, cross-INI duplicates, and the
+    /// no-op writes found by the per-record replay below. Report-only. One record capture answers the
+    /// filename gates and one asset capture pins the scan; the enumerate, parse and detect run outside
+    /// the gate on the handle-free captured view. A layer with no INIs is a named outcome, never an
+    /// empty guess.
     /// </summary>
     public SkyPatcherLayerData SkyPatcherLayer()
     {
-        // EPOCH: deliberately NOT stamped — the INI layer is outside the index fingerprint, so a bare index epoch
-        // would overclaim; the S6 wave owns an honest, layer-aware stamp.
+        // No epoch is stamped: the INI layer is outside the index fingerprint, so a bare index epoch would overclaim.
         var view = Resolver.Capture();
         AssetResolver.AssetView assets;
         IReadOnlyList<string> assetWarnings;
@@ -1091,8 +1007,8 @@ public sealed class LoadOrderService : IDisposable
         //      same per-record core the post-state read uses, and flag SET-class ops whose before ==
         //      after — the line writes the value the record already has at that point in the replay
         //      (which handles chains: a set that restores an earlier INI's change is NOT a no-op).
-        //      Broad (type-wide) lines are evaluated only against the explicitly-targeted records —
-        //      replaying every record of a type is not attempted; the note says so (Q3). Deliberate
+        //      Broad (type-wide) lines are evaluated only against the explicitly-targeted records;
+        //      replaying every record of a type is not attempted, and the note says so. Deliberate
         //      leave-unchanged values ('none') are the author's explicit choice, not flagged. ----
         var noOps = new List<SkyPatcherNoOpWrite>();
         var noOpNotes = new List<string>();
@@ -1130,8 +1046,8 @@ public sealed class LoadOrderService : IDisposable
                                 a.FieldPath, a.File, a.LineNumber, a.Op, a.RawValue, a.Before!));
                 }
             }
-            // Stable output — targets is a hash set, so without this the findings' order varies run
-            // to run, and the re-run-to-confirm workflow needs diffable output (review finding).
+            // Stable output: targets is a hash set, so without this the findings' order varies run to
+            // run and a re-run cannot be diffed against the previous one.
             noOps.Sort((x, y) =>
             {
                 int c = string.Compare(x.File, y.File, StringComparison.OrdinalIgnoreCase);
@@ -1150,9 +1066,9 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>The live-load-order lookups the overlay needs (<see cref="SkyPatcherOverlay.IFormResolver"/>),
     /// answered off the ONE pinned record view + open session the post-state call holds. EditorID resolution
-    /// sweeps the requested type's winners ONCE into an eid→FormKey table (an INI layer typically names many
-    /// EditorIDs of the same type — the old per-eid sweep walked the full order N times); a miss is null
-    /// (loud upstream), never a guess.</summary>
+    /// sweeps the requested type's winners once into an eid→FormKey table, because an INI layer typically names
+    /// many EditorIDs of the same type and a per-eid sweep would walk the full order once each. A miss is null,
+    /// reported loudly upstream, never a guess.</summary>
     sealed class SkyPatcherServiceResolver : SkyPatcherOverlay.IFormResolver
     {
         readonly LoadOrderService _svc;
