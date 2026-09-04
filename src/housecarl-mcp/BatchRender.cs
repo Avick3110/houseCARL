@@ -10,15 +10,20 @@ namespace HousecarlMcp;
 static class BatchRender
 {
     /// <summary>Renders one batch. <paramref name="itemNoun"/> is the plural-ish noun the cut line counts, e.g.
-    /// "path(s)" or "mesh(es)".</summary>
+    /// "path(s)" or "mesh(es)". <paramref name="reserve"/> is room the caller will write AFTER this body — an
+    /// accounting line, a footer — held back out of <paramref name="cap"/> so what follows fits inside max_chars
+    /// rather than past it. The cut marker still names <paramref name="cap"/>: that is the number the caller passed
+    /// and the number they would raise.</summary>
     public static string Render<T>(
         string header,
         IReadOnlyList<T> items,
         string itemNoun,
         int cap,
         Action<StringBuilder> appendAlarms,
-        Action<StringBuilder, T> appendItem)
+        Action<StringBuilder, T> appendItem,
+        int reserve = 0)
     {
+        int budget = Math.Max(cap - reserve, 1);
         var sb = new StringBuilder();
         sb.Append(header).Append('\n');
         appendAlarms(sb);
@@ -28,7 +33,7 @@ static class BatchRender
         {
             // shown > 0: the first item always renders its core answer even when the header and alarms alone
             // exhausted the cap.
-            if (shown > 0 && sb.Length >= cap)
+            if (shown > 0 && sb.Length >= budget)
             {
                 sb.Append('\n');
                 AppendCut(sb, items.Count - shown, itemNoun, cap);
