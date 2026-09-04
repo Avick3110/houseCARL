@@ -13,6 +13,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **`housecarl_compact_plugin` and `housecarl_merge_plugins` name a plugin they could not read.** The
+  external-reference pass that runs before a renumber used to skip a plugin it could not open while still
+  counting it as scanned, so a plugin held open by xEdit, MO2 or the running game could make the pass report
+  a coverage it did not have. Such a plugin is now named in the report, with the remedy (close the program
+  holding it and run again), and is no longer counted in the scanned total.
+
 - **`housecarl_records project={"form": "tree"}` states which plugins declare child records.** For a record
   whose type owns children — a cell's placed references, a topic's INFO lines, a worldspace's cells — the tree
   now states, per child-bearing field, which providers declare content there (naming them for a COLLECTION

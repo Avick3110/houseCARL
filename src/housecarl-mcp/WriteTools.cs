@@ -572,6 +572,7 @@ public static class WriteTools
             sb.Append("note: ").Append(o.UnscannableRecords).Append(" record(s) couldn't be scanned in the external-reference pass, so an ")
               .Append("'external referencers: none' may be incomplete — verify in xEdit. Samples: ").Append(string.Join("; ", o.UnscannableSamples)).Append('\n');
         }
+        AppendUnscannablePlugins(sb, o.UnscannablePlugins);
         sb.Append("identify-pass scanned ").Append(o.PluginsScanned).Append(" plugin(s) for external references.\n");
         // The plugin NAME survives a compaction, so what moves is the object id — and only the ids this run actually
         // moved, which the accounting above states. Bounded by the claim rule at WriteSentences.CompactRuntimeConfigs.
@@ -585,6 +586,17 @@ public static class WriteTools
         sb.Append("reminder: FormIDs compiled into Papyrus (.pex hardcoded / GetFormFromFile) and any Mutagen-delta ")
           .Append("residual are NOT remappable — verify scripted records after compacting.");
         return sb.ToString();
+    }
+
+    // A plugin the external-reference pass could not read at all — shared by compact and merge, one render home. Its
+    // references into the renumbered records are unknown, so the pass's verdict does not cover it.
+    static void AppendUnscannablePlugins(StringBuilder sb, IReadOnlyList<string>? plugins)
+    {
+        if (plugins is not { Count: > 0 }) return;
+        sb.Append("note: the external-reference pass could not read ").Append(string.Join(", ", plugins.Take(25)))
+          .Append(plugins.Count > 25 ? $" (+{plugins.Count - 25} more)" : "")
+          .Append(" — probably held open by another program, so close xEdit, MO2 or Skyrim and run this again; ")
+          .Append("until then the referencer list above does not cover that plugin.\n");
     }
 
     // FormID-keyed assets carried WITH the renumber — shared by compact and merge, one render home. The renumber moves
@@ -735,6 +747,7 @@ public static class WriteTools
         if (o.UnscannableRecords > 0)
             sb.Append("note: ").Append(o.UnscannableRecords).Append(" record(s) couldn't be scanned in the external-reference pass, so a ")
               .Append("'none' above may be incomplete — verify in xEdit. Samples: ").Append(string.Join("; ", o.UnscannableSamples)).Append('\n');
+        AppendUnscannablePlugins(sb, o.UnscannablePlugins);
         // The coverage caveat belongs to the PASS, not to either outcome: a "none" and a populated list are incomplete
         // the same way. The pass reads record links and record identity, never a plugin header, so a dependent that
         // merely DECLARES a donor as a master is invisible to it and loses a master at the swap.
