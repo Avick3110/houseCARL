@@ -88,7 +88,7 @@ public static class CopyTools
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
 
         FormKey fromKey;
-        try { fromKey = FormKey.Factory((from ?? "").Trim()); }
+        try { fromKey = svc.ParseFormId(from); }
         catch (Exception ex) { return $"error: bad from '{from}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."; }
 
         bool hasTarget = !string.IsNullOrWhiteSpace(target);
@@ -100,7 +100,7 @@ public static class CopyTools
         FormKey? targetKey = null;
         if (hasTarget)
         {
-            try { targetKey = FormKey.Factory(target!.Trim()); }
+            try { targetKey = svc.ParseFormId(target); }
             catch (Exception ex) { return $"error: bad target '{target}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."; }
         }
 

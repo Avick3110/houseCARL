@@ -1639,14 +1639,14 @@ public static class CheckMergeProbe
     static DialogueCheckResult DialogueSweep_Run(IReadOnlyList<string>? seeds, int limit)
         => DialogueSweep.Run(fk => fk.ID == 0x000A01 || fk.ModKey.Name == "A" ? QuestReport(fk)
                                  : DialogueValidationReport.ForError(fk, "no DIAL, QUST, DLVW or DLBR with this FormID is in the active order"),
-                             seeds, limit);
+                             PluginQualified, seeds, limit);
 
     /// <summary>A sweep whose every reached seed is a RECORD-LEVEL kind — a DLVW and a DLBR, both passing. Neither
     /// owns an INFO list, so neither runs any of the graph, voice, script or condition checks; what the response
     /// says about them, and what its boundary claims on their behalf, is round-3 finding A1's subject.</summary>
     static DialogueCheckResult RecordLevelFixture()
         => DialogueSweep.Run(fk => RecordLevelReport(fk, fk.ID == 0x000E01 ? "view" : "branch", Array.Empty<DialogueIssue>()),
-                             new[] { "000E01:HcCm.esp", "000E02:HcCm.esp" }, 1000);
+                             PluginQualified, new[] { "000E01:HcCm.esp", "000E02:HcCm.esp" }, 1000);
 
     /// <summary>The same two kinds, both FAILING their parity — the other side of the OK line, so an arm asking for
     /// the verdict cannot pass by finding a sentence that is printed either way.</summary>
@@ -1654,7 +1654,7 @@ public static class CheckMergeProbe
         => DialogueSweep.Run(fk => RecordLevelReport(fk, fk.ID == 0x000E01 ? "view" : "branch",
                                        new[] { new DialogueIssue(DialogueIssueSeverity.Problem,
                                                    "the DNAM byte subrecord the Creation Kit always writes is absent") }),
-                             new[] { "000E01:HcCm.esp", "000E02:HcCm.esp" }, 1000);
+                             PluginQualified, new[] { "000E01:HcCm.esp", "000E02:HcCm.esp" }, 1000);
 
     /// <summary>A MIXED sweep: one quest that owns topics, one passing DLVW. The family's boundary can take only
     /// one arm and takes the wide one here — true of the response, and not of the view seed, which is why that seed
@@ -1662,7 +1662,11 @@ public static class CheckMergeProbe
     static DialogueCheckResult MixedKindFixture()
         => DialogueSweep.Run(fk => fk.ID == 0x000A01 ? QuestReport(fk)
                                  : RecordLevelReport(fk, "view", Array.Empty<DialogueIssue>()),
-                             new[] { "000A01:HcCm.esp", "000E01:HcCm.esp" }, 1000);
+                             PluginQualified, new[] { "000A01:HcCm.esp", "000E01:HcCm.esp" }, 1000);
+
+    /// <summary>The seed parse these probes drive the sweep with: the plugin-qualified form only, since there is no
+    /// load order here to resolve a runtime FormID against.</summary>
+    static FormKey PluginQualified(string? token) => FormKey.Factory((token ?? "").Trim());
 
     /// <summary>One DLVW or DLBR report: no topics at all, and its whole finding set in <c>InputIssues</c>.</summary>
     static DialogueValidationReport RecordLevelReport(FormKey seed, string kind, IReadOnlyList<DialogueIssue> issues)
