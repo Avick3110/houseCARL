@@ -28,10 +28,11 @@ public sealed record BsaSourceScan(int Archivable, IReadOnlyList<string> RootFil
 /// <summary>The result of a pack (BSArch). <see cref="RunError"/> non-null ⇒ the pack never really ran (BSArch couldn't
 /// be launched / a stuck stale scratch or an unreadable source refused up front); <see cref="CountError"/> non-null ⇒ it
 /// ran but the produced archive's header count disagreed with the source, so nothing was placed. <see cref="Packed"/> is
-/// the produced archive's file count, <see cref="Expected"/> what the source offered, and <see cref="RootSkipped"/> the
-/// root-level files BSArch dropped.</summary>
+/// the produced archive's own file count, or null when it could not be read — the header oracle reads .bsa only, so a
+/// BA2 (fo4/sf1) or Morrowind archive packs unverified. <see cref="Expected"/> is what the source offered and
+/// <see cref="RootSkipped"/> the root-level files BSArch dropped.</summary>
 public sealed record BsaPackResult(
-    bool Success, int Packed, int Expected, IReadOnlyList<string> RootSkipped, string Raw, string? RunError, string? CountError)
+    bool Success, int? Packed, int Expected, IReadOnlyList<string> RootSkipped, string Raw, string? RunError, string? CountError)
 {
     public bool Ran => RunError is null;
 }
@@ -247,14 +248,15 @@ public static class BsaArchive
         if (!packed)   // BSArch couldn't run, or produced no/empty output — leave any prior archive untouched
         {
             try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best-effort */ }
-            return new BsaPackResult(false, 0, scan.Archivable, scan.RootFiles, (run.stdout + "\n" + run.stderr).Trim(), run.runError, null);
+            return new BsaPackResult(false, null, scan.Archivable, scan.RootFiles, (run.stdout + "\n" + run.stderr).Trim(), run.runError, null);
         }
 
         // Cross-check the produced archive's own header count against the source, the same oracle List/Unpack use. A
-        // disagreement means files went missing, so refuse before the target is touched.
+        // disagreement means files went missing, so refuse before the target is touched. The header oracle reads .bsa
+        // only, so a BA2 or Morrowind archive carries no count and is not cross-checked — the caller says so.
         var hdr = ReadBsaHeader(tmp);
-        int packedCount = hdr is { fileCount: var fc } ? (int)fc : scan.Archivable;
-        if (hdr is not null && PackCountError(packedCount, scan.Archivable, Path.GetFileName(archive)) is { } countError)
+        int? packedCount = hdr is { fileCount: var fc } ? (int)fc : null;
+        if (packedCount is { } read && PackCountError(read, scan.Archivable, Path.GetFileName(archive)) is { } countError)
         {
             try { File.Delete(tmp); } catch { /* best-effort */ }
             return new BsaPackResult(false, packedCount, scan.Archivable, scan.RootFiles,

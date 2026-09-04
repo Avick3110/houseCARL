@@ -42,9 +42,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   only files under a subfolder, so loose files sitting at the source folder's root were dropped and the tool
   still reported a plain "packed <name>". The source is now counted before the pack: the success line says
   "packed N file(s) into <name>", and root-level files get a sentence naming how many were left out and what
-  to do about them. The produced archive's own file count is checked against the source the same way
-  `housecarl_bsa_list` and `housecarl_bsa_extract` check theirs; a disagreement refuses with both numbers and
-  leaves any existing archive untouched.
+  to do about them, on the failed pack as well as the successful one. The produced archive's own file count is
+  read back and checked against the source the same way `housecarl_bsa_list` and `housecarl_bsa_extract` check
+  theirs; a disagreement refuses with both numbers and leaves any existing archive untouched. That read-back
+  works on `.bsa` headers, so the `fo4`, `fo4dds`, `sf1`, `sf1dds` and `tes3` formats write an archive whose
+  contents houseCARL cannot count — those packs report no count and say so instead of claiming one.
 
 - **`housecarl_compact_plugin` and `housecarl_merge_plugins` name a plugin they could not read.** The
   external-reference pass that runs before a renumber used to skip a plugin it could not open while still
