@@ -57,9 +57,12 @@ public sealed record AssetHit(string RelPath, bool Exists, AssetProvider? Winner
 /// <para><see cref="OffOrder"/> is true only for a source resolved by <see cref="OffOrderAssetSource"/> — a mod folder
 /// the ACTIVE profile does not include, reachable only because a caller named it. The response must state this: bytes
 /// read out of an unticked mod are correct bytes from a mod the game is not loading, and a caller cannot tell that
-/// from the provider name alone.</para></summary>
+/// from the provider name alone.</para>
+/// <para><see cref="OwningMod"/> is the MO2 layer a BSA source's archive file physically lives in — a mod folder
+/// name, "overwrite" or "Data" — so naming that mod addresses its own archives, not only its loose files (#388).
+/// Null for a loose source, whose <see cref="ProviderName"/> already IS that layer.</para></summary>
 public sealed record PlacementSource(string ProviderName, AssetKind Kind, string? LooseFilePath, string? ArchivePath,
-                                     string EntryPath, bool OffOrder = false);
+                                     string EntryPath, bool OffOrder = false, string? OwningMod = null);
 
 /// <summary>Concrete-source resolution of one asset path for PLACEMENT (place_asset's auto-resolve when no explicit
 /// source= is given): every provider with its on-disk descriptor, winner FIRST (the same precedence
@@ -68,9 +71,11 @@ public sealed record PlacementSource(string ProviderName, AssetKind Kind, string
 /// unscanned). <see cref="Sources"/> empty ⇒ nothing active provides this path.</summary>
 public sealed record PlacementResolution(string RelPath, IReadOnlyList<PlacementSource> Sources, bool Ambiguous, bool ReadIncomplete);
 
-/// <summary>An active BSA the resolver should consider: its full path, the plugin it loads with, and that plugin's
-/// load-order rank (higher = later in load order = wins among BSAs). The service derives these.</summary>
-public sealed record ActiveArchive(string Path, string OwningPlugin, int PluginRank);
+/// <summary>An active BSA the resolver should consider: its full path, the plugin it loads with, that plugin's
+/// load-order rank (higher = later in load order = wins among BSAs), and the MO2 layer the archive FILE lives in
+/// (a mod folder name, "overwrite" or "Data") so a caller can address it by naming that mod. The service derives
+/// these.</summary>
+public sealed record ActiveArchive(string Path, string OwningPlugin, int PluginRank, string? OwningMod = null);
 
 public sealed class AssetResolver : IDisposable
 {
@@ -350,7 +355,7 @@ public sealed class AssetResolver : IDisposable
         foreach (var a in _archives)
             if (snap.Tables.TryGetValue(a.Path, out var t) && t.Contains(rel))
                 bsa.Add((new PlacementSource(Path.GetFileName(a.Path), AssetKind.Bsa,
-                    LooseFilePath: null, ArchivePath: a.Path, EntryPath: rel), a.PluginRank));
+                    LooseFilePath: null, ArchivePath: a.Path, EntryPath: rel, OwningMod: a.OwningMod), a.PluginRank));
         // Higher plugin rank wins; the archive filename is a DETERMINISTIC tie-break so equal-rank BSAs (a plugin can
         // ship more than one) order stably across runs rather than by hash/enumeration order.
         var bsaOrdered = bsa.OrderByDescending(b => b.rank)
@@ -379,28 +384,53 @@ public sealed class AssetResolver : IDisposable
         return new PlacementResolution(rel, sources, sources.Count > 1, snap.Failures.Count > 0);
     }
 
-    /// <summary>Is <paramref name="name"/> a provider name this build already knows — an enabled mod folder,
-    /// "overwrite", "Data", or an ACTIVE archive's filename? A name that passes here is answered by the built
-    /// universe and never reaches disk, which keeps the off-order lane (<see cref="OffOrderAssetSource"/>) additive
-    /// rather than a change to any enabled name. Matched OrdinalIgnoreCase, the same way the providers themselves
-    /// are, so this test and the match cannot disagree.</summary>
-    public bool IsUniverseProviderName(string name)
+    /// <summary>Is <paramref name="name"/> a RESERVED provider name — one that names something other than a mod
+    /// folder under <c>mods\</c>: MO2's "overwrite" layer, the game's "Data" folder, or an ACTIVE archive's
+    /// filename? These are the names the folder-scan lane must never be handed, because a mod folder literally
+    /// called <c>Data</c> would then be served for the name "Data" and shadow the layer that name means.
+    ///
+    /// <para>An enabled MOD FOLDER name is deliberately NOT reserved. The named pole reaches the folder scan only
+    /// after the active universe has already failed to answer for that name at that path, so falling through costs
+    /// nothing an enabled name already had and gains the one thing a built universe cannot supply: the folder's own
+    /// root archives, including any the engine does not load (#388, part iii — an enabled mod's name and the same
+    /// mod unticked now reach the same places).</para>
+    ///
+    /// <para>Matched OrdinalIgnoreCase, the same way the providers themselves are, so this test and the match cannot
+    /// disagree.</para></summary>
+    public bool IsReservedProviderName(string name)
     {
-        foreach (var (rootName, _) in _looseRoots)
-            if (string.Equals(rootName, name, StringComparison.OrdinalIgnoreCase)) return true;
+        if (_overwriteDir.Length > 0 && string.Equals("overwrite", name, StringComparison.OrdinalIgnoreCase)) return true;
+        if (_dataDir.Length > 0 && string.Equals("Data", name, StringComparison.OrdinalIgnoreCase)) return true;
         foreach (var a in _archives)
             if (string.Equals(Path.GetFileName(a.Path), name, StringComparison.OrdinalIgnoreCase)) return true;
         return false;
     }
 
+    /// <summary>Is <paramref name="name"/> a mod folder the active profile enables?</summary>
+    bool IsEnabledMod(string name)
+    {
+        foreach (var mod in _enabledMods)
+            if (string.Equals(mod, name, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
     /// <summary>The copy of <paramref name="relPath"/> inside the mod folder <paramref name="providerName"/> names,
-    /// when that name is NOT one this build knows — the off-order source lane. Thin delegation:
-    /// <see cref="OffOrderAssetSource"/> owns the lane, this resolver only supplies the two facts it holds (where the
-    /// mods folder is, and what the universe already answers for). Null when the name is a universe name, is not a
+    /// when the built universe has no answer for that name at that path — the named-folder source lane. Thin
+    /// delegation: <see cref="OffOrderAssetSource"/> owns the lane, this resolver only supplies the two facts it
+    /// holds (where the mods folder is, and which names are reserved). Null when the name is reserved, is not a
     /// plain folder name, or that folder supplies no copy — and the result says WHICH of those it was, because a
-    /// refusal may only claim the folder was searched when it was.</summary>
+    /// refusal may only claim the folder was searched when it was.
+    ///
+    /// <para>The lane reaches an ENABLED mod's folder too (see <see cref="IsReservedProviderName"/>), so the
+    /// <see cref="PlacementSource.OffOrder"/> flag is corrected here: a copy read out of a mod MO2 is loading is not
+    /// off-order, and labelling it so would tell the caller the game is not loading that mod.</para></summary>
     public OffOrderLookup TryResolveOffOrderProvider(string? providerName, string relPath)
-        => OffOrderAssetSource.Resolve(_modsDir, IsUniverseProviderName, providerName, relPath);
+    {
+        var look = OffOrderAssetSource.Resolve(_modsDir, IsReservedProviderName, providerName, relPath);
+        return look.Source is { } s && IsEnabledMod(s.ProviderName)
+            ? look with { Source = s with { OffOrder = false } }
+            : look;
+    }
 
     /// <summary>Resolve many paths in one call against ONE pinned build, so the whole scan stays internally
     /// consistent even if a RefreshIfStale lands mid-scan. To pair the scan with its read-failure list off the same
