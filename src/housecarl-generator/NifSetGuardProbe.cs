@@ -523,7 +523,7 @@ internal static class NifSetGuardProbe
 
     /// <summary>Author a synthetic SE mesh: root → GuardChildA node; a full GuardShape (flags/scale/alpha/2 partitions);
     /// and a BareShape carrying nothing (for the not-applicable refusal arms). The spike CreateAndSave_SE recipe.</summary>
-    static byte[] BuildSyntheticSe()
+    internal static byte[] BuildSyntheticSe()
     {
         var ver = new NiVersion { FileVersion = NiVersion.ToFile("20.2.0.7"), UserVersion = 12, StreamVersion = 100 };
         var f = new NifFile();
@@ -656,7 +656,7 @@ internal static class NifSetGuardProbe
 
     // ---- synthetic MO2 layout helpers (the PlaceAssetProbe / AssetStatusProbe pattern) ----
 
-    static (string mods, string data, string prof) MakeInstance(string inst)
+    internal static (string mods, string data, string prof) MakeInstance(string inst)
     {
         var mods = Path.Combine(inst, "mods");
         var data = Path.Combine(inst, "game", "Data");
@@ -668,7 +668,7 @@ internal static class NifSetGuardProbe
         return (mods, data, prof);
     }
 
-    static void WriteProfile(string profDir, string[] loadorder, string[] plugins, string[] modlist)
+    internal static void WriteProfile(string profDir, string[] loadorder, string[] plugins, string[] modlist)
     {
         Directory.CreateDirectory(profDir);
         File.WriteAllText(Path.Combine(profDir, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", loadorder) + "\r\n");
@@ -676,13 +676,13 @@ internal static class NifSetGuardProbe
         File.WriteAllText(Path.Combine(profDir, "modlist.txt"), "# header\r\n" + string.Join("\r\n", modlist) + "\r\n");
     }
 
-    static void WriteSkyrimIni(string profDir)
+    internal static void WriteSkyrimIni(string profDir)
     {
         Directory.CreateDirectory(profDir);
         File.WriteAllText(Path.Combine(profDir, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
     }
 
-    static void WriteLoose(string baseDir, string rel, byte[] bytes)
+    internal static void WriteLoose(string baseDir, string rel, byte[] bytes)
     {
         var p = Path.Combine(baseDir, rel);
         Directory.CreateDirectory(Path.GetDirectoryName(p)!);

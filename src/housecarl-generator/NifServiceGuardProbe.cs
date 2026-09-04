@@ -175,7 +175,7 @@ internal static class NifServiceGuardProbe
         var summaryOnly = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         var ok = NifWire.Render(FakeData(FakeInspect(3, 1, false, Array.Empty<string>()), null), summaryOnly, Array.Empty<string>(), 80_000);
-        Check(ok.Contains("read from: ModA") && ok.Contains("20.2.0.7") && ok.Contains("[Skyrim SE]") && ok.Contains("Shape0"),
+        Check(ok.Contains("read from: \"ModA\" (loose)") && ok.Contains("20.2.0.7") && ok.Contains("[Skyrim SE]") && ok.Contains("Shape0"),
               "success render carries winner + version + SE flag + shape names");
 
         var abs = NifWire.Render(FakeData(null, "ABSENT — no active mod or BSA provides this mesh path.",
@@ -183,7 +183,7 @@ internal static class NifServiceGuardProbe
         Check(abs.Contains("could NOT be read")
               && abs.IndexOf("could NOT be read", StringComparison.Ordinal) < abs.IndexOf("ABSENT", StringComparison.Ordinal),
               "the read-failure alarm renders BEFORE the ABSENT error (a Q3 alarm can't be buried)");
-        Check(abs.Contains("ModA (loose) > Base.bsa (BSA)"), "the error path still shows the winner→loser provider chain");
+        Check(abs.Contains("\"ModA\" (loose) > \"Base.bsa\" (BSA)"), "the error path still shows the winner→loser provider chain, each name inside the delimiter mod= takes");
 
         var amb = NifWire.Render(FakeData(FakeInspect(1, 0, false, Array.Empty<string>()), null, ambiguous: true), summaryOnly, Array.Empty<string>(), 80_000);
         Check(amb.Contains("more than one source"), "ambiguity is surfaced as a note");

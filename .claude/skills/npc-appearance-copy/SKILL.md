@@ -102,7 +102,9 @@ housecarl_nif_inspect(<donor's FaceGen mesh path>, sections = "paths", mod = "<t
 
 **`mod=` is not optional here.** Without it `nif_inspect` resolves the path through the VFS and reads the *winner's* mesh — and on a contested FaceGen path the winner is precisely the mesh whose bytes are not the donor's. Harvesting textures from the replacer's mesh and then placing the donor's is how you end up with a head that references textures it does not use. Name the donor for the read.
 
-`nif_inspect`'s `mod=` resolves **within the active load order only** — unlike `source_provider=` on the placement below, which also reaches a mod MO2 is not loading. So for a **switched-off** donor this read reports the mesh ABSENT, and there is no `mod=` spelling that changes that. Two ways forward, both honest: switch the donor's mod on for the read alone (the placement does not need it on), or skip the scrape and carry the FaceGen pair without the texture harvest, saying in your report that the embedded-texture list was not read. Do not read the ABSENT as "the donor has no mesh".
+`mod=` reaches the donor's mod **whether or not MO2 is loading it**, and reaches both its loose files and its own root archives — the same rule as `source_provider=` on the placement below. So a **switched-off** donor needs no switching on for this read. Name the mod exactly as the providers chain prints it, inside the double quotes: the kind that follows them (`loose` / `BSA`) is not part of the name. If the answer is still a refusal it names the mod and says where it looked; a refusal that says nothing supplies the path is not "the donor has no mesh" — check the spelling first.
+
+You can skip working the mesh path out at all: `nif_inspect npc = ["<donor FormID>"]` derives the FaceGen mesh from the FormKey itself.
 
 Merge the two lists, case-insensitively, and that is the set of files worth considering.
 
