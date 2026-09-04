@@ -1,24 +1,16 @@
 namespace HousecarlMcp;
 
 /// <summary>
-/// The last-line tool-body guard (Q3 hardening, HCBR-2026-06-11-01 follow-through). Every MCP tool body runs
-/// inside <see cref="Tool(string,System.Func{string})"/>: an exception the body's own handling didn't convert to
-/// a named error — the unguarded residue was the <see cref="LoadOrderService"/> resolver getter (freshness/IO
-/// throws during a mid-call profile re-read) and the render layer's per-match reads — returns a NAMED error
-/// string instead of escaping to the SDK, whose own catch genericizes to "An error occurred invoking '…'."
-/// (the opaque dead end the binding shim exists to kill; see <see cref="ToolCallShim"/>).
-///
-/// Division of honesty with the shim: with every body wrapped HERE, the only exceptions still reaching the
-/// shim's catch are pre-body (argument binding), so its "could not be bound" wording stays accurate — and this
-/// guard's "the arguments bound fine" wording is accurate in turn, because a body only runs after binding
-/// succeeded. Cancellation is rethrown — a cancelled request is the SDK's to finish, not a tool failure.
+/// The last-line tool-body guard: every MCP tool body runs inside <see cref="Tool(string,System.Func{string})"/>
+/// so an unconverted exception returns a named error instead of escaping to the SDK, whose own catch genericizes
+/// it to "An error occurred invoking '…'." Every body must stay wrapped — that is what keeps this guard's "the
+/// arguments bound fine" wording true and leaves only pre-body binding failures for <see cref="ToolCallShim"/>.
 /// </summary>
 internal static class Guard
 {
-    /// <summary>Rethrow ONLY a real request cancellation (the SDK's to finish), mirroring the SDK's own test —
-    /// an OperationCanceledException whose REQUEST token is live (e.g. a TaskCanceledException from an internal
-    /// HttpClient timeout) is a body FAILURE and must be named, or it lands in the SDK generic (review #1
-    /// finding 1). Tools without a CancellationToken parameter pass none, so every body OCE there is named.</summary>
+    /// <summary>Rethrow only a real request cancellation (the SDK's to finish). An OperationCanceledException
+    /// whose request token is still live — e.g. an HttpClient timeout — is a body failure and must be named,
+    /// or it lands in the SDK's generic message.</summary>
     public static string Tool(string tool, Func<string> body, CancellationToken ct = default)
     {
         try { return body(); }
@@ -26,7 +18,7 @@ internal static class Guard
         catch (Exception ex) { return Named(tool, ex); }
     }
 
-    /// <summary>The async twin (the Nexus tools).</summary>
+    /// <summary>The async twin, for tool bodies that await.</summary>
     public static async Task<string> Tool(string tool, Func<Task<string>> body, CancellationToken ct = default)
     {
         try { return await body(); }
@@ -42,7 +34,7 @@ internal static class Guard
                "mid-refresh hiccup self-heals on the next call; if it persists, capture this exact message in a bug report.";
     }
 
-    /// <summary>One-line, bounded essence of an exception message for the wire (System.Text.Json and IO messages
+    /// <summary>Collapse an exception message to one bounded line for the wire (System.Text.Json and IO messages
     /// span lines); the full exception, stack included, already went to stderr.</summary>
     internal static string Flatten(string message)
     {

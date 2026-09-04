@@ -5,26 +5,20 @@ using Mutagen.Bethesda.Plugins;
 
 namespace HousecarlMcp;
 
-/// <summary>The machine-readable (format="json") twin of the text <see cref="Wire"/> renderer (Wave 2 / P6). ONE
-/// serializer per read tool, each consuming the SAME outcome objects the text Wire consumes — so text and JSON can
-/// only differ in FORMATTING, never in DATA (decision D2: one read path, two renders). Field VALUES are the SAME wire
-/// tokens the text mode emits (round-trip parity: a token read out of JSON is still a value a write can reuse
-/// verbatim). Q3 accounting (total / capped / truncated / notes) rides INSIDE the document, so JSON is never a
-/// silently degraded mode.
+/// <summary>The machine-readable (format="json") twin of the text <see cref="Wire"/> renderer: one serializer per
+/// read tool, each consuming the SAME outcome objects the text Wire consumes, so text and JSON can differ only in
+/// formatting, never in data. Field values are the same wire tokens the text mode emits, so a token read out of
+/// JSON is still a value a write can reuse verbatim.
 ///
-/// <para>Truncation drops trailing ROWS and flags it (<c>truncated:true</c> + <c>rendered</c>) — the emitted
-/// document ALWAYS stays valid JSON. Cutting the serialized string at a byte budget the way the text render cuts its
-/// StringBuilder would emit malformed JSON, itself a silent-degrade Q3 break, so the JSON path never does that.</para>
-///
-/// <para>The resolve_names annotation (P7) rides as a STRUCTURED sibling on each field object
-/// (<c>resolved:{editorid,name,type}</c>), never a mangled token — the JSON counterpart of the text render's
-/// parenthetical.</para></summary>
+/// <para>Truncation drops trailing ROWS and flags it (<c>truncated:true</c> + <c>rendered</c>) — never a cut of
+/// the serialized string at a byte budget the way the text render cuts its StringBuilder, which would emit
+/// malformed JSON. The accounting rides inside the document, so JSON is never a silently degraded mode.</para></summary>
 static class JsonWire
 {
     static readonly JsonWriterOptions Opts = new() { Indented = true };
 
     /// <summary>The options every json response is written under, exposed so <see cref="CheckAccounting"/> measures
-    /// its reserve against the SAME encoding it will be written in. Measuring unindented what is written indented
+    /// its reserve against the same encoding it will be written in — measuring unindented what is written indented
     /// under-reserves by the whole indentation.</summary>
     internal static JsonWriterOptions WriterOptions => Opts;
 
@@ -37,51 +31,46 @@ static class JsonWire
 
     /// <summary>The array twin of <see cref="WriteNullable"/>, for a member whose null carries meaning: null says
     /// the value was NOT COMPUTED, an empty array says it was computed and came back empty. Writing <c>[]</c> for
-    /// both is the null-is-not-empty rule broken at the wire, where the consumer has nothing left to tell them
-    /// apart — the same rule the DTOs state for <c>Histogram</c> and <c>DanglingBySource</c>.</summary>
+    /// both leaves the consumer nothing to tell them apart.</summary>
     static void WriteNullableStringArray(Utf8JsonWriter w, string name, IReadOnlyList<string>? items)
     {
         if (items is null) w.WriteNull(name); else WriteStringArray(w, name, items);
     }
 
-    /// <summary>The ONE way a json DOCUMENT declares itself a refusal: <c>ok:false</c> followed by the message.
-    /// Every whole-call refusal on the read surface writes its discriminant through here, so the shape cannot be
-    /// stated one way in one renderer and another way in the next (#403 — the discriminant was absent entirely
-    /// while <see cref="RenderError"/>'s own summary claimed json consumers saw one refusal grammar).
+    /// <summary>The ONE way a json document declares itself a refusal: <c>ok:false</c> followed by the message.
+    /// Every whole-call refusal on the read surface writes its discriminant through here so the shape cannot be
+    /// stated one way in one renderer and another in the next.
     ///
     /// <para><b>Document-level only.</b> A per-ROW <c>error</c> field — a malformed FormID in a batch, a seed that
     /// did not resolve — is NOT a refusal: the call succeeded and rendered a row that failed. Those sites keep a
     /// bare <c>error</c> and must never gain <c>ok</c>, or a consumer branching on the discriminant would read a
     /// served document as a refused one.</para>
     ///
-    /// <para><b>Epoch is the caller's, deliberately.</b> Some refusals stamp the build they consulted
-    /// (<c>epoch:"…"</c>), some state it as null, and the pre-capture validation refusals omit it entirely because
-    /// they consulted no build (PR #305). That three-way split is a live contract, so this helper writes the
-    /// discriminant and the message and leaves epoch to the site.</para></summary>
+    /// <para>Epoch is left to the call site: some refusals stamp the build they consulted, some state it as null,
+    /// and pre-capture validation refusals omit it because they consulted no build. That three-way split is a
+    /// live contract, so this helper writes only the discriminant and the message.</para></summary>
     internal static void WriteRefusal(Utf8JsonWriter w, string? error)
     {
         w.WriteBoolean("ok", false);
-        // `error` is nullable at one caller (read_plugin_file's error mode reads a DTO field that is typed
-        // optional), and that site wrote a json null before this helper existed. Preserved rather than tightened:
-        // changing what a refusal document says is not this lane's change.
+        // `error` is nullable at one caller (read_plugin_file's error mode reads a DTO field typed optional), and
+        // that site's refusal document carries a json null there.
         WriteNullable(w, "error", error);
     }
 
-    // ---- housecarl_resolve (P3) ---------------------------------------------------------------------
+    // ---- housecarl_resolve ---------------------------------------------------------------------------
     /// <summary>Render the bulk name-resolution result as JSON: <c>{count, resolved:[…], rendered, truncated}</c> —
     /// one <c>{formid,type,editorid,name,winner}</c> row per resolvable input, or <c>{formid,error}</c> for a
-    /// bad/absent one (per-item, the batch survives — Q3). Budget-aware like the other JSON renders: over max_chars it
-    /// drops trailing rows and flags <c>truncated</c>, keeping the document valid JSON with an exact <c>count</c>.</summary>
+    /// bad/absent one, so the batch survives. Over max_chars it drops trailing rows and flags <c>truncated</c>,
+    /// keeping the document valid JSON with an exact <c>count</c>.</summary>
     public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, string epoch)
         => RenderResolve(rows, maxChars, epoch, null, out _);
 
-    /// <summary>W2 `records`: optional response-envelope pairs (form=, the resolved source arm, …) written as
-    /// top-level string fields at the START of a json document — so a json consumer sees the same call context
-    /// the text header line states, in-band, without any per-render shape change.
-    /// CONTRACT (PR #307 round 3): envelope keys must not collide with any renderer's own top-level keys
-    /// (count/epoch/records/rendered/truncated/total/…) — Utf8JsonWriter does not dedupe, so a collision would
-    /// emit a duplicate-key document. Today's set (form/source/window/epoch_covers_source/total) is disjoint;
-    /// keep it that way when adding pairs.</summary>
+    /// <summary>Optional response-envelope pairs (form=, the resolved source arm, …) written as top-level string
+    /// fields at the START of a json document, so a json consumer sees in-band the same call context the text
+    /// header line states.
+    /// Envelope keys must not collide with any renderer's own top-level keys (count/epoch/records/rendered/
+    /// truncated/total/…): Utf8JsonWriter does not dedupe, so a collision emits a duplicate-key document. The
+    /// current set is disjoint; keep it that way when adding pairs.</summary>
     static void WriteEnvelope(Utf8JsonWriter w, IReadOnlyList<KeyValuePair<string, string>>? envelope)
     {
         if (envelope is null) return;
@@ -100,7 +89,7 @@ static class JsonWire
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
             w.WriteNumber("count", rows.Count);
-            w.WriteString("epoch", epoch);   // §2.1.1: the ONE captured build the whole batch resolved against
+            w.WriteString("epoch", epoch);   // the ONE captured build the whole batch resolved against
             w.WriteStartArray("resolved");
             int rendered = 0; bool rowsTruncated = false;
             foreach (var r in rows)
@@ -138,7 +127,7 @@ static class JsonWire
         w.WriteEndObject();
     }
 
-    // ---- housecarl_diff_record (P8c) ----------------------------------------------------------------
+    // ---- housecarl_diff_record ----------------------------------------------------------------------
     static void WriteDiffPole(Utf8JsonWriter w, string name, LoadOrderService.DiffPole p)
     {
         w.WriteStartObject(name);
@@ -152,20 +141,12 @@ static class JsonWire
 
     static int Cap(int maxChars) => maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
 
-    /// <summary>A whole-call refusal document: <c>{ok:false, error, epoch}</c> — for tool-layer refusals that have
-    /// no outcome object to render (e.g. the §2.1.1 artifact epoch-mismatch handed back beside the batch), matching
-    /// the outcome-borne refusal shape so json consumers see ONE refusal grammar. The stamp rides when the refusal
-    /// consulted a build (the PR #305 contract).
+    /// <summary>A whole-call refusal document: <c>{ok:false, error, epoch}</c>, for tool-layer refusals that have
+    /// no outcome object to render. The epoch stamp rides when the refusal consulted a build.
     ///
-    /// <para><b>The discriminant is written through <see cref="WriteRefusal"/>, not here.</b> This summary used to
-    /// claim the one-grammar match while the document carried no <c>ok</c> at all, so a consumer branching on it
-    /// found the property absent on exactly the refusals this method serves (#403). The claim is now true by
-    /// construction: every whole-call refusal on the surface goes through that one writer.</para>
-    ///
-    /// <para><b><c>ok</c> marks refusals only.</b> A served read document carries no <c>ok</c> — absence means the
-    /// call was answered. Deliberate asymmetry with the write surface, which writes the flag on both outcomes:
-    /// stamping <c>ok:true</c> across every read render is a change to documents that are not refusals, and this
-    /// lane's contract is the refusal grammar.</para></summary>
+    /// <para>On the read surface <c>ok</c> marks refusals ONLY — a served read document carries no <c>ok</c>, and
+    /// its absence means the call was answered. Deliberate asymmetry with the write surface, which writes the flag
+    /// on both outcomes.</para></summary>
     internal static string RenderError(string error, string? epoch)
     {
         using var ms = new MemoryStream();
@@ -180,24 +161,19 @@ static class JsonWire
     }
 
     /// <summary>Is the document already at its char ceiling? The writer BUFFERS, so <c>ms.Length</c> lags what has
-    /// been written — the row loops that budget by stream length flush first for exactly this reason. Shared by the
-    /// post-write report writers so all three judge the budget the same way.</summary>
+    /// been written — every row loop that budgets by stream length must flush first, as this does.</summary>
     static bool Over(Utf8JsonWriter w, MemoryStream ms, int cap)
     {
         w.Flush();
         return ms.Length >= cap;
     }
 
-    /// <summary>The post-write READ-BACK block, one construction for all three write documents (apply / create /
-    /// forward). It was written out three times, verbatim down to the comment — and the two facts it tells apart
-    /// are exactly the kind that drift when copied: <c>readback_source</c> (the WRITTEN FILE's content, or a dry
-    /// run's in-memory would-be content — never load-order truth, which is what the text render spells out in a
-    /// sentence), and the <c>readback_full</c>/<c>readback_requested</c> split.
+    /// <summary>The post-write read-back block, one construction for all three write documents (apply / create /
+    /// forward). <c>readback_source</c> names the WRITTEN FILE's content, or a dry run's in-memory would-be
+    /// content — never load-order truth.
     /// <para><c>readback_full</c> describes THIS DOCUMENT: the json renders emit every field of every row, so a
-    /// present read-back is always the full one. It used to carry the caller's ASK, which the in-place lanes
-    /// override (the service forces fullReadback), so <c>false</c> sat next to a complete field dump and a consumer
-    /// branching on "are these fields complete?" got the opposite of the truth (PR #311 review 7 [nit]).
-    /// <c>readback_requested</c> keeps the ask, which is what answers "why did I get one I did not ask for?"</para>
+    /// present read-back is always the full one, and it must not be made to carry the caller's ask (which the
+    /// in-place lanes override). <c>readback_requested</c> is where the ask lives.</para>
     /// <para>Rows and their field lists both stop at the budget and set <paramref name="truncated"/> — the document
     /// stays valid JSON and says it was cut, never a string severed mid-token.</para></summary>
     static void WriteReadbackBlock(Utf8JsonWriter w, MemoryStream ms, int cap,
@@ -242,16 +218,15 @@ static class JsonWire
         w.WriteEndArray();
     }
 
-    // ---- shared record + field writers (P6/P7) ------------------------------------------------------
+    // ---- shared record + field writers --------------------------------------------------------------
     /// <summary>Serialize the fields array. Each leaf is <c>{path, value}</c> for a round-trippable leaf (value = the
     /// SAME wire token the text mode emits) or <c>{path, note}</c> for a no-value leaf; the display-only <c>display</c>
-    /// (biped slots) and the resolve_names <c>link</c> sibling (P7) ride alongside, never in place of the token.
-    /// BUDGET-AWARE: a fat record (deep list expansion) is field-truncated the same way the text render caps field
-    /// lines — a sentinel field names the cut and the array closes, so the document stays valid JSON (never silently
-    /// over budget — Q3).</summary>
-    /// <param name="annotated">The #342 owned-child fields this outcome annotated, if any.</param>
+    /// (biped slots) and the resolve_names <c>link</c> sibling ride alongside, never in place of the token.
+    /// A fat record is field-truncated the same way the text render caps field lines — a sentinel field names the
+    /// cut and the array closes, so the document stays valid JSON and never sits silently over budget.</summary>
+    /// <param name="annotated">The owned-child fields this outcome annotated, if any.</param>
     /// <param name="emitted">Collects the annotated paths this array ACTUALLY carried — the response-level clause is
-    /// stated over these, so a field the truncation above dropped states nothing (Aaron's finding 1, json twin).</param>
+    /// stated over these, so a field the truncation above dropped states nothing.</param>
     static void WriteFieldsArray(Utf8JsonWriter w, RecordFields r, MemoryStream ms, int cap,
                                  IReadOnlyDictionary<string, OwnedChildShape>? annotated = null, ICollection<string>? emitted = null,
                                  LeverNames? levers = null)
@@ -296,19 +271,18 @@ static class JsonWire
     /// <summary>Serialize a resolved record: identity + winner/override_depth/source + the fields array. Shared by
     /// read_record, batch_record_detail, and the cross_plugin_query detail path (one shape, no drift). <paramref
     /// name="matches"/> carries the multi-target references= un-merge when present.</summary>
-    /// <param name="childFields">Collects the #342-annotated field paths this record's array carried, for the
+    /// <param name="childFields">Collects the annotated field paths this record's array carried, for the
     /// response-level clause. Batch/query lanes pass ONE set across their rows and state the clause after the
     /// records array; the single read passes its own and states it here.</param>
     /// <param name="stateChildNote">Single-read lane only: this record object IS the response, so the clause
-    /// belongs on it — written AFTER <c>fields</c> and only over what <c>fields</c> carried. It used to be the
-    /// object's second key, ahead of the very array it described (Aaron's finding 3).</param>
+    /// belongs on it — written AFTER <c>fields</c> and only over what <c>fields</c> carried.</param>
     internal static void WriteReadRecord(Utf8JsonWriter w, ReadOutcome o, MemoryStream ms, int cap, string? matches = null,
                                          string? epoch = null, ICollection<string>? childFields = null, bool stateChildNote = false,
                                          LeverNames? levers = null)
     {
         var r = o.Record!;
         w.WriteStartObject();
-        if (epoch is not null) w.WriteString("epoch", epoch);   // single-read top level ONLY (its text twin, Wire.RenderRecord, went with #486)
+        if (epoch is not null) w.WriteString("epoch", epoch);   // single-read top level ONLY
         w.WriteString("formid", r.FormKey);
         w.WriteString("type", r.Type);
         WriteNullable(w, "editorid", r.EditorId);
@@ -321,28 +295,27 @@ static class JsonWire
         w.WriteEndObject();
     }
 
-    // ---- housecarl_read_record (P6) -----------------------------------------------------------------
-    /// <summary>The #342 clause on the json lane, written ONCE per response over the annotated fields the document
-    /// actually CARRIES — the same source the text lane states, so the two transports cannot drift. Gated on the
-    /// paths that were written, never on the prose.
+    // ---- housecarl_read_record ----------------------------------------------------------------------
+    /// <summary>The owned-child clause on the json lane, written ONCE per response over the annotated fields the
+    /// document actually CARRIES — the same source the text lane states, so the two transports cannot drift.
+    /// Gated on the paths that were written, never on the prose.
     ///
-    /// <para>json only ever states the CHEAP tier's clause: <c>conflict_tree=true</c> is refused in json mode (a
-    /// text-only diff view), so the lane that has the bodies to name declarers does not exist here. A json caller
-    /// who wants the precise answer takes the same route the clause names — the text lane.</para></summary>
+    /// <para>json only ever states the cheap tier's clause: <c>conflict_tree=true</c> is refused in json mode, so
+    /// the lane that has the bodies to name declarers does not exist here.</para></summary>
     static void WriteOwnedChildNote(Utf8JsonWriter w, IReadOnlyCollection<string> fields)
     {
         if (fields.Count > 0) w.WriteString("owned_child_note", ReadSentences.NotReadClause(fields));
     }
 
-    // ---- housecarl_batch_record_detail (P6) ---------------------------------------------------------
+    // ---- housecarl_batch_record_detail --------------------------------------------------------------
     /// <summary>batch_record_detail as JSON: <c>{count, records:[…], rendered, truncated}</c>. A bad/absent formid is
-    /// a per-item <c>{formid,error}</c> (the batch survives). Truncation drops trailing records and flags it — the
-    /// document stays valid JSON (Q3), and count is exact.</summary>
+    /// a per-item <c>{formid,error}</c> so the batch survives. Truncation drops trailing records and flags it — the
+    /// document stays valid JSON, and count is exact.</summary>
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars)
         => RenderBatch(outcomes, maxChars, null, out _);
 
     /// <summary><paramref name="levers"/>: the CALLER's lever vocabulary for the remedy sentences the row bodies
-    /// compose — this renderer is shared by both tool generations (#439). Omitted means the 1.x spelling.</summary>
+    /// compose — this renderer is shared by both tool generations. Omitted means the 1.x spelling.</summary>
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars, SpillState? spill, out bool truncated,
                                      IReadOnlyList<KeyValuePair<string, string>>? envelope = null, LeverNames? levers = null)
     {
@@ -360,7 +333,7 @@ static class JsonWire
             WriteNullable(w, "epoch", outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch);
             w.WriteStartArray("records");
             int rendered = 0; bool rowsTruncated = false;
-            var childFields = new SortedSet<string>(StringComparer.Ordinal);   // #342: the fields the rows RENDERED carried
+            var childFields = new SortedSet<string>(StringComparer.Ordinal);   // the annotated fields the rows RENDERED carried
             foreach (var o in outcomes)
             {
                 if (manifestOnly) break;   // to_file: the rows are the FILE
@@ -384,20 +357,14 @@ static class JsonWire
         return Finish(ms);
     }
 
-    // ---- housecarl_records (W2 PR 1) ----------------------------------------------------------------
+    // ---- housecarl_records --------------------------------------------------------------------------
 
     /// <summary>records counts_only on the list lane: the census document, no rows.
     ///
-    /// <para><b>The resolved count is <c>resolved</c>, not <c>ok</c> (#403 round 1).</b> This document is a
-    /// SERVED answer, and it used to carry <c>"ok": &lt;int&gt;</c> — the same key the refusal grammar uses as its
-    /// discriminant, in a different type. A consumer told that <c>ok:false</c> means refused and that absence
-    /// means answered read a fully served census of three unresolvable inputs (<c>"ok": 0</c>) as a refusal, and
-    /// a consumer typing <c>ok</c> as a boolean failed to parse the document at all. <c>resolved</c> pairs with
-    /// <c>errors</c> beside it and says what the number counts. The <c>ok:false</c> discriminant is entrenched on
-    /// the write surface and keeps its meaning; it is this key that was the collision.</para>
-    ///
-    /// <para>The TEXT twin keeps <c>ok=</c>: prose has no discriminant to collide with, and the text lane's
-    /// output is deliberately unchanged by this branch.</para></summary>
+    /// <para>The resolved count is named <c>resolved</c>, never <c>ok</c>: this is a SERVED answer, and <c>ok</c>
+    /// is the refusal grammar's boolean discriminant, so an integer under that key would read as a refusal to one
+    /// consumer and fail to parse for another. The TEXT twin keeps <c>ok=</c> — prose has no discriminant to
+    /// collide with.</para></summary>
     public static string RenderCounts(IReadOnlyList<KeyValuePair<string, string>> envelope, int count, int ok, int errors, string? epoch)
     {
         using var ms = new MemoryStream();
@@ -448,7 +415,7 @@ static class JsonWire
             w.WriteNumber("count", outcomes.Count);
             WriteNullable(w, "epoch", outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch);
             w.WriteStartArray("records");
-            int rendered = 0; bool rowsTruncated = false;   // summary rows carry no fields, so no #342 annotation
+            int rendered = 0; bool rowsTruncated = false;   // summary rows carry no fields, so no owned-child annotation
             foreach (var o in outcomes)
             {
                 if (manifestOnly) break;
@@ -479,7 +446,7 @@ static class JsonWire
     }
 
     /// <summary>records form=aggregate on the list lane: the count table over resolved rows, per-item errors
-    /// counted apart (never silently dropped from a census — Q3).</summary>
+    /// counted apart so they are never silently dropped from a census.</summary>
     public static string RenderListAggregate(string groupBy, IReadOnlyList<KeyValuePair<string, int>> rows,
                                              int count, int errors, string? epoch,
                                              IReadOnlyList<KeyValuePair<string, string>>? envelope = null)
@@ -488,7 +455,7 @@ static class JsonWire
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
-            WriteEnvelope(w, envelope);   // form + the resolved source arm + coverage qualifiers (review fold)
+            WriteEnvelope(w, envelope);   // form + the resolved source arm + coverage qualifiers
             w.WriteString("group_by", groupBy);
             w.WriteNumber("count", count);
             if (errors > 0) w.WriteNumber("errors", errors);
@@ -507,11 +474,11 @@ static class JsonWire
         return Finish(ms);
     }
 
-    // ---- housecarl_records (W2 PR 2): the delta / tree comparison forms -----------------------------
+    // ---- housecarl_records: the delta / tree comparison forms ---------------------------------------
 
-    /// <summary>One §4.1 delta row — shared verbatim by the json render and the artifact writer (one shape, no
-    /// drift). A per-item refusal is <c>{formid, error, stack_above?}</c>; a compared row carries both poles, the
-    /// §4.3 stack-above FACT when the subject sits mid-stack, and the same delta strings the text render emits.</summary>
+    /// <summary>One delta row — shared verbatim by the json render and the artifact writer, so the two cannot
+    /// drift. A per-item refusal is <c>{formid, error, stack_above?}</c>; a compared row carries both poles, the
+    /// stack-above fact when the subject sits mid-stack, and the same delta strings the text render emits.</summary>
     internal static void WriteDeltaRow(Utf8JsonWriter w, LoadOrderService.DeltaRow row, MemoryStream ms, int cap)
     {
         w.WriteStartObject();
@@ -549,8 +516,8 @@ static class JsonWire
     }
 
     /// <summary>records form=delta: <c>{…envelope, count, differing, identical, errors, epoch, rows:[…]}</c>.
-    /// The identical count only counts COMPLETE comparisons — a truncated deep read is neither (its row says so
-    /// via <c>complete:false</c>, the §4.4 truncation-honesty rule).</summary>
+    /// The identical count only counts COMPLETE comparisons — a truncated deep read is neither, and its row says
+    /// so via <c>complete:false</c>.</summary>
     public static string RenderDelta(IReadOnlyList<LoadOrderService.DeltaRow> rows, int maxChars, string? epoch,
                                      IReadOnlyList<KeyValuePair<string, string>> envelope,
                                      IReadOnlyList<KeyValuePair<string, int>> counts,
@@ -564,8 +531,8 @@ static class JsonWire
         {
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
-            // The census covers the COMPLETE list (review F8): rows may be a WINDOW, so the caller computes the
-            // counters over everything and hands them in — recomputing here reported the window as the world.
+            // The census covers the COMPLETE list: rows may be a WINDOW, so the caller computes the counters over
+            // everything and hands them in. Recomputing here would report the window as the world.
             foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);
             WriteNullable(w, "epoch", epoch);
             w.WriteStartArray("rows");
@@ -588,20 +555,17 @@ static class JsonWire
         return Finish(ms);
     }
 
-    /// <summary>One §4.1 tree row — the provider stack with per-node deltas against the row's reference pole.
-    /// Shared by the json render and the artifact writer: THIS is what makes trees spillable (PR #306
-    /// fold-decision 1 — the 1.x conflict_tree had no row form; the tree FORM does).</summary>
-    /// <returns>true if any part of the row (child declarers or nodes) hit <paramref name="cap"/> and was cut short —
-    /// the caller must fold this into the response's own <c>truncated</c> flag, since a row-internal cut is
-    /// otherwise invisible above this method.</returns>
+    /// <summary>One tree row — the provider stack with per-node deltas against the row's reference pole. Shared
+    /// by the json render and the artifact writer: having a row form is what makes trees spillable.</summary>
+    /// <returns>true if any part of the row (child declarers or nodes) hit <paramref name="cap"/> and was cut short.
+    /// The caller must merge this into the response's own <c>truncated</c> flag — a row-internal cut is otherwise
+    /// invisible above this method.</returns>
     internal static bool WriteTreeRow(Utf8JsonWriter w, LoadOrderService.TreeRow row, MemoryStream ms, int cap,
                                       LeverNames? levers = null)
     {
-        // This row's notice was hand-written in the records spelling because the tree form is a 2.0 form. A literal
-        // that happens to agree with its caller is the next one to drift, so the vocabulary comes from the carrier
-        // like every other remedy here. Note both callers pass Records explicitly (RenderTree via the tool layer,
-        // Artifacts.WriteTree for the spilled rows) — the Legacy default below is unreached, and is kept only so
-        // this row obeys the same "default is 1.x" rule as every other seam rather than becoming the exception.
+        // The notice vocabulary comes from the carrier like every other remedy here, not a literal. Both callers
+        // pass Records explicitly, so the Legacy default is unreached; it is kept so this seam obeys the same
+        // "default is 1.x" rule as every other one.
         var lv = levers ?? LeverNames.Legacy;
         bool truncated = false;
         w.WriteStartObject();
@@ -617,8 +581,8 @@ static class JsonWire
         WriteNullable(w, "editorid", row.EditorId);
         WriteNullable(w, "reference", row.ReferencePlugin);
         WriteStringArray(w, "touchers", row.Touchers);   // priority order, winner LAST
-        // The precise owned-child answer (#485) — the same per-field decision the text lane renders, from the
-        // same TreeRow, so json and the spilled artifact carry it without a second composition to drift from.
+        // The precise owned-child answer — the same per-field decision the text lane renders, from the same
+        // TreeRow, so json and the spilled artifact carry it without a second composition to drift from.
         if (row.ChildDeclarers.Count > 0)
         {
             w.WriteStartArray("child_declarers");
@@ -673,9 +637,7 @@ static class JsonWire
         return truncated;
     }
 
-    /// <summary>records form=tree: <c>{…envelope, count, contested, errors, epoch, rows:[…]}</c> — the committed
-    /// json tree render (§6.1: "the tree/delta forms get a built json render"; the 1.x text-only refusal dies by
-    /// construction here).</summary>
+    /// <summary>records form=tree: <c>{…envelope, count, contested, errors, epoch, rows:[…]}</c>.</summary>
     public static string RenderTree(IReadOnlyList<LoadOrderService.TreeRow> rows, int maxChars, string? epoch,
                                     IReadOnlyList<KeyValuePair<string, string>> envelope,
                                     IReadOnlyList<KeyValuePair<string, int>> counts,
@@ -689,7 +651,7 @@ static class JsonWire
         {
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
-            foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);   // complete-list census (review F8)
+            foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);   // the counters cover the complete list, not this window
             WriteNullable(w, "epoch", epoch);
             w.WriteStartArray("rows");
             int rendered = 0; bool rowsTruncated = false; bool anyDeclarers = false;
@@ -704,12 +666,10 @@ static class JsonWire
             }
             w.WriteEndArray();
             w.WriteNumber("rendered", rendered);
-            // The framing line is stated once per response, and its reserve MUST be checked before `truncated`
-            // is written: a Utf8JsonWriter cannot un-write a property once appended. The reserve is therefore every
-            // byte that still lands after this point — `truncated` itself, which is written BETWEEN this check and
-            // the note, and the root close, which the chain form's own cap checks already add (Size + RootClose)
-            // and this one did not. Measured, all three; reserving only the note left the framing landing past cap
-            // by the width of the other two.
+            // The framing line is stated once per response, and its reserve MUST be checked before `truncated` is
+            // written: a Utf8JsonWriter cannot un-write a property once appended. The reserve therefore covers
+            // every byte still to land — the note, `truncated` itself (written between this check and the note),
+            // and the root close.
             w.Flush();
             bool leadOverCap = anyDeclarers
                 && ms.Length + TruncatedPropertyReserve + DeclarersLeadReserve + Framing.RootClose >= cap;
@@ -723,7 +683,7 @@ static class JsonWire
         return Finish(ms);
     }
 
-    // ---- housecarl_records (W2 PR 2): the chain form (walk=) ----------------------------------------
+    // ---- housecarl_records: the chain form (walk=) --------------------------------------------------
 
     /// <summary>One chain row — shared by the json render and the artifact writer. Node status is 'expanded'
     /// (entered) or 'kept' (a boundary: exclusion stop, depth cap, unresolved link — the note names which).</summary>
@@ -790,7 +750,7 @@ static class JsonWire
         {
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
-            foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);   // complete-list census (review F8)
+            foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);   // the counters cover the complete list, not this window
             WriteNullable(w, "epoch", epoch);
             w.WriteStartArray("rows");
             int rendered = 0; bool rowsTruncated = false;
@@ -827,7 +787,7 @@ static class JsonWire
         {
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
-            foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);   // complete-list census (review F8)
+            foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);   // the counters cover the complete list, not this window
             WriteNullable(w, "epoch", epoch);
             w.WriteStartArray("rows");
             bool truncated = false;
@@ -872,7 +832,7 @@ static class JsonWire
         return Finish(ms);
     }
 
-    // ---- housecarl_records (W2 PR 2): the info_order form -------------------------------------------
+    // ---- housecarl_records: the info_order form -----------------------------------------------------
 
     /// <summary>One info_order row — shared by the json render and the artifact writer. Positions are 1-based
     /// (matching the text render's #N). The honesty gates ride as data: <c>complete</c> (every touching plugin's
@@ -940,7 +900,7 @@ static class JsonWire
         {
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
-            foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);   // complete-list census (review F8)
+            foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);   // the counters cover the complete list, not this window
             WriteNullable(w, "epoch", epoch);
             w.WriteStartArray("rows");
             int rendered = 0; bool rowsTruncated = false;
@@ -962,18 +922,18 @@ static class JsonWire
         return Finish(ms);
     }
 
-    // ---- housecarl_cross_plugin_query (P6) ----------------------------------------------------------
+    // ---- housecarl_cross_plugin_query ---------------------------------------------------------------
     /// <summary>cross_plugin_query as JSON — three shapes matching the text render: group_by count table
     /// (<c>{group_by, total, groups:[…]}</c>), detail rows (full record objects with fields), or summary rows
-    /// (<c>{formid,type,editorid,winner,override_depth}</c>). Q3 accounting (total/capped/notes/truncated) rides
+    /// (<c>{formid,type,editorid,winner,override_depth}</c>). The accounting (total/capped/notes/truncated) rides
     /// in-band. The detail path threads resolve_names through the SAME ResolveRead the text render uses, so the two
     /// modes read one path.</summary>
     public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields, int depth = 1)
         => RenderCrossQuery(svc, q, fields, maxChars, resolveNames, winnerFields, depth, null, out _);
 
-    /// <summary>The §2.1.1-aware render — see the text twin: <paramref name="spill"/> rides IN the document (a
-    /// marker outside the json body would be invisible to a json consumer), <paramref name="truncated"/> is the
-    /// auto-spill trigger handed back to the tool layer.</summary>
+    /// <summary>The spill-aware render: <paramref name="spill"/> rides IN the document, since a marker outside the
+    /// json body would be invisible to a json consumer, and <paramref name="truncated"/> is the auto-spill trigger
+    /// handed back to the tool layer.</summary>
     public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields, int depth,
                                           SpillState? spill, out bool truncated,
                                           IReadOnlyList<KeyValuePair<string, string>>? envelope = null, LeverNames? levers = null)
@@ -986,8 +946,8 @@ static class JsonWire
         {
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
-            // Post-capture refusals are stamped (PR #305 contract — e.g. the artifact epoch-mismatch refusal);
-            // pre-capture validation refusals carry null and render bare, same as the text twin.
+            // Post-capture refusals are epoch-stamped; pre-capture validation refusals carry null and render bare,
+            // same as the text twin.
             if (q.Error is not null) { WriteRefusal(w, q.Error); if (q.Epoch is not null) w.WriteString("epoch", q.Epoch); }
             else if (q.Groups is not null)                                   // group_by= → count table
             {
@@ -1014,18 +974,18 @@ static class JsonWire
             else                                                            // per-match: detail (fields=) or summary
             {
                 bool detail = fields is { Count: > 0 };
-                bool anyScoped = detail && q.Sources is { } ss && ss.Take(q.Keys.Count).Any(s => s is not null);   // P5
+                bool anyScoped = detail && q.Sources is { } ss && ss.Take(q.Keys.Count).Any(s => s is not null);   // any row read from a scoped body
                 string? p5 = anyScoped ? ScopedFieldsNote(winnerFields, q.WhereWinner, levers) : null;
                 w.WriteNumber("total", q.Total);
                 w.WriteBoolean("capped", q.Capped);
-                WriteNullable(w, "epoch", q.Epoch);                         // §2.1.1: offset= windows tile ONLY within one epoch
-                if (q.Offset > 0) w.WriteNumber("offset", q.Offset);        // #223 pagination — the window's start, in-band
+                WriteNullable(w, "epoch", q.Epoch);                         // offset= windows tile ONLY within one epoch
+                if (q.Offset > 0) w.WriteNumber("offset", q.Offset);        // the window's start, in-band
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
                 WriteNotes(w, q, p5);
                 var linkMemo = resolveNames && detail ? new Dictionary<FormKey, ResolvedRef>() : null;
                 w.WriteStartArray("matches");
                 int rendered = 0; bool rowsTruncated = false;
-                var childFields = new SortedSet<string>(StringComparer.Ordinal);   // #342: the clause once, over the fields the rows carried
+                var childFields = new SortedSet<string>(StringComparer.Ordinal);   // the clause once, over the fields the rows carried
                 for (int i = 0; i < q.Keys.Count && !manifestOnly; i++)      // to_file: the rows are the FILE
                 {
                     w.Flush();
@@ -1036,9 +996,9 @@ static class JsonWire
                     {
                         // winner_fields=: read the WINNER's body (source=null) regardless of scan scope; the record's
                         // "source" field still names the body read, so the json carries the same source/winner truth.
-                        // Pinned to the scan's build (PR #305 review) — the document's epoch names ONE build.
+                        // Pinned to the scan's build — the document's epoch names ONE build.
                         var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, depth, resolveNames: resolveNames, linkMemo: linkMemo,
-                                                  containerHint: (levers ?? LeverNames.Legacy).ContainerHint);   // a collapsed cell names the caller's own expansion knob (#439)
+                                                  containerHint: (levers ?? LeverNames.Legacy).ContainerHint);   // a collapsed cell names the caller's own expansion knob
                         if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", fk.ToString()); w.WriteString("error", o.Error); if (matches is not null) w.WriteString("matches", matches); w.WriteEndObject(); }
                         else WriteReadRecord(w, o, ms, cap, matches, childFields: childFields, levers: levers);
                     }
@@ -1061,17 +1021,15 @@ static class JsonWire
         return Finish(ms);
     }
 
-    /// <summary>The P5 scoped-vs-winner field-source note, as one of a 4-way matrix over (winner_fields=, where_source=).
-    /// <paramref name="whereWinner"/> (#233) is true when the MATCH decided on the live winner (where_source=winner) —
-    /// then the note must NOT claim the match was selected on the scoped body (the D2 no-drift rule). Shared by the
-    /// text, json, and dense renders so the note can never drift across the three.</summary>
+    /// <summary>The scoped-vs-winner field-source note, one of a 4-way matrix over (winner_fields=, where_source=).
+    /// <paramref name="whereWinner"/> is true when the MATCH decided on the live winner, and the note must then not
+    /// claim the match was selected on the scoped body. Shared by the text, json, and dense renders so the note
+    /// cannot drift across the three.</summary>
     internal static string ScopedFieldsNote(bool winnerFields, bool whereWinner, LeverNames? levers = null)
     {
-        // Two of these four arms are REMEDIES ("pass X …" — they predict a later call), so they can only be true
-        // for a caller that HAS that lever; housecarl_records refuses "winner_fields" by alias (#439). The other
-        // two are labels echoing what was passed, and they carry the caller's token for the same reason: a label
-        // naming a spelling the caller did not use is the next remedy to be copied out of. where_source= is spelled
-        // identically by both generations, so it stays a literal.
+        // Two of these four arms are REMEDIES that predict a later call, so they are only true for a caller that
+        // HAS that lever; the other two are labels echoing what was passed. Both carry the caller's own token.
+        // where_source= is spelled identically by both generations, so it stays a literal.
         var wf = (levers ?? LeverNames.Legacy).WinnerFields;
         if (whereWinner)
             return winnerFields
@@ -1082,18 +1040,16 @@ static class JsonWire
             : $"field values are each match's SCOPED plugin's OWN version, NOT the live load-order winner — pass {wf} for load-order truth.";
     }
 
-    // ---- housecarl_cross_plugin_query format=dense (#223) -------------------------------------------
-    /// <summary>The COLUMNAR render: a <c>columns</c> array once, then ONE positional row array per match —
+    // ---- housecarl_cross_plugin_query format=dense --------------------------------------------------
+    /// <summary>The columnar render: a <c>columns</c> array once, then ONE positional row array per match —
     /// <c>[formid, editorid, field values…]</c> under fields= (plus a <c>source</c> column under a plugins= scope,
-    /// naming the body each row's values were read from — the per-row P5 provenance text and json carry),
-    /// <c>[formid, type, editorid, winner, override_depth]</c>
-    /// for summaries — killing the per-field {path,value} envelopes and repeated identity keys that made format=json
-    /// the context-budget drain in bulk enumerations (#223: ~80 records per 40k chars at two fields). Reads the SAME
-    /// path as the other renders (ResolveRead / Prefilled — D2), and cells use the SAME display vocabulary as the
-    /// text render: the round-trip token, else the parenthetical note (an absent field is "(absent)", never a silent
-    /// hole), with Display/resolve_names annotations appended. Q3 accounting (total/capped/offset/notes/truncated)
-    /// rides in-band; a row whose read FAILS lands in a separate <c>errors</c> array — never a silently missing row.
-    /// group_by= never reaches here (the tool renders its count table via <see cref="RenderCrossQuery"/>).</summary>
+    /// naming the body each row's values were read from), <c>[formid, type, editorid, winner, override_depth]</c>
+    /// for summaries. Far cheaper in context than the per-field {path,value} envelopes format=json writes. Reads the
+    /// SAME path as the other renders, and cells use the SAME display vocabulary as the text render: the round-trip
+    /// token, else the parenthetical note (an absent field is "(absent)", never a silent hole), with
+    /// Display/resolve_names annotations appended. The accounting rides in-band; a row whose read FAILS lands in a
+    /// separate <c>errors</c> array, never a silently missing row. group_by= never reaches here — the tool renders
+    /// its count table via <see cref="RenderCrossQuery"/>.</summary>
     public static string RenderCrossQueryDense(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields)
         => RenderCrossQueryDense(svc, q, fields, maxChars, resolveNames, winnerFields, null, out _);
 
@@ -1109,15 +1065,15 @@ static class JsonWire
         {
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
-            // Post-capture refusals are stamped (PR #305 contract); pre-capture validation refusals stay bare.
+            // Post-capture refusals are epoch-stamped; pre-capture validation refusals stay bare.
             if (q.Error is not null) { WriteRefusal(w, q.Error); if (q.Epoch is not null) w.WriteString("epoch", q.Epoch); }
             else
             {
                 bool detail = fields is { Count: > 0 };
-                bool anyScoped = detail && q.Sources is { } ss && ss.Take(q.Keys.Count).Any(s => s is not null);   // P5
+                bool anyScoped = detail && q.Sources is { } ss && ss.Take(q.Keys.Count).Any(s => s is not null);   // any row read from a scoped body
                 w.WriteNumber("total", q.Total);
                 w.WriteBoolean("capped", q.Capped);
-                WriteNullable(w, "epoch", q.Epoch);                           // §2.1.1
+                WriteNullable(w, "epoch", q.Epoch);                           // offset= windows tile ONLY within one epoch
                 if (q.Offset > 0) w.WriteNumber("offset", q.Offset);
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
                 WriteNotes(w, q, anyScoped ? ScopedFieldsNote(winnerFields, q.WhereWinner, levers) : null);
@@ -1128,11 +1084,10 @@ static class JsonWire
                 {
                     w.WriteStringValue("formid"); w.WriteStringValue("editorid");
                     foreach (var f in fields!) w.WriteStringValue(f);         // cells align positionally: ReadFields returns exactly one value per requested path, in order
-                    // Under a plugins= scope each row's values are SOME scoped plugin's own body — with 2+ scoped
-                    // plugins the caller can't reconstruct WHICH from the row alone, and that's the P5 silent-wrong
-                    // trap (a defining esp's stale value read as live truth). Carry the provenance per row, exactly
-                    // like text ("fields (from X):") and json ("source") do — D2, renders must not drift. (PR #239
-                    // review, MEDIUM.)
+                    // Under a plugins= scope each row's values are SOME scoped plugin's own body, and with 2+ scoped
+                    // plugins the caller cannot reconstruct WHICH from the row alone — a defining esp's stale value
+                    // then reads as live truth. Carry the provenance per row, exactly like text ("fields (from X):")
+                    // and json ("source") do; the renders must not drift.
                     if (anyScoped) w.WriteStringValue("source");
                 }
                 else
@@ -1143,7 +1098,7 @@ static class JsonWire
                 var linkMemo = resolveNames && detail ? new Dictionary<FormKey, ResolvedRef>() : null;
                 List<(string Formid, string Error)>? errors = null;
                 int rendered = 0; bool rowsTruncated = false;
-                var childFields = new SortedSet<string>(StringComparer.Ordinal);   // #342: the clause once, over the cells the rows carried
+                var childFields = new SortedSet<string>(StringComparer.Ordinal);   // the clause once, over the cells the rows carried
                 w.WriteStartArray("rows");
                 for (int i = 0; i < q.Keys.Count && !manifestOnly; i++)      // to_file: the rows are the FILE
                 {
@@ -1154,7 +1109,7 @@ static class JsonWire
                     if (detail)
                     {
                         var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false,
-                                                  resolveNames: resolveNames, linkMemo: linkMemo, containerHint: (levers ?? LeverNames.Legacy).DenseContainerHint);   // dense refuses depth>1 — hint the format hop with the knob (#231); pinned to the scan's build
+                                                  resolveNames: resolveNames, linkMemo: linkMemo, containerHint: (levers ?? LeverNames.Legacy).DenseContainerHint);   // dense refuses depth>1, so the hint names the format hop; pinned to the scan's build
                         if (o.Error is not null) { (errors ??= new()).Add((fk.ToString(), o.Error)); rendered++; continue; }
                         var r = o.Record!;
                         w.WriteStartArray();
@@ -1163,9 +1118,8 @@ static class JsonWire
                         foreach (var f in r.Fields)
                         {
                             WriteCell(w, DenseCell(f));
-                            // A dense row writes every requested cell or none, so an annotated cell that reaches the
-                            // document is exactly one whose row was written — registered here all the same, so the
-                            // clause is earned at EMISSION on this lane too rather than from the outcome's intent.
+                            // Registered at EMISSION, like every other lane, so the clause is earned by what the
+                            // document carries rather than by the outcome's intent.
                             if (o.OwnedChildFields?.ContainsKey(f.Path) == true) childFields.Add(f.Path);
                         }
                         if (anyScoped) WriteCell(w, o.SourcePlugin);          // the body this row's values were read from (winner_fields=true → the winner)
@@ -1207,7 +1161,7 @@ static class JsonWire
     }
 
     /// <summary>One dense cell: the round-trip token, else the leaf's parenthetical note ("(absent)", "(no field …)")
-    /// so a no-value field is VISIBLE in its cell, never a silent hole (Q3) — with the Display and resolve_names
+    /// so a no-value field is VISIBLE in its cell rather than a silent hole — with the Display and resolve_names
     /// annotations appended in the text render's exact vocabulary.</summary>
     static string? DenseCell(HousecarlCore.FieldValue f)
     {
@@ -1238,20 +1192,20 @@ static class JsonWire
         w.WriteEndObject();
     }
 
-    /// <summary>Q3 accounting notes (where= predicate note, unscannable-record note) carried IN the JSON document —
-    /// so json is never a silently degraded mode vs text. Omitted when there are none.</summary>
+    /// <summary>Accounting notes (where= predicate note, unscannable-record note) carried IN the JSON document, so
+    /// json is never a silently degraded mode next to text. Omitted when there are none.</summary>
     static void WriteNotes(Utf8JsonWriter w, CrossQueryOutcome q, string? extra = null)
     {
         if (q.PredicateNote is null && q.ScanNote is null && q.WhereSourceNote is null && extra is null) return;
         w.WriteStartArray("notes");
         if (q.PredicateNote is not null) w.WriteStringValue(q.PredicateNote);
         if (q.ScanNote is not null) w.WriteStringValue(q.ScanNote);
-        if (q.WhereSourceNote is not null) w.WriteStringValue(q.WhereSourceNote);   // #233: where_source=winner redundancy under a type=-only scope
-        if (extra is not null) w.WriteStringValue(extra);   // P5 scoped-vs-winner fields note
+        if (q.WhereSourceNote is not null) w.WriteStringValue(q.WhereSourceNote);   // where_source=winner redundancy under a type=-only scope
+        if (extra is not null) w.WriteStringValue(extra);   // the scoped-vs-winner fields note
         w.WriteEndArray();
     }
 
-    // ---- housecarl_check_errors (#282) --------------------------------------------------------------
+    // ---- housecarl_check_errors ---------------------------------------------------------------------
     /// <summary>The errors family's own head members, written into whatever object is open. Everything above the
     /// first thing a budget can refuse; the response's own title/scanned framing is the caller's, because the
     /// merged surface writes these into a per-family object where the single-family tool writes them flat.</summary>
@@ -1260,7 +1214,7 @@ static class JsonWire
         bool didDangling = r.Classes.HasFlag(ErrorFindingClass.Dangling);
         bool didMasters = r.Classes.HasFlag(ErrorFindingClass.MissingMasters);
         w.WriteNumber("scanned_plugins", r.PluginsScanned);
-        WriteSweepEpoch(w, r);   // §2.1.1: the swept INDEXED build + whether it covers every swept input
+        WriteSweepEpoch(w, r);   // the swept INDEXED build + whether it covers every swept input
         // null (not 0) for a class nobody looked for — see the summary.
         if (didDangling) { w.WriteNumber("dangling", r.TotalDangling); w.WriteNumber("unscannable_records", r.TotalUnscannableRecords); }
         else { w.WriteNull("dangling"); w.WriteNull("unscannable_records"); }
@@ -1270,11 +1224,10 @@ static class JsonWire
         WriteStringArray(w, "off_order_scanned", r.OffOrderScanned ?? Array.Empty<string>());
         w.WriteBoolean("counts_only", r.CountsOnly);
 
-        // #344 — the baseline split as DATA (the text render's baseline line). base_masters names the set that was
-        // counted, because "baseline" is the whole claim and Mutagen's base set is not the same as the engine's
-        // force-loaded implicit set (Creation Club plugins are in the latter, not the former).
-        // base_masters_swept distinguishes "the baseline came back clean" from "no baseline was swept"; a
-        // consumer reading baseline_dangling==0 without it would draw the wrong conclusion on a scoped sweep.
+        // The baseline split as DATA. base_masters names the set that was counted, because Mutagen's base set is
+        // not the same as the engine's force-loaded implicit set (Creation Club plugins are in the latter, not the
+        // former). base_masters_swept distinguishes "the baseline came back clean" from "no baseline was swept";
+        // a consumer reading baseline_dangling==0 without it draws the wrong conclusion on a scoped sweep.
         if (didDangling)
         {
             w.WriteNumber("baseline_dangling", r.BaselineDangling);
@@ -1301,10 +1254,10 @@ static class JsonWire
         if (r.CountsOnly)
         {
             // Both axes handed over together, so both frames are reserved before either writes — the json twin
-            // of the text lane's two-pass reserve, for the same reason (#392).
+            // of the text lane's two-pass reserve.
             WriteHistograms(w, body, histogramLimit, depths,
                 ("dangling_by_target_plugin", SweepSubject.HistogramByTarget, r.Histogram),
-                ("dangling_by_source_plugin", SweepSubject.HistogramBySource, r.DanglingBySource));   // #344 — the new axis
+                ("dangling_by_source_plugin", SweepSubject.HistogramBySource, r.DanglingBySource));
             WriteUnreadPlugins(w, r.Reports, body, depths);
         }
         else
@@ -1313,12 +1266,10 @@ static class JsonWire
             int sections = 0;
             foreach (var p in r.Reports)
             {
-                // A SECTION IS WHOLE OR ABSENT HERE TOO, and the cost is MEASURED rather than assumed small. The
-                // plugin object's fixed part carries a scan-error string and up to three unscannable-record
-                // exception messages, all unbounded — tested with a bare `Size(w, ms) >= budget` before writing
-                // it, a two-report fixture whose second plugin carried three ~950-char samples returned 7,296
-                // chars against a 5,270 cap, silently. The text lane composes its fixed part and measures it;
-                // this is the same rule, and a Utf8JsonWriter can only be measured by writing, so it is written
+                // A section is whole or absent, and its cost is MEASURED rather than assumed small: the plugin
+                // object's fixed part carries a scan-error string and up to three unscannable-record exception
+                // messages, all unbounded, so a bare size test before writing it can overshoot the cap by
+                // thousands of chars. A Utf8JsonWriter can only be measured by writing, so the head is written
                 // once into a scratch buffer at the same nesting depth.
                 var head = p;
                 bool opened = body.Emit(SweepSubject.PluginSections,
@@ -1329,10 +1280,9 @@ static class JsonWire
                 int entries = 0;
                 foreach (var d in p.Dangling)
                 {
-                    // Per ENTRY: one plugin's array can be thousands of rows, and a check taken only at the
-                    // plugin boundary lets all of them out at once (#361, measured at 2.5x the cap). Its cost is
-                    // measured like everything else the allocation divides room by — passed 0 it was the one unit
-                    // whose demand and whose emission test read two different numbers.
+                    // Per ENTRY: one plugin's array can be thousands of rows, and a check taken only at the plugin
+                    // boundary lets all of them out at once. Its cost is measured like everything else the
+                    // allocation divides room by, so its demand and its emission test read the same number.
                     var entry = d;
                     if (!body.Emit(SweepSubject.DanglingEntries,
                                    DanglingEntryCost(d, depths.DanglingEntries, entries > 0),
@@ -1340,9 +1290,9 @@ static class JsonWire
                     entries++;
                 }
                 // The section's own closing brackets FINISH a unit already admitted, so they are charged to the
-                // subject that opened it — PluginHeadCost measured them as part of the same unit. Written as an
-                // unattributed fixed part they would scale with how many sections rendered, which is precisely
-                // what the skeleton pass cannot see.
+                // subject that opened it — PluginHeadCost measures them as part of the same unit. As an
+                // unattributed fixed part they would scale with how many sections rendered, which the skeleton
+                // pass cannot see.
                 body.Complete(SweepSubject.PluginSections, () => { w.WriteEndArray(); w.WriteEndObject(); });
             }
             w.WriteEndArray();
@@ -1358,10 +1308,9 @@ static class JsonWire
         w.WriteString("plugin", p.Plugin);
         WriteNullable(w, "scan_error", p.ScanError);
         WriteStringArray(w, "missing_masters", p.MissingMasters);
-        // The install-vs-enable split, as DATA — the text lane prints it as two remedy sentences, and a json
-        // caller reading the union list alone could not pick the remedy that would work. It is the SUBSET of the
-        // array above, so no count and no list moves; null where the split was not made (the DTO's rule), which
-        // is the same answer the text lane gives by falling back to its union sentence.
+        // The install-vs-enable split as DATA: a json caller reading the union list alone could not pick the
+        // remedy that would work. A SUBSET of the array above, so no count and no list moves; null where the
+        // split was not made, matching the text lane's fallback to its union sentence.
         WriteNullableStringArray(w, "installed_but_inactive_masters", p.InstalledButInactiveMasters);
         // The unscannable fields sit before the dangling array so that once the ENTRY loop breaks
         // mid-plugin, all that follows is three fixed closing brackets.
@@ -1370,7 +1319,7 @@ static class JsonWire
         w.WriteStartArray("dangling");
     }
 
-    /// <summary>ONE dangling entry. Shared by the write and the measurement, for the same reason.</summary>
+    /// <summary>ONE dangling entry. Shared by the write and its measurement so the two cannot differ.</summary>
     static void WriteDanglingEntry(Utf8JsonWriter w, DanglingRef d)
     {
         w.WriteStartObject();
@@ -1406,17 +1355,9 @@ static class JsonWire
     /// <summary>What THIS writer's own framing costs, measured against the writer rather than kept by hand: opening
     /// the root object, closing it, and the separator a property pays for not being the first one inside it.
     ///
-    /// <para><b>Why one measurement rather than a number per site.</b> These were two hand-kept constants —
-    /// <c>RootClose = 2</c> here, and a <c>- 2</c> for "the scratch wrapper's own braces" inside
-    /// <see cref="OverrunNoticeCost"/> — and both were wrong by one, in opposite directions. An indented writer
-    /// closes the root with a newline and a brace, and the newline this platform's writer emits is a CR/LF pair, so
-    /// that close costs three characters and not two. The scratch wrapper therefore costs one more than it was
-    /// credited with, and the notice, written into an object that already has properties, also pays for a separator
-    /// the scratch document never wrote. The two
-    /// errors CANCELLED in the length the notice states, so the arm holding that number stayed green while the
-    /// comparison that decides whether a notice fires at all stayed one character short — a document of exactly
-    /// <c>cap + 1</c> read as <c>cap</c> and said nothing about it. Derived from one measurement, the two cannot
-    /// drift apart again: either both are right, or the same measurement is wrong for both.</para></summary>
+    /// <para>Hand-kept constants get this wrong: an indented writer closes the root with a newline and a brace,
+    /// and the newline is a CR/LF pair here, so the close costs three characters and not two. Every site that
+    /// needs these numbers reads them from this one measurement, so they cannot drift apart.</para></summary>
     static readonly WriterFraming Framing = MeasureFraming();
 
     /// <summary>The three costs <see cref="MeasureFraming"/> reads off the writer, in bytes of the encoded
@@ -1460,24 +1401,21 @@ static class JsonWire
         return (int)ms.Length - (Framing.Open + Framing.RootClose) + Framing.Separator;
     }
 
-    /// <summary>The document's size so far, without flushing: committed bytes plus what the writer still holds. A
-    /// flush per entry would be the obvious spelling and the wrong one — this is the same number, and it is what
-    /// makes a per-entry budget test affordable.</summary>
+    /// <summary>The document's size so far, without flushing: committed bytes plus what the writer still holds.
+    /// Same number a flush per entry would give, at a price a per-entry budget test can afford.</summary>
     static int Size(Utf8JsonWriter w, MemoryStream ms) => (int)(ms.Length + w.BytesPending);
 
     /// <summary>What <c>child_declarers_note</c> costs the document — <see cref="ReadSentences.DeclarersLead"/>'s
     /// own json-escaped bytes plus the property's separator, measured the same way <see cref="Framing"/> measures
-    /// the writer's own punctuation rather than hand-counted. Reserved by <see cref="RenderTree"/>.
-    /// Written into an object that already has a property, so the measurement pays the same separator the real
-    /// write does.</summary>
+    /// the writer's own punctuation rather than hand-counted. Reserved by <see cref="RenderTree"/>, and measured
+    /// into an object that already has a property so it pays the same separator the real write does.</summary>
     static readonly int DeclarersLeadReserve =
         MeasureRootProperty(w => w.WriteString("child_declarers_note", ReadSentences.DeclarersLead));
 
     /// <summary>What the <c>truncated</c> boolean costs the document, measured the same way. <see cref="RenderTree"/>
     /// writes it BETWEEN the reserve check and <c>child_declarers_note</c>, so its bytes are part of what the note
-    /// has to fit behind — checking only <see cref="DeclarersLeadReserve"/> left the framing landing past the cap
-    /// by this property's own width. Measured against <c>false</c>, the WIDER of the two spellings, so the reserve
-    /// is never short.</summary>
+    /// has to fit behind. Measured against <c>false</c>, the wider of the two spellings, so the reserve is never
+    /// short.</summary>
     static readonly int TruncatedPropertyReserve = MeasureRootProperty(w => w.WriteBoolean("truncated", false));
 
     /// <summary>One property's cost in the root object, from the writer itself rather than a hand count — the
@@ -1509,17 +1447,13 @@ static class JsonWire
         return System.Text.Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length);
     }
 
-    /// <summary>WHERE EACH JSON UNIT SITS, from one anchor: the depth of the object a family writes its own members
+    /// <summary>Where each json unit sits, from one anchor: the depth of the object a family writes its own members
     /// into (1 in an ancestor's root document, 3 in a merged one — root, <c>families</c>, the family).
     ///
-    /// <para><b>Why depth is load-bearing rather than cosmetic.</b> The response is written INDENTED, so every
-    /// nesting level costs two spaces on every line of every unit inside it. A cost measured two levels shallower
-    /// than the unit is written is an under-measure that grows with the unit — and once the allocation TRUSTS the
-    /// number rather than merely testing against it with slack, an under-measure is a response over its own cap.
-    /// Measured: the dialogue-inclusive cap ladder returned 6,246 characters against an allowed 5,709.</para>
-    ///
-    /// <para>The offsets are stated ONCE here and read by both the demand pass and the write, so the two cannot
-    /// drift; <c>ALLOCATION-EQUALS-SPEND</c> is the arm that catches an anchor that does.</para></summary>
+    /// <para>Depth is load-bearing, not cosmetic: the response is written INDENTED, so every nesting level costs
+    /// two spaces on every line of every unit inside it, and a cost measured shallower than the unit is written
+    /// under-measures by more the bigger the unit gets — which puts the response over its own cap. The offsets are
+    /// stated ONCE here and read by both the demand pass and the write, so the two cannot drift.</para></summary>
     /// <param name="Section">the depth of the object holding a family's members.</param>
     internal readonly record struct JsonUnitDepths(int Section)
     {
@@ -1548,11 +1482,8 @@ static class JsonWire
     /// the same sibling position — an array element after another pays a one-character separator the first element
     /// does not.</para>
     ///
-    /// <para><b>A DELTA, not a document length.</b> The old spelling returned the whole scratch document, wrapper
-    /// braces and all, and called the over-count "the safe direction for a budget test". It was, while the number
-    /// was only a test; it stopped being safe when the allocation began dividing room by it, because a demand that
-    /// over-counts is room allocated to a subject that will not spend it. What is returned here is what the unit
-    /// itself appended, which is the number <c>ALLOCATION-EQUALS-SPEND</c> holds to the byte.</para></summary>
+    /// <para>Returns a DELTA — what the unit itself appended — not the scratch document's length. The allocation
+    /// divides room by this number, so an over-count is room handed to a subject that will not spend it.</para></summary>
     /// <param name="depth">the live writer's <c>CurrentDepth</c> where the unit is written — for an array element,
     /// the depth of the array.</param>
     /// <param name="subsequent">is something already in that array? A later element pays a separator.</param>
@@ -1589,12 +1520,10 @@ static class JsonWire
         return Size(w, ms) - before;
     }
 
-    /// <summary>The errors family's stamp + coverage as data (PR #305 re-review): <c>epoch_covers_all_inputs</c> is
-    /// false exactly when off-order files were swept beside the index (their content is outside the fingerprint;
-    /// <c>off_order_scanned</c> names them). The pairwise-diff twin this was written beside went with
-    /// housecarl_diff_record (#486). The scripts family needs no coverage flag — it has no off-order lane, so its
-    /// stamp always covers everything swept.
-    /// SUCCESS path only — a refusal swept nothing, so it carries the bare stamp (third-round finding 2).</summary>
+    /// <summary>The errors family's stamp and coverage as data: <c>epoch_covers_all_inputs</c> is false exactly when
+    /// off-order files were swept beside the index, since their content is outside the fingerprint and
+    /// <c>off_order_scanned</c> names them. The scripts family needs no coverage flag — it has no off-order lane.
+    /// Success path only; a refusal swept nothing and carries the bare stamp.</summary>
     static void WriteSweepEpoch(Utf8JsonWriter w, ErrorCheckResult r)
     {
         if (r.Epoch is null) return;
@@ -1602,19 +1531,19 @@ static class JsonWire
         w.WriteBoolean("epoch_covers_all_inputs", r.OffOrderScanned is not { Count: > 0 });
     }
 
-    // ---- housecarl_check — the merged, multi-family document (SPEC §6.1) ----------------------------
+    // ---- housecarl_check — the merged, multi-family document ----------------------------------------
     /// <summary>The merged sweep as json: the scope facts flat at the top, then a <c>families</c> object keyed by
-    /// family token, each carrying exactly what that family's ancestor tool wrote as a whole document — its head,
-    /// its body, its own accounting and its own boundary. A single-family call is therefore not shaped differently
-    /// from a multi-family one, which is what lets phase 2 add a family without changing any consumer's parse.
+    /// family token, each carrying exactly what that family's single-family tool writes as a whole document — its
+    /// head, its body, its own accounting and its own boundary. A single-family call is therefore not shaped
+    /// differently from a multi-family one, so a family can be added without changing any consumer's parse.
     ///
     /// <para>The excluded-plugin roster and the overrun notice are RESPONSE-level and written once: the first is a
     /// fact about the scope every family shares, the second a fact about the document as a whole.</para></summary>
     public static string RenderCheck(CheckSweep s, int maxChars, int histogramLimit = 1000)
         => RenderCheck(s, maxChars, histogramLimit, out _);
 
-    /// <summary>The same render, handing back the ALLOCATION it built — for <c>ALLOCATION-EQUALS-SPEND</c>. An
-    /// internal seam: the public render is the one every caller uses.</summary>
+    /// <summary>The same render, handing back the allocation it built, for the tests. An internal seam: the public
+    /// render is the one every caller uses.</summary>
     internal static string RenderCheck(CheckSweep s, int maxChars, int histogramLimit, out BoundedBody? measured)
     {
         measured = null;
@@ -1645,8 +1574,7 @@ static class JsonWire
 
         // A family's members are written into the family object, which sits under `families`, which sits in the
         // root — so a unit's depth is anchored two levels below the root object this render opens. The section
-        // writers read the same anchor off the live writer; ALLOCATION-EQUALS-SPEND is what catches the two
-        // disagreeing.
+        // writers read the same anchor off the live writer.
         var depths = new JsonUnitDepths(FamilySectionDepth);
         // WHAT EACH SUBJECT WANTS, measured before anything is written, so the allocation can water-fill
         // over it rather than discover shortfalls at render time (SweepDemand, BodyAllocation).
@@ -1702,24 +1630,22 @@ static class JsonWire
 
     /// <summary>The depth a family writes its own members at: the root object, <c>families</c>, the family. Named
     /// once because the demand pass has no writer to read it off — the section writers take theirs from the live
-    /// <c>CurrentDepth</c>, and a disagreement between the two shows up as allocation not equalling spend.</summary>
+    /// <c>CurrentDepth</c>, and the two must agree.</summary>
     internal const int FamilySectionDepth = 3;
 
-    /// <summary>THE WHOLE MERGED DOCUMENT BAR THE ROOT BRACES AND THE OVERRUN NOTICE, composed through one
+    /// <summary>The whole merged document bar the root braces and the overrun notice, composed through one
     /// <paramref name="body"/>. Run twice per render: once with a <see cref="BoundedBody.Skeleton"/>, whose refusal
     /// of every unit leaves exactly the fixed part behind to be measured, and once for real.</summary>
     static void Compose(Utf8JsonWriter w, CheckOutcome o, IReadOnlyList<SweepFamily> sections,
                         IReadOnlyList<CheckAccounting> accts, BoundedBody body, int histogramLimit)
     {
         var s = o.Sweep;
-        // The scope facts, as DATA and as the SENTENCE. The sentence is the same string the text lane prints —
-        // one source, stated whole by both transports, so a pin on it vouches for what each of them says.
-        //
+        // The scope facts, as data and as the sentence; the sentence is the same string the text lane prints.
         // THREE LISTS, because a family can be in three states and two lists could only say two of them.
-        // `families_ran` is what ANSWERED, off the outcome: filled from the SELECTION it named a family whose whole
-        // section was a refusal, and a consumer reading it as "these have findings" got a false negative it could
-        // not detect (round-2 finding B2). `families_refused` is the middle state, with the ground beside each; the
-        // absent list is what was never asked, renamed to say so.
+        // `families_ran` is what ANSWERED, taken off the outcome rather than the selection — filled from the
+        // selection it would name a family whose whole section was a refusal, an undetectable false negative for
+        // a consumer reading it as "these have findings". `families_refused` is the middle state, with the ground
+        // beside each; the last list is what was never asked.
         WriteStringArray(w, "families_ran", o.Ran.Select(SweepFamilySelection.Token).ToArray());
         w.WriteBoolean("findings_defaulted", o.Defaulted);
         w.WriteStartArray("families_refused");
@@ -1752,11 +1678,9 @@ static class JsonWire
         {
             var f = sections[i];
             w.WriteStartObject(SweepFamilySelection.Token(f));
-            // The off-order asymmetry, ABOVE whatever this family goes on to say, refusal included — see the text
-            // lane for the call it used to vanish from (round-2 finding B4).
+            // The off-order asymmetry, ABOVE whatever this family goes on to say, refusal included.
             if (o.OffOrder(f) is { } skipped) w.WriteString("off_order_not_swept", skipped);
-            // A family that refused says so HERE — see the text lane for why a scripts-family scope refusal is no
-            // longer the whole call's error.
+            // A family that refused says so HERE, rather than the refusal becoming the whole call's error.
             if (o.Refusal(f) is { } refusal)
             {
                 w.WriteString("refused", refusal);
@@ -1785,11 +1709,11 @@ static class JsonWire
         w.WriteEndObject();
     }
 
-    // ---- housecarl_validate_scripts (#282) ---------------------------------------------------------
+    // ---- housecarl_validate_scripts -----------------------------------------------------------------
     /// <summary>The scripts family's own head members, written into whatever object is open. A finding CLASS the
-    /// caller excluded is emitted as <c>null</c>, NOT as 0 — the json counterpart of the text render's NOT CHECKED,
-    /// so a class nobody looked for cannot be parsed as one that came back clean (PR #288 review, finding 1).
-    /// <c>unverifiable</c> is never null: it cannot be filtered out.</summary>
+    /// caller excluded is emitted as <c>null</c>, NOT as 0 — the json counterpart of the text render's NOT CHECKED —
+    /// so a class nobody looked for cannot be parsed as one that came back clean. <c>unverifiable</c> is never
+    /// null: it cannot be filtered out.</summary>
     static void WriteScriptsHead(Utf8JsonWriter w, ScriptCheckResult r)
     {
         bool didObject = r.Classes.HasFlag(ScriptFindingClass.UnboundObject);
@@ -1797,7 +1721,7 @@ static class JsonWire
         bool didNull = r.Classes.HasFlag(ScriptFindingClass.BoundNull);
 
         w.WriteNumber("scanned_plugins", r.PluginsScanned);
-        WriteNullable(w, "epoch", r.Epoch);   // §2.1.1: the swept build
+        WriteNullable(w, "epoch", r.Epoch);   // the swept build
         w.WriteNumber("records_with_scripts", r.RecordsWithScripts);
         if (didObject || didScalar) w.WriteNumber("unbound", r.TotalUnbound); else w.WriteNull("unbound");
         if (didObject) w.WriteNumber("unbound_object", r.TotalUnboundObject); else w.WriteNull("unbound_object");
@@ -1806,8 +1730,8 @@ static class JsonWire
         w.WriteNumber("unverifiable", r.TotalUnverifiable);   // never filterable — always a real count
         WriteStringArray(w, "classes_checked", ScriptClassNames(r.Classes));
         // The property filter rides as DATA, not just prose in filter_note: `unbound` / `bound_but_null` count only
-        // matching findings, while `records_with_scripts` and `unverifiable` are plugin-wide regardless of it — a
-        // consumer needs to be able to read that asymmetry off the document (round-3 review).
+        // matching findings, while `records_with_scripts` and `unverifiable` are plugin-wide regardless of it, and
+        // a consumer has to be able to read that asymmetry off the document.
         WriteNullable(w, "property_contains", r.PropertyContains);
         WriteNullable(w, "filter_note", r.FilterNote);
         w.WriteBoolean("read_incomplete", r.ReadIncomplete);
@@ -1826,15 +1750,11 @@ static class JsonWire
             WriteHistograms(w, body, histogramLimit, depths,
                 ("unbound_by_property", SweepSubject.HistogramByProperty, r.Histogram));
             // The honesty layer, on its own subject and its own bound — a silently short list of what could NOT be
-            // read is the boundary of the answer going missing, not a finding inside it (#288 review finding 4).
+            // read is the boundary of the answer going missing, not a finding inside it.
             //
-            // WRAPPED IN {total, rows, rendered, truncated}, WHICH IS BOTH THE ANCESTOR'S SHAPE AND THE SIBLING'S.
-            // This writer is what housecarl_validate_scripts renders too, and 1.x wrote the wrapper there, so a
-            // bare array here silently retyped a shipped field for every consumer reading `scan_errors.rows` /
-            // `.total` / `.truncated` (Aaron's review of PR #399, finding 1) — while the merged surface's OTHER
-            // honesty layer, `unread`, kept the wrapper one family over. One shape for both, and it is the
-            // wrapper rather than the array for the reason the wrapper exists: a bare array that was cut cannot
-            // say so, and a consumer iterating it believes it holds the complete set of what went unchecked.
+            // Wrapped in {total, rows, rendered, truncated}, the shape housecarl_validate_scripts publishes here and
+            // the shape the `unread` layer uses one family over. A bare array that was cut cannot say so, and a
+            // consumer iterating it believes it holds the complete set of what went unchecked.
             var scanErrors = r.Reports.Where(x => x.ScanError is not null).ToList();
             w.WriteStartObject("scan_errors");
             w.WriteNumber("total", scanErrors.Count);
@@ -1859,9 +1779,9 @@ static class JsonWire
         int records = 0;
         foreach (var rec in r.Reports)
         {
-            // A RECORD OBJECT IS WHOLE OR ABSENT, and its cost is MEASURED rather than assumed small: a record
+            // A record object is whole or absent, and its cost is MEASURED rather than assumed small: a record
             // carries an unbounded EditorID, an unbounded set of property names and an unbounded "could not verify"
-            // reason per script, so the post-check alone would let one whole record land past the budget.
+            // reason per script, so a post-check alone would let one whole record land past the budget.
             var row = rec;
             if (!body.Emit(SweepSubject.ScriptRecords,
                            ScriptRecordCost(row, depths.ScriptRecords, records > 0),
@@ -1897,7 +1817,7 @@ static class JsonWire
         WriteNullable(w, "editorid", rec.EditorId);
         w.WriteString("plugin", rec.Plugin);
         w.WriteStartArray("unbound");
-        // Object/form types first — the same severity ordering the text render applies (D2).
+        // Object/form types first — the same severity ordering the text render applies.
         foreach (var u in rec.Unbound.OrderByDescending(u => u.IsObjectType))
         {
             w.WriteStartObject();
@@ -1930,29 +1850,16 @@ static class JsonWire
     /// <summary>What one <c>scan_errors</c> row costs, same construction, same depth.</summary>
     static int ScanErrorRowCost(RecordScriptFindings rec, int depth, bool subsequent)
         => MeasureUnit(depth, subsequent, w => WriteScanErrorRow(w, rec));
-    // ---- shared sweep writers (#282) ---------------------------------------------------------------
+    // ---- shared sweep writers ----------------------------------------------------------------------
     /// <summary>Reserve every axis's OBJECT FRAME out of the body budget, then write the axes. The frame — the
     /// <c>distinct</c>/<c>rendered</c>/<c>cut_by</c> members around the rows — is this transport's whole disclosure
-    /// that the axis exists and how much of it is here, so it is written unconditionally and the room for it comes
-    /// out of <c>max_chars</c> first, exactly as the text lane reserves its closing line (#392).
+    /// that the axis exists and how much of it is here, so it is written unconditionally and its room comes out of
+    /// <c>max_chars</c> first, exactly as the text lane reserves its closing line.
     ///
-    /// <para>The reserve covers the frame's LEADING members as well as its trailing ones, and the leading ones are
-    /// already written by the time this axis's own rows are tested — so an axis over-reserves against itself by
-    /// that much. Over-reserving costs characters; under-reserving is the thing this exists to stop, so the
-    /// simpler arithmetic is taken in the safe direction deliberately.</para>
-    ///
-    /// <para><b>No arm can see this reserve today, and that is said here rather than left to be discovered.</b>
-    /// Sabotaged to reserve nothing, every arm in both guards stays green: the two frames together are about 180
-    /// bytes and <see cref="CheckAccounting"/>'s json slack is 1024, so the room sized for one whole entry absorbs
-    /// them at every cap a fixture can reach. The same is true of routing the frame's writes through
-    /// <see cref="BoundedBody.Fixed"/> rather than writing them straight to the writer — sabotaged back, every arm
-    /// stays green, because the fixed part the overrun notice branches on is SUBTRACTED from the finished document
-    /// and the frame is inside it either way. Both are kept, because "bounded by a slack sized for something else"
-    /// is exactly the posture that produced four unbounded write sites in a row — the frame is written
-    /// unconditionally, so its room is reserved by construction rather than borrowed, and charged against that room
-    /// as it lands rather than held until after the rows it should no longer be blocking. The guarantee it belongs
-    /// to is pinned in the TEXT lane (HISTOGRAM-AXIS-NEVER-DROPS-SILENTLY,
-    /// OVERRUN-IN-THE-TEXT-LANE-IS-ALWAYS-A-CAP-TOO-SMALL); no arm claims to pin it here.</para></summary>
+    /// <para>The reserve covers the frame's leading members as well as its trailing ones, and the leading ones are
+    /// already written by the time this axis's own rows are tested, so an axis over-reserves against itself by that
+    /// much. Over-reserving costs characters; under-reserving is what this exists to stop, so the simpler
+    /// arithmetic is deliberately taken in the safe direction.</para></summary>
     static void WriteHistograms(Utf8JsonWriter w, BoundedBody? body, int rowLimit, JsonUnitDepths depths,
                                 params (string Name, SweepSubject Subject, IReadOnlyList<SweepCount>? Rows)[] axes)
     {
@@ -1983,16 +1890,15 @@ static class JsonWire
     /// look alike.</summary>
     /// <param name="body">the ONE bounded emission path, or null for validate_scripts, which passes no budget —
     /// its response layer is not this branch's.</param>
-    /// <param name="subject">this axis's OWN emission subject. Two axes sharing one meant the first to stop stopped
-    /// the second (see <see cref="SweepSubject.HistogramBySource"/>).</param>
+    /// <param name="subject">this axis's OWN emission subject — two axes sharing one would let the first to stop
+    /// stop the second.</param>
     static void WriteHistogram(Utf8JsonWriter w, string name, SweepSubject subject, IReadOnlyList<SweepCount>? rows,
                                int rowLimit, BoundedBody? body, JsonUnitDepths depths)
     {
         if (rows is null) { body?.Release(subject); return; }
         // The object's own fixed members do not grow with the findings, so they are part of the fixed part; the ROWS
         // are what the budget gates, and `rendered` is written from what the gate let through. The frame goes
-        // through the body so what it costs is MEASURED into the response's fixed part rather than inferred from
-        // the reserve that held room for it — the same rule the text lane's notes now follow.
+        // through the body so its cost is MEASURED into the fixed part rather than inferred from its reserve.
         Unconditional(body, subject, () =>
         {
             w.WriteStartObject(name);
@@ -2005,8 +1911,8 @@ static class JsonWire
         {
             if (shown >= rowLimit) break;
             var r = row;
-            // The row's cost is MEASURED like every other unit the allocation divides room by. Passed 0 it was one
-            // of the two units whose demand and whose emission test read two different numbers.
+            // The row's cost is MEASURED like every other unit the allocation divides room by, so its demand and
+            // its emission test read the same number.
             if (body is not null
                 && !body.Emit(subject, HistogramRowCost(r, depths.HistogramRows, shown > 0),
                               () => WriteHistogramRow(w, r)))
@@ -2019,11 +1925,9 @@ static class JsonWire
         {
             w.WriteEndArray();
             w.WriteNumber("rendered", rendered);
-            // WHICH knob stopped it, from the SAME computation the text lane renders as a sentence. distinct vs
-            // rendered says an axis is short; it cannot say which parameter a consumer would have to change, and
-            // this lane said nothing at all while the text twin named a knob — one sweep, two transports, two
-            // different answers. Null where the axis is whole, so "complete" is read rather than inferred from two
-            // numbers.
+            // WHICH knob stopped it, from the same computation the text lane renders as a sentence: distinct vs
+            // rendered says an axis is short but not which parameter a consumer would have to change. Null where
+            // the axis is whole, so "complete" is read rather than inferred from two numbers.
             if (HistogramCut.For(rows.Count, rendered, cutByBudget) is { } cut) w.WriteString("cut_by", cut.Knob);
             else w.WriteNull("cut_by");
             w.WriteEndObject();
@@ -2055,11 +1959,11 @@ static class JsonWire
         else body.Fixed(subject, commit);
     }
 
-    /// <summary>Under counts_only, check_errors' reports carry the honesty layer only — plugins whose records could not
-    /// be read. Emitted so a counts-only answer still names what it could not check (Q3).
-    /// <para>Wrapped in <c>{total, rows, rendered, truncated}</c> rather than a bare array: a budget cut used to drop
-    /// trailing rows with NO flag, so a consumer iterating the array believed it had the complete set of what went
-    /// unchecked — and the text render said "truncated" for the same result (PR #288 review, finding 4).</para></summary>
+    /// <summary>Under counts_only, check_errors' reports carry the honesty layer only — plugins whose records could
+    /// not be read. Emitted so a counts-only answer still names what it could not check.
+    /// <para>Wrapped in <c>{total, rows, rendered, truncated}</c> rather than a bare array, because a budget cut
+    /// that drops trailing rows with no flag leaves a consumer iterating the array believing it holds the complete
+    /// set of what went unchecked.</para></summary>
     static void WriteUnreadPlugins(Utf8JsonWriter w, IReadOnlyList<PluginErrors> reports, BoundedBody body,
                                    JsonUnitDepths depths)
     {
@@ -2069,10 +1973,8 @@ static class JsonWire
         int rendered = 0;
         foreach (var p in reports)
         {
-            // The EXACT sibling of the plugin head, and it was missed by that fix: the row carries a scan error and
-            // its unscannable samples, all unbounded, and the budget was tested before writing it — 9,823 chars
-            // against an 8,000 cap while the text twin returned 4,788. So it is the second unit whose cost is
-            // measured rather than left to the post-check.
+            // The exact sibling of the plugin head: the row carries a scan error and its unscannable samples, all
+            // unbounded, so its cost is measured rather than left to a post-check.
             var row = p;
             if (!body.Emit(SweepSubject.UnreadRows,
                            UnreadRowCost(p, depths.HistogramRows, rendered > 0),
@@ -2113,20 +2015,18 @@ static class JsonWire
             var row = kv;
             void Write() { w.WriteStartObject(); w.WriteString("plugin", row.Key); w.WriteString("reason", row.Value); w.WriteEndObject(); }
             if (body is null) { Write(); continue; }
-            // The THIRD unit whose cost is measured rather than left to the post-check, and for the same reason as
-            // the other two: `reason` is a Mutagen parse-failure message with no length of its own. Passed 0, the
-            // post-check let one whole row land over budget and JsonGlue absorbed it only while the row was smaller
-            // than that — 5,456 chars against a 5,000 cap on three 1,200-char reasons, while the TEXT twin, which
-            // has always measured its own unit.Length here, was inside the same cap with room to spare.
+            // Measured rather than left to a post-check, for the same reason as the other units: `reason` is a
+            // Mutagen parse-failure message with no length of its own, so a post-check lets a whole row land over
+            // budget.
             if (!body.Emit(SweepSubject.ExcludedRows, ExcludedRowCost(row, depth, rendered > 0), Write)) break;
             rendered++;
         }
         w.WriteEndArray();
     }
 
-    /// <summary>What one roster row costs, for the DEMAND pass. The roster is a member of the ROOT object in every
-    /// render that has one, merged or ancestor, so its depth is the same constant everywhere — unlike a family's
-    /// units, which sit two levels deeper in a merged document than in their ancestor's.</summary>
+    /// <summary>What one roster row costs, for the demand pass. The roster is a member of the ROOT object in every
+    /// render that has one, so its depth is the same constant everywhere — unlike a family's units, which sit two
+    /// levels deeper in a merged document than in a single-family one.</summary>
     internal static int ExcludedRowCostFor(IReadOnlyDictionary<string, string> excluded, int index)
         => ExcludedRowCost(excluded.ElementAt(index), RosterDepth, index > 0);
 
@@ -2160,21 +2060,18 @@ static class JsonWire
         return names;
     }
 
-    // ---- housecarl_apply (W3 — the 2.0 write surface) -----------------------------------------------
+    // ---- housecarl_apply ----------------------------------------------------------------------------
     /// <summary>The machine-readable twin of <see cref="WriteTools.Render"/>: ONE write outcome, the SAME data the
-    /// text render states (decision D2 — one write path, two renders). Everything the text lane treats as prose is a
-    /// typed field here: the lane the CALL NAMED (see below), whether it was a dry run, the epoch of the build the winners resolved from,
-    /// per-op results, and the read-back. A REFUSAL is a document too (<c>ok:false</c> with the reason), not an empty
-    /// body — a json caller must never have to parse "error: …" out of a string to learn the call failed. The
-    /// first-touch in-place CONSENT prompt is its own flag: it is a required confirmation, not a failure (Q3).
-    /// Budget handling matches every other json render — trailing ROWS drop and <c>truncated</c> says so, so the
+    /// text render states. Everything the text lane treats as prose is a typed field here — the lane the call named,
+    /// whether it was a dry run, the epoch of the build the winners resolved from, per-op results, and the read-back.
+    /// A REFUSAL is a document too (<c>ok:false</c> with the reason), not an empty body: a json caller must never
+    /// have to parse "error: …" out of a string to learn the call failed. The first-touch in-place consent prompt is
+    /// its own flag — a required confirmation, not a failure. Truncation drops trailing ROWS and says so, so the
     /// document is always valid JSON rather than a string cut mid-token.
-    /// <para><b><paramref name="lane"/> is passed in, not derived from the outcome</b> (PR #311 review [medium]).
-    /// <c>Fail</c> and <c>NeedsAck</c> construct their outcome with <c>InPlace</c>/<c>Extended</c> at their
-    /// defaults, so deriving the lane from those flags reported <c>"patch"</c> for a refusal on an <c>into=</c>
-    /// call and — worse — for the first-touch in-place CONSENT PROMPT, a response that exists ONLY because the
-    /// caller asked to rewrite their own file. The tool layer knows which lane the call named; it says so, and the
-    /// value agrees with the outcome's flags on every success.</para></summary>
+    /// <para><paramref name="lane"/> is passed in, NOT derived from the outcome: <c>Fail</c> and <c>NeedsAck</c>
+    /// construct their outcome with <c>InPlace</c>/<c>Extended</c> at their defaults, so deriving it from those
+    /// flags would report "patch" for a refusal on an <c>into=</c> call and for the first-touch in-place consent
+    /// prompt. The tool layer knows which lane the call named.</para></summary>
     public static string RenderPatchOutcome(WritePatchBuilder.PatchOutcome o, int maxChars, bool readback, string lane)
     {
         int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
@@ -2192,10 +2089,9 @@ static class JsonWire
                 // NeedsAcknowledge carries its prompt in Error — labelled as a prompt, never as an error string.
                 WriteNullable(w, o.NeedsAcknowledge ? "confirmation" : "error", o.Error);
                 w.WriteEndObject();
-                // Flush BEFORE reading the stream: this return is INSIDE the writer's using-block, so without it
-                // the buffered document is still unwritten and the caller gets an EMPTY string — exactly the
-                // silent-degrade class PR #306 found on the json sweep refusals (a refusal that renders as nothing
-                // is worse than the failure it was reporting). The success path below returns after disposal.
+                // Flush BEFORE reading the stream: this return is INSIDE the writer's using-block, so without it the
+                // buffered document is still unwritten and the caller gets an EMPTY string. The success path below
+                // returns after disposal.
                 w.Flush();
                 return Finish(ms);
             }
@@ -2227,9 +2123,9 @@ static class JsonWire
                 WriteNullable(w, "error", op.Error);
                 WriteNullable(w, "after", op.After);
                 WriteNullable(w, "landed", op.Landed);
-                // #308 — the D2 twin of the text render's file-vs-memory split, and it REPORTS rather than judges.
-                // `landed` is the applied edit's own read (in memory, before the serialize); `landed_on_disk` is the
-                // same descriptor re-derived from the WRITTEN FILE, null when the file could not answer for this op.
+                // The twin of the text render's file-vs-memory split, and it REPORTS rather than judges. `landed` is
+                // the applied edit's own read (in memory, before the serialize); `landed_on_disk` is the same
+                // descriptor re-derived from the WRITTEN FILE, null when the file could not answer for this op.
                 WriteNullable(w, "landed_on_disk", op.LandedOnDisk);
                 // WHERE the clause came from, as a word rather than a verdict:
                 //   "written_file"  the file answered for this op — `landed_on_disk` is its reading
@@ -2238,10 +2134,9 @@ static class JsonWire
                 //   "no_answer"     the file was re-opened and did not yield this op's leaf (or the read failed)
                 //   "not_checked"   this op was never asked — a lane that runs no per-op file check (patch, dry run),
                 //                   or an op appended after the resolved edits (the SNAM topic-marker sync)
-                // Deliberately NOT a judgement about whether the write "landed": telling a real difference from a
-                // representational one (a byte-quantised Percent, an overlay's type name) is what nine review rounds
-                // showed cannot be done reliably, and every attempt told a caller to re-issue a write that HAD landed.
-                // The two readings are both here; a caller comparing them decides.
+                // Deliberately NOT a judgement about whether the write "landed": a real difference cannot be told
+                // reliably from a representational one (a byte-quantised Percent, an overlay's type name), and the
+                // attempt tells callers to re-issue writes that did land. Both readings are here; the caller decides.
                 w.WriteString("landed_source",
                     op.SupersededInCall ? "superseded"
                     : op.LandedOnDisk is not null ? "written_file"
@@ -2256,9 +2151,9 @@ static class JsonWire
 
             WriteNullable(w, "note", o.Note);
             w.WriteBoolean("truncated", truncated);
-            // Lane-aware, shared with forward (PR #311 review 6): this document budgets the `ops` array, and a
-            // re-issue to widen it is safe on into=/dry-run but cuts a second patch on the default lane and
-            // re-serializes the caller's own file on in_place.
+            // Lane-aware, shared with forward: this document budgets the `ops` array, and a re-issue to widen it is
+            // safe on into=/dry-run but cuts a second patch on the default lane and re-serializes the caller's own
+            // file on in_place.
             if (truncated)
                 w.WriteString("truncated_note",
                     $"{WriteSentences.JsonRowsCut(cap)}; {WriteSentences.RowsCutOperationIntact(o.DryRun, "applied")} — "
@@ -2268,14 +2163,13 @@ static class JsonWire
         return Finish(ms);
     }
 
-    // ---- housecarl_create (W3 PR 2) -----------------------------------------------------------------
+    // ---- housecarl_create ---------------------------------------------------------------------------
     /// <summary>The machine-readable twin of <see cref="WriteTools.RenderCreate"/> — the SAME data the text render
-    /// states (decision D2), on the same contract <see cref="RenderPatchOutcome"/> established: a refusal is a
-    /// document (<c>ok:false</c> with the reason), the first-touch consent prompt is its own flag rather than an
-    /// error, the epoch rides on every response, and truncation drops trailing ROWS so the document stays valid JSON.
-    /// <para>The three post-write REPORTS ride as data, not prose: a silent line, an inert result script and an empty
-    /// cell are the Q3 hazards the text render shouts about, and a json consumer that could not see them would be
-    /// exactly the silently-degraded mode this project refuses.</para></summary>
+    /// states, on <see cref="RenderPatchOutcome"/>'s contract: a refusal is a document (<c>ok:false</c> with the
+    /// reason), the first-touch consent prompt is its own flag rather than an error, the epoch rides on every
+    /// response, and truncation drops trailing ROWS so the document stays valid JSON.
+    /// <para>The three post-write reports ride as data, not prose: a silent line, an inert result script and an
+    /// empty cell are hazards a json consumer has to be able to see.</para></summary>
     public static string RenderCreateOutcome(WritePatchBuilder.CreateOutcome o, int maxChars, bool readback, string lane)
     {
         int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
@@ -2292,7 +2186,7 @@ static class JsonWire
                 WriteNullable(w, o.NeedsAcknowledge ? "confirmation" : "error", o.Error);
                 w.WriteEndObject();
                 w.Flush();          // INSIDE the using — without it the buffered document is unwritten and the
-                return Finish(ms);  // caller gets an EMPTY string (the PR #306 class; PR #310 hit it again).
+                return Finish(ms);  // caller gets an EMPTY string.
             }
 
             w.WriteString("path", o.OutputPath);
@@ -2300,17 +2194,12 @@ static class JsonWire
             w.WriteNumber("bytes", o.Bytes);
             WriteStringArray(w, "masters", o.Masters.ToList());
 
-            // #300's trade, hoisted ABOVE the budgeted `created` array (review [medium]) — the json twin of the text
-            // render's "!" lines, and the same rule the divergence rows follow: a statement that this artifact will
-            // out-rank a mod on a parent record it only meant to host a child in must survive a max_chars cut. One
-            // entry per distinct contested parent; empty when every host was uncontested.
-            // BOUNDED on the SAME constant as the text twin (PR #323 review [medium]): hoisting an UNBOUNDED
-            // set-valued block above the budget just moves the overflow — at ~600-700 chars per host, a bulk_create
-            // fanning children into many distinct contested cells spent the whole budget here and left `created`
-            // rendering "0 of N, truncated". The text side was capped for exactly this and the json side was missed,
-            // which made the two lanes disagree about the same call (D2). `total_contested_parent_hosts` carries the
-            // full distinct count regardless — the same total/list pair `created` uses below — so the cut is stated,
-            // never silent (Q3); each host past the cap is still named on its own record's `parent_host`.
+            // Hoisted ABOVE the budgeted `created` array: a statement that this artifact will out-rank a mod on a
+            // parent record it only meant to host a child in must survive a max_chars cut. One entry per distinct
+            // contested parent; empty when every host was uncontested. Bounded on the SAME constant as the text
+            // twin, because hoisting an unbounded block above the budget only moves the overflow.
+            // `total_contested_parent_hosts` carries the full distinct count regardless, so the cut is stated;
+            // each host past the cap is still named on its own record's `parent_host`.
             var contestedHosts = o.Created.Where(c => c.ParentContested && c.ParentHost is not null)
                                   .Select(c => c.ParentHost!).Distinct(StringComparer.Ordinal).ToList();
             w.WriteNumber("total_contested_parent_hosts", contestedHosts.Count);
@@ -2332,7 +2221,7 @@ static class JsonWire
                 // A replace is never silent (the CreatedRecord contract): the same fact the text render puts in
                 // brackets, as a flag a consumer can branch on.
                 w.WriteBoolean("replaced_existing", c.ReplacedExisting);
-                // #300 — the parent override this nested create hosted the child in, and whose version was copied.
+                // The parent override this nested create hosted the child in, and whose version was copied.
                 WriteNullable(w, "parent_host", c.ParentHost);
                 w.WriteBoolean("parent_contested", c.ParentContested);
                 w.WriteStartArray("ops");
@@ -2352,10 +2241,8 @@ static class JsonWire
             w.WriteEndArray();
             w.WriteNumber("rendered_created", rendered);
 
-            // The three post-write reports are INSIDE the budget (PR #311 round-2 review [low-medium]): the TEXT
-            // twin already stops each with an explicit notice, so leaving them unguarded here both blew the
-            // document past max_chars and closed it with truncated:false — the silent cut max_chars exists to
-            // prevent, and a D2 divergence in the direction that matters.
+            // The three post-write reports are INSIDE the budget, like the text twin's: unguarded they take the
+            // document past max_chars and still close it with truncated:false.
             WriteVoiceReport(w, o.Voice, ms, cap, ref truncated);
             WriteScriptBindingReport(w, o.ScriptBinding, ms, cap, ref truncated);
             WriteCellShellReport(w, o.CellShell, ms, cap, ref truncated);
@@ -2364,11 +2251,9 @@ static class JsonWire
 
             WriteNullable(w, "note", o.Note);
             w.WriteBoolean("truncated", truncated);
-            // NOT the sibling renders' "raise max_chars to see the rest" (PR #311 review 4 [medium]). That remedy is
-            // safe on remove/forward/apply — a repeated remove is refused, a repeated forward re-copies identical
-            // bodies — but a repeated CREATE allocates the records AGAIN, and the trap does not care which transport
-            // asked: the text twin was moved off this wording one fold earlier and the json document kept it, so a
-            // json client raising max_chars and re-issuing walked into exactly what the fix existed to prevent.
+            // NOT the sibling renders' "raise max_chars to see the rest". That remedy is safe on remove/forward/
+            // apply — a repeated remove is refused, a repeated forward re-copies identical bodies — but a repeated
+            // CREATE allocates the records again.
             if (truncated)
                 w.WriteString("truncated_note",
                     $"{WriteSentences.JsonRowsCut(cap)}; "
@@ -2378,14 +2263,13 @@ static class JsonWire
         return Finish(ms);
     }
 
-    // ---- housecarl_write_seq (W3 PR 2) --------------------------------------------------------------
-    /// <summary>The machine-readable twin of <see cref="SeqTools.Render"/>. Two Q3 facts the text render states in
+    // ---- housecarl_write_seq ------------------------------------------------------------------------
+    /// <summary>The machine-readable twin of <see cref="SeqTools.Render"/>. Three facts the text render states in
     /// prose are typed here: <c>written:false</c> with <c>quest_count:0</c> is the "no SGE quests, so no .seq is
-    /// needed" no-op (never a silent empty file), and <c>epoch:null</c> carries its own reason — this call consults
-    /// no load-order build, so an absent stamp is a fact rather than a missing field.
-    /// <para>#312 adds the third: <c>written:false</c> with <c>unchanged:true</c> and a non-null <c>seq_path</c> is
-    /// "the destination already held exactly these bytes". <c>written</c> is therefore the fact "this call wrote the
-    /// file", never merely "a path exists" — the two had been the same thing until a lane could decline to write.</para></summary>
+    /// needed" no-op (never a silent empty file); <c>epoch:null</c> carries its own reason, since this call consults
+    /// no load-order build; and <c>written:false</c> with <c>unchanged:true</c> and a non-null <c>seq_path</c> is
+    /// "the destination already held exactly these bytes". <c>written</c> therefore means "this call wrote the
+    /// file", never merely "a path exists".</summary>
     public static string RenderSeqOutcome(SeqOutcome o, int maxChars, string? outputNote = null)
     {
         int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
@@ -2399,9 +2283,9 @@ static class JsonWire
             if (!o.Success)
             {
                 WriteNullable(w, "error", o.Error);
-                WriteNullable(w, "lane_note", outputNote);   // an ignored lane stays stated on a refusal too (review round 2)
+                WriteNullable(w, "lane_note", outputNote);   // an ignored lane stays stated on a refusal too
                 w.WriteEndObject();
-                w.Flush();          // INSIDE the using — see RenderPatchOutcome (an unflushed refusal renders EMPTY).
+                w.Flush();          // INSIDE the using — an unflushed refusal renders EMPTY. See RenderPatchOutcome.
                 return Finish(ms);
             }
 
@@ -2432,9 +2316,8 @@ static class JsonWire
             w.WriteNumber("quest_count", o.Quests.Count);
             if (o.Quests.Count == 0)
                 w.WriteString("note", "no start-game-enabled quests in this plugin — " + WriteSentences.Twins.SeqNoQuests + "."
-                    // The lane was ACKNOWLEDGED but never resolved on this path, and the json shape shows that more
-                    // starkly than the prose does: user_chose_output_dir true, no seq_path, no deploy_warning. Say
-                    // which of the two it is (PR #318 review [low]).
+                    // The lane was acknowledged but never resolved on this path: user_chose_output_dir true, no
+                    // seq_path, no deploy_warning. Say which of the two it is.
                     + (o.UserChoseOutput ? " output_dir= was not resolved or checked either — no destination was touched, so an unusable one would not have been reported here." : ""));
 
             w.WriteStartArray("quests");
@@ -2452,9 +2335,8 @@ static class JsonWire
             w.WriteEndArray();
             w.WriteNumber("rendered_quests", rendered);
             w.WriteBoolean("truncated", truncated);
-            // Not "raise max_chars to see the rest" (PR #311 review 5 [medium]): widening the ceiling means
-            // re-issuing a WRITE. This PR moved SeqTools.Render off exactly this wording and left its json twin on
-            // it — the same D2 divergence, in the same fold that fixed it one renderer up.
+            // Not "raise max_chars to see the rest": widening the ceiling means re-issuing a WRITE. Same wording
+            // as SeqTools.Render's.
             if (truncated)
                 w.WriteString("truncated_note",
                     $"the render hit max_chars={cap} and dropped trailing quest rows — " + WriteSentences.Twins.SeqListCutRemedy + ".");
@@ -2464,9 +2346,9 @@ static class JsonWire
         return Finish(ms);
     }
 
-    // ---- housecarl_remove (W3 PR 2) -----------------------------------------------------------------
-    /// <summary>The machine-readable twin of <see cref="WriteTools.RenderRemoval"/> — the SAME data (decision D2),
-    /// on <see cref="RenderPatchOutcome"/>'s contract: a refusal is a document, the consent prompt is its own flag,
+    // ---- housecarl_remove ---------------------------------------------------------------------------
+    /// <summary>The machine-readable twin of <see cref="WriteTools.RenderRemoval"/> — the SAME data, on
+    /// <see cref="RenderPatchOutcome"/>'s contract: a refusal is a document, the consent prompt is its own flag,
     /// the epoch rides on every response. <c>remaining_records:0</c> is the "this file is now an inert shell" fact
     /// the text render spells out in a sentence.</summary>
     public static string RenderRemovalOutcome(WritePatchBuilder.RemovalOutcome o, int maxChars, string lane)
@@ -2484,7 +2366,7 @@ static class JsonWire
             {
                 WriteNullable(w, o.NeedsAcknowledge ? "confirmation" : "error", o.Error);
                 w.WriteEndObject();
-                w.Flush();          // INSIDE the using — see RenderPatchOutcome (an unflushed refusal renders EMPTY).
+                w.Flush();          // INSIDE the using — an unflushed refusal renders EMPTY. See RenderPatchOutcome.
                 return Finish(ms);
             }
 
@@ -2513,8 +2395,8 @@ static class JsonWire
 
             WriteNullable(w, "note", o.Note);
             w.WriteBoolean("truncated", truncated);
-            // Same remedy as the text twin, from the same constant (PR #311 review 6 [medium]): a repeated remove
-            // is REFUSED, so "raise max_chars" named the one call guaranteed to fail.
+            // Same remedy as the text twin, from the same constant: a repeated remove is REFUSED, so "raise
+            // max_chars" would name the one call guaranteed to fail.
             if (truncated)
                 w.WriteString("truncated_note",
                     $"{WriteSentences.JsonRowsCut(cap)}; {WriteSentences.RowsCutOperationIntact(false, "removed")} — "
@@ -2524,11 +2406,11 @@ static class JsonWire
         return Finish(ms);
     }
 
-    // ---- housecarl_forward (W3 PR 2) ----------------------------------------------------------------
-    /// <summary>The machine-readable twin of <see cref="WriteTools.RenderForward"/> — the SAME data (decision D2),
-    /// on <see cref="RenderPatchOutcome"/>'s contract. The two per-record facts the text render puts in brackets are
+    // ---- housecarl_forward --------------------------------------------------------------------------
+    /// <summary>The machine-readable twin of <see cref="WriteTools.RenderForward"/> — the SAME data, on
+    /// <see cref="RenderPatchOutcome"/>'s contract. The two per-record facts the text render puts in brackets are
     /// flags here: <c>replaced_existing</c> (an override this artifact already carried had its FIELDS replaced, with
-    /// <c>preserved_children</c> naming how many nested records rode across the replace — #324) and
+    /// <c>preserved_children</c> naming how many nested records rode across the replace) and
     /// <c>was_already_winner</c> (the forward re-asserts content that already wins — a no-op in effect, reported
     /// rather than silent).</summary>
     public static string RenderForwardOutcome(WritePatchBuilder.ForwardOutcome o, int maxChars, bool readback, string lane)
@@ -2547,7 +2429,7 @@ static class JsonWire
             {
                 WriteNullable(w, o.NeedsAcknowledge ? "confirmation" : "error", o.Error);
                 w.WriteEndObject();
-                w.Flush();          // INSIDE the using — see RenderPatchOutcome (an unflushed refusal renders EMPTY).
+                w.Flush();          // INSIDE the using — an unflushed refusal renders EMPTY. See RenderPatchOutcome.
                 return Finish(ms);
             }
 
@@ -2588,8 +2470,8 @@ static class JsonWire
                 WriteNullable(w, "editorid", f.EditorId);
                 w.WriteString("source", f.FromPlugin);
                 w.WriteBoolean("replaced_existing", f.ReplacedExisting);
-                // #324 — how many records nested under the replaced one were carried across. The text render states
-                // it in words; a consumer branching on replaced_existing alone would still read the replace as total.
+                // How many records nested under the replaced one were carried across — a consumer branching on
+                // replaced_existing alone would read the replace as total.
                 w.WriteNumber("preserved_children", f.PreservedChildren);
                 w.WriteBoolean("was_already_winner", f.WasAlreadyWinner);
                 WriteNullable(w, "prior_winner", f.PriorWinner);
@@ -2603,8 +2485,8 @@ static class JsonWire
 
             WriteNullable(w, "note", o.Note);
             w.WriteBoolean("truncated", truncated);
-            // Lane-aware, same rule and same helper as the text twin (PR #311 review 5 [low]): a re-issue is
-            // idempotent on in_place=/into= and free on a dry run, but on the DEFAULT lane it cuts a second patch.
+            // Lane-aware, same rule and same helper as the text twin: a re-issue is idempotent on in_place=/into=
+            // and free on a dry run, but on the DEFAULT lane it cuts a second patch.
             if (truncated)
                 w.WriteString("truncated_note",
                     $"{WriteSentences.JsonRowsCut(cap)}; {WriteSentences.RowsCutOperationIntact(o.DryRun, "forwarded")} — "
@@ -2662,15 +2544,12 @@ static class JsonWire
         w.WriteEndObject();
     }
 
-    /// <summary>The per-BLOCK truncation census the three post-write reports carry (PR #311 review 5 [medium]).
-    /// <para>Without it a cut block renders as <c>lines: []</c> — indistinguishable from "nothing to report", which
-    /// is the exact inversion of what these blocks exist to say: an empty voice list reads as "every created line
-    /// is voiced" when it may mean "150 silent lines were dropped by the budget". The text renders have said so
-    /// since they were written (<c>AppendVoiceTrunc</c>); only the json twins were silent. And it is not an edge —
-    /// <see cref="RenderCreateOutcome"/>'s created rows budget against the SAME <c>cap</c> and run first, so
-    /// whenever they truncate, <c>Over</c> is already true at each report's first row and every block renders
-    /// empty, deterministically. The document-level <c>truncated</c> flag is a weaker claim: it does not say WHICH
-    /// block lost rows.</para>
+    /// <summary>The per-BLOCK truncation census the three post-write reports carry.
+    /// <para>Without it a cut block renders as <c>lines: []</c>, indistinguishable from "nothing to report" — the
+    /// exact inversion of what these blocks exist to say, since an empty voice list then reads as "every created
+    /// line is voiced". Not an edge case: <see cref="RenderCreateOutcome"/>'s created rows budget against the SAME
+    /// <c>cap</c> and run first, so whenever they truncate every block below renders empty. The document-level
+    /// <c>truncated</c> flag is a weaker claim — it does not say WHICH block lost rows.</para>
     /// <para>Counts ride even when nothing was cut — <c>rendered == total</c> is the positive statement that the
     /// list IS complete, so a consumer never has to infer completeness from the absence of a marker.</para></summary>
     static void WriteBlockCensus(Utf8JsonWriter w, bool cut, (string name, int rendered, int total) a,
@@ -2686,9 +2565,8 @@ static class JsonWire
         }
         w.WriteBoolean("truncated", cut);
         // Deliberately NOT "raise max_chars": these blocks ride the WRITE renders, and re-issuing a create or an
-        // apply on the default lane auto-suffixes a second patch (the class this PR has now been told about three
-        // times). The note states the cut and the stakes and stops there — the write is done, the report is only a
-        // render of it, and the counts above are what a consumer branches on.
+        // apply on the default lane auto-suffixes a second patch. The note states the cut and the stakes and stops
+        // there — the write is done, and the counts above are what a consumer branches on.
         if (cut)
             w.WriteString("truncated_note",
                 $"the {blockLabel} block hit max_chars={cap} and its rows were CUT. Why it matters: {stakes}"
@@ -2755,11 +2633,10 @@ static class JsonWire
             w.WriteString("grid_occupancy_note", WriteSentences.Twins.GridOccupancy);
         w.WriteEndObject();
     }
-    // ---- unit costs, exposed for the DEMAND pass ---------------------------------------------------
-    // The allocation water-fills over measured demand (SweepDemand), and a demand must be the SAME number the
-    // emission test declares — so the demand pass calls these rather than spelling the costs a second time. Each
-    // takes the DEPTH the unit is written at and whether it follows a sibling, because both change what the unit
-    // costs the document and neither is knowable from the unit alone.
+    // ---- unit costs, exposed for the demand pass ---------------------------------------------------
+    // A demand must be the SAME number the emission test declares, so the demand pass calls these rather than
+    // spelling the costs a second time. Each takes the DEPTH the unit is written at and whether it follows a
+    // sibling: both change what the unit costs, and neither is knowable from the unit alone.
 
     internal static int PluginHeadCostFor(PluginErrors p, int depth, bool subsequent)
         => PluginHeadCost(p, depth, subsequent);
