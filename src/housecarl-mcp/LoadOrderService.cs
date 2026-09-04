@@ -1770,6 +1770,17 @@ public sealed class LoadOrderService : IDisposable
     /// <para>The qualified test runs BEFORE the extension test, because an extension says nothing about where the
     /// file is: a mod can legitimately ship <c>meshes\thing.bsa</c> as a Data-relative asset. A '.bsa' means "an
     /// archive to open" only once the caller is known to have named a file on disk.</para></summary>
+    /// <summary>Whether a <c>source=</c> is one a provider pole can even apply to — nothing named (the pole then
+    /// says whose copy of the DESTINATION to place), or a Data-relative path resolved through the VFS. False for an
+    /// on-disk file, which already names one exact copy: <see cref="PlaceOne"/> refuses a pole there rather than
+    /// dropping it, so a CALL-LEVEL pole must not be attached to such a member in the first place. Same routing
+    /// decision as the placer, through the same two helpers, so the two cannot drift.</summary>
+    internal static bool SourceTakesAProvider(string? source)
+    {
+        var s = NormalizeSourceArg(source);
+        return string.IsNullOrEmpty(s) || IsVfsSource(s!);
+    }
+
     static bool IsVfsSource(string source)
     {
         if (source.IndexOf('|') >= 0) return false;                      // '<archive.bsa>|<entry>' — an entry, not a path

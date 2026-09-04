@@ -335,6 +335,41 @@ internal static class PlaceAssetProbe
                 Check(PlaceTools.Place(svc, new[] { new PlaceTarget { Formid = "01A51A:Dawnguard.esm" } }, kind: "bogus")
                         .Contains("not valid"),
                       "the set-level kind= reaches a member that names none");
+                // ...and it is judged ONCE, under its own name, even on a set no member could apply it to. Attributed
+                // to a member it would blame input the caller never wrote there, and on an all-path set a bad token
+                // would go unnoticed entirely.
+                Check(PlaceTools.Place(svc, new[] { new PlaceTarget { Path = "meshes/x.nif" } }, kind: "bogus")
+                        is var setKind && setKind.Contains("not valid") && !setKind.Contains("assets[0]"),
+                      "a bad set-level kind= is refused under its own name, on a set of path= members that ignore it");
+
+                // The set-level POLE must not fan onto a member whose source is one exact file on disk: the placer
+                // refuses a pole there, so fanning it out would refuse a member over input the caller never wrote on
+                // it. Measured against the refusal that fan-out would produce.
+                {
+                    var fan = PlaceTools.Place(svc, new[]
+                    {
+                        new PlaceTarget { Path = @"meshes\hcprobe\fan.nif", Source = @"C:\nope\fan.nif" },
+                    }, source_provider: "SomeMod");
+                    Check(!fan.Contains(WriteSentences.PlaceSourceProviderNeedsRelPath, StringComparison.Ordinal),
+                          $"a call-level source_provider= does not attach to an on-disk source= member  [RED arm] - {Trim1(fan)}");
+                    // The member's OWN pole still reaches it: that one the caller did write.
+                    var own = PlaceTools.Place(svc, new[]
+                    {
+                        new PlaceTarget { Path = @"meshes\hcprobe\fan.nif", Source = @"C:\nope\fan.nif", SourceProvider = "SomeMod" },
+                    });
+                    Check(own.Contains(WriteSentences.PlaceSourceProviderNeedsRelPath, StringComparison.Ordinal),
+                          "...and a member's own source_provider= against an on-disk source is still refused");
+                }
+
+                // The wire lane reads through the strict list reader, so an undeclared member is refused BY NAME.
+                // Dropped silently, a mistyped pole would auto-resolve some other provider's copy and look placed.
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(
+                        """[ { "path": "meshes/x.nif", "provider": "SomeMod" } ]""");
+                    var strict = PlaceTools.Place(svc, doc.RootElement);
+                    Check(strict.Contains("provider", StringComparison.Ordinal) && strict.Contains("assets", StringComparison.Ordinal),
+                          $"an undeclared assets= member is refused by name, never dropped  [RED arm] - {Trim1(strict)}");
+                }
                 Check(PlaceTools.Place(svc, new[] { new PlaceTarget { Formid = "01A51A:Dawnguard.esm", Source = @"C:\loose.nif" } })
                         .Contains(".bsa"),
                       "bulk tool: a both-expansion (formid, no kind) with a non-.bsa source is refused");

@@ -165,7 +165,7 @@ own the copy):
 - Often **both** (Fix B + Fix C together).
 
 Placing both files of an NPC at once: `housecarl_place` with `formid` and **no `kind`** expands
-to mesh+tint via the pure path transform (an explicit `source=` for that both-case must be a **bare `.bsa`**
+to mesh+tint via the pure path transform (an explicit `source=` for that both-case must be a **fully-qualified `.bsa`**
 path — for a loose file or a `<bsa>|<entry>` source, set `kind=` and place the two separately). One
 destination is a set of one, so this is the same call whether you place one file or forty. **Place both halves from the
 SAME source mod** — a same-FormKey forward is safe by construction (the `.nif`'s embedded `.dds` path

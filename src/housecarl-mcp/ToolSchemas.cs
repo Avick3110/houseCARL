@@ -42,6 +42,7 @@ internal static class ToolSchemas
         new(ToolNames.Apply, "ops", typeof(ApplyOp[])),
         new(ToolNames.Apply, "assignments", typeof(Assignment[])),
         new(ToolNames.Create, "records", typeof(CreateRecordSpec[])),
+        new(ToolNames.Place, "assets", typeof(PlaceTarget[])),
     };
 
     /// <summary>How many times one pointer may be inlined along a single nesting chain before

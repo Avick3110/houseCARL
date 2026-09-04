@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using ModelContextProtocol.Server;
 using Mutagen.Bethesda.Plugins;
@@ -48,8 +49,8 @@ public static class PlaceTools
          "current winner.")]
     public static string Place(
         LoadOrderService svc,
-        [Description("SELECT: the destinations, all placed into ONE mod folder. Each: { formid?: 'XXXXXX:Plugin.esp', kind?: 'mesh'|'tint' (omit with formid to place BOTH FaceGen files), path?: 'meshes/...', source?: '<loose path>' | '<archive.bsa>|<entry>' | '<archive.bsa>' | '<Data-relative path>', source_provider?: 'SomeMod' | 'X - Textures.bsa' | '" + AssetSourceChoice.WinnerToken + "' }. Set-valued at every size — one destination is a set of one. Each member's own description says what it takes.")]
-            PlaceTarget[] assets,
+        [Description("SELECT: the destinations, all placed into ONE mod folder. Each: { formid?: 'XXXXXX:Plugin.esp', kind?: 'mesh'|'tint' (omit with formid to place BOTH FaceGen files), path?: 'meshes/...', source?: '<loose path>' | '<archive.bsa>|<entry>' | '<archive.bsa>' | '<Data-relative path>', source_provider?: 'SomeMod' | 'X - Textures.bsa' | '" + AssetSourceChoice.WinnerToken + "' } — or \"@<absolute path>\" to read that SAME array from a JSON file. Set-valued at every size — one destination is a set of one. A member the shape does not declare is refused BY NAME at its element, never silently dropped. Each member's own description says what it takes.")]
+            JsonElement? assets = null,
         [Description("SOURCE: whose copy to read, for EVERY member that does not name its own. " + AssetSourceChoice.WinnerToken + " for whichever copy currently wins the VFS, or the provider's NAME ALONE — a mod folder, 'overwrite', 'Data', or a BSA filename like 'X - Textures.bsa' — matched exactly, without " + ToolNames.AssetStatus + "'s ' (loose)' / ' (BSA)' annotation. A bare name ALWAYS means a provider of that name. Omitted = the sole provider, refused if more than one contends.")]
             string? source_provider = null,
         [Description("Which FaceGen file every formid= member places, when the member does not say: 'mesh' (the head .nif) or 'tint' (the face .dds). Omit to place BOTH. Ignored by path= members.")]
@@ -62,8 +63,36 @@ public static class PlaceTools
             int max_chars = 0) => Guard.Tool(ToolNames.Place, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        if (assets is not { } el || el.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+            return "error: assets is empty. Pass one or more { path|formid, kind?, source?, source_provider? } destinations.";
+        // The strict reader, not the SDK's binder: a member the shape does not declare is refused by name at its
+        // element. Dropped silently, a mistyped source_provider would auto-resolve some other provider's copy and
+        // read back as a successful place.
+        var (items, listErr) = ListParams.Read<PlaceTarget>(el, "assets", "{path|formid, kind?, source?, source_provider?}");
+        if (listErr is not null) return "error: " + listErr;
+        return PlaceTargets(svc, items!, source_provider, kind, patch, into, max_chars);
+    });
+
+    /// <summary>The same call over destinations already read — the seam the probes and tests drive with typed
+    /// members, while a real call comes through the strict reader above.</summary>
+    internal static string Place(LoadOrderService svc, PlaceTarget[] assets, string? source_provider = null,
+                                 string? kind = null, string? patch = null, string? into = null, int max_chars = 0)
+        => Guard.Tool(ToolNames.Place, () =>
+    {
+        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (assets is null || assets.Length == 0)
             return "error: assets is empty. Pass one or more { path|formid, kind?, source?, source_provider? } destinations.";
+        return PlaceTargets(svc, assets, source_provider, kind, patch, into, max_chars);
+    });
+
+    static string PlaceTargets(LoadOrderService svc, PlaceTarget[] assets, string? source_provider,
+                               string? kind, string? patch, string? into, int max_chars)
+    {
+        // The set-level slot is validated ONCE, under its own name: attributed to a member it would blame input the
+        // caller never wrote there and repeat it per member, and on a set of nothing but path= members, which ignore
+        // it, a bad token would never be noticed at all.
+        if (ParseSlot(NullIfBlank(kind), out var setKindErr) is null && setKindErr is not null)
+            return "error: " + setKindErr;
 
         // Malformed members refuse the WHOLE call (all-or-nothing, like create); placement-time issues
         // (ambiguous/absent/unreadable source) are per-member (the resolver isn't consulted until the place loop).
@@ -80,7 +109,7 @@ public static class PlaceTools
             return $"error: refused — {problems.Count} malformed destination(s); nothing placed:\n  - " + string.Join("\n  - ", problems);
 
         return PlaceWire.Render(svc.PlaceAssets(all, patch, into), max_chars > 0 ? max_chars : 80_000);
-    });
+    }
 
     /// <summary>Map one destination to its placement request(s): path → one request; formid+kind → one request (the
     /// computed FaceGen path); formid with NO kind → BOTH mesh+tint. Exactly one of formid/path is required. The
@@ -97,7 +126,11 @@ public static class PlaceTools
         if (hasFormid == hasPath) { error = $"{where}provide exactly one of formid or path."; return null; }
 
         var src = NullIfBlank(t.Source);
-        var prov = NullIfBlank(t.SourceProvider) ?? NullIfBlank(setProvider);
+        // The set-level pole fills in only where it CAN apply. An on-disk source already names one exact copy and the
+        // placer refuses a pole against it, so fanning the call's pole onto such a member would refuse it over input
+        // the caller never wrote there. A member's OWN pole still reaches that refusal: the caller did write it.
+        var prov = NullIfBlank(t.SourceProvider)
+                   ?? (LoadOrderService.SourceTakesAProvider(src) ? NullIfBlank(setProvider) : null);
 
         if (hasPath)
             return new List<PlaceRequest> { new(t.Path!.Trim(), src, prov) };
