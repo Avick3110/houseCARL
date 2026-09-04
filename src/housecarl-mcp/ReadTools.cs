@@ -975,7 +975,11 @@ static class Wire
     /// dangling target, which is named rather than dropped. Display only — appended after the round-trip token,
     /// never in place of it. Internal so the dense render's cells reuse the same wording.</summary>
     internal static string LinkText(ResolvedRef r) =>
-        !r.Resolved ? "unresolved: no active plugin defines this target"
+        // Unresolved has two causes and the ref itself says which: a named Winner means a plugin DOES define the
+        // target and the fetch did not yield it, so the sentence must not assert that nothing defines it.
+        !r.Resolved ? (r.Winner is { } w
+            ? $"unresolved: '{w}' defines this target but did not yield it on fetch"
+            : "unresolved: no active plugin defines this target")
         : string.IsNullOrEmpty(r.Name) ? $"→ {r.EditorId ?? "<no editorid>"}"
         : $"→ {r.EditorId ?? "<no editorid>"} \"{r.Name}\"";
 

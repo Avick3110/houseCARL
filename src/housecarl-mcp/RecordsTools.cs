@@ -1431,7 +1431,7 @@ public static class RecordsTools
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
                 // Selected by the off-order file scan, so the remedy vocabulary matches the body lane above.
-                var offLevers = LeverNames.Records.OnScanSelection();
+                var offLevers = formLevers.OnScanSelection();
                 string RenderOff(SpillState? sp, out bool trunc) => json
                     ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, offLevers)
                     : headerLine + "\n" + Wire.RenderBatch(bodies, max_chars, sp, out trunc, offLevers);

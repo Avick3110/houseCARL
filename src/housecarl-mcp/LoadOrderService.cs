@@ -962,7 +962,7 @@ public sealed class LoadOrderService : IDisposable
         var none = new List<SkyPatcherFolderOutcome>();
         var winner = view.ResolveWinner(fk);
         if (winner is null)
-            return (null, null, null, none, $"FormID {fk} is not present in the load order ({view.PluginCount} plugins).", null);
+            return (null, null, null, none, UnresolvedFormId(view, fk), null);
 
         var body = view.GetRecord(session, winner.Value.WinnerPlugin, fk);
         if (body is null)
@@ -2310,26 +2310,7 @@ public sealed class LoadOrderService : IDisposable
         }
 
         var winner = view.ResolveWinner(fk);
-        if (winner is null)
-        {
-            // If the record's defining plugin was excluded, that is why it is missing — name it, not a bare "not present".
-            var defining = fk.ModKey.FileName.ToString();
-            if (view.ExcludedPlugins.TryGetValue(defining, out var dWhy))
-                return ReadOutcome.Fail(fk, $"FormID {fk} is not resolvable: its plugin '{defining}' was excluded from this session: {dWhy}");
-            // "not present" has two opposite causes and the same sentence used to serve both. Whether the plugin is
-            // in the order is an O(1) index hit, so say which one it is: a missing plugin is a load-order problem,
-            // a present plugin with no such record is a wrong ID (commonly an ESL-flagged edition, whose records are
-            // compacted into 0x800+).
-            if (view.ContainsPlugin(defining))
-                return ReadOutcome.Fail(fk,
-                    $"Plugin '{defining}' IS in the load order, but defines no record {fk.ID:X6} — and no other plugin overrides it either. " +
-                    $"The FormID is wrong for the installed edition of '{defining}' (an ESL-flagged edition compacts its records into 0x800+). " +
-                    $"List what it actually defines with housecarl_records plugins={{\"names\": [\"{defining}\"], \"defined_in\": true}}.");
-            var absence = view.ExplainAbsence(defining) is { } dCause ? " " + dCause : view.NameSuggestion(defining);
-            return ReadOutcome.Fail(fk,
-                $"FormID {fk} is not present in the load order ({view.PluginCount} plugins): its plugin '{defining}' is not in the order " +
-                "(names match the plugin FILENAME incl. .esp/.esm, case-insensitively)." + absence);
-        }
+        if (winner is null) return ReadOutcome.Fail(fk, UnresolvedFormId(view, fk));
 
         var source = plugin ?? winner.Value.WinnerPlugin;
         using var session = resolver.OpenSession();                       // opens the source plugin; disposed at return
@@ -2435,6 +2416,26 @@ public sealed class LoadOrderService : IDisposable
         }
         annotated = map;
         return rf with { Fields = rebuilt };
+    }
+
+    /// <summary>Why a FormID resolved to nothing. "Not present" has three causes and one sentence used to serve
+    /// them all: the defining plugin was excluded, the plugin is not in the order, or the plugin IS in the order
+    /// and defines no such record — commonly a FormID taken from a different edition of the same mod, since an
+    /// ESL-flagged edition compacts its records into 0x800+. All three are answerable from the index in hand, so
+    /// every emitter states which one it is rather than leaving the caller a second call to find out.</summary>
+    static string UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk)
+    {
+        var defining = fk.ModKey.FileName.ToString();
+        if (view.ExcludedPlugins.TryGetValue(defining, out var why))
+            return $"FormID {fk} is not resolvable: its plugin '{defining}' was excluded from this session: {why}";
+        if (view.ContainsPlugin(defining))
+            return $"Plugin '{defining}' IS in the load order, but defines no record {fk.ID:X6} — and no other plugin " +
+                   $"overrides it either. The FormID is wrong for the installed edition of '{defining}' (an ESL-flagged " +
+                   $"edition compacts its records into 0x800+). List what it actually defines with housecarl_records " +
+                   $"plugins={{\"names\": [\"{defining}\"], \"defined_in\": true}}.";
+        var absence = view.ExplainAbsence(defining) is { } cause ? " " + cause : view.NameSuggestion(defining);
+        return $"FormID {fk} is not present in the load order ({view.PluginCount} plugins): its plugin '{defining}' is " +
+               "not in the order (names match the plugin FILENAME incl. .esp/.esm, case-insensitively)." + absence;
     }
 
     /// <summary>How deep the conflict diff reads each touching body. It must compare CONTENT rather than depth-1
@@ -3339,7 +3340,7 @@ public sealed class LoadOrderService : IDisposable
             var winner = view.ResolveWinner(fk);
             if (winner is null)
             {
-                var miss = ReadOutcome.Fail(fk, $"FormID {fk} is not present in the load order ({view.PluginCount} plugins).")
+                var miss = ReadOutcome.Fail(fk, UnresolvedFormId(view, fk))
                            with { Epoch = view.Epoch, Pin = pin };
                 replayMemo[fk] = miss; outcomes.Add(miss);
                 continue;
