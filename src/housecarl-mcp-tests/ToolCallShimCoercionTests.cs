@@ -4,19 +4,11 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// What the ToolCallShim's coercion actually PRODUCES, asserted as a value.
-///
-/// The wire arms in <see cref="CheckWirePathTests"/> can only see that an argument bound and the tool body
-/// was entered: an unconfigured server answers with the same config prompt whatever the value says. So a
-/// coercion that bound fine and threw the caller's value away was invisible to them — a shim wrapping a bare
-/// string into an EMPTY array instead of a one-element one passed the whole suite, and the caller who wrote
-/// <c>{"plugins":"MyMod.esp"}</c> would have got the whole load order swept with a clean answer. That is the
-/// silent-wrong-answer class, not a binding failure, and it is why these assert the element itself.
-///
-/// The schemas here are the shapes the real published schema uses (nullable unions — <c>["array","null"]</c>
-/// is how the server spells an optional list), not invented ones.
-/// </summary>
+/// <summary>What the ToolCallShim's coercion PRODUCES, asserted as a value. The wire tests in
+/// <see cref="CheckWirePathTests"/> can only see that an argument bound, so a coercion that binds and drops
+/// the caller's value is invisible there — the failure is a silently wrong answer, not a binding error. The
+/// schemas are the shapes the published schema uses: <c>["array","null"]</c> is how the server spells an
+/// optional list.</summary>
 [Trait("tier", "unit")]
 public sealed class ToolCallShimCoercionTests
 {

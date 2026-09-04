@@ -6,21 +6,9 @@ using Xunit.Abstractions;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// #470's own class, guarded from both sides: what the source DECLARES and what the wire PUBLISHES must be
-/// the same set.
-///
-/// The bug was that they were not, and could not be seen to differ: <c>CheckTools</c> carried
-/// <c>[McpServerTool]</c> on its method but no <c>[McpServerToolType]</c> on the class, and
-/// <c>WithToolsFromAssembly()</c> discovers only marked types. Every count anyone quoted came from the
-/// attributes, so the tool read as shipped for twelve days while no client could call it.
-///
-/// Neither side is a hand list: the declared side is reflected over the assembly the server REGISTERS from
-/// — <c>ToolSurface.Assembly</c>, the same property Program.cs passes to <c>WithToolsFromAssembly</c> — and
-/// the published side is `tools/list` off the running server. Naming that assembly by picking a type
-/// expected to live in it was the earlier shape, and it agreed with the registration by coincidence of
-/// layout rather than by construction.
-/// </summary>
+/// <summary>What the source declares and what the wire publishes must be the same set. Neither side is a
+/// hand list: the declared side reflects over <c>ToolSurface.Assembly</c>, the property Program.cs passes to
+/// <c>WithToolsFromAssembly</c>, and the published side is `tools/list` off the running server.</summary>
 public sealed class ToolSurfaceCensusTests
 {
     /// <summary>Every method on the tool surface carrying [McpServerTool], with the type that declares it.</summary>
@@ -36,10 +24,8 @@ public sealed class ToolSurfaceCensusTests
     public static IEnumerable<object[]> DeclaringTypes() =>
         DeclaredToolMethods().Select(x => x.Type).Distinct().Select(t => new object[] { t.FullName! });
 
-    /// <summary>
-    /// The defect itself, reflected: a type that declares a tool must be discoverable as a tool type.
-    /// One named cell per declaring type, so a RED says which file to open.
-    /// </summary>
+    /// <summary>A type that declares a tool must be discoverable as a tool type. One named case per
+    /// declaring type, so a failure says which file to open.</summary>
     [Theory]
     [Trait("tier", "unit")]
     [MemberData(nameof(DeclaringTypes))]
@@ -69,25 +55,15 @@ public sealed class ToolSurfaceCensusTests
 
     // ---- the tool surface is ONE assembly ---------------------------------------------------------------
     //
-    // The server registers from exactly one assembly, so a tool declared in a second one is declared, guarded,
-    // documented and unreachable — #470's shape, one level up. Nothing in the build stops that: it needs a
-    // project reference to the MCP SDK and nothing else.
-    //
-    // It is NOT latent everywhere. housecarl-generator already compiles against the MCP SDK, so a marked type
-    // there needs no csproj change at all; housecarl-core is the assembly that would. A latent arm still has
-    // to be shown to fire, so the check is a function over a population and the fixture arm hands it a
-    // population that contains an offender.
+    // The server registers from exactly one assembly, so a tool declared in a second one is unreachable, and
+    // nothing in the build stops that — it takes only a project reference to the MCP SDK, which
+    // housecarl-generator already has. The check is a function over a population so the fixture test below can
+    // hand it a population that contains an offender.
 
-    /// <summary>
-    /// The repo's shipped assemblies: every project under src/ except this test project, which is not shipped
-    /// and deliberately declares an offender fixture below.
-    ///
-    /// <para>The population is the repo's own project list, not the tool surface's reference closure. A
-    /// closure reaches only what its root REFERENCES: housecarl-generator references housecarl-mcp rather
-    /// than the reverse, so walking outward from the tool surface left out the one shipped assembly that
-    /// already carries the MCP SDK reference — the assembly a split would land in first, invisible to the arm
-    /// written to catch it.</para>
-    /// </summary>
+    /// <summary>The repo's shipped assemblies: every project under src/ except this test project, which is
+    /// not shipped and declares an offender fixture below. The population is the repo's own project list, not
+    /// the tool surface's reference closure — a closure reaches only what its root references, and
+    /// housecarl-generator references housecarl-mcp rather than the reverse.</summary>
     static Assembly[] ShippedAssemblies()
     {
         var self = typeof(ToolSurfaceCensusTests).Assembly;
@@ -118,7 +94,7 @@ public sealed class ToolSurfaceCensusTests
         var population = ShippedAssemblies();
         var registered = HousecarlMcp.ToolSurface.Assembly;
 
-        // Vacuity canary: a population of one is a claim about nothing.
+        // A population of one is a claim about nothing: with no second assembly the check below cannot fail.
         Assert.True(population.Length > 1,
             "The shipped-assembly walk found only " + string.Join(", ", population.Select(a => a.GetName().Name)) +
             ". With nothing but the tool surface in the population there is no second assembly to check, so " +
@@ -135,14 +111,9 @@ public sealed class ToolSurfaceCensusTests
 
     // ---- ToolSurface.Assembly is the ONE home for "which assembly is the tool surface" ------------------
     //
-    // The discarded spelling is `typeof(SomeToolType).Assembly` — a sentence about where a type happens to
-    // live, which agrees with the registration only by coincidence of layout. ToolSurface.cs says it is the
-    // one home, and that sentence has to be true of the tree it ships on.
-    //
-    // BOTH sides of this population are derived: the type names come off the tool-surface assembly by
-    // reflection, the files off the repo's own project list. A hand-list of "the sites we know about" is
-    // exactly what went short here twice — the first pass repointed the two a reviewer named and left two
-    // live ci-all guards on the old spelling, and a second hand pass over those left three more.
+    // The discarded spelling is `typeof(SomeToolType).Assembly`, which agrees with the registration only while
+    // the type stays put. Both sides of the population are derived — the type names off the tool-surface
+    // assembly by reflection, the files off the repo's own project list — so no hand-list can go short.
 
     static readonly Regex TypeofAssembly =
         new(@"typeof\(\s*([A-Za-z_][A-Za-z0-9_.]*)\s*\)\s*\.\s*Assembly", RegexOptions.Compiled);
@@ -173,14 +144,9 @@ public sealed class ToolSurfaceCensusTests
 
     static readonly HashSet<string> NoLocalNames = new(StringComparer.Ordinal);
 
-    /// <summary>
-    /// The names declared by the project the scanned file lives in — the names a bare `typeof(X)` in that file
-    /// could be about other than the tool surface.
-    ///
-    /// <para>Empty for a file in the tool-surface project itself: a surface type's name there is not an
-    /// ambiguity to resolve, it IS the surface, and the discarded spelling is exactly as discarded in that
-    /// project as in any other. Empty too for a file under no project, which the scan does not produce.</para>
-    /// </summary>
+    /// <summary>The names declared by the project the scanned file lives in — what a bare `typeof(X)` in that
+    /// file could mean other than the tool surface. Empty for a file in the tool-surface project itself, where
+    /// a surface type's name is the surface, and for a file under no project.</summary>
     static HashSet<string> NamesDeclaredWhereTheFileLives(string file)
     {
         var owner = RepoProjects.All
@@ -200,18 +166,15 @@ public sealed class ToolSurfaceCensusTests
     /// <summary>
     /// Whether a `typeof(<paramref name="named"/>)` expression names a type on the tool surface.
     ///
-    /// <para>A qualified name has to be consistent with a real surface type's full name, because a simple name
+    /// <para>A qualified name must be consistent with a real surface type's full name, because a simple name
     /// is not unique across assemblies — <c>typeof(HousecarlSetup.Program).Assembly</c> names a different
-    /// project's <c>Program</c>, and matching on the last segment alone reported it as an offender.</para>
+    /// project's <c>Program</c>, so matching on the last segment alone reports it wrongly.</para>
     ///
-    /// <para>A bare name matches every surface type's simple name, MINUS the names the file's own project
-    /// declares (<paramref name="declaredWhereItLives"/>). That subtraction is the whole collision fix: the
-    /// day housecarl-core or housecarl-generator gains a type sharing a name with one in housecarl-mcp, every
-    /// <c>typeof(ThatType).Assembly</c> in that project would otherwise be reported, with a remedy that would
-    /// change what the expression means. Where the name is NOT declared locally there is no other type it
-    /// could be, which is why the set stays whole — narrowing it to the tool types instead would have stopped
-    /// catching four of the six spellings this branch repointed, <c>typeof(ApplyOp)</c> and
-    /// <c>typeof(ToolSchemas)</c> among them.</para>
+    /// <para>A bare name matches every surface type's simple name minus the names the file's own project
+    /// declares (<paramref name="declaredWhereItLives"/>), so a name shared between projects is not reported
+    /// where the local type is what the expression means. The surface set stays whole rather than narrowing to
+    /// the tool types, which would stop catching spellings like <c>typeof(ApplyOp)</c> and
+    /// <c>typeof(ToolSchemas)</c>.</para>
     /// </summary>
     static bool NamesASurfaceType(string named, (HashSet<string> Simple, string[] Full) surface,
                                   HashSet<string> declaredWhereItLives) =>
@@ -221,7 +184,7 @@ public sealed class ToolSurfaceCensusTests
 
     /// <summary>The type names in <paramref name="source"/> that a `typeof(…).Assembly` expression uses to
     /// mean the tool surface, read as if the source were the file at <paramref name="file"/>. One home for the
-    /// reading, so an arm measures what the scan measures.</summary>
+    /// reading, so a test measures what the scan measures.</summary>
     static string[] SurfaceNamingExpressionsIn(string file, string source,
                                                (HashSet<string> Simple, string[] Full) surface)
     {
@@ -240,7 +203,7 @@ public sealed class ToolSurfaceCensusTests
     {
         var surfaceTypes = SurfaceTypeNames();
 
-        // Vacuity canary: an empty name set would make every file below clean by arithmetic.
+        // An empty name set would make every file below clean by arithmetic.
         Assert.True(surfaceTypes.Simple.Count > 0,
             "Reflection over ToolSurface.Assembly found no types, so nothing below can match and this arm " +
             "passes over any spelling. The reflection is broken, not the source.");
@@ -260,15 +223,11 @@ public sealed class ToolSurfaceCensusTests
             "expression agrees with that only while the type stays put.");
     }
 
-    /// <summary>
-    /// Every .cs file under the repo's projects, except the one file this fact is allowed to live in.
-    ///
-    /// <para>The exemption is a full path, not a filename. Filtering on the bare name excused any file called
-    /// ToolSurface.cs anywhere under src/, so a second home — src/housecarl-generator/ToolSurface.cs, say —
-    /// would never have entered the scan at all, and a guard whose whole subject is "this fact lives in
-    /// exactly one place" would have been defeated by giving the second place the same name. The home is
-    /// derived: the project producing the tool-surface assembly, plus the filename.</para>
-    /// </summary>
+    /// <summary>Every .cs file under the repo's projects, except the one file this fact is allowed to live in.
+    /// The exemption is a full path, not a filename: filtering on the bare name would excuse a second
+    /// ToolSurface.cs anywhere under src/, defeating a check whose subject is that the fact lives in one
+    /// place. The home is derived from the project producing the tool-surface assembly plus the
+    /// filename.</summary>
     static string[] ScannedFiles() =>
         RepoProjects.All
             .SelectMany(p => Directory.EnumerateFiles(p.Directory, "*.cs", SearchOption.AllDirectories))
@@ -297,15 +256,10 @@ public sealed class ToolSurfaceCensusTests
     static string Rel(string full) =>
         Path.GetRelativePath(HarnessPaths.RepoRoot, full).Replace('\\', '/');
 
-    /// <summary>
-    /// The six sites this branch repointed, with the spelling each carried before it was.
-    ///
-    /// <para>A historical fixture, not a population: it is the record of what actually occurred in this tree,
-    /// and the only way to hold a change to the READING against the offenders the reading is for. Two of the
-    /// six are one row when reported — same file, same name — which is why the assertion is over the six
-    /// sites rather than over a row count. The names are stored, not the expressions: this file is scanned
-    /// like any other, and a literal <c>typeof(X).Assembly</c> here would be an offender in it.</para>
-    /// </summary>
+    /// <summary>Real offender sites, with the spelling each carried — a fixture to hold any change to the
+    /// reading against. Two rows are the same file and name and report as one, so the assertion counts sites
+    /// rather than rows. Type names are stored, not whole expressions: this file is scanned like any other, so
+    /// a literal <c>typeof(X).Assembly</c> here would be an offender in it.</summary>
     static readonly (string File, string TypeName)[] TheRepointedSites =
     {
         ("src/housecarl-generator/RegisteredTools.cs",                 "WriteTools"),
@@ -316,17 +270,9 @@ public sealed class ToolSurfaceCensusTests
         ("src/housecarl-generator/PreFlattenSurface.cs",               "ToolSchemas"),
     };
 
-    // 2026-09-03: two rows naming `ReadTools` removed at the cut (#468) — the type is deleted, so nothing can
-    // collide with its name; the six remaining rows keep the claim.
-
-    /// <summary>
-    /// Every spelling the repointing removed is still read as naming the tool surface.
-    ///
-    /// <para>This is what stops a fix to the false-positive side from being paid for in teeth. Narrowing the
-    /// bare-name set to the tool types the server discovers would have gone green everywhere while quietly
-    /// losing four of these — the three <c>typeof(ApplyOp)</c> sites and PreFlattenSurface's
-    /// <c>typeof(ToolSchemas)</c>, which was a second WithToolsFromAssembly call site.</para>
-    /// </summary>
+    /// <summary>Every spelling above is still read as naming the tool surface, so a fix to the false-positive
+    /// side cannot be paid for in teeth — narrowing the bare-name set to the tool types the server discovers
+    /// would pass everywhere while losing four of these.</summary>
     [Fact]
     [Trait("tier", "unit")]
     public void EverySpellingThisBranchRepointedIsStillCaught_TheCollisionFixCostsNoTeeth()
@@ -349,14 +295,9 @@ public sealed class ToolSurfaceCensusTests
             "lost teeth, whatever else it fixed.");
     }
 
-    /// <summary>
-    /// The bare-name branch skips a name only where the file's own project declares it — and reports the same
-    /// spelling in a project that does not.
-    ///
-    /// <para>Both cells are derived: the colliding name is one the tool surface and some other project both
-    /// declare, off their built assemblies, and the second cell reuses that same name in a project that does
-    /// not declare it. Neither touches disk — the reading takes the path a file would have.</para>
-    /// </summary>
+    /// <summary>The bare-name branch skips a name only where the file's own project declares it, and reports
+    /// the same spelling in a project that does not. Both cases are derived off the built assemblies, and
+    /// neither touches disk — the reading only takes the path a file would have.</summary>
     [Fact]
     [Trait("tier", "unit")]
     public void ABareNameIsSkippedOnlyWhereTheFilesOwnProjectDeclaresIt_NoNuisanceRedNoLostTeeth()
@@ -395,15 +336,10 @@ public sealed class ToolSurfaceCensusTests
                                                 expression, surface));
     }
 
-    /// <summary>
-    /// A SECOND file called ToolSurface.cs is still scanned. The exemption is the one home's path; the name
-    /// is not a licence.
-    ///
-    /// <para>The fixture is planted in another project's directory, in the tree the scan walks, and removed in
-    /// a finally. Its content is a comment: the scan reads source as text, so a comment carries the same
-    /// expression a statement would, and it cannot break a build if anything compiles this tree while it
-    /// exists.</para>
-    /// </summary>
+    /// <summary>A second file called ToolSurface.cs is still scanned — the exemption is the one home's path,
+    /// not the name. The fixture is planted in another project's directory inside the tree the scan walks and
+    /// removed in a finally; its content is a comment, because the scan reads source as text and a comment
+    /// cannot break a build that runs while the file exists.</summary>
     [Fact]
     [Trait("tier", "unit")]
     public void ASecondFileCalledToolSurfaceCsIsStillScanned_TheExemptionIsAPathNotAFilename()
@@ -497,11 +433,8 @@ public sealed class ToolSurfaceCensusWireTests
     [Fact]
     public void ToolsListNamesHousecarlCheck_TheWholePointOf470()
     {
-        // The literal is deliberate: every other assertion over this name reads ToolNames.Check and so
-        // follows a change to the constant's VALUE, while a literal does not. Deliberately redundant now
-        // — data/tools-list-2.0.json spells all 46 published names as literals and PublishedNameAnchorTests
-        // is the rename oracle for every one of them, in both directions. This cell is the belt beside
-        // those braces for the one name #470 was about, and it costs a line.
+        // The literal is deliberate: every other assertion over this name reads ToolNames.Check and so follows
+        // a change to the constant's value, while a literal does not.
         Assert.Contains("housecarl_check", _s.PublishedNames);
     }
 }

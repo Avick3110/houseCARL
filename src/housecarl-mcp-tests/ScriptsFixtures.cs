@@ -5,11 +5,9 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// The shapes and readers the scripts family's DTO-level arms share — the scripts-family twin of
-/// <see cref="CheckErrorsFixtures"/>. Rationale for the DTO-vs-live driving-lane split is in
-/// <c>docs/architecture/check-family-tests.md</c>.
-/// </summary>
+/// <summary>The shapes and readers the scripts family's DTO-level tests share — the scripts-family twin of
+/// <see cref="CheckErrorsFixtures"/>. Why some tests drive DTOs and others drive live:
+/// <c>docs/architecture/check-family-tests.md</c>.</summary>
 internal static class ScriptsFixtures
 {
     /// <summary>The epoch every hand-shaped result carries, so a stamp is never the thing that varies.</summary>

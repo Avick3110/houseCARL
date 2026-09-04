@@ -4,19 +4,16 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// The repo's own projects, read off the csproj files rather than assumed from folder names. One project's
-/// assembly name differs from its directory (houseCARL-Setup), so "src/&lt;assembly name&gt;" is a convention
-/// that is already false once.
-/// </summary>
+/// <summary>The repo's own projects, read off the csproj files rather than assumed from folder names: one
+/// project's assembly name differs from its directory (houseCARL-Setup).</summary>
 static class RepoProjects
 {
     static readonly Regex AssemblyNameElement =
         new(@"<AssemblyName>\s*([^<\s]+)\s*</AssemblyName>", RegexOptions.Compiled);
 
-    /// <summary>Every project under src/: its assembly name and the directory holding its csproj. Cached on
-    /// first read rather than in a field initializer, for the reason <see cref="AllAssemblies"/> gives — the
-    /// refusal in <see cref="Discover"/> would otherwise arrive wrapped, and poison the class for the run.</summary>
+    /// <summary>Every project under src/: its assembly name and the directory holding its csproj. Cached on first
+    /// read rather than in a field initializer, so <see cref="Discover"/>'s refusal arrives as the assertion it is
+    /// instead of a TypeInitializationException that poisons the class for the run.</summary>
     public static IReadOnlyList<(string AssemblyName, string Directory)> All => _projects ??= Discover();
 
     static (string AssemblyName, string Directory)[]? _projects;
@@ -56,39 +53,27 @@ static class RepoProjects
         return hits[0];
     }
 
-    /// <summary>
-    /// The built assembly for one project. Already-loaded assemblies come back from the runtime; the rest are
-    /// loaded from <see cref="LocateAssembly"/>. A project that has no build output at all is loud: skipping
-    /// it would shrink every population derived from this list, which is the failure those populations exist
-    /// to catch. One home, because two walks over the repo's projects were about to spell this twice.
-    /// </summary>
+    /// <summary>The built assembly for one project — already-loaded ones from the runtime, the rest via
+    /// <see cref="LocateAssembly"/>. A project with no build output is loud rather than skipped: skipping shrinks
+    /// every population derived from this list.</summary>
     public static Assembly BuiltAssembly(string assemblyName, string directory) =>
         AppDomain.CurrentDomain.GetAssemblies()
             .FirstOrDefault(a => string.Equals(a.GetName().Name, assemblyName, StringComparison.OrdinalIgnoreCase))
         ?? Assembly.LoadFrom(LocateAssembly(assemblyName, directory));
 
-    /// <summary>
-    /// Which file this class would load <paramref name="assemblyName"/> from: the copy beside the running test
-    /// assembly first, the project's own build output second.
-    ///
-    /// <para>App base first because it is the build under test. A project tree holds every configuration it has
-    /// ever built, so "newest under bin/" picked a Debug dll during a Release run whenever Debug happened to be
-    /// the more recent build. <c>LoadFrom</c> loads into the DEFAULT load context, so <c>CiAll</c>'s later
-    /// <c>Assembly.Load(reference)</c> for the same name resolved to that same stale instance — both
-    /// derivations reflecting one build nobody asked for, and a guard present only in the configuration under
-    /// test invisible to both, green. It was order-dependent too: whichever population was built first decided
-    /// which dll the rest of the run saw.</para>
-    /// </summary>
+    /// <summary>Which file this class loads <paramref name="assemblyName"/> from: the copy beside the running test
+    /// assembly first, since that is the build under test, and the project's own build output second. A project
+    /// tree holds every configuration it has ever built, so picking the newest under bin/ can hand a Release run a
+    /// Debug dll — and <c>LoadFrom</c> loads into the DEFAULT context, so every later <c>Assembly.Load</c> for that
+    /// name resolves to the same instance.</summary>
     internal static string LocateAssembly(string assemblyName, string directory)
     {
         var beside = Path.Combine(AppContext.BaseDirectory, assemblyName + ".dll");
         if (File.Exists(beside)) return beside;
 
-        // Enumerated from the PROJECT directory — which exists by construction, its csproj having been read
-        // out of it — and then filtered to the bin tree. Enumerating bin/ directly threw
-        // DirectoryNotFoundException on a project that had never been built, which is the one case the
-        // refusal below is written for: the written sentence was unreachable and the reader got a bare path
-        // exception instead.
+        // Enumerated from the PROJECT directory (which exists, its csproj having been read out of it) and then
+        // filtered to the bin tree: enumerating bin/ directly throws DirectoryNotFoundException on a project that
+        // was never built, which is the one case the refusal below is written for.
         var binSegment = Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar;
         var dll = Directory.EnumerateFiles(directory, assemblyName + ".dll", SearchOption.AllDirectories)
                            .Where(p => p.Contains(binSegment, StringComparison.OrdinalIgnoreCase))
@@ -106,16 +91,11 @@ static class RepoProjects
 
     static Assembly[]? _allAssemblies;
 
-    /// <summary>
-    /// Every project's built assembly: the repo-wide population, derived from the csproj files rather than
-    /// from any one assembly's reference closure. A closure only reaches what its root REFERENCES, which is a
-    /// different set from "the repo's own assemblies" and is short in a direction nothing announces.
-    ///
-    /// <para>A method rather than a property initializer on purpose: <see cref="BuiltAssembly"/> can refuse,
-    /// and a refusal thrown out of a static initializer arrives as a TypeInitializationException that then
-    /// poisons every other test touching this class for the rest of the run. From here it arrives as the
-    /// assertion it is, in the test that asked.</para>
-    /// </summary>
+    /// <summary>Every project's built assembly, derived from the csproj files rather than from one assembly's
+    /// reference closure — a closure reaches only what its root references, which is a smaller set than the repo's
+    /// own assemblies. A method rather than a property initializer because <see cref="BuiltAssembly"/> can refuse,
+    /// and a refusal out of a static initializer arrives as a TypeInitializationException that poisons every other
+    /// test touching this class.</summary>
     public static IReadOnlyList<Assembly> AllAssemblies() =>
         _allAssemblies ??= All.Select(p => BuiltAssembly(p.AssemblyName, p.Directory))
                               .OrderBy(a => a.GetName().Name, StringComparer.Ordinal)

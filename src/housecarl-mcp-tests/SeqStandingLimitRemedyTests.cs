@@ -3,21 +3,10 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// <c>housecarl_write_seq</c>'s standing-limit sentence names a call, and the cut changed which call: it used
-/// to say "use housecarl_validate_dialogue", and the repair pointed it at <c>housecarl_check
-/// findings=["dialogue"]</c>.
-///
-/// <para>Driven, that repair was incomplete. The dialogue family REFUSES a call with no <c>seeds=</c> — it
-/// validates the topics and quests the caller names and deliberately will not sweep the whole order — so a
-/// caller following the sentence as written landed on a second refusal. The sentence now names
-/// <c>seeds=</c>, and both directions are held here: with seeds the call is accepted, without them it is
-/// refused, which is what makes the clause load-bearing rather than decoration.</para>
-///
-/// <para>The seed here is not a quest, so the response carries a per-seed error — that is the family's normal
-/// output and is not a refusal of the CALL. What this arm asserts is the parameter journey the sentence
-/// promises: the call is accepted, and the tool does not send the caller back for a missing parameter.</para>
-/// </summary>
+/// <summary><c>housecarl_write_seq</c>'s standing-limit sentence tells the caller to run the dialogue check,
+/// which REFUSES a call with no <c>seeds=</c> — it validates only the topics and quests named and will not
+/// sweep the whole order. Both directions are held here, so the sentence's <c>seeds=</c> clause is
+/// load-bearing rather than decoration.</summary>
 [Trait("tier", "integration")]
 public sealed class SeqStandingLimitRemedyTests : IClassFixture<CheckWorldFixture>
 {
@@ -32,11 +21,9 @@ public sealed class SeqStandingLimitRemedyTests : IClassFixture<CheckWorldFixtur
         Assert.Contains(ToolNames.Check, WriteSentences.Twins.SeqStandingLimit);
     }
 
-    /// <summary>What this arm can honestly claim, and what it cannot. This fixture has no DIAL/QUST/DLVW/DLBR
-    /// record, so it cannot show a content-valid seed being SERVED. What it does show is the exact defect the
-    /// repair was for: with <c>seeds=</c> present the tool no longer sends the caller back for the missing
-    /// parameter — the response is about the seed's CONTENT, which is a caller-supplied fact, not about the
-    /// shape of the call the sentence told them to make.</summary>
+    /// <summary>This fixture has no DIAL/QUST/DLVW/DLBR record, so it cannot show a content-valid seed being
+    /// SERVED. What it shows is that with <c>seeds=</c> present the response is about the seed's CONTENT, not
+    /// about a missing parameter.</summary>
     [Fact]
     public void TheCallTheSentenceNames_WithSeeds_IsNotSentBackForAMissingParameter()
     {

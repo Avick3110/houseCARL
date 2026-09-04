@@ -1,13 +1,10 @@
-// Converted-from: RecordsGuardProbe
 using HousecarlMcp;
 using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// SPEC §4.2 / §6.1 — the formids= (list) lane: identity form, the one-pole source arms, the
-/// touchers-named refusals, aggregate and census. (RecordsGuardProbe arm 3.)
-/// </summary>
+/// <summary>The formids= (list) lane: identity form, the one-pole source cases, the touchers-named refusals,
+/// aggregate and census.</summary>
 [Collection("records")]
 [Trait("tier", "integration")]
 public sealed class RecordsListLaneTests : RecordsTestBase

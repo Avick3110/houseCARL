@@ -1,4 +1,3 @@
-// Converted-from: BindingShimProbe
 using System.Text.Json;
 using HousecarlMcp;
 using ModelContextProtocol.Protocol;
@@ -7,24 +6,16 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The tool-argument binding shim, driven over stdio against <c>housecarl_records</c> —
-/// HCBR-2026-06-11-01's arms, re-pointed off the 1.x read tools onto the 2.0 tool that absorbed them.
+/// The tool-argument binding shim, driven over stdio against <c>housecarl_records</c>. The shim is
+/// schema-driven off each tool's published <c>InputSchema</c> with no per-tool wiring, so the claims are
+/// about the engine and this tool is only the carrier.
 ///
-/// <para>The original guard drove <c>housecarl_cross_plugin_query</c>, <c>housecarl_read_record</c>,
-/// <c>housecarl_read_plugin_file</c> and <c>housecarl_batch_record_detail</c>: 20 of its 25 literal wire
-/// calls were on tools this cut deletes. The shim is schema-driven off each tool's own published
-/// <c>InputSchema</c> with no per-tool wiring, so the claims are about the ENGINE and the tool was only the
-/// carrier — but the carrier the 2.0 read surface actually presents is this one, so this is where they are
-/// re-driven.</para>
-///
-/// <para><b>What the wire can and cannot prove.</b> The unconfigured server answers every call that BINDS
-/// with the same trained config prompt, whatever the argument said. So a coercion that bound fine and threw
-/// the caller's value away is invisible to a wire arm — a bare string wrapped into an EMPTY array would pass
-/// one. That is the silent-wrong-answer class, so the coercion arms below assert the PRODUCED VALUE too, by
-/// running <see cref="ToolCallShim.Coerce"/> against the schema the server actually published for that
-/// parameter. <see cref="ToolCallShimCoercionTests"/> asserts the same values against representative
-/// hand-written schemas; the schema here is the real one, which is the half that says the coercion fires on
-/// <c>housecarl_records</c> at all.</para>
+/// <para>An unconfigured server answers every call that BINDS with the same config prompt, whatever the
+/// argument said, so a coercion that bound fine and threw the caller's value away is invisible over the wire
+/// — a bare string wrapped into an empty array would pass. The coercion tests below therefore assert the
+/// produced value too, by running <see cref="ToolCallShim.Coerce"/> against the schema the server published
+/// for that parameter. <see cref="ToolCallShimCoercionTests"/> asserts the same values against hand-written
+/// schemas; the real schema here is what says the coercion fires on <c>housecarl_records</c> at all.</para>
 /// </summary>
 [Collection("server")]
 [Trait("tier", "stdio")]
@@ -56,14 +47,10 @@ public sealed class RecordsBindingShimTests
         return request.Arguments!;
     }
 
-    // ---- A: the fix did not degrade the published schema ------------------------------------------------
+    // ---- the published schema is not degraded -----------------------------------------------------------
 
-    /// <summary>
-    /// The guard against ever "fixing" the shape problem with serializer-options converters, which would
-    /// collapse the generated schema and remove the model's shape hint. (Probe arm A, read off
-    /// <c>cross_plugin_query</c>'s <c>plugins=</c>; the 2.0 list parameter carrying the same claim is
-    /// <c>formids=</c>.)
-    /// </summary>
+    /// <summary>The shape problem must never be "fixed" with serializer-options converters: that collapses
+    /// the generated schema and removes the model's shape hint.</summary>
     [Fact]
     public void ThePublishedFormidsParameterStillDeclaresAnArray_NotCollapsedByASerializerConverter()
     {
@@ -74,9 +61,9 @@ public sealed class RecordsBindingShimTests
                         StringComparison.Ordinal);
     }
 
-    // ---- B/B2/B3/C: the coercion arms -------------------------------------------------------------------
+    // ---- the coercions ----------------------------------------------------------------------------------
 
-    /// <summary>THE live failing shape (HCBR-2026-06-11-01): a list parameter sent as a bare string.</summary>
+    /// <summary>A list parameter sent as a bare string.</summary>
     [Fact]
     public void FormidsAsABareStringBecomesAOneElementArrayAndTheCallReachesTheBody()
     {
@@ -92,11 +79,8 @@ public sealed class RecordsBindingShimTests
         Assert.True(r.BodyRan, r.Describe());
     }
 
-    /// <summary>
-    /// The verified live Claude Code shape (#36): the whole array serialized as a JSON STRING. It must parse
-    /// as the array it spells — never a one-element array holding the unparsed text, which binds and then
-    /// fails later, misleadingly.
-    /// </summary>
+    /// <summary>The whole array serialized as a JSON string. It must parse as the array it spells, never a
+    /// one-element array holding the unparsed text, which binds and then fails later.</summary>
     [Fact]
     public void FormidsAsAStringEncodedJsonArrayBecomesThatArrayAndTheCallReachesTheBody()
     {
@@ -168,12 +152,10 @@ public sealed class RecordsBindingShimTests
         Assert.True(r.BodyRan, r.Describe());
     }
 
-    // ---- G/G2: the refusals that name the offending parameter -------------------------------------------
+    // ---- the refusals that name the offending parameter -------------------------------------------------
 
-    /// <summary>
-    /// An UNCOERCIBLE wrong-type shape still fails — but named, naming the OFFENDING PARAMETER and the kind
-    /// received (#222), caught before binding rather than as a byte-offset error over the whole argument list.
-    /// </summary>
+    /// <summary>An uncoercible wrong-type shape still fails, naming the offending parameter and the kind
+    /// received, caught before binding rather than as a byte-offset error over the whole argument list.</summary>
     [Fact]
     public void AnObjectWhereAnIntegerIsDeclaredIsRefusedNamingTheParameterAndTheKindReceived()
     {
@@ -184,11 +166,8 @@ public sealed class RecordsBindingShimTests
         Assert.Contains("limit (expects integer, received object)", r.Text, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// #222's exact class: a bad value for a declared BOOLEAN used to throw "could not be converted to
-    /// System.Boolean" with a byte offset and NO parameter name. It must name the parameter AND the type it
-    /// expects, before binding — and the body must never run (no config prompt).
-    /// </summary>
+    /// <summary>A bad value for a declared boolean must name the parameter and the type it expects, before
+    /// binding, and the body must never run (no config prompt).</summary>
     [Fact]
     public void AWrongTypeStringForABooleanIsRefusedNamingTheParameterAndTheTypeItExpects()
     {
@@ -199,14 +178,11 @@ public sealed class RecordsBindingShimTests
         Assert.Contains("conflicts_only (expects boolean, received string)", r.Text, StringComparison.Ordinal);
     }
 
-    // ---- I/I2: the unknown-parameter refusal ------------------------------------------------------------
+    // ---- the unknown-parameter refusal ------------------------------------------------------------------
 
-    /// <summary>
-    /// HCBR-2026-07-12: the SDK binder SILENTLY IGNORES an undeclared argument, so the call ran with the
-    /// caller's intent dropped and no correction reached them. The refusal names the offender and lists what
-    /// the tool accepts — asserted as SET EQUALITY against the published property list, so a list that goes
-    /// short (the probe sampled one name) fails here.
-    /// </summary>
+    /// <summary>The SDK binder silently ignores an undeclared argument, dropping the caller's intent with no
+    /// correction. The refusal names the offender and lists what the tool accepts, asserted as set equality
+    /// against the published property list so a list that goes short fails here.</summary>
     [Fact]
     public void AnUndeclaredParameterIsRefusedByNameAndTheRefusalListsWhatTheToolAccepts()
     {
@@ -232,13 +208,11 @@ public sealed class RecordsBindingShimTests
         Assert.True(r.BodyRan, r.Describe());
     }
 
-    // ---- J1-J5, J10: the alias layer (#221, #304) -------------------------------------------------------
+    // ---- the alias layer --------------------------------------------------------------------------------
 
-    /// <summary>
-    /// #221: a 1.x spelling the tool does not declare is renamed to the canonical parameter its own row
-    /// names. On <c>housecarl_records</c> the first declared candidate for <c>plugin</c> is <c>source</c>
-    /// — the whose-version pole — so this asserts the pole as a value, not merely that something bound.
-    /// </summary>
+    /// <summary>A spelling the tool does not declare is renamed to the canonical parameter its own row names.
+    /// The first declared candidate for <c>plugin</c> here is <c>source</c>, the whose-version pole, so the
+    /// pole is asserted as a value rather than merely that something bound.</summary>
     [Fact]
     public void TheAliasPluginIsResolvedToRecordsOwnSourceAndTheCallReachesTheBody()
     {
@@ -252,11 +226,8 @@ public sealed class RecordsBindingShimTests
         Assert.True(r.BodyRan, r.Describe());
     }
 
-    /// <summary>
-    /// #221: the permanent underscore/case bridge, resolved by normalization alone. The arm proves the
-    /// bridge rather than a table row by asserting the table has NO row for this spelling — the probe's
-    /// <c>form_id</c> → <c>formid</c> pair cannot say that on this tool, because <c>formid</c> IS a row here.
-    /// </summary>
+    /// <summary>The underscore/case bridge, resolved by normalization alone. It is the bridge and not a table
+    /// row that is proved, by asserting the table has no row for this spelling.</summary>
     [Fact]
     public void AnUnderscoreVariantIsResolvedToItsDeclaredParameterByNormalizationAlone()
     {
@@ -272,12 +243,10 @@ public sealed class RecordsBindingShimTests
         Assert.True(r.BodyRan, r.Describe());
     }
 
-    /// <summary>
-    /// #221: a spelling resolved via the SYNONYM GROUP rather than by normalization equality —
-    /// <c>plugin_name</c> normalizes to "pluginname", which no declared parameter of this tool matches, so
-    /// the bridge cannot place it and only the table's row can. The pole it lands on is the one the value's
-    /// kind can bind: a filename string is the whose-version pole, and the scope pole takes an object.
-    /// </summary>
+    /// <summary>A spelling resolved via the synonym group rather than by normalization equality:
+    /// <c>plugin_name</c> normalizes to "pluginname", which no declared parameter matches, so only the
+    /// table's row can place it. The pole it lands on is the one the value's kind can bind — a filename
+    /// string is the whose-version pole, while the scope pole takes an object.</summary>
     [Fact]
     public void TheAliasPluginNameIsResolvedThroughTheSynonymGroupNotByNormalizationEquality()
     {
@@ -294,15 +263,11 @@ public sealed class RecordsBindingShimTests
         Assert.True(r.BodyRan, r.Describe());
     }
 
-    /// <summary>
-    /// #221 GUARD — a DECLARED parameter is never treated as an alias. <c>plugins</c> is a rename row's old
-    /// spelling on other tools (it maps onto a scalar <c>plugin=</c> there), and <c>housecarl_records</c>
-    /// declares it, so the row has something here to be kept away from.
-    ///
-    /// <para>Asserted as a value, because the wire cannot see this one: <c>records.source</c> is declared
-    /// <c>JsonElement</c> and takes any JSON, so a rename onto it would still reach the tool body and answer
-    /// with the same config prompt as the correct call.</para>
-    /// </summary>
+    /// <summary>A declared parameter is never treated as an alias. <c>plugins</c> is a rename row's old
+    /// spelling on other tools and <c>housecarl_records</c> declares it, so the row has something here to be
+    /// kept away from. Asserted as a value because the wire cannot see it: <c>records.source</c> is declared
+    /// <c>JsonElement</c> and takes any JSON, so a rename onto it would still reach the body and answer with
+    /// the same config prompt as the correct call.</summary>
     [Fact]
     public void RecordsOwnDeclaredPluginsIsNeverTreatedAsAnAlias()
     {
@@ -315,11 +280,9 @@ public sealed class RecordsBindingShimTests
                      args["plugins"].GetProperty("names").EnumerateArray().Select(e => e.GetString()).ToArray());
     }
 
-    /// <summary>
-    /// #221 GUARD — an explicit canonical value is never clobbered. With <c>source</c> supplied, the stray
-    /// <c>plugin</c> has no free target, so it is left for the unknown-parameter path and NAMED, rather than
-    /// silently merged over the caller's own value.
-    /// </summary>
+    /// <summary>An explicit canonical value is never clobbered: with <c>source</c> supplied the stray
+    /// <c>plugin</c> has no free target, so it is left for the unknown-parameter path and named rather than
+    /// silently merged over the caller's own value.</summary>
     [Fact]
     public void AnAliasWhoseCanonicalIsAlreadySuppliedIsNamedUnknown_NotMergedOverIt()
     {
@@ -332,11 +295,9 @@ public sealed class RecordsBindingShimTests
         Assert.Contains("unknown parameter: plugin", r.Text, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// The kind gate must not reach the NORMALIZATION bridge: a case variant names the RIGHT parameter, so
-    /// the rename proceeds even for an unbindable value and the TYPE refusal names the real parameter and
-    /// fault — never an unknown-parameter refusal denying that the parameter exists.
-    /// </summary>
+    /// <summary>The kind gate must not reach the normalization bridge: a case variant names the right
+    /// parameter, so the rename proceeds even for an unbindable value and the type refusal names the real
+    /// parameter and fault, never an unknown-parameter refusal denying it exists.</summary>
     [Fact]
     public void ACaseVariantKeyCarryingAnUnbindableValueGetsTheTypeRefusal_NotUnknownParameter()
     {
@@ -347,13 +308,11 @@ public sealed class RecordsBindingShimTests
         Assert.Contains("conflicts_only (expects boolean, received string)", r.Text, StringComparison.Ordinal);
     }
 
-    // ---- J11: the structured parameters over the SDK's JSON->POCO path ----------------------------------
+    // ---- the structured parameters over the SDK's JSON->POCO path ---------------------------------------
 
-    /// <summary>
-    /// The one seam a direct C# call on <c>RecordsTools.Records</c> cannot cover: the SDK's JSON→POCO
-    /// deserialization of the published nested schema. The form-scoped <c>project=</c> object and the
-    /// polymorphic <c>source=</c> (here a bare string) must bind and reach the tool body.
-    /// </summary>
+    /// <summary>The one seam a direct C# call on <c>RecordsTools.Records</c> cannot cover: the SDK's
+    /// JSON→POCO deserialization of the published nested schema. The form-scoped <c>project=</c> object and
+    /// the polymorphic <c>source=</c> (here a bare string) must bind and reach the tool body.</summary>
     [Fact]
     public void TheNestedProjectObjectAndAStringSourceBindOverTheWire()
     {

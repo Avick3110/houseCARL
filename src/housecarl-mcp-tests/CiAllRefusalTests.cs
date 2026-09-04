@@ -6,14 +6,9 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// <see cref="CiAll"/>'s two written refusals, and the reason they can be read.
-///
-/// <para>Both are sentences a person has to act on: a guard whose entry point the runner cannot dispatch, and
-/// two guards claiming one CI verb. Neither fires on a green repo, so the fixture population is emitted here
-/// — a dynamic assembly carrying the offending shapes — and handed to the same scan the runner uses. The
-/// derivation of the SHIPPED population is untouched: it is still the runner's own reference closure.</para>
-/// </summary>
+/// <summary><see cref="CiAll"/>'s two written refusals: an entry point the runner cannot dispatch, and two
+/// guards claiming one CI verb. Neither fires on a green repo, so the offending shapes are emitted here as a
+/// dynamic assembly and handed to the same scan the runner uses.</summary>
 [Trait("tier", "unit")]
 public sealed class CiAllRefusalTests
 {
@@ -51,10 +46,8 @@ public sealed class CiAllRefusalTests
         return asm;
     }
 
-    /// <summary>
-    /// The verb clash arrives as the InvalidOperationException it was written as, naming both hosts — not
-    /// wrapped in a TypeInitializationException, which is what a static field initializer made of it.
-    /// </summary>
+    /// <summary>The verb clash arrives as an InvalidOperationException naming both hosts, not wrapped in a
+    /// TypeInitializationException.</summary>
     [Fact]
     public void TwoGuardsClaimingOneVerbRefuseWithBothHostsNamed_NotAsATypeInitializerFailure()
     {
@@ -80,15 +73,10 @@ public sealed class CiAllRefusalTests
         Assert.Contains("public static int", ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Nothing on <see cref="CiAll"/> is built by the type initializer.
-    ///
-    /// <para>A static field that is <c>initonly</c> can only be filled there, and a refusal thrown out of a
-    /// type initializer is wrapped in a TypeInitializationException that the CLR caches against the type for
-    /// the process: the sentence is buried in an inner exception, and every later test touching the class
-    /// fails with the same wrapper instead of its own measurement. So the invariant is the absence, derived —
-    /// not a list of the members we remembered to make lazy.</para>
-    /// </summary>
+    /// <summary>Nothing on <see cref="CiAll"/> is built by the type initializer: an <c>initonly</c> static can
+    /// only be filled there, and a refusal thrown from a type initializer comes back as a
+    /// TypeInitializationException the CLR caches against the type for the process, so the sentence is buried
+    /// and every later test on the class fails with that wrapper. Derived, not a hand list.</summary>
     [Fact]
     public void NoStaticOnCiAllIsFilledByTheTypeInitializer_SoARefusalReachesTheCallerAsItself()
     {

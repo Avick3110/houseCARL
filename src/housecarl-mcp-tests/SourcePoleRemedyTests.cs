@@ -6,22 +6,10 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// The <c>source=</c> family of remedies, each one FOLLOWED rather than read.
-///
-/// <para>Seven sentences this branch wrote or rewrote spelled the successor call as
-/// <c>housecarl_records source="…"</c> with no select term. <c>source=</c> names WHICH VERSION to read; it is not
-/// a selection, and the tool refuses a call carrying only a source pole. Every one of those sentences therefore
-/// told a caller to make a call that comes back refused — the same defect the chain lane's remedies had, in a
-/// family the chain sweep did not reach.</para>
-///
-/// <para><b>The population here is HAND-DRAWN, and that is the honest description of it.</b> It is the ten sites
-/// two independent reviewers derived and drove, not a set computed from the surface. The derived form — every
-/// shipped prose site that names a call, held against whether that call is refused — is chartered work, not this
-/// PR's: the oracle it needs is per-sentence reachability, which no containment net gives. Filed as #483, with
-/// these ten sites as its first cells. Until it exists, a sentence added tomorrow with the same shape is caught
-/// by nobody.</para>
-/// </summary>
+/// <summary>The <c>source=</c> family of remedies, each one followed rather than read. <c>source=</c> names
+/// WHICH VERSION to read, not a selection, so a sentence naming it without a select term sends the caller to a
+/// call the tool refuses. The population is hand-drawn: these are named sites, not a set computed from the
+/// surface, so a sentence added later with the same shape is not caught here.</summary>
 [Collection("records")]
 [Trait("tier", "integration")]
 public sealed class SourcePoleRemedyTests : RecordsTestBase
@@ -34,10 +22,10 @@ public sealed class SourcePoleRemedyTests : RecordsTestBase
         Assert.Contains(mustName, r);
     }
 
-    // ---- the control: what every one of these sentences used to tell the caller to do -----------------
+    // ---- the control: a source pole on its own -------------------------------------------------------
 
-    /// <summary>The whole reason the seven sentences changed. Without this arm the select terms could be
-    /// dropped again and nothing would notice.</summary>
+    /// <summary>Without this the select terms could be dropped back out of those sentences and nothing would
+    /// notice.</summary>
     [Theory]
     [InlineData("plugin")]
     [InlineData("overlay")]
@@ -70,8 +58,8 @@ public sealed class SourcePoleRemedyTests : RecordsTestBase
         Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, source: Overlay("post")));
 
     /// <summary>The copy read-back sentences: "read its records back with housecarl_records source="&lt;the
-    /// patch&gt;.esp" types=["NPC_"]". Driven against a plugin that HAS no NPC_ record, which is the point — an
-    /// empty result is served, not refused; only the missing selection was ever the refusal.</summary>
+    /// patch&gt;.esp" types=["NPC_"]". Driven against a plugin with no NPC_ record, which is the point: an empty
+    /// result is served, not refused — only a missing selection refuses.</summary>
     [Fact]
     public void TheCopyReadBackCall_TypesOverTheWrittenPatch_IsServed() =>
         Served(RecordsTools.Records(Svc, source: Plugin(W.OldName), types: new[] { "NPC_" }));
@@ -79,9 +67,8 @@ public sealed class SourcePoleRemedyTests : RecordsTestBase
     // ---- the sentence that could NOT be made followable, and says so --------------------------------
 
     /// <summary>The copy's masters claim. `housecarl_records` renders no plugin's master list in any form or
-    /// transport, so no select term makes that remedy answer its own question; the sentences now state the bound
-    /// and name the weaker check that IS available. This arm holds the weaker check followable, and the bound
-    /// stated — a sentence that promises nothing must not quietly start promising again.</summary>
+    /// transport, so no select term makes that remedy answer its own question; the sentences state the bound and
+    /// name the weaker check that IS available. Held here: that weaker check is followable.</summary>
     [Fact]
     public void TheWeakerMastersCheckTheCopySentencesName_IsServed()
     {
@@ -91,13 +78,10 @@ public sealed class SourcePoleRemedyTests : RecordsTestBase
         Assert.Contains("missing master", r);
     }
 
-    // ---- the sentences themselves, pinned to the call their arms drive ------------------------------
+    // ---- the sentences themselves, pinned to the call above -----------------------------------------
     //
-    // The arms above prove the CALL works. They do not, on their own, prove the SENTENCE still names it:
-    // measured by sabotage, dropping the select term back out of three of these sentences left both gates
-    // green. These three pins close that, each against the shipped text rather than a copy of it. The
-    // general form — every prose site that names a call, held against whether that call is refused — is
-    // #483's chartered work, not this PR's.
+    // The tests above prove the CALL works; they do not prove the SENTENCE still names it. These three pins
+    // read the shipped text itself rather than a copy of it.
 
     static readonly string[] SelectTerms =
         { "formids=", "types=", "plugins=", "where=", "references=", "conflicts_only=" };
@@ -120,16 +104,11 @@ public sealed class SourcePoleRemedyTests : RecordsTestBase
         Assert.Contains(SelectTerms, t => sentence.Contains(t, StringComparison.Ordinal));
     }
 
-    /// <summary>The on-disk-but-not-listed advisory, RENDERED by the shipped method rather than read from
-    /// source. It names `housecarl_records` with a source pole, so it must name a selection with it.
-    ///
-    /// <para>The arm asserts it reached the records-naming branch rather than skipping when it does not — an
-    /// early return here is the arm-that-cannot-fail shape, and it was one: the first version of this pin
-    /// skipped silently and stayed green while the sentence was sabotaged.</para>
-    ///
-    /// <para>The sibling UNTICKED-in-plugins.txt advisory (the "IS installed, but UNTICKED" branch) is the same
-    /// sentence shape and is NOT pinned here: this world has no installed-but-unticked plugin, and inventing
-    /// one would be a fixture change rather than a pin. Stated rather than implied.</para></summary>
+    /// <summary>The on-disk-but-not-listed advisory, rendered by the shipped method rather than read from
+    /// source. It names `housecarl_records` with a source pole, so it must name a selection with it. The test
+    /// asserts it reached the records-naming branch instead of skipping — an early return here could not fail.
+    /// The sibling installed-but-unticked advisory is the same sentence shape and is not pinned: this world has
+    /// no such plugin.</summary>
     [Fact]
     public void TheOnDiskNotListedAdvisoryNamesASelectionBesideItsSourcePole()
     {
@@ -143,9 +122,8 @@ public sealed class SourcePoleRemedyTests : RecordsTestBase
         Assert.Contains(SelectTerms, t => text!.Contains(t, StringComparison.Ordinal));
     }
 
-    /// <summary>The copy tool's standalone line, against the shipped source. It is rendered inside a write
-    /// path this test project has no fixture for, so the pin is on the text: the promise it used to make must
-    /// stay gone, and the bound it states must stay stated.</summary>
+    /// <summary>The copy tool's standalone line, against the shipped source. It is rendered inside a write path
+    /// this test project has no fixture for, so the pin is on the text rather than on a render.</summary>
     [Fact]
     public void TheCopyToolsStandaloneLineStatesTheBoundAndPromisesNothing()
     {

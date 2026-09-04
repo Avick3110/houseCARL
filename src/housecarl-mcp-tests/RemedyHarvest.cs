@@ -1,4 +1,3 @@
-// Converted-from: RecordsGuardProbe
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using HousecarlCore;
@@ -6,15 +5,9 @@ using HousecarlMcp;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// Every remedy sentence <c>housecarl_records</c> emits, harvested once per collection across the site
-/// families (fields / container / tree / scan / delta / poles / scoped / spilled artifact) and the three
-/// transports plus the artifact rows.
-///
-/// <para>The harvest names NO lever and filters on NO key: an over-harvest costs a triage row, an
-/// under-harvest hides a wrong lever. The only shape filter is on the LITERAL — a multi-word sentence vs a
-/// bare key — never on which lever a sentence names.</para>
-/// </summary>
+/// <summary>Every remedy sentence <c>housecarl_records</c> emits, harvested once per collection across the
+/// site families and the transports plus the artifact rows. The harvest names NO lever and filters on NO key
+/// — only on the literal shape of a sentence — because an under-harvest would hide a wrong lever.</summary>
 public sealed class RemedyHarvest
 {
     public static readonly Regex RemedyLine = new(

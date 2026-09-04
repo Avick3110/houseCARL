@@ -7,15 +7,8 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The dialogue family's facts <c>DialogueInfoOrderProbe.cs</c> and <c>DialogueValidateGuardProbe.cs</c>
-/// asserted through the deleted <c>DialogueWire.Render</c> (#486's whole-report renderer), re-asserted here
-/// against the LIVE surfaces that render them today: <c>housecarl_records project=info_order</c> for D1-D3,
-/// and <c>housecarl_check findings=["dialogue"]</c> for D4/V1. Numbered D1-D5/V1 per
-/// <c>dev/session-handoffs/render-halves-scratch/PHASE-1-record.md</c> §5's phase-4 fact list (D5, the
-/// <c>RenderOrderOnly</c> helper's honesty gates over synthesized views, is not re-tested here — it was fixed
-/// IN PLACE in <c>DialogueInfoOrderProbe.cs</c> by rewriting the helper onto the surviving
-/// <c>DialogueWire.AppendInfoOrderView</c>, so the ~8 arms built on it (UNREAD-RENDER, RENDER-BIG-TOPIC,
-/// RENDER-CLAIM-GATES, RENDER-HEAD-SPLIT) kept running unmoved in the probe itself).
+/// The dialogue family's facts, driven against the surfaces that render them: <c>housecarl_records
+/// project=info_order</c> for D1-D3, and <c>housecarl_check findings=["dialogue"]</c> for D4/V1.
 ///
 /// <para>D1/D2 and V1 are driven on the shared <see cref="DialogueWorld"/>. The three lock facts (D3, D4a,
 /// D4b) each construct their OWN world via <c>new()</c> — never the shared one, per <see cref="DialogueWorld"/>'s
@@ -64,7 +57,7 @@ public sealed class DialogueFamilyTests
     }
 
     // ---- fact D2 --------------------------------------------------------------------------------------
-    // The retracted PNAM-zero caveat stays absent.
+    // The PNAM-zero caveat stays absent.
 
     [Fact]
     public void FactD2_TheRetractedCaveatStaysAbsent()
@@ -76,8 +69,8 @@ public sealed class DialogueFamilyTests
     }
 
     // ---- fact D3 --------------------------------------------------------------------------------------
-    // UNREAD-WIRED: a locked contributor yields an INCOMPLETE render naming the unread plugin — the same fix,
-    // end to end through the production path, over a world this test constructs itself.
+    // UNREAD-WIRED: a locked contributor yields an INCOMPLETE render naming the unread plugin, over a world
+    // this test constructs itself.
 
     [Fact]
     public void FactD3_UnreadWired()
@@ -96,8 +89,7 @@ public sealed class DialogueFamilyTests
     // ---- fact D4 (a) ------------------------------------------------------------------------------------
     // DEFINER-LOCK-LOUD: an unreadable definer is loud — a plugin can only override a record by declaring the
     // defining plugin as a master, so opening the override REQUIRES the definer, and the fetch throws before
-    // any order code runs. The merged surface says "the check did not finish — {CheckError}", not the retired
-    // "could NOT complete" wording.
+    // any order code runs.
 
     [Fact]
     public void FactD4a_DefinerLockIsLoud()
@@ -111,10 +103,9 @@ public sealed class DialogueFamilyTests
 
         Assert.NotNull(result.Error);
         // Read PAST the seed. The sweep composes the refusal as "{seed}: {refusal}." and the seed is
-        // "<id>:HcDvMaster.esp" because the topic is DEFINED in the master — so a whole-response
-        // Contains(MasterName) is satisfied by the seed's own echo whichever plugin actually failed, and holding
-        // LastPath instead left it green (pre-green review 1b, finding 2). The refusal itself has to name the
-        // locked plugin, and only the locked one.
+        // "<id>:HcDvMaster.esp" because the topic is DEFINED in the master, so a whole-response
+        // Contains(MasterName) is satisfied by the seed's own echo whichever plugin actually failed. The
+        // refusal itself has to name the locked plugin, and only the locked one.
         var refusal = AfterSeed(text, Fid(w.Topic));
         Assert.Contains("the check did not finish", refusal);
         Assert.Contains("IOException", refusal);
@@ -139,7 +130,7 @@ public sealed class DialogueFamilyTests
 
         Assert.NotNull(result.Error);
         // Read past the seed for the same reason as D4a, though here the seed names a DIFFERENT plugin from the
-        // locked one — the same shape gets the same treatment so the two facts stay comparable.
+        // locked one.
         var refusal = AfterSeed(text, Fid(w.Topic));
         Assert.Contains("the check did not finish", refusal);
         Assert.Contains("IOException", refusal);
@@ -195,23 +186,17 @@ public sealed class DialogueFamilyTests
         return text[(i + seed.Length + 1)..];
     }
 
-    /// <summary>ONE seed's own block: the head line containing <paramref name="marker"/> and the indented findings
+    /// <summary>One seed's own block: the head line containing <paramref name="marker"/> and the indented findings
     /// under it, stopping at the NEXT seed's head — or at the family's accounting or boundary, whichever comes first.
     ///
-    /// <para>It terminated on the next BLANK line until round 2, and carried that clause as a residual until
-    /// Aaron's gate; the predicate above now names the same one terminator this paragraph does. The seed heads are
-    /// contiguous
+    /// <para>The terminator must be the next head, not the next blank line: the seed heads are contiguous
     /// (<c>ReadSentences.DialogueSeedHead</c> ends in one newline and the next head follows it directly), so the
-    /// first blank line in a three-seed response comes AFTER the third seed: every block spanned every seed below
-    /// it, and an assertion that a seed states its own verdict was satisfied by a sibling's. Measured — deleting
-    /// the DLVW verdict outright left the arm green. The terminator is the next head, which is what
-    /// "this seed's own report" was always supposed to mean.</para>
+    /// first blank line comes after the LAST seed and every block would span every seed below it — a seed's
+    /// verdict could then be satisfied by a sibling's.</para>
     ///
-    /// <para>The START is anchored to a HEAD line for the same reason, and that is not belt-and-braces: with the
-    /// terminator fixed and the start still "the first line containing the marker", the quest block resolved to the
-    /// DLVW seed's scope sentence, which names "quest (QUST)" as the record to validate for a graph surface. The
-    /// old span ran past it to the real quest head and passed on that. A kind label is a head's vocabulary, so the
-    /// head is what the search reads.</para></summary>
+    /// <para>The start is anchored to a HEAD line rather than the first line containing the marker: a kind label
+    /// also appears in a seed's scope sentence, so a marker search would resolve the quest block to the DLVW
+    /// seed.</para></summary>
     static string SeedBlock(string response, string marker)
     {
         var lines = response.Split('\n');

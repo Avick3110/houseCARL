@@ -7,17 +7,13 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// The synthetic MO2 world the script-property surface is driven against: one plugin of five records plus
-/// the loose <c>Scripts/HcSpBase.pex</c> + <c>Scripts/HcSpChild.pex</c> pair that DECLARES what those
-/// records do or do not bind. Where the records came from, why it is an MO2 instance rather than the
-/// probe's bare directory, and why it generates no corpus:
-/// <c>docs/architecture/test-project-fixtures.md</c>.
+/// <summary>The synthetic MO2 world the script-property surface is driven against: one plugin of five records plus
+/// the loose <c>Scripts/HcSpBase.pex</c> + <c>Scripts/HcSpChild.pex</c> pair declaring what those records do or do
+/// not bind (<c>docs/architecture/test-project-fixtures.md</c>).
 ///
-/// <para>Shared through <see cref="ScriptsFixture"/> and FROZEN: tests take fixture-known totals from it,
-/// so a later need gets its own world rather than an edit to this one, and a test that holds a file open
-/// builds its own instance.</para>
-/// </summary>
+/// <para>Shared through <see cref="ScriptsFixture"/> and frozen: tests take fixture-known totals from it, so a
+/// later need gets its own world rather than an edit to this one, and a test that holds a file open builds its
+/// own instance.</para></summary>
 public sealed class ScriptsWorld : IDisposable
 {
     // ---- fixture-known names: the vocabulary every assertion spells ------------------------------------
@@ -28,7 +24,7 @@ public sealed class ScriptsWorld : IDisposable
     /// <summary>The ancestor <see cref="ChildScript"/> extends — where <c>InheritedThing</c> is declared.</summary>
     public const string BaseScript = "HcSpBase";
 
-    /// <summary>The script attached with NO compiled .pex on disk — the unverifiable case (Q3).</summary>
+    /// <summary>The script attached with NO compiled .pex on disk — the unverifiable case.</summary>
     public const string MissingScript = "HcSpNoPex";
 
     public const string FootgunEditorId = "HcSpFootgun";
@@ -40,7 +36,7 @@ public sealed class ScriptsWorld : IDisposable
     /// <summary>The property declared on the ANCESTOR script, reachable only by walking the extends chain.</summary>
     public const string InheritedProperty = "InheritedThing";
 
-    /// <summary>The unbound OBJECT property — the reported silent-None footgun.</summary>
+    /// <summary>The unbound OBJECT property — it reads as None at runtime with no error.</summary>
     public const string ObjectProperty = "MySpell";
 
     /// <summary>An object property the footgun DOES bind, to a non-null form.</summary>
@@ -72,7 +68,7 @@ public sealed class ScriptsWorld : IDisposable
     public string ModsDir { get; }
     public string ScriptsDir { get; }
 
-    /// <summary>The shared world's plugin. An arm that would HOLD it open builds its own world instead.</summary>
+    /// <summary>The shared world's plugin. A test that would HOLD it open builds its own world instead.</summary>
     public string PluginPath { get; }
 
     public string PluginName { get; }
@@ -117,8 +113,8 @@ public sealed class ScriptsWorld : IDisposable
         // A non-null in-plugin FormKey for "bound" object props — the target need not exist, only IsNull is read.
         var self = new FormKey(key, 0x000801);
 
-        // wFootgun — the reported failure shape. MyAliasBound is bound via a quest alias (Object null,
-        // Alias >= 0): it must count as BOUND, and must NOT be flagged bound-but-null.
+        // wFootgun — MyAliasBound is bound via a quest alias (Object null, Alias >= 0): it counts as BOUND, and is
+        // not flagged bound-but-null.
         var footgun = mod.Weapons.AddNew(); footgun.EditorID = FootgunEditorId;
         footgun.VirtualMachineAdapter = Vmad(ChildScript,
             ObjProp(BoundProperty, self), ObjProp(NullProperty, FormKey.Null), AliasProp(AliasBoundProperty, 2));
@@ -167,7 +163,7 @@ public sealed class ScriptsWorld : IDisposable
         Svc = LoadOrderService.WithInstance(Instance, 0, store);
     }
 
-    // ---- VMAD builders (ported from the probe's fixture builders) ---------------------------------------
+    // ---- VMAD builders ---------------------------------------------------------------------------------
 
     /// <summary>A VMAD binding ONE script with the given bound properties.</summary>
     static VirtualMachineAdapter Vmad(string scriptClass, params ScriptProperty[] props)

@@ -10,23 +10,19 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// The synthetic MO2 instance the <c>exclude=</c> arms are driven over: a base master BY FILENAME
-/// (<c>Skyrim.esm</c>, which is what Mutagen's Implicits set matches on) carrying three dangling refs, and a
-/// plugin mastering it carrying two more. Five dangling refs in the order, three of them in the base master.
-///
-/// <para><c>Skyrim.esm</c> is in <c>loadorder.txt</c> and ABSENT from <c>plugins.txt</c> — which is exactly what
-/// makes it IMPLICIT (force-loaded), the fact the <c>implicit</c> token is defined by.</para>
-/// </summary>
+/// <summary>The synthetic MO2 instance the <c>exclude=</c> tests run over: a base master named
+/// <c>Skyrim.esm</c> (the filename Mutagen's Implicits set matches on) carrying three dangling refs, plus a
+/// plugin mastering it carrying two more — five in the order. <c>Skyrim.esm</c> is in <c>loadorder.txt</c> and
+/// absent from <c>plugins.txt</c>, which is what makes it implicit (force-loaded).</summary>
 public sealed class CheckWorld : IDisposable
 {
     public string Root { get; }
     public string Instance { get; }
     public string ProfileDir { get; }
-    /// <summary>The profile's plugin list — the file the composition-read arms hold open.</summary>
+    /// <summary>The profile's plugin list — the file the composition-read tests hold open.</summary>
     public string PluginsTxt => Path.Combine(ProfileDir, "plugins.txt");
 
-    /// <summary>The base master, excluded by name in the arms that name a plugin.</summary>
+    /// <summary>The base master, excluded by name in the tests that name a plugin.</summary>
     public string BaseMasterName => "Skyrim.esm";
 
     public LoadOrderService Svc { get; }
@@ -69,11 +65,10 @@ public sealed class CheckWorld : IDisposable
         var store = new UserConfigStore(Path.Combine(Root, "houseCARL.user.json"));
         Svc = LoadOrderService.WithInstance(Instance, 0, store);
 
-        // ONE SWEEP BEFORE ANY TEST RUNS, and it is load-bearing rather than tidiness. Two arms hold
-        // plugins.txt open exclusively to fault the composition read; they are about what the service does
-        // with a read it cannot make NOW, not about a service that never read at all. The composition cache
-        // is keyed on mtime, which holding a handle does not move, so warming it here makes those arms
-        // independent of the order xUnit happens to run methods in.
+        // One sweep before any test runs, and it is load-bearing. Two tests hold plugins.txt open exclusively
+        // to fault the composition read; they are about a read the service cannot make NOW, not one it never
+        // made. The composition cache is keyed on mtime, which holding a handle does not move, so warming it
+        // here makes those tests independent of the order xUnit runs methods in.
         CheckTools.CheckTool(Svc);
     }
 
@@ -84,7 +79,7 @@ public sealed class CheckWorld : IDisposable
     }
 }
 
-/// <summary>The world, built once for the class. Every arm below is read-only over it.</summary>
+/// <summary>The world, built once for the class. Every test below is read-only over it.</summary>
 public sealed class CheckWorldFixture : IDisposable
 {
     public CheckWorld W { get; } = new();
@@ -94,17 +89,13 @@ public sealed class CheckWorldFixture : IDisposable
 /// <summary>
 /// <c>exclude=</c>'s grammar, driven END TO END through the surface a caller reaches:
 /// <see cref="CheckTools.CheckTool"/> -> <see cref="LoadOrderService.CheckErrors"/> -> <c>ErrorCheck.Run</c>,
-/// over a synthetic MO2 instance.
+/// over a synthetic MO2 instance. Driven at the tool rather than the core, because that is the only lane in
+/// which the parameter's journey across the two layers is observable — a core call takes an already-resolved
+/// exclusion.
 ///
-/// <para>These arms came from the tool-layer block of the check-errors probe, deleted with the 1.x tool they
-/// drove. Every other <c>exclude=</c> cell in that probe calls the core engine directly with an
-/// already-resolved exclusion, so the parameter's journey across the two layers was covered by nothing:
-/// passing <c>null</c> in place of <c>exclude</c> at the tool call site, or in place of <c>excluded</c> at the
-/// service's <c>ErrorCheck.Run</c> calls, left the whole suite green.</para>
-///
-/// <para>Every arm asserts the sweep's own TOTALS as numbers, read off the errors family's head line, because
-/// they are fixture-known: five dangling refs across two plugins, three of them in the base master. An
-/// exclusion that does not reach the core returns five.</para>
+/// <para>Every test asserts the sweep's own totals as numbers off the errors family's head line, since they are
+/// fixture-known: five dangling refs across two plugins, three in the base master. An exclusion that does not
+/// reach the core returns five.</para>
 /// </summary>
 [Trait("tier", "integration")]
 public sealed class CheckExcludeGrammarTests : IClassFixture<CheckWorldFixture>
@@ -145,7 +136,7 @@ public sealed class CheckExcludeGrammarTests : IClassFixture<CheckWorldFixture>
         return lines.Length > 1 ? lines[0] + " | " + lines[1] : lines[0];
     }
 
-    // ---- the arms --------------------------------------------------------------------------------------
+    // ---- the tests -------------------------------------------------------------------------------------
 
     [Fact]
     public void TheSyntheticInstanceSweepsBothPluginsAndFindsAllFiveDanglingRefs_TheBaselineEveryExclusionIsMeasuredAgainst()
@@ -228,15 +219,9 @@ public sealed class CheckExcludeGrammarTests : IClassFixture<CheckWorldFixture>
         catch (Exception ex) { return $"(unparseable: {ex.GetType().Name})"; }
     }
 
-    /// <summary>
-    /// The <c>implicit</c> group is the only value whose members come from a READ that can fail. The fault is
-    /// real rather than mocked: the profile's plugins.txt held open exclusively, which is what the refusal's own
-    /// message is about.
-    ///
-    /// <para>Prose, not a value: what is asserted is that the caller was REFUSED and told which group could not
-    /// be resolved, and a refusal exists only as its sentence. The tokens pinned are the two the message must
-    /// carry — its own opening claim, and the group name, off the product's constant.</para>
-    /// </summary>
+    /// <summary>The <c>implicit</c> group is the only value whose members come from a read that can fail, so the
+    /// fault is real rather than mocked: plugins.txt held open exclusively. Asserted as prose because a refusal
+    /// exists only as its sentence; the group name comes off the product's constant.</summary>
     [Fact]
     public void WhenTheProfileCompositionCannotBeRead_TheCallerWhoAskedForTheImplicitGroupIsRefusedAndToldWhy()
     {
@@ -262,14 +247,10 @@ public sealed class CheckExcludeGrammarTests : IClassFixture<CheckWorldFixture>
         Assert.Equal(2, Dangling(locked));
     }
 
-    /// <summary>
-    /// Q3 at the surface: a bad value refuses through the TOOL, not just in the resolver's own unit test, and
-    /// names the value alongside the real token set rather than sweeping with the exclusion quietly dropped.
-    ///
-    /// <para>Prose, not a value: a refusal has no totals to read. The token set is taken from
-    /// <see cref="SweepExclusion.Tokens"/> so a token added to the product arrives here rather than needing a
-    /// line in a list somebody has to remember.</para>
-    /// </summary>
+    /// <summary>A bad value refuses through the TOOL, not just in the resolver's own unit test, and names the
+    /// value alongside the real token set rather than sweeping with the exclusion quietly dropped. The token set
+    /// is taken from <see cref="SweepExclusion.Tokens"/> so a token added to the product arrives here by
+    /// itself.</summary>
     [Fact]
     public void AnUnknownGroupValueRefusesAtTheToolSurface_NamingTheValueAndTheRealTokenSet()
     {
@@ -282,16 +263,10 @@ public sealed class CheckExcludeGrammarTests : IClassFixture<CheckWorldFixture>
     }
 }
 
-/// <summary>
-/// The <c>exclude=</c> parameter's <c>[Description]</c> against the vocabulary the parameter actually accepts.
-/// A tool parameter's prose is a SECOND spelling of an accepted set, and a token added to the set and not to
-/// the description is undiscoverable to the caller who only reads the description.
-///
-/// <para>The converse — a word in the description that is NOT an accepted token — is deliberately not checked:
-/// the description is prose, and every ordinary word in it would have to be exempted. What protects that
-/// direction is the unknown-group refusal above, which names the real set to a caller who believed a wrong
-/// word.</para>
-/// </summary>
+/// <summary>The <c>exclude=</c> parameter's <c>[Description]</c> against the vocabulary the parameter accepts:
+/// a token added to the set and not to the description is undiscoverable. The converse — a word in the
+/// description that is not a token — is deliberately not checked, since the description is prose; the
+/// unknown-group refusal above covers that direction.</summary>
 [Trait("tier", "unit")]
 public sealed class CheckExcludeGrammarDescriptionTests
 {
@@ -310,8 +285,6 @@ public sealed class CheckExcludeGrammarDescriptionTests
         return text!;
     }
 
-    // Prose, not a value: the claim is about what one caller-facing sentence SAYS, and the only artifact
-    // carrying it is the sentence.
     [Theory]
     [MemberData(nameof(AcceptedTokens))]
     public void TheExcludeDescriptionNamesEveryTokenTheParameterAccepts(string token) =>

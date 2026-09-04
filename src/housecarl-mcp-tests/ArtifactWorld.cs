@@ -4,12 +4,9 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// The §2.1.1 artifact family's own fixture: a <see cref="RecordsWorld"/> plus a PRIVATE auto-spill results
-/// directory. The results directory matters — <c>ResultsStore.Dir</c> otherwise resolves to the server binary's
-/// folder, so every truncating call in this family would write artifacts into the build output and read each
-/// other's spills when a test asks "which file did this call leave behind".
-/// </summary>
+/// <summary>The artifact family's fixture: a <see cref="RecordsWorld"/> plus a PRIVATE auto-spill results
+/// directory. Without the override <c>ResultsStore.Dir</c> resolves to the server binary's folder, so
+/// truncating calls would write artifacts into the build output and read each other's spills.</summary>
 public sealed class ArtifactFixture : IDisposable
 {
     public RecordsWorld W { get; }
@@ -63,7 +60,7 @@ public abstract class ArtifactTestBase
     protected static readonly RecordsTools.RecordsProject Identity = new() { form = "identity" };
     protected static readonly RecordsTools.RecordsProject Everything = new() { form = "everything" };
 
-    /// <summary>A refusal: the text lane's own discriminant plus what the arm claims it names.</summary>
+    /// <summary>A refusal: the text lane's own discriminant plus what the caller claims it names.</summary>
     protected static void Refused(string response, params string[] mustName)
     {
         Assert.StartsWith("error:", response);

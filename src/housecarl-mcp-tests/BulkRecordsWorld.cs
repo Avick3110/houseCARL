@@ -15,7 +15,7 @@ namespace HousecarlMcpTests;
 /// two keyword-bearing weapons and an armor, and a replacer that OVERRIDES one weapon (changing both its
 /// damage and its EditorID) and DEFINES a third weapon carrying BOTH keywords plus a second armor.
 ///
-/// <para>That shape is what the scan-lane arms need and the shared <see cref="RecordsWorld"/> does not
+/// <para>That shape is what the scan-lane tests need and the shared <see cref="RecordsWorld"/> does not
 /// carry: reverse lookups with a record hitting two targets at once, a defined-vs-overridden split for
 /// aggregate counts, a scoped-body-vs-winner value pair on the same record, and a link that no plugin
 /// defines. The shared world is frozen, so this one is its own.</para>
@@ -58,8 +58,8 @@ public sealed class BulkRecordsWorld : IDisposable
 
     public BulkRecordsWorld()
     {
-        // Same process-global discipline RecordsWorld records: capture before repointing, restore before
-        // the directory the new value names is deleted.
+        // CorpusRulebook.CorpusPath is a process-global: capture before repointing, and restore before the
+        // directory the new value names is deleted.
         _priorCorpusPath = CorpusRulebook.CorpusPath;
 
         Root = Path.Combine(Path.GetTempPath(), "hc-bulk-tests-" + Guid.NewGuid().ToString("N"));
@@ -154,7 +154,7 @@ public sealed class BulkRecordsWorld : IDisposable
 /// separates them.
 ///
 /// <para>Its own world, not a third plugin in <see cref="BulkRecordsWorld"/>: an extra active plugin
-/// would move every count the scan arms assert.</para>
+/// would move every count the scan tests assert.</para>
 /// </summary>
 public sealed class EngineImplicitLinkWorld : IDisposable
 {

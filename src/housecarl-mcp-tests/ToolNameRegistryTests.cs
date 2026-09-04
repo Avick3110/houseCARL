@@ -4,23 +4,12 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// The registry's completeness, held from both ends: the set of <c>ToolNames</c> constants, the set of tool
-/// names the source DECLARES, and the set the SDK actually REGISTERS must be one set.
-///
-/// This is what makes the registry safe to stop regenerating. The scripts under
-/// <c>scripts/tool-names/</c> ran once and are not re-run, so a tool added tomorrow gets its constant by
-/// hand — and these cells fail until it does, naming the tool that is missing one.
-///
-/// The declared/registered halves are the pair #470 turned on: <c>[McpServerTool]</c> on the method makes a
-/// tool DECLARED, and <c>WithToolsFromAssembly()</c> additionally needs <c>[McpServerToolType]</c> on the
-/// declaring type to REGISTER it. Those sets were different for twelve days. Holding all three equal means a
-/// future declared-but-unregistered tool fails here by construction, rather than being noticed.
-///
-/// No side is a hand list: constants come from reflection over <see cref="ToolNames"/>, the other two from
-/// reflection over the shipped tool assembly.
-/// Rationale: <c>docs/decisions/0004-tool-names-are-compile-time-constants.md</c>.
-/// </summary>
+/// <summary>The <c>ToolNames</c> constants, the tool names the source DECLARES (<c>[McpServerTool]</c> on the
+/// method), and the names the SDK REGISTERS (<c>WithToolsFromAssembly()</c> also needs
+/// <c>[McpServerToolType]</c> on the declaring type) must be one set. Nothing here is regenerated and no side
+/// is a hand list — all three come from reflection, so a new tool without a constant, or a declared tool no
+/// caller can reach, fails here. Rationale:
+/// <c>docs/decisions/0004-tool-names-are-compile-time-constants.md</c>.</summary>
 public sealed class ToolNameRegistryTests
 {
     const BindingFlags Members = BindingFlags.Public | BindingFlags.NonPublic

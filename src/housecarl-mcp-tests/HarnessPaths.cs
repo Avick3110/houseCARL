@@ -1,12 +1,8 @@
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// Where the repo is, and which build configuration this test run belongs to.
-///
-/// Both are DERIVED from the running assembly's own location, never passed in or guessed: a helper that
-/// silently falls back to a default is how a harness test passes while measuring the wrong tree.
-/// Every failure here throws rather than returning a fallback.
-/// </summary>
+/// <summary>Where the repo is, and which build configuration this run belongs to — both derived from the running
+/// assembly's own location. Every failure throws rather than falling back, so a test cannot measure the wrong
+/// tree.</summary>
 static class HarnessPaths
 {
     /// <summary>The repo root — the directory holding housecarl.sln, found by walking up from this assembly.</summary>

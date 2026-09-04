@@ -4,17 +4,10 @@ using Xunit.Abstractions;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// The bridge: one test that runs the old probe harness, so `dotnet test` is the single entry point for
-/// both harnesses during the two-harness window.
-///
-/// It shells the built generator's `ci-all` and fails on a non-zero exit. The bridge shrinks on its own as
-/// families convert, and goes when the last probe does.
-///
-/// Tier `bridge` because it is neither cheap nor isolated: it runs ~1.5 minutes and duplicates a step CI
-/// already has. CI excludes this tier from its `dotnet test` step for exactly that reason (see ci.yml);
-/// a local `dotnet test` with no filter runs it, which is the point.
-/// </summary>
+/// <summary>One test that shells the built generator's <c>ci-all</c> and fails on a non-zero exit, so
+/// <c>dotnet test</c> is the single entry point for both harnesses. Tier <c>bridge</c> because it is neither
+/// cheap nor isolated — it runs about 1.5 minutes and duplicates a step CI already has, so CI excludes the
+/// tier from its <c>dotnet test</c> step (see ci.yml) while a local unfiltered run includes it.</summary>
 [Trait("tier", "bridge")]
 public sealed class HarnessBridgeTests
 {

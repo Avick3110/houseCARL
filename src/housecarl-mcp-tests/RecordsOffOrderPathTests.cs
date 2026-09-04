@@ -5,15 +5,12 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The three off-order-by-path facts <c>BulkPrimitivesWave3Probe.cs</c> asserted through the deleted
-/// <c>LoadOrderService.DiffRecord</c> (#486), re-asserted here against <c>housecarl_records project=delta</c> —
-/// the surface a surviving tool calls. Numbered B4/B5/B7 per
-/// <c>dev/session-handoffs/render-halves-scratch/PHASE-1-record.md</c> §5's phase-4 fact list. B1/B2/B3/B6/B8/B9/B10
-/// are already covered elsewhere (named in the phase-4 record); this file carries only what was not.
+/// Off-order-by-path facts on <c>housecarl_records project=delta</c>: a plugin addressed by path from a
+/// disabled mod, a same-named copy outside every install root, and <c>fields=</c> narrowing a delta.
 ///
 /// <para>Driven on the shared, frozen <see cref="RecordsWorld"/> — <c>OldFile</c> is already the disabled-mod
-/// pole B4 needs, and B5 copies it once into <see cref="RecordsWorld.Scratch"/> (a scratch path, never touching
-/// the frozen fixture's own files) for the outside-the-install shape.</para>
+/// pole, and the outside-the-install case copies it into <see cref="RecordsWorld.Scratch"/> so the frozen
+/// fixture's own files are never touched.</para>
 /// </summary>
 [Collection("records")]
 [Trait("tier", "integration")]
@@ -41,12 +38,9 @@ public sealed class RecordsOffOrderPathTests : RecordsTestBase
                              "which is switched OFF in MO2 — switch it on, then re-sort)";
         Served(r, label);
 
-        // B12/B13's surviving carrier. The old arms counted the mod name and the remedy inside the deleted
-        // read_plugin_file banner; this label is composed the same way (the located Where plus WhyNotActive), so
-        // the #271 defect — the providing mod named twice in one breath, the remedy stated twice — is still
-        // reachable and is armed here rather than dying with the banner. Counted within ONE label (the record's
-        // own subject line): the same label is emitted twice per response by design, in the header and per record.
-        // Counted in the QUOTED form, because the echoed path carries the mod's folder name and that is not a naming.
+        // The providing mod and the remedy must each be stated once, not twice in one breath. Counted within ONE
+        // label — the record's own subject line — because the same label is emitted in the header and per record
+        // by design; and counted in the QUOTED form, because the echoed path also carries the mod's folder name.
         var subject = Assert.Single(r.Split('\n'), l => l.TrimStart().StartsWith("subject:", StringComparison.Ordinal));
         Assert.Equal(1, CountOf(subject, "'OldMod'"));
         Assert.Equal(1, CountOf(subject, "switch it on"));
@@ -92,9 +86,9 @@ public sealed class RecordsOffOrderPathTests : RecordsTestBase
         Assert.Equal(1, CountOf(named, "BasicStats."));
 
         // The control that makes the narrowing mean something. This pair differs in exactly ONE field, so a
-        // fields= naming the Damage path alone is byte-identical to the un-narrowed delta and the assertions above
-        // pass with fields= deleted (pre-green review 1b, finding 1). Naming a DIFFERENT path is the discriminating
-        // call: it must report NO difference, and it reports the Damage delta the moment fields= stops narrowing.
+        // fields= naming the Damage path alone is identical to the un-narrowed delta and the assertions above pass
+        // with fields= deleted. Naming a DIFFERENT path discriminates: it must report no difference, and it reports
+        // the Damage delta the moment fields= stops narrowing.
         var elsewhere = Delta("EditorID");
         Assert.Contains("identical across the fields read", elsewhere);
         Assert.DoesNotContain("BasicStats.Damage", elsewhere);

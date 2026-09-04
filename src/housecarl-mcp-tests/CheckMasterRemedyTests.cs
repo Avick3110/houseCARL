@@ -8,7 +8,7 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The synthetic MO2 instance the missing-master REMEDY arms are driven over. Three declared masters on one
+/// The synthetic MO2 instance the missing-master remedy tests are driven over. Three declared masters on one
 /// active plugin, one per standing:
 /// <list type="bullet">
 /// <item><c>Skyrim.esm</c> — in <c>loadorder.txt</c>, absent from <c>plugins.txt</c>, so force-loaded and
@@ -101,7 +101,7 @@ public sealed class CheckMasterRemedyWorld : IDisposable
     }
 }
 
-/// <summary>The world, built once for the class. Every arm below is read-only over it.</summary>
+/// <summary>The world, built once for the class. Every test below is read-only over it.</summary>
 public sealed class CheckMasterRemedyFixture : IDisposable
 {
     public CheckMasterRemedyWorld W { get; } = new();
@@ -112,22 +112,19 @@ public sealed class CheckMasterRemedyFixture : IDisposable
 /// <c>housecarl_check findings=["missing_masters"]</c> names, per unsatisfied master, WHICH shortfall it is —
 /// so the remedy the caller reads is the one that will work.
 ///
-/// <para>The finding class is unchanged: one class, one count, one union list. What changed is the remedy.
-/// The line used to read "install/enable it", which is two remedies handed to a caller who then has to go
-/// find out which applies; a master present only in a disabled mod wants ENABLE, and one that is not in the
-/// install at all wants INSTALL. That distinction was PR #148's false-negative fix and it lived on
-/// <c>read_plugin_file</c>'s advisory, which the 1.x cut deleted along with the tool.</para>
+/// <para>The finding class carries one class, one count and one union list; the split is a render fact. A
+/// master present only in a disabled mod wants ENABLE, and one that is not in the install at all wants
+/// INSTALL.</para>
 ///
-/// <para><b>Where these are driven.</b> Through <see cref="CheckTools.CheckTool"/> — the method the MCP
-/// server publishes and binds arguments into — over a synthetic MO2 instance, the same lane
-/// <see cref="CheckExcludeGrammarTests"/> uses. Not through a render call: the render is reached the way a
-/// caller reaches it. The stdio fixture cannot carry this: <c>ServerFixture</c> runs an UNCONFIGURED server
-/// (its own summary says the config check answers before any value is interpreted), so no wire-driven call
-/// can reach a sweep at all, and pointing that fixture at an instance would change a shared fixture.</para>
+/// <para>Driven through <see cref="CheckTools.CheckTool"/> — the method the MCP server publishes and binds
+/// arguments into — over a synthetic MO2 instance, so the render is reached the way a caller reaches it. The
+/// stdio fixture cannot carry this: <c>ServerFixture</c> runs an UNCONFIGURED server, so no wire-driven call
+/// reaches a sweep at all, and pointing that shared fixture at an instance would change it for everything
+/// else.</para>
 ///
 /// <para>Every expected sentence is a fixture-known value — the fixture decides which master is in which
-/// standing, and the arm names that master in the line it must appear on. A remedy printed against the wrong
-/// master fails on the name, not merely on the wording.</para>
+/// standing, and each test names that master in the line it must appear on, so a remedy printed against the
+/// wrong master fails on the name rather than merely on the wording.</para>
 /// </summary>
 [Trait("tier", "integration")]
 public sealed class CheckMasterRemedyTests : IClassFixture<CheckMasterRemedyFixture>
@@ -181,7 +178,7 @@ public sealed class CheckMasterRemedyTests : IClassFixture<CheckMasterRemedyFixt
         Assert.DoesNotContain(UnionRemedy, PatchSweep());
     }
 
-    /// <summary>The satisfied master is in neither line. Without this the two arms above would pass over a
+    /// <summary>The satisfied master is in neither line. Without this the two tests above would pass over a
     /// render that listed every declared master under both remedies.</summary>
     [Fact]
     public void ASatisfiedMasterIsNamedOnNeitherRemedyLine()

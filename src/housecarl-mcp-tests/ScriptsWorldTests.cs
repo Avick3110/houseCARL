@@ -6,8 +6,8 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The Papyrus fixture's own proofs: that <see cref="ScriptsWorld"/> is what it claims to be, so the arms
-/// built on it can assert findings without also proving their fixture. What each arm rests on:
+/// The Papyrus fixture's own proofs: that <see cref="ScriptsWorld"/> is what it claims to be, so the tests
+/// built on it can assert findings without also proving their fixture. What each rests on:
 /// <c>docs/architecture/test-project-fixtures.md</c>.
 /// </summary>
 [Collection("scripts")]
@@ -16,8 +16,8 @@ public sealed class ScriptsWorldTests
     readonly ScriptsWorld _w;
     public ScriptsWorldTests(ScriptsFixture f) => _w = f.W;
 
-    /// <summary>PEX-ROUNDTRIP, re-homed from <c>ScriptPropertyCheckProbe</c>. Everything else in the fixture
-    /// rests on this: a .pex the product cannot read makes every declaration unverifiable.</summary>
+    /// <summary>Everything else in the fixture rests on this: a .pex the product cannot read makes every
+    /// declaration unverifiable.</summary>
     [Fact]
     [Trait("tier", "integration")]
     public void ThePlantedChildPexReadsBackWithItsAutoPropertyAndItsParentClass()
@@ -94,9 +94,9 @@ public sealed class ScriptsWorldTests
             reported);
     }
 
-    /// <summary>The fixture's vacuity canary: the counts survive a world whose .pex files never resolved, so
-    /// the declarations are observed instead. Both finding sets are pinned WHOLE — <c>MyDefaulted</c> and
-    /// <c>MyAliasBound</c> exist to produce no finding, and only a set comparison asserts an absence.</summary>
+    /// <summary>The counts alone survive a world whose .pex files never resolved, so the declarations are
+    /// observed instead. Both finding sets are pinned WHOLE — <c>MyDefaulted</c> and <c>MyAliasBound</c> exist
+    /// to produce no finding, and only a set comparison asserts an absence.</summary>
     [Fact]
     [Trait("tier", "integration")]
     public void BothPlantedPexFilesResolveThroughTheLooseLayer_SoTheDeclarationsAreRealNotUnverifiable()
@@ -129,9 +129,9 @@ public sealed class ScriptsWorldTests
         Assert.Equal(ScriptsWorld.BaseScript, inherited.DeclaringScript, ignoreCase: true);
     }
 
-    /// <summary>ONE wire-path smoke test — the fixture is reachable through the live surface, which is what
-    /// makes it usable by the arms built on it. Its OWN server: the shared <see cref="ServerFixture"/> is
-    /// deliberately unconfigured and every stdio test reads "the body ran" off its config prompt.</summary>
+    /// <summary>One wire-path smoke test: the fixture is reachable through the live surface. It gets its OWN
+    /// server, because the shared <see cref="ServerFixture"/> is deliberately unconfigured and every stdio test
+    /// reads "the body ran" off its config prompt.</summary>
     [Fact]
     [Trait("tier", "stdio")]
     public void CheckOverTheWireReportsTheFixtureKnownScriptCountAndNamesTheUnverifiableScript()
@@ -149,8 +149,8 @@ public sealed class ScriptsWorldTests
 
         Assert.False(r.IsError, r.Describe());
         Assert.DoesNotContain(ServerFixture.ConfigPrompt, r.Text, StringComparison.Ordinal);
-        // A fixture-known count, kept as the cheap canary that a scripts response came back at all — it
-        // cannot tell a resolved fixture from a broken one; the two assertions below can.
+        // A fixture-known count: cheap proof a scripts response came back at all. It cannot tell a resolved
+        // fixture from a broken one; the two assertions below can.
         Assert.Contains($"{ScriptsWorld.RecordsWithScripts} record(s) with scripts", r.Text, StringComparison.Ordinal);
 
         // The unverifiable attribution, spelled the way the sweep composes it — names the .pex it looked for.
