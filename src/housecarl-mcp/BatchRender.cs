@@ -2,7 +2,7 @@ using System.Text;
 
 namespace HousecarlMcp;
 
-/// <summary>The one batch-render skeleton every multi-item tool renders through: a header count line, the batch-level
+/// <summary>The shared batch-render skeleton behind housecarl_asset_status and housecarl_nif_inspect: a header count line, the batch-level
 /// alarms once and first (so a long batch cannot truncate them away), a cap-checked per-item loop whose FIRST item
 /// always renders its core answer, and an explicit omitted-count cut. max_chars bounds the batch tail, never a
 /// single-item call's own answer, and a cut is always named — never a silent truncation. Callers supply the header,
@@ -58,7 +58,7 @@ static class BatchRender
         if (failures.Count == 0) return;
         sb.Append("\n[!] ").Append(failures.Count).Append(" archive(s) could NOT be read this build — ")
           .Append(subjectPhrase).Append(" present only in these may read as ABSENT below:\n");
-        AppendLines(sb, failures, cap);
+        AppendLines(sb, failures, "archive(s)", cap);
     }
 
     /// <summary>Archive-discovery warnings, e.g. a Skyrim.ini whose [Archive] base-archive list could not be found, so
@@ -67,16 +67,16 @@ static class BatchRender
     {
         if (warnings.Count == 0) return;
         sb.Append("\n[!] discovery (").Append(warnings.Count).Append("):\n");
-        AppendLines(sb, warnings, cap);
+        AppendLines(sb, warnings, "warning(s)", cap);
     }
 
     /// <summary>A capped bullet list inside an alarm block, cut with the same named marker.</summary>
-    static void AppendLines(StringBuilder sb, IReadOnlyList<string> lines, int cap)
+    static void AppendLines(StringBuilder sb, IReadOnlyList<string> lines, string itemNoun, int cap)
     {
         int shown = 0;
         foreach (var line in lines)
         {
-            if (sb.Length >= cap) { AppendCut(sb, lines.Count - shown, "", cap); break; }
+            if (sb.Length >= cap) { AppendCut(sb, lines.Count - shown, itemNoun, cap); break; }
             sb.Append("  - ").Append(line).Append('\n'); shown++;
         }
     }

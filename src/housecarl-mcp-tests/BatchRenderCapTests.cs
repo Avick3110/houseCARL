@@ -10,8 +10,8 @@ namespace HousecarlMcpTests;
 [Trait("tier", "unit")]
 public class BatchRenderCapTests
 {
-    // Small enough that the header plus the read-failure alarm alone pass it, so the loop's cap check fires
-    // on the first item.
+    // Small enough that the header plus the read-failure alarm alone exceed it, so only the skeleton's first-item
+    // exemption keeps any item from being cut.
     const int TightCap = 100;
 
     static AssetStatusData ThreePaths() => new(
@@ -53,22 +53,17 @@ public class BatchRenderCapTests
         Assert.Contains("2 more path(s) omitted at max_chars=100", text);
     }
 
+    /// <summary>The two callers agree under the same cap: each keeps its first item, and each names the cut with the
+    /// same marker. nif_inspect's own first-mesh contract is the nif-inspect-batch-guard probe's arm 6; this pins the
+    /// parity between the two, which is what the shared skeleton buys.</summary>
     [Fact]
-    public void NifInspectUnderATightCapStillRendersItsFirstMesh()
-    {
-        var text = RenderNif(TightCap);
-
-        Assert.Contains("meshes/a/first.nif", text);
-        Assert.DoesNotContain("meshes/b/second.nif", text);
-        Assert.Contains("2 more mesh(es) omitted at max_chars=100", text);
-    }
-
-    [Fact]
-    public void BothBatchRendersCutWithTheSameMarker()
+    public void BothBatchRendersKeepTheirFirstItemAndCutWithTheSameMarker()
     {
         var asset = AssetWire.Render(ThreePaths(), TightCap);
         var nif = RenderNif(TightCap);
 
+        Assert.Contains("meshes/a/first.nif", nif);
+        Assert.Contains("2 more mesh(es) omitted at max_chars=100", nif);
         Assert.Contains("  … [", asset);
         Assert.Contains("  … [", nif);
         Assert.DoesNotContain("... [", asset);
