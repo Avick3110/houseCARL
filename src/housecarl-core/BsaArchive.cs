@@ -39,6 +39,13 @@ public sealed record BsaPackResult(
     public bool Ran => RunError is null;
 }
 
+/// <summary>How a pack writes the archive: produce <paramref name="tmpArchive"/> from <paramref name="srcFolder"/> and
+/// report what the run said, with <c>runError</c> non-null when it never really ran. <see cref="BsaArchive.Pack"/>
+/// defaults to the BSArch shell; a test substitutes a packer that writes a known archive, so the count read-back around
+/// it can be exercised without BSArch.</summary>
+public delegate (string stdout, string stderr, string? runError) BsaPacker(
+    string bsarchExe, string srcFolder, string tmpArchive, string formatFlag, bool compress, int timeoutMs);
+
 /// <summary>
 /// The engine behind the housecarl_bsa_* tools. READS (list + extract) go through <b>Mutagen's own BSA reader</b>
 /// (<see cref="Archive.CreateReader"/> in Mutagen.Bethesda.Core — a maintained, in-process parser that handles every
@@ -213,7 +220,7 @@ public static class BsaArchive
     /// before the move, so a short pack refuses instead of reporting success; files at the source ROOT are counted apart
     /// because BSArch drops them, and a source that cannot be fully enumerated packs unverified rather than refusing. NOTE the caller must surface BSArch's caveat: a COMPRESSED archive breaks any
     /// sounds/voices it contains.</summary>
-    public static BsaPackResult Pack(string bsarchExe, string srcFolder, string archive, string formatFlag, bool compress, int timeoutMs = 600_000)
+    public static BsaPackResult Pack(string bsarchExe, string srcFolder, string archive, string formatFlag, bool compress, int timeoutMs = 600_000, BsaPacker? packer = null)
     {
         var nothing = Array.Empty<string>();
         // Pack to a scratch sibling (keeps the .bsa extension so BSArch is happy); the real target is touched only on success.
@@ -237,9 +244,7 @@ public static class BsaArchive
         catch { scan = null; }
         var baselineUtc = DateTime.UtcNow;
 
-        var args = new List<string> { "pack", srcFolder, tmp, formatFlag, "-mt" };
-        if (compress) args.Add("-z");
-        var run = Run(bsarchExe, args, timeoutMs);
+        var run = (packer ?? ShellBsArch)(bsarchExe, srcFolder, tmp, formatFlag, compress, timeoutMs);
 
         // Provenance: THIS run must have written the scratch (mtime at/after the pre-run baseline) —
         // existence alone proved nothing about who made it.
@@ -314,6 +319,16 @@ public static class BsaArchive
         "sf1dds" => "-sf1dds",
         _ => null,
     };
+
+    /// <summary>Run BSArch's pack for real: the shipped packer, and <see cref="Pack"/>'s default.</summary>
+    static (string stdout, string stderr, string? runError) ShellBsArch(
+        string bsarchExe, string srcFolder, string tmpArchive, string formatFlag, bool compress, int timeoutMs)
+    {
+        var args = new List<string> { "pack", srcFolder, tmpArchive, formatFlag, "-mt" };
+        if (compress) args.Add("-z");
+        var run = Run(bsarchExe, args, timeoutMs);
+        return (run.stdout, run.stderr, run.runError);
+    }
 
     static (bool ran, int exit, string stdout, string stderr, string? runError) Run(string exe, IReadOnlyList<string> args, int timeoutMs)
     {
