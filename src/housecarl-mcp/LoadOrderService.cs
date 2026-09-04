@@ -1679,7 +1679,9 @@ public sealed class LoadOrderService : IDisposable
         return false;                                                    // a volume or UNC path ⇒ one exact file (or archive) on disk
     }
 
-    /// <summary>Whole-order stats (forces the lazy build). For the server's stand-up / health check.</summary>
+    /// <summary>Whole-order stats (forces the lazy build). A test seam: the probes and tests warm the lazy index
+    /// through it and read the epoch and counters off it. No shipped caller — the product reads the same numbers
+    /// through <see cref="StatusData"/>.</summary>
     public (int plugins, int records, int conflicts, int maxDepth, IReadOnlyList<string> loadFailures, string epoch) Stats()
     {
         var view = Resolver.Capture();          // one build for every counter in the line
