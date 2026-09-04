@@ -588,12 +588,13 @@ public static class WriteTools
         return sb.ToString();
     }
 
-    // A plugin the external-reference pass could not read at all — shared by compact and merge, one render home. Its
-    // references into the renumbered records are unknown, so the pass's verdict does not cover it.
+    // A plugin the external-reference pass could not read through — shared by compact and merge, one render home.
+    // "Not fully" rather than "not at all": the pass lands a plugin here whether it could not be opened or faulted
+    // partway, and a plugin that faulted partway can already be in the referencer list above.
     static void AppendUnscannablePlugins(StringBuilder sb, IReadOnlyList<string>? plugins)
     {
         if (plugins is not { Count: > 0 }) return;
-        sb.Append("note: the external-reference pass could not read ").Append(string.Join(", ", plugins.Take(25)))
+        sb.Append("note: the external-reference pass could not fully read ").Append(string.Join(", ", plugins.Take(25)))
           .Append(plugins.Count > 25 ? $" (+{plugins.Count - 25} more)" : "")
           .Append(" — probably held open by another program, so close xEdit, MO2 or Skyrim and run this again; ")
           .Append("until then the referencer list above does not cover that plugin.\n");
