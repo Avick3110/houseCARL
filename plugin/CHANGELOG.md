@@ -46,7 +46,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   read back and checked against the source the same way `housecarl_bsa_list` and `housecarl_bsa_extract` check
   theirs; a disagreement refuses with both numbers and leaves any existing archive untouched. That read-back
   works on `.bsa` headers, so the `fo4`, `fo4dds`, `sf1`, `sf1dds` and `tes3` formats write an archive whose
-  contents houseCARL cannot count — those packs report no count and say so instead of claiming one.
+  contents houseCARL cannot count — those packs report no count and say so instead of claiming one. A `.bsa`
+  whose header could not be read is placed with a WARNING that its contents were not checked, rather than the
+  format sentence. The count leaves out what BSArch itself drops — every `*.db` file (a `Thumbs.db` in a
+  textures folder, say) and every file with no extension — so a source holding those still packs. A source
+  folder that cannot be fully listed (a subfolder the process may not read) packs unchecked with a sentence
+  saying so, instead of refusing the pack.
 
 - **`housecarl_compact_plugin` and `housecarl_merge_plugins` name a plugin they could not read.** The
   external-reference pass that runs before a renumber used to skip a plugin it could not open while still
