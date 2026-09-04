@@ -22,6 +22,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   recorded for it in `packaging/notices-mutagen-commits.json`, so it cannot name a release the plugin does
   not bundle. The licence texts stay hand-authored; see the markers in the file for which parts are which.
 
+- **A whole-order scan names a plugin it could not read.** `housecarl_records` and
+  `housecarl_cross_plugin_query` scanning by type, `housecarl_effect_chain`, `housecarl_validate_dialogue` on a
+  quest, and the `housecarl_skypatcher_layer` no-op scan all stream the load order's winning records. A plugin
+  that opened when the order was indexed but cannot be opened now — held open by xEdit, MO2 or the running
+  game, with its last-write time unchanged so nothing rebuilds — used to be skipped without a word, and every
+  record it wins was missing from an answer that read as a complete scan. Each of those tools now names the
+  plugin and the reason, and states that records it wins are missing; the scan still covers the rest of the
+  order.
+
 - **`housecarl_compact_plugin` and `housecarl_merge_plugins` name a plugin they could not read.** The
   external-reference pass that runs before a renumber used to skip a plugin it could not open while still
   counting it as scanned, so a plugin held open by xEdit, MO2 or the running game could make the pass report

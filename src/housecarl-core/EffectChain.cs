@@ -114,9 +114,12 @@ public static class EffectChain
         var rows = new List<EffectChainRow>();
         int total = 0, unscannable = 0;
         var samples = new List<string>();
+        // A plugin that cannot be opened now wins carriers this scan cannot see. Collected so the scan covers the
+        // rest of the order and the note names the gap, rather than the whole call ending at the bad plugin.
+        var unreadable = new List<PluginUnreadableException>();
         try
         {
-            foreach (var (fk, _, body) in view.WinnerRecordsOfType(scope))
+            foreach (var (fk, _, body) in view.WinnerRecordsOfType(scope, unreadable))
             {
                 // PER-RECORD FAULT ISOLATION (twin of the cross_plugin_query scan): Match lazily parses subrecord
                 // content, so ONE record Mutagen can't parse is excluded + accounted, not an opaque whole-call abort.
@@ -149,6 +152,13 @@ public static class EffectChain
               + string.Join("; ", samples)
               + (unscannable > samples.Count ? $"; and {unscannable - samples.Count} more" : "")
               + $". Inspect one with {ToolNames.Records} formids=[the FormID] (per-field fault isolation applies).";
+
+        string? coverageNote = unreadable.Count == 0 ? null
+            : $"coverage gap: {unreadable.Count} plugin(s) could not be read, so any carrier they win is missing from this chain: "
+              + string.Join("; ", unreadable.Select(u => u.Message));
+        scanNote = scanNote is null ? coverageNote
+                 : coverageNote is null ? scanNote
+                 : scanNote + " " + coverageNote;
 
         return new EffectChainResult(mgef, mgefEid, rows, total, total > rows.Count, null, scanNote, view.Epoch);
     }
