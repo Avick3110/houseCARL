@@ -22,22 +22,40 @@ public static class AssetTools
          "who is this asset coming from / is this texture loose or in a BSA / is this asset even present / why isn't my " +
          "override applying' for ANY mesh, texture, script, sound, interface, or other Data-relative path. Pass " +
          "asset_paths = one or more paths RELATIVE to the Data folder (forward or back slashes both fine; a drive-rooted " +
-         "or '..'-escaping path is rejected per-path). An archive that cannot be read, or a Skyrim.ini base-archive list " +
-         "that cannot be found, is reported LOUD — so an 'absent' answer is never silently trusted when the scan was " +
-         "incomplete. Read-only: resolves nothing to disk, writes nothing, changes no load order.")]
+         "or '..'-escaping path is rejected per-path), and/or under = a Data-relative DIRECTORY or glob, which resolves " +
+         "every file the VFS provides beneath it — one call over " +
+         "'meshes/actors/character/facegendata/facegeom/Skyrim.esm' answers for every facegen mesh a master defines, " +
+         "with no path list at all. The two select forms compose in one call. An archive that cannot be read, or a " +
+         "Skyrim.ini base-archive list that cannot be found, is reported LOUD — so an 'absent' answer is never silently " +
+         "trusted when the scan was incomplete. Read-only: resolves nothing to disk, writes nothing, changes no load order.")]
     public static string AssetStatus(
         LoadOrderService svc,
         [Description("The Data-relative asset path(s) to resolve, e.g. " +
                      "'textures/armor/iron/cuirass_1.dds' or 'meshes/clutter/common/tankard01.nif'. One or many; resolved " +
-                     "in order, results returned in the same order. Paths are relative to the game's Data folder.")]
-            string[] asset_paths,
+                     "in order, results returned in the same order. Paths are relative to the game's Data folder. " +
+                     "Optional when under= is given.")]
+            string[]? asset_paths = null,
+        [Description("Optional. Data-relative DIRECTORY or glob selector(s): every file the load order provides beneath " +
+                     "it (loose and BSA both) is resolved, e.g. " +
+                     "'meshes/actors/character/facegendata/facegeom/Skyrim.esm' for one master's whole facegen set. " +
+                     "Wildcards: '*' matches within one path segment, '?' one character in a segment, '**' across " +
+                     "separators — 'textures/actors/character/**/*.dds'. Matches are added after any asset_paths, " +
+                     "sorted, with duplicates dropped. A selector that matches nothing says so rather than passing as " +
+                     "an empty sweep.")]
+            string[]? under = null,
+        [Description("Optional. Max paths to resolve and render from the selection. 0 = no limit.")]
+            int limit = 0,
+        [Description("Optional. Where in the selection the rendered window starts, for paging a large under= sweep. 0 = the beginning.")]
+            int offset = 0,
         [Description("Optional. Max characters before the per-path list is cut with an explicit notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.AssetStatus, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        if (asset_paths is null || asset_paths.Length == 0)
-            return "error: asset_paths is empty. Pass one or more Data-relative asset paths (e.g. 'textures/armor/iron/cuirass_1.dds').";
-        var data = svc.AssetStatus(asset_paths);
+        if ((asset_paths is null || asset_paths.Length == 0) && (under is null || under.Length == 0))
+            return "error: asset_paths and under are both empty. Pass Data-relative asset path(s) in asset_paths " +
+                   "(e.g. 'textures/armor/iron/cuirass_1.dds'), or a Data-relative directory or glob in under " +
+                   "(e.g. 'meshes/actors/character/facegendata/facegeom/Skyrim.esm').";
+        var data = svc.AssetStatus(asset_paths ?? Array.Empty<string>(), under, limit, offset);
         return AssetWire.Render(data, max_chars > 0 ? max_chars : 80_000);
     });
 }
@@ -52,18 +70,52 @@ static class AssetWire
     {
         var header = new StringBuilder("asset status — profile '")
             .Append(d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)")
-            .Append("'  (").Append(d.Results.Count).Append(" path").Append(d.Results.Count == 1 ? "" : "s")
-            .Append(" queried)").ToString();
+            .Append("'  (").Append(d.Selected).Append(" path").Append(d.Selected == 1 ? "" : "s")
+            .Append(" selected)").ToString();
 
-        return BatchRender.Render(
+        int rendered = 0;
+        var body = BatchRender.Render(
             header, d.Results, "path(s)", cap,
             // Alarms come before the per-path list so a long batch cannot truncate them away.
             sb =>
             {
                 BatchRender.AppendReadFailures(sb, d.BsaFailures, "an asset", cap);
                 BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, cap);
+                AppendSelectorNotes(sb, d.SelectorNotes);
             },
-            (sb, r) => AppendPath(sb, r, d.ReadIncomplete, d.Warnings.Count > 0));
+            (sb, r) => { rendered++; AppendPath(sb, r, d.ReadIncomplete, d.Warnings.Count > 0); });
+
+        return body + Accounting(d, rendered);
+    }
+
+    /// <summary>What each under= selector had to say for itself — a selector that matched nothing, or was rejected.
+    /// Above the per-path list, with the other alarms, so a truncated sweep cannot cut it away.</summary>
+    static void AppendSelectorNotes(StringBuilder sb, IReadOnlyList<string>? notes)
+    {
+        if (notes is not { Count: > 0 }) return;
+        sb.Append("\n[!] under (").Append(notes.Count).Append("):\n");
+        foreach (var n in notes) sb.Append("  - ").Append(n).Append('\n');
+    }
+
+    /// <summary>The one machine-readable accounting line, always last and never subject to the cap: how many paths the
+    /// selection named, how many rendered, how many the paging window left out, and how many max_chars cut. A bulk
+    /// consumer keying results by path checks these numbers instead of counting prose it might miss (#246).</summary>
+    static string Accounting(AssetStatusData d, int rendered)
+    {
+        int capped = Math.Max(d.Selected - d.Results.Count, 0);       // left out by limit/offset
+        int truncated = Math.Max(d.Results.Count - rendered, 0);      // left out by max_chars
+        var sb = new StringBuilder("\n\n[accounting] total=").Append(d.Selected)
+            .Append(" rendered=").Append(rendered)
+            .Append(" capped=").Append(capped)
+            .Append(" truncated=").Append(truncated)
+            .Append(" offset=").Append(d.Offset)
+            .Append(" notes=").Append(d.SelectorNotes?.Count ?? 0);
+        if (capped > 0)
+            sb.Append("\nthe selection is longer than this window: re-call with offset=")
+              .Append(d.Offset + d.Results.Count).Append(" for the next page.");
+        if (truncated > 0)
+            sb.Append("\nmax_chars cut ").Append(truncated).Append(" resolved path(s) from the render: raise max_chars, or page with limit=/offset=.");
+        return sb.ToString();
     }
 
     static void AppendPath(StringBuilder sb, AssetPathResult r, bool readIncomplete, bool discoveryIncomplete)
