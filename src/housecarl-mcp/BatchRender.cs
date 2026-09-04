@@ -76,7 +76,8 @@ static class BatchRender
         int shown = 0;
         foreach (var line in lines)
         {
-            if (sb.Length >= cap) { AppendCut(sb, lines.Count - shown, itemNoun, cap); break; }
+            // shown > 0: the first line always renders even when the header and the alarm heading alone exhausted the cap.
+            if (shown > 0 && sb.Length >= cap) { AppendCut(sb, lines.Count - shown, itemNoun, cap); break; }
             sb.Append("  - ").Append(line).Append('\n'); shown++;
         }
     }
