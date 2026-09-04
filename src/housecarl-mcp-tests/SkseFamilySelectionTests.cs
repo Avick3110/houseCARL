@@ -51,8 +51,14 @@ public sealed class SkseFamilySelectionTests
         Assert.Contains(token.Trim(), error);
         foreach (var family in new[] { "inventory", "pairing", "config" })
             Assert.Contains($"'{family}'", error);
-        Assert.Contains("One family per call", error);
+        Assert.Equal(1, OneFamilyPerCallCount(error!));
     }
+
+    /// <summary>How many times the refusal says the one-family rule. It is one rule, so it is said once — a second
+    /// telling is the reader's cue that they missed something the first time.</summary>
+    static int OneFamilyPerCallCount(string error) =>
+        System.Text.RegularExpressions.Regex.Matches(error, "family per call",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase).Count;
 
     /// <summary>A list-shaped value carries the housecarl_check habit, where findings= names several families at once.
     /// The refusal names the SHAPE as well as the word, so the caller knows to drop the list rather than hunt for a
@@ -64,7 +70,7 @@ public sealed class SkseFamilySelectionTests
     {
         Assert.False(SkseTools.TryParseFamily(token, out _, out var error));
         Assert.Contains("takes ONE value, not a list", error);
-        Assert.Contains("one family per call", error);
+        Assert.Equal(1, OneFamilyPerCallCount(error!));
     }
 
     /// <summary>peek= reads one DLL image, which only the inventory family looks at. Passing it with another family is
