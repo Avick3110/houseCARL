@@ -71,13 +71,12 @@ public static class CiAll
     /// <summary>
     /// Every attributed guard, roster and standalone alike, ordered by name.
     ///
-    /// <para>A cached method rather than a static field on purpose. <see cref="Discover"/> has two written
-    /// refusals — a wrong entry-point signature, and two guards claiming one verb — and a refusal thrown out
-    /// of a static field initializer arrives as a TypeInitializationException that the CLR then caches against
-    /// the type for the life of the process. In the xUnit host that turned one sentence naming both clashing
-    /// hosts into eight failures reading "The type initializer for 'HousecarlGenerator.CiAll' threw an
-    /// exception", with the sentence buried in an inner exception. From here the refusal arrives as itself, in
-    /// the caller that asked. Every member below is cached the same way for the same reason.</para>
+    /// <para>A cached method rather than a static field on purpose: <see cref="Discover"/> throws two refusals —
+    /// a wrong entry-point signature, and two guards claiming one verb — and out of a static field initializer
+    /// those arrive as a TypeInitializationException the CLR caches against the type for the life of the process,
+    /// burying the sentence in an inner exception and repeating it on every later caller. From here the refusal
+    /// arrives as itself, in the caller that asked. Every member below is cached the same way for the same
+    /// reason.</para>
     /// </summary>
     static Entry[] All() => _all ??= Discover();
 

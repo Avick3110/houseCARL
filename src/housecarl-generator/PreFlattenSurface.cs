@@ -11,11 +11,8 @@ namespace HousecarlGenerator;
 /// the real input to both published-schema passes, read the way the server gets it.
 ///
 /// <para>Why it exists: a guard whose claim is about a POPULATION must read that population, not a hand-written
-/// stand-in for it. Both callers previously named their subjects — the expansion arm walked one of the five
-/// ref-carrying tools, and the emission-grammar arm re-derived standalone schemas for six hand-named DTO types
-/// instead of reading the SDK emission path its claim is about. Deriving the subject set here makes the guards'
-/// coverage a consequence of the surface rather than of who remembered to update a list (#451, the
-/// derive-don't-enumerate ruling).</para>
+/// stand-in for it. Deriving the subject set here makes each guard's coverage a consequence of the surface rather
+/// than of who remembered to update a list.</para>
 ///
 /// <para>The registration deliberately mirrors <c>Program.AddMcp</c>'s scan line and stops there: no transport,
 /// no server identity, and above all no <see cref="ToolSchemas.PublishSchemas"/>, because that pass mutates
@@ -28,7 +25,7 @@ internal static class PreFlattenSurface
     internal readonly record struct Tool(string Name, JsonObject Schema);
 
     /// <summary>Every registered tool's pre-flatten schema, in registration order. Throws rather than returning
-    /// empty: a derivation that finds no tools is a broken derivation, and every arm built on it would pass
+    /// empty: a derivation that finds no tools is a broken derivation, and every check built on it would pass
     /// vacuously.</summary>
     internal static IReadOnlyList<Tool> Read()
     {
