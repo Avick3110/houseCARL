@@ -31,7 +31,6 @@ public static class ToolNames
     public const string Forward = "housecarl_forward";
     public const string LoadOrderStatus = "housecarl_load_order_status";
     public const string MergePlugins = "housecarl_merge_plugins";
-    public const string NativePairingAudit = "housecarl_native_pairing_audit";
     public const string NexusCheckUpdates = "housecarl_nexus_check_updates";
     public const string NexusGraphql = "housecarl_nexus_graphql";
     public const string NexusIdentify = "housecarl_nexus_identify";
@@ -44,8 +43,7 @@ public static class ToolNames
     public const string Remove = "housecarl_remove";
     public const string SetMo2Instance = "housecarl_set_mo2_instance";
     public const string SetToolPath = "housecarl_set_tool_path";
-    public const string SkseConfigAudit = "housecarl_skse_config_audit";
-    public const string SkseInventory = "housecarl_skse_inventory";
+    public const string Skse = "housecarl_skse";
     public const string SkypatcherLayer = "housecarl_skypatcher_layer";
     public const string UpdateStatus = "housecarl_update_status";
     public const string WriteSeq = "housecarl_write_seq";

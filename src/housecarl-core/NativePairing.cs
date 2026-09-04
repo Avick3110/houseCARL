@@ -4,7 +4,7 @@ namespace HousecarlCore;
 
 // ======================================================================
 //  NativePairing — the PURE half of the native-function pairing audit
-//  (housecarl_native_pairing_audit).
+//  (housecarl_skse findings='pairing').
 //
 //  A native Papyrus function is ONE thing declared in TWO places: a .pex script class carrying a
 //  native-flagged function (what quests/MCMs/effects compile against) and a DLL that registers the
