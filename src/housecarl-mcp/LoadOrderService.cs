@@ -4526,7 +4526,7 @@ public sealed class LoadOrderService : IDisposable
     /// and fetch its version of the target record, holding each overlay OPEN (returned in <paramref name="overlays"/> for
     /// the caller to dispose AFTER the patch serialize — CopyField deep-copies through them). Active-order sources are
     /// left for <see cref="WritePatchBuilder.Apply"/> to resolve via its shared view (so they read the winner's build).
-    /// Returns a Q3 refusal string if any off-order source can't be located/opened/read or doesn't define the record
+    /// Returns a named refusal string if any off-order source cannot be located, opened or read, or does not define the record
     /// (all-or-nothing, before any write); null on success. Uses the SAME on-disk locate as read_plugin_file / the
     /// copy-npc-appearance donor lane, so the tools can never disagree on which file a filename names.
     /// <para>This capture is its own — the engine captures again — so a body pre-fetched here is only used when the
@@ -4789,7 +4789,7 @@ public sealed class LoadOrderService : IDisposable
         // Every refusal path routes through Fail, but a THROW out of the loop bypassed all of them and leaked the
         // overlays opened so far — the caller's finally only disposes what reached `overlays`, which happens on the
         // last line. A leaked overlay holds a plugin file handle open, which is exactly what MO2 and xEdit must be
-        // free to move (review round 3).
+        // free to move.
         try
         {
         for (int i = 0; i < poles.Count; i++)
@@ -5170,7 +5170,7 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>PERSIST the one-time in-place acknowledgement for <paramref name="targetPath"/> — called by every
     /// in-place lane AFTER the write it gated has actually landed, never before. <paramref name="owed"/> is the consent
     /// gate's own answer: a first touch of this file that carried <c>acknowledge=true</c>. False (already acknowledged,
-    /// or a dry run, which touches nothing and so records nothing — #225) makes this a no-op. Returns the store's error
+    /// or a dry run, which touches nothing and so records nothing) makes this a no-op. Returns the store's error
     /// when the config write failed, for the caller's own note; null when there was nothing to record or it recorded.
     /// <para>Ordering is the point. Between the consent check and the byte that changes on disk, every lane runs a
     /// chain of refusals that leave the original untouched — the writable-parent pre-flight, then the builder's own
@@ -5650,7 +5650,7 @@ public sealed class LoadOrderService : IDisposable
             if (!Directory.Exists(_modsDir))
                 return WritePatchBuilder.CreatePluginOutcome.Fail($"cannot write: ModsDir '{_modsDir}' does not exist. Check HouseCarl:ModsDir.");
 
-            // COLLISION (Q3): the basename is load-bearing for a trigger, so NEVER auto-suffix — refuse loud instead.
+            // The basename is load-bearing for a trigger, so a collision is never auto-suffixed — refuse instead.
             // (a) an active plugin already owns this basename — a second one would shadow it (MO2 picks one by mod order).
             foreach (var ext in PluginExts)                              // .esp / .esm / .esl
                 if (view.ContainsPlugin(stem + ext))
@@ -5938,7 +5938,7 @@ public sealed class LoadOrderService : IDisposable
             // records were renumbered, so the asset files the engine looks up BY FormID must follow, or a compacted
             // NPC mod silently dark-faces and a voiced mod goes mute. One captured asset view feeds both carries and
             // the SEQ check below, so all three agree on what is in the VFS. Best-
-            //     effort + REPORTED (Q3): the records are already written, so an asset we can't carry is a NAMED warning in the
+            //     effort and reported: the records are already written, so an asset that cannot be carried is a named warning in the
             //     outcome, never a failure of the compaction — and the asset layer failing to build never fails the compact
             //     either. outDir = the P′ mod-folder root (the directory holding the plugin) in BOTH lanes (new-file: the
             //     fresh folder; in-place: the target's own folder).
@@ -7157,7 +7157,7 @@ public sealed class LoadOrderService : IDisposable
     }
 
     /// <summary>The resolved output location for a NON-.esp rider: the directory to WRITE into, the mod-folder ROOT
-    /// (what residue cleanup operates on), and whether THIS call created the folder fresh (vs reused an into= folder,
+    /// (what the cleanup operates on), and whether THIS call created the folder fresh, versus reusing an into= folder,
     /// which the user owns and cleanup never touches). For the .bsa/extract riders OutputDir == ModFolder; for the
     /// compile/decompile riders OutputDir is a subfolder (<c>Scripts\</c> / <c>Source\Scripts\</c>) under ModFolder.</summary>
     public readonly record struct RiderFolder(string OutputDir, string ModFolder, bool CreatedFresh);
@@ -7884,22 +7884,19 @@ public sealed class LoadOrderService : IDisposable
         File.WriteAllText(Path.Combine(folder, "meta.ini"), content);
     }
 
-    // ---- housecarl_read_plugin_file : a RAW, out-of-load-order read of ONE plugin FILE (active or not) ----
+    // ---- a raw, out-of-load-order read of ONE plugin file, active or not ----
 
-    /// <summary>Read ONE plugin file directly off disk — INCLUDING a plugin DISABLED in MO2 — returning THAT FILE's
-    /// own version of a record (<paramref name="formid"/>), the records of a type it defines (<paramref name="type"/>),
-    /// or a record-type summary (neither). The standalone-copy chain's Stage-1 enabler: it reaches a donor you're
-    /// REMOVING from the active order, which the resolver (active profile only) cannot see.
-    ///
-    /// <para>STRUCTURAL PURITY (why a separate method, not a flag on <see cref="ResolveRead"/>): it opens its OWN
-    /// overlay via <see cref="LoadOrderResolver.OpenOverlay"/>, materialises, and DISPOSES it — it never consults the
-    /// resolver index and never reports a winner/conflict, so a raw-file read cannot masquerade as load-order truth
-    /// (the renderer stamps every result OUT-OF-LOAD-ORDER) and no handle is held at rest (the donor is never locked).
-    /// It emits FormLink fields as FormKey tokens exactly like <see cref="ResolveRead"/> — it does NOT follow links, so
-    /// it needs no master files present; declared masters that are not installed are reported as an advisory (Q3).</para>
-    ///
-    /// <para>Read-only. Q3: a missing/ambiguous filename, a bad or absent FormID, or a record Mutagen cannot parse is
-    /// NAMED, never a silent wrong answer.</para></summary>
+    /// <summary>Read one plugin file directly off disk, including a plugin disabled in MO2, returning that file's own
+    /// version of a record, the records of a type it defines, or a record-type summary when neither is given. It
+    /// reaches a donor being removed from the active order, which the resolver, seeing only the active profile,
+    /// cannot.
+    /// <para>It is a separate method rather than a flag on <see cref="ResolveRead"/> because it opens its OWN overlay,
+    /// materialises, and disposes it: it never consults the resolver index and never reports a winner or conflict, so
+    /// a raw-file read cannot masquerade as load-order truth, and no handle is held at rest. It emits FormLink fields
+    /// as FormKey tokens exactly like <see cref="ResolveRead"/> and does not follow links, so it needs no master
+    /// files present; declared masters that are not installed are reported as an advisory.</para>
+    /// <para>Read-only. A missing or ambiguous filename, a bad or absent FormID, or a record Mutagen cannot parse is
+    /// named, never a silent wrong answer.</para></summary>
     public PluginFileOutcome ReadPluginFile(string plugin, string? formid, string? type, string? mod,
                                             IReadOnlyList<string>? fields, int depth, string? editoridContains, int limit,
                                             bool resolveNames = false)
@@ -7920,51 +7917,47 @@ public sealed class LoadOrderService : IDisposable
             catch (Exception ex) { return PluginFileOutcome.Fail(plugin, $"bad FormID '{formid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '000D62:Vivace.esp'."); }
         }
 
-        // Derive the MO2 roots CHEAPLY (read ModOrganizer.ini; NO ~10s index build). Never touches the resolver.
+        // Derive the MO2 roots cheaply by reading ModOrganizer.ini, with no index build. Never touches the resolver.
         string modsDir, dataDir, overwriteDir, profileDir;
         try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
         catch (Exception ex) { return PluginFileOutcome.Fail(plugin, ex.Message); }
 
         var comp = Mo2LoadOrder.ReadComposition(profileDir);           // cheap text parse (enabled + disabled folders) — reused for locate + master advisory
 
-        // Locate the file — the shared on-disk plugin-locate contract (also the copy-npc-appearance donor lane;
-        // one home so the two tools can never find different files for the same filename).
+        // Locate the file through the shared on-disk plugin-locate contract, so no two tools can find different
+        // files for the same filename.
         var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, plugin, mod);
         if (loc.Error is not null) return PluginFileOutcome.Fail(plugin, loc.Error);
         if (loc.Ambiguous is not null) return PluginFileOutcome.AmbiguousHits(plugin, loc.Ambiguous);
         string path = loc.Path!, where = loc.Where; bool enabled = loc.Enabled; string? whyNotActive = loc.WhyNotActive;
 
-        // Open OUR OWN overlay (OpenOverlay wires localized-string resolution), read, then DISPOSE — zero handles at rest.
+        // Open our own overlay, which wires localized-string resolution, read, then dispose — no handles at rest.
         ISkyrimModGetter ov;
         try { ov = LoadOrderResolver.OpenOverlay(path, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
         catch (Exception ex) { return PluginFileOutcome.Fail(plugin, $"could not open '{path}' as a Skyrim plugin: {ex.Message}"); }
         try
         {
             var masters = ov.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();
-            // Classify each declared master by whether it will actually LOAD (Q3 — the "won't load without them" warning
-            // must fire exactly when it applies). Two distinct shortfalls, because their remedies differ:
-            //   • missing  — installed NOWHERE in the install (install it).
-            //   • inactive — installed but NOT in the active order: it lives only in a DISABLED mod, or is unchecked
-            //                (enable it). A disabled mod is not active, so counting its file as "satisfied" would be the
-            //                precise false-negative this split exists to prevent (PR #148 review): it suppresses the
-            //                "won't load" warning exactly when it applies.
-            // "Active" is read from the PROFILE (plugins.txt actives + the force-loaded implicit masters) — the same
-            // active-order notion housecarl_check's errors family uses — NOT mere on-disk presence, so the two agree.
-            // BOTH halves have to hold for a master to be satisfied, and a profile can assert the first with the
-            // second false: a stale tick in plugins.txt after the mod folder was deleted outside MO2 names a plugin
-            // as active that the install does not provide. Testing only the active half filtered that name out
-            // before the splitter ever looked for a file, so it landed in NEITHER list and the "won't load without
-            // them" warning went silent exactly where it applied (Q3). The check surface reaches the same answer by
-            // a different route — its active order is the BUILT one, which drops a listed name nothing provides.
-            // The install's plugin-name set, read ONCE — and read once for BOTH halves below, so the existence
+            // Classify each declared master by whether it will actually LOAD, so the "won't load without them"
+            // warning fires exactly when it applies. Two distinct shortfalls, because their remedies differ: MISSING
+            // means installed nowhere, so install it; INACTIVE means installed but not in the active order, living
+            // only in a disabled mod or unchecked, so enable it. A disabled mod is not active, so counting its file
+            // as satisfied would suppress the warning exactly when it applies.
+            // "Active" is read from the profile — plugins.txt actives plus the force-loaded implicit masters — not
+            // mere on-disk presence, so this agrees with the error check's notion of the active order. BOTH halves
+            // must hold for a master to be satisfied, and a profile can assert the first with the second false: a
+            // stale tick after the mod folder was deleted outside MO2 names a plugin as active that the install does
+            // not provide. Testing only the active half would filter that name out before the split ever looked for
+            // a file, so it would land in neither list and the warning would go silent where it applied.
+            // The install's plugin-name set is read once, and read once for BOTH halves below, so the existence
             // question the filter asks and the one the split answers cannot be put to two different installs.
             var installed = new HashSet<string>(
                 Mo2LoadOrder.AllPluginFileNames(comp, modsDir, dataDir, overwriteDir), StringComparer.OrdinalIgnoreCase);
             var unsatisfied = masters.Where(m => !(comp.ActivePluginNames.Contains(m)
                                                    || comp.ImplicitPluginNames.Any(x => x.Equals(m, StringComparison.OrdinalIgnoreCase)))
                                                  || !installed.Contains(m));
-            // The split itself lives in ONE home (Mo2LoadOrder.SplitUnsatisfiedMasters), shared with the check
-            // surface's missing-master remedy — so "install it" vs "enable it" cannot be decided two ways.
+            // The split itself lives in one place, shared with the check surface's missing-master remedy, so
+            // "install it" versus "enable it" cannot be decided two ways.
             var (missing, inactive) = Mo2LoadOrder.SplitUnsatisfiedMasters(installed, unsatisfied);
             var baseOut = new PluginFileOutcome
             {
@@ -7982,13 +7975,11 @@ public sealed class LoadOrderService : IDisposable
                 var rf = ReadEngine.ReadFields(rec, fields, depth <= 0 ? 1 : depth);
                 if (resolveNames)
                 {
-                    // resolve_names on a RAW file read: the FILE's link tokens are resolved against the ACTIVE order
-                    // (the only identity frame houseCARL holds) — honest, and a target the active order doesn't define
-                    // is marked 'unresolved', not guessed. Opt-in only, so the deliberate no-resolver cheapness of the
-                    // default path is untouched; a caller asking for identities accepts the resolver build.
-                    // EPOCH: deliberately NOT stamped even on this arm (PR #305 third round, named not silent) — the
-                    // response's SUBJECT is the raw file, outside the fingerprint; only display annotations touch the
-                    // build. The W2 named() pole that absorbs this tool owns its honest stamp.
+                    // resolve_names on a raw file read resolves the FILE's link tokens against the ACTIVE order, the
+                    // only identity frame houseCARL holds, and a target the active order does not define is marked
+                    // unresolved rather than guessed. Opt-in only, so the default path's no-resolver cheapness is
+                    // untouched. No epoch is stamped even here: the response's subject is the raw file, outside the
+                    // fingerprint, and only the display annotations touch a build.
                     var view = Resolver.Capture();
                     using var session = Resolver.OpenSession();
                     rf = AnnotateLinks(rf, view, session, new());
@@ -8019,7 +8010,7 @@ public sealed class LoadOrderService : IDisposable
                 return baseOut with { Mode = "enumerate", Rows = rows, RowTotal = total, Capped = capped };
             }
 
-            // neither → a record-type summary of what the file defines/overrides (donor discovery).
+            // Neither: a record-type summary of what the file defines and overrides.
             var counts = new Dictionary<string, int>(StringComparer.Ordinal);
             int recTotal = 0;
             try
@@ -8040,11 +8031,10 @@ public sealed class LoadOrderService : IDisposable
         finally { (ov as IDisposable)?.Dispose(); }
     }
 
-    /// <summary>Is a located file the copy the MO2 install SERVES for its filename — and if not, WHY not? One half of
-    /// "does the game load this file"; the other is <see cref="TickStanding"/>. The two are INDEPENDENT: a copy can be
-    /// both shadowed and unticked, and each has its own remedy, so collapsing them to one cause would always drop one
-    /// (#271). NotAnInstallCopy is deliberately the zero value: a default-constructed result must read NOT-loaded, never
-    /// accidentally loaded.</summary>
+    /// <summary>Is a located file the copy the MO2 install serves for its filename, and if not, why not? One half of
+    /// "does the game load this file"; the other is <see cref="TickStanding"/>. The two are independent — a copy can
+    /// be both shadowed and unticked, each with its own remedy — so collapsing them to one cause would always drop
+    /// one. NotAnInstallCopy is deliberately the zero value: a default-constructed result must read not-loaded.</summary>
     internal enum ServedStanding
     {
         /// <summary>The path is outside every install root, or no MO2 layer provides this exact file (a backup, an
@@ -8057,16 +8047,16 @@ public sealed class LoadOrderService : IDisposable
         Shadowed,
         /// <summary>This copy sits in a mod folder MO2 knows about and has switched OFF. Remedy: switch it on, re-sort.</summary>
         ModDisabled,
-        /// <summary>This copy sits in a folder modlist.txt does not mention at all — MO2 has not registered it (the state
-        /// of a patch houseCARL just wrote, before the refresh). Remedy: refresh MO2. DISTINCT from
-        /// <see cref="ModDisabled"/> because "switch the mod on" is not an available action here — there is nothing in
-        /// MO2's list to switch (review of PR #274, round 2).</summary>
+        /// <summary>This copy sits in a folder modlist.txt does not mention at all, so MO2 has not registered it —
+        /// the state of a patch houseCARL just wrote, before the refresh. Remedy: refresh MO2. Distinct from
+        /// <see cref="ModDisabled"/> because "switch the mod on" is not available here: there is nothing in MO2's
+        /// list to switch.</summary>
         ModUnregisteredLayer,
     }
 
-    /// <summary>Is a plugin FILENAME ticked to load — the other half of "does the game load this file". A plugin's tick
-    /// state is a DIFFERENT fact from its mod folder's switch (MO2's right pane vs its left), which is the confusion
-    /// this split exists to end. Unregistered is the zero value for the same conservative-default reason as
+    /// <summary>Is a plugin filename ticked to load — the other half of "does the game load this file". A plugin's
+    /// tick state is a different fact from its mod folder's switch, MO2's right pane versus its left, which is the
+    /// confusion this split exists to end. Unregistered is the zero value for the same conservative reason as in
     /// <see cref="ServedStanding"/>.</summary>
     internal enum TickStanding
     {
@@ -8081,21 +8071,20 @@ public sealed class LoadOrderService : IDisposable
         Unticked,
     }
 
-    /// <summary>One located plugin file, or why not. Exactly one of Path / Ambiguous / Error is set.
-    /// <para>The two standings are carried SEPARATELY rather than pre-collapsed into one boolean, so a renderer can
-    /// EXPLAIN rather than merely classify (#271): "NOT active" names the state but not the cause, and the causes —
+    /// <summary>One located plugin file, or why not. Exactly one of Path, Ambiguous or Error is set.
+    /// <para>The two standings are carried separately rather than pre-collapsed into one boolean, so a renderer can
+    /// explain rather than merely classify: "not active" names the state but not the cause, and the causes —
     /// unticked, mod switched off, shadowed, unregistered — have different remedies. <see cref="Enabled"/> keeps the
-    /// single "the game loads this file" boolean every existing consumer reads, now derived rather than stored.</para></summary>
-    /// <param name="CauseDetail">For <see cref="ServedStanding.Shadowed"/>, the WHERE-label of the copy that IS served
-    /// (a different copy, so it never collides with <paramref name="Where"/>). For the two layer-off standings, the mod
-    /// FOLDER NAME alone — never the full hit label, whose text varies per lane and carries its own remedy, which is
-    /// what made the composed sentence say the same thing twice (review of PR #274).</param>
-    /// <param name="WhereNamesLayer">Does <paramref name="Where"/> already identify WHICH layer holds this copy? Set by
-    /// each lane from what it knows — the filename lane's Where IS the hit's label and the mod= lane's names the mod,
-    /// while the direct-path lane's is the constant "direct path" and identifies nothing. Carried as a fact rather than
-    /// re-derived by string-comparing the two labels: that comparison held for the filename lane and silently failed for
-    /// mod= (whose label omits the state qualifier), so the duplication it was meant to stop survived in a lane nobody
-    /// had armed. A flag the lane sets cannot drift the way a heuristic over two hand-built strings does.</param>
+    /// single "the game loads this file" boolean, derived rather than stored.</para></summary>
+    /// <param name="CauseDetail">For <see cref="ServedStanding.Shadowed"/>, the where-label of the copy that IS
+    /// served, which is a different copy so it never collides with <paramref name="Where"/>. For the two layer-off
+    /// standings, the mod FOLDER NAME alone — never the full hit label, whose text varies per lane and carries its
+    /// own remedy, which makes the composed sentence say the same thing twice.</param>
+    /// <param name="WhereNamesLayer">Does <paramref name="Where"/> already identify which layer holds this copy? Set
+    /// by each lane from what it knows: the filename lane's Where IS the hit's label and the mod= lane's names the
+    /// mod, while the direct-path lane's is a constant that identifies nothing. Carried as a fact rather than
+    /// re-derived by string-comparing the two labels, because that comparison holds for one lane and silently fails
+    /// for another whose label omits the state qualifier.</param>
     internal readonly record struct PluginLocateResult(
         string? Path, string Where, ServedStanding Served, TickStanding Tick, string? CauseDetail,
         bool WhereNamesLayer,
@@ -8106,14 +8095,12 @@ public sealed class LoadOrderService : IDisposable
         /// was addressed.</summary>
         public bool Enabled => Served == ServedStanding.Serves && Tick is TickStanding.Ticked or TickStanding.Implicit;
 
-        /// <summary>WHY the game does not load this file — null when <see cref="Enabled"/>, and also when no file was
-        /// located at all (the error and ambiguous results, which no renderer of this state reaches). Composed HERE, once,
-        /// so the three renderers that state this (read_plugin_file's header, diff_record's off-order pole,
-        /// copy_npc_appearance's donor line) cannot drift apart on the wording; the shared locate contract exists
-        /// because an inline copy had already diverged on this very flag. Both clauses are emitted when both apply —
-        /// a shadowed copy of an unticked plugin needs two fixes, and naming one would send the reader to do half the
-        /// job. The unregistered clause is suppressed when the served half already failed: "in a DISABLED mod" explains
-        /// the absence from plugins.txt, and repeating it as a second cause reads as a second problem.</summary>
+        /// <summary>Why the game does not load this file — null when <see cref="Enabled"/>, and also when no file was
+        /// located at all. Composed here, once, so every renderer that states it cannot drift apart on the wording.
+        /// Both clauses are emitted when both apply: a shadowed copy of an unticked plugin needs two fixes, and
+        /// naming one would send the reader to do half the job. The unregistered clause is suppressed when the served
+        /// half already failed, because a disabled mod already explains the absence from plugins.txt and repeating it
+        /// reads as a second problem.</summary>
         public string? WhyNotActive
         {
             get
@@ -8124,15 +8111,15 @@ public sealed class LoadOrderService : IDisposable
                 switch (Served)
                 {
                     case ServedStanding.Shadowed:
-                        // CauseDetail is always set here: JudgeServed returns Shadowed only when this copy's OWN layer
-                        // is enabled, which means a served hit exists to name. That hit is a DIFFERENT copy, so naming
+                        // CauseDetail is always set here: Shadowed is returned only when this copy's own layer is
+                        // enabled, which means a served hit exists to name. That hit is a different copy, so naming
                         // it never duplicates Where whichever lane asked.
                         parts.Add($"this copy is SHADOWED — {CauseDetail} provides the copy the game loads");
                         break;
-                    // The two layer-off standings name the folder ONLY when Where does not (WhereNamesLayer), and state
-                    // the layer's condition + remedy in words rather than echoing a label — the label is what got
-                    // printed twice. Their remedies are genuinely different, which is why they are separate standings:
-                    // an unregistered folder has nothing in MO2's list to switch on.
+                    // The two layer-off standings name the folder only when Where does not, and state the layer's
+                    // condition and remedy in words rather than echoing a label, which is what got printed twice.
+                    // Their remedies genuinely differ, which is why they are separate standings: an unregistered
+                    // folder has nothing in MO2's list to switch on.
                     case ServedStanding.ModDisabled:
                         parts.Add(WhereNamesLayer
                             ? "that mod folder is switched OFF in MO2 — switch it on, then re-sort"
@@ -8145,9 +8132,8 @@ public sealed class LoadOrderService : IDisposable
                         break;
                     case ServedStanding.NotAnInstallCopy:
                         // States what was CHECKED, not a verdict on the file. This arm is also reached when the path
-                        // string-compares miss (a junction, a subst drive, a UNC route to the same install), where "not
-                        // a copy the install provides" would be a confident sentence that is simply false — the class
-                        // of overclaim this whole change exists to delete (review of PR #274, round 2).
+                        // string-compares miss — a junction, a subst drive, a UNC route to the same install — where
+                        // "not a copy the install provides" would be a confident sentence that is simply false.
                         parts.Add("no MO2 layer was found providing this exact path");
                         break;
                 }
@@ -8160,12 +8146,11 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
-    /// <summary>Judge the SERVED half for one located file: is <paramref name="fullPath"/> the copy the install provides
-    /// for its filename, and if not, which of the three distinct not-served states is it? Judged against the first hit
-    /// from an ENABLED layer — precisely the rule <see cref="Mo2LoadOrder.BuildFilenameMap"/> uses to build the real
-    /// order. NOT merely the first hit: <see cref="Mo2LoadOrder.LocatePlugin"/> also walks disabled and unlisted folders
-    /// that the order never consults. Compared by FULL PATH — a backup and the live copy share a filename and are
-    /// different files.</summary>
+    /// <summary>Judge the served half for one located file: is <paramref name="fullPath"/> the copy the install
+    /// provides for its filename, and if not, which of the three not-served states is it? Judged against the first
+    /// hit from an ENABLED layer, which is the rule the real order is built by — not merely the first hit, because
+    /// the locate also walks disabled and unlisted folders the order never consults. Compared by full path, since a
+    /// backup and the live copy share a filename and are different files.</summary>
     static (ServedStanding Served, string? Detail) JudgeServed(
         Mo2Composition comp, IReadOnlyList<PluginFileHit> located, string fullPath)
     {
@@ -8184,9 +8169,9 @@ public sealed class LoadOrderService : IDisposable
         return (listedOff ? ServedStanding.ModDisabled : ServedStanding.ModUnregisteredLayer, folder);
     }
 
-    /// <summary>Judge the TICK half for one plugin filename, from the profile text files. Kept beside
-    /// <see cref="JudgeServed"/> so the two halves can never be computed by different rules in different lanes — the
-    /// exact divergence that cost #270 four review rounds.</summary>
+    /// <summary>Judge the tick half for one plugin filename, from the profile text files. Kept beside
+    /// <see cref="JudgeServed"/> so the two halves can never be computed by different rules in different
+    /// lanes.</summary>
     static TickStanding JudgeTick(Mo2Composition comp, string fileName)
     {
         if (comp.ActivePluginNames.Contains(fileName)) return TickStanding.Ticked;
@@ -8197,40 +8182,35 @@ public sealed class LoadOrderService : IDisposable
         return TickStanding.Unregistered;
     }
 
-    /// <summary>THE on-disk plugin-locate contract, shared by read_plugin_file and the copy-npc-appearance donor
-    /// lane (review finding: a second inline copy had already diverged — the mod= lane forgot the enabled flag). A
-    /// direct PATH (rooted / has a separator) is used verbatim ("inspect ANY plugin file"); otherwise the argument
-    /// is a FILENAME found across the whole install (enabled + disabled mod folders, overwrite, Data), with
-    /// <paramref name="mod"/> narrowing a name several folders provide. Ambiguity comes back structured — each
-    /// caller renders its own remedy.
-    /// <para><paramref name="offerModParam"/> (W3 PR 2): the not-found refusal ends by offering <c>mod=</c> as the
-    /// disambiguator, which is only true for callers that HAVE that parameter. A caller without one passes false and
-    /// the clause is omitted — a refusal must never send someone to a parameter their tool does not expose.</para></summary>
+    /// <summary>The on-disk plugin-locate contract, shared by every lane that resolves a plugin by name, so no two
+    /// can diverge. A direct path — rooted or carrying a separator — is used verbatim, so any plugin file can be
+    /// inspected; otherwise the argument is a filename found across the whole install (enabled and disabled mod
+    /// folders, overwrite, Data), with <paramref name="mod"/> narrowing a name several folders provide. Ambiguity
+    /// comes back structured, so each caller renders its own remedy.
+    /// <para><paramref name="offerModParam"/> controls whether the not-found refusal offers <c>mod=</c> as the
+    /// disambiguator, which is only true for callers that have that parameter: a refusal must never send someone to
+    /// a parameter their tool does not expose.</para></summary>
     internal static PluginLocateResult LocatePluginFileOnDisk(
         Mo2Composition comp, string modsDir, string dataDir, string overwriteDir, string plugin, string? mod,
         bool offerModParam = true)
     {
-        // A plugin's TICK state is a DIFFERENT fact from its mod folder's switch: a plugin can sit in an enabled mod
-        // and be unchecked in MO2's right pane, and the game then does not load it. Every lane below returns the pair
-        // (served, tick) the renderers state as "active" / "NOT active — <why>", so BOTH halves are judged in every
-        // lane, by the SAME two helpers (JudgeServed / JudgeTick) — a lane computing one of them its own way is the
-        // divergence that cost #270 four review rounds. Implicit base/CC masters are force-loaded and never listed in
-        // plugins.txt, so they count as ticked. This is the same test read_plugin_file already applies to a file's
-        // declared MASTERS, now applied to the file itself, and carrying its cause (#271).
+        // A plugin's tick state is a different fact from its mod folder's switch: a plugin can sit in an enabled mod
+        // and be unchecked in MO2's right pane, and the game then does not load it. Every lane below returns the
+        // (served, tick) pair the renderers state as active or not-active-because, so both halves are judged in
+        // every lane by the same two helpers; a lane computing one its own way is how they diverge. Implicit base
+        // and CC masters are force-loaded and never listed in plugins.txt, so they count as ticked.
         if (LooksLikePath(plugin))
         {
             if (!File.Exists(plugin))
                 return new(null, "", ServedStanding.NotAnInstallCopy, TickStanding.Unregistered, null, false, null, $"no file at path '{plugin}'.");
             var full = Path.GetFullPath(plugin);
-            // The standing is COMPUTED for a direct path, never assumed. Addressing a file BY PATH says nothing about
-            // whether the install provides it — a path can perfectly well name the live copy of an enabled plugin,
-            // and a hardcoded `false` here stamped that copy "disabled" (#269). JudgeServed answers "is THIS file the
-            // copy the install SERVES?" against the first ENABLED-layer hit; see its own doc for why neither the first
-            // hit nor any matching hit is the right comparand. Two costs accepted: this pays the same folder sweep the
-            // filename lane does (one stat per candidate folder), which is why a path no install root contains skips it
-            // outright; and a path reaching the install through a junction/symlink won't string-match, so it reads as
-            // NotAnInstallCopy — the pre-fix answer, conservative in the same direction rather than newly wrong in the
-            // other. The tick half needs no path at all, so it is judged for EVERY direct path, junction or not.
+            // The standing is computed for a direct path, never assumed: addressing a file by path says nothing about
+            // whether the install provides it, and a path can perfectly well name the live copy of an enabled plugin.
+            // JudgeServed answers whether THIS file is the copy the install serves, against the first enabled-layer
+            // hit. Two costs are accepted: this pays the same folder sweep the filename lane does, which is why a
+            // path inside no install root skips it outright; and a path reaching the install through a junction or
+            // symlink will not string-match, so it reads as NotAnInstallCopy — conservative rather than wrong in the
+            // other direction. The tick half needs no path at all, so it is judged for every direct path.
             var fnPath = Path.GetFileName(full);
             var located = IsUnderAnyInstallRoot(full, modsDir, dataDir, overwriteDir)   // outside every root ⇒ can't be the install's copy; skip the scan
                 ? Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, fnPath)
@@ -8251,8 +8231,8 @@ public sealed class LoadOrderService : IDisposable
             // loads the serving copy instead.
             var (modServed, modDetail) = JudgeServed(
                 comp, Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, fn), cand);
-            // WhereNamesLayer: TRUE — "mod 'X'" names the folder (it carries no STATE qualifier, which is exactly why
-            // the old label-equality test failed here and let the duplication through).
+            // WhereNamesLayer is true: "mod 'X'" names the folder, though it carries no state qualifier — which is
+            // why a label-equality test would fail here and let the duplication through.
             return new(cand, $"mod '{mod.Trim()}'", modServed, JudgeTick(comp, fn), modDetail, true, null, null);
         }
         var hits = Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, plugin);
@@ -8271,18 +8251,17 @@ public sealed class LoadOrderService : IDisposable
     /// or 'mods\M\X.esp' is a path; a bare 'X.esp' is a filename.</summary>
     static bool LooksLikePath(string s) => Path.IsPathRooted(s) || s.Contains('\\') || s.Contains('/');
 
-    /// <summary>Do two paths denote the SAME plugin file? A FULL-PATH compare (case-insensitive, as Windows paths
-    /// are) — never a filename compare: an archived backup and the live copy share a name and are different files,
-    /// which is exactly the distinction a provenance label gets wrong when it guesses.</summary>
+    /// <summary>Do two paths denote the same plugin file? A full-path, case-insensitive compare, never a filename
+    /// compare: an archived backup and the live copy share a name and are different files.</summary>
     static bool SamePluginFile(string a, string b)
     {
         try { return string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase); }
         catch { return false; }
     }
 
-    /// <summary>Is <paramref name="fullPath"/> inside any MO2/game root? Used ONLY to skip work — a file outside
-    /// every root cannot be a copy the install provides — so the enabled/disabled CLASSIFICATION itself stays with
-    /// the one shared locate, never re-derived here.</summary>
+    /// <summary>Is <paramref name="fullPath"/> inside any MO2 or game root? Used only to skip work, since a file
+    /// outside every root cannot be a copy the install provides, so the enabled/disabled classification itself stays
+    /// with the shared locate and is never re-derived here.</summary>
     static bool IsUnderAnyInstallRoot(string fullPath, params string[] roots)
     {
         foreach (var root in roots)
@@ -8293,7 +8272,7 @@ public sealed class LoadOrderService : IDisposable
                 var r = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                 if (fullPath.StartsWith(r + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return true;
             }
-            catch { /* an unparseable root simply isn't a match — never a false 'inside' (Q3) */ }
+            catch { /* an unparseable root simply isn't a match — never a false 'inside' */ }
         }
         return false;
     }
@@ -8303,13 +8282,12 @@ public sealed class LoadOrderService : IDisposable
     Dictionary<string, List<Type>>? _typeLookup;
     Dictionary<string, List<Type>> TypeLookup => _typeLookup ??= BuildTypeLookup();
 
-    /// <summary>Build the type-string → getter-Type(s) map from the corpus (the authoritative type catalog).
-    /// Keyed by BOTH catalog name and 4-char signature; the 2 many-to-one signatures (GMST/GLOB) accumulate
-    /// their variants so a signature query unions them. The 2 abstract-group BASE names (Global / GameSetting,
-    /// kind="polymorphic-base") map to their concrete arms' getter Types BY CONSTRUCTION — the same arm union the
-    /// GMST/GLOB signature already yields — so a query by the base name unions them too and the ambiguity branch at
-    /// ResolveTypeFilter's callers names the variants. A corpus AQ name that won't load is skipped here and surfaces
-    /// as "unknown type" at query time — never a silent wrong type.</summary>
+    /// <summary>Build the type-string to getter-Type map from the corpus, the authoritative type catalog. Keyed by
+    /// both catalog name and 4-char signature; a many-to-one signature accumulates its variants so a signature query
+    /// unions them. An abstract-group base name maps to its concrete arms' getter Types by construction — the same
+    /// union the signature yields — so a query by the base name unions them too, and the callers' ambiguity branch
+    /// names the variants. A corpus type name that will not load is skipped here and surfaces as "unknown type" at
+    /// query time, never as a silently wrong type.</summary>
     static Dictionary<string, List<Type>> BuildTypeLookup()
     {
         var lookup = new Dictionary<string, List<Type>>(StringComparer.OrdinalIgnoreCase);
@@ -8328,9 +8306,9 @@ public sealed class LoadOrderService : IDisposable
             Add(ts.Name, t);
             Add(ts.Signature, t);
         }
-        // Abstract-group base names (Global / GameSetting) → their concrete arms' getter Types. The arms are listed
-        // on the polymorphic-base's own corpus entry, so the union is derived, not hand-wired (cornerstone §3): a query
-        // type='Global' resolves to the same set GLOB does, and the existing many-match guidance names the variants.
+        // Abstract-group base names map to their concrete arms' getter Types. The arms are listed on the
+        // polymorphic-base's own corpus entry, so the union is derived rather than hand-wired — the generated-coverage
+        // cornerstone — and a query by the base name resolves to the same set its signature does.
         foreach (var ts in corpus.Types.Values)
         {
             if (ts.Kind != "polymorphic-base" || ts.Arms is not { Count: > 0 } arms) continue;
@@ -8342,7 +8320,7 @@ public sealed class LoadOrderService : IDisposable
         return lookup;
     }
 
-    /// <summary>A user type string → its getter Type(s). Throws (Q3) naming the bad input and what's expected.</summary>
+    /// <summary>A user type string to its getter Types. Throws, naming the bad input and what is expected.</summary>
     IReadOnlyList<Type> ResolveTypeFilter(string type)
     {
         if (TypeLookup.TryGetValue(type.Trim(), out var types)) return types;
@@ -8350,12 +8328,11 @@ public sealed class LoadOrderService : IDisposable
             $"unknown record type '{type}'. Expected a 4-char signature (e.g. 'WEAP') or a catalog name (e.g. 'Weapon').");
     }
 
-    /// <summary>A form-SCOPE string → getter Type(s): a catalog name / signature (the TypeLookup fast path),
-    /// OR a Mutagen link-interface group name ("Item", "Constructible", "NpcSpawn", …) — resolved as every
-    /// corpus record getter assignable to <c>I{name}Getter</c>, DERIVED from the real interfaces, never a
-    /// hand-kept list (PR #165 review finding #2: the SkyPatcher field map scopes multi-type ops by these
-    /// group names, and ResolveTypeFilter alone made the whole inventory op family's EditorID values
-    /// unresolvable). Null = the string names neither (the caller surfaces it loud).</summary>
+    /// <summary>A form-scope string to getter Types: a catalog name or signature via the type lookup, or a Mutagen
+    /// link-interface group name such as "Item" or "Constructible", resolved as every corpus record getter assignable
+    /// to <c>I{name}Getter</c> — derived from the real interfaces, never a hand-kept list. The SkyPatcher field map
+    /// scopes multi-type ops by these group names, so the plain type lookup alone cannot serve it. Null means the
+    /// string names neither, and the caller surfaces that loudly.</summary>
     internal IReadOnlyList<Type>? ResolveFormScope(string type)
     {
         var t = type.Trim();
@@ -8372,24 +8349,23 @@ public sealed class LoadOrderService : IDisposable
     }
 }
 
-/// <summary>How a calling operation can produce a patch that does not exist yet — the operation's OWN statement,
-/// which is the only thing the shared <c>into=</c> resolver's not-found refusal may say about creating one. It is
-/// never inferred there: the write lane and the naming semantics do not coincide (a rider's <c>patch=</c> can name a
-/// .bsa; <c>copy</c>'s fresh stem is an EditorID), and a resolver that guessed would be keeping the roster this
-/// enum exists to replace. The rule and the three ways an assumption goes false are stated at the throw.</summary>
+/// <summary>How a calling operation can produce a patch that does not exist yet — the operation's own statement, and
+/// the only thing the shared <c>into=</c> resolver's not-found refusal may say about creating one. It is never
+/// inferred there, because the write lane and the naming semantics do not coincide: a rider's <c>patch=</c> can name
+/// a .bsa, and a copy's fresh stem is an EditorID.</summary>
 internal enum FreshPatchRemedy
 {
-    /// <summary>The DEFAULT, and the safe one: this operation claims no fresh-write path, so the refusal offers
-    /// none. Removal is the caller that needs it — it edits a patch that must already exist — and #356 is what the
-    /// old default cost: it told removal's callers to omit the lane, which removal itself refuses.</summary>
+    /// <summary>The default and the safe one: this operation claims no fresh-write path, so the refusal offers none.
+    /// A removal needs it, because it edits a patch that must already exist, and a weaker default would tell its
+    /// callers to omit the lane, which a removal itself refuses.</summary>
     None = 0,
 
-    /// <summary>Omitting <c>into=</c> creates one, under a stem this call site chooses rather than "Patch" — the
-    /// copy lanes (the new EditorID / houseCARL_NpcCopy) and every rider lane (its own artifact stem).</summary>
+    /// <summary>Omitting <c>into=</c> creates one, under a stem this call site chooses rather than the default —
+    /// the copy lanes, whose stem is a new EditorID, and every rider lane, whose stem is its own artifact.</summary>
     CreatedByOmittingInto,
 
-    /// <summary><c>patch=</c> on this tool names a NEW patch and defaults to "Patch" (#343) — so the refusal can
-    /// hand back a working call with the caller's own guessed name already in it.</summary>
+    /// <summary><c>patch=</c> on this tool names a new patch and defaults to "Patch", so the refusal can hand back a
+    /// working call with the caller's own guessed name already in it.</summary>
     NamedByPatchParam,
 }
 
@@ -8404,25 +8380,21 @@ public sealed record ReadOutcome(
     IReadOnlyList<string>? TouchingPlugins,
     string? Error)
 {
-    /// <summary>The captured build this outcome was answered from (SPEC §2.1.1 epoch fingerprint) — stamped at the
-    /// Capture() boundary (the public ResolveRead / ResolveBatch), so refusals carry it too: a "not present" is an
-    /// answer ABOUT a build. Null only where no view was ever consulted (a malformed-FormID parse failure).</summary>
+    /// <summary>The captured build this outcome was answered from, stamped at the capture boundary so refusals carry
+    /// it too: a "not present" is an answer ABOUT a build. Null only where no view was ever consulted, such as a
+    /// malformed-FormID parse failure.</summary>
     public string? Epoch { get; init; }
 
-    /// <summary>The (resolver, view) this outcome was answered from — carried beside <see cref="Epoch"/> so the
-    /// RENDER's conflict-tree fill reads the SAME build the stamp names (PR #305 re-review; the pin that closed
-    /// the cross-query fills closes the single-read/batch tree fills identically). Internal render plumbing.</summary>
+    /// <summary>The resolver and view this outcome was answered from, carried beside <see cref="Epoch"/> so the
+    /// render's conflict-tree fill reads the same build the stamp names. Internal render plumbing.</summary>
     internal LoadOrderService.ViewPin? Pin { get; init; }
 
-    /// <summary>WHICH fields in <see cref="Record"/> carry the owned-child annotation (#342), each with its
-    /// <see cref="OwnedChildShape"/> — so a response render can state the invariant clause ONCE, over the fields it
-    /// ACTUALLY EMITTED, and name them. Null when this read annotated nothing.
-    ///
-    /// <para>Carried STRUCTURALLY rather than recovered by scanning the rendered prose for a marker: deciding a
-    /// fact from note text is #308's shape, and it is what this annotation exists to stop callers doing. It carries
-    /// the paths rather than a bool because a clause that merely knows "something was annotated" cannot tell
-    /// whether that something survived the medium's own truncation — the stranded-clause defect Aaron's review
-    /// found on three transports at once.</para></summary>
+    /// <summary>Which fields in <see cref="Record"/> carry the owned-child annotation, each with its
+    /// <see cref="OwnedChildShape"/>, so a response render can state the clause once over the fields it actually
+    /// emitted and name them. Null when this read annotated nothing.
+    /// <para>Carried structurally rather than recovered by scanning the rendered prose for a marker, and carrying the
+    /// paths rather than a bool: a clause that merely knows something was annotated cannot tell whether that
+    /// something survived the medium's own truncation.</para></summary>
     public IReadOnlyDictionary<string, OwnedChildShape>? OwnedChildFields { get; init; }
 
     /// <summary>Did this read annotate anything at all — the cheap question, for callers that only need to know
@@ -8445,17 +8417,16 @@ public sealed record CrossQueryOutcome(
     string? PredicateNote = null, IReadOnlyList<string?>? Sources = null, string? ScanNote = null,
     IReadOnlyList<string?>? MatchedTargets = null, IReadOnlyList<GroupCount>? Groups = null,
     string? GroupBy = null, string? ScopeLabel = null, int Offset = 0,
-    bool WhereWinner = false, string? WhereSourceNote = null)   // #233: WhereWinner ⇒ the match decided on the live winner; WhereSourceNote carries the type=-scope redundancy note
+    bool WhereWinner = false, string? WhereSourceNote = null)   // WhereWinner means the match decided on the live winner; WhereSourceNote carries the type=-scope redundancy note
 {
-    /// <summary>The captured build the SCAN ran over (SPEC §2.1.1 epoch fingerprint) — the render stamps it into the
-    /// in-band accounting so paged windows (offset=) are checkably from the SAME build. Null on the pre-scan refusals.</summary>
+    /// <summary>The captured build the scan ran over. The render stamps it into the in-band accounting so paged
+    /// windows are checkably from the same build. Null on the pre-scan refusals.</summary>
     public string? Epoch { get; init; }
 
-    /// <summary>The scan's pinned (resolver, view) — carried so the RENDER's per-match fills (detail bodies,
-    /// summaries, conflict trees) read off the SAME build the scan matched and <see cref="Epoch"/> names (PR #305
-    /// review: the fills used to re-capture per row through the public read path, so a freshness rebuild landing
-    /// mid-render made the response an affirmative single-build claim it didn't satisfy). Pure data — an immutable
-    /// snapshot reference, no handles held. Internal: a render implementation detail, never serialized.</summary>
+    /// <summary>The scan's pinned resolver and view, carried so the render's per-match fills — detail bodies,
+    /// summaries, conflict trees — read off the same build the scan matched and <see cref="Epoch"/> names. Without
+    /// it a freshness rebuild landing mid-render would make the response a single-build claim it does not satisfy.
+    /// Pure data: an immutable snapshot reference holding no handles, and never serialized.</summary>
     internal LoadOrderService.ViewPin? Pin { get; init; }
 
     public static CrossQueryOutcome Fail(string error) => new(Array.Empty<FormKey>(), null, 0, false, error);
@@ -8466,7 +8437,7 @@ public sealed record CrossQueryOutcome(
 public sealed record GroupCount(string Key, int Count);
 
 /// <summary>A compact, header-only record summary (no field dump) — the per-match line cross_plugin_query emits
-/// by default. <see cref="Error"/> non-null ⇒ the winner couldn't be summarised (named, recoverable — Q3).</summary>
+/// by default. <see cref="Error"/> non-null ⇒ the winner couldn't be summarised (named, recoverable).</summary>
 public sealed record RecordSummary(FormKey FormKey, string Type, string? EditorId, string Winner, int OverrideDepth, string? Error);
 
 /// <summary>One enumerate/read row from a raw plugin-file read: a record the file DEFINES or OVERRIDES, as its
@@ -8495,7 +8466,7 @@ public sealed record PluginFileOutcome
     /// <summary>WHY the game does not load this file — null when <see cref="Enabled"/> (and on the error/ambiguous
     /// outcomes, which carry no file). Composed once by the shared locate contract
     /// (<see cref="LoadOrderService.PluginLocateResult.WhyNotActive"/>) so every renderer of this state says the same
-    /// thing; naming the CAUSE is what lets a reader act without re-deriving it (#271).</summary>
+    /// thing; naming the CAUSE is what lets a reader act without re-deriving it.</summary>
     public string? WhyNotActive { get; init; }
     public IReadOnlyList<string> Masters { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> MissingMasters { get; init; } = Array.Empty<string>();     // declared but installed NOWHERE
@@ -8522,7 +8493,7 @@ public sealed record ConflictTreeView(IReadOnlyList<ConflictNodeView> Nodes,
     public ConflictNodeView Winner => Nodes[^1];
 }
 
-/// <summary>The precise owned-child answer for ONE child-bearing field of ONE record (#342, restored by #485):
+/// <summary>The precise owned-child answer for one child-bearing field of one record:
 /// which of the record's providers declare child records there, and which could not be read.
 ///
 /// <para><see cref="Declaring"/> empty with <see cref="Unreadable"/> empty is the answer the cheap tier can never
@@ -8538,7 +8509,7 @@ public sealed record ConflictNodeView(string Plugin, RecordFields Record);
 /// <see cref="ProfileChanged"/> is true only when a refresh was attempted but is still pending (e.g. MO2 was mid-write) —
 /// houseCARL re-reads automatically on the next tool call; no restart. <see cref="ExcludedPlugins"/> (name → reason) are
 /// plugins dropped from the index this build (unopenable, or carrying a record Mutagen can't parse) — surfaced so the
-/// user can fix/remove them (Q3).</summary>
+/// user can fix/remove them.</summary>
 public sealed record LoadOrderStatusData(
     Mo2Composition Composition,
     IReadOnlyList<string> Warnings,
@@ -8554,7 +8525,7 @@ public sealed record LoadOrderStatusData(
 /// <summary>The data behind housecarl_update_status: MO2's own local Nexus update cache read from meta.ini, with no
 /// network. <see cref="Entries"/> is one row per Nexus-linked mod (installed vs newest version, modid, enabled state);
 /// <see cref="UntrackedCount"/> is how many mod folders were skipped as not Nexus-linked (no meta.ini or no modid).
-/// <see cref="Problems"/> carries any Q3 read faults (e.g. a missing mods folder), never a silent empty.</summary>
+/// <see cref="Problems"/> carries any read faults, such as a missing mods folder, never a silent empty.</summary>
 public sealed record UpdateCacheData(
     string ModsDir,
     string? InstanceDir,
@@ -8578,8 +8549,8 @@ public sealed record ModUpdateEntry(
 /// explicit mode), used both for the default-status discovery line and to name the options when a requested profile isn't
 /// found. <see cref="RequestedName"/> echoes the trimmed name asked for (null if none). <see cref="Composition"/> +
 /// <see cref="ResolvedProfileDir"/> are set ONLY when a requested profile was found and read; a non-null RequestedName with
-/// a null Composition is the "not found" case (Q3 — AvailableProfiles names the real options, never a silent empty).
-/// <see cref="Warnings"/> carries any Q3 notes from reading the inspected profile (e.g. a missing modlist.txt — so a
+/// a null Composition is the "not found" case (AvailableProfiles names the real options, never a silent empty).
+/// <see cref="Warnings"/> carries any notes from reading the inspected profile (e.g. a missing modlist.txt — so a
 /// 0-enabled-mods render is never mistaken for a genuinely-empty profile); empty unless a profile was found and read.</summary>
 public sealed record NamedProfileResult(
     bool InstanceMode,
@@ -8591,16 +8562,16 @@ public sealed record NamedProfileResult(
 
 /// <summary>One queried asset path's resolution behind housecarl_asset_status: the resolver's <see cref="AssetHit"/>
 /// (which sources have it + which wins + an ambiguity flag), or an <see cref="Error"/> when the path was rejected (a
-/// drive-rooted or '..'-escaping path — per-path Q3, never fails the batch). <see cref="Hit"/> is null iff
+/// drive-rooted or '..'-escaping path — named per path, never failing the batch). <see cref="Hit"/> is null iff
 /// <see cref="Error"/> is set.
-/// <para><see cref="PrefixSuggestions"/> (#273) — on an ABSENT answer only, the root-prefixed forms of this path that
+/// <para><see cref="PrefixSuggestions"/> — on an ABSENT answer only, the root-prefixed forms of this path that
 /// a real active mod or BSA DOES provide (<see cref="AssetPathHint"/>), for the common case of a path taken straight
 /// off a record and therefore missing its <c>meshes\</c> / <c>textures\</c> root. Verified by re-resolution, so a
 /// suggestion always names a file that exists; empty when there is nothing honest to offer.</para></summary>
 public sealed record AssetPathResult(string RelPath, AssetHit? Hit, string? Error, IReadOnlyList<string>? PrefixSuggestions = null);
 
 /// <summary>The data behind housecarl_asset_status: one <see cref="AssetPathResult"/> per queried path, plus the
-/// build-level Q3 caveats — <see cref="BsaFailures"/> (archives that couldn't be read) and <see cref="ReadIncomplete"/>
+/// build-level caveats — <see cref="BsaFailures"/> (archives that couldn't be read) and <see cref="ReadIncomplete"/>
 /// (an Exists=false answer may be wrong because a BSA failed to read) — and <see cref="Warnings"/> from archive
 /// discovery (e.g. a Skyrim.ini that couldn't be found, so base-game BSAs weren't scanned). <see cref="ProfileName"/>
 /// names the active profile the answer describes.</summary>
@@ -8620,7 +8591,7 @@ public sealed record SkseProvider(string Name, string Kind);
 /// chain — every mod that ships this exact file, WINNER FIRST then the losers in precedence order (the same winner→loser
 /// transparency the asset tools give), each tagged loose/BSA; empty ⇒ nothing active provides it. <see cref="Plugin"/> is the tier-C
 /// static manifest, set ONLY for a <c>.dll</c> whose winning copy is loose (null for configs and for a BSA-only/unresolved DLL);
-/// <see cref="Note"/> carries the Q3 reason when a DLL has no readable manifest / isn't loader-scoped.</summary>
+/// <see cref="Note"/> carries the reason when a DLL has no readable manifest or isn't loader-scoped.</summary>
 public sealed record SkseFileEntry(
     string RelPath,
     string FileName,
@@ -8630,15 +8601,15 @@ public sealed record SkseFileEntry(
     string? Note,
     SksePeekResult? Peek = null)
 {
-    /// <summary>The tier-D string peek of this DLL's image (<c>peek=true</c>), or null when not requested / not a loose
+    /// <summary>The string peek of this DLL's image (<c>peek=true</c>), or null when not requested / not a loose
     /// DLL. Computed ONLY for entries the peek filter matched — the scan reads the whole image, so it is opt-in per-DLL
-    /// by design. The IMPORT half of tier D needs no flag and lives on <see cref="SksePluginReader.SksePluginInfo.Imports"/>.</summary>
+    /// by design. The import half needs no flag and lives on <see cref="SksePluginReader.SksePluginInfo.Imports"/>.</summary>
     public SksePeekResult? Peek { get; init; } = Peek;
 
-    /// <summary>Whether this DLL entry matches a user <c>filter=</c> — the ONE predicate, shared by the renderer's
-    /// filtered view and the service's peek gate. Shared on purpose: two hand-kept copies would drift, and a drift here
-    /// means peeking a different DLL than the one rendered (the exact class the pairing review caught in its per-DLL
-    /// line). Matches filename, winning provider, subfolder, or the declared plugin name/author, case-insensitively.</summary>
+    /// <summary>Whether this DLL entry matches a user <c>filter=</c> — the one predicate, shared by the renderer's
+    /// filtered view and the service's peek gate. Shared on purpose: two hand-kept copies would drift, and a drift
+    /// here means peeking a different DLL than the one rendered. Matches filename, winning provider, subfolder, or
+    /// the declared plugin name and author, case-insensitively.</summary>
     public bool MatchesDll(string filter)
     {
         bool In(string? s) => s is not null && s.Contains(filter, StringComparison.OrdinalIgnoreCase);
@@ -8657,8 +8628,8 @@ public sealed record SkseFileEntry(
 }
 
 /// <summary>The data behind housecarl_skse_inventory: the SKSE-plugin layer of the active load order — <see cref="Dlls"/> (each a
-/// plugin DLL with its winning provider + static tier-C manifest) and <see cref="Configs"/> (their .ini/.toml/.json/.yaml with the
-/// winning provider), plus <see cref="OtherFileCount"/> (uncategorized files like .pdb/.txt, counted not listed). The build-level Q3
+/// plugin DLL with its winning provider + static manifest) and <see cref="Configs"/> (their .ini/.toml/.json/.yaml with the
+/// winning provider), plus <see cref="OtherFileCount"/> (uncategorized files like .pdb/.txt, counted not listed). The build-level
 /// caveats <see cref="BsaFailures"/> / <see cref="ReadIncomplete"/> and discovery <see cref="Warnings"/> ride along; <see cref="ProfileName"/>
 /// names the active profile the answer describes.</summary>
 public sealed record SkseInventoryData(
@@ -8674,18 +8645,18 @@ public sealed record SkseInventoryData(
     bool PeekRequested = false)
 {
     /// <summary>The plugin filenames the game actually loads (active + force-loaded implicit) — resolved ONLY for a
-    /// tier-D peek, which cross-checks a DLL's embedded plugin names against it. <c>null</c> ⇒ NOT RESOLVED (the
+    /// peek, which cross-checks a DLL's embedded plugin names against it. <c>null</c> ⇒ NOT RESOLVED (the
     /// profile's plugin lists were missing or unreadable), so a renderer must NOT call any embedded name "absent from
-    /// the load order" (Q3: an unasked question has no answer). Never handed over EMPTY — see the producer.</summary>
+    /// the load order" (an unasked question has no answer). Never handed over EMPTY — see the producer.</summary>
     public IReadOnlySet<string>? ActivePlugins { get; init; } = ActivePlugins;
 
-    /// <summary>Whether the caller asked for a tier-D peek. Distinct from "any entry HAS a peek": a filter can match
+    /// <summary>Whether the caller asked for a peek. Distinct from "any entry HAS a peek": a filter can match
     /// only configs, or only BSA-only DLLs, and then the flag was honored with nothing to show — which the renderer
-    /// must SAY rather than silently drop (Q3).</summary>
+    /// must SAY rather than silently drop.</summary>
     public bool PeekRequested { get; init; } = PeekRequested;
 }
 
-/// <summary>The load-order verdict for one reference an SKSE config declares (housecarl_skse_config_audit, tier B).</summary>
+/// <summary>The load-order verdict for one reference an SKSE config declares (housecarl_skse_config_audit).</summary>
 public enum SkseRefVerdict
 {
     /// <summary>Plugin in the active order, and (for a form token) the FormID resolves to a record in it.</summary>
@@ -8699,11 +8670,11 @@ public enum SkseRefVerdict
 }
 
 /// <summary>One reference a config declares (<see cref="HousecarlCore.SkseConfigRef"/>) paired with its load-order
-/// <see cref="Verdict"/> and a Q3 <see cref="Detail"/> line (the resolved FormKey for OK; the reason for a dead/unparseable verdict).</summary>
+/// <see cref="Verdict"/> and a <see cref="Detail"/> line: the resolved FormKey for OK, the reason for a dead or unparseable verdict.</summary>
 public sealed record SkseAuditedRef(HousecarlCore.SkseConfigRef Ref, SkseRefVerdict Verdict, string? Detail);
 
 /// <summary>One config file's audit: its VFS provenance (winning provider + the full winner-first conflict chain — only the
-/// WINNER is read, the losers are shown for transparency), every reference it declares with a verdict, and a Q3
+/// WINNER is read, the losers are shown for transparency), every reference it declares with a verdict, and a named
 /// <see cref="ReadError"/> when the winning copy couldn't be read/decoded or was over the size cap.</summary>
 public sealed record SkseConfigFileAudit(
     string RelPath,
@@ -8715,8 +8686,8 @@ public sealed record SkseConfigFileAudit(
     IReadOnlyList<SkseAuditedRef> Refs,
     string? ReadError);
 
-/// <summary>The data behind housecarl_skse_config_audit (tier B, #199): every SKSE-plugin config with the references it
-/// declares resolved to OK / PLUGIN MISSING / DANGLING / UNPARSEABLE, plus the build-level Q3 caveats
+/// <summary>The data behind housecarl_skse_config_audit: every SKSE-plugin config with the references it
+/// declares resolved to OK / PLUGIN MISSING / DANGLING / UNPARSEABLE, plus the build-level caveats
 /// (<see cref="BsaFailures"/> / <see cref="ReadIncomplete"/> / <see cref="Warnings"/>) and the active <see cref="ProfileName"/>.</summary>
 public sealed record SkseConfigAuditData(
     IReadOnlyList<SkseConfigFileAudit> Files,
@@ -8740,7 +8711,7 @@ public enum NativeProvenance
     ThirdParty,
 }
 
-/// <summary>The §4c pairing-evidence rung a THIRD-PARTY class landed on, by evidence strength.</summary>
+/// <summary>The pairing-evidence rung a THIRD-PARTY class landed on, by evidence strength.</summary>
 public enum NativePairingRung
 {
     /// <summary>The winning .pex's own provider mod ships ≥1 candidate DLL — the strong co-shipment signal.</summary>
@@ -8749,11 +8720,11 @@ public enum NativePairingRung
     /// script file; the framework mod beneath ships the implementation).</summary>
     ChainMod,
     /// <summary>No mod shipping this class's file (winner or chain) ships any candidate DLL. A VERIFY flag, never
-    /// "broken" — a declaration copy of an absent framework lands here, but registration is runtime behavior (tier E).</summary>
+    /// "broken" — a declaration copy of an absent framework lands here, but registration is runtime behavior.</summary>
     Unpaired,
 }
 
-/// <summary>One candidate DLL a paired mod ships: its VFS identity, the winning copy's tier-C manifest (loose winners
+/// <summary>One candidate DLL a paired mod ships: its VFS identity, the winning copy's manifest (loose winners
 /// only), and <see cref="LoadBlocker"/> — the static reason it will NOT load (BSA-only / subfolder / 32-bit /
 /// unreadable), null when no static check rules it out. version-LOCKED-vs-runtime is adjudicated at render time
 /// against <see cref="NativePairingAuditData.InstalledRuntime"/> (it needs the game version, which may be unknown).</summary>
@@ -8768,8 +8739,8 @@ public sealed record NativePairedDll(
 /// <summary>One script class declaring native functions, with its VFS provenance, its <see cref="Provenance"/> class,
 /// and — for a third-party class — the pairing <see cref="Rung"/>, the paired mod, and that mod's candidate DLLs.
 /// <see cref="Rung"/>/<see cref="PairedMod"/> are null for baseline (ENGINE / SKSE CORE) classes. The winner/count
-/// facts are DERIVED from the one <see cref="Providers"/> list (the SkseFileEntry pattern — review finding: carried
-/// copies of a derivable fact can drift). Deadness has exactly ONE owner — the renderer's Judge/BestFate, which also
+/// facts are derived from the one <see cref="Providers"/> list (hand-kept
+/// copies of a derivable fact drift). Deadness has exactly one owner — the renderer's Judge/BestFate, which also
 /// adjudicates version-locked-vs-runtime — deliberately not a record property.</summary>
 public sealed record NativeClassEntry(
     string RelPath,
@@ -8791,15 +8762,15 @@ public sealed record NativeClassEntry(
     public int ProviderCount => Providers.Count;
 }
 
-/// <summary>A .pex whose winning copy could not be parsed — a NAMED note (Q3), never a silent skip.</summary>
+/// <summary>A .pex whose winning copy could not be parsed — a NAMED note, never a silent skip.</summary>
 public sealed record NativeUnreadablePex(string RelPath, string? WinningProvider, string Reason);
 
 /// <summary>The data behind housecarl_native_pairing_audit: every native-declaring class classified and (for third
 /// parties) paired, the scan accounting (<see cref="PexScanned"/> total compiled scripts examined), the unreadable
 /// notes, whether an skse64 loader is visible (<see cref="SkseLoaderSeen"/> — the SKSE-CORE sanity note; tri-state:
-/// null = the check itself failed, "could not check", never rendered as a definite absence — Q3), the installed game
+/// null = the check itself failed, "could not check", never rendered as a definite absence), the installed game
 /// runtime when resolvable (<see cref="InstalledRuntime"/>, null = unknown → version-LOCKED findings degrade to
-/// "verify"), and the build-level Q3 caveats.</summary>
+/// "verify"), and the build-level caveats.</summary>
 public sealed record NativePairingAuditData(
     IReadOnlyList<NativeClassEntry> Classes,
     int PexScanned,
@@ -8811,9 +8782,9 @@ public sealed record NativePairingAuditData(
     IReadOnlyList<string> Warnings,
     string ProfileName);
 
-/// <summary>The data behind the whole-layer SkyPatcher scan (Wave 2): the ordered discovery scan, the
+/// <summary>The data behind the whole-layer SkyPatcher scan: the ordered discovery scan, the
 /// per-folder INI-vs-INI set collisions, the three ITM classes (intra-file dead writes, cross-INI
-/// duplicates, no-op writes), and the build-level Q3 caveats.</summary>
+/// duplicates, no-op writes), and the build-level caveats.</summary>
 public sealed record SkyPatcherLayerData(
     HousecarlCore.SkyPatcherDiscovery.LayerScan Scan,
     IReadOnlyList<HousecarlCore.SkyPatcherConflicts.SkyPatcherConflict> Conflicts,
@@ -8854,7 +8825,7 @@ public sealed record NifProvider(string Name, string Kind);
 /// marks the no-provider outcome specifically, so the renderer can hedge THAT error at point of use on the
 /// batch-level scan caveats (an ABSENT is only authoritative when the scan was complete — asset_status parity).
 /// Exactly one of <see cref="Inspect"/> (the mesh model) and <see cref="Error"/> (ABSENT / bad path / unreadable /
-/// parse-refused — all named, Q3) is set on any given result. The batch-level Q3 caveats (BSA failures, discovery
+/// parse-refused — all named) is set on any given result. The batch-level caveats (BSA failures, discovery
 /// warnings, profile) live on <see cref="NifInspectBatchData"/> — captured once for the whole batch.</summary>
 public sealed record NifInspectData(
     string RelPath,
@@ -8870,7 +8841,7 @@ public sealed record NifInspectData(
 }
 
 /// <summary>The batch behind housecarl_nif_inspect: per-path <see cref="Results"/> in INPUT ORDER, plus the
-/// build-level Q3 caveats shared by the whole batch (one asset capture pins every path): <see cref="BsaFailures"/>
+/// build-level caveats shared by the whole batch (one asset capture pins every path): <see cref="BsaFailures"/>
 /// (archives that couldn't be read this build — an ABSENT result may be incomplete), discovery
 /// <see cref="Warnings"/>, and the active <see cref="ProfileName"/>.</summary>
 public sealed record NifInspectBatchData(
@@ -8880,7 +8851,7 @@ public sealed record NifInspectBatchData(
     string ProfileName);
 
 /// <summary>The data behind housecarl_nif_set: the VFS resolution joined to the verified write outcome. Exactly one of
-/// {<see cref="Report"/> (a verified write happened)}, {<see cref="Error"/> (a named refusal — NOTHING written, Q3)},
+/// {<see cref="Report"/> (a verified write happened)}, {<see cref="Error"/> (a named refusal — NOTHING written)},
 /// and {<see cref="NeedsAcknowledge"/> (the in-place first-touch consent prompt — a required confirmation, not an
 /// error)} describes the result. <see cref="OutputModFolder"/> is set on the default-lane success (enable + sort it above
 /// <see cref="CurrentWinner"/>); <see cref="InPlacePath"/> is set on the in-place success (the file overwritten in
@@ -8924,19 +8895,18 @@ public sealed record NifSetResult(
 /// pointed at the destination path. <see cref="SourceProvider"/> picks the pole for a VFS source: a provider NAME on
 /// its own, or the sigiled winner token (<see cref="AssetSourceChoice.WinnerToken"/> — a bare name always means a
 /// provider of that name, so the two spaces cannot collide); null/blank ⇒ the sole provider, with contention refused
-/// per-asset (Q3). A Source naming a DIFFERENT path from AssetPath is a RENAME — the mechanism behind carrying one
+/// per-asset. A Source naming a DIFFERENT path from AssetPath is a RENAME — the mechanism behind carrying one
 /// NPC's baked facegen onto another's FormID path; the same path is not, and renders without the rename prefix.</summary>
 public sealed record PlaceRequest(string AssetPath, string? Source, string? SourceProvider = null);
 
 /// <summary>One placed asset's outcome. <see cref="Placed"/> false ⇒ <see cref="Error"/> names why (recoverable, per-asset
-/// Q3). <see cref="CurrentWinner"/> is the source that currently wins the VFS for this path (the sort target — the placed
+/// per asset). <see cref="CurrentWinner"/> is the source that currently wins the VFS for this path (the sort target — the placed
 /// copy does NOT win until the fresh mod is enabled + sorted above it), or null if nothing provided it before.</summary>
 public sealed record PlaceResult(string AssetPath, bool Placed, long Bytes, string? SourceDesc, string? CurrentWinner, string? Error)
 {
-    /// <summary>The mod folder these bytes were read out of when it is NOT one the active profile includes — the F1
-    /// off-order source lane (ruling O1). Null for every read served by the active universe, which is every read that
-    /// existed before that lane. Non-null is the fact the response must SAY (SPEC §4.2: the response states which arm
-    /// resolved) — the bytes are the ones the caller named, out of a mod the game is not currently loading.</summary>
+    /// <summary>The mod folder these bytes were read out of when it is NOT one the active profile includes — the
+    /// off-order source lane. Null for every read served by the active order. Non-null is a fact the response must
+    /// state: the bytes are the ones the caller named, out of a mod the game is not currently loading.</summary>
     public string? SourceOffOrderProvider { get; init; }
 
     public static PlaceResult Fail(string assetPath, string error, string? currentWinner = null)
@@ -8946,7 +8916,7 @@ public sealed record PlaceResult(string AssetPath, bool Placed, long Bytes, stri
 /// <summary>The outcome of place_asset / bulk_place_asset. <see cref="Error"/> non-null ⇒ the whole call was rejected
 /// before any placement (unconfigured, an into= folder houseCARL doesn't own, the asset layer wouldn't build). Else
 /// <see cref="Results"/> is per-asset; <see cref="ModFolder"/> is the houseCARL mod the placed files landed in (null when
-/// none placed); <see cref="Warnings"/> carries the asset-discovery caveats (Q3); <see cref="LeftoverFolder"/> names a
+/// none placed); <see cref="Warnings"/> carries the asset-discovery caveats; <see cref="LeftoverFolder"/> names a
 /// fresh folder kept because it holds a partial result (no orphan is left for an all-failed fresh batch).</summary>
 public sealed record PlaceOutcome(
     IReadOnlyList<PlaceResult> Results, string? ModFolder, IReadOnlyList<string> Warnings, string? LeftoverFolder, string? Error)
@@ -8960,13 +8930,12 @@ public sealed record PlaceOutcome(
 /// covered (EMPTY ⇒ the plugin had none, so <see cref="SeqPath"/> is null and nothing was written — a clean no-op, not a
 /// failure); <see cref="SeqPath"/> is the written <c>.seq</c> and <see cref="ModFolder"/> the houseCARL mod it landed in;
 /// <see cref="WroteIntoPluginFolder"/> is true when it defaulted into the plugin's OWN folder (so one mod enables both).
-/// A write-failure residue path (a fresh folder kept because the write half-landed) is folded into <see cref="Error"/>.</summary>
+/// A leftover path (a fresh folder kept because the write half-landed) is folded into <see cref="Error"/>.</summary>
 public sealed record SeqOutcome(
     bool Success, string? Error, string? SeqPath, string? ModFolder,
     IReadOnlyList<HousecarlCore.SeqFile.SeqQuest> Quests, string PluginFileName, bool WroteIntoPluginFolder)
 {
-    /// <summary>WHERE the source plugin resolved from (W3 PR 2, SPEC §4.2's "the response states which arm
-    /// resolved"): "direct path", or the located hit's own label (its mod folder and state). A .seq is derived from
+    /// <summary>Where the source plugin resolved from: "direct path", or the located hit's own label (its mod folder and state). A .seq is derived from
     /// ONE file's records, so which copy was read is load-bearing — a disabled folder's older copy yields a
     /// different quest set than the served one, silently, unless the arm is stated. Null on a refusal taken before
     /// the source resolved.</summary>
@@ -8976,35 +8945,35 @@ public sealed record SeqOutcome(
     /// which layer, this says which file).</summary>
     public string? PluginPath { get; init; }
 
-    /// <summary>#312 — the destination already held EXACTLY these bytes, so NOTHING was written (<see cref="SeqPath"/>
+    /// <summary>The destination already held EXACTLY these bytes, so NOTHING was written (<see cref="SeqPath"/>
     /// names the file that was already correct). A success, and a DISTINCT one: "written" and "already current" are
     /// different facts about the disk, and collapsing them would make a skipped write indistinguishable from a done
-    /// one (Q3). False on every path that actually wrote.</summary>
+    /// one. False on every path that actually wrote.</summary>
     public bool Unchanged { get; init; }
 
-    /// <summary>#312 — the byte-identical destination was OLDER than the plugin, so its timestamp was stamped forward
-    /// without rewriting a byte. validate_dialogue's SEQ lint judges staleness by mtime, so a skipped write would
+    /// <summary>The byte-identical destination was OLDER than the plugin, so its timestamp was stamped forward
+    /// without rewriting a byte. The dialogue check judges .seq staleness by mtime, so a skipped write would
     /// otherwise leave that lint permanently calling a byte-perfect file stale — two tools contradicting each other
     /// about one file. False when no stamp was needed (the file was already newer) or nothing was skipped.</summary>
     public bool TimestampRefreshed { get; init; }
 
-    /// <summary>#312 — the write REPLACED a file that was already there, rather than creating one. On the
+    /// <summary>The write REPLACED a file that was already there, rather than creating one. On the
     /// <c>output_dir=</c> lane that file can be the mod's OWN shipped <c>.seq</c>, and houseCARL keeps no backup, so
     /// "wrote" and "replaced yours" are different facts about the disk and are reported as such.</summary>
     public bool Replaced { get; init; }
 
-    /// <summary>#312 — the replaced file held EXACTLY the bytes just written, so nothing was lost. Only reachable when
+    /// <summary>The replaced file held EXACTLY the bytes just written, so nothing was lost. Only reachable when
     /// the byte-identical short-circuit was taken and its timestamp refresh then FAILED, sending an unchanged file
-    /// down the write path (PR #318 review [low]): without this the response cries "OVERWRITTEN, no backup is kept"
+    /// down the write path: without this the response cries "OVERWRITTEN, no backup is kept"
     /// about a file it re-wrote identically.</summary>
     public bool ReplacedSameBytes { get; init; }
 
-    /// <summary>#312 — the caller named <c>output_dir=</c>, so the .seq landed in a folder the USER owns and no
+    /// <summary>The caller named <c>output_dir=</c>, so the .seq landed in a folder the USER owns and no
     /// houseCARL mod folder was cut. Drives the confirmation: "enable this houseCARL mod in MO2" is the wrong next
     /// step for a file written into the user's own mod.</summary>
     public bool UserChoseOutput { get; init; }
 
-    /// <summary>#312 — the Q3 note for an <c>output_dir=</c> that neither MO2 nor the game reads SEQ files from. The
+    /// <summary>The note for an <c>output_dir=</c> that neither MO2 nor the game reads SEQ files from. The
     /// .seq is correct; the engine will never see it, and every start-game-enabled quest in the plugin stays silently
     /// dead until it moves. Null when the destination deploys (and on every non-output_dir lane, which lands in a
     /// houseCARL mod folder by construction).</summary>
