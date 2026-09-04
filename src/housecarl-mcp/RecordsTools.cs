@@ -84,7 +84,11 @@ public static class RecordsTools
      Description(
          "Read Bethesda records from the load order — ONE read surface: which records (SELECT) x whose version " +
          "(SOURCE) x what shape of answer (PROJECT) compose in a single call.\n\n" +
-         "A FormID is 'XXXXXX:Plugin.esp' — 6 hex digits, a colon, the defining master's filename. Every " +
+         "A FormID is 'XXXXXX:Plugin.esp' — 6 hex digits, a colon, the defining master's filename. The RUNTIME " +
+         "form the game, the console, Papyrus logs, SKSE logs and crash logs print is accepted too: eight hex " +
+         "digits and no plugin name, 'FExxxYYY' for a light plugin or 'XX######' for a full one, with or without " +
+         "a leading 0x, resolved against the CURRENT load order — the response names the plugin it resolved to, " +
+         "and prints each record's runtime FormID beside its own. Every " +
          "list-valued parameter is set-valued (one item is a set of one), and formids=/references= accept a single " +
          "\"@<absolute path>\" element to read the list from a file — including a spilled result artifact from an " +
          "earlier call (its identity column becomes the list, epoch-checked against the then-current build).\n\n" +
@@ -141,7 +145,7 @@ public static class RecordsTools
          ToolNames.Remove + " / " + ToolNames.Forward + ").")]
     public static string Records(
         LoadOrderService svc,
-        [Description("SELECT: records by FormID ('XXXXXX:Plugin.esp'), or [\"@<absolute path>\"] to read the list from a file / spilled artifact. Results return in input order; a bad or absent FormID is a per-item error, never a failed batch.")]
+        [Description("SELECT: records by FormID ('XXXXXX:Plugin.esp', or the runtime form a log or the console prints — 'FExxxYYY' / 'XX######'), or [\"@<absolute path>\"] to read the list from a file / spilled artifact. Results return in input order; a bad or absent FormID is a per-item error, never a failed batch.")]
             string[]? formids = null,
         [Description("SELECT: record types — signatures ('WEAP') or catalog names ('Weapon'); the scan streams the UNION. types alone enumerates every record of those types in whatever the SOURCE names.")]
             string[]? types = null,
