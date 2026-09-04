@@ -171,6 +171,18 @@ public sealed class RuntimeFormIdTests
         RefusedNothingWritten(w, outcome.Error);
     }
 
+    /// <summary>create's only FormID is parent=, which also takes an EditorID — a runtime FormID there is still
+    /// refused, rather than falling through to "no sibling of that name was declared earlier".</summary>
+    [Fact]
+    public void CreateRefusesARuntimeFormIdParentAndNamesThePluginForm()
+    {
+        using var w = new World();
+        var outcome = w.Svc.CreateRecordsBatch(
+            new[] { new CreateOp { RecordType = "Weapon", Editorid = "HcRtNewWeapon", Parent = Runtime(w) } },
+            "HcRtPatch", null);
+        RefusedNothingWritten(w, outcome.Error);
+    }
+
     [Fact]
     public void RemoveRefusesARuntimeFormIdAndNamesThePluginForm()
     {

@@ -140,7 +140,7 @@ public static class PlaceAssetTools
 
         FormKey fk;
         try { fk = parseFormId(formid); }
-        catch (Exception ex) { error = $"{where}bad formid '{formid}' ({ex.Message}). Expected 'XXXXXX:Plugin.esp'."; return null; }
+        catch (Exception ex) { error = FormIdDoor.Sentence(ex, where, $"{where}bad formid '{formid}' ({ex.Message}). Expected 'XXXXXX:Plugin.esp'."); return null; }
 
         var slot = ParseSlot(kind, out var slotErr);
         if (slotErr is not null) { error = $"{where}{slotErr}"; return null; }

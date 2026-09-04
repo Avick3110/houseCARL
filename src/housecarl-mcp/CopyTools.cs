@@ -91,7 +91,7 @@ public static class CopyTools
         var door = svc.OpenWriteFormIdDoor();
         FormKey fromKey;
         try { fromKey = door.Parse(from); }
-        catch (Exception ex) { return $"error: bad from '{from}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."; }
+        catch (Exception ex) { return FormIdDoor.Sentence(ex, "error: ", $"error: bad from '{from}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
 
         bool hasTarget = !string.IsNullOrWhiteSpace(target);
         bool hasClone = !string.IsNullOrWhiteSpace(new_editorid);
@@ -103,7 +103,7 @@ public static class CopyTools
         if (hasTarget)
         {
             try { targetKey = door.Parse(target); }
-            catch (Exception ex) { return $"error: bad target '{target}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."; }
+            catch (Exception ex) { return FormIdDoor.Sentence(ex, "error: ", $"error: bad target '{target}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
         }
 
         // Blank elements are REFUSED BY INDEX, never dropped: dropping one shifts every later index, so the

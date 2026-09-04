@@ -5488,7 +5488,7 @@ public sealed class LoadOrderService : IDisposable
             var raw = formids[i];
             if (string.IsNullOrWhiteSpace(raw)) { problems.Add($"formid[{i}]: empty."); continue; }
             try { keys.Add(door.Parse(raw)); }
-            catch (Exception ex) { problems.Add($"formid[{i}] '{raw}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
+            catch (Exception ex) { problems.Add(FormIdDoor.Sentence(ex, $"formid[{i}]: ", $"formid[{i}] '{raw}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'.")); }
         }
         if (problems.Count > 0)
             return WritePatchBuilder.RemovalOutcome.Fail(
@@ -5622,7 +5622,7 @@ public sealed class LoadOrderService : IDisposable
             var raw = formids[i];
             if (string.IsNullOrWhiteSpace(raw)) { problems.Add($"formid[{i}]: empty."); continue; }
             try { specs.Add(new WritePatchBuilder.ForwardSpec { Target = door.Parse(raw), FromPlugin = fp }); }
-            catch (Exception ex) { problems.Add($"formid[{i}] '{raw}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
+            catch (Exception ex) { problems.Add(FormIdDoor.Sentence(ex, $"formid[{i}]: ", $"formid[{i}] '{raw}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'.")); }
         }
         if (problems.Count > 0)
             return WritePatchBuilder.ForwardOutcome.Fail(
@@ -6490,7 +6490,7 @@ public sealed class LoadOrderService : IDisposable
         var door = OpenWriteFormIdDoor();
         FormKey donorFk;
         try { donorFk = door.Parse(sourceFormid); }
-        catch (Exception ex) { return NpcCopyOutcome.Fail($"bad source formid '{sourceFormid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '000D62:Vivace.esp'."); }
+        catch (Exception ex) { return NpcCopyOutcome.Fail(FormIdDoor.Sentence(ex, "", $"bad source formid '{sourceFormid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '000D62:Vivace.esp'.")); }
 
         bool apply = !string.IsNullOrWhiteSpace(targetFormid);
         bool clone = !string.IsNullOrWhiteSpace(newEditorid);
@@ -6760,13 +6760,16 @@ public sealed class LoadOrderService : IDisposable
 
         var problems = new List<string>();
         var specs = new List<WritePatchBuilder.CreateSpec>(records.Count);
+        // One write door for the whole call, as the sibling verbs open: parent= is the only token here that can be
+        // a FormID, and it is a write's, so a runtime one is refused with the plugin form to use.
+        var door = OpenWriteFormIdDoor();
         for (int r = 0; r < records.Count; r++)
         {
             var rec = records[r];
             // origins[r] is the caller's own spelling for this spec, carried parallel to the list for the same
             // reason ApplyEdits carries opOrigins: a refusal must never name an index shape the caller did not write.
             var where = origins is not null && r < origins.Count && origins[r] is { } o ? o : $"record[{r}]";
-            var spec = BuildCreateSpec(rec.RecordType, rec.Editorid, rec.Operations ?? Array.Empty<BulkOp>(), rec.Parent, rec.Collection, rec.Grid, where, problems, naming ?? CreateOpNaming.Legacy);
+            var spec = BuildCreateSpec(door, rec.RecordType, rec.Editorid, rec.Operations ?? Array.Empty<BulkOp>(), rec.Parent, rec.Collection, rec.Grid, where, problems, naming ?? CreateOpNaming.Legacy);
             if (spec is not null) specs.Add(spec);
         }
         if (problems.Count > 0)
@@ -6781,11 +6784,15 @@ public sealed class LoadOrderService : IDisposable
     /// <paramref name="parent"/> and <paramref name="collection"/> through for a nested child — null means a flat
     /// top-level record. Every problem, tagged with the optional <paramref name="where"/> label, is appended to
     /// <paramref name="problems"/>, and this returns null iff this record contributed any.</summary>
-    WritePatchBuilder.CreateSpec? BuildCreateSpec(string? recordType, string? editorid, IReadOnlyList<BulkOp> operations,
+    WritePatchBuilder.CreateSpec? BuildCreateSpec(FormIdDoor door, string? recordType, string? editorid, IReadOnlyList<BulkOp> operations,
         string? parent, string? collection, string? grid, string? where, List<string> problems, CreateOpNaming naming)
     {
         var prefix = where is null ? "" : where + ": ";
         int before = problems.Count;
+
+        // parent= takes an EditorID as well as a FormID, so only a runtime FormID is judged here; everything else
+        // is left to the core's own parse.
+        if (door.RuntimeRefusal(parent) is { } parentRefusal) problems.Add($"{prefix}parent: {parentRefusal}");
 
         string? catalogName = null;
         if (string.IsNullOrWhiteSpace(recordType))
@@ -7062,7 +7069,7 @@ public sealed class LoadOrderService : IDisposable
         if (string.IsNullOrWhiteSpace(op.Formid)) { error = $"{where}: formid is required."; return null; }
         FormKey fk;
         try { fk = door.Parse(op.Formid); }
-        catch (Exception ex) { error = $"{where}: bad formid '{op.Formid}' ({ex.Message}). Expected 'XXXXXX:Plugin.esp'."; return null; }
+        catch (Exception ex) { error = FormIdDoor.Sentence(ex, $"{where}: ", $"{where}: bad formid '{op.Formid}' ({ex.Message}). Expected 'XXXXXX:Plugin.esp'."); return null; }
         if (string.IsNullOrWhiteSpace(op.FieldPath)) { error = $"{where} ({op.Formid}): field_path is required."; return null; }
         var path = SplitPath(op.FieldPath);
         if (path.Length == 0) { error = $"{where} ({op.Formid}): field_path '{op.FieldPath}' is empty."; return null; }
@@ -7086,7 +7093,7 @@ public sealed class LoadOrderService : IDisposable
         if (!string.IsNullOrWhiteSpace(fromRecord))
         {
             try { fromKey = door.Parse(fromRecord); }
-            catch (Exception ex) { error = $"{where} ({op.Formid}): bad from '{fromRecord}' ({ex.Message}). Expected 'XXXXXX:Plugin.esp'."; return null; }
+            catch (Exception ex) { error = FormIdDoor.Sentence(ex, $"{where} ({op.Formid}): ", $"{where} ({op.Formid}): bad from '{fromRecord}' ({ex.Message}). Expected 'XXXXXX:Plugin.esp'."); return null; }
             if (fromKey == fk)
             { error = $"{where} ({op.Formid}): from names the SAME record as formid — copying a record's field onto itself is a no-op. Drop from=, and name the plugin whose version to copy in from_source=."; return null; }
         }

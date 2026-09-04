@@ -21,10 +21,11 @@ public static class ApplyTools
          "Edit fields on one or many records and write the result to a NEW patch plugin (originals untouched by " +
          "default). ONE surface: what to change (ops=, or the bundle=/assignments= copy zip) x WHERE it lands (the " +
          "LANE: a new patch | into= an existing one | in_place=\"X.esp\" | dry_run) x how it reads back (TRANSPORT).\n\n" +
-         "A FormID is 'XXXXXX:Plugin.esp' — 6 hex digits, a colon, the defining master's filename. On ops[].formid " +
-         "(and from=) the RUNTIME form the game, the console and the logs print is accepted too: eight hex digits " +
-         "and no plugin name, 'FExxxYYY' for a light plugin or 'XX######' for a full one, with or without a leading " +
-         "0x, resolved against the CURRENT load order. A field VALUE takes the 'XXXXXX:Plugin.esp' form only. " +
+         "A FormID is 'XXXXXX:Plugin.esp' — 6 hex digits, a colon, the defining master's filename, and every FormID " +
+         "this tool takes (ops[].formid, from=, a field VALUE) is that form. The RUNTIME form the game, the console " +
+         "and the logs print — eight hex digits and no plugin name, 'FExxxYYY' / 'XX######' — is READ-ONLY, because " +
+         "it names a slot in the load order as it stands rather than a record: pass one here and it is refused with " +
+         "the 'XXXXXX:Plugin.esp' form to use in its place. " + ToolNames.Records + " reads by either form. " +
          "Every edit " +
          "resolves the record's load-order WINNER and overrides it into the patch; all edits land in ONE reviewable " +
          ".esp, whose master header spans every plugin the edits reference (cross-master merge, derived not declared).\n\n" +
