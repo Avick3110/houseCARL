@@ -97,11 +97,12 @@ public sealed class LoadOrderService : IDisposable
     /// this resolves regardless of the MO2-launched process's working directory.</summary>
     CorpusRulebook Rulebook => _rulebook ??= CorpusRulebook.Load();
 
-    /// <summary>The FormID door for a tool body with no captured view in hand — see
-    /// <see cref="LoadOrderResolver.IndexView.ParseFormId"/>. The load order is consulted ONLY for a runtime FormID:
-    /// the <c>XXXXXX:Plugin.esp</c> form names its own plugin, so the off-order lanes keep parsing without one.</summary>
-    internal FormKey ParseFormId(string? raw)
-        => RuntimeFormId.TryParse(raw, out _) ? Resolver.ParseFormId(raw) : FormKey.Factory((raw ?? "").Trim());
+    /// <summary>One captured index build, for a <see cref="FormIdDoor"/> that has found a runtime FormID to
+    /// resolve.</summary>
+    internal LoadOrderResolver.IndexView CaptureView() => Resolver.Capture();
+
+    /// <summary>A FormID door for a tool body with no captured view of its own — see <see cref="FormIdDoor"/>.</summary>
+    internal FormIdDoor OpenFormIdDoor() => FormIdDoor.For(this);
 
     /// <summary>The resolver, built on first access and kept fresh on every subsequent access. Throws loudly if the
     /// configured roots yield no plugins.</summary>
@@ -2153,7 +2154,7 @@ public sealed class LoadOrderService : IDisposable
     /// tallied for one section of a merged response. Deliberately thin — the family's own grammar (seed parse,
     /// cost refusal, seed budget, tally) lives in <see cref="DialogueSweep"/> rather than in this file.</summary>
     public DialogueCheckResult CheckDialogue(IReadOnlyList<string>? seeds, int limit, bool countsOnly = false)
-        => DialogueSweep.Run(ValidateDialogue, ParseFormId, seeds, limit, countsOnly);
+        => DialogueSweep.Run(ValidateDialogue, OpenFormIdDoor().Parse, seeds, limit, countsOnly);
 
     /// <summary>The read body, answered entirely off ONE captured view: the excluded-check, the winner and the
     /// touching-plugin list all describe the same build, so a freshness rebuild landing mid-read cannot make a
@@ -3200,7 +3201,7 @@ public sealed class LoadOrderService : IDisposable
             if (resolveNames) record = AnnotateLinks(record, view, session, overlayLinkMemo ??= new Dictionary<FormKey, ResolvedRef>());
             var ok = new ReadOutcome(fk, record, winner.Value.WinnerPlugin, winner.Value.WinnerPlugin,
                                      winner.Value.OverrideDepth, null, null)
-                     with { Epoch = view.Epoch, Pin = pin };
+                     with { Epoch = view.Epoch, Pin = pin, RuntimeFormId = view.RuntimeFormIdOf(fk) };
             replayMemo[fk] = ok; outcomes.Add(ok);
         }
         return outcomes;
@@ -3735,7 +3736,7 @@ public sealed class LoadOrderService : IDisposable
         FieldPredicateSet? predicate = null;
         if (hasWhere)
         {
-            var (set, perr) = FieldPredicateSet.Parse(where!, ParseFormId);
+            var (set, perr) = FieldPredicateSet.Parse(where!, FormIdDoor.On(view).Parse);
             if (perr is not null) return CrossQueryOutcome.Fail(perr);
             predicate = set;
         }
@@ -4083,7 +4084,7 @@ public sealed class LoadOrderService : IDisposable
         FieldPredicateSet? predicate = null;
         if (where is { Count: > 0 })
         {
-            var (set, perr) = FieldPredicateSet.Parse(where, ParseFormId);
+            var (set, perr) = FieldPredicateSet.Parse(where, FormIdDoor.On(view).Parse);
             if (perr is not null) return CrossQueryOutcome.Fail(perr);
             predicate = set;
         }
@@ -4419,11 +4420,12 @@ public sealed class LoadOrderService : IDisposable
         if (formids is { Count: > 0 })
         {
             keys = new HashSet<FormKey>();
+            var door = OpenFormIdDoor();
             foreach (var raw in formids)
             {
                 var t = raw?.Trim() ?? "";
                 if (t.Length == 0) return (null, "a blank entry in formids= — pass FormID tokens (e.g. '0BCC84:Skyrim.esm').");
-                try { keys.Add(ParseFormId(t)); }
+                try { keys.Add(door.Parse(t)); }
                 catch (Exception ex) { return (null, $"bad FormID '{raw}' in formids=: {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '0BCC84:Skyrim.esm'."); }
             }
         }
@@ -4510,14 +4512,16 @@ public sealed class LoadOrderService : IDisposable
                 "target= is only meaningful with in_place=true (it names the plugin to edit in place). For the default patch lane omit target=; use into= to extend an existing houseCARL patch.");
 
         // Map every op to a core PatchEdit, collecting ALL parse problems first (all-or-nothing, like the cleave).
-        // Pure parsing — runs outside the write gate so a malformed call never queues behind a real write.
+        // Runs outside the write gate so a malformed call never queues behind a real write. A runtime FormID here
+        // resolves against the order as it stands at the call, the same way a read of one does.
         var edits = new List<WritePatchBuilder.PatchEdit>(ops.Count);
         var problems = new List<string>();
+        var editDoor = OpenFormIdDoor();
         for (int i = 0; i < ops.Count; i++)
         {
             // fromRecords[i] is the zip's per-op source record, carried parallel to the op list because the
             // published wire shape deliberately gains no new member.
-            var edit = MapEdit(ops[i], i, out var err,
+            var edit = MapEdit(editDoor, ops[i], i, out var err,
                 fromRecords is not null && i < fromRecords.Count ? fromRecords[i] : null,
                 opOrigins is not null && i < opOrigins.Count ? opOrigins[i] : null);
             if (err is not null) problems.Add(err); else edits.Add(edit!);
@@ -5421,11 +5425,12 @@ public sealed class LoadOrderService : IDisposable
         // Parse every formid first, collecting ALL problems (all-or-nothing, like the edit path). Pure — outside the gate.
         var keys = new List<FormKey>(formids.Count);
         var problems = new List<string>();
+        var door = OpenFormIdDoor();
         for (int i = 0; i < formids.Count; i++)
         {
             var raw = formids[i];
             if (string.IsNullOrWhiteSpace(raw)) { problems.Add($"formid[{i}]: empty."); continue; }
-            try { keys.Add(ParseFormId(raw)); }
+            try { keys.Add(door.Parse(raw)); }
             catch (Exception ex) { problems.Add($"formid[{i}] '{raw}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
         }
         if (problems.Count > 0)
@@ -5554,11 +5559,12 @@ public sealed class LoadOrderService : IDisposable
         var fp = fromPlugin.Trim();
         var specs = new List<WritePatchBuilder.ForwardSpec>(formids.Count);
         var problems = new List<string>();
+        var door = OpenFormIdDoor();
         for (int i = 0; i < formids.Count; i++)
         {
             var raw = formids[i];
             if (string.IsNullOrWhiteSpace(raw)) { problems.Add($"formid[{i}]: empty."); continue; }
-            try { specs.Add(new WritePatchBuilder.ForwardSpec { Target = ParseFormId(raw), FromPlugin = fp }); }
+            try { specs.Add(new WritePatchBuilder.ForwardSpec { Target = door.Parse(raw), FromPlugin = fp }); }
             catch (Exception ex) { problems.Add($"formid[{i}] '{raw}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
         }
         if (problems.Count > 0)
@@ -6423,7 +6429,7 @@ public sealed class LoadOrderService : IDisposable
     {
         // ---- argument shape: exactly one target mode ----
         FormKey donorFk;
-        try { donorFk = ParseFormId(sourceFormid); }
+        try { donorFk = OpenFormIdDoor().Parse(sourceFormid); }
         catch (Exception ex) { return NpcCopyOutcome.Fail($"bad source formid '{sourceFormid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '000D62:Vivace.esp'."); }
 
         bool apply = !string.IsNullOrWhiteSpace(targetFormid);
@@ -6435,7 +6441,7 @@ public sealed class LoadOrderService : IDisposable
         FormKey targetFk = default;
         if (apply)
         {
-            try { targetFk = ParseFormId(targetFormid); }
+            try { targetFk = OpenFormIdDoor().Parse(targetFormid); }
             catch (Exception ex) { return NpcCopyOutcome.Fail($"bad target formid '{targetFormid}': {ex.Message}."); }
         }
 
@@ -7000,7 +7006,8 @@ public sealed class LoadOrderService : IDisposable
     /// field path, and build the composition <see cref="StructSpec"/> when present. RecordType is deliberately not
     /// taken from the wire — the engine derives it from the resolved winner. Returns null and a named error on any
     /// malformed input.</summary>
-    WritePatchBuilder.PatchEdit? MapEdit(BulkOp op, int index, out string? error, string? fromRecord = null, string? origin = null)
+    WritePatchBuilder.PatchEdit? MapEdit(FormIdDoor door, BulkOp op, int index, out string? error,
+                                         string? fromRecord = null, string? origin = null)
     {
         error = null;
         // The caller's own spelling for this edit: inline ops are op[i], while zip-generated ops are named by the
@@ -7009,7 +7016,7 @@ public sealed class LoadOrderService : IDisposable
         var where = origin ?? $"op[{index}]";
         if (string.IsNullOrWhiteSpace(op.Formid)) { error = $"{where}: formid is required."; return null; }
         FormKey fk;
-        try { fk = ParseFormId(op.Formid); }
+        try { fk = door.Parse(op.Formid); }
         catch (Exception ex) { error = $"{where}: bad formid '{op.Formid}' ({ex.Message}). Expected 'XXXXXX:Plugin.esp'."; return null; }
         if (string.IsNullOrWhiteSpace(op.FieldPath)) { error = $"{where} ({op.Formid}): field_path is required."; return null; }
         var path = SplitPath(op.FieldPath);
@@ -7033,7 +7040,7 @@ public sealed class LoadOrderService : IDisposable
         FormKey? fromKey = null;
         if (!string.IsNullOrWhiteSpace(fromRecord))
         {
-            try { fromKey = ParseFormId(fromRecord); }
+            try { fromKey = door.Parse(fromRecord); }
             catch (Exception ex) { error = $"{where} ({op.Formid}): bad from '{fromRecord}' ({ex.Message}). Expected 'XXXXXX:Plugin.esp'."; return null; }
             if (fromKey == fk)
             { error = $"{where} ({op.Formid}): from names the SAME record as formid — copying a record's field onto itself is a no-op. Drop from=, and name the plugin whose version to copy in from_source=."; return null; }
@@ -7999,7 +8006,7 @@ public sealed class LoadOrderService : IDisposable
         FormKey fk = default;
         if (hasFormid)
         {
-            try { fk = ParseFormId(formid); }
+            try { fk = OpenFormIdDoor().Parse(formid); }
             catch (Exception ex) { return PluginFileOutcome.Fail(plugin, $"bad FormID '{formid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '000D62:Vivace.esp'."); }
         }
 
@@ -8473,8 +8480,9 @@ public sealed record ReadOutcome(
 
     /// <summary>The RUNTIME FormID of this record in the build that answered — the eight-hex form the game, the
     /// console, Papyrus logs and crash logs print. Rendered beside the FormKey so a reader can carry the record
-    /// either way. Null when the record's plugin is not active, which is the only way it has no runtime address.
-    /// Carried per outcome because the light index moves whenever the order does.</summary>
+    /// either way. Null when the order gives the record no runtime address — the read came from a plugin outside the
+    /// active order, or the tables could not be built (<see cref="LoadOrderResolver.IndexView.RuntimeFormIdOf"/> says
+    /// when). Carried per outcome because the light index moves whenever the order does.</summary>
     public string? RuntimeFormId { get; init; }
 
     /// <summary>The resolver and view this outcome was answered from, carried beside <see cref="Epoch"/> so the
