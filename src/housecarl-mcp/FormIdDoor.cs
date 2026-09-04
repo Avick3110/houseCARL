@@ -47,10 +47,30 @@ internal sealed class FormIdDoor
         var fk = _view.Value.ParseFormId(raw);
         // Translate first, so the refusal can hand back the plugin form to paste in place of the token.
         if (_write)
-            throw new FormatException(
+            throw new WriteRefusal(
                 $"'{(raw ?? "").Trim()}' is a runtime FormID, which houseCARL accepts for reading but not for " +
                 $"writing, because it names a slot in the load order as it stands rather than a record — write to " +
                 $"'{fk.ID:X6}:{fk.ModKey.FileName}' instead.");
         return fk;
     }
+
+    /// <summary>Refuse a runtime FormID in a slot that may hold something OTHER than a FormID (a create's
+    /// <c>parent=</c> takes an EditorID too), returning the sentence or null. Anything the door cannot recognise as
+    /// a runtime FormID is left to the caller's own parser.</summary>
+    public string? RuntimeRefusal(string? raw)
+    {
+        if (!RuntimeFormId.TryParse(raw, out _)) return null;
+        try { Parse(raw); return null; }
+        catch (WriteRefusal ex) { return ex.Message; }
+    }
+
+    /// <summary>What to report for a token this door threw on. A write refusal is a WELL-FORMED token being
+    /// declined, with the form to use already in it, so it stands as its own sentence under
+    /// <paramref name="prefix"/>; anything else keeps the caller's own "bad FormID, expected …" framing.</summary>
+    public static string Sentence(Exception ex, string prefix, string ifMalformed)
+        => ex is WriteRefusal ? prefix + ex.Message : ifMalformed;
+
+    /// <summary>A runtime FormID at a <see cref="ForWrite"/> door — distinguishable so a caller does not wrap it in
+    /// its malformed-token sentence.</summary>
+    internal sealed class WriteRefusal(string message) : FormatException(message);
 }
