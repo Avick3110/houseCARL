@@ -61,8 +61,8 @@ static class JsonWire
     internal static void WriteRefusal(Utf8JsonWriter w, string? error)
     {
         w.WriteBoolean("ok", false);
-        // `error` is nullable at one caller (read_plugin_file's error mode reads a DTO field typed optional), and
-        // that site's refusal document carries a json null there.
+        // `error` is nullable because a caller can pass an optional DTO field straight in; that site's refusal
+        // document carries a json null there.
         WriteNullable(w, "error", error);
     }
 

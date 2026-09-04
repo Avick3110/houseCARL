@@ -89,10 +89,6 @@ public sealed class LoadOrderService : IDisposable
         return svc;
     }
 
-    /// <summary>Non-fatal warnings from the last order build — e.g. a plugin the load order lists that no enabled mod
-    /// provides. Surfaced, never swallowed. Empty until the resolver first builds.</summary>
-    public IReadOnlyList<string> OrderWarnings => _orderWarnings;
-
     /// <summary>The write pre-flight rulebook (corpus.json), loaded once. CorpusPath is set absolute at startup, so
     /// this resolves regardless of the MO2-launched process's working directory.</summary>
     CorpusRulebook Rulebook => _rulebook ??= CorpusRulebook.Load();
@@ -2324,17 +2320,6 @@ public sealed class LoadOrderService : IDisposable
     /// surfaces as Complete=false.</summary>
     internal const int ConflictDiffDepth = 16;
 
-    /// <summary>The winner's full conflict tree, materialised: every touching plugin's name and its fields read off
-    /// its own body, in priority order with the winner last, read at <see cref="ConflictDiffDepth"/> so the diff
-    /// compares list and substruct content. Opens a per-call session, fetches each touching body, reads its
-    /// <paramref name="fields"/> into a plain DTO, then disposes the session, so the render layer never touches a live
-    /// overlay or holds a handle. Null if the FormKey is not in the order.</summary>
-    public ConflictTreeView? ResolveTree(FormKey fk, IReadOnlyList<string>? fields)
-    {
-        var resolver = Resolver;
-        return ResolveTreePinned(new ViewPin(resolver, resolver.Capture()), fk, fields);
-    }
-
     /// <summary>A header-only summary for one record (winner + type + editorid, no field dump) — the compact
     /// one-line-per-match view cross_plugin_query uses by default. One winner-body fetch; holds nothing.</summary>
     public RecordSummary ResolveSummary(FormKey fk)
@@ -4357,8 +4342,8 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>Fill in each report's install-vs-enable split for the masters the sweep found unsatisfied. The core
     /// sweep knows the ACTIVE ORDER and stops there; which of those masters is nonetheless sitting in the install —
     /// in a disabled mod, or unticked — is a fact about the MO2 composition, which lives at this layer. Done here so
-    /// the split has one home shared with <c>read_plugin_file</c>'s advisory
-    /// (<see cref="Mo2LoadOrder.SplitUnsatisfiedMasters"/>) rather than a second spelling inside the core.
+    /// the split has one home (<see cref="Mo2LoadOrder.SplitUnsatisfiedMasters"/>) rather than a second spelling
+    /// inside the core.
     /// <para>A composition that cannot be read leaves every report's subset null, not empty. Empty would say "none
     /// of these is merely disabled", a claim about an install nobody looked at; null says the split was not made,
     /// and the render falls back to the union remedy.</para></summary>
@@ -4595,8 +4580,8 @@ public sealed class LoadOrderService : IDisposable
     /// the caller to dispose AFTER the patch serialize — CopyField deep-copies through them). Active-order sources are
     /// left for <see cref="WritePatchBuilder.Apply"/> to resolve via its shared view (so they read the winner's build).
     /// Returns a named refusal string if any off-order source cannot be located, opened or read, or does not define the record
-    /// (all-or-nothing, before any write); null on success. Uses the SAME on-disk locate as read_plugin_file / the
-    /// copy-npc-appearance donor lane, so the tools can never disagree on which file a filename names.
+    /// (all-or-nothing, before any write); null on success. Uses the SAME on-disk locate as the records source= pole
+    /// and the copy-npc-appearance donor lane, so the tools can never disagree on which file a filename names.
     /// <para>This capture is its own — the engine captures again — so a body pre-fetched here is only used when the
     /// engine's build still agrees the source is off-order. A write pins one resolver instance whose name table is
     /// never rebuilt, so the two captures cannot disagree about membership.</para>
@@ -6690,33 +6675,18 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
-    /// <summary>Create a brand-new record — the net-new authoring capability, the sibling of
-    /// <see cref="ApplyEdits"/>. Resolves <paramref name="recordType"/> (a catalog name or 4-char signature) to one
-    /// concrete catalog name, refusing an unknown or ambiguous one; maps the field <paramref name="operations"/> to
-    /// core write requests rooted at that type, since a create op takes no formid and sets fields on the new record;
-    /// resolves the folder-per-patch output, fresh or <paramref name="into"/> an existing houseCARL-owned patch; then
-    /// drives <see cref="WritePatchBuilder.CreateRecords"/>. The new record's FormID is auto-allocated at 0x800 and
-    /// above and reported, and originals are never touched. A flat top-level record needs no
-    /// <paramref name="parent"/>; a nested child passes one — an existing parent's FormKey, or a record created in a
-    /// prior into= call — plus <paramref name="collection"/> when the parent holds more than one fitting child list.
-    /// For a parent and its children in one call, see <see cref="CreateRecordsBatch"/>.</summary>
-    public WritePatchBuilder.CreateOutcome CreateRecords(string recordType, string editorid, IReadOnlyList<BulkOp> operations,
-        string? patchName, string? into, bool fullReadback = false, string? parent = null, string? collection = null, string? grid = null,
-        string? target = null, bool inPlace = false, bool acknowledge = false)
-    {
-        var problems = new List<string>();
-        var spec = BuildCreateSpec(recordType, editorid, operations, parent, collection, grid, where: null, problems, CreateOpNaming.Legacy);
-        if (spec is null)
-            return WritePatchBuilder.CreateOutcome.Fail(
-                $"refused — {problems.Count} problem(s) creating the record; NOTHING created:\n  - " + string.Join("\n  - ", problems));
-        return CommitCreate(new[] { spec }, patchName, into, fullReadback, target, inPlace, acknowledge);
-    }
-
-    /// <summary>Create many new records in one patch — the batch sibling of <see cref="CreateRecords"/>, and the
-    /// one-shot route for a nested unit (a dialogue topic and its lines, a cell and its placed refs) where a child's
-    /// <c>parent</c> names a same-call sibling by editorid. Each spec is mapped exactly as the single create.
-    /// All-or-nothing: any malformed spec refuses the whole call with per-record reasons, and the core likewise
-    /// refuses the whole batch on any creatability or parent problem. One serialize for the lot.</summary>
+    /// <summary>Create brand-new records in one patch — the net-new authoring capability, the sibling of
+    /// <see cref="ApplyEdits"/>, and the one-shot route for a nested unit (a dialogue topic and its lines, a cell and
+    /// its placed refs) where a child's <c>parent</c> names a same-call sibling by editorid. Each spec resolves its
+    /// record type (a catalog name or 4-char signature) to one concrete catalog name, refusing an unknown or ambiguous
+    /// one; maps its field operations to core write requests rooted at that type, since a create op takes no formid
+    /// and sets fields on the new record; a flat top-level record needs no parent, a nested child passes one — an
+    /// existing parent's FormKey, or a record created in a prior into= call — plus a collection when the parent holds
+    /// more than one fitting child list. Then it resolves the folder-per-patch output, fresh or <paramref name="into"/>
+    /// an existing houseCARL-owned patch, and drives <see cref="WritePatchBuilder.CreateRecords"/>. Each new record's
+    /// FormID is auto-allocated at 0x800 and above and reported, and originals are never touched. All-or-nothing: any
+    /// malformed spec refuses the whole call with per-record reasons, and the core likewise refuses the whole batch on
+    /// any creatability or parent problem. One serialize for the lot.</summary>
     public WritePatchBuilder.CreateOutcome CreateRecordsBatch(IReadOnlyList<CreateOp> records, string? patchName, string? into, bool fullReadback = false,
         string? target = null, bool inPlace = false, bool acknowledge = false, IReadOnlyList<string?>? origins = null,
         CreateOpNaming? naming = null)
@@ -7988,153 +7958,6 @@ public sealed class LoadOrderService : IDisposable
         File.WriteAllText(Path.Combine(folder, "meta.ini"), content);
     }
 
-    // ---- a raw, out-of-load-order read of ONE plugin file, active or not ----
-
-    /// <summary>Read one plugin file directly off disk, including a plugin disabled in MO2, returning that file's own
-    /// version of a record, the records of a type it defines, or a record-type summary when neither is given. It
-    /// reaches a donor being removed from the active order, which the resolver, seeing only the active profile,
-    /// cannot.
-    /// <para>It is a separate method rather than a flag on <see cref="ResolveRead"/> because it opens its OWN overlay,
-    /// materialises, and disposes it: it never consults the resolver index and never reports a winner or conflict, so
-    /// a raw-file read cannot masquerade as load-order truth, and no handle is held at rest. It emits FormLink fields
-    /// as FormKey tokens exactly like <see cref="ResolveRead"/> and does not follow links, so it needs no master
-    /// files present; declared masters that are not installed are reported as an advisory.</para>
-    /// <para>Read-only. A missing or ambiguous filename, a bad or absent FormID, or a record Mutagen cannot parse is
-    /// named, never a silent wrong answer.</para></summary>
-    public PluginFileOutcome ReadPluginFile(string plugin, string? formid, string? type, string? mod,
-                                            IReadOnlyList<string>? fields, int depth, string? editoridContains, int limit,
-                                            bool resolveNames = false)
-    {
-        if (string.IsNullOrWhiteSpace(plugin))
-            return PluginFileOutcome.Fail(plugin ?? "", "plugin is required — a plugin filename (e.g. 'Vivace.esp') or an absolute path to a .esp/.esm/.esl.");
-        plugin = plugin.Trim();
-
-        bool hasFormid = !string.IsNullOrWhiteSpace(formid);
-        bool hasType = !string.IsNullOrWhiteSpace(type);
-        if (hasFormid && hasType)
-            return PluginFileOutcome.Fail(plugin, "pass EITHER formid= (read one record) OR type= (enumerate that type), not both.");
-
-        FormKey fk = default;
-        if (hasFormid)
-        {
-            try { fk = OpenFormIdDoor().Parse(formid); }
-            catch (Exception ex) { return PluginFileOutcome.Fail(plugin, $"bad FormID '{formid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '000D62:Vivace.esp'."); }
-        }
-
-        // Derive the MO2 roots cheaply by reading ModOrganizer.ini, with no index build. Never touches the resolver.
-        string modsDir, dataDir, overwriteDir, profileDir;
-        try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
-        catch (Exception ex) { return PluginFileOutcome.Fail(plugin, ex.Message); }
-
-        var comp = Mo2LoadOrder.ReadComposition(profileDir);           // cheap text parse (enabled + disabled folders) — reused for locate + master advisory
-
-        // Locate the file through the shared on-disk plugin-locate contract, so no two tools can find different
-        // files for the same filename.
-        var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, plugin, mod);
-        if (loc.Error is not null) return PluginFileOutcome.Fail(plugin, loc.Error);
-        if (loc.Ambiguous is not null) return PluginFileOutcome.AmbiguousHits(plugin, loc.Ambiguous);
-        string path = loc.Path!, where = loc.Where; bool enabled = loc.Enabled; string? whyNotActive = loc.WhyNotActive;
-
-        // Open our own overlay, which wires localized-string resolution, read, then dispose — no handles at rest.
-        ISkyrimModGetter ov;
-        try { ov = LoadOrderResolver.OpenOverlay(path, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
-        catch (Exception ex) { return PluginFileOutcome.Fail(plugin, $"could not open '{path}' as a Skyrim plugin: {ex.Message}"); }
-        try
-        {
-            var masters = ov.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();
-            // Classify each declared master by whether it will actually LOAD, so the "won't load without them"
-            // warning fires exactly when it applies. Two distinct shortfalls, because their remedies differ: MISSING
-            // means installed nowhere, so install it; INACTIVE means installed but not in the active order, living
-            // only in a disabled mod or unchecked, so enable it. A disabled mod is not active, so counting its file
-            // as satisfied would suppress the warning exactly when it applies.
-            // "Active" is read from the profile — plugins.txt actives plus the force-loaded implicit masters — not
-            // mere on-disk presence, so this agrees with the error check's notion of the active order. BOTH halves
-            // must hold for a master to be satisfied, and a profile can assert the first with the second false: a
-            // stale tick after the mod folder was deleted outside MO2 names a plugin as active that the install does
-            // not provide. Testing only the active half would filter that name out before the split ever looked for
-            // a file, so it would land in neither list and the warning would go silent where it applied.
-            // The install's plugin-name set is read once, and read once for BOTH halves below, so the existence
-            // question the filter asks and the one the split answers cannot be put to two different installs.
-            var installed = new HashSet<string>(
-                Mo2LoadOrder.AllPluginFileNames(comp, modsDir, dataDir, overwriteDir), StringComparer.OrdinalIgnoreCase);
-            var unsatisfied = masters.Where(m => !(comp.ActivePluginNames.Contains(m)
-                                                   || comp.ImplicitPluginNames.Any(x => x.Equals(m, StringComparison.OrdinalIgnoreCase)))
-                                                 || !installed.Contains(m));
-            // The split itself lives in one place, shared with the check surface's missing-master remedy, so
-            // "install it" versus "enable it" cannot be decided two ways.
-            var (missing, inactive) = Mo2LoadOrder.SplitUnsatisfiedMasters(installed, unsatisfied);
-            var baseOut = new PluginFileOutcome
-            {
-                Requested = plugin, FilePath = path, Where = where, Enabled = enabled, WhyNotActive = whyNotActive,
-                Masters = masters, MissingMasters = missing, InactiveMasters = inactive,
-            };
-
-            if (hasFormid)
-            {
-                IMajorRecordGetter? rec;
-                try { rec = ov.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == fk); }
-                catch (Exception ex) { return baseOut with { Mode = "error", Error = $"'{Path.GetFileName(path)}' could not be fully read — a record Mutagen cannot parse before reaching {fk}: {ex.Message}" }; }
-                if (rec is null)
-                    return baseOut with { Mode = "error", Error = $"file '{Path.GetFileName(path)}' does not define or override {fk}. This reads the FILE's OWN records only — it does not resolve across masters or report a load-order winner; use {ToolNames.Records} with the default source= for the winner." };
-                var rf = ReadEngine.ReadFields(rec, fields, depth <= 0 ? 1 : depth);
-                if (resolveNames)
-                {
-                    // resolve_names on a raw file read resolves the FILE's link tokens against the ACTIVE order, the
-                    // only identity frame houseCARL holds, and a target the active order does not define is marked
-                    // unresolved rather than guessed. Opt-in only, so the default path's no-resolver cheapness is
-                    // untouched. No epoch is stamped even here: the response's subject is the raw file, outside the
-                    // fingerprint, and only the display annotations touch a build.
-                    var view = Resolver.Capture();
-                    using var session = Resolver.OpenSession();
-                    rf = AnnotateLinks(rf, view, session, new());
-                }
-                return baseOut with { Mode = "read", Record = rf };
-            }
-
-            if (hasType)
-            {
-                IReadOnlyList<Type> types;
-                try { types = ResolveTypeFilter(type!); }
-                catch (ArgumentException ex) { return baseOut with { Mode = "error", Error = ex.Message }; }
-                var rows = new List<PluginRecordRow>();
-                int total = 0; bool capped = false;
-                try
-                {
-                    foreach (var rec in ov.EnumerateMajorRecords())
-                    {
-                        if (!types.Any(t => t.IsInstanceOfType(rec))) continue;
-                        if (!string.IsNullOrEmpty(editoridContains)
-                            && (rec.EditorID is null || rec.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0)) continue;
-                        total++;
-                        if (rows.Count < limit) rows.Add(new PluginRecordRow(rec.FormKey.ToString(), RecordNaming.StripOverlay(rec.GetType().Name), rec.EditorID));
-                        else capped = true;
-                    }
-                }
-                catch (Exception ex) { return baseOut with { Mode = "error", Error = $"'{Path.GetFileName(path)}' could not be fully enumerated — a record Mutagen cannot parse: {ex.Message}" }; }
-                return baseOut with { Mode = "enumerate", Rows = rows, RowTotal = total, Capped = capped };
-            }
-
-            // Neither: a record-type summary of what the file defines and overrides.
-            var counts = new Dictionary<string, int>(StringComparer.Ordinal);
-            int recTotal = 0;
-            try
-            {
-                foreach (var rec in ov.EnumerateMajorRecords())
-                {
-                    recTotal++;
-                    var tn = RecordNaming.StripOverlay(rec.GetType().Name);
-                    counts[tn] = counts.TryGetValue(tn, out var c) ? c + 1 : 1;
-                }
-            }
-            catch (Exception ex) { return baseOut with { Mode = "error", Error = $"'{Path.GetFileName(path)}' could not be fully enumerated — a record Mutagen cannot parse: {ex.Message}" }; }
-            var typeCounts = counts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal)
-                                   .Select(kv => new PluginTypeCount(kv.Key, kv.Value)).ToList();
-            return baseOut with { Mode = "summary", TypeCounts = typeCounts, RecordTotal = recTotal };
-        }
-        catch (Exception ex) { return PluginFileOutcome.Fail(plugin, $"failed reading '{path}': {ex.Message}"); }
-        finally { (ov as IDisposable)?.Dispose(); }
-    }
-
     /// <summary>Is a located file the copy the MO2 install serves for its filename, and if not, why not? One half of
     /// "does the game load this file"; the other is <see cref="TickStanding"/>. The two are independent — a copy can
     /// be both shadowed and unticked, each with its own remedy — so collapsing them to one cause would always drop
@@ -8575,52 +8398,8 @@ public sealed record RecordSummary(FormKey FormKey, string Type, string? EditorI
     public RecordSummary WithRuntime(RuntimeAddress a) => this with { RuntimeFormId = a.FormId, RuntimeFormIdNote = a.Note };
 }
 
-/// <summary>One enumerate/read row from a raw plugin-file read: a record the file DEFINES or OVERRIDES, as its
-/// FormKey + type + EditorID. NOT a load-order winner — the FILE's own record.</summary>
-public sealed record PluginRecordRow(string FormKey, string Type, string? EditorId);
-
-/// <summary>One summary row: a record type the file touches and how many records of it the file defines/overrides.</summary>
-public sealed record PluginTypeCount(string Type, int Count);
-
-/// <summary>The outcome of a housecarl_read_plugin_file call — a RAW, OUT-OF-LOAD-ORDER read of ONE plugin file
-/// (active or not), never resolved against the load order. <see cref="Error"/> non-null ⇒ the call failed with a
-/// named, recoverable reason (<see cref="Mode"/> "error"). <see cref="Mode"/> "ambiguous" ⇒ the filename matched
-/// several folders (<see cref="Ambiguous"/> lists them) and the caller must disambiguate. Otherwise <see cref="Mode"/>
-/// is "read" (<see cref="Record"/>), "enumerate" (<see cref="Rows"/> + <see cref="RowTotal"/>/<see cref="Capped"/>),
-/// or "summary" (<see cref="TypeCounts"/> + <see cref="RecordTotal"/>). <see cref="FilePath"/>/<see cref="Where"/>/
-/// <see cref="Masters"/>/<see cref="MissingMasters"/> describe the file that was opened (present on success and on a
-/// read-time error).</summary>
-public sealed record PluginFileOutcome
-{
-    public string? Error { get; init; }
-    public required string Requested { get; init; }
-    public string Mode { get; init; } = "error";
-    public string? FilePath { get; init; }
-    public string? Where { get; init; }
-    public bool Enabled { get; init; }
-    /// <summary>WHY the game does not load this file — null when <see cref="Enabled"/> (and on the error/ambiguous
-    /// outcomes, which carry no file). Composed once by the shared locate contract
-    /// (<see cref="LoadOrderService.PluginLocateResult.WhyNotActive"/>) so every renderer of this state says the same
-    /// thing; naming the CAUSE is what lets a reader act without re-deriving it.</summary>
-    public string? WhyNotActive { get; init; }
-    public IReadOnlyList<string> Masters { get; init; } = Array.Empty<string>();
-    public IReadOnlyList<string> MissingMasters { get; init; } = Array.Empty<string>();     // declared but installed NOWHERE
-    public IReadOnlyList<string> InactiveMasters { get; init; } = Array.Empty<string>();    // installed but NOT active (disabled/unchecked)
-    public RecordFields? Record { get; init; }
-    public IReadOnlyList<PluginRecordRow> Rows { get; init; } = Array.Empty<PluginRecordRow>();
-    public int RowTotal { get; init; }
-    public bool Capped { get; init; }
-    public IReadOnlyList<PluginTypeCount> TypeCounts { get; init; } = Array.Empty<PluginTypeCount>();
-    public int RecordTotal { get; init; }
-    public IReadOnlyList<PluginFileHit> Ambiguous { get; init; } = Array.Empty<PluginFileHit>();
-
-    public static PluginFileOutcome Fail(string requested, string error) => new() { Requested = requested, Error = error, Mode = "error" };
-    public static PluginFileOutcome AmbiguousHits(string requested, IReadOnlyList<PluginFileHit> hits) =>
-        new() { Requested = requested, Mode = "ambiguous", Ambiguous = hits };
-}
-
 /// <summary>The MATERIALISED conflict tree the render layer consumes — each touching plugin's name + the fields read
-/// off its own body, in priority order (winner last). Built by <see cref="LoadOrderService.ResolveTree"/> with the
+/// off its own body, in priority order (winner last). Built by <see cref="LoadOrderService.ResolveTreePinned"/> with the
 /// per-call session already disposed, so it carries NO live overlay (Option B — the renderer never holds a handle).</summary>
 public sealed record ConflictTreeView(IReadOnlyList<ConflictNodeView> Nodes,
                                       IReadOnlyList<ChildDeclarers> ChildDeclarers)
