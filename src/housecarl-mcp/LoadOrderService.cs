@@ -4042,7 +4042,8 @@ public sealed class LoadOrderService : IDisposable
                                      predicate?.AccountingNote(), sources, scanNote,
                                      matched, groupRows, groupBy, definedIn ? string.Join(", ", plugins!) : null, offset,
                                      whereWinner, whereSourceNote)
-               { Epoch = view.Epoch, Pin = new ViewPin(resolver, view) };
+               { Epoch = view.Epoch, Pin = new ViewPin(resolver, view),
+                 UnreadPlugins = unreadablePlugins.Select(u => u.PluginName).ToList() };
     }
 
     // ---- the off-order scan ----------------------------------------------------------------------------
@@ -8501,6 +8502,10 @@ public sealed record CrossQueryOutcome(
     /// <summary>The captured build the scan ran over. The render stamps it into the in-band accounting so paged
     /// windows are checkably from the same build. Null on the pre-scan refusals.</summary>
     public string? Epoch { get; init; }
+
+    /// <summary>Plugins the winner scan could not open, by filename. A zero-match answer with one of these is bounded
+    /// by the lock, not by the filter, and the render must not tell the caller otherwise.</summary>
+    public IReadOnlyList<string> UnreadPlugins { get; init; } = Array.Empty<string>();
 
     /// <summary>The scan's pinned resolver and view, carried so the render's per-match fills — detail bodies,
     /// summaries, conflict trees — read off the same build the scan matched and <see cref="Epoch"/> names. Without

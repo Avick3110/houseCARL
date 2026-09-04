@@ -238,7 +238,12 @@ static class Wire
         if (q.ScopeLabel is not null) sb.Append(" DEFINED IN ").Append(q.ScopeLabel);   // explicit scope — NOT the 'touches' default
         if (q.Offset > 0)                                                              // name the window, and the next offset while paging
         {
-            if (q.Total == 0) sb.Append(" (offset=").Append(q.Offset).Append(" had nothing to skip — NO records match at any offset; check the filter, not the paging)");
+            // "no records match at any offset" is a claim over the whole order; a scan that lost a plugin names the
+            // lock instead, because the filter is the one thing that is not the cause.
+            if (q.Total == 0 && q.UnreadPlugins.Count > 0)
+                sb.Append(" (offset=").Append(q.Offset).Append(" had nothing to skip — no records match in the plugins this scan could read, and it could not read ")
+                  .Append(string.Join(", ", q.UnreadPlugins)).Append("; the note below names why)");
+            else if (q.Total == 0) sb.Append(" (offset=").Append(q.Offset).Append(" had nothing to skip — NO records match at any offset; check the filter, not the paging)");
             else if (q.Keys.Count == 0) sb.Append(" (offset=").Append(q.Offset).Append(" skipped past the last match — nothing to show; lower offset=)");
             else
             {
