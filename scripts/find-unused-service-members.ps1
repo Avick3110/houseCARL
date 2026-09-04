@@ -8,6 +8,10 @@
 # CreateRecords. Overloads share one name, so a name is dead only when every overload
 # of it is. Deleting the member and building is the last word.
 #
+# Two kinds of member are listed and are not dead: one the language calls rather than
+# the code (Dispose, under a `using`), and a seam the CI guards drive from outside the
+# shipped process (the ForGuard pair).
+#
 #   scripts/find-unused-service-members.ps1
 #   scripts/find-unused-service-members.ps1 -Sites          # with the other-receiver uses
 #   scripts/find-unused-service-members.ps1 -All
@@ -16,7 +20,6 @@ param(
     [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')),
     [string]$Service = 'src/housecarl-mcp/LoadOrderService.cs',
     [string]$Scope = 'src/housecarl-mcp',
-    [int]$Threshold = 0,
     [switch]$Sites,
     [switch]$All
 )
@@ -41,21 +44,42 @@ for ($i = $start; $i -lt $end; $i++) {
     $line = $declLines[$i]
     if ($line -notmatch '^    (public|internal)\s') { continue }
 
+    # Cut an accessor block or expression body off first, so a call inside one is not read as a parameter list.
+    $head = $line
+    $cut = ($head.IndexOf('{'), $head.IndexOf('=>') | Where-Object { $_ -ge 0 } | Measure-Object -Minimum).Minimum
+    if ($null -ne $cut) { $head = $head.Substring(0, $cut) }
+
+    # The parameter list is the first "(" an identifier or a generic argument list touches. A "(" preceded by
+    # anything else opens a tuple RETURN type, so skip it and its contents.
+    $paramAt = -1
+    for ($c = 0; $c -lt $head.Length; $c++) {
+        if ($head[$c] -ne '(') { continue }
+        if ($head.Substring(0, $c) -match '[A-Za-z0-9_>]\s*$') { $paramAt = $c; break }
+        $depth = 1
+        while (++$c -lt $head.Length -and $depth -gt 0) {
+            if ($head[$c] -eq '(') { $depth++ } elseif ($head[$c] -eq ')') { $depth-- }
+        }
+        $c--
+    }
+    $decl = if ($paramAt -ge 0) { $head.Substring(0, $paramAt) } else { $head }
+
     $name = $null
     $kind = 'member'
-    if ($line -match '\b(class|record|struct|enum|interface)\s+([A-Za-z_][A-Za-z0-9_]*)') {
+    if ($decl -match '\b(class|struct|enum|interface|record(?:\s+(?:struct|class))?)\s+([A-Za-z_][A-Za-z0-9_]*)') {
         $name = $Matches[2]
-        $kind = $Matches[1]
+        $kind = ($Matches[1] -split '\s+')[0]
     }
-    elseif ($line -match '([A-Za-z_][A-Za-z0-9_]*)\s*\(') {
-        # a method or delegate: the name is the identifier the parenthesis touches
-        $name = $Matches[1]
-        $kind = if ($line -match '\bdelegate\b') { 'delegate' } else { 'method' }
+    elseif ($paramAt -ge 0) {
+        # a method or delegate: the name is the identifier before the parameter list, past any generic arguments
+        $before = $decl -replace '<[^<>]*>\s*$', ''
+        if ($before -match '([A-Za-z_][A-Za-z0-9_]*)\s*$') {
+            $name = $Matches[1]
+            $kind = if ($line -match '\bdelegate\b') { 'delegate' } else { 'method' }
+        }
     }
     else {
-        # a property or field: cut the initializer or accessor block off first
-        $head = ($line -split '=>|\{|=|;')[0]
-        $idents = [regex]::Matches($head, '[A-Za-z_][A-Za-z0-9_]*')
+        # a property or field: cut the initializer off too, then take the declared name
+        $idents = [regex]::Matches(($decl -split '=|;')[0], '[A-Za-z_][A-Za-z0-9_]*')
         if ($idents.Count -gt 0) {
             $name = $idents[$idents.Count - 1].Value
             $kind = 'property/field'
@@ -97,10 +121,13 @@ foreach ($file in $files) {
     foreach ($text in [System.IO.File]::ReadLines($file.FullName)) {
         $n++
         $trimmed = $text.TrimStart()
-        $isComment = $trimmed.StartsWith('//') -or $trimmed.StartsWith('*') -or $trimmed.StartsWith('/*')
+        $lineIsComment = $trimmed.StartsWith('//') -or $trimmed.StartsWith('*') -or $trimmed.StartsWith('/*')
+        $commentAt = $text.IndexOf('//')
         foreach ($m in $identifier.Matches($text)) {
             $key = $m.Value
             $prefix = $text.Substring(0, $m.Index)
+            # A trailing comment is prose too, or a member named only in one reads as called.
+            $isComment = $lineIsComment -or ($commentAt -ge 0 -and $m.Index -gt $commentAt)
             $receiver = $null
             $r = $receiverOf.Match($prefix)
             if ($r.Success) { $receiver = $r.Groups[1].Value }

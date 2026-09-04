@@ -578,6 +578,9 @@ public static class BulkPrimitivesWave3Probe
             var pole = svc.ProbeSourceArm(plugin, mod, out var err);
             return err ?? pole!.Where;
         }
+        // A path as the records source= pole takes it.
+        static System.Text.Json.JsonElement PolePath(string path) =>
+            System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(path)).RootElement.Clone();
         // The cause on its own, so two address forms can be compared on the FACT rather than on the label that
         // introduces it — each lane's label names a different thing, by design.
         string? Cause(string plugin, string? mod = null)
@@ -598,6 +601,12 @@ public static class BulkPrimitivesWave3Probe
         // one's, so the two must never render alike: what is wrong is WHICH copy, and the pointer is the winner.
         Check("source pole: a SHADOWED copy in a lower-priority enabled mod says SHADOWED and names the serving mod",
               Cause(shadowPath) is { } wS && wS.Contains("SHADOWED") && wS.Contains("DiffRepl") && !wS.Contains("UNTICKED"));
+        // And it still READS off that pole — unreachable to the game, not to the tool. Through the records lane,
+        // because locating a file and opening it are two different steps and only the second proves this.
+        var shadowRead = RecordsTools.Records(svc, formids: new[] { wFid }, source: PolePath(shadowPath),
+                                              project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage" } });
+        Check("source pole: the shadowed copy still reads its own value (66) off the file",
+              shadowRead.Contains("BasicStats.Damage = 66"));
         // The served copy is the first ENABLED-layer hit, not the first hit: a DISABLED folder holding the same
         // filename is listed ahead of game Data, and must not decide the live plugin's provenance.
         Check("source pole: a game-Data-served plugin listed BEHIND a disabled copy still resolves ACTIVE",
