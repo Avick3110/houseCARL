@@ -88,6 +88,19 @@ saying it sets an expectation their install may contradict. Say what is known, a
   guessed a folder name that does not exist is told how to create it under a name they choose rather than only to
   omit `into=`. On `housecarl_bsa_repack` the sentence names `patch_name=` and says that `patch=` there names the
   archive instead.
+- **`housecarl_skse_inventory`, `housecarl_native_pairing_audit` and `housecarl_skse_config_audit` are now one tool,
+  `housecarl_skse`, with `findings=` picking the family: `inventory` (the default), `pairing` or `config`.** The three
+  answered different questions about the same layer and each carried the same "what the file declares, never what the
+  DLL does" ceiling; it is now written once on the merged tool, with each family's own detail on `findings=`. `filter=`
+  and `max_chars=` mean what they meant, `peek=` still belongs to the inventory family and is refused rather than
+  ignored on the other two, and a call runs one family — every response names the family it ran and the spelling of
+  the two it did not. The three old names return a one-line redirect naming the `findings=` value that replaces them.
+
+- **The pairing family now names a debug-built DLL that loads on your own machine.** Reaching a `[LOADS]` verdict
+  while the DLL imports the debug C runtime means that runtime resolved here — so it loads for you and fails with
+  error 126 for anyone without it. The verdict is unchanged, because it does load here; the line now says who it
+  will not load for. The inventory family already flagged this, so the two families no longer disagree about the
+  same file.
 
 - **`housecarl_asset_status` under a `max_chars` its header and alarms already fill now renders the first path's
   answer instead of cutting to none.** `housecarl_nif_inspect` already did; both tools now render through one batch
