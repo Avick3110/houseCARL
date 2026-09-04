@@ -42,6 +42,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if (-not $RepoRoot) { $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path }
+if (-not (Test-Path $PublishDir)) { throw "notices generation needs a publish directory, and there is nothing at $PublishDir; publish the server first" }
 $PublishDir = (Resolve-Path $PublishDir).Path
 
 $DepsFile     = Join-Path $PublishDir 'housecarl-mcp.deps.json'
