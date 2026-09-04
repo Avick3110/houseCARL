@@ -6191,7 +6191,7 @@ public sealed class LoadOrderService : IDisposable
                 if (view.ExcludedPlugins.TryGetValue(d, out var excluded))
                     return WritePatchBuilder.MergeOutcome.Fail(
                         $"cannot merge '{d}': it was EXCLUDED from this session ({excluded}) — houseCARL won't merge a plugin it " +
-                        "can't fully parse (it would risk dropping records it couldn't read). Nothing was written.");
+                        "can't fully parse (it would risk dropping records it couldn't read, Q3). Nothing was written.");
                 var p = view.PluginPath(d);
                 if (p is null || !File.Exists(p))
                     return WritePatchBuilder.MergeOutcome.Fail($"donor '{d}' not found on disk at {p ?? "<unresolved>"} — nothing to merge.");
@@ -6199,7 +6199,7 @@ public sealed class LoadOrderService : IDisposable
                 try { dk = ModKey.FromFileName(d); }
                 catch (Exception ex) { return WritePatchBuilder.MergeOutcome.Fail($"'{d}' is not a valid plugin filename ({ex.Message})."); }
                 if (!orderIndex.TryGetValue(d, out var order))            // unreachable after ContainsPlugin (same source table) — refuse rather than mis-sort
-                    return WritePatchBuilder.MergeOutcome.Fail($"donor '{d}' has no load-order position (index inconsistency). Nothing was written.");
+                    return WritePatchBuilder.MergeOutcome.Fail($"donor '{d}' has no load-order position (index inconsistency, Q3). Nothing was written.");
                 donorInfos.Add((d, p, dk, order));
             }
             donorInfos.Sort((a, b) => a.Order.CompareTo(b.Order));

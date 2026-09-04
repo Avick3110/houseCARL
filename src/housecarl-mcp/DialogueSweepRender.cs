@@ -4,34 +4,22 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// The DIALOGUE family's SECTION, in both transports — its head, its rows and its unreachable-seed roster, rendered
-/// through the same <see cref="CheckAccounting"/> + <see cref="BoundedBody"/> machinery the sibling families use.
-///
-/// <para><b>Why its own file rather than beside the two sweep families' sections.</b> The rule those sections follow
-/// is that a render lives with the helpers it is assembled out of. This family's helpers are
-/// <see cref="DialogueWire"/>'s — the topic block, the SEQ block, the issue rows — not <c>Wire</c>'s, so putting it
-/// in <c>Wire</c> would have split it from everything it calls and grown a file CLAUDE.md §8 already names. What
-/// crosses a file boundary here is one call per transport, not a dozen widened members.</para>
-///
-/// <para><b>Class 8 is not rendered here.</b> The effective merged INFO order is an ordered sequence, not a findings
-/// list; SPEC §6.1 sends it to <c>records project=info_order</c>, and the topic composer is asked for a block
-/// without it. The family's BOUNDARY says so, so a caller chasing "why does the wrong line play" is told where that
-/// answer lives rather than left to read a clean dialogue section as having looked.</para>
-/// </summary>
+/// <summary>The dialogue family's section in both transports — its head, its rows and its unreachable-seed roster —
+/// rendered through the same <see cref="CheckAccounting"/> and <see cref="BoundedBody"/> machinery the sibling
+/// families use, and assembled out of <see cref="DialogueWire"/>'s composers. The effective merged INFO order is
+/// deliberately not rendered here: it is an ordered sequence rather than a findings list, and belongs to
+/// <c>records project=info_order</c>, which the family's boundary sentence says.</summary>
 internal static class DialogueSweepRender
 {
     // ---- text ---------------------------------------------------------------------------------------
 
-    // ---- the UNITS, composed once and read by both the demand pass and the write --------------------
+    // ---- the units, composed once and read by both the demand pass and the write --------------------
     //
-    // The allocation water-fills over MEASURED demand (BodyAllocation), so a subject's demand is the cumulative
-    // width of its ACTUAL units. Measuring that from a second spelling of a composer would be a number free to
-    // drift from what is written; these exist so there is one spelling, and ALLOCATION-EQUALS-SPEND is the arm
-    // that says so.
+    // The allocation water-fills over measured demand, so a subject's demand is the cumulative width of its actual
+    // units. These composers exist so the demand pass and the write measure the same spelling.
 
-    /// <summary>ONE seed's head — its identity line plus the findings that belong to the seed record rather than
-    /// to any topic (the quest-level CK parity and the SEQ lint).</summary>
+    /// <summary>One seed's head: its identity line plus the findings that belong to the seed record rather than to
+    /// any topic — the quest-level CK parity and the SEQ lint.</summary>
     internal static string ComposeSeedUnit(DialogueSeedResult seed)
     {
         var report = seed.Report!;
@@ -41,8 +29,8 @@ internal static class DialogueSweepRender
              + ComposeSeedBody(report);
     }
 
-    /// <summary>ONE topic block. Composed WHOLE and emitted whole: the block is one finding set, and a per-line
-    /// "append if it fits" drops findings with no subject accounting for the loss.</summary>
+    /// <summary>One topic block, composed whole and emitted whole: the block is one finding set, and a per-line
+    /// "append if it fits" would drop findings with no subject accounting for the loss.</summary>
     internal static string ComposeTopicBlock(TopicValidation t)
     {
         // int.MaxValue because the cap that decides is the emitter's, never this composer's own inline test.
@@ -51,21 +39,20 @@ internal static class DialogueSweepRender
         return one.ToString();
     }
 
-    /// <summary>ONE unreachable-seed row.</summary>
+    /// <summary>One unreachable-seed row.</summary>
     internal static string ComposeRefusalRow(DialogueSeedResult seed)
         => string.Format(ReadSentences.DialogueSeedRefused, seed.Seed, seed.Refusal);
 
-    /// <summary>The family's head: what a budget may never refuse. The scope note, the counts, and — where the
-    /// family refused outright — the refusal, which IS the section.</summary>
+    /// <summary>The family's head, which a budget may never refuse: the scope note, the counts, and — where the
+    /// family refused outright — the refusal, which is the whole section.</summary>
     internal static void AppendHead(StringBuilder sb, CheckOutcome o)
     {
         var d = o.Dialogue!.Value;
-        // The scope asymmetry, above this family's own counts and inside its own section: a caller who passed
-        // plugins= alongside would otherwise read a seeded answer as a scoped one, and nothing would say which.
+        // The scope note sits above this family's own counts and inside its own section: a caller who passed
+        // plugins= alongside would otherwise read a seeded answer as a scoped one.
         sb.Append(ScopeNote(d)).Append('\n');
-        // Every number here comes off the OUTCOME, in its vocabulary: validated against reached, then the totals.
-        // Composed here from the result instead, the counts line printed a bare "N seed(s) validated" while the
-        // scope sentence one line up printed a DIFFERENT quantity under the same word (round-2 finding B1).
+        // Every number here comes off the outcome, so the counts line and the scope sentence above it cannot print
+        // different quantities under the same word.
         sb.Append(string.Format(ReadSentences.DialogueCounts, d.SeedsValidated, d.SeedsReached, d.TopicsFound,
                                 d.FindingsFound));
         if (d.CountsOnly) sb.Append(ReadSentences.DialogueCountsOnly);
@@ -86,21 +73,10 @@ internal static class DialogueSweepRender
                 var report = seed.Report!;
                 string head = ComposeSeedUnit(seed);
                 if (!body.Emit(SweepSubject.DialogueSeeds, head.Length, () => sb.Append(head))) break;
-                // A hand-back on the LAST seed head used to sit here, and it is gone rather than kept: under the
-                // sequential recount a subject's ceiling was fixed on its FIRST unit against the siblings still
-                // pending, so the topics of a one-seed call were capped at half the family's share unless the
-                // seed subject announced it was finished. Water-filling allocates the seed heads their MEASURED
-                // demand and the topic blocks everything else, before either writes, so there is no share to hand
-                // back and the conditional could not be made to change any response — which is the signal to
-                // delete it (CLAUDE.md §5 #11, PR #339's precedent) rather than leave an arm that cannot fail.
-                // What it bought is now bought by construction: measured on the live order (ARR 2.0, one
-                // 235-topic quest, plain defaults) that fix took 53 topics in 40,296 chars of an 80,000 cap to 82
-                // in 79,186, and DIALOGUE-FINISHED-SEED-HANDS-BACK-ITS-SHARE holds the same property here.
-                // A topic block the budget refuses ends THIS seed's blocks and nothing else. It used to break the
-                // SEED loop too, so every later seed's head went unwritten though the seed subject had been
-                // allocated room for it and had not spent it — room the response left standing while claiming a
-                // cut. The errors family's sections and entries have always nested this way: an entry that does
-                // not fit ends that plugin's entries, not the plugin loop (round-2 review, finding A5).
+                // A topic block the budget refuses ends THIS seed's blocks and nothing else — breaking the seed
+                // loop too would leave later seeds' heads unwritten while their subject still held unspent room.
+                // No seed hands its share back: water-filling allocates the seed heads their measured demand and
+                // the topic blocks everything else before either writes.
                 foreach (var t in report.Topics)
                 {
                     string block = ComposeTopicBlock(t);
@@ -109,8 +85,7 @@ internal static class DialogueSweepRender
             }
         }
 
-        // The unreachable seeds, in BOTH lanes. They bound the answer rather than sitting inside it, so
-        // counts_only does not silence them either.
+        // The unreachable seeds bound the answer rather than sitting inside it, so counts_only does not silence them.
         foreach (var seed in r.Unresolved)
         {
             string row = ComposeRefusalRow(seed);
@@ -118,41 +93,34 @@ internal static class DialogueSweepRender
         }
     }
 
-    /// <summary>One seed's own findings — the quest-level CK parity and the SEQ lint, which belong to the seed
-    /// record rather than to any one topic and are printed ONCE here.</summary>
+    /// <summary>One seed's own findings — the quest-level CK parity and the SEQ lint, which belong to the seed record
+    /// rather than to any one topic and are printed once here.</summary>
     static string ComposeSeedBody(DialogueValidationReport r)
     {
         var sb = new StringBuilder();
         var checks = DialogueKindChecks.For(r.InputKind);
         if (r.InputKind == "quest" && r.Topics.Count == 0) sb.Append(ReadSentences.DialogueSeedNoTopics);
         DialogueWire.AppendSeq(sb, r.SeqLint);
-        // THE SEED RECORD'S OWN CK PARITY, BOTH WAYS ROUND AND FOR EVERY KIND THAT HAS ONE. Only the issue half was
-        // here, and only for a quest — so a quest that passed said nothing, and a DLVW or DLBR seed rendered its
-        // head and NOTHING ELSE, its one check unstated whether it ran or not (round-3 finding A1). Which kinds
-        // have a record-level parity, and what each one's verdict says, is DialogueKindChecks' answer rather than
-        // a literal here, because the family's boundary asks the same question one level up and the two gating on
-        // separate copies of it is how this defect survived its first fold.
+        // The seed record's own CK parity, stated both when it passes and when it fails, for every kind that has one.
+        // Which kinds those are, and what each verdict says, comes from DialogueKindChecks rather than a literal
+        // here, because the family's boundary asks the same question one level up.
         if (checks.HasFlag(DialogueChecks.RecordParity) && r.InputIssues.Count == 0
             && DialogueKindChecks.ParityOkLine(r.InputKind) is { } ok) sb.Append(ok);
         DialogueWire.AppendIssues(sb, r.InputIssues, "  ", int.MaxValue);
-        // …and on a seed that owns no INFO list, what this verdict does NOT cover. The family's boundary can take
-        // only one arm, and on a call that ALSO carries a quest or a topic it takes the wide one — true of the
-        // response and not of this seed. The ancestor states this for the same reason.
+        // On a seed that owns no INFO list, say what this verdict does not cover: the family's boundary states one
+        // scope for the whole call, and a call that also carries a quest or a topic states the wide one.
         if (!checks.HasFlag(DialogueChecks.TopicGraph) && checks != DialogueChecks.None)
             sb.Append("  ").Append(ReadSentences.DialogueRecordLevelScope).Append('\n');
         return sb.ToString();
     }
 
-    /// <summary>THE SCOPE SENTENCE, composed once for both transports. How many seeds it validated is read from
-    /// what it actually reached, never from what the caller named: with <c>limit=</c> below the seed count the two
-    /// differ, and the sentence used to print the NAMED figure while the accounting three lines down stated the
-    /// cut. One computation, so the two cannot disagree again.</summary>
+    /// <summary>The scope sentence, composed once for both transports. How many seeds it validated is read from what
+    /// the call actually reached, never from what the caller named: with <c>limit=</c> below the seed count the two
+    /// differ, and the accounting states the cut.</summary>
     static string ScopeNote(DialogueOutcome d)
     {
-        // REACHED, off the outcome — not a sum of two collections taken here. It was
-        // `Resolved.Count() + Unresolved.Count` under the word "validated", which counts the seeds that produced a
-        // named REFUSAL as validated ones and claims a completeness the [X] rows in this same section deny. Round 1
-        // found that sentence, its fold reproduced it, and round 2 found it again (finding B1).
+        // The reached count comes off the outcome, not from summing the two collections here: a seed that produced a
+        // named refusal is not a validated one.
         var howMany = d.SeedsReached < d.SeedsNamed
             ? string.Format(ReadSentences.DialogueScopeSomeSeeds, d.SeedsReached, d.SeedsNamed)
             : string.Format(ReadSentences.DialogueScopeAllSeeds, d.SeedsNamed);
@@ -172,16 +140,10 @@ internal static class DialogueSweepRender
 
     // ---- json ---------------------------------------------------------------------------------------
 
-    /// <summary>The family's json section — the same facts as data. The head's sentences are carried verbatim so the
-    /// two transports state one thing, and the rows carry the structure a machine consumer would otherwise have to
-    /// parse back out of prose.</summary>
-    ///
-    /// <para><b>THE HEAD IS THE OUTCOME; THE ACCOUNTING IS WHAT THE RESPONSE CARRIED OF IT.</b> Every quantity this
-    /// family found is stated here, once, in <see cref="DialogueOutcome"/>'s vocabulary, and
-    /// <see cref="CheckAccounting"/> states only what was RENDERED of them and which knob moves the rest. Before
-    /// that split, <c>topics_validated</c> was written by both — twice into the same family object, so which value a
-    /// consumer saw depended on its parser (round-2 finding B5) — and <c>seeds_named</c>, the topic total and the
-    /// finding total each had a twin one level down under a different name.</para>
+    /// <summary>The family's json head. Its sentences are carried verbatim from the text lane so the two transports
+    /// state one thing. Every quantity the family found is stated here once, in <see cref="DialogueOutcome"/>'s
+    /// vocabulary; <see cref="CheckAccounting"/> states only what the response rendered of them and which knob moves
+    /// the rest — no quantity is written by both, or one family object would carry two values under one name.</summary>
     internal static void WriteHead(Utf8JsonWriter w, CheckOutcome o)
     {
         var d = o.Dialogue!.Value;
@@ -191,26 +153,23 @@ internal static class DialogueSweepRender
         w.WriteNumber("seeds_named", d.SeedsNamed);
         w.WriteNumber("seeds_reached", d.SeedsReached);
         w.WriteNumber("seeds_validated", d.SeedsValidated);
-        // `..._total` because `seeds_unreachable` is the ROSTER ARRAY this family writes below, and two members
-        // of one object cannot share a name — which is the very defect this migration is closing (finding B5).
-        // It reads like the sibling families' `excluded_plugins_total` / `unread_plugins_total` for that reason.
+        // `..._total` because `seeds_unreachable` is the roster array this family writes below, and two members of
+        // one object cannot share a name. The sibling families spell their totals the same way.
         w.WriteNumber("seeds_unreachable_total", d.SeedsUnreachable);
         w.WriteNumber("topics_found", d.TopicsFound);
         w.WriteNumber("findings_found", d.FindingsFound);
     }
 
-    /// <summary>One json row per seed, its topics nested. Each row's width is measured before it is written
-    /// (<see cref="TopicRowCost"/>), which is what the allocation's per-subject ceiling needs and what
-    /// <c>dialogue-width-measure</c> established before this family was built.</summary>
+    /// <summary>One json row per seed, its topics nested. Each row's width is measured before it is written (see
+    /// <see cref="TopicRowCost"/>), which is what the allocation's per-subject ceiling needs.</summary>
     internal static void WriteSection(Utf8JsonWriter w, CheckOutcome o, BoundedBody body)
     {
         if (o.Sweep.Dialogue is not { Error: null } r) return;
         var depths = new JsonWire.JsonUnitDepths(w.CurrentDepth);
 
-        // The seeds array is GATED ON THE LANE, as both sibling families gate their row arrays: a field named for a
-        // subject is present exactly where that subject is. Opened outside the gate, a counts_only response carried
-        // `"seeds": []` beside a non-zero seeds_validated — an empty list in the one mode whose whole claim is that
-        // it renders no rows (round-2 finding B3).
+        // The seeds array is gated on the lane, as both sibling families gate their row arrays: a field named for a
+        // subject is present exactly where that subject is. Opened outside the gate, a counts_only response would
+        // carry `"seeds": []` beside a non-zero seeds_validated.
         if (!r.CountsOnly)
         {
             w.WriteStartArray("seeds");
@@ -221,8 +180,7 @@ internal static class DialogueSweepRender
                 if (!body.Emit(SweepSubject.DialogueSeeds,
                                SeedHeadCost(seed, depths.DialogueSeeds, i > 0),
                                () => WriteSeedHead(w, seed))) break;
-                // A topic row the budget refuses ends THIS seed's rows and nothing else — see the text lane for
-                // the stranding this shape replaces.
+                // A topic row the budget refuses ends THIS seed's rows and nothing else, as in the text lane.
                 int topics = 0;
                 foreach (var t in seed.Report!.Topics)
                 {
@@ -232,9 +190,8 @@ internal static class DialogueSweepRender
                                    () => WriteTopicRow(w, topic))) break;
                     topics++;
                 }
-                // The seed's own closing brackets finish a unit already admitted, so they are charged to the
-                // subject that opened it — SeedHeadCost measured them as part of the same unit (see
-                // BoundedBody.Complete).
+                // The seed's own closing brackets finish a unit already admitted, so they are charged to the subject
+                // that opened it; SeedHeadCost measured them as part of that same unit.
                 body.Complete(SweepSubject.DialogueSeeds, () => { w.WriteEndArray(); w.WriteEndObject(); });
             }
             w.WriteEndArray();
@@ -253,9 +210,9 @@ internal static class DialogueSweepRender
         w.WriteEndArray();
     }
 
-    /// <summary>Opens the seed object AND its topics array — the topic rows are emitted into it one at a time, and
-    /// the caller closes both. Deliberately not two helpers: an opener whose closer lives at another call site is
-    /// how a bounded json render leaves a half-written object behind.</summary>
+    /// <summary>Opens the seed object and its topics array; the topic rows are emitted into it one at a time and the
+    /// caller closes both. Deliberately not split into two helpers — an opener whose closer lives at another call
+    /// site is how a bounded json render leaves a half-written object behind.</summary>
     static void WriteSeedHead(Utf8JsonWriter w, DialogueSeedResult seed)
     {
         var r = seed.Report!;
@@ -266,9 +223,8 @@ internal static class DialogueSweepRender
         w.WriteString("winner_plugin", r.InputWinnerPlugin ?? "");
         w.WriteNumber("topic_count", r.Topics.Count);
         w.WriteBoolean("read_incomplete", r.ReadIncomplete);
-        // WHICH CHECKS THIS SEED'S KIND RAN, as data. The text lane says it by printing the verdict; here an empty
-        // `input_issues` alone cannot tell a check that ran and passed from one that never ran — the same Q3 gap
-        // one transport over (round-3 finding A1). Both come off DialogueKindChecks.
+        // Which checks this seed's kind ran, as data: the text lane says it by printing the verdict, while here an
+        // empty `input_issues` alone cannot tell a check that ran and passed from one that never ran.
         w.WriteStartArray("checks_run");
         foreach (var name in DialogueKindChecks.Names(DialogueKindChecks.For(r.InputKind))) w.WriteStringValue(name);
         w.WriteEndArray();
@@ -351,16 +307,14 @@ internal static class DialogueSweepRender
     // ---- the pre-write costs ------------------------------------------------------------------------
     //
     // A Utf8JsonWriter cannot measure an object without writing one, so each row's width is taken by serializing it
-    // into a throwaway writer through JsonWire.MeasureUnit — the response's own WriterOptions, the DEPTH the row is
-    // written at, and the sibling position it is written in. All three change what a row costs the document and
-    // none of them is knowable from the row alone: measured two levels shallower than it is written, a topic row
-    // under-counted by the whole of its indentation, and the allocation that trusts the number returned 6,246
-    // characters against an allowed 5,709.
+    // into a throwaway writer through JsonWire.MeasureUnit. It needs the response's own WriterOptions, the depth the
+    // row is written at, and whether a sibling precedes it: all three change what the row costs the document, and
+    // none is knowable from the row alone — measured at the wrong depth, a row under-counts its whole indentation.
 
     static int TopicRowCost(TopicValidation t, int depth, bool subsequent)
         => JsonWire.MeasureUnit(depth, subsequent, w => WriteTopicRow(w, t));
 
-    /// <summary>The seed's head AND the brackets that close it after its topics — one unit, one subject, one
+    /// <summary>The seed's head and the brackets that close it after its topics: one unit, one subject, one
     /// cost.</summary>
     static int SeedHeadCost(DialogueSeedResult seed, int depth, bool subsequent)
         => JsonWire.MeasureUnit(depth, subsequent, (w, size) =>
@@ -380,7 +334,7 @@ internal static class DialogueSweepRender
     static int UnreachableRowCost(DialogueSeedResult seed, int depth, bool subsequent)
         => JsonWire.MeasureUnit(depth, subsequent, w => WriteUnreachable(w, seed));
 
-    // ---- unit costs, exposed for the DEMAND pass (see SweepDemand) ---------------------------------
+    // ---- unit costs, exposed for the demand pass (see SweepDemand) ---------------------------------
     internal static int TopicRowCostFor(TopicValidation t, int depth, bool subsequent)
         => TopicRowCost(t, depth, subsequent);
     internal static int SeedHeadCostFor(DialogueSeedResult seed, int depth, bool subsequent)

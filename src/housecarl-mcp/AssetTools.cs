@@ -4,14 +4,10 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// houseCARL asset tool. Read-only. Resolves Data-relative asset paths through MO2's virtual file system — which mod or
-/// BSA provides each asset, and which copy actually WINS in game (loose files beat BSA-packed; among BSAs the
-/// latest-loaded plugin's wins) — the file-layer counterpart to a record's load-order winner. General asset-layer; the
-/// FaceGen / dark-face skill is one consumer. The asset resolver discovers the active BSAs by construction from the same
-/// static MO2 profile read the load order uses (per-plugin "X.bsa"/"X - Textures.bsa" + Skyrim.ini base archives), holds
-/// ZERO archive handles at rest (arch #3), and refreshes by mtime — no daemon, no live tracking.
-/// </summary>
+/// <summary>Read-only asset resolution: which mod or BSA provides a Data-relative path, and which copy wins in game —
+/// loose files beat BSA-packed, and among BSAs the latest-loaded plugin's wins. Active BSAs are discovered from the
+/// same static MO2 profile read the load order uses (per-plugin "X.bsa" / "X - Textures.bsa" plus the Skyrim.ini base
+/// archives). No archive handles are held at rest; freshness is an mtime check.</summary>
 [McpServerToolType]
 public static class AssetTools
 {
@@ -46,11 +42,10 @@ public static class AssetTools
     });
 }
 
-/// <summary>Renders <see cref="AssetStatusData"/> as compact, scannable text: the build-level Q3 alarms first (archives
-/// that failed to read; discovery warnings), then one block per queried path — winner + every provider in precedence
-/// order, with contention noted NEUTRALLY (more than one source is the common, healthy case at scale — it's a "verify"
-/// signal, not a "problem"). The per-path list is bounded by max_chars with an explicit cut notice (Q3 — never silent
-/// truncation).</summary>
+/// <summary>Renders <see cref="AssetStatusData"/>: the build-level alarms first (archives that failed to read,
+/// discovery warnings), then one block per queried path — winner and every provider in precedence order. Contention is
+/// worded neutrally, since more than one source is the common healthy case. The per-path list is bounded by max_chars
+/// with an explicit cut notice.</summary>
 static class AssetWire
 {
     public static string Render(AssetStatusData d, int cap)
@@ -59,7 +54,7 @@ static class AssetWire
         sb.Append("asset status — profile '").Append(d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)")
           .Append("'  (").Append(d.Results.Count).Append(" path").Append(d.Results.Count == 1 ? "" : "s").Append(" queried)\n");
 
-        // Q3 alarms FIRST, before the per-path list, so a long batch can't truncate them away.
+        // Alarms come before the per-path list so a long batch cannot truncate them away.
         AppendReadFailures(sb, d.BsaFailures, cap);
         AppendDiscoveryWarnings(sb, d.Warnings, cap);
 
@@ -82,7 +77,7 @@ static class AssetWire
     {
         sb.Append('\n').Append(r.RelPath).Append('\n');
 
-        if (r.Error is not null)                                  // a rejected path (drive-rooted / '..') — per-path Q3
+        if (r.Error is not null)                                  // a rejected path: drive-rooted, or escaping with '..'
         {
             sb.Append("  error: ").Append(r.Error).Append('\n');
             return;
@@ -92,18 +87,15 @@ static class AssetWire
         if (!hit.Exists)
         {
             sb.Append("  ABSENT — no active mod or BSA provides this path\n");
-            // #273 — a path taken straight off a record is missing its root folder (a model path is stored relative
-            // to meshes\, a texture path to textures\). Every suggestion here was VERIFIED by re-resolving the
-            // prefixed form, so it names a file that really is provided; when nothing resolved, nothing is printed.
-            // Backticks, not single quotes — an asset path carries the mod author's own apostrophes (PluginNameSuggest's
-            // lesson, commit 7c5dfe1: a wrapping ' collides with the quoted text and reads as a broken quote).
+            // A path taken straight off a record is missing its root folder: a model path is stored relative to
+            // meshes\, a texture path to textures\. Each suggestion was verified by re-resolving the prefixed form.
+            // Backticks, not single quotes — an asset path can carry the mod author's own apostrophes.
             if (r.PrefixSuggestions is { Count: > 0 } sug)
                 sb.Append("  did you mean ").Append(string.Join(" or ", sug.Select(s => "`" + s + "`")))
                   .Append("?  (a path read off a record is relative to its root folder, not to Data)\n");
-            // Both "the scan was incomplete" conditions hedge an ABSENT at the POINT OF USE (Q3 — symmetric honesty),
-            // not just at the top-of-output note: an archive that failed to READ, AND base archives that were never
-            // DISCOVERED (a Skyrim.ini we couldn't find → vanilla "Skyrim - Textures*.bsa" unscanned). Either means the
-            // asset could exist where we didn't look — the exact over-trust an "absent → the NPC is fine" call must avoid.
+            // Both incomplete-scan conditions hedge an ABSENT at the point of use, not only in the top-of-output note:
+            // an archive that failed to read, and base archives never discovered (no Skyrim.ini found, so the vanilla
+            // "Skyrim - Textures*.bsa" went unscanned). Either means the asset could exist where we did not look.
             if (readIncomplete)
                 sb.Append("  [!] but an archive failed to read this build (see the read-failure note above), so " +
                           "\"absent\" may be incomplete — the asset could live in the unreadable archive.\n");
@@ -126,9 +118,9 @@ static class AssetWire
                       "beats BSA; among BSAs the latest-loaded plugin wins). Verify only if that's unexpected.\n");
     }
 
-    /// <summary>The archive-read-failure alarm (Q3): BSAs that couldn't be read this build, each named with its owning
-    /// plugin + the reason. An asset present ONLY in one of these is indistinguishable from a truly absent one, so this
-    /// is surfaced LOUD before the per-path answers — an "ABSENT" below is authoritative only when this list is empty.</summary>
+    /// <summary>The BSAs that could not be read this build, each named with its owning plugin and the reason. An asset
+    /// present only in one of these is indistinguishable from a truly absent one, so an "ABSENT" below is
+    /// authoritative only when this list is empty.</summary>
     static void AppendReadFailures(StringBuilder sb, IReadOnlyList<string> failures, int cap)
     {
         if (failures.Count == 0) return;
@@ -142,8 +134,8 @@ static class AssetWire
         }
     }
 
-    /// <summary>Archive-discovery warnings (Q3): e.g. a Skyrim.ini whose [Archive] base-archive list couldn't be found,
-    /// so the vanilla base BSAs aren't in the scan — surfaced so an "ABSENT" for a base-game asset isn't over-trusted.</summary>
+    /// <summary>Archive-discovery warnings, e.g. a Skyrim.ini whose [Archive] base-archive list could not be found, so
+    /// the vanilla base BSAs are not in the scan and an "ABSENT" for a base-game asset must not be over-trusted.</summary>
     static void AppendDiscoveryWarnings(StringBuilder sb, IReadOnlyList<string> warnings, int cap)
     {
         if (warnings.Count == 0) return;

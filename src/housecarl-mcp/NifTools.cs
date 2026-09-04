@@ -5,26 +5,21 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// houseCARL NIF tool. Read-only. Reads the DATA VALUES inside one or many Skyrim meshes (.nif) — header/version, the
-/// block census, each shape's name + NiAVObject flags + scale, its BSDismember partitions, its alpha property, its
-/// texture-set paths and bone list, the node tree, and the header string table — resolving each Data-relative path
-/// through MO2's VFS to the WINNING copy first (loose beats BSA), the same file-layer precedence the asset tools use,
-/// with ONE load-order resolution for the whole batch (issue #229 — a facegen sweep is one call). Rides NiflySharp
-/// (source-generated from nifxml = coverage by construction); reads BSA-packed meshes straight from archive bytes with
-/// no disk extraction, and holds no file handles at rest. This is the asset-INTERNAL counterpart to housecarl_asset_status
-/// (which answers WHICH file wins): once you know the winning mesh, this answers WHAT IS INSIDE it. Data values in; geometry
-/// / visual content stays out of this capability by design (PRFAQ NIF-layer scope).
-/// </summary>
+/// <summary>Reads the data values inside one or many Skyrim meshes (.nif): header and version, the block census, each
+/// shape's name, NiAVObject flags and scale, its BSDismember partitions, its alpha property, its texture-set paths and
+/// bone list, the node tree, and the header string table. Each Data-relative path resolves through MO2's VFS to the
+/// winning copy first, with one load-order resolution for the whole batch. Runs on NiflySharp, source-generated from
+/// nifxml; reads BSA-packed meshes straight from archive bytes with no disk extraction and holds no file handles at
+/// rest. Where housecarl_asset_status answers which file wins, this answers what is inside it. Geometry and visual
+/// content are deliberately out of scope.</summary>
 [McpServerToolType]
 public static class NifTools
 {
     static readonly string[] KnownSections = { "shapes", "partitions", "alpha", "paths", "shader", "strings", "nodes", "bones" };
 
-    /// <summary>The "(known: …)" hint shared by the unrecognized-section warning and the all-unrecognized loud error
-    /// (#247): the legal tokens PLUS the pointer that there is NO 'textures' section — a mesh's embedded texture-set
-    /// slot paths live under 'shapes' (per-shape detail) and 'paths', the two places a caller reaching for "textures"
-    /// actually wants.</summary>
+    /// <summary>The "(known: …)" hint shared by the unrecognized-section warning and the all-unrecognized error: the
+    /// legal tokens, plus the note that there is no 'textures' section — a mesh's embedded texture-set slot paths live
+    /// under 'shapes' and 'paths'.</summary>
     internal static readonly string KnownSectionsHint =
         "known: " + string.Join(", ", KnownSections) + ", all — no 'textures' section; " +
         "embedded texture-set slot paths are under 'shapes' (detail) and 'paths'";
@@ -88,20 +83,19 @@ public static class NifTools
             return "error: mesh_paths contains only empty/blank entries. Pass Data-relative mesh paths (e.g. 'meshes\\armor\\iron\\cuirass_1.nif').";
 
         var (want, unknownTokens) = ParseSections(sections);
-        // Q3 (#247): sections were requested but NONE resolved — do NOT run the inspect and silently render the summary
-        // as if that were the answer (the reported quiet-fallback-to-defaults). Fail loud. (A PARTIAL request proceeds
-        // — it renders the valid sections + a loud warning.)
+        // Sections were requested but none resolved: fail rather than render the summary as if that were the answer.
+        // A partial request proceeds, rendering the valid sections plus a warning.
         if (SectionsError(want, unknownTokens) is { } sectionsErr) return sectionsErr;
 
         var data = svc.NifInspect(mesh_paths, string.IsNullOrWhiteSpace(mod) ? null : mod);
         return NifWire.Render(data, want, unknownTokens, max_chars > 0 ? max_chars : 80_000);
     });
 
-    /// <summary>Parse the sections argument into the recognized set + a list of any UNRECOGNIZED tokens (surfaced, never
-    /// silently ignored — Q3). 'all' expands to every known section. Tolerates the JSON-array-as-string form an MCP
-    /// client naturally sends for a list: <c>sections=["shapes","paths"]</c> arrives here as the literal string
-    /// <c>["shapes","paths"]</c>, so the bracket and quote characters are split delimiters too — otherwise they glue
-    /// onto the first/last token (<c>["shapes</c>) and the whole array reads as unrecognized, the #247 quiet-fallback.</summary>
+    /// <summary>Parse the sections argument into the recognized set plus any unrecognized tokens, which are surfaced
+    /// rather than ignored. 'all' expands to every known section. Tolerates the JSON-array-as-string form an MCP
+    /// client naturally sends: <c>sections=["shapes","paths"]</c> arrives as that literal string, so brackets and
+    /// quotes are split delimiters too — otherwise they glue onto the first and last tokens and the whole array reads
+    /// as unrecognized.</summary>
     internal static (HashSet<string> Want, IReadOnlyList<string> Unknown) ParseSections(string sections)
     {
         var want = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -115,10 +109,9 @@ public static class NifTools
         return (want, unknown);
     }
 
-    /// <summary>The #247 all-unrecognized guard as a testable seam: sections were REQUESTED but NONE resolved (a typo,
-    /// or the non-existent 'textures') → the loud error string that replaces the silent fallback to the summary. Null
-    /// when the request is fine — nothing requested (summary is the intended answer), or at least one section resolved
-    /// (a partial request renders the valid ones + a warning, never an error).</summary>
+    /// <summary>The error string for a call that requested sections where none resolved — a typo, or the non-existent
+    /// 'textures'. Null when the request is fine: nothing requested, so the summary is the intended answer, or at
+    /// least one section resolved, in which case a partial request renders the valid ones with a warning.</summary>
     internal static string? SectionsError(HashSet<string> want, IReadOnlyList<string> unknown)
         => want.Count == 0 && unknown.Count > 0
             ? $"error: no recognized section(s) in sections — unrecognized: {string.Join(", ", unknown)}  " +
@@ -149,9 +142,8 @@ public static class NifTools
         LoadOrderService svc,
         [Description("The Data-relative mesh path to edit, e.g. 'meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif'.")]
             string mesh_path,
-        // Built from OpList (a const, so it is legal in an attribute) rather than spelled out: this is the string a
-        // caller actually READS TO CHOOSE an op, so a stale list here is worse than a stale refusal — it makes a
-        // shipped op invisible in the tool schema, and the caller concludes houseCARL cannot do the thing.
+        // Built from OpList, a const so it is legal in an attribute, rather than spelled out: this is the string a
+        // caller reads to choose an op, so a stale list here would make a shipped op invisible in the tool schema.
         [Description("The write op — one of: " + OpList + ".")]
             string op,
         [Description("The NAME of the shape or node the op edits (the current name; from " + ToolNames.NifInspect + "). For a rename this is the OLD name.")]
@@ -194,9 +186,9 @@ public static class NifTools
         return NifSetWire.Render(data);
     });
 
-    /// <summary>Turn the flat tool params into one <see cref="NifSetOp"/>, or a friendly NAMED error (Q3) for an unknown op
-    /// or an unparseable value — before the value ever reaches the service. Numeric params are strings so an omitted one is
-    /// distinguishable from a real 0 (partition_index 0 is valid).</summary>
+    /// <summary>Turn the flat tool params into one <see cref="NifSetOp"/>, or a named error for an unknown op or an
+    /// unparseable value, before the value reaches the service. Numeric params are strings so an omitted one is
+    /// distinguishable from a real 0 — partition_index 0 is valid.</summary>
     static (NifSetOp? Op, string? Error) BuildOp(string op, string target,
         string newName, string flags, string scale, string bodyPartId, string partitionIndex, string alphaFlags, string alphaThreshold, string textureSlot, string path,
         string shaderValue, string value)
@@ -233,8 +225,8 @@ public static class NifTools
                 if (NifService.ShaderValueProperty(shaderValue) is null)
                     return (null, $"unknown shader_value '{shaderValue}'. Use one of: {NifService.ShaderValueList}.");
                 if (string.IsNullOrWhiteSpace(value)) return (null, "set_shader_value needs a value — one number for a scalar, or 'r,g,b' for a colour.");
-                // Parsed to a bare list here; the ARITY is checked in the core against the library's own property type,
-                // so "how many components does this value take" has exactly one owner (see NifSetOp.ShaderNumbers).
+                // Parsed to a bare list here; the arity is checked in core against the library's own property type, so
+                // how many components a value takes has exactly one owner.
                 var parts = value.Split(new[] { ',', ' ', ';', '[', ']' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                 var nums = new List<float>(parts.Length);
                 foreach (var p in parts)
@@ -251,7 +243,7 @@ public static class NifTools
         }
     }
 
-    /// <summary>The op names, in one place — every "unknown op" / "op is empty" refusal reads from it, so adding an op
+    /// <summary>The op names in one place; every "unknown op" and "op is empty" refusal reads from it, so adding an op
     /// cannot leave a stale list behind in a message.</summary>
     internal const string OpList = "rename_shape, rename_node, set_flags, set_scale, set_partition, set_alpha, set_path, set_shader_value";
 
@@ -265,13 +257,11 @@ public static class NifTools
     }
 }
 
-/// <summary>Renders <see cref="NifInspectBatchData"/> as compact, scannable text: the build-level Q3 alarms first and
-/// ONCE (archives that failed to read; discovery warnings — batch-level, so a long batch can't truncate them away),
-/// then one block per mesh in INPUT ORDER — the resolution (which copy was read + the provider chain), then, on a clean
-/// read, the summary (version, block census, unknown-block report, shape names, node count) and any requested detail
-/// sections. An ABSENT / bad-path / unreadable / parse-refused result is that path's error line, loud and named,
-/// without costing the rest of the batch. Output is bounded by max_chars with an explicit cut notice naming how many
-/// meshes were omitted (Q3 — never silent truncation).</summary>
+/// <summary>Renders <see cref="NifInspectBatchData"/>: the build-level alarms first and once — archives that failed to
+/// read, discovery warnings — then one block per mesh in input order, giving the resolution and, on a clean read, the
+/// summary and any requested detail sections. An absent, bad-path, unreadable or parse-refused result is that path's
+/// own error line and does not cost the rest of the batch. Output is bounded by max_chars with an explicit cut notice
+/// naming how many meshes were omitted.</summary>
 static class NifWire
 {
     public static string Render(NifInspectBatchData d, HashSet<string> want, IReadOnlyList<string> unknownSections, int cap)
@@ -280,7 +270,7 @@ static class NifWire
         sb.Append("nif inspect — profile '").Append(d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)")
           .Append("'  (").Append(d.Results.Count).Append(" mesh").Append(d.Results.Count == 1 ? "" : "es").Append(")\n");
 
-        // Q3 alarms FIRST + ONCE (batch-level), so a long batch can't truncate them away.
+        // The alarms come first and once, at batch level, so a long batch cannot truncate them away.
         AppendReadFailures(sb, d.BsaFailures, cap);
         AppendDiscoveryWarnings(sb, d.Warnings, cap);
         if (unknownSections.Count > 0)
@@ -291,9 +281,8 @@ static class NifWire
         int shown = 0;
         foreach (var r in d.Results)
         {
-            // shown > 0: the FIRST mesh always renders its core answer (resolution/error/summary) even when the
-            // alarms alone exhausted the cap — max_chars bounds the batch tail and detail lists, it never starves a
-            // single-path call of the very answer it asked for (PR #243 review).
+            // shown > 0: the first mesh always renders its core answer even when the alarms alone exhausted the cap.
+            // max_chars bounds the batch tail and detail lists, never a single-path call's own answer.
             if (shown > 0 && sb.Length >= cap)
             {
                 sb.Append("\n… [").Append(d.Results.Count - shown)
@@ -306,16 +295,15 @@ static class NifWire
         return sb.ToString().TrimEnd('\n');
     }
 
-    /// <summary>One mesh's block: the path line, then either its named error (+ provider chain when we have one) or the
-    /// resolution + summary + requested detail sections. An ABSENT is hedged at POINT OF USE on both batch-level scan
-    /// caveats (an archive that failed to READ; archives never DISCOVERED) — the top-of-output alarm alone scrolls away
-    /// in a long batch, and "absent → the mesh is fine/missing" is exactly the over-trust the hedge exists to stop (Q3,
-    /// asset_status parity).</summary>
+    /// <summary>One mesh's block: the path line, then either its named error with the provider chain where there is
+    /// one, or the resolution, summary and requested detail sections. An ABSENT is hedged at the point of use on both
+    /// batch-level scan caveats — an archive that failed to read, and archives never discovered — because the
+    /// top-of-output alarm scrolls away in a long batch.</summary>
     static void AppendMesh(StringBuilder sb, NifInspectData d, HashSet<string> want, int cap, bool readIncomplete, bool discoveryIncomplete)
     {
         sb.Append('\n').Append(d.RelPath.Length > 0 ? d.RelPath : "(empty path)").Append('\n');
 
-        // Error path (ABSENT / bad path / unreadable / parse-refused). Still show the provider chain when we have one.
+        // Error path: absent, bad path, unreadable, or parse-refused. Still show the provider chain where there is one.
         if (d.Inspect is null)
         {
             sb.Append("  ").Append(d.Error ?? "unknown error").Append('\n');
@@ -348,8 +336,8 @@ static class NifWire
         if (!nif.HasUnknownBlocks)
             sb.Append("  unknown blocks: none\n");
         else if (nif.UnknownBlockTypes.Count == 0)
-            // The library flagged unknown blocks but none resolved to a NiUnknown we could name (theoretical) — say so
-            // honestly rather than render a bare "0 type(s) —".
+            // The library flagged unknown blocks but none resolved to a nameable NiUnknown — say so rather than render
+            // a bare "0 type(s)".
             sb.Append("  unknown blocks: present (types not named — preserved intact, reported not modeled)\n");
         else
             sb.Append("  unknown blocks: ").Append(nif.UnknownBlockTypes.Count).Append(" type(s) — ")
@@ -388,7 +376,7 @@ static class NifWire
     {
         sb.Append("\n--- shapes (").Append(nif.Shapes.Count).Append(") ---\n");
         if (SlotNamingCaveat(nif) is { } shapesCaveat) sb.Append(shapesCaveat);
-        int shown = 0;   // the cut notice counts the REMAINDER, not the total (PR #243 review — the RenderPerShape rule)
+        int shown = 0;   // the cut notice counts the remainder, not the total
         foreach (var s in nif.Shapes)
         {
             if (Cut(sb, cap, nif.Shapes.Count - shown)) return;
@@ -408,7 +396,7 @@ static class NifWire
     static void RenderPerShape(StringBuilder sb, NifInspect nif, int cap, string title, Func<NifShape, bool> has, Func<NifShape, string> line)
     {
         sb.Append("\n--- ").Append(title).Append(" ---\n");
-        var matched = nif.Shapes.Where(has).ToList();   // count the omitted remainder over the FILTERED subset, not the total shapes
+        var matched = nif.Shapes.Where(has).ToList();   // the omitted remainder counts the filtered subset, not total shapes
         int shown = 0;
         foreach (var s in matched)
         {
@@ -423,7 +411,7 @@ static class NifWire
     {
         sb.Append("\n--- paths (embedded texture-set slots; material/.tri/physics-xml refs appear under sections=strings) ---\n");
         if (SlotNamingCaveat(nif) is { } pathsCaveat) sb.Append(pathsCaveat);
-        var textured = nif.Shapes.Where(s => s.Textures.Count > 0).ToList();   // omitted remainder counts the FILTERED subset, not total shapes
+        var textured = nif.Shapes.Where(s => s.Textures.Count > 0).ToList();   // the omitted remainder counts the filtered subset, not total shapes
         int shown = 0;
         foreach (var s in textured)
         {
@@ -435,10 +423,10 @@ static class NifWire
         if (shown == 0) sb.Append("  (no embedded texture paths)\n");
     }
 
-    /// <summary>One texture slot line, shared by the shapes and paths sections. The INDEX is always printed — the
-    /// semantic name (#272) rides ALONGSIDE it, never replaces it, because the index is what nif_set's texture_slot=
-    /// takes. A slot whose meaning the shape's shader doesn't determine (slot 2 with no glow/soft-light/skin-tint
-    /// signal, say) prints bare, so "unnamed" reads as "this shader doesn't say" rather than a confident wrong label.</summary>
+    /// <summary>One texture slot line, shared by the shapes and paths sections. The index is always printed and the
+    /// semantic name rides alongside it rather than replacing it, because the index is what nif_set's texture_slot=
+    /// takes. A slot whose meaning the shape's shader does not determine prints bare, so unnamed reads as "this shader
+    /// does not say" rather than as a wrong label.</summary>
     static void AppendTexture(StringBuilder sb, NifTexture t)
     {
         sb.Append("    tex[").Append(t.Slot).Append(']');
@@ -446,26 +434,25 @@ static class NifWire
         sb.Append(": ").Append(t.Path).Append('\n');
     }
 
-    /// <summary>The shader section (#272): per shape, the block type + shader TYPE enum, the decoded flag words, and
-    /// the lighting values. Multi-line per shape rather than one long line — this is the section a visual diagnosis
-    /// reads top to bottom (does it glow, does it scatter, is it env-mapped).</summary>
+    /// <summary>The shader section: per shape, the block type and shader type enum, the decoded flag words, and the
+    /// lighting values. Multi-line per shape rather than one long line, because a visual diagnosis reads it top to
+    /// bottom.</summary>
     static void RenderShader(StringBuilder sb, NifInspect nif, int cap)
     {
         sb.Append("\n--- shader (per shape; slot names above come from these type+flags) ---\n");
-        var shaded = nif.Shapes.Where(s => s.Shader is not null).ToList();   // omitted remainder counts the FILTERED subset
+        var shaded = nif.Shapes.Where(s => s.Shader is not null).ToList();   // the omitted remainder counts the filtered subset
         int shown = 0;
         foreach (var s in shaded)
         {
             if (Cut(sb, cap, shaded.Count - shown)) return;
             var sh = s.Shader!;
             sb.Append("  '").Append(s.Name).Append("': ").Append(sh.BlockType);
-            // A block that doesn't serialize a shader type says so, rather than reporting a default-valued one (Q3).
+            // A block that does not serialize a shader type says so, rather than reporting a default-valued one.
             sb.Append(sh.ShaderType is null ? "  (no shader type on this block)" : "  type " + sh.ShaderType);
             sb.Append("  [").Append(sh.GameType).Append(" layout]\n");
-            // The DECLINE is stated, not just performed. Slot naming models a Skyrim convention, so on any other
-            // layout every slot prints bare — which is byte-identical to "this Skyrim shader doesn't determine that
-            // slot" and means something entirely different. Left unsaid, the caller reads "no glow map here" off a
-            // mesh houseCARL simply didn't interpret (review of PR #286).
+            // The decline is stated, not just performed: slot naming models a Skyrim convention, so on any other
+            // layout every slot prints bare — identical output to "this Skyrim shader does not determine that slot",
+            // which means something entirely different.
             if (!IsSkyrimLayout(sh))
                 sb.Append("    slot names: NOT DERIVED for this block — the slot semantics houseCARL models are a "
                           + "Skyrim convention, and this reads as the ").Append(sh.GameType)
@@ -481,9 +468,9 @@ static class NifWire
         if (shown == 0) sb.Append("  (no shape carries a shader property)\n");
     }
 
-    /// <summary>One decoded flag word. Unnamed bits are stated as an explicit hex mask — the #255 posture, carried
-    /// here: a bit the library's enum doesn't name is a real thing the mesh carries, so it is surfaced, never dropped
-    /// and never rolled silently into the named list.</summary>
+    /// <summary>One decoded flag word. Unnamed bits are stated as an explicit hex mask: a bit the library's enum does
+    /// not name is still something the mesh carries, so it is surfaced rather than dropped or folded into the named
+    /// list.</summary>
     static void AppendFlagWord(StringBuilder sb, NifShaderFlagWord? w)
     {
         if (w is null) return;
@@ -494,15 +481,12 @@ static class NifWire
     }
 
     /// <summary>The shader's lighting values — only the ones this NiflySharp version genuinely reads off the block.
-    /// The rest are NAMED as unread on their own line rather than printed as the constant the library's interface stub
-    /// would hand back (Q3: a caller must be able to tell "the mesh says 0" from "we can't see it").
-    ///
-    /// EVERY value has both a read form and an unread form, with no shared condition between them, so a value can
-    /// never fall through both and vanish. The emissive multiple is the one that could: it reads most naturally as a
-    /// suffix of the emissive colour, but if upstream ever implements it WITHOUT the colour (it maps onto
-    /// BSEffectShaderProperty's <c>_baseColorScale</c>) a suffix-only form would print it nowhere and name it nowhere
-    /// — the one hole in the "implemented upstream ⇒ reported here, no code change" promise. It gets its own entry
-    /// when the colour is unread (review of PR #286).</summary>
+    /// The rest are named as unread on their own line rather than printed as the constant the library's interface stub
+    /// hands back, so a caller can tell "the mesh says 0" from "we cannot see it". Every value has both a read form
+    /// and an unread form with no shared condition between them, so none can fall through both and vanish. The
+    /// emissive multiple gets its own entry when the colour is unread, rather than only riding as a suffix of the
+    /// colour, because upstream could implement it alone — it maps onto BSEffectShaderProperty's
+    /// <c>_baseColorScale</c>.</summary>
     static void AppendShaderValues(StringBuilder sb, NifShader sh)
     {
         var have = new List<string>(5);
@@ -522,17 +506,14 @@ static class NifWire
         if (sh.SpecularColor is null) missing.Add("specular colour");
         if (sh.Alpha is null) missing.Add("alpha");
         if (missing.Count == 0) return;
-        // TWO different reasons produce an unreported value, and saying the wrong one is its own wrong answer. On a
-        // non-Skyrim layout houseCARL declines them all as a matter of ITS OWN SCOPE — several read fine there, and
-        // blaming the library would be false — so that decline gets its own sentence (review of PR #290).
+        // Two different reasons produce an unreported value. On a non-Skyrim layout these are declined as a matter of
+        // scope — several would read fine there, so blaming the library would be false — hence a separate sentence.
         if (!IsSkyrimLayout(sh))
         {
-            // NO NUMBER HERE, and the one example is SCOPED to the block it is true of (re-review of PR #290). The
-            // "constant 80" this sentence used to assert is a fact about BSLightingShaderProperty, not about a layout:
-            // of the 17 blocks implementing INiShader, that is the only one carrying Glossiness at all. On an FO3NV or
-            // Oblivion-era lighting block the claim named a field the block does not have — while declining the
-            // emissive colour it genuinely does read, for a reason that did not apply to it. That is the same
-            // type-vs-layout conflation this decline exists to fix, running the other way.
+            // No constant is quoted here, and the one example is scoped to the block it holds for: a stub's fixed
+            // value is a fact about a particular block type, not about a layout. Of the blocks implementing INiShader
+            // only BSLightingShaderProperty carries Glossiness at all, so naming a number would describe a field an
+            // FO3NV or Oblivion-era lighting block does not have.
             sb.Append("    lighting values: NOT INTERPRETED for this block — houseCARL models the Skyrim shader "
                       + "layout, and this reads as the ").Append(sh.GameType).Append(" layout. Some of these "
                       + "accessors read a field this layout's stream never carried, so they would answer a constant "
@@ -541,10 +522,10 @@ static class NifWire
               .Append(string.Join(", ", missing)).Append(". NifSkope reads this mesh's own layout.\n");
             return;
         }
-        // "WHERE THIS BLOCK CARRIES THEM" is doing real work: for a lighting shader the values genuinely are on
-        // disk and NifSkope shows them, but a BSEffectShaderProperty has no glossiness / specular-strength /
-        // specular-colour field AT ALL, so an unconditional "the values ARE in the file" would send the reader
-        // hunting in NifSkope for fields that don't exist (review of PR #286).
+        // "where this block carries them" is load-bearing: a lighting shader really does have these values on disk and
+        // NifSkope shows them, but a BSEffectShaderProperty has no glossiness, specular-strength or specular-colour
+        // field at all, so an unconditional "the values are in the file" would send the reader hunting for fields that
+        // do not exist.
         sb.Append("    NOT READ by this NiflySharp version — its accessor returns a constant for these, so ")
           .Append("houseCARL reports nothing rather than a wrong number: ")
           .Append(string.Join(", ", missing))
@@ -553,15 +534,15 @@ static class NifWire
 
     static string ColorText(NifColor c) => $"rgb({Fmt(c.R)},{Fmt(c.G)},{Fmt(c.B)})";
 
-    /// <summary>Whether this shader was read as the SKYRIM layout — the only one whose texture-slot semantics
-    /// houseCARL models, so the only one where a slot name can be derived at all.</summary>
+    /// <summary>Whether this shader was read as the Skyrim layout — the only one whose texture-slot semantics are
+    /// modelled here, so the only one where a slot name can be derived at all.</summary>
     static bool IsSkyrimLayout(NifShader sh) => sh.GameType == "SK";
 
-    /// <summary>The one-line caveat for a section that shows slot paths on a mesh whose shader(s) houseCARL does not
-    /// interpret — or null when every shader here is the Skyrim layout (the overwhelmingly common case, which stays
-    /// unannotated). Without it a bare <c>tex[2]:</c> is ambiguous between "this Skyrim shader doesn't determine slot
-    /// 2" and "we don't model this layout at all". The header's <c>[NOT an SE stream]</c> marker does NOT disambiguate
-    /// it: an LE mesh trips that marker but still parses as the SK layout and DOES get named slots (review of #286).</summary>
+    /// <summary>The one-line caveat for a section showing slot paths on a mesh whose shaders are not interpreted, or
+    /// null when every shader here is the Skyrim layout. Without it a bare <c>tex[2]:</c> is ambiguous between "this
+    /// Skyrim shader does not determine slot 2" and "this layout is not modelled at all". The header's
+    /// <c>[NOT an SE stream]</c> marker does not disambiguate it: an LE mesh trips that marker but still parses as the
+    /// SK layout and does get named slots.</summary>
     static string? SlotNamingCaveat(NifInspect nif)
     {
         var layouts = nif.Shapes.Select(s => s.Shader).OfType<NifShader>().Where(sh => !IsSkyrimLayout(sh))
@@ -601,11 +582,12 @@ static class NifWire
     static string AlphaLine(NifAlpha a)
         => $"flags 0x{a.Flags:X4}  blend={a.Blend} ({a.SourceBlendMode} -> {a.DestinationBlendMode})  test={a.Test} ({a.TestFunction})  threshold {a.Threshold}";
 
-    /// <summary>Render NiAVObject flags: raw hex + a by-construction decode. nif.xml does not name these bits, so we
-    /// decode by DEVIATION from the type's nif.xml-documented SSE default (<paramref name="def"/> from
-    /// <paramref name="defType"/>) — "= default", or the extra/missing bits vs it — and always state the one bit nif.xml
-    /// DOES document, 0x80000 (Skyrim sets it on some AV objects, FO4 never; the head-vs-hair signal). When no default is
-    /// documented for the type, the set-bit positions are listed instead (still exact, still no invented names).</summary>
+    /// <summary>Render NiAVObject flags: raw hex plus a decode. nif.xml does not name these bits, so the decode is by
+    /// deviation from the type's nif.xml-documented SSE default (<paramref name="def"/> from
+    /// <paramref name="defType"/>) — either "= default" or the extra and missing bits against it — and always states
+    /// the one bit nif.xml does document, 0x80000, which Skyrim sets on some AV objects and FO4 never does. With no
+    /// documented default for the type, the set-bit positions are listed instead: still exact, still no invented
+    /// names.</summary>
     static string DescribeFlags(uint flags, uint? def, string? defType, string blockType)
     {
         var sb = new StringBuilder("0x").Append(flags.ToString("X"));
@@ -634,7 +616,8 @@ static class NifWire
         return bits.Count == 0 ? "none" : string.Join(",", bits);
     }
 
-    /// <summary>Append "&lt;label&gt;&lt;a, b, c&gt;" as one line, cut with an explicit notice if it would blow the cap (Q3).</summary>
+    /// <summary>Append "&lt;label&gt;&lt;a, b, c&gt;" as one line, cut with an explicit notice if it would exceed the
+    /// cap.</summary>
     static void AppendClampedList(StringBuilder sb, string label, IEnumerable<string> items, int cap)
     {
         sb.Append(label);
@@ -661,8 +644,8 @@ static class NifWire
 
     static string Fmt(float f) => f.ToString("0.#######", System.Globalization.CultureInfo.InvariantCulture);
 
-    /// <summary>The archive-read-failure alarm (Q3): BSAs that couldn't be read this build. A mesh present ONLY in one of
-    /// these is indistinguishable from a truly absent one, so it is surfaced LOUD before the answer.</summary>
+    /// <summary>The BSAs that could not be read this build. A mesh present only in one of these is indistinguishable
+    /// from a truly absent one, so this is surfaced before the answer.</summary>
     static void AppendReadFailures(StringBuilder sb, IReadOnlyList<string> failures, int cap)
     {
         if (failures.Count == 0) return;
@@ -688,11 +671,11 @@ static class NifWire
     }
 }
 
-/// <summary>Renders <see cref="NifSetResult"/>: the resolution (which copy was edited + provider chain), then exactly one
-/// of — the in-place CONSENT prompt (verbatim, a required confirmation not an error), a NAMED refusal (nothing written),
-/// or the verified-write success (the op's before→after, what the verification confirmed changed, and the LANE outcome:
-/// a new mod folder to enable+sort, or the file overwritten in place). Q3: a default-lane success says "wrote it, now
-/// enable+sort" — it never claims the edit is winning on disk yet.</summary>
+/// <summary>Renders <see cref="NifSetResult"/>: the resolution — which copy was edited, and the provider chain — then
+/// exactly one of the in-place consent prompt (carried verbatim; a required confirmation, not an error), a named
+/// refusal with nothing written, or the verified-write success with the op's before and after, what verification
+/// confirmed changed, and where the file landed. A default-lane success says the file was written and must now be
+/// enabled and sorted; it never claims the edit is already winning on disk.</summary>
 static class NifSetWire
 {
     public static string Render(NifSetResult d)
@@ -701,7 +684,7 @@ static class NifSetWire
         sb.Append("nif set — ").Append(d.RelPath.Length > 0 ? d.RelPath : "(mesh)")
           .Append("  (profile '").Append(d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)").Append("')\n");
 
-        // in-place first-touch consent — a required confirmation, returned verbatim (NOT an error, Q3).
+        // in-place first-touch consent: a required confirmation returned verbatim, not an error.
         if (d.NeedsAcknowledge)
         {
             sb.Append('\n').Append(d.AckPrompt).Append('\n');

@@ -4,17 +4,10 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// houseCARL setup tools — the config the USER owns, persisted to houseCARL.user.json (validated loud; nothing saved on a
-/// bad value — Q3). Two tools live here:
-///   • housecarl_set_mo2_instance — WHERE Mod Organizer 2 is: one path (the instance folder); ModOrganizer.ini yields the
-///     mods folder, the ACTIVE profile, and the game Data folder (<see cref="Mo2Instance"/>), so nothing is hand-typed.
-///     First-run setup (an unconfigured server's tools return a trained prompt naming this tool) AND switching instances
-///     both flow through here.
-///   • housecarl_set_tool_path — WHERE an external tool is (the Papyrus compiler, BSArch, or a log folder): the bridge the
-///     compile / BSA / log-access riders sit on. Auto-detects canonical homes, so it's usually only needed for BSArch or a
-///     non-standard install (<see cref="ToolPathResolver"/> + <see cref="ToolBridge"/>).
-/// </summary>
+/// <summary>The setup tools for user-owned config, persisted to houseCARL.user.json; nothing is saved on a bad value.
+/// housecarl_set_mo2_instance takes one path (the MO2 instance folder) and derives the mods folder, active profile and
+/// game Data folder from ModOrganizer.ini. housecarl_set_tool_path records where an external tool lives (Papyrus
+/// compiler, BSArch, a log folder).</summary>
 [McpServerToolType]
 public static class SetupTools
 {
@@ -39,7 +32,7 @@ public static class SetupTools
 
         Mo2InstancePaths paths; bool persisted; string? persistError; string? persistNote;
         try { (paths, persisted, persistError, persistNote) = svc.SetInstance(path); }
-        catch (InvalidOperationException ex) { return "error: " + ex.Message; }   // not a usable instance — Q3 reason, nothing changed
+        catch (InvalidOperationException ex) { return "error: " + ex.Message; }   // not a usable instance — nothing changed
 
         return Render(paths, persisted, persistError, persistNote);
     });
@@ -70,7 +63,7 @@ public static class SetupTools
             return $"error: no path given for '{tool}'. Pass the full path to {ToolBridge.Info(dep).Display}.";
 
         var (ok, error, persisted, persistError, persistNote, resolved) = bridge.Save(dep, path);
-        if (!ok) return "error: " + error;   // validation failed — nothing saved (Q3)
+        if (!ok) return "error: " + error;   // validation failed — nothing saved
 
         var info = ToolBridge.Info(dep);
         var sb = new StringBuilder();
@@ -79,13 +72,13 @@ public static class SetupTools
         sb.Append(persisted
             ? "saved to houseCARL.user.json — persists across restarts (coexists with your MO2 instance)."
             : $"NOTE: could not save ({persistError}) — works this session, but you'll need to set it again after a restart.");
-        if (persistNote is not null) sb.Append("\nRECOVERED: ").Append(persistNote);   // corrupt prior config — never silent (hunt F3)
+        if (persistNote is not null) sb.Append("\nRECOVERED: ").Append(persistNote);   // corrupt prior config — never silent
         return sb.ToString();
     });
 
-    /// <summary>Confirmation: the instance + the DERIVED roots + the AUTO-DETECTED profile, a cheap enabled/active summary
-    /// (text-file read, no deep index — proof houseCARL found the order), and whether the choice was persisted (Q3: a
-    /// failed save is reported, not hidden; a corrupt-file recovery is named even on success — hunt F3).</summary>
+    /// <summary>The confirmation text: the instance, the derived roots, the auto-detected profile, a cheap
+    /// enabled/active summary, and whether the choice was persisted. A failed save or a corrupt-file recovery is
+    /// named rather than hidden.</summary>
     internal static string Render(Mo2InstancePaths p, bool persisted, string? persistError, string? persistNote)
     {
         var sb = new StringBuilder();
@@ -93,15 +86,13 @@ public static class SetupTools
         sb.Append("active profile: ").Append(p.ProfileName).Append("  (auto-detected from ModOrganizer.ini)\n");
         sb.Append("  mods folder: ").Append(p.ModsDir).Append('\n');
         sb.Append("  game Data  : ").Append(p.DataDir).Append('\n');
-        // The overwrite layer is one of the derived roots (MO2's top-of-VFS, where tool outputs resolve from). It is
-        // NOT required to exist on a fresh instance, so annotate an absent one rather than printing a bare path that
-        // looks like a broken root.
+        // MO2 does not create the overwrite folder until a tool writes there, so an absent one is annotated rather
+        // than printed as a bare path that reads like a broken root.
         sb.Append("  overwrite  : ").Append(p.OverwriteDir)
           .Append(Directory.Exists(p.OverwriteDir) ? "" : "  (none yet — MO2 creates it when a tool writes here)").Append('\n');
 
-        // Cheap composition (the three profile text files only — NO deep index): a quick figure so the user sees houseCARL
-        // actually found the order. The resolve already confirmed the profile files exist; a read hiccup here is non-fatal
-        // but NAMED — the proof line is what tells the user the setup really worked, so its absence must not be silent (Q3).
+        // Reads the three profile text files only, no deep index. A read failure here is non-fatal but is named: this
+        // line is what tells the user the setup worked, so its absence must not be silent.
         try
         {
             var comp = Mo2LoadOrder.ReadComposition(p.ProfileDir);
@@ -118,7 +109,7 @@ public static class SetupTools
         sb.Append(persisted
             ? "saved to houseCARL.user.json — persists across restarts."
             : $"NOTE: could not save the choice ({persistError}) — it works this session, but you'll need to set it again after a restart.");
-        if (persistNote is not null) sb.Append("\nRECOVERED: ").Append(persistNote);   // corrupt prior config — never silent (hunt F3)
+        if (persistNote is not null) sb.Append("\nRECOVERED: ").Append(persistNote);   // corrupt prior config — never silent
         sb.Append("\nthe load order resolves on the next read/write (first build ~10s).");
         return sb.ToString();
     }

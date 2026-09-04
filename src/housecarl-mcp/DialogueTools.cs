@@ -2,24 +2,17 @@ using System.Text;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// The dialogue report render. The tool that used to sit above it, housecarl_validate_dialogue, was deleted at the
-/// 1.x cut: its findings are housecarl_check findings=dialogue, and its merged INFO-order render is
-/// housecarl_records project=info_order. The Skyrim-typed validation lives in
-/// <see cref="HousecarlCore.DialogueValidate"/>; this file is the render alone.
-/// </summary>
-/// <summary>The composers a dialogue report is rendered FROM: a topic block (graph issues, voice and
-/// result-script verdicts), a findings list, an effective INFO order, a .seq note. Budget-bounded like the read
-/// tools (explicit cut at max_chars, never silent). The whole-report composer that assembled them, and the
-/// standing-limits footer it always printed, went with housecarl_validate_dialogue (#486); the merged surface
-/// composes these through <see cref="DialogueSweepRender"/> and states its own standing limits.</summary>
+/// <summary>The composers a dialogue report is rendered from: a topic block (graph issues, voice and result-script
+/// verdicts), a findings list, an effective INFO order, a .seq note. Budget-bounded like the read tools, with an
+/// explicit cut at max_chars. The Skyrim-typed validation itself lives in
+/// <see cref="HousecarlCore.DialogueValidate"/>; the whole-report composition and its standing limits live in
+/// <see cref="DialogueSweepRender"/>.</summary>
 internal static class DialogueWire
 {
-    /// <summary>The ONE home for rendering a finding list — each as "[X]/[!] message" at <paramref name="pad"/>,
-    /// budget-aware: at the cap it appends an EXPLICIT truncation notice and returns false so the caller can stop
-    /// (max_chars' "cut with an explicit notice (never silent)" contract, Q3). Shared by the per-topic graph
-    /// issues and the input-level (quest/DLVW/DLBR) findings, so the severity glyph and the cap discipline can
-    /// never diverge between the two levels of one report.</summary>
+    /// <summary>Render a finding list, each as "[X]/[!] message" at <paramref name="pad"/>. At the cap it appends an
+    /// explicit truncation notice and returns false so the caller stops. Shared by the per-topic graph issues and the
+    /// input-level findings, so the severity glyph and the cap discipline cannot diverge between the two levels of one
+    /// report.</summary>
     internal static bool AppendIssues(StringBuilder sb, IReadOnlyList<DialogueIssue> issues, string pad, int cap)
     {
         foreach (var iss in issues)
@@ -31,11 +24,10 @@ internal static class DialogueWire
         return true;
     }
 
-    /// <param name="includeInfoOrder">render the effective merged INFO order (class 8) inside this block.
-    /// <c>validate_dialogue</c> does; the merged <c>check</c> surface's dialogue family does NOT, because an ordered
-    /// sequence over the touching-plugin stack is not a findings list and SPEC §6.1 routes it to
-    /// <c>records project=info_order</c>. ONE composer with the class gated here rather than two spellings of a
-    /// topic block: the same facts rendered twice is how the two surfaces would drift apart.</param>
+    /// <param name="includeInfoOrder">render the effective merged INFO order inside this block. The dialogue family of
+    /// the <c>check</c> surface does not, because an ordered sequence over the touching-plugin stack is not a findings
+    /// list; it is reached through <c>records project=info_order</c> instead. Gated here rather than written twice, so
+    /// the two surfaces cannot drift apart.</param>
     internal static void AppendTopic(StringBuilder sb, TopicValidation t, bool indent, int cap,
                                      bool includeInfoOrder = true)
     {
@@ -49,9 +41,8 @@ internal static class DialogueWire
         sb.Append(pad).Append("  category=").Append(t.Category).Append("  subtype=").Append(t.Subtype)
           .Append("  subtype_marker=").Append(t.SubtypeName).Append('\n');
 
-        // Fragment-presence note (item 8): tells a dev whether a Papyrus.log entry is even POSSIBLE for a line — a
-        // result-script FRAGMENT runs code that CAN surface in the log (on error / an explicit trace); a plain voiced
-        // line has no code path, so it never can. Always shown for a topic with live INFOs.
+        // Whether a Papyrus.log entry is even possible for a line: a result-script fragment runs code that can surface
+        // in the log, while a plain voiced line has no code path. Always shown for a topic with live INFOs.
         if (t.InfoCount > 0)
             sb.Append(pad).Append("  result-script fragments: ").Append(t.FragmentInfoCount).Append(" of ").Append(t.InfoCount)
               .Append(t.InfoCount == 1 ? " INFO carries one" : " INFOs carry one")
@@ -60,8 +51,8 @@ internal static class DialogueWire
         // --- graph issues (PNAM chain, quest + branch wiring) ---
         if (t.Issues.Count == 0)
         {
-            // The conditions clause is asserted ONLY when the topic actually has conditioned INFOs — otherwise a
-            // condition-free topic would read as "conditions checked + well-formed" when there were none to check.
+            // The conditions clause is asserted only when the topic actually has conditioned INFOs; otherwise a
+            // condition-free topic would read as "conditions checked and well-formed" when there were none to check.
             sb.Append(pad).Append("  graph: OK — quest + branch wiring resolve, LinkTo targets resolve, no dangling PNAM");
             sb.Append(t.ConditionedInfoCount > 0
                 ? ", conditions well-formed (their form references + alias indices resolve).\n"
@@ -83,27 +74,23 @@ internal static class DialogueWire
     /// — a big topic's whole order is rarely the question, and the moved set always is.</summary>
     const int MaxOrderRows = 25;
 
-    /// <summary>The effective, merged INFO order (#275) — the sequence the game walks top-to-bottom, playing the
-    /// FIRST line whose conditions pass. Rendered only where it can differ from a single plugin's own list: with one
-    /// contributing plugin this says so in one line rather than printing a list that merges nothing. The MOVED
-    /// annotation is the diagnostic payload — a pure reorder changes which line answers while leaving every field
-    /// identical, so it is invisible to a field diff. Budget-aware like <see cref="AppendIssues"/>: returns false at
-    /// the cap so the caller stops (Q3 — an explicit notice, never a silent cut).</summary>
+    /// <summary>The effective merged INFO order: the sequence the game walks top to bottom, playing the first line
+    /// whose conditions pass. Rendered only where it can differ from a single plugin's own list. The MOVED annotation
+    /// is the diagnostic payload, since a pure reorder changes which line answers while leaving every field identical
+    /// and so is invisible to a field diff. Returns false at the cap so the caller stops.</summary>
     static bool AppendInfoOrder(StringBuilder sb, TopicValidation t, string pad, int cap, bool indent)
         => AppendInfoOrderView(sb, t.InfoOrder, pad, cap, indent);
 
-    /// <summary>The view-level body, shared with the records info_order PROJECT form (the §6.1 F1 split carried
-    /// this render's MOVED annotations and honesty gates across intact — one render, no drift).</summary>
+    /// <summary>The view-level body, shared with the <c>records project=info_order</c> form so both get the same MOVED
+    /// annotations and the same gates on what may be claimed.</summary>
     internal static bool AppendInfoOrderView(StringBuilder sb, InfoOrderView? view, string pad, int cap, bool indent)
     {
-        // An EMPTY order is normally nothing to say — unless it is empty because nothing could be READ, which is
-        // the total-drop case and the one that must never render as silence (most topics are touched by exactly
-        // one plugin, so for them any read failure IS a total failure).
+        // An empty order is normally nothing to say, unless it is empty because nothing could be read — that case must
+        // never render as silence. Most topics are touched by exactly one plugin, so any read failure is a total one.
         if (view is not { } io || (io.Order.Count == 0 && io.Complete)) return true;
 
-        // "Nothing merges here" is a CLAIM, and it holds only if EVERY touching plugin's list was actually read.
-        // With one dropped, a genuinely contested topic presents as single-plugin — so the claim is gated on
-        // Complete, and the incomplete case says what it is instead of asserting something false (Q3).
+        // "Nothing merges here" holds only if every touching plugin's list was read: with one dropped, a genuinely
+        // contested topic presents as single-plugin. Hence the gate on Complete.
         if (!io.Contested && io.Complete)
         {
             sb.Append(pad).Append("  INFO order: ").Append(io.Order.Count)
@@ -126,31 +113,24 @@ internal static class DialogueWire
         }
 
         var moved = io.Moved;
-        // The row cap exists so a quest owning many topics doesn't bury its findings under hundreds of lines. A
-        // SINGLE-topic report has nothing to bury, so it always lists in full — abbreviating there withheld the
-        // whole answer and offered no way to get it back, since the cap counts ROWS and max_chars counts
-        // characters. Measured live: a 37-line topic printed a header and nothing under it.
+        // The row cap keeps a quest owning many topics from burying its findings under hundreds of lines. A
+        // single-topic report has nothing to bury, so it always lists in full: the cap counts rows while max_chars
+        // counts characters, so abbreviating there would withhold the answer with no way to ask for it back.
         bool listAll = !indent || io.Order.Count <= MaxOrderRows;
 
-        // Count the plugins that TOUCH the topic, not the ones successfully READ. On the incomplete path this
-        // line sits directly beneath a banner giving the true total, so printing the read count put two different
-        // numbers for the same quantity on adjacent lines, the second one wrong (and "1 plugins").
+        // Count the plugins that touch the topic, not the ones successfully read: on the incomplete path this line
+        // sits directly beneath a banner giving the true total, and the two must not disagree.
         int touching = io.ContributingPlugins.Count + io.UnreadContributors.Count;
         sb.Append(pad).Append("  effective INFO order — merged across ").Append(touching)
           .Append(touching == 1 ? " plugin that touches" : " plugins that touch")
           .Append(" this topic; the game walks it top to bottom and plays the FIRST line whose conditions pass:\n");
 
-        // Over the cap AND nothing moved: say so. Falling through printed "listing only the 0 that moved"
-        // followed by an EMPTY list — a header promising an order and delivering none.
-        //
-        // But an empty moved set is evidence of nothing unless the analysis RAN over COMPLETE input. Two separate
-        // ways it can fail, and the claim needs both:
-        //   MovesComputed — the analysis ran at all (not skipped by the line ceiling or a suspect baseline);
-        //   Complete      — it ran over every touching plugin's list. An unread plugin sitting AFTER the definer
-        //                   leaves the baseline trusted, so MovesComputed stays true while lines are missing —
-        //                   and the unread plugin is precisely the one that could have moved something.
-        // Gating on the first alone put "none of which changed position" between two lines saying positions may
-        // be wrong.
+        // Over the cap and nothing moved: say so, rather than falling through to "listing only the 0 that moved"
+        // above an empty list. An empty moved set is evidence of nothing unless the analysis both ran
+        // (MovesComputed: not skipped by the line ceiling or a suspect baseline) and ran over every touching
+        // plugin's list (Complete). An unread plugin sitting after the definer leaves the baseline trusted, so
+        // MovesComputed stays true while lines are missing — and that plugin is the one that could have moved
+        // something. Hence both.
         bool movesKnown = io.MovesComputed && io.Complete;
         if (!listAll && moved.Count == 0)
         {
@@ -162,9 +142,8 @@ internal static class DialogueWire
             return true;
         }
 
-        // Same gate as the branch above, for the same reason. "the rest keep their original relative order" is a
-        // claim about the rows this branch deliberately WITHHOLDS, so the reader cannot check it — and it held
-        // only if the analysis ran over complete input. Worse than the sibling case, not better.
+        // Same gate as the branch above: "the rest keep their original relative order" is a claim about rows this
+        // branch withholds, so the reader cannot check it, and it holds only over complete input.
         if (!listAll)
             sb.Append(pad).Append("    (").Append(io.Order.Count).Append(" lines; listing only the ")
               .Append(moved.Count).Append(movesKnown
@@ -178,13 +157,12 @@ internal static class DialogueWire
             sb.Append(pad).Append("    #").Append(e.Index + 1).Append("  ").Append(e.Info);
             if (e.Deleted) sb.Append("  (deleted)");
             if (e.Moved) sb.Append("  MOVED from #").Append(e.OriginIndex!.Value + 1);
-            // Gated on BaselineTrusted: with a shifted baseline the DEFINER's own lines have no OriginIndex,
-            // and this would call them late additions as flat fact under a banner saying the baseline is suspect.
+            // Gated on BaselineTrusted: with a shifted baseline the definer's own lines have no OriginIndex, and
+            // this would call them late additions.
             else if (e.OriginIndex is null && io.BaselineTrusted) sb.Append("  (added by a later plugin)");
             sb.Append("  placed by ").Append(e.PlacedBy);
-            // The zero "I am first" marker and a broken link both land at the head, but only one is a fault —
-            // and the marker is the COMMON shape, so identical wording meant most readers met a correct vanilla
-            // line described in the vocabulary of a malformed one, and would go and "fix" it.
+            // The zero "I am first" PNAM marker and a broken link both land at the head, but only one is a fault,
+            // and the marker is the common shape — so the two need different wording.
             if (e.Placement == InfoPlacement.HeadFirstMarker)
                 sb.Append("  [pinned first by its own PNAM marker — deliberate, not a fault]");
             else if (e.Placement == InfoPlacement.HeadUnresolvable)
@@ -195,12 +173,9 @@ internal static class DialogueWire
         if (moved.Count > 0)
         {
             var w = moved[0];
-            // QUALIFIED, not gated, when the read is incomplete — deliberately unlike the two negative claims
-            // above. Those assert an absence the banner contradicts, and a false negative ends the
-            // investigation; this is a positive lead the banner already qualifies, it carries [!], and an
-            // unread plugin could equally re-list the line WITH its PNAM and put it back. Suppressing it would
-            // withhold the lead exactly where a modder most wants one, so it says how far the evidence reaches
-            // instead. The per-row "MOVED from #N" annotations inherit this same sentence.
+            // Qualified rather than gated when the read is incomplete, unlike the two negative claims above: those
+            // assert an absence, while this is a positive lead that stays useful as long as it says how far the
+            // evidence reaches.
             sb.Append(pad).Append("  [!] ").Append(io.Complete ? "" : "as far as could be read, ").Append(moved.Count)
               .Append(moved.Count == 1 ? " line sits" : " lines sit")
               .Append(" at a different position than this topic's defining plugin laid down — the biggest shift is ")
@@ -213,24 +188,21 @@ internal static class DialogueWire
         return true;
     }
 
-    /// <summary>The per-topic DEGRADATION note (a malformed PNAM, a cycle, a truncated chain, an unread
-    /// contributor, skipped move analysis) — these are data problems in the plugins, so they ride the topic they
-    /// belong to rather than a report-wide footer.
-    ///
-    /// There is deliberately NO standing PNAM-zero caveat, here or in the footer: the reader distinguishes a
-    /// present-but-zero PNAM from an absent one (see <c>DialogueInfoOrder.PnamZeroIsDistinguishable</c>), so the
-    /// caveat that shipped for four review rounds described a limitation that does not exist. It was retracted,
-    /// and <c>RENDER-NO-FALSE-CAVEAT</c> pins its absence — do not re-add it.</summary>
+    /// <summary>The per-topic degradation note — a malformed PNAM, a cycle, a truncated chain, an unread contributor,
+    /// skipped move analysis. These are data problems in the plugins, so they ride the topic they belong to rather
+    /// than a report-wide footer. There is deliberately no standing PNAM-zero caveat here or in the footer: the reader
+    /// distinguishes a present-but-zero PNAM from an absent one (see
+    /// <c>DialogueInfoOrder.PnamZeroIsDistinguishable</c>), so such a caveat would describe a limitation that does not
+    /// exist. Do not add one.</summary>
     static void AppendOrderNote(StringBuilder sb, InfoOrderView io, string pad)
     {
         if (io.Note is { } note)
             sb.Append(pad).Append("  [!] INFO order — ").Append(note).Append(".\n");
     }
 
-    /// <summary>Voice: a SILENT line is the actionable one (named with its .fuz path), present lines are summarised as
-    /// a count, and not-checkable lines (no Speaker / unresolvable voice type) are grouped by reason — the same Q3
-    /// honesty as the create-time report, but bounded for a whole topic. Skipped entirely when the topic has no voiced
-    /// content (a topic of pure link/branch nodes) — nothing to check, not a hidden pass.</summary>
+    /// <summary>Voice: a silent line is the actionable one and is named with its .fuz path, present lines are a count,
+    /// and not-checkable lines (no Speaker, or an unresolvable voice type) are grouped by reason. Skipped entirely
+    /// when the topic has no voiced content, which is nothing to check rather than a hidden pass.</summary>
     static void AppendVoice(StringBuilder sb, TopicValidation t, string pad, int cap)
     {
         if (t.VoiceLines.Count == 0 && t.VoiceUndetermined.Count == 0) return;
@@ -255,8 +227,9 @@ internal static class DialogueWire
         }
     }
 
-    /// <summary>Result scripts: a WILL NOT FIRE line is the actionable one (named, with any missing .pex), bound +
-    /// compiled lines are a count, and undetermined ones are listed. Skipped when no line carries a result script.</summary>
+    /// <summary>Result scripts: a WILL NOT FIRE line is the actionable one and is named with any missing .pex, bound
+    /// and compiled lines are a count, and undetermined ones are listed. Skipped when no line carries a result
+    /// script.</summary>
     static void AppendScripts(StringBuilder sb, TopicValidation t, string pad, int cap)
     {
         if (t.ScriptFindings.Count == 0) return;
@@ -280,14 +253,11 @@ internal static class DialogueWire
         }
     }
 
-    /// <summary>The SEQ staleness/coverage block (item 7) for a Start-Game-Enabled quest: a WARN (`[!]`) when its
-    /// `.seq` is missing or doesn't list it; an OK line when clean; a `[?]` ADVISORY when the `.seq` lists the quest
-    /// but is merely older by mtime (mtime can't tell whether the plugin changed for a SGE/master reason that needs a
-    /// regen or a dialogue-only edit that doesn't — so it's a hint, not a "regenerate"), when the result is
-    /// undeterminable (the winning `.seq` is in a BSA / unreadable), OR when the WINNING record is an override
-    /// (winner != defining) — since that override may itself be the plugin that flags SGE and need its OWN .seq, a
-    /// not-covered verdict is surfaced as an ambiguity, never a confident "dormant" against the wrong plugin (Q3).
-    /// Plus the inverse guidance that stops needless regen. Skipped entirely for a non-SGE quest (SeqLint null).</summary>
+    /// <summary>The SEQ staleness and coverage block for a Start-Game-Enabled quest: `[!]` when its `.seq` is missing
+    /// or does not list it, an OK line when clean, and `[?]` when the answer is only advisory — the `.seq` lists the
+    /// quest but is older by mtime (which cannot tell a regen-worthy change from a dialogue-only edit), the check
+    /// could not run, or the winning record is an override that may itself set the SGE flag and need its own .seq.
+    /// Skipped for a non-SGE quest, where SeqLint is null.</summary>
     internal static void AppendSeq(StringBuilder sb, SeqLintFinding? s)
     {
         if (s is null || !s.QuestIsSge) return;
@@ -304,8 +274,8 @@ internal static class DialogueWire
             sb.Append("  SEQ: OK — ").Append(s.DefiningPlugin).Append(".seq lists this start-game-enabled quest (").Append(fid)
               .Append(") and is newer than the plugin.\n");
         else if (overrideInPlay)
-            // not covered, but the WINNING record is an override — its plugin (not the defining master) may be the one
-            // that flags SGE and would then need its OWN .seq, so don't confidently blame the defining plugin (Q3).
+            // Not covered, but the winning record is an override: its plugin, not the defining master, may be the one
+            // that sets the SGE flag and would then need its own .seq, so the defining plugin is not blamed outright.
             sb.Append("  SEQ: [?] this start-game-enabled quest's .seq coverage couldn't be confirmed — its defining plugin ")
               .Append(s.DefiningPlugin).Append(" has no listing/fresh .seq, but the WINNING override ").Append(s.WinnerPlugin)
               .Append(" is the record the game reads and may itself be what sets Start-Game-Enabled (which would need ITS own .seq). ")
@@ -317,11 +287,10 @@ internal static class DialogueWire
         else if (s.SeqContainsQuest == false)
             sb.Append("  SEQ: [!] ").Append(s.DefiningPlugin).Append(".seq exists but does NOT list this quest (").Append(fid)
               .Append(") — it stays dormant on a fresh save. Regenerate with " + ToolNames.WriteSeq + ".\n");
-        else // s.SeqNewerThanPlugin == false — the .seq DOES list the quest, it's just older by mtime
-            // mtime alone can't tell WHY the plugin changed, so this is ADVISORY, not a confident "regenerate":
-            // a genuinely stale .seq (a master added/removed, an ESL compaction) is the real failure mode, but a
-            // dialogue/condition-only edit bumps the plugin's mtime too and needs NO regen (the note below). Don't
-            // contradict that note with a hard [!] (Q3 — the mtime is a hint, not proof of staleness).
+        else // s.SeqNewerThanPlugin == false — the .seq does list the quest, it is just older by mtime
+            // mtime alone cannot tell why the plugin changed, so this is advisory rather than a confident
+            // "regenerate": a master added or removed, or an ESL compaction, genuinely stales the .seq, but a
+            // dialogue- or condition-only edit bumps the mtime too and needs no regen.
             sb.Append("  SEQ: [?] ").Append(s.DefiningPlugin).Append(".seq lists this quest (").Append(fid)
               .Append(") but is OLDER than ").Append(s.DefiningPlugin)
               .Append(" — if your last change altered which quests are start-game-enabled or the master list (a master added/removed, an ESL compaction), regenerate with " + ToolNames.WriteSeq + "; if it was a dialogue- or condition-only edit, the .seq is still correct (an older mtime alone does not mean stale).\n");

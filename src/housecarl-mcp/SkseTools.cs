@@ -5,16 +5,12 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// houseCARL diagnostic tool (SKSE-plugin-layer visibility, gap 2026-06-08). Read-only. Brings the SKSE-plugin layer —
-/// invisible to every record/asset tool before this — into view: the FULL DEPTH of Data\SKSE\Plugins — the <c>.dll</c>
-/// plugins, and every <c>.toml</c>/<c>.ini</c>/<c>.json</c> config beneath it grouped by its real subfolder — WHICH MOD
-/// wins the VFS for each (tier A), and each plugin's STATICALLY declared manifest — name/author/version, Address Library
-/// vs version-LOCKED, target runtimes, XSE floor (tier C). It reads what a DLL DECLARES about itself (the SKSE loader's own
-/// <c>SKSEPlugin_Version</c> data blob), never what it DOES at runtime — tier E (DLL behavior) is the honest ceiling.
-/// Full visibility, compact by default: everything is accounted for (deep configs rolled into their folder-groups, other
-/// content counted); <c>filter=</c> expands any group or plugin. See <see cref="SksePluginReader"/>.
-/// </summary>
+/// <summary>Read-only view of the SKSE-plugin layer, which the record and asset tools cannot see: the full depth of
+/// Data\SKSE\Plugins — the .dll plugins and every .toml, .ini and .json config beneath them grouped by real subfolder
+/// — which mod wins the VFS for each, and each plugin's statically declared manifest (name, author, version, Address
+/// Library versus version-locked, target runtimes, XSE floor). It reads what a DLL declares about itself, via the SKSE
+/// loader's own <c>SKSEPlugin_Version</c> data blob, never what it does at runtime. Compact by default with everything
+/// accounted for; <c>filter=</c> expands any group or plugin. See <see cref="SksePluginReader"/>.</summary>
 [McpServerToolType]
 public static class SkseTools
 {
@@ -125,16 +121,15 @@ public static class SkseTools
     });
 }
 
-/// <summary>Renders <see cref="SkseInventoryData"/> as compact, scannable text. Default: summary + compat, the diagnostic
-/// subsets FULLY (version-locked / legacy / non-plugin / subfolder / contested), the top-level plugin roster (terse), then
-/// the config folders GROUPED (count + providers) — everything accounted for, bounded by max_chars with an explicit cut
-/// notice (Q3 — never silent truncation). filter= expands a group to its individual configs, or a plugin to full detail.</summary>
+/// <summary>Renders <see cref="SkseInventoryData"/>: summary and compat, the diagnostic subsets in full
+/// (version-locked, legacy, non-plugin, subfolder, contested), the terse top-level plugin roster, then the config
+/// folders grouped by count and provider. Everything is accounted for, bounded by max_chars with an explicit cut
+/// notice. filter= expands a group to its individual configs, or a plugin to full detail.</summary>
 static class SkseInventoryWire
 {
-    /// <summary>The <c>peek=</c> argument check, or null when the call is valid. A peek is per-DLL BY DESIGN (plan §3a):
-    /// peeking all ~290 DLLs would read every image and render a wall that invites misreading noise as signal — the tool's
-    /// central design risk. So a bare <c>peek=true</c> fails LOUD rather than silently ignoring the flag or quietly
-    /// peeking one arbitrary DLL (Q3). Pure + internal so the skse-peek-guard pins it without a live service.</summary>
+    /// <summary>The <c>peek=</c> argument check, or null when the call is valid. A peek is per-DLL by design: peeking
+    /// every DLL in the layer would read every image and render a wall that invites misreading noise as signal. So a
+    /// bare <c>peek=true</c> fails rather than ignoring the flag or peeking one arbitrary DLL.</summary>
     internal static string? PeekArgError(bool peek, string? filter) =>
         peek && string.IsNullOrWhiteSpace(filter)
             ? "peek=true needs filter= — a peek is per-DLL, not a whole-layer dump (it reads each matching DLL's whole " +
@@ -175,12 +170,11 @@ static class SkseInventoryWire
         sb.Append("compat: ").Append(addrLib).Append(" Address Library · ").Append(sig).Append(" signature-scanning · ")
           .Append(locked.Count).Append(" version-LOCKED\n");
 
-        // ── Diagnostic subsets, FIRST and in full (the point of the tool). ──
+        // ── Diagnostic subsets, first and in full. ──
 
-        // Debug-CRT offenders lead: it is the sharpest static verdict in the layer (deterministic breakage, not a
-        // mismatch to verify). Surfaced WITHOUT peek= — plan §8.3, decided on the measured data §9 asked for: the import
-        // walk this needs rides the PE open every DLL's manifest read already pays for, which is noise beside the
-        // inventory's per-file VFS resolve. A user should not have to suspect this to be told about it.
+        // Debug-CRT offenders lead: the sharpest static verdict in the layer, deterministic breakage rather than a
+        // mismatch to verify. Surfaced without peek=, because the import walk it needs rides the PE open that every
+        // DLL's manifest read already pays for.
         var debugCrt = loaded.Where(x => x.Plugin is { Imports: not null } pl && pl.DebugCrtImports.Count > 0).ToList();
         if (debugCrt.Count > 0)
         {
@@ -196,8 +190,8 @@ static class SkseInventoryWire
 
         if (locked.Count > 0)
         {
-            // With the installed runtime resolved this is PASS/FAIL per plugin; without it, the honest degrade is
-            // the original "verify each" wording (the native-pairing audit's §4d upgrade, shared here).
+            // With the installed runtime resolved this is pass/fail per plugin; without it, the degrade is the
+            // "verify each" wording.
             sb.Append("\n[!] version-LOCKED plugins (").Append(locked.Count)
               .Append(") — load ONLY on their listed runtime(s)");
             sb.Append(d.InstalledRuntime is { } rt0
@@ -237,7 +231,7 @@ static class SkseInventoryWire
         AppendSubset(sb, "contested DLLs (shipped by >1 mod — winner-first conflict chain; verify the winner is the one you want)", contested, cap,
             e => $"  - {e.FileName}: {Chain(e)}");
 
-        // ── Plugin roster (the loaded, metadata-bearing plugins) — terse. ──
+        // ── Plugin roster: the loaded, metadata-bearing plugins, terse. ──
         sb.Append("\nplugins with metadata (").Append(modern.Count).Append(") — name · version · compat · winning mod:\n");
         AppendCapped(sb, modern.OrderBy(e => e.FileName, StringComparer.OrdinalIgnoreCase).ToList(), cap, e =>
         {
@@ -245,7 +239,7 @@ static class SkseInventoryWire
             return $"  - {e.FileName}  \"{v.Name}\" v{v.PluginVersion}  {CompatTag(v)}{Provider(e)}";
         });
 
-        // ── Config FOLDERS — grouped by the derived subfolder, sorted by size. Everything accounted for, compactly. ──
+        // ── Config folders, grouped by the derived subfolder and sorted by size. ──
         if (d.Configs.Count > 0)
         {
             var groups = d.Configs.GroupBy(e => e.Group, StringComparer.OrdinalIgnoreCase)
@@ -277,14 +271,15 @@ static class SkseInventoryWire
         return sb.ToString().TrimEnd('\n');
     }
 
-    /// <summary>filter= : full detail for every matching DLL, then every matching config (by folder, filename, or provider) —
-    /// so a folder name expands its group, a plugin name shows the manifest, a mod name shows everything it provides.</summary>
+    /// <summary>filter=: full detail for every matching DLL, then every matching config, matched by folder, filename or
+    /// provider — so a folder name expands its group, a plugin name shows the manifest, and a mod name shows
+    /// everything it provides.</summary>
     static string RenderFiltered(SkseInventoryData d, string filter, int cap)
     {
         bool In(string? s) => s is not null && s.Contains(filter, StringComparison.OrdinalIgnoreCase);
         bool MatchCfg(SkseFileEntry e) => In(e.FileName) || In(e.WinningProvider) || In(e.Group);
 
-        // SkseFileEntry.MatchesDll is the ONE DLL predicate — the service peeks exactly the entries this view renders.
+        // SkseFileEntry.MatchesDll is the one DLL predicate, so the service peeks exactly the entries this view renders.
         var dllHits = d.Dlls.Where(e => e.MatchesDll(filter)).OrderBy(e => e.FileName, StringComparer.OrdinalIgnoreCase).ToList();
         var cfgHits = d.Configs.Where(MatchCfg).ToList();
 
@@ -307,9 +302,9 @@ static class SkseInventoryWire
             AppendDetail(sb, e, d, shownCfg);
         }
 
-        // peek= honored with NOTHING to show is still an unanswered question — say so. A bare peek=true already fails
-        // loud (PeekArgError), and a matched-but-unpeekable DLL says so on its own entry (AppendPeek); this is the last
-        // case: the filter matched NO DLL at all, so there is no entry to carry the notice.
+        // peek= honoured with nothing to show is still an unanswered question. A bare peek=true fails in PeekArgError
+        // and a matched-but-unpeekable DLL says so on its own entry, so this covers the last case: the filter matched
+        // no DLL at all, leaving no entry to carry the notice.
         if (d.PeekRequested && dllHits.Count == 0)
             sb.Append("\n[!] peek=true matched no DLL at all — nothing was peeked. Pass filter= the name of a loose DLL to peek it.\n");
 
@@ -343,11 +338,11 @@ static class SkseInventoryWire
             sb.Append("  [!] contested by ").Append(e.ProviderCount).Append(" mods — full chain (winner first): ").Append(Chain(e)).Append('\n');
 
         var p = e.Plugin;
-        // Service-level note (subfolder-not-loader-scoped / no active provider / BSA-only) — shown for ANY kind, not just
-        // Modern (fix: a bundled-dependency or unreadable DLL in a subfolder also deserves the loader-path flag).
+        // Service-level note — subfolder-not-loader-scoped, no active provider, BSA-only — shown for any kind, since a
+        // bundled-dependency or unreadable DLL in a subfolder also needs the loader-path flag.
         if (e.Note is { } enote) sb.Append("  [!] ").Append(enote).Append('\n');
-        // A null Plugin is the BSA-only / unprovided DLL — which is PRECISELY the entry a peek can't read, so the peek
-        // notice has to ride this branch too. (It didn't, and the notice was unreachable for its own motivating case.)
+        // A null Plugin is the BSA-only or unprovided DLL, which is exactly the entry a peek cannot read, so the peek
+        // notice has to ride this branch too.
         if (p is null) { if (e.Note is null) sb.Append("  no static metadata\n"); AppendPeek(sb, e, d); return; }
 
         switch (p.Kind)
@@ -357,8 +352,8 @@ static class SkseInventoryWire
             case SksePluginReader.SksePluginKind.Unreadable:
                 sb.Append("  ").Append(p.Note).Append('\n');
                 if (p.Is64Bit == false) sb.Append("  [!] NOT an x64 image — a 32-bit DLL cannot load in Skyrim SE/AE.\n");
-                // Tier D rides EVERY kind: a bundled dependency or an unreadable-manifest DLL still has an import table,
-                // and a debug-CRT build is exactly the sort of thing that shows up as a DLL nobody can classify.
+                // The import-table verdict rides every kind: a bundled dependency or an unreadable-manifest DLL still
+                // has an import table, and a debug-CRT build often shows up as a DLL nobody can classify.
                 AppendPeek(sb, e, d);
                 return;   // Is64Bit == false is EXPLICITLY-determined non-x64; null (unknown) never triggers the claim (finding #1)
         }
@@ -391,7 +386,7 @@ static class SkseInventoryWire
         if (structs.Count > 0) sb.Append("  struct compat: ").Append(string.Join(", ", structs)).Append('\n');
         if (v.MinimumXseVersion is { } xse) sb.Append("  requires SKSE ≥ ").Append(xse).Append('\n');
 
-        // Paired configs: a config anywhere under SKSE\Plugins whose basename stem matches the DLL (best-effort association).
+        // Paired configs: any config under SKSE\Plugins whose basename stem matches the DLL. Best-effort association.
         string stem = System.IO.Path.GetFileNameWithoutExtension(e.FileName);
         var cfgs = d.Configs.Where(c => System.IO.Path.GetFileNameWithoutExtension(c.FileName)
             .StartsWith(stem, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -404,17 +399,16 @@ static class SkseInventoryWire
         AppendPeek(sb, e, d);
     }
 
-    /// <summary>The tier-D peek block for one DLL (<c>peek=true</c>): what the IMAGE statically contains — its imports
-    /// (with the derived flags), the config paths and plugin names it embeds, and the scan accounting. Renders nothing
-    /// unless a peek ran. Every line here is a fact about bytes in a file, and the framing line says so: this is not what
-    /// the code DOES (tier E), and absence of a string proves NOTHING — plenty of DLLs build their references at runtime.</summary>
+    /// <summary>The peek block for one DLL: what the image statically contains — its imports with the derived flags,
+    /// the config paths and plugin names it embeds, and the scan accounting. Renders nothing unless a peek ran. Every
+    /// line is a fact about bytes in a file, and the framing line says so: it is not what the code does, and the
+    /// absence of a string proves nothing, since plenty of DLLs build their references at runtime.</summary>
     static void AppendPeek(StringBuilder sb, SkseFileEntry e, SkseInventoryData d)
     {
         if (e.Peek is not { } peek)
         {
-            // PER-ENTRY, so a MIXED match says it too: a filter hitting two loose DLLs and one BSA-only one used to
-            // render two peeks and nothing at all for the third. "peek was honored, this one had no image to read" is
-            // an answer the user asked for; leaving the entry silent makes them infer an empty peek (Q3).
+            // Per-entry, so a mixed match says it too: a filter hitting two loose DLLs and one BSA-only one must not
+            // render two peeks and nothing at all for the third, which reads as an empty peek.
             if (d.PeekRequested)
                 sb.Append("  (not peeked: no loose winner — SKSE loads loose DLLs only, so there is no image the game would read)\n");
             return;
@@ -433,8 +427,8 @@ static class SkseInventoryWire
             sb.Append("  imports (").Append(imports.Count).Append("): ").Append(string.Join(", ", imports)).Append('\n');
             var hooks = imports.Where(i => HookImports.ContainsKey(i)).ToList();
             foreach (var h in hooks) sb.Append("    → ").Append(h).Append(": ").Append(HookImports[h]).Append('\n');
-            // Bundled-dependency attribution: an import satisfied by a sibling NON-plugin DLL in the same layer (the
-            // msdia140.dll ← CrashLogger case) — names WHY that stray DLL is installed.
+            // Bundled-dependency attribution: an import satisfied by a sibling non-plugin DLL in the same layer, which
+            // names why that stray DLL is installed.
             var siblings = d.Dlls.Where(x => x.Plugin is { Kind: SksePluginReader.SksePluginKind.NotSkse })
                 .Select(x => x.FileName).Where(f => imports.Contains(f, StringComparer.OrdinalIgnoreCase)).ToList();
             if (siblings.Count > 0)
@@ -475,12 +469,12 @@ static class SkseInventoryWire
                   "design. Absence proves nothing: many DLLs build their references at runtime or read them from configs.)\n");
     }
 
-    /// <summary>Max entries per peek list before an explicit cut — a peek is per-DLL and readability is the point (§6's
-    /// design risk: noise misread as signal). Never a silent truncation.</summary>
+    /// <summary>Max entries per peek list before an explicit cut: a peek is per-DLL and readability is the point,
+    /// since noise here is easily misread as signal.</summary>
     const int PeekListCap = 40;
 
-    /// <summary>Imports whose presence names a capability the DLL reaches for. FACTS about the import table with a plain
-    /// gloss — never a behavior claim (it hooks the API; what it does with it is tier E).</summary>
+    /// <summary>Imports whose presence names a capability the DLL reaches for: facts about the import table with a
+    /// plain gloss, never a behaviour claim. It hooks the API; what it does with it is not visible here.</summary>
     static readonly Dictionary<string, string> HookImports = new(StringComparer.OrdinalIgnoreCase)
     {
         ["d3d11.dll"] = "Direct3D 11 — touches graphics/rendering",
@@ -493,15 +487,12 @@ static class SkseInventoryWire
         ["wininet.dll"] = "WinINet — makes internet requests",
     };
 
-    /// <summary>The Debug-CRT verdict — tier D's sharpest finding and the ONE peek line allowed "will not load" language,
-    /// because it is a static, deterministic loader fact (the version-LOCKED class). The debug CRT is NOT redistributable:
-    /// it ships with Visual Studio and is absent from a stock Windows, so a plugin importing it dies with error 126.
-    ///
-    /// But "will not load" is only unconditionally true where the runtime is ABSENT — and houseCARL runs on the modder's
-    /// own machine, where it can CHECK rather than assume. A plugin author with VS installed would otherwise be told a DLL
-    /// that loads fine for him "will NOT load": a confident wrong answer, which is worse than no answer (Q3). So the
-    /// verdict splits: absent here ⇒ it will not load, stated flatly; present here ⇒ it loads FOR YOU and is broken for
-    /// everyone else — which is the more useful finding if you are the one shipping it.</summary>
+    /// <summary>The Debug-CRT verdict — the one peek line allowed "will not load" language, because it is a static,
+    /// deterministic loader fact. The debug CRT is not redistributable: it ships with Visual Studio and is absent from
+    /// a stock Windows, so a plugin importing it dies with error 126. That is only unconditionally true where the
+    /// runtime is absent, and this runs on the modder's own machine, so it checks rather than assumes: absent here
+    /// means it will not load, stated flatly; present here means it loads for you and is broken for everyone
+    /// else.</summary>
     static void AppendDebugCrt(StringBuilder sb, SkseFileEntry e)
     {
         if (e.Plugin is not { Imports: not null } p) return;      // never walked ⇒ no claim either way
@@ -510,19 +501,17 @@ static class SkseInventoryWire
         sb.Append(DebugCrtVerdict(crt, SksePluginReader.IsSystemDllResolvable));
     }
 
-    /// <summary>The one-line Debug-CRT verdict for the whole-layer summary — the same machine-dependence as
-    /// <see cref="DebugCrtVerdict"/>, in the terse register the roster needs. Pure with the probe injected for the same
-    /// reason: an inline <c>IsSystemDllResolvable</c> call here would leave whichever wording the current machine can't
-    /// produce unpinned, which is exactly the half that rots.</summary>
+    /// <summary>The one-line Debug-CRT verdict for the whole-layer summary: the same machine-dependence as
+    /// <see cref="DebugCrtVerdict"/>, in the terse register the roster needs. The probe is injected rather than called
+    /// inline so both wordings are reachable regardless of the current machine.</summary>
     internal static string DebugCrtLayerVerdict(IReadOnlyList<string> crt, Func<string, bool> resolvable) =>
         crt.All(resolvable)
             ? "  loads on THIS machine (you have the debug runtime) — but error 126 for anyone without Visual Studio"
             : "  ≠ this machine — will NOT load (error 126: the debug runtime isn't here)";
 
-    /// <summary>The Debug-CRT verdict text — PURE, with the machine probe injected, so the guard can pin BOTH wordings
-    /// in one run. Without the seam CI (no Visual Studio) could only ever pin the "will NOT load" arm and a dev box only
-    /// the other, leaving whichever half the current machine doesn't produce unpinned — which is precisely the half that
-    /// would rot unnoticed.</summary>
+    /// <summary>The Debug-CRT verdict text, pure with the machine probe injected so both wordings are reachable in one
+    /// run: called inline, a machine without Visual Studio could only ever produce the "will NOT load" wording and a
+    /// dev box only the other.</summary>
     internal static string DebugCrtVerdict(IReadOnlyList<string> crt, Func<string, bool> resolvable)
     {
         var missing = crt.Where(c => !resolvable(c)).ToList();
@@ -550,8 +539,8 @@ static class SkseInventoryWire
     static string Provider(SkseFileEntry e) =>
         e.WinningProvider is null ? "  (no active provider)" : $"  ← {e.WinningProvider}";
 
-    /// <summary>The full VFS conflict chain, winner FIRST then losers in precedence order, each tagged loose/BSA — the
-    /// asset-tool conflict transparency (which mod wins this file, and who it overrides). "(no active provider)" when empty.</summary>
+    /// <summary>The full VFS conflict chain: winner first, then losers in precedence order, each tagged loose or BSA —
+    /// which mod wins this file and who it overrides. "(no active provider)" when empty.</summary>
     static string Chain(SkseFileEntry e) =>
         e.Providers.Count == 0 ? "(no active provider)" : string.Join(" › ", e.Providers.Select(p => $"{p.Name} ({p.Kind})"));
 
@@ -581,17 +570,14 @@ static class SkseInventoryWire
     }
 }
 
-/// <summary>Renders <see cref="SkseConfigAuditData"/> as compact, scannable text (housecarl_skse_config_audit, tier B).
-/// Default: a health summary that separates BROKEN references (DANGLING + UNPARSEABLE — a reference that should resolve
-/// and doesn't) from INERT ones (PLUGIN MISSING — the named plugin simply isn't installed, usually optional support for
-/// a mod you don't have), then the DIAGNOSTICS first and in full (PLUGIN MISSING gates + tokens, DANGLING, UNPARSEABLE —
-/// and read errors, each with file:line provenance and its winning provider), then the
-/// accounted-for remainder (healthy files counted; no-reference files grouped by folder — the OStim bulk). Bounded by
-/// max_chars with an explicit cut notice (Q3 — never silent truncation). filter= audits one group and lists EVERY
-/// reference with its verdict, OKs included (the positive-confirmation / verifier role).</summary>
+/// <summary>Renders <see cref="SkseConfigAuditData"/>. The health summary separates broken references — DANGLING and
+/// UNPARSEABLE, which should resolve and do not — from inert ones, PLUGIN MISSING, where the named plugin simply is
+/// not installed. Then the diagnostics in full, each with file:line provenance and its winning provider, then the
+/// accounted-for remainder: healthy files counted, and no-reference files grouped by folder. Bounded by max_chars with
+/// an explicit cut notice. filter= audits one group and lists every reference with its verdict, OKs included.</summary>
 static class SkseConfigAuditWire
 {
-    // (file, ref) pair — a dead reference and where it was declared.
+    // A dead reference and the file it was declared in.
     readonly record struct Hit(SkseConfigFileAudit File, SkseAuditedRef Audited)
     {
         public HousecarlCore.SkseConfigRef Ref => Audited.Ref;
@@ -609,11 +595,11 @@ static class SkseConfigAuditWire
         var readErrors   = d.Files.Where(f => f.ReadError is not null).ToList();
 
         int refsChecked = flat.Count;
-        // Two distinct signals, kept apart in the headline (framing fix). BROKEN = a reference that SHOULD resolve and
-        // doesn't (DANGLING: plugin present, record absent; UNPARSEABLE: a token we can't read) — the actionable one.
-        // INERT = PLUGIN MISSING (gate or token): the named plugin simply isn't installed, so the entry/file does nothing.
-        // For a config shipping optional support for a mod you don't have that's expected, not a fault — lumping it into
-        // "DEAD" made a healthy order read as thousands of dead references, which is the whole point of this reframe.
+        // Two distinct signals, kept apart in the headline. BROKEN is a reference that should resolve and does not —
+        // DANGLING (plugin present, record absent) or UNPARSEABLE (an unreadable token) — and is the actionable one.
+        // INERT is PLUGIN MISSING, gate or token: the named plugin is not installed, so the entry does nothing. For a
+        // config shipping optional support for a mod you do not have that is expected, not a fault, and counting it as
+        // dead would make a healthy order read as thousands of dead references.
         int broken = dangling.Count + unparseable.Count;
         int inert  = missingGates.Count + missingToks.Count;
         int notOk  = broken + inert;                       // every non-OK ref (kept for the accounted-for reconciliation below)
@@ -637,13 +623,12 @@ static class SkseConfigAuditWire
             sb.Append('\n');
         }
 
-        // ── Diagnostics FIRST, in full (the point of the tool). ──
+        // ── Diagnostics first, in full. ──
         AppendHits(sb, "PLUGIN MISSING — folder gates (the plugin isn't installed, so the WHOLE file is inert)", missingGates, cap,
             h => $"  - {h.File.RelPath}: folder '{h.Ref.Plugin}' not in the load order{Prov(h.File)}");
-        // Token-level plugin-missing is GROUPED by the target plugin — a whole-layer scan yields tens of thousands of
-        // individual inert refs (a config shipping optional support for a mod you don't have contributes hundreds each),
-        // so a per-ref list is an unreadable wall; the count-per-plugin table is the actionable shape. filter= a plugin to
-        // see its individual refs.
+        // Token-level plugin-missing is grouped by the target plugin: a whole-layer scan yields tens of thousands of
+        // individual inert refs, so a per-ref list is an unreadable wall and the count-per-plugin table is the
+        // actionable shape. filter= a plugin to see its individual refs.
         if (missingToks.Count > 0)
         {
             var byPlugin = missingToks.GroupBy(h => h.Ref.Plugin, StringComparer.OrdinalIgnoreCase)
@@ -677,7 +662,7 @@ static class SkseConfigAuditWire
             }
         }
 
-        // ── Accounted-for remainder — everything that ISN'T a diagnostic, so nothing is silently dropped (Q3). ──
+        // ── Accounted-for remainder: everything that is not a diagnostic, so nothing is dropped. ──
         var healthyFiles = d.Files.Where(f => f.ReadError is null && f.Refs.Count > 0 && f.Refs.All(r => r.Verdict == SkseRefVerdict.Ok)).ToList();
         int healthyRefs = healthyFiles.Sum(f => f.Refs.Count);
         int okInMixed = (refsChecked - notOk) - healthyRefs;   // OK refs living in a file that ALSO has a non-OK ref — so every ref reconciles: refsChecked = notOk + healthyRefs + okInMixed
@@ -709,8 +694,8 @@ static class SkseConfigAuditWire
         return sb.ToString().TrimEnd('\n');
     }
 
-    /// <summary>filter= : audit just the matching configs (by folder, provider, filename, or a REFERENCED plugin) and list
-    /// every reference with its verdict — OKs included, for positive confirmation (the SkyPatcher-reader verifier role).</summary>
+    /// <summary>filter=: audit just the matching configs — by folder, provider, filename, or a referenced plugin — and
+    /// list every reference with its verdict, OKs included, so the view also serves as positive confirmation.</summary>
     static string RenderFiltered(SkseConfigAuditData d, string filter, int cap)
     {
         bool In(string? s) => s is not null && s.Contains(filter, StringComparison.OrdinalIgnoreCase);
@@ -725,10 +710,9 @@ static class SkseConfigAuditWire
           .Append(hits.Count).Append(" config(s) match [profile '").Append(d.ProfileName).Append("']\n");
         if (hits.Count == 0)
         {
-            // The suggestion pool must span EVERY axis Match filters on — else a mistyped plugin/provider filter gets only
-            // folder/filename suggestions. Match keys on filename/group/provider/relpath + referenced-plugin, so the pool
-            // carries filenames, folders, winning-provider mod names, AND the referenced-plugin names (the axis the tool
-            // exists to check). PluginNameSuggest dedups + skips empties, so no Distinct is needed here.
+            // The suggestion pool must span every axis Match filters on, or a mistyped plugin or provider filter gets
+            // only folder and filename suggestions. Match keys on filename, group, provider, relpath and
+            // referenced-plugin, so the pool carries all five. PluginNameSuggest dedups and skips empties.
             var suggestPool = d.Files.Select(f => f.FileName)
                 .Concat(d.Files.Select(f => f.Group).Where(g => g.Length > 0))
                 .Concat(d.Files.Select(f => f.WinningProvider).Where(p => !string.IsNullOrEmpty(p)).Select(p => p!))
@@ -791,17 +775,17 @@ static class SkseConfigAuditWire
     }
 }
 
-/// <summary>Renders <see cref="NativePairingAuditData"/> as compact, scannable text (housecarl_native_pairing_audit).
-/// Default: a health summary, then the DIAGNOSTICS first and in full — PAIRED-BUT-DEAD (the high-confidence class:
-/// every candidate DLL statically won't load, version-LOCKED mismatches included when the installed runtime is known),
-/// locked-but-unverifiable pairings (runtime unknown → honest degrade), UNPAIRED classes (a verify flag, said so), and
-/// unreadable-.pex notes — then the accounted-for baseline (engine / skse-core counts, paired-healthy classes grouped
-/// by their implementing mod). Bounded by max_chars with explicit cut notices (Q3). filter= shows a class in full:
-/// native function names, pairing evidence, per-DLL manifests + load verdicts, conflict chains.</summary>
+/// <summary>Renders <see cref="NativePairingAuditData"/>: a health summary, then the diagnostics in full —
+/// paired-but-dead (every candidate DLL statically will not load, version-locked mismatches included where the
+/// installed runtime is known), locked-but-unverifiable pairings where the runtime is unknown, unpaired classes as a
+/// verify flag, and unreadable-.pex notes — then the accounted-for baseline of engine and skse-core counts and
+/// paired-healthy classes grouped by implementing mod. Bounded by max_chars with explicit cut notices. filter= shows a
+/// class in full: native function names, pairing evidence, per-DLL manifests and load verdicts, conflict
+/// chains.</summary>
 static class NativePairingWire
 {
-    /// <summary>One candidate DLL's static load verdict for the render: LOADS / VERIFY (locked, runtime unknown) /
-    /// DEAD (a named static blocker or a locked-runtime mismatch).</summary>
+    /// <summary>One candidate DLL's static load verdict: LOADS, VERIFY (locked, runtime unknown), or DEAD (a named
+    /// static blocker or a locked-runtime mismatch).</summary>
     enum DllFate { Loads, Verify, Dead }
 
     static (DllFate Fate, string Detail) Judge(NativePairedDll d, string? runtime)
@@ -810,9 +794,8 @@ static class NativePairingWire
         if (d.Info is not { } info) return (DllFate.Verify, "no static manifest read");   // defensive: blocker-less entries carry Info by construction
         if (info.Kind == SksePluginReader.SksePluginKind.LegacyQuery)
         {
-            // The AE loader loads ONLY version-data plugins (SksePluginReader's first bullet) — a query-only SE/VR-era
-            // plugin will NOT load on a 1.6+ runtime (review finding: rendering these LOADS buried the tool's headline
-            // breakage class, the abandoned SE-era mod on an AE game).
+            // The AE loader loads only version-data plugins, so a query-only SE/VR-era plugin will not load on a 1.6+
+            // runtime — the abandoned SE-era mod on an AE game, which is this tool's headline breakage class.
             if (runtime is { } rt2 && SksePluginReader.IsAeRuntime(rt2))
                 return (DllFate.Dead, $"query-only SE/VR-era plugin — the AE loader (installed game is {rt2}) loads only version-data plugins, so it will NOT load");
             if (runtime is not null)
@@ -830,8 +813,8 @@ static class NativePairingWire
             : (DllFate.Dead, $"version-LOCKED → {locked} ≠ installed {runtime} — will NOT load on this game version");
     }
 
-    /// <summary>A paired class's verdict = the BEST fate among its candidate DLLs — the audit can't know WHICH DLL
-    /// implements the class (tier E), so one loadable candidate keeps the pairing plausible.</summary>
+    /// <summary>A paired class's verdict is the best fate among its candidate DLLs: which DLL actually implements the
+    /// class is not statically knowable, so one loadable candidate keeps the pairing plausible.</summary>
     static DllFate BestFate(NativeClassEntry c, string? runtime)
     {
         var best = DllFate.Dead;
@@ -852,8 +835,8 @@ static class NativePairingWire
         var skseCore = d.Classes.Where(c => c.Provenance == NativeProvenance.SkseCore).ToList();
         var third = d.Classes.Where(c => c.Provenance == NativeProvenance.ThirdParty).ToList();
         var unpaired = third.Where(c => c.Rung == NativePairingRung.Unpaired).ToList();
-        // ONE fate pass per paired class (review finding: three Where partitions each re-judged every DLL) — the
-        // section split and the per-DLL tags come from the same Judge, so they can never disagree.
+        // One fate pass per paired class: the section split and the per-DLL tags come from the same Judge, so they
+        // cannot disagree.
         var byFate = third.Where(c => c.Rung != NativePairingRung.Unpaired)
             .ToLookup(c => BestFate(c, d.InstalledRuntime));
         var dead = byFate[DllFate.Dead].ToList();
@@ -870,8 +853,8 @@ static class NativePairingWire
         if (dead.Count == 0 && unpaired.Count == 0 && verify.Count == 0)
         {
             sb.Append("✓ every third-party native class pairs to a mod whose DLL statically loads — nothing dead, nothing unpaired");
-            // The checkmark must not overclaim a universal the scan didn't verify (review finding): unreadable
-            // .pex files were never examined, and they're where an unpaired class could hide.
+            // The checkmark must not claim a universal the scan did not verify: unreadable .pex files were never
+            // examined, and they are where an unpaired class could hide.
             sb.Append(d.Unreadable.Count > 0 ? $" ({d.Unreadable.Count} unreadable .pex NOT examined — see below).\n" : ".\n");
         }
         else
@@ -883,7 +866,7 @@ static class NativePairingWire
             sb.Append('\n');
         }
 
-        // ── Diagnostics FIRST, in full (the point of the tool). ──
+        // ── Diagnostics first, in full. ──
         if (dead.Count > 0)
         {
             sb.Append("\nPAIRED BUT DEAD — the high-confidence finding: every candidate DLL statically will not load, so every native these scripts declare is a silent no-op in game (").Append(dead.Count).Append("):\n");
@@ -907,11 +890,11 @@ static class NativePairingWire
             AppendCapped(sb, d.Unreadable, cap, u => $"  - {u.RelPath}: {u.Reason}{(u.WinningProvider is { } p ? $"  [← {p}]" : "")}");
         }
 
-        // ── Accounted-for baseline — everything that ISN'T a finding, so nothing is silently dropped (Q3). ──
+        // ── Accounted-for baseline: everything that is not a finding, so nothing is dropped. ──
         sb.Append("\naccounted for: ").Append(engine.Count).Append(" engine class(es) (carried by an official archive — implemented by the game executable) · ")
           .Append(skseCore.Count).Append(" SKSE-core class(es) (skse64's script additions — implemented by the game-root loader)");
-        // Tri-state (Q3): false = checked, genuinely absent → the definite note; null = the CHECK failed → say that,
-        // never render a failed check as a checked-and-absent verdict (review finding).
+        // Tri-state: false means checked and genuinely absent, so the definite note; null means the check itself
+        // failed, which must not render as a checked-and-absent verdict.
         if (skseCore.Count > 0 && d.SkseLoaderSeen == false)
             sb.Append("\n  [!] SKSE-core classes are present but no skse64 loader is visible (game root or enabled mods' Root\\ folders) — if SKSE isn't actually installed, every one of these is dead");
         else if (skseCore.Count > 0 && d.SkseLoaderSeen is null)
@@ -944,8 +927,8 @@ static class NativePairingWire
         return sb.ToString();
     }
 
-    /// <summary>ONE per-DLL fate line for BOTH the default and the filter= views (review finding: two hand-kept copies
-    /// of the same line drift): "[FATE] group\file ("name" vX)? — detail".</summary>
+    /// <summary>The per-DLL fate line, shared by the default and filter= views so the two cannot drift:
+    /// "[FATE] group\file ("name" vX)? — detail".</summary>
     static string DllLine(NativePairedDll dll, string? runtime, bool withVersion)
     {
         var (fate, detail) = Judge(dll, runtime);
@@ -957,9 +940,9 @@ static class NativePairingWire
         return sb.ToString();
     }
 
-    /// <summary>filter= : full detail for every matching class (by class name, path, provider, paired mod, or a
-    /// candidate DLL's filename) — the declared native functions, the pairing evidence rung, each candidate DLL's
-    /// manifest + load verdict, and the conflict chain.</summary>
+    /// <summary>filter=: full detail for every matching class — by class name, path, provider, paired mod, or a
+    /// candidate DLL's filename — giving the declared native functions, the pairing evidence, each candidate DLL's
+    /// manifest and load verdict, and the conflict chain.</summary>
     static string RenderFiltered(NativePairingAuditData d, string filter, int cap)
     {
         bool In(string? s) => s is not null && s.Contains(filter, StringComparison.OrdinalIgnoreCase);
@@ -972,8 +955,8 @@ static class NativePairingWire
           .Append(hits.Count).Append(" class(es) match [profile '").Append(d.ProfileName).Append("']\n");
         if (hits.Count == 0)
         {
-            // The suggestion pool spans EVERY axis Match filters on (the tier-B lesson): class names, providers,
-            // paired mods, and DLL filenames. PluginNameSuggest dedups + skips empties.
+            // The suggestion pool spans every axis Match filters on: class names, providers, paired mods, and DLL
+            // filenames. PluginNameSuggest dedups and skips empties.
             var pool = d.Classes.Select(c => c.ClassName)
                 .Concat(d.Classes.Select(c => c.WinningProvider).Where(p => !string.IsNullOrEmpty(p)).Select(p => p!))
                 .Concat(d.Classes.Select(c => c.PairedMod).Where(p => !string.IsNullOrEmpty(p)).Select(p => p!))
@@ -1015,8 +998,8 @@ static class NativePairingWire
             sb.Append('\n');
             shown++;
         }
-        // The Q3 caveats ride the FILTERED view too (review finding): "no match" or a partial hit over a build whose
-        // BSA failed to read must never read as a clean answer.
+        // The caveats ride the filtered view too: "no match", or a partial hit over a build whose BSA failed to read,
+        // must not read as a clean answer.
         sb.Append('\n');
         AppendCaveats(sb, d);
         return sb.ToString().TrimEnd('\n');
