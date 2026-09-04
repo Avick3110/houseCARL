@@ -24,6 +24,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   Reading by a runtime FormID is unchanged, and the doors that refuse are the ones the write verbs parse their
   targets through — see `FormIdDoor.ForWrite`.
 
+- **`housecarl_bsa_repack` now refuses when BSArch exits with an error, and no longer fails a fast pack for no
+  stated reason.** BSArch can abort partway and still leave a scratch archive behind; if that scratch happened to
+  declare the same file count the source offered, the repack placed it over the existing archive and reported
+  success. A non-zero exit is now a failed pack whatever it left on disk, and the refusal names the exit code and
+  what BSArch printed. Separately, the check that the scratch came from this run compared a filesystem write stamp
+  against a finer-grained clock, so a pack that finished inside one filesystem tick could be discarded with an empty
+  message; the run's own success now decides, and the scratch is still cleared before the run (a stuck one refuses
+  up front) so a previous run's bytes cannot ship as this one's.
+
 - **`housecarl_records` with `source={"file", "mod"}` now reads the copy in the named mod folder, even when that
   filename is active in the load order.** Several mod folders can ship the same plugin filename (an ESP replacer),
   and MO2 serves one of them; naming a folder addresses that folder's file. When the named copy is not the one the
