@@ -50,9 +50,12 @@ namespace HousecarlGenerator;
 ///               EMPTY — without that, every arm here would pass on a fixture that was never localized. A further arm
 ///               pins that the OUTPUT is written non-localized with its strings inline, which is what makes the
 ///               read-backs a read of the written bytes.
-///   RESIDUAL  — (#362, measured not fixed) a donor whose strings are in NEITHER place: OpenOverlay's fallback is
-///               game-Data and nothing else, so no dataDir resolves it, and the merge still writes blanks and still
-///               reports success. Pinned as the current behaviour so the residual is measured rather than asserted.
+///   NOWHERE   — (#371) a donor whose strings are in NEITHER place: no dataDir resolves it, so every value reads
+///               blank — and the merge REFUSES, named, with nothing written, rather than baking those blanks into a
+///               plugin the caller keeps.
+///   DECLARER  — a plugin outside the merge that lists a donor as a master and references none of its records. Its
+///               own instance. The unit tests cover the detection; this arm covers the JOIN — the service reads it,
+///               carries it into the outcome, and the rendered report names the plugin and what it declares.
 /// Run: dotnet run --project src/housecarl-generator merge-service-guard
 /// </summary>
 public static class MergeServiceGuardProbe
@@ -691,6 +694,71 @@ public static class MergeServiceGuardProbe
                 bool nothingWritten = string.IsNullOrEmpty(lo.OutputPath) || !File.Exists(lo.OutputPath);
                 Check(named && nothingWritten,
                     $"NOWHERE-resolving strings REFUSE the merge, named, nothing written (success={lo.Success} named={named} nothingWritten={nothingWritten} err='{(lo.Error ?? "").Split('.')[0]}')");
+            }
+
+            // ---- DECLARER: a plugin OUTSIDE the merge that lists a donor as a master and references none of its
+            //      records. Its own instance, so the counts and lists every arm above asserts stay as they are. The
+            //      detection has unit coverage; what this arm owes is the JOIN — the service reads declared masters,
+            //      carries them into the outcome, and the rendered report a caller actually reads names the plugin and
+            //      what it declares. A break anywhere along that path is a warning nobody ever sees.
+            {
+                var decRoot = Path.Combine(root, "decl");
+                string decInstance = Path.Combine(decRoot, "instance");
+                string decProfiles = Path.Combine(decInstance, "profiles", "Default");
+                string decMods = Path.Combine(decInstance, "mods");
+                Directory.CreateDirectory(decProfiles); Directory.CreateDirectory(decMods);
+                Directory.CreateDirectory(Path.Combine(decRoot, "game", "Data"));
+                File.WriteAllText(Path.Combine(decInstance, "ModOrganizer.ini"),
+                    "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+                    + Path.Combine(decRoot, "game").Replace(@"\", @"\\") + ")\r\n");
+
+                var donorKey = new ModKey("HcMgDeclDonor", ModType.Plugin);
+                var donorDir = Path.Combine(decMods, "DeclDonorMod"); Directory.CreateDirectory(donorDir);
+                var donorPath = Path.Combine(donorDir, donorKey.FileName.String);
+                {
+                    var m = new SkyrimMod(donorKey, SkyrimRelease.SkyrimSE);
+                    m.Weapons.Add(new Weapon(new FormKey(donorKey, 0xA01), SkyrimRelease.SkyrimSE) { EditorID = "HcMgDeclDonorWeap" });
+                    m.BeginWrite.ToPath(donorPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+                }
+
+                // The declarer: its own record, no link into the donor, and the donor carried in the master table
+                // anyway — the trimmed compat patch, which no walk over links or record identity can see.
+                var declKey = new ModKey("HcMgDeclOnly", ModType.Plugin);
+                var declDir = Path.Combine(decMods, "DeclOnlyMod"); Directory.CreateDirectory(declDir);
+                {
+                    using var donorOv = SkyrimMod.CreateFromBinaryOverlay(donorPath, SkyrimRelease.SkyrimSE);
+                    var m = new SkyrimMod(declKey, SkyrimRelease.SkyrimSE);
+                    m.Weapons.Add(new Weapon(new FormKey(declKey, 0xB01), SkyrimRelease.SkyrimSE) { EditorID = "HcMgDeclOwnWeap" });
+                    m.BeginWrite.ToPath(Path.Combine(declDir, declKey.FileName.String))
+                        .WithLoadOrder(new ISkyrimModGetter[] { donorOv }).WithExtraIncludedMasters(donorKey).Write();
+                }
+
+                File.WriteAllText(Path.Combine(decProfiles, "loadorder.txt"),
+                    "# header\r\n" + string.Join("\r\n", donorKey.FileName, declKey.FileName) + "\r\n");
+                File.WriteAllText(Path.Combine(decProfiles, "plugins.txt"),
+                    string.Join("\r\n", "*" + donorKey.FileName, "*" + declKey.FileName) + "\r\n");
+                File.WriteAllText(Path.Combine(decProfiles, "modlist.txt"),
+                    "# header\r\n" + string.Join("\r\n", "+DeclOnlyMod", "+DeclDonorMod") + "\r\n");
+
+                var decStore = new UserConfigStore(Path.Combine(decRoot, "houseCARL.user.json"));
+                using var decSvc = LoadOrderService.WithInstance(decInstance, 0, decStore);
+                decSvc.Stats();
+
+                var dm = decSvc.MergePlugins(new[] { donorKey.FileName.String }, "HcMgDeclOut.esp");
+                // In NEITHER existing list — that is what makes this a third category rather than a second heading
+                // over the same plugins, and an arm reading only the rendered text would pass on a report that had
+                // quietly folded it into the referencers.
+                bool inOutcome = dm.Success && dm.MasterDeclarers is { Count: 1 }
+                                 && string.Equals(dm.MasterDeclarers[0].Plugin, declKey.FileName.String, StringComparison.OrdinalIgnoreCase)
+                                 && !dm.ExternalPlugins.Contains(declKey.FileName.String, StringComparer.OrdinalIgnoreCase)
+                                 && !dm.ExternalOverriders.Contains(declKey.FileName.String, StringComparer.OrdinalIgnoreCase);
+                var decRendered = dm.Success ? WriteTools.RenderMerge(dm) : "";
+                bool warned = decRendered.Contains("DECLARE a donor as a MASTER")
+                              && decRendered.Contains(declKey.FileName.String)
+                              && decRendered.Contains("declares " + donorKey.FileName.String);
+                Check(inOutcome && warned,
+                    "DECLARER a real declarer-only dependent reaches the rendered merge report, named with what it "
+                    + $"declares (inOutcome={inOutcome} warned={warned}{(dm.Success ? "" : ", ERR " + dm.Error)})");
             }
         }
         finally { try { Directory.Delete(root, true); } catch { } }
