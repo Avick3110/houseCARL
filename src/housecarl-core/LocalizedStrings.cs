@@ -182,7 +182,11 @@ public static class LocalizedStrings
         // An archive the write cannot rewrite decides the shape regardless of what else is on disk — a loose set beside
         // a BSA that also embeds this plugin's strings is an ambiguous source, and which one Mutagen prefers is not
         // something this classifier should be guessing at when the answer is "refuse either way".
-        var (bsaPath, bsaUnreadable) = BsaEmbedding(folder, stem);
+        // The folder-unlistable answer is not consumed here: a mod folder that will not list also hides its
+        // Strings\ folder, so this classification falls through to the shapes that resolve NOWHERE and every lane
+        // reading it refuses. Fail-CLOSED is the right default for a write; the read side's gate takes the third
+        // answer, because its default is to leave the open unchanged.
+        var (bsaPath, bsaUnreadable, _) = BsaEmbedding(folder, stem);
         if (bsaPath is not null)
             return new LocalizedAssessment(LocalizedShape.BsaEmbedded, Names(own), Incomplete(own), Names(gameData),
                                            bsaPath, bsaUnreadable, dataDir is null, UnmatchedTables: unmatched);
@@ -215,7 +219,7 @@ public static class LocalizedStrings
         // nothing nearer was found, so an ordinary plugin never pays for it.
         if (dataDir is not null)
         {
-            var (gdBsa, gdUnreadable) = BsaEmbedding(dataDir, stem);
+            var (gdBsa, gdUnreadable, _) = BsaEmbedding(dataDir, stem);
             if (gdBsa is not null)
                 return new LocalizedAssessment(LocalizedShape.BsaEmbedded, Array.Empty<string>(), NoneIncomplete,
                                                Array.Empty<string>(), gdBsa, gdUnreadable, false, BsaInGameData: true,
@@ -317,7 +321,11 @@ public static class LocalizedStrings
             // BsaEmbedding returns the archive's path both when it embeds this plugin's tables and when it could not
             // be parsed at all, so a non-null answer covers "found it" and "cannot see in there" alike — and the
             // second keeps the unchanged open rather than redirecting past an archive that may hold the strings.
-            return BsaEmbedding(folder, stem).Path is not null;
+            var bsa = BsaEmbedding(folder, stem);
+            // The mod folder itself would not list — the same fact as the unlistable Strings\ folder above, and the
+            // same answer: nothing is known about what is beside the plugin, so the default open stands.
+            if (bsa.FolderUnlistable) return true;
+            return bsa.Path is not null;
         }
         catch { return true; }
     }
@@ -447,19 +455,25 @@ public static class LocalizedStrings
     /// when the archive could not be parsed at all — an archive we cannot see into is refused rather than assumed
     /// harmless (a malformed one is not merely opaque: it takes the plugin's own open down with an ArchiveException).
     /// No archive is opened unless one is present, which is the common case at ~0.06 ms.</summary>
-    static (string? Path, bool Unreadable) BsaEmbedding(string folder, string stem)
+    static (string? Path, bool Unreadable, bool FolderUnlistable) BsaEmbedding(string folder, string stem)
     {
+        var (folderUnlistable, entries) = ArchiveStrings(folder);
+        // The folder would not list, so which archives are in it — and whether any carries this stem — was never
+        // established. Reported as its own answer rather than as "no archive": there is no archive to name, and a
+        // caller that must not conclude an absence needs to be told it cannot.
+        if (folderUnlistable) return (null, false, true);
+
         // A POSITIVE hit wins over an unreadable one: returning on the first unreadable archive would let a single
         // unparseable .bsa anywhere in game-Data answer for every plugin that searched there, naming an archive that
         // neither sits beside the plugin nor carries its tables. An archive we cannot see into still refuses, but only
         // once no archive has actually claimed the stem.
         string? unreadable = null;
-        foreach (var e in ArchiveStrings(folder))
+        foreach (var e in entries)
         {
             if (e.Unreadable) { unreadable ??= e.Archive; continue; }
-            if (e.Stems.Contains(stem)) return (e.Archive, false);
+            if (e.Stems.Contains(stem)) return (e.Archive, false, false);
         }
-        return unreadable is null ? (null, false) : (unreadable, true);
+        return unreadable is null ? (null, false, false) : (unreadable, true, false);
     }
 
     /// <summary>Per archive in a folder: which plugin stems it embeds strings for. Cached by folder, because game-Data
@@ -502,17 +516,20 @@ public static class LocalizedStrings
         return string.Join(" ", parts);
     }
 
-    static List<ArchiveEntry> ArchiveStrings(string folder)
+    static (bool Unlistable, List<ArchiveEntry> Entries) ArchiveStrings(string folder)
     {
         string[] archives;
+        // THE SAME THREE ANSWERS the loose look has, for the same reason: a folder that could not be listed is not a
+        // folder found to hold no archives, and returning the empty list for both made the read side's gate conclude
+        // an absence it never checked.
         try { archives = Directory.GetFiles(folder, "*.bsa"); }
-        catch (IOException) { return NoArchives; }
-        catch (UnauthorizedAccessException) { return NoArchives; }
-        if (archives.Length == 0) return NoArchives;
+        catch (IOException) { return (true, NoArchives); }
+        catch (UnauthorizedAccessException) { return (true, NoArchives); }
+        if (archives.Length == 0) return (false, NoArchives);
         var stamp = ArchiveStamp(archives);
 
         lock (ArchiveCache)
-            if (ArchiveCache.TryGetValue(folder, out var hit) && hit.Stamp == stamp) return hit.Entries;
+            if (ArchiveCache.TryGetValue(folder, out var hit) && hit.Stamp == stamp) return (false, hit.Entries);
 
         var entries = new List<ArchiveEntry>();
         foreach (var a in archives)
@@ -538,7 +555,7 @@ public static class LocalizedStrings
         }
 
         lock (ArchiveCache) ArchiveCache[folder] = (stamp, entries);
-        return entries;
+        return (false, entries);
     }
 
     static IReadOnlyList<string> Names(Dictionary<string, List<string>> m) => m.Keys.OrderBy(x => x).ToList();
