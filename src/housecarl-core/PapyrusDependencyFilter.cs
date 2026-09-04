@@ -9,7 +9,7 @@ namespace HousecarlCore;
 /// <see cref="BudgetExhausted"/> means the walk was truncated; <see cref="TargetUnreadable"/> means the target's own
 /// source could not be read at all, so an empty <see cref="Folders"/> says nothing about what the script references —
 /// without it the render would state "0 of 501 … referenced by this script", a positive claim about contents that were
-/// never examined (Q3: a degraded answer must not be indistinguishable from a confident one).</para></summary>
+/// never examined. A degraded answer must not be indistinguishable from a confident one.</para></summary>
 public sealed record PapyrusDependencyScan(
     IReadOnlyList<string> Folders,
     int Indexed,
@@ -20,13 +20,12 @@ public sealed record PapyrusDependencyScan(
 /// <summary>
 /// Narrows a modlist's Papyrus source folders to the ones a specific script can actually reach (issue #200).
 ///
-/// WHY THIS EXISTS, measured rather than assumed: on a real 3617-mod order (ARR 2.0, 2026-07-28) the modlist scan
-/// finds <b>501</b> source folders — about one mod in seven — whose joined <c>-i=</c> value is <b>~40,200 characters</b>.
-/// Windows caps a process command line near 32,767, so handing the compiler every folder does not merely waste effort,
-/// it cannot be executed at all. And the size is the symptom, not the disease: nearly all of those folders belong to
-/// quest and follower mods shipping <i>their own</i> scripts, which no other script ever references. A folder that
-/// provides only names this script never mentions contributes nothing to this compile — so filtering to the reachable
-/// set is the CORRECT semantics, not a size workaround that happens to fit.
+/// A large order carries hundreds of source folders — on a 3600-mod list, around 501, whose joined <c>-i=</c> value
+/// runs to ~40,200 characters. Windows caps a process command line near 32,767, so handing the compiler every folder
+/// cannot be executed at all. Size is the symptom: nearly all of those folders belong to quest and follower mods
+/// shipping their own scripts, which no other script references. A folder that provides only names this script never
+/// mentions contributes nothing to this compile, so filtering to the reachable set is the CORRECT semantics, not a
+/// size workaround.
 ///
 /// The walk mirrors what the compiler itself does. The compiler resolves a referenced script by NAME against the
 /// import path and takes the FIRST match, so a name is indexed to exactly one folder — the highest-precedence provider
@@ -44,8 +43,8 @@ public sealed record PapyrusDependencyScan(
 public static class PapyrusDependencyFilter
 {
     /// <summary>Ceiling on source files READ while chasing transitive references. A bound this generous is a runaway
-    /// stop, not a policy — the real closure of a framework-heavy script is orders of magnitude smaller (the whole
-    /// index on the order measured above is 13,235 scripts). Hitting it is REPORTED, never absorbed (Q3).</summary>
+    /// stop, not a policy — the real closure of a framework-heavy script is orders of magnitude smaller than the
+    /// ~13,000 scripts a large order indexes. Hitting it is REPORTED, never absorbed.</summary>
     public const int MaxFilesRead = 5000;
 
     static readonly Regex Identifier = new(@"[A-Za-z_][A-Za-z0-9_]*", RegexOptions.Compiled);
