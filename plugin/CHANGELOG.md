@@ -13,6 +13,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **A FormID from the game, a log or a crash log now works as an input, and comes back as an output.**
+  Everywhere houseCARL takes a FormID it also takes the runtime form the game, the console, Papyrus logs,
+  SKSE logs and crash logs print: eight hex digits and no plugin name — `FExxxYYY` for a light plugin,
+  `XX######` for a full one, with or without a leading `0x`. It is resolved against the load order as it
+  stands at the call (the light index moves whenever the order does, so nothing is cached), and the answer
+  names the plugin it resolved to. Every rendered record now carries its runtime FormID beside the
+  `XXXXXX:Plugin.esp` form — `runtime=` in the text lanes, `runtime_formid` in json — so a record read here
+  can be carried straight back to the console or xEdit. An index no active plugin occupies is refused by
+  name, and so is an `FF` dynamic form, which exists only in a save game. The `XXXXXX:Plugin.esp` form is
+  unchanged, and stays the way to read a plugin that is not active.
+
 - **`THIRD-PARTY-NOTICES.txt` lists what the plugin actually bundles.** The component tables are now written
   by the build from the publish output, so the names and versions in the file are the ones in `server/`. The
   file no longer lists five packages that do not ship (`System.Threading.Tasks.Extensions`,
