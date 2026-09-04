@@ -97,6 +97,12 @@ public sealed class LoadOrderService : IDisposable
     /// this resolves regardless of the MO2-launched process's working directory.</summary>
     CorpusRulebook Rulebook => _rulebook ??= CorpusRulebook.Load();
 
+    /// <summary>The FormID door for a tool body with no captured view in hand — see
+    /// <see cref="LoadOrderResolver.IndexView.ParseFormId"/>. The load order is consulted ONLY for a runtime FormID:
+    /// the <c>XXXXXX:Plugin.esp</c> form names its own plugin, so the off-order lanes keep parsing without one.</summary>
+    internal FormKey ParseFormId(string? raw)
+        => RuntimeFormId.TryParse(raw, out _) ? Resolver.ParseFormId(raw) : FormKey.Factory((raw ?? "").Trim());
+
     /// <summary>The resolver, built on first access and kept fresh on every subsequent access. Throws loudly if the
     /// configured roots yield no plugins.</summary>
     LoadOrderResolver Resolver
@@ -2147,7 +2153,7 @@ public sealed class LoadOrderService : IDisposable
     /// tallied for one section of a merged response. Deliberately thin — the family's own grammar (seed parse,
     /// cost refusal, seed budget, tally) lives in <see cref="DialogueSweep"/> rather than in this file.</summary>
     public DialogueCheckResult CheckDialogue(IReadOnlyList<string>? seeds, int limit, bool countsOnly = false)
-        => DialogueSweep.Run(ValidateDialogue, seeds, limit, countsOnly);
+        => DialogueSweep.Run(ValidateDialogue, ParseFormId, seeds, limit, countsOnly);
 
     /// <summary>The read body, answered entirely off ONE captured view: the excluded-check, the winner and the
     /// touching-plugin list all describe the same build, so a freshness rebuild landing mid-read cannot make a
@@ -2492,7 +2498,7 @@ public sealed class LoadOrderService : IDisposable
         {
             var t = raw?.Trim() ?? "";
             FormKey fk;
-            try { fk = FormKey.Factory(t); }
+            try { fk = view.ParseFormId(t); }
             catch (Exception ex) { results.Add(new ResolvedRef(t, Resolved: false, Error: $"bad FormID: {ex.Message}. Expected 'XXXXXX:Plugin.esp'.")); continue; }
             results.Add(ResolveRefOne(view, session, fk, memo));
         }
@@ -2561,7 +2567,7 @@ public sealed class LoadOrderService : IDisposable
         foreach (var raw in formids)
         {
             FormKey fk;
-            try { fk = FormKey.Factory(raw.Trim()); }
+            try { fk = view.ParseFormId(raw); }
             catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
             outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint)
                          with { Epoch = view.Epoch, Pin = pin });   // the batch's one build, stamped and pinned per item
@@ -2672,7 +2678,7 @@ public sealed class LoadOrderService : IDisposable
             foreach (var raw in formids)
             {
                 FormKey fk;
-                try { fk = FormKey.Factory(raw.Trim()); }
+                try { fk = view.ParseFormId(raw); }
                 catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
                 outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo, containerHint)
                              with { Epoch = view.Epoch, Pin = pin });
@@ -2697,7 +2703,7 @@ public sealed class LoadOrderService : IDisposable
         var results = new ReadOutcome?[formids.Count];
         for (int i = 0; i < formids.Count; i++)
         {
-            try { parsed.Add((i, FormKey.Factory(formids[i].Trim()))); }
+            try { parsed.Add((i, view.ParseFormId(formids[i]))); }
             catch (Exception ex) { results[i] = ReadOutcome.Fail(default, $"bad FormID '{formids[i]}': {ex.Message}"); }
         }
 
@@ -2817,7 +2823,7 @@ public sealed class LoadOrderService : IDisposable
         var wanted = new HashSet<FormKey>();
         foreach (var raw in formids)
         {
-            try { var fk0 = FormKey.Factory(raw.Trim()); parsed.Add((raw, fk0, null)); wanted.Add(fk0); }
+            try { var fk0 = view.ParseFormId(raw); parsed.Add((raw, fk0, null)); wanted.Add(fk0); }
             catch (Exception ex) { parsed.Add((raw, null, $"bad FormID '{raw}': {ex.Message}")); }
         }
 
@@ -3166,7 +3172,7 @@ public sealed class LoadOrderService : IDisposable
         foreach (var raw in formids)
         {
             FormKey fk;
-            try { fk = FormKey.Factory(raw.Trim()); }
+            try { fk = view.ParseFormId(raw); }
             catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
             if (replayMemo.TryGetValue(fk, out var memoized)) { outcomes.Add(memoized); continue; }
             var winner = view.ResolveWinner(fk);
@@ -3244,7 +3250,7 @@ public sealed class LoadOrderService : IDisposable
         var wantedT = new HashSet<FormKey>();
         foreach (var raw in formids)
         {
-            try { var fk0 = FormKey.Factory(raw.Trim()); parsedT.Add((raw, fk0, null)); wantedT.Add(fk0); }
+            try { var fk0 = view.ParseFormId(raw); parsedT.Add((raw, fk0, null)); wantedT.Add(fk0); }
             catch (Exception ex) { parsedT.Add((raw, null, $"bad FormID '{raw}': {ex.Message}")); }
         }
 
@@ -3400,7 +3406,7 @@ public sealed class LoadOrderService : IDisposable
         foreach (var raw in seeds)
         {
             FormKey seedFk;
-            try { seedFk = FormKey.Factory(raw.Trim()); }
+            try { seedFk = view.ParseFormId(raw); }
             catch (Exception ex) { results.Add(new WalkSeedResult(raw?.Trim() ?? "", null, null, Array.Empty<WalkNodeRow>(), Array.Empty<string>(), null, null, $"bad FormID '{raw}': {ex.Message}")); continue; }
             var seedBody = Fetch(seedFk);
             if (seedBody is null)
@@ -3576,7 +3582,7 @@ public sealed class LoadOrderService : IDisposable
         foreach (var raw in formids)
         {
             FormKey fk;
-            try { fk = FormKey.Factory(raw.Trim()); }
+            try { fk = view.ParseFormId(raw); }
             catch (Exception ex) { rows.Add(new InfoOrderRow(raw?.Trim() ?? "", null, null, null, null, $"bad FormID '{raw}': {ex.Message}")); continue; }
             var win = view.ResolveWinner(fk);
             if (win is null)
@@ -3729,7 +3735,7 @@ public sealed class LoadOrderService : IDisposable
         FieldPredicateSet? predicate = null;
         if (hasWhere)
         {
-            var (set, perr) = FieldPredicateSet.Parse(where!);
+            var (set, perr) = FieldPredicateSet.Parse(where!, ParseFormId);
             if (perr is not null) return CrossQueryOutcome.Fail(perr);
             predicate = set;
         }
@@ -4077,7 +4083,7 @@ public sealed class LoadOrderService : IDisposable
         FieldPredicateSet? predicate = null;
         if (where is { Count: > 0 })
         {
-            var (set, perr) = FieldPredicateSet.Parse(where);
+            var (set, perr) = FieldPredicateSet.Parse(where, ParseFormId);
             if (perr is not null) return CrossQueryOutcome.Fail(perr);
             predicate = set;
         }
@@ -4417,7 +4423,7 @@ public sealed class LoadOrderService : IDisposable
             {
                 var t = raw?.Trim() ?? "";
                 if (t.Length == 0) return (null, "a blank entry in formids= — pass FormID tokens (e.g. '0BCC84:Skyrim.esm').");
-                try { keys.Add(FormKey.Factory(t)); }
+                try { keys.Add(ParseFormId(t)); }
                 catch (Exception ex) { return (null, $"bad FormID '{raw}' in formids=: {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '0BCC84:Skyrim.esm'."); }
             }
         }
@@ -5419,7 +5425,7 @@ public sealed class LoadOrderService : IDisposable
         {
             var raw = formids[i];
             if (string.IsNullOrWhiteSpace(raw)) { problems.Add($"formid[{i}]: empty."); continue; }
-            try { keys.Add(FormKey.Factory(raw.Trim())); }
+            try { keys.Add(ParseFormId(raw)); }
             catch (Exception ex) { problems.Add($"formid[{i}] '{raw}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
         }
         if (problems.Count > 0)
@@ -5552,7 +5558,7 @@ public sealed class LoadOrderService : IDisposable
         {
             var raw = formids[i];
             if (string.IsNullOrWhiteSpace(raw)) { problems.Add($"formid[{i}]: empty."); continue; }
-            try { specs.Add(new WritePatchBuilder.ForwardSpec { Target = FormKey.Factory(raw.Trim()), FromPlugin = fp }); }
+            try { specs.Add(new WritePatchBuilder.ForwardSpec { Target = ParseFormId(raw), FromPlugin = fp }); }
             catch (Exception ex) { problems.Add($"formid[{i}] '{raw}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
         }
         if (problems.Count > 0)
@@ -6417,7 +6423,7 @@ public sealed class LoadOrderService : IDisposable
     {
         // ---- argument shape: exactly one target mode ----
         FormKey donorFk;
-        try { donorFk = FormKey.Factory((sourceFormid ?? "").Trim()); }
+        try { donorFk = ParseFormId(sourceFormid); }
         catch (Exception ex) { return NpcCopyOutcome.Fail($"bad source formid '{sourceFormid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '000D62:Vivace.esp'."); }
 
         bool apply = !string.IsNullOrWhiteSpace(targetFormid);
@@ -6429,7 +6435,7 @@ public sealed class LoadOrderService : IDisposable
         FormKey targetFk = default;
         if (apply)
         {
-            try { targetFk = FormKey.Factory(targetFormid!.Trim()); }
+            try { targetFk = ParseFormId(targetFormid); }
             catch (Exception ex) { return NpcCopyOutcome.Fail($"bad target formid '{targetFormid}': {ex.Message}."); }
         }
 
@@ -7003,7 +7009,7 @@ public sealed class LoadOrderService : IDisposable
         var where = origin ?? $"op[{index}]";
         if (string.IsNullOrWhiteSpace(op.Formid)) { error = $"{where}: formid is required."; return null; }
         FormKey fk;
-        try { fk = FormKey.Factory(op.Formid.Trim()); }
+        try { fk = ParseFormId(op.Formid); }
         catch (Exception ex) { error = $"{where}: bad formid '{op.Formid}' ({ex.Message}). Expected 'XXXXXX:Plugin.esp'."; return null; }
         if (string.IsNullOrWhiteSpace(op.FieldPath)) { error = $"{where} ({op.Formid}): field_path is required."; return null; }
         var path = SplitPath(op.FieldPath);
@@ -7027,7 +7033,7 @@ public sealed class LoadOrderService : IDisposable
         FormKey? fromKey = null;
         if (!string.IsNullOrWhiteSpace(fromRecord))
         {
-            try { fromKey = FormKey.Factory(fromRecord.Trim()); }
+            try { fromKey = ParseFormId(fromRecord); }
             catch (Exception ex) { error = $"{where} ({op.Formid}): bad from '{fromRecord}' ({ex.Message}). Expected 'XXXXXX:Plugin.esp'."; return null; }
             if (fromKey == fk)
             { error = $"{where} ({op.Formid}): from names the SAME record as formid — copying a record's field onto itself is a no-op. Drop from=, and name the plugin whose version to copy in from_source=."; return null; }
@@ -7993,7 +7999,7 @@ public sealed class LoadOrderService : IDisposable
         FormKey fk = default;
         if (hasFormid)
         {
-            try { fk = FormKey.Factory(formid!.Trim()); }
+            try { fk = ParseFormId(formid); }
             catch (Exception ex) { return PluginFileOutcome.Fail(plugin, $"bad FormID '{formid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '000D62:Vivace.esp'."); }
         }
 

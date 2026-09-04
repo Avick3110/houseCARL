@@ -159,12 +159,15 @@ public sealed class FieldPredicateSet
     /// <summary>Parse the wire <c>where</c> list into an evaluable set, or return the FIRST parse error, so a
     /// malformed predicate refuses the whole call before scanning. An empty list is a parse error: a caller
     /// passing <c>where</c> at all means to filter.</summary>
-    public static (FieldPredicateSet? Set, string? Error) Parse(IReadOnlyList<string> where)
+    /// <param name="parseFormId">How a <c>formid in [...]</c> entry becomes a FormKey — pass the load order's own
+    /// door (<c>IndexView.ParseFormId</c>) so the runtime notation is accepted here too. Null where no load order is
+    /// in hand, which leaves only the plugin-qualified form.</param>
+    public static (FieldPredicateSet? Set, string? Error) Parse(IReadOnlyList<string> where, Func<string?, FormKey>? parseFormId = null)
     {
         var list = new List<Predicate>(where.Count);
         foreach (var raw in where)
         {
-            var (p, err) = ParseOne(raw);
+            var (p, err) = ParseOne(raw, parseFormId);
             if (err is not null) return (null, err);
             list.Add(p!);
         }
@@ -172,7 +175,7 @@ public sealed class FieldPredicateSet
         return (new FieldPredicateSet(list), null);
     }
 
-    static (Predicate?, string?) ParseOne(string raw)
+    static (Predicate?, string?) ParseOne(string raw, Func<string?, FormKey>? parseFormId)
     {
         var text = (raw ?? "").Trim();
         if (text.Length == 0) return (null, "empty predicate in where= (expected \"<path> <op> <value>\").");
@@ -306,7 +309,7 @@ public sealed class FieldPredicateSet
                 return (null, $"predicate '{raw}': 'winner {OpStr(op)} <list>' is not supported (yet) — AND/OR the '=' form per plugin, e.g. \"winner = A.esp\".");
             if (pseudo == PseudoPath.FormId)
             {
-                var (set, artifact, lerr) = ParseFormIdList(text, operand);
+                var (set, artifact, lerr) = ParseFormIdList(text, operand, parseFormId);
                 if (lerr is not null) return (null, lerr);
                 return (new Predicate(text, segs, path, op, operand, 0, set, artifact, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo), null);
             }
@@ -386,8 +389,9 @@ public sealed class FieldPredicateSet
     /// <para>An <c>@file</c> whose target is a result ARTIFACT (line 1 = manifest) yields its IDENTITY column as
     /// the list instead of raw tokens, and hands back the artifact's epoch obligation. A plain list file carries
     /// no manifest and no epoch claim.</para></summary>
-    static (HashSet<FormKey>?, ArtifactDemand?, string?) ParseFormIdList(string raw, string operand)
+    static (HashSet<FormKey>?, ArtifactDemand?, string?) ParseFormIdList(string raw, string operand, Func<string?, FormKey>? parseFormId)
     {
+        var toKey = parseFormId ?? (t => FormKey.Factory((t ?? "").Trim()));
         string content;
         bool fromFile = operand[0] == '@';
         if (fromFile)
@@ -413,7 +417,7 @@ public sealed class FieldPredicateSet
                     // ReadIdentity already excludes error rows (they carry raw failed inputs, not record
                     // identities), so a non-FormID here is a genuine mismatch: server-written success rows always
                     // carry valid formids.
-                    try { aset.Add(FormKey.Factory(tok)); }
+                    try { aset.Add(toKey(tok)); }
                     catch (Exception ex)
                     {
                         return (null, null, $"predicate '{raw}': artifact '{path}' identity value '{tok}' is not a FormID ({ex.Message}) — " +
@@ -432,7 +436,7 @@ public sealed class FieldPredicateSet
             // style) strips clean; a chained Trim().Trim('[',…) stops at the inner space and leaves a quote behind.
             var tok = t.Trim('[', ']', '"', '\'', ' ', '\t');
             if (tok.Length == 0) continue;
-            try { set.Add(FormKey.Factory(tok)); }
+            try { set.Add(toKey(tok)); }
             catch (Exception ex)
             {
                 // A plugin filename can legally CONTAIN a comma ('Foo, Bar.esp') — unrepresentable in this grammar

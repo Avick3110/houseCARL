@@ -68,7 +68,7 @@ public static class PlaceAssetTools
             string? into = null) => Guard.Tool(ToolNames.PlaceAsset, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        var reqs = MapSpec(formid, kind, asset_path, source, source_provider, allowExpand: false, where: "", out var err);
+        var reqs = MapSpec(svc.ParseFormId, formid, kind, asset_path, source, source_provider, allowExpand: false, where: "", out var err);
         if (err is not null) return "error: " + err;
         return PlaceWire.Render(svc.PlaceAssets(reqs!, patch_name, into));
     });
@@ -110,7 +110,7 @@ public static class PlaceAssetTools
         for (int i = 0; i < assets.Length; i++)
         {
             var a = assets[i];
-            var reqs = MapSpec(a.Formid, a.Kind, a.AssetPath, a.Source, a.SourceProvider, allowExpand: true, where: $"assets[{i}]: ", out var err);
+            var reqs = MapSpec(svc.ParseFormId, a.Formid, a.Kind, a.AssetPath, a.Source, a.SourceProvider, allowExpand: true, where: $"assets[{i}]: ", out var err);
             if (err is not null) problems.Add(err); else all.AddRange(reqs!);
         }
         if (problems.Count > 0)
@@ -124,7 +124,7 @@ public static class PlaceAssetTools
     /// tool). Exactly one of formid/asset_path is required. A both-expansion forbids a single loose/entry source (it can't
     /// serve two different files) — only a FULLY-QUALIFIED '.bsa' source (entry derived per slot) or auto-resolve. Every
     /// bad input is a NAMED error returned via <paramref name="error"/>, never a silent skip.</summary>
-    static List<PlaceRequest>? MapSpec(string? formid, string? kind, string? assetPath, string? source, string? sourceProvider, bool allowExpand, string where, out string? error)
+    static List<PlaceRequest>? MapSpec(Func<string?, FormKey> parseFormId, string? formid, string? kind, string? assetPath, string? source, string? sourceProvider, bool allowExpand, string where, out string? error)
     {
         error = null;
         bool hasFormid = !string.IsNullOrWhiteSpace(formid);
@@ -138,7 +138,7 @@ public static class PlaceAssetTools
             return new List<PlaceRequest> { new(assetPath!.Trim(), src, prov) };
 
         FormKey fk;
-        try { fk = FormKey.Factory(formid!.Trim()); }
+        try { fk = parseFormId(formid); }
         catch (Exception ex) { error = $"{where}bad formid '{formid}' ({ex.Message}). Expected 'XXXXXX:Plugin.esp'."; return null; }
 
         var slot = ParseSlot(kind, out var slotErr);

@@ -612,7 +612,7 @@ public static class RecordsTools
                 foreach (var raw in ids)
                 {
                     FormKey fk;
-                    try { fk = FormKey.Factory(raw.Trim()); }
+                    try { fk = svc.ParseFormId(raw); }
                     catch (Exception ex) { results.Add((raw?.Trim() ?? "", EffectChainResult.Fail($"bad FormID '{raw}': {ex.Message}"))); continue; }
                     // The per-seed carrier bound is the walk's own reach budget; limit=/offset= stay the SEED
                     // window, never a second silent cut on the carrier axis.
@@ -945,7 +945,7 @@ public static class RecordsTools
                 foreach (var t in ftoks!)
                 {
                     if (string.IsNullOrWhiteSpace(t)) continue;
-                    try { fkList.Add(FormKey.Factory(t.Trim())); }
+                    try { fkList.Add(svc.ParseFormId(t)); }
                     catch (Exception ex) { return Wire.Refuse(json, $"error: bad formids entry '{t}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
                 }
                 if (fkList.Count == 0) return Wire.Refuse(json, "error: formids= expanded to an empty list — nothing to intersect the scan with.");
@@ -1003,7 +1003,7 @@ public static class RecordsTools
                 foreach (var r in refs)
                 {
                     if (string.IsNullOrWhiteSpace(r)) continue;
-                    try { list.Add(FormKey.Factory(r.Trim())); }
+                    try { list.Add(svc.ParseFormId(r)); }
                     catch (Exception ex) { return Wire.Refuse(json, $"error: bad references FormID '{r}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
                 }
                 if (list.Count > 0) refFks = list.Distinct().ToList();
@@ -1301,7 +1301,7 @@ public static class RecordsTools
                 foreach (var r in refs)
                 {
                     if (string.IsNullOrWhiteSpace(r)) continue;
-                    try { list.Add(FormKey.Factory(r.Trim())); }
+                    try { list.Add(svc.ParseFormId(r)); }
                     catch (Exception ex) { return Wire.Refuse(json, $"error: bad references FormID '{r}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
                 }
                 if (list.Count > 0) refFks = list.Distinct().ToList();
@@ -1317,7 +1317,7 @@ public static class RecordsTools
                 foreach (var t in ftoks!)
                 {
                     if (string.IsNullOrWhiteSpace(t)) continue;
-                    try { fkList.Add(FormKey.Factory(t.Trim())); }
+                    try { fkList.Add(svc.ParseFormId(t)); }
                     catch (Exception ex) { return Wire.Refuse(json, $"error: bad formids entry '{t}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
                 }
                 if (fkList.Count == 0) return Wire.Refuse(json, "error: formids= expanded to an empty list — nothing to intersect the scan with.");

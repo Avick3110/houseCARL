@@ -18,6 +18,7 @@ internal static class DialogueSweep
     /// response states how many and which knob moves them.</param>
     /// <param name="countsOnly">carry the totals and the unreachable-seed roster, and no topic blocks.</param>
     internal static DialogueCheckResult Run(Func<FormKey, DialogueValidationReport> validate,
+                                            Func<string?, FormKey> parseFormId,
                                             IReadOnlyList<string>? seeds, int limit, bool countsOnly = false)
     {
         var named = (seeds ?? Array.Empty<string>()).Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
@@ -33,7 +34,7 @@ internal static class DialogueSweep
             if (results.Count >= limit) break;    // the seed budget; the accounting states the rest
 
             FormKey fk;
-            try { fk = FormKey.Factory(seed); }
+            try { fk = parseFormId(seed); }
             catch (Exception ex)
             {
                 // A malformed seed is named and carried, never dropped: the scope is the seed list, so a discarded
