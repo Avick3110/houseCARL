@@ -23,6 +23,10 @@ if (args.Length > 0 && CiAll.TryDispatch(args[0], args[1..], out var ciRc)) retu
 // in ci-all: it is evidence re-run on demand after a change to the copy path, not a standing guard.
 if (args.Length > 0 && args[0] == "copy-differential") return CopyDifferentialHarness.Run(args[1..]);
 
+// #459 measurement: is the containing parent in hand during the flat index walk, and what does a containment-aware
+// pass cost on a real order. Needs a live MO2 instance (or --plugin), so it is a manual harness, not a CI probe.
+if (args.Length > 0 && args[0] == "parent-in-hand") return ParentInHandProbe.Run(args[1..]);
+
 // Maintenance diagnostic: re-verify the mutable-collection whitelist on a Mutagen bump.
 if (args.Length > 0 && args[0] == "vocab") return Probe.RunVocab();
 
