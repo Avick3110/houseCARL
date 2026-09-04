@@ -1,4 +1,4 @@
-using Mutagen.Bethesda;
+﻿using Mutagen.Bethesda;
 using Mutagen.Bethesda.Pex;
 using Mutagen.Bethesda.Plugins;
 using HousecarlCore;
@@ -270,6 +270,20 @@ public static class NativePairingProbe
             Check("A3g: …and it still earns the clean bill of health in the default view",
                 Render(cleanData).Contains("nothing dead, nothing unpaired")
                 && !Render(cleanData).Contains("DEBUG BUILD"));
+            // A3h (review finding): a class with TWO candidates — a clean release DLL that loads plus a debug sibling.
+            // The clean DLL implements the class for everyone, so the class is healthy; only a class whose EVERY loading
+            // candidate is debug-built is the #417 finding. The sibling's own line keeps the clause under filter=.
+            var mixedData = Data(new[] { Cls("MixedUtil", NativeProvenance.ThirdParty, NativePairingRung.SameMod, "MixedMod", new[]
+            {
+                new NativePairedDll(@"SKSE\Plugins\PapyrusUtil.dll", "PapyrusUtil.dll", "", "MixedMod", indepInfo, null),
+                new NativePairedDll(@"SKSE\Plugins\Dbg.dll", "Dbg.dll", "", "MixedMod", dbgInfo, null),
+            }) }, "1.6.1170.0");
+            var mixed = Render(mixedData);
+            Check("A3h: a class with a clean LOADING DLL beside a debug sibling stays healthy, not debug-only",
+                mixed.Contains("paired healthy (1 class(es))") && mixed.Contains("MixedMod: MixedUtil")
+                && !mixed.Contains("paired only to a DEBUG BUILD") && !mixed.Contains("DEBUG BUILD —"));
+            Check("A3i: …and the debug sibling's own line still carries the debug-CRT clause under filter=",
+                Render(mixedData, filter: "MixedUtil").Contains("debug CRT"));
         }
         {
             // Arm C: a static blocker (BSA-only) is dead regardless of runtime knowledge.

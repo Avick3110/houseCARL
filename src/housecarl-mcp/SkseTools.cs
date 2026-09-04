@@ -904,6 +904,21 @@ static class NativePairingWire
         return best;
     }
 
+    /// <summary>True when every candidate DLL that actually loads is a debug build, and at least one does — the class
+    /// whose implementation exists on the author's machine alone (#417). A class with one clean loading candidate is
+    /// healthy however many debug siblings sit beside it; those siblings still carry the note on their own line.</summary>
+    static bool IsDebugOnly(NativeClassEntry c, string? runtime)
+    {
+        bool any = false;
+        foreach (var dll in c.PairedDlls)
+        {
+            if (Judge(dll, runtime).Fate != DllFate.Loads) continue;
+            if (dll.Info is not { } i || i.DebugCrtImports.Count == 0) return false;
+            any = true;
+        }
+        return any;
+    }
+
     public static string Render(NativePairingAuditData d, string? filter, int cap)
     {
         if (filter is { Length: > 0 }) return RenderFiltered(d, filter.Trim(), cap);
@@ -921,8 +936,10 @@ static class NativePairingWire
         var loads = byFate[DllFate.Loads].ToList();
         // #417: a class whose only loadable candidate is a DEBUG build loads on THIS machine and nowhere else, so it is
         // a finding in its own right rather than a line of the healthy roster — which prints class names, not DLLs, and
-        // would have carried the clean checkmark over exactly the file the author needs to hear about.
-        var debugBuilds = loads.Where(c => c.PairedDlls.Any(x => x.Info is { } i && i.DebugCrtImports.Count > 0)).ToList();
+        // would have carried the clean checkmark over exactly the file the author needs to hear about. EVERY loading
+        // candidate must be debug-built: one clean DLL that loads keeps the class healthy, because that DLL implements
+        // the class for everyone.
+        var debugBuilds = loads.Where(c => IsDebugOnly(c, d.InstalledRuntime)).ToList();
         var healthy = loads.Except(debugBuilds).ToList();
 
         var sb = new StringBuilder();
