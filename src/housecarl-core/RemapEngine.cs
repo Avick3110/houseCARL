@@ -123,8 +123,13 @@ public static class RemapEngine
     /// Mutagen can't parse is counted and sampled, never an opaque whole-call abort and never a silent skip. One
     /// <see cref="LoadOrderResolver.Capture"/> pins the whole pass; the resolver streams one plugin at a time.
     /// </summary>
+    /// <param name="readDeclaredMasters">Also read each candidate's HEADER and report the declarer-only dependents
+    /// (<see cref="MasterDeclarer"/>). Opt-in because it costs one extra open per plugin on a whole-order walk, and
+    /// only a caller that RENAMES the transform set has anything to report: compact's output keeps the source's
+    /// basename, so a declarer's master is still there afterwards.</param>
     public static IdentifyResult IdentifyExternalReferencers(
-        LoadOrderResolver resolver, IReadOnlySet<FormKey> targets, IReadOnlySet<string> transformSet)
+        LoadOrderResolver resolver, IReadOnlySet<FormKey> targets, IReadOnlySet<string> transformSet,
+        bool readDeclaredMasters = false)
     {
         var view = resolver.Capture();
         var refs = new List<ExternalRef>();
@@ -153,17 +158,31 @@ public static class RemapEngine
             // donor is deactivated. Its own try, because a header that will not read means the file will not open at
             // all — the record scan would fail the same way, and the plugin is named as unopenable rather than
             // silently counted as declaring nothing.
-            List<string> declares;
-            try { declares = view.DeclaredMasters(plugin).Where(transformSet.Contains).ToList(); }
-            catch (Exception ex)
+            if (readDeclaredMasters)
             {
-                unscannable++;
-                var headerInner = (ex as PluginUnreadableException)?.InnerException ?? ex;
-                unscannablePlugins.Add(new UnscannablePlugin(plugin, UnscannableCause.Unopenable,
-                                                             $"{headerInner.GetType().Name}: {headerInner.Message}"));
-                continue;
+                List<string> declares;
+                try { declares = view.DeclaredMasters(plugin).Where(transformSet.Contains).ToList(); }
+                catch (PluginUnreadableException ex)
+                {
+                    // The file would not open — closing whatever holds it fixes this one, and the record scan below
+                    // would fail the same way, so the plugin is named and skipped rather than counted as declaring
+                    // nothing.
+                    unscannable++;
+                    var inner = ex.InnerException ?? ex;
+                    unscannablePlugins.Add(new UnscannablePlugin(plugin, UnscannableCause.Unopenable, $"{inner.GetType().Name}: {inner.Message}"));
+                    continue;
+                }
+                catch (Exception ex)
+                {
+                    // It opened and the master table would not parse. Closing programs does not fix that, so it
+                    // takes the other cause, exactly as a record enumeration that throws part way does.
+                    unscannable++;
+                    unscannablePlugins.Add(new UnscannablePlugin(plugin, UnscannableCause.EnumerationFault,
+                                                                 $"master table unreadable: {ex.GetType().Name}: {ex.Message}"));
+                    continue;
+                }
+                if (declares.Count > 0) declarers.Add(new MasterDeclarer(plugin, declares));
             }
-            if (declares.Count > 0) declarers.Add(new MasterDeclarer(plugin, declares));
 
             try
             {
@@ -231,10 +250,16 @@ public static class RemapEngine
             }
         }
 
-        // DECLARER-ONLY: a referencer or an overrider necessarily declares the donor as a master too, so the new
-        // category is the plugins the record walk did NOT already find — the dependents that were invisible.
+        // DECLARER-ONLY: a referencer or an overrider necessarily declares the transform set as a master too — true
+        // wherever `targets` covers every record the set originates, which is the merge caller's case — so the new
+        // category is the plugins the record walk did NOT already find: the dependents that were invisible.
+        //
+        // A plugin whose record walk FAULTED is dropped from it too. The category's claim is "declares it and
+        // references none of its records", and nothing walked that plugin's records; it is already named, with its
+        // reason, in the unscannable accounting.
         var alreadyFound = new HashSet<string>(externalPlugins, StringComparer.OrdinalIgnoreCase);
         alreadyFound.UnionWith(externalOverriders);
+        alreadyFound.UnionWith(unscannablePlugins.Select(u => u.Plugin));
         var declarerOnly = declarers.Where(d => !alreadyFound.Contains(d.Plugin)).ToList();
 
         return new IdentifyResult(refs, externalPlugins, scanned, unscannable, unscannableSamples, overrides, externalOverriders,
