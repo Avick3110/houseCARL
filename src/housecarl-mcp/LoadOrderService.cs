@@ -324,8 +324,10 @@ public sealed class LoadOrderService : IDisposable
     /// <para><paramref name="under"/> is the directory / glob SELECT form (#246): each selector names a Data-relative
     /// folder, or a glob anchored under one, and contributes every path the VFS provides beneath it
     /// (<see cref="AssetGlob"/>). Its matches follow the explicit paths, sorted, with anything already named dropped.
-    /// <paramref name="limit"/> and <paramref name="offset"/> window the SELECTION, so only the window is resolved and
-    /// a folder-wide sweep pays for what it renders.</para></summary>
+    /// <paramref name="limit"/> and <paramref name="offset"/> window the SELECTION, so only the window is RESOLVED —
+    /// the per-path winner and provider chain, which is the expensive half. The selector ENUMERATION is not memoized:
+    /// each page re-walks the loose roots and re-scans the archive tables under the prefix, so a paged sweep pays the
+    /// enumeration once per page and the resolution once per rendered path.</para></summary>
     public AssetStatusData AssetStatus(
         IReadOnlyList<string> relPaths,
         IReadOnlyList<string>? under = null,
@@ -383,7 +385,8 @@ public sealed class LoadOrderService : IDisposable
                 catch (ArgumentException ex) { results.Add(new AssetPathResult(p, null, ex.Message)); }   // bad path → per-path note, never a batch failure
             }
             return new AssetStatusData(results, view.BsaFailures, view.ReadIncomplete, _assetWarnings, _profileName,
-                                       notes, total, Math.Max(offset, 0));   // the offset ASKED for, so a past-the-end page can say so
+                                       notes, total, Math.Max(offset, 0),    // the offset ASKED for, so a past-the-end page can say so
+                                       Math.Max(limit, 0));                  // the limit ASKED for, so the next-page advice repeats it
         }
     }
 
@@ -8662,8 +8665,9 @@ public sealed record AssetPathResult(string RelPath, AssetHit? Hit, string? Erro
 /// names the active profile the answer describes.
 /// <para><see cref="SelectorNotes"/> carries what each <c>under=</c> directory / glob selector had to say for itself
 /// (a selector that matched nothing, or was rejected), <see cref="Total"/> is how many paths the whole selection named
-/// before paging, and <see cref="Offset"/> where the rendered window starts. A negative <see cref="Total"/> means
-/// nothing paged — the results ARE the selection.</para></summary>
+/// before paging, <see cref="Offset"/> where the rendered window starts, and <see cref="Limit"/> the window size the
+/// caller asked for (0 = none), which the next-page advice repeats so a caller following it keeps paging. A negative
+/// <see cref="Total"/> means nothing paged — the results ARE the selection.</para></summary>
 public sealed record AssetStatusData(
     IReadOnlyList<AssetPathResult> Results,
     IReadOnlyList<string> BsaFailures,
@@ -8672,7 +8676,8 @@ public sealed record AssetStatusData(
     string ProfileName,
     IReadOnlyList<string>? SelectorNotes = null,
     int Total = -1,
-    int Offset = 0)
+    int Offset = 0,
+    int Limit = 0)
 {
     /// <summary>How many paths the selection named — <see cref="Results"/>'s own count when nothing paged.</summary>
     public int Selected => Total < 0 ? Results.Count : Total;
