@@ -247,9 +247,7 @@ public static class CopyTools
     {
         WalkRefusalKind.SourceMiss => WriteSentences.CopySourceMiss($"{w.Key} (reached via {w.PulledBy})", sources),
         WalkRefusalKind.SourceFault => WriteSentences.CopySourceFault(
-            $"{w.Key}",
-            w.Fault is { } f ? WriteSentences.CopyArm(SourceArmRef.Of(f.Arm)) : "a source",
-            w.Detail),
+            $"{w.Key}", w.Fault is { } f ? SourceArmRef.Of(f.Arm) : null, w.Detail),
         WalkRefusalKind.UnknownSeedPath =>
             $"{w.Detail}. seed_paths must name link-bearing fields on the record being copied.",
         WalkRefusalKind.NoSeeds => WriteSentences.CopyNoSeeds,

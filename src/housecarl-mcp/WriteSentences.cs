@@ -289,9 +289,12 @@ internal static class WriteSentences
     internal static string CopySourceMiss(string what, IReadOnlyList<SourceArmRef> sources) =>
         CopySourceMissLead + what + CopySourceMissConsulted + string.Join(", ", sources.Select(CopyArm)) + CopySourceMissRemedy;
 
-    /// <summary>The fault refusal, composed from its two.</summary>
-    internal static string CopySourceFault(string what, string source, string cause) =>
-        $"'{source}' carries {what}" + CopySourceFaultLead + cause + CopySourceFaultRemedy;
+    /// <summary>The fault refusal, composed from its two. Only the source's NAME goes inside the single quotes —
+    /// the remedy says to name a different one in from_source=, and a quoted token that source list would not
+    /// accept is a remedy the caller has to edit by hand. Where it resolved follows, outside them.</summary>
+    internal static string CopySourceFault(string what, SourceArmRef? arm, string cause) =>
+        $"'{arm?.Spelling ?? "a source"}'{(arm is { } a ? $" ({CopyArmWhere(a)})" : "")} carries {what}"
+        + CopySourceFaultLead + cause + CopySourceFaultRemedy;
 
     // ---- the seed-shape boundary ---------------------------------------------------------------------
     /// <summary>What <c>seed_paths</c> supports, and the ROUTE for what it does not. A walk seeds from record
