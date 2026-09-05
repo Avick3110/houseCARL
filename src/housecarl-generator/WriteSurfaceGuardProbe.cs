@@ -1591,15 +1591,18 @@ public static class WriteSurfaceGuardProbe
             setDoors.All(s => s is not null) && setDoors.Distinct(StringComparer.Ordinal).Count() == 1,
             string.Join(" || ", setDoors.Select(s => s ?? "(accepted)")));
 
-        // The two refusals that route a caller to the lifecycle gap name it by NUMBER — the gap is what makes them
-        // honest rather than blank walls, so a renumber or a silent drop should fail here.
-        Check("the refusals that have no remedy route to the lifecycle gap by number (#350) — all THREE of them",
+        // The three refusals used to route to a lifecycle GAP by number, because neither creating a singular owned
+        // child nor deleting one existed. Both do now, on the record axis, so each names the call that does it
+        // instead — and none of them may still send a caller to an issue tracker for a capability that shipped.
+        Check("the three field-level refusals name a working record-axis call, not an open gap",
             new[]
             {
                 Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Remove" }),
                 Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "CopyFrom" }),
                 Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Set", Value = "000800:Skyrim.esm" }),
-            }.All(s => s is not null && s.Contains("#350", StringComparison.Ordinal)),
+            }.All(s => s is not null && !s.Contains("#350", StringComparison.Ordinal)
+                       && (ToolNameMatch.ReferencedAtBoundary(s, "housecarl_create")
+                           || ToolNameMatch.ReferencedAtBoundary(s, "housecarl_remove"))),
             Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Set", Value = "000800:Skyrim.esm" })!);
 
         // …and every one of the three tells the caller where the FormID it asks for comes from. MEASURED before it
@@ -1615,22 +1618,18 @@ public static class WriteSurfaceGuardProbe
             }.All(s => s is not null && s.Contains("depth=2", StringComparison.Ordinal)),
             Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "CopyFrom" })!);
 
-        // …and CopyFrom names the remedy that was MEASURED to work for this shape, not the one the list twin can
-        // honestly offer: housecarl_forward carries a LAND and a worldspace's top cell; create with parent= is refused
-        // for a singular child ("that parent models no child-collection that holds it"), so it must not appear here.
+        // …and CopyFrom names BOTH remedies this shape now has, each for what it does: housecarl_forward carries an
+        // existing LAND or top cell across from another plugin, housecarl_create with parent= authors a fresh one
+        // where the parent has none. The second half of that used to be refused, and this arm used to assert its
+        // ABSENCE; it now asserts its presence, because the sentence is only complete with it.
         //
-        // BOTH halves match on the WHOLE identifier (#468 round 1, measured on each): the positive
-        // Contains("housecarl_forward") was satisfied by the 1.x name housecarl_forward_record, so it passed
-        // whether or not the sentence had been repaired; and the negative had been narrowed to the exact phrase
-        // "housecarl_create with parent=", which a reviewer slipped by appending "Or author it with
-        // housecarl_create parent=<the parent FormID>" to the refusal — the very regression this arm names. The
-        // negative is now the claim itself: the singular arm must not name housecarl_create AT ALL, since
-        // create with parent= is measured-refused for a singular child and the collection twin is the only door
-        // that may offer it.
+        // BOTH halves match on the WHOLE identifier (#468 round 1, measured on each): Contains("housecarl_forward")
+        // was satisfied by the 1.x name housecarl_forward_record, so it passed whether or not the sentence had been
+        // repaired. ReferencedAtBoundary is what makes the claim the claim.
         var copyMsg = Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "CopyFrom" })!;
-        Check("…and CopyFrom's refusal names housecarl_forward (measured) and NOT housecarl_create (measured refused for a singular child)",
+        Check("…and CopyFrom's refusal names housecarl_forward (carry an existing one) AND housecarl_create (author a new one)",
             ToolNameMatch.ReferencedAtBoundary(copyMsg, "housecarl_forward")
-            && !ToolNameMatch.ReferencedAtBoundary(copyMsg, "housecarl_create"), copyMsg);
+            && ToolNameMatch.ReferencedAtBoundary(copyMsg, "housecarl_create"), copyMsg);
 
         // --- THE REFUSALS, RENDERED. All three arms of RestoreChildGroup are user-facing sentences that no arm had
         //     ever produced (round-1 review [low]) — and this file's own standing lesson is that a message shipped

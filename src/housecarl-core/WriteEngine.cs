@@ -1286,24 +1286,53 @@ public static class WriteEngine
     /// null on success.</summary>
     static bool TryFindNestedCollection(Type parentType, Type childType, string? collectionName,
         out PropertyInfo? prop, out List<string> matches, out string? error)
+        => TryFindChildSlot(parentType, childType, collectionName, out prop, out _, out matches, out error);
+
+    /// <summary>Find the parent's SETTABLE child slot to put a new <paramref name="childType"/> into — the generic
+    /// add-target resolver, over BOTH shapes the model has. A COLLECTION slot is a list property whose element type
+    /// the child satisfies (a cell's Persistent, a topic's Responses); a SINGULAR slot is a property that IS one
+    /// child record (a cell's Landscape, a worldspace's TopCell). Both are slots a caller names with
+    /// <c>collection=</c>; the shape only decides how the child is attached, which is
+    /// <see cref="NestedAddNew"/>'s job, not the caller's.
+    ///
+    /// <para>The singular half is why a parent that carries no child could not be given one: the old resolver
+    /// filtered to <c>IList</c>-shaped properties before it ever asked about the child type, so a slot holding
+    /// exactly one record was invisible to create while being perfectly visible to every other part of the engine.
+    /// Both halves are found by REFLECTION over the concrete parent class, so "what can nest under what" stays
+    /// defined by Mutagen's model and no record type is named here.</para>
+    ///
+    /// <para>Outcomes are unchanged: exactly one match ⇒ derivable, returned; several ⇒ the caller must NAME one;
+    /// zero ⇒ a real containment boundary. <paramref name="shape"/> reports which half matched.</para></summary>
+    static bool TryFindChildSlot(Type parentType, Type childType, string? collectionName,
+        out PropertyInfo? prop, out OwnedChildShape shape, out List<string> matches, out string? error)
     {
-        prop = null; error = null;
+        prop = null; error = null; shape = OwnedChildShape.None;
         matches = new List<string>();
-        var hits = new List<PropertyInfo>();
+        var hits = new List<(PropertyInfo Prop, OwnedChildShape Shape)>();
         foreach (var p in parentType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
             if (p.GetGetMethod() is null) continue;                          // need a readable list instance to Add to
             var elem = ListElementType(p.PropertyType);
-            if (elem is null) continue;
-            if (!elem.IsAssignableFrom(childType)) continue;                 // the child fits this list's element type
-            if (!typeof(System.Collections.IList).IsAssignableFrom(p.PropertyType)) continue;  // addable (ExtendedList<T> is an IList)
-            hits.Add(p); matches.Add(p.Name);
+            if (elem is not null)
+            {
+                if (!elem.IsAssignableFrom(childType)) continue;             // the child fits this list's element type
+                if (!typeof(System.Collections.IList).IsAssignableFrom(p.PropertyType)) continue;  // addable (ExtendedList<T> is an IList)
+                hits.Add((p, OwnedChildShape.Collection)); matches.Add(p.Name);
+                continue;
+            }
+            // The SINGULAR half: a settable property that holds one owned child record of a type the child
+            // satisfies. Settability is required for the same reason the list half requires addability — an
+            // unsettable slot cannot receive the record — and it is what keeps a read-only getter off the list.
+            if (!p.CanWrite || p.GetIndexParameters().Length != 0) continue;
+            if (!typeof(IMajorRecordGetter).IsAssignableFrom(p.PropertyType)) continue;
+            if (!p.PropertyType.IsAssignableFrom(childType)) continue;
+            hits.Add((p, OwnedChildShape.Singular)); matches.Add(p.Name);
         }
         var parentName = parentType.Name;   // concrete class name, already clean (never an I…Getter here)
         var childName = childType.Name;
         if (hits.Count == 0)
         {
-            error = $"'{childName}' cannot be created under a '{parentName}' — that parent models no child-collection that " +
+            error = $"'{childName}' cannot be created under a '{parentName}' — that parent models no child slot that " +
                     "holds it (a real containment boundary, surfaced not guessed, Q3)." +
                     (childType == typeof(Cell)
                         ? " A Cell is coordinate-keyed, not collection-nested: create an EXTERIOR cell with parent=<Worldspace> + grid=<X,Y>, or an INTERIOR cell with no parent."
@@ -1312,22 +1341,43 @@ public static class WriteEngine
         }
         if (collectionName is not null)
         {
-            var named = hits.FirstOrDefault(h => string.Equals(h.Name, collectionName, StringComparison.OrdinalIgnoreCase));
-            if (named is null)
+            var named = hits.Where(h => string.Equals(h.Prop.Name, collectionName, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (named.Count == 0)
             {
-                error = $"'{parentName}' has no child-collection named '{collectionName}' that holds '{childName}'. Available: {string.Join(", ", matches)}.";
+                error = $"'{parentName}' has no child slot named '{collectionName}' that holds '{childName}'. Available: {string.Join(", ", matches)}.";
                 return false;
             }
-            prop = named; return true;
+            (prop, shape) = named[0]; return true;
+        }
+        // A CELL under a parent that also files cells by COORDINATE is ambiguous even at one hit, and the two
+        // routes are not interchangeable: a worldspace's TopCell is one record, its exterior cells are a block
+        // tree keyed by grid. Resolving the single slot silently would build the wrong one for the far commoner
+        // request (an exterior cell whose grid= was forgotten), so it is named rather than guessed — the same Q3
+        // rule the several-hits arm below applies, on a route the reflected slot set cannot see.
+        if (childType == typeof(Cell) && hits.Count == 1 && HasCoordinateKeyedCells(parentType))
+        {
+            error = $"'{childName}' can go under a '{parentName}' two different ways — as its single " +
+                    $"'{hits[0].Prop.Name}', or as an EXTERIOR cell in its block tree. Name which one: " +
+                    $"collection={hits[0].Prop.Name} for the single one, or grid=<X,Y> for an exterior cell. " +
+                    "(Q3 — never a silent default.)";
+            return false;
         }
         if (hits.Count > 1)
         {
-            error = $"'{childName}' can be added to more than one collection on '{parentName}' ({string.Join(", ", matches)}) — " +
+            error = $"'{childName}' can be added to more than one child slot on '{parentName}' ({string.Join(", ", matches)}) — " +
                     "name which one (the collection= discriminator). (Q3 — never a silent default.)";
             return false;
         }
-        prop = hits[0]; return true;
+        (prop, shape) = hits[0]; return true;
     }
+
+    /// <summary>Does this parent file CELLS by coordinate, in a block tree the slot resolver cannot see? True when a
+    /// child-bearing property reaches a Cell through containers rather than holding one directly — the shape
+    /// <see cref="AddExteriorCell"/> serves. Derived from the same reflected child-bearing set as everything else,
+    /// so it is a question about the model rather than a named type.</summary>
+    static bool HasCoordinateKeyedCells(Type parentType) =>
+        ChildBearingProperties(parentType).Any(p =>
+            ListElementType(p.PropertyType) is { } e && !typeof(IMajorRecordGetter).IsAssignableFrom(e));
 
     /// <summary>The element type of an <c>IList&lt;T&gt;</c>/<c>ExtendedList&lt;T&gt;</c>-shaped property, else null
     /// (a scalar, a string, a read-only sequence). Used to match a parent's child-collections to a child type.</summary>
@@ -1375,15 +1425,28 @@ public static class WriteEngine
     {
         var childType = ResolveConcreteRecordType(childCatalogName)
             ?? throw new InvalidOperationException($"nested create: '{childCatalogName}' is absent from the Mutagen corpus.");
-        if (!TryFindNestedCollection(parentInPatch.GetType(), childType, collectionName, out var prop, out _, out var error))
+        if (!TryFindChildSlot(parentInPatch.GetType(), childType, collectionName, out var prop, out var shape, out _, out var error))
             throw new InvalidOperationException(error);
-        if (prop!.GetValue(parentInPatch) is not System.Collections.IList list)
-            throw new InvalidOperationException($"nested create: collection '{prop.Name}' on '{parentInPatch.GetType().Name}' is not an addable list.");
+        var parentName = parentInPatch.GetType().Name;
+
+        // A SINGULAR slot holds exactly one child, so an occupied one is not something create can resolve: appending
+        // is not available and overwriting would drop the record already there — with its own FormKey, and
+        // everything under it — as a side effect of a call that said "create". Refuse and name both real moves.
+        // Checked BEFORE anything is allocated, so a refusal costs no FormKey.
+        if (shape == OwnedChildShape.Singular && prop!.GetValue(parentInPatch) is IMajorRecordGetter occupant)
+            throw new InvalidOperationException(
+                $"nested create: '{parentName}.{prop.Name}' already holds a {childType.Name} ({occupant.FormKey}" +
+                (occupant.EditorID is { } oe ? $" editorid={oe}" : "") + ") and it holds exactly one, so there is no " +
+                "room to create another. Edit the one that is there by its own FormID, or remove it first with " +
+                ToolNames.Remove + " and create again.");
 
         EnsureFormIdFloor(patchMod);   // a rehydrated (into=) counter below 0x800 would hand out engine-reserved IDs
         EnsureAllocatable(patchMod);
         var child = ConstructRecord(childType, AllocateNextFormKey(patchMod));
         if (editorId is not null) child.EditorID = editorId;
+        if (shape == OwnedChildShape.Singular) { prop!.SetValue(parentInPatch, child); return child; }
+        if (prop!.GetValue(parentInPatch) is not System.Collections.IList list)
+            throw new InvalidOperationException($"nested create: collection '{prop.Name}' on '{parentName}' is not an addable list.");
         list.Add(child);
         return child;
     }
@@ -2733,10 +2796,11 @@ public static class WriteEngine
             throw new ExpectedApplyRejectionException(
                 $"'{segment}' holds an owned child RECORD ({Pretty(prop.PropertyType)}) and the record being written " +
                 "carries none, so there is nothing to write into. houseCARL will not synthesize a record as a " +
-                "sub-object — a record exists only with its own FormKey, and giving a parent a child it lacks is an " +
-                "open gap (#350). Address the child record by its own FormID instead. If the version you are patching " +
-                "does carry one, note that a patch's fresh override of a parent does not bring the parent's child " +
-                "records with it — the record axis reaches it, this path does not.");
+                "sub-object — a record exists only with its own FormKey. To give the parent a child it lacks, create " +
+                "one on the record axis: " + ToolNames.Create + $" with parent= the parent's FormID and " +
+                $"collection='{segment}' in its records= element. Address an existing child by its own FormID " +
+                "instead. If the version you are patching does carry one, note that a patch's fresh override of a " +
+                "parent does not bring the parent's child records with it — the record axis reaches it, this path does not.");
         object made;
         try { made = Instantiate(prop.PropertyType, null); }
         catch (CompositionRequiredException) { throw new CompositionRequiredException(segment, prop.PropertyType); }  // re-stamp with the path segment

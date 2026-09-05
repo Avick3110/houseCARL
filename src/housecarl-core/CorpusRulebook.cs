@@ -307,15 +307,15 @@ public sealed class CorpusRulebook
         // under it — a Worldspace's TopCell takes its persistent references with it. The list form of the same family
         // does delete an owned child (Cell.Persistent Remove key=0), but by INDEX, so the caller names which one; a
         // keyless clear of a singular child deletes a whole subtree implicitly, in one call, with no backup on the
-        // in-place lane. Deliberate owned-child deletion is an open gap, #350.
+        // in-place lane. Deliberate owned-child deletion is on the RECORD axis, where the caller names the record.
         if (string.Equals(req.Verb, "Remove", StringComparison.Ordinal)
             && SchemaClassifier.IsOwnedChildRecord(leaf, _corpus))
             return $"'{leaf.Name}' on '{leafOwner.Name}' holds an owned child RECORD ({leaf.TypeRef}): clearing the " +
                    "field deletes that record and every record under it, implicitly and in one call. The list form of " +
                    "this family deletes a child too, but by INDEX — you name which one; there is no such target here. " +
-                   "Deliberate deletion of an owned child record is an open gap (#350), not something clearing a " +
-                   $"field decides. (To see which record this is: read the parent at depth=2 — the '{leaf.Name}' " +
-                   "field shows the child's FormID.)";
+                   "Delete it on the record axis instead, where the record is named: " + ToolNames.Remove +
+                   " with the child's own FormID. (To see which record this is: read the parent at depth=2 — the " +
+                   $"'{leaf.Name}' field shows the child's FormID.)";
 
         // (3b) record identity (FormKey/ModKey) is a flat, honest reject regardless of Mutagen's setter.
         if (leaf.IsIdentity)
@@ -454,8 +454,9 @@ public sealed class CorpusRulebook
         // owned child records "coercible values". Answered from the same classification the collection verbs decide
         // with, and NOT verb-scoped: a record is not built from parts under any verb.
         //
-        // The two shapes carry different remedies, so they cannot share one sentence: create with parent= is refused
-        // for a singular child (which routes to the open gap #350) and is exactly the shape the collection serves.
+        // The two shapes carry different remedies, so they cannot share one sentence: both are created with parent=,
+        // but a singular slot holds exactly one and a collection takes another, so what to do about an occupied
+        // parent differs and the sentences say so separately.
         if (IsOwnedChildRecordCollection(leaf))
             return OwnedChildRecordCollectionRefusal(leaf);
         if (leaf.Cardinality != "list")
@@ -496,10 +497,10 @@ public sealed class CorpusRulebook
     /// Everything else — scalar/enum/value, formlink, formlink/modeled list, sub-struct, polymorphic arm —
     /// WriteEngine.CopyField transplants by construction.
     /// <para/>
-    /// The singular and collection arms word their remedies differently because only one remedy works per shape:
-    /// <c>housecarl_forward</c> carries the child record itself across for both, but <c>create</c> with
-    /// <c>parent=</c> is refused for a singular child, so only the collection arm may offer it; the singular case
-    /// routes to the lifecycle gap #350 instead.</summary>
+    /// The singular and collection arms word their remedies differently because the shapes differ in what a caller
+    /// does next: <c>housecarl_forward</c> carries the child record itself across for both, and <c>create</c> with
+    /// <c>parent=</c> authors a fresh one for both — but a singular slot names itself with <c>collection=</c> and
+    /// holds exactly one, so the singular sentence points at the slot by name.</summary>
     string? CopyFromLegality(FieldSchema leaf, TypeSchema owner, FieldSchema? ownedChildHop = null, TypeSchema? hopOwner = null)
     {
         if (leaf.IsIdentity)
@@ -526,8 +527,9 @@ public sealed class CorpusRulebook
                    "FIELD's value, not a record — copying it here would write another plugin's record, with its own " +
                    "FormID and everything under it, in as this parent's child. To carry that record across from " +
                    "another plugin use " + ToolNames.Forward + " on the CHILD record itself; read the parent at " +
-                   $"depth=2 and the '{leaf.Name}' field shows the child's FormID. Giving a parent a child it does " +
-                   "not have is an open gap (#350).";
+                   $"depth=2 and the '{leaf.Name}' field shows the child's FormID. To give a parent a child it does " +
+                   "not have, create one on the record axis: " + ToolNames.Create + " with parent= the parent's " +
+                   $"FormID and collection='{leaf.Name}' in its records= element.";
         // The same recogniser as the other two collection doors; the SENTENCE stays this door's own, because
         // CopyFrom's remedy is housecarl_forward (carrying across a record that already exists) rather than
         // housecarl_create with parent= alone. Shared predicate, per-door remedy.
@@ -554,7 +556,8 @@ public sealed class CorpusRulebook
         $"'{leaf.Name}' holds an owned child RECORD ({leaf.TypeRef}): a record is not a part of its parent, so it is " +
         $"neither built from parts (compose= / composes=) nor set from a value (value=). {AddressChildByFormId(leaf.Name)} A path through " +
         "the parent reaches a child only when the record being written already carries one, which a patch's fresh " +
-        "override of a parent never does; giving a parent a child it lacks is an open gap (#350).";
+        "override of a parent never does; to give a parent a child it lacks, create one on the record axis — " +
+        ToolNames.Create + $" with parent= the parent's FormID and collection='{leaf.Name}'.";
 
     /// <summary>How an owned child record that ALREADY EXISTS is written: on the record axis, by its own FormID.
     /// One sentence, shared by the value-shaped Set refusal and the element remedy, so the two doors cannot drift
