@@ -36,7 +36,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   it now prints the container call to make once you have read it: the field's own path, the key you typed, and the
   verbs that collection takes. Bracketing an element at the end of a path (`Data[7]`) prints the same path and key.
   Which verbs get named comes from the collection's own shape, so a dict caller is never offered `SetAtIndex`, and
-  a key the collection cannot actually be indexed by (`Data[notasbyte]`) is not handed back as a call to make. Inside
+  a key the collection cannot actually be indexed by (`Data[notasbyte]`) is not handed back as a call to make — on
+  the direct/CLI lane too, where the engine raises the same refusal. Every verb named alongside a key consumes it,
+  so a list caller who bracketed an existing element is not led with the append that would leave it untouched; and a
+  collection whose elements are owned child records (`Cell.Persistent`) is sent to the record axis rather than handed
+  a container call no verb takes. Inside
   a `compose=`'s nested `sets`, the path is named in the `path` slot it belongs to rather than `field_path`.
 - **`housecarl_load_order_status` now names the running server's build in its header** — a `server:` line carrying
   the informational version the binary embeds (the release version `build-plugin.ps1` stamps from `plugin.json`,

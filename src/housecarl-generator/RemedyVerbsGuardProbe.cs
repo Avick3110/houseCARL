@@ -273,6 +273,7 @@ public static class RemedyVerbsGuardProbe
     static IEnumerable<VerbUse> Placing(CollectionShape s) => WriteVerbs.On(s).Where(u => u.Places);
     static IEnumerable<VerbUse> PlacingOne(CollectionShape s) => WriteVerbs.On(s)
         .Where(u => u.Places && u.Input is not (VerbInput.Values or VerbInput.Entries or VerbInput.Composes));
+    static IEnumerable<VerbUse> PlacingOneAt(CollectionShape s) => PlacingOne(s).Where(u => u.NeedsKey);
 
     static void SitesArm()
     {
@@ -330,6 +331,46 @@ public static class RemedyVerbsGuardProbe
                 && ToolNameMatch.ReferencedAtBoundary(setOnRecordList, "housecarl_create")
                 && !ListOnly.Any(v => setOnRecordList.Contains(v, StringComparison.Ordinal)),
             setOnRecordList ?? "(accepted)");
+
+        // (3b) the over-arms element remedy — the one site that prints a key BEFORE its verb menu. Every verb it
+        // names must therefore consume that key: a list's keyless Add appends, which the gate ACCEPTS, so a caller
+        // reading top-down lands one element longer with the element they meant to edit untouched.
+        var elementList = Rules.Validate(new WriteRequest
+        { RecordType = "Faction", Path = new[] { "Conditions[0]", "ComparisonValue" }, Verb = "Set", Value = "1" });
+        CheckShaped("SITE-ELEMENT-CONFLICT-LIST — the element remedy on a modeled LIST names the keyed placing verbs",
+            elementList, ListComposed, PlacingOneAt(ListComposed));
+        Check("SITE-ELEMENT-CONFLICT-LIST-KEYED — and names no verb that ignores the key it just printed",
+            elementList is not null
+                && elementList.Contains("key='0'", StringComparison.Ordinal)
+                && !elementList.Contains("Add (compose=)", StringComparison.Ordinal)
+                && elementList.IndexOf("SetAtIndex", StringComparison.Ordinal)
+                     < elementList.IndexOf("InsertAtIndex", StringComparison.Ordinal),
+            elementList ?? "(accepted)");
+        // The shape with no such call at all. Naming a container path and key here would offer a call nothing
+        // consumes — the element is a record, reached on the record axis.
+        var elementRecord = Rules.Validate(new WriteRequest
+        { RecordType = "Cell", Path = new[] { "Persistent[0]", "MajorFlags" }, Verb = "Set", Value = "1" });
+        Check("SITE-ELEMENT-CONFLICT-OWNEDRECORD — a collection of owned child records is sent to the record axis, with no container call to make",
+            elementRecord is not null
+                && elementRecord.Contains("owned child RECORDS", StringComparison.Ordinal)
+                && elementRecord.Contains("its own FormID", StringComparison.Ordinal)
+                && !elementRecord.Contains("field_path=", StringComparison.Ordinal)
+                && !elementRecord.Contains("key=", StringComparison.Ordinal)
+                && !ListOnly.Any(v => elementRecord.Contains(v, StringComparison.Ordinal)),
+            elementRecord ?? "(accepted)");
+
+        // (3c) the engine twin's KEY gate — its runtime recognisers, not the corpus, decide whether the key it was
+        // handed is one apply can use. A key that is not gets the rule and the menu, never a call that throws.
+        var engBadKey = Throws(() => WriteEngine.ApplyVerb(
+            new Mutagen.Bethesda.Skyrim.Package(NextFk(), Mutagen.Bethesda.Skyrim.SkyrimRelease.SkyrimSE),
+            new WriteRequest { RecordType = "Package", Path = new[] { "Data[notasbyte]" }, Verb = "Set" }));
+        CheckShaped("SITE-BRACKET-ENGINE-BADKEY — an unusable key still gets the shape's keyed verbs",
+            engBadKey, DictComposed, Keyed(DictComposed));
+        Check("SITE-BRACKET-ENGINE-BADKEY-WITHHELD — …and the key itself is withheld, so the message names no call that throws at apply",
+            engBadKey is not null
+                && !engBadKey.Contains("notasbyte'", StringComparison.Ordinal)
+                && !engBadKey.Contains("field_path=", StringComparison.Ordinal),
+            engBadKey ?? "(no throw)");
 
         // (4) the unknown-verb vocabulary — every verb the surface has, from its one home. Checked against the
         // literal set BELOW, not against WriteVerbs.All: comparing the message to the same collection that built
