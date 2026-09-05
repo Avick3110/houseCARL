@@ -36,6 +36,15 @@ public sealed class TypeArmWorld : IDisposable
     public const string GmstInt = "HcArmGmstInt";
     public const string GmstFloat = "HcArmGmstFloat";
 
+    /// <summary>A plugin FILE on disk that is NOT in the active order — the errors sweep's off-order lane, its own
+    /// record stream. Named for a base-game master because <c>BaseMastersSwept</c> is what exposes that lane's
+    /// "examined" set to a test: a swept off-order base master is listed there, and one whose every record a scope
+    /// filtered out is not. It holds a GlobalFloat and a GlobalInt and deliberately NO GlobalShort, so a
+    /// <c>type='GlobalShort'</c> sweep of it must examine nothing.</summary>
+    public const string OffOrderName = "Update.esm";
+    public const string OffOrderFloat = "HcArmOffFloat";
+    public const string OffOrderInt = "HcArmOffInt";
+
     readonly string _priorCorpusPath;
 
     public TypeArmWorld()
@@ -62,6 +71,16 @@ public sealed class TypeArmWorld : IDisposable
         Directory.CreateDirectory(modDir);
         master.BeginWrite.ToPath(Path.Combine(modDir, MasterName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
+        // The off-order file: written into an ENABLED mod folder but left out of plugins.txt and loadorder.txt, which
+        // is what the errors sweep locates on disk and sweeps as a file.
+        var offKey = new ModKey(Path.GetFileNameWithoutExtension(OffOrderName), ModType.Master);
+        var off = new SkyrimMod(offKey, SkyrimRelease.SkyrimSE);
+        off.Globals.Add(new GlobalFloat(off.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = OffOrderFloat, Data = 1.5f });
+        off.Globals.Add(new GlobalInt(off.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = OffOrderInt, Data = 6 });
+        var offDir = Path.Combine(instance, "mods", "ArmOffOrderMod");
+        Directory.CreateDirectory(offDir);
+        off.BeginWrite.ToPath(Path.Combine(offDir, OffOrderName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
         var genDir = Path.Combine(Root, "corpus-gen");
         CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
         CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
@@ -73,7 +92,7 @@ public sealed class TypeArmWorld : IDisposable
         Directory.CreateDirectory(prof);
         File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n");
         File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + MasterName + "\r\n");
-        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+ArmMasterMod\r\n");
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+ArmOffOrderMod\r\n+ArmMasterMod\r\n");
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "user.json")));
     }

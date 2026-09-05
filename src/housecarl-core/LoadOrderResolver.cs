@@ -1093,12 +1093,11 @@ public sealed class LoadOrderResolver : IDisposable
             }
             try
             {
-                foreach (var t in getterTypes)
-                    foreach (var rec in ov.EnumerateMajorRecords(t, throwIfUnknown: true))
-                        // A typed enumeration seeks the GRUP, which for an abstract group (Global, GameSetting) holds
-                        // every arm of it — so an arm's own type is re-checked here rather than trusted from the seek.
-                        if (t.IsInstanceOfType(rec) && s.Index.TryGetValue(rec.FormKey, out var e) && e.winner == i)   // this overlay's instance wins
-                            yield return (rec.FormKey, e.count, rec);
+                // RecordArms is the shared arm re-check: a typed enumeration seeks the GRUP, which for an abstract
+                // group (Global, GameSetting) holds every arm of it.
+                foreach (var rec in RecordArms.OfTypes(ov, getterTypes))
+                    if (s.Index.TryGetValue(rec.FormKey, out var e) && e.winner == i)   // this overlay's instance wins
+                        yield return (rec.FormKey, e.count, rec);
             }
             finally { (ov as IDisposable)?.Dispose(); }
         }
@@ -1128,11 +1127,9 @@ public sealed class LoadOrderResolver : IDisposable
             catch (Exception ex) { throw new PluginUnreadableException(_names[i], ex); }
             try
             {
-                // The arm re-check is the one WinnerRecordsOfType does, for the same reason: a typed enumeration over an
-                // abstract group's arm seeks the whole GRUP.
                 IEnumerable<IMajorRecordGetter> recs = getterTypes is null
                     ? ov.EnumerateMajorRecords()
-                    : getterTypes.SelectMany(t => ov.EnumerateMajorRecords(t, throwIfUnknown: true).Where(t.IsInstanceOfType));
+                    : RecordArms.OfTypes(ov, getterTypes);   // the shared arm re-check
                 foreach (var rec in recs)
                     if (s.Index.TryGetValue(rec.FormKey, out var e))
                         yield return (rec.FormKey, e.count, rec, _names[i]);   // _names[i] = this scoped plugin's filename (the source body)
