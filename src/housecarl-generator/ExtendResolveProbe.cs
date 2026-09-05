@@ -543,6 +543,10 @@ internal static class ExtendResolveProbe
                                           into: "RemoveHereMod");
                 Check(ap.Contains(WriteSentences.ExtendInPlaceLane, StringComparison.Ordinal) && ap.Contains(named, StringComparison.Ordinal),
                       "housecarl_apply names the in-place lane AND the plugin in that folder the lane can take");
+                // The one clause here that rewrites a file the caller did not author reads LAST, behind both lanes
+                // that leave every original untouched (#380).
+                Check(ap.IndexOf("houseCARL owns:", StringComparison.Ordinal) < ap.IndexOf("in_place=", StringComparison.Ordinal),
+                      "…and the safe candidate list is read BEFORE the consent-gated lane");
 
                 var cr = CreateTools.Create(svc, records: Doc("[{\"record_type\":\"Keyword\",\"editorid\":\"HcExtUnowned\"}]"),
                                             into: "RemoveHereMod");

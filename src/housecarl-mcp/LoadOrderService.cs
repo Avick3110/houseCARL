@@ -8398,6 +8398,8 @@ public sealed class LoadOrderService : IDisposable
                 // The in-place half is offered only where it would WORK: in_place= resolves a plugin FILENAME
                 // through the active load order, so a folder holding no plugin, or only ones MO2 has not enabled,
                 // has no in-place lane and gets no sentence claiming one.
+                // It also goes LAST, behind the two lanes that leave every original untouched: it is the one clause
+                // here that rewrites a file the caller did not author, and reading order is emphasis (#380).
                 var inPlaceClause = inPlaceLane is null ? "" : WriteSentences.InPlaceLane(inPlaceLane, ActiveInPlaceTargets(candPath));
                 throw new InvalidOperationException(
                     $"cannot extend: mod folder '{cand}' exists but was NOT created by houseCARL (no marker) — " +
@@ -8413,8 +8415,8 @@ public sealed class LoadOrderService : IDisposable
                             FreshPatchRemedy.CreatedByOmittingInto => "Omit into= to create a fresh patch. ",
                             _ => "",
                         }) +
-                    (inPlaceClause.Length == 0 ? "" : inPlaceClause + " ") +
-                    OwnedPatchCandidates(needEsp, stem));
+                    OwnedPatchCandidates(needEsp, stem) +
+                    (inPlaceClause.Length == 0 ? "" : " " + inPlaceClause));
             }
         }
         // The fresh-write remedy is the caller's to authorize: each operation states its OWN fresh-write path,
