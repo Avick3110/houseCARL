@@ -9,7 +9,7 @@ The bundled grammar reference for the `spid-authoring` skill (part of the 5-skil
 distributor-framework cluster — sibling to `skypatcher-authoring`). It documents SPID's `_DISTR.ini`
 distribution grammar — the line syntax, every form type, every filter section and modifier, the
 count/index/chance fields, and the runtime ordering — reconstructed into a consistent, lookup-friendly
-form. The eventual `SKILL.md` (not yet authored — see "Layering") drives lookups against it.
+form. The skill's `SKILL.md` drives lookups against it, routed through `index.jsonl`.
 
 Unlike SkyPatcher (one grammar *per record type*, hence a `records/` dir), SPID has **one grammar**
 that applies across 10 form types. So the corpus is shaped as: `grammar-core` (the line + mechanics) +
@@ -106,20 +106,21 @@ references/
 ├── form-types.md       ← the 10 distributable form types + signatures + special cases
 ├── filters.md          ← the 4 filter sections (String / Form / Level / Trait) in depth
 ├── value-tables.md     ← flat enums (skill indices, trait letters, package-list types, signatures, …)
-└── index.jsonl         ← lookup routing — NOT YET GENERATED (see Layering; deferred with the sibling)
+└── index.jsonl         ← lookup routing: one line per topic, mapping aliases to the file that answers
 ```
+
+**When you add a fact to this corpus, add or update its `index.jsonl` line too** — a fact the router
+cannot reach is a fact the skill will not find.
 
 ## Layering (build plan)
 
 - **Layer 1 (this corpus) — DONE pending review.** The five reference files above. Built only after
   the complete reference was in hand (article captured + source cross-checked) — the project's
   no-guesswork gate.
-- **Layer 2 — not started.** `SKILL.md` (the lookup + bundled-or-warn playbook, modeled on
-  `papyrus-reference`, authored via the `skill-authoring` specialist), `index.jsonl` (routing format
-  designed alongside SKILL.md, kept consistent with the `skypatcher-authoring` sibling),
-  `evals/` (trigger + author-output eval sets per HOUSECARL_SKILL_AUTHORING.md §6.4/§6.5 — run the
-  anonymized, relevance-framed agent fan-out), and the final §8 reviewer walk. Author Layer 2 only
-  after Aaron reviews Layer 1.
+- **Layer 2 — done.** `SKILL.md` (the lookup + bundled-or-warn playbook, modeled on
+  `papyrus-reference`), `index.jsonl` (routing kept consistent with the `skypatcher-authoring`
+  sibling), and `evals/` (trigger + author-output eval sets per HOUSECARL_SKILL_AUTHORING.md
+  §6.4/§6.5) all ship. The skill is live as `/housecarl:spid-authoring`.
 
 ## Cluster note
 
