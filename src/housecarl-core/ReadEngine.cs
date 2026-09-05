@@ -32,8 +32,14 @@ namespace HousecarlCore;
 /// neither of which has one. Surfaced from <c>LeafRead.ContainerCount</c>, which already carried it.</param>
 /// <param name="Readable">False when the read FAILED (a throw, or no such field) rather than finding nothing — an
 /// unreadable leaf looks absent and is not evidence of absence.</param>
+/// <param name="Cells">The leaves a RENDER folded onto this one line (the 'rows' projection), in emission order,
+/// each with its own Token/Note/Display/Link/Count. Set only by a fold; null on every leaf the engine emits. It is
+/// carried structurally for the same reason <paramref name="Present"/> is: the folded line's TEXT is prose, and a
+/// consumer must be able to read the values, the resolve_names links and the counts out of the row without
+/// parsing it.</param>
 public sealed record FieldValue(string Path, bool HasValue, string? Token, string? Note, string? Display = null, ResolvedRef? Link = null,
-                                bool Present = true, int? Count = null, bool Readable = true);
+                                bool Present = true, int? Count = null, bool Readable = true,
+                                IReadOnlyList<FieldValue>? Cells = null);
 
 /// <summary>The resolved identity of a form reference — the shared contract behind housecarl_resolve (a full row)
 /// and the resolve_names field annotation. <see cref="Resolved"/> false ⇒ the FormKey is valid but not present in
@@ -107,7 +113,9 @@ public static class ReadEngine
     /// <summary>A modeled leaf that exists but holds no value on this record (absent optional substruct,
     /// empty optional). Distinct from a real token; the oracle skips it — write-proof owns the absent
     /// surface.</summary>
-    internal const string AbsentNote = "(absent)";
+    /// <remarks>Public because a render must be able to tell an ABSENT optional from every other no-value leaf
+    /// without matching prose: the 'rows' fold drops this one and keeps the rest.</remarks>
+    public const string AbsentNote = "(absent)";
 
     /// <summary>A present-but-null FormLink (FormKey.Null) — modeled, but carrying no target. Not a
     /// round-trippable token (the write surface sets links to a real FormKey, never "Null"), so surfaced as
