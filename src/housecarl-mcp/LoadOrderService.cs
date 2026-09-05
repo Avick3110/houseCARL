@@ -2420,22 +2420,45 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>Why a FormID resolved to nothing. "Not present" has three causes and one sentence used to serve
     /// them all: the defining plugin was excluded, the plugin is not in the order, or the plugin IS in the order
-    /// and defines no such record — commonly a FormID taken from a different edition of the same mod, since an
-    /// ESL-flagged edition compacts its records into 0x800+. All three are answerable from the index in hand, so
-    /// every emitter states which one it is rather than leaving the caller a second call to find out.</summary>
-    static string UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk)
+    /// and defines no such record. All three are answerable from the index in hand, so every emitter states which
+    /// one it is rather than leaving the caller a second call to find out.
+    /// <para>The ESL clause on the third is stated only when the index says the plugin IS light-flagged
+    /// (<see cref="LoadOrderResolver.IndexView.IsLightFlagged"/>). A compacted edition's 0x800+ FormIDs are a real
+    /// and common cause, but 0x800 is also where a plain Mutagen-authored master's records start, so asserting
+    /// compaction off the FormID alone tells a caller holding an ordinary full master a false cause. Unflagged, the
+    /// sentence states the fact it has — this plugin defines no such record — and names the call that lists what it
+    /// does define.</para></summary>
+    static string UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk,
+                                   Dictionary<string, string>? absenceMemo = null)
     {
         var defining = fk.ModKey.FileName.ToString();
         if (view.ExcludedPlugins.TryGetValue(defining, out var why))
             return $"FormID {fk} is not resolvable: its plugin '{defining}' was excluded from this session: {why}";
         if (view.ContainsPlugin(defining))
+        {
+            var esl = view.IsLightFlagged(defining)
+                ? $" '{defining}' IS ESL-flagged, and an ESL-flagged edition compacts its records into 0x800+, so this " +
+                  "is commonly a FormID taken from a different (uncompacted) edition of the same mod."
+                : "";
             return $"Plugin '{defining}' IS in the load order, but defines no record {fk.ID:X6} — and no other plugin " +
-                   $"overrides it either. The FormID is wrong for the installed edition of '{defining}' (an ESL-flagged " +
-                   $"edition compacts its records into 0x800+). List what it actually defines with housecarl_records " +
+                   $"overrides it either.{esl} List what it actually defines with housecarl_records " +
                    $"plugins={{\"names\": [\"{defining}\"], \"defined_in\": true}}.";
-        var absence = view.ExplainAbsence(defining) is { } cause ? " " + cause : view.NameSuggestion(defining);
-        return $"FormID {fk} is not present in the load order ({view.PluginCount} plugins): its plugin '{defining}' is " +
-               "not in the order (names match the plugin FILENAME incl. .esp/.esm, case-insensitively)." + absence;
+        }
+        // One clause, one explainer call, and the spelling hint only where nothing better can be said: a stated
+        // cause ("installed, but UNTICKED in plugins.txt") makes "check the filename" a contradiction. The
+        // explainer costs a profile parse plus an install sweep, so a batch resolving many dangling refs into the
+        // SAME missing plugin pays for it once (the same memo the write lane keeps).
+        // Memoised on the PLUGIN, never the FormID: the tail is the same for every record of one missing plugin,
+        // and the FormID-bearing head is composed fresh below.
+        if (absenceMemo is null || !absenceMemo.TryGetValue(defining, out var tail))
+        {
+            var absence = view.AbsenceClause(defining, out var cause);
+            var hint = cause is null ? " (names match the plugin FILENAME incl. .esp/.esm, case-insensitively)" : "";
+            tail = hint + "." + absence;
+            if (absenceMemo is not null) absenceMemo[defining] = tail;
+        }
+        return $"FormID {fk} is not present in the load order ({view.PluginCount} plugins): its plugin '{defining}' " +
+               $"is not in the order{tail}";
     }
 
     /// <summary>How deep the conflict diff reads each touching body. It must compare CONTENT rather than depth-1

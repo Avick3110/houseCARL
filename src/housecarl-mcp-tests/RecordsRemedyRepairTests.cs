@@ -96,7 +96,18 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
         var r = RecordsTools.Records(Svc, formids: new[] { "FFFFF0:" + W.MasterName });
         Assert.Contains($"Plugin '{W.MasterName}' IS in the load order", r);
         Assert.Contains("defines no record FFFFF0", r);
-        Assert.Contains("ESL-flagged edition", r);
+        Assert.Contains("defined_in", r);   // the call that lists what it DOES define
+    }
+
+    /// <summary>The fixture's master is a plain, unflagged Mutagen-authored master, and 0x800 is where such a
+    /// master's own records start — so the compaction story is not this record's cause and must not be asserted.
+    /// The light-flagged side of the same sentence is driven in RuntimeFormIdTests, whose world has an ESL.</summary>
+    [Fact]
+    public void AndDoesNotBlameEslCompactionOnAPluginThatIsNotEslFlagged()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { "FFFFF0:" + W.MasterName });
+        Assert.DoesNotContain("ESL", r);
+        Assert.DoesNotContain("0x800", r);
     }
 
     [Fact]

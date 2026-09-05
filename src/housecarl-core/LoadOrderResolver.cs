@@ -420,8 +420,17 @@ public sealed class LoadOrderResolver : IDisposable
     /// did-you-mean suggester when nothing can be explained, which is the right split: a name that resolves to a real
     /// installed plugin should never be answered with a spelling guess, and a genuine typo has no cause to state.
     /// One home, so the refusal sites below cannot drift apart on the wording.</summary>
-    internal string AbsenceClause(string pluginName)
-        => ExplainAbsence(pluginName) is { } why ? " " + why : NameSuggestion(pluginName);
+    internal string AbsenceClause(string pluginName) => AbsenceClause(pluginName, out _);
+
+    /// <summary>The same clause, also handing back the CAUSE it found (null when it fell through to the
+    /// did-you-mean) — for a caller whose surrounding sentence changes when a real cause follows. One explainer
+    /// invocation serves both: <see cref="ExplainAbsence"/> costs a profile parse plus an install sweep, so asking
+    /// twice to learn the same thing is the thing this overload exists to avoid.</summary>
+    internal string AbsenceClause(string pluginName, out string? cause)
+    {
+        cause = ExplainAbsence(pluginName);
+        return cause is { } why ? " " + why : NameSuggestion(pluginName);
+    }
 
     /// <summary>ONLY the injected explanation, or null when there is none — the half a caller needs when the presence
     /// of a real CAUSE changes more than one sentence (read_record drops its generic posture tail once a specific cause
@@ -797,6 +806,19 @@ public sealed class LoadOrderResolver : IDisposable
         /// did-you-mean. Always safe to append; returns "" when there is nothing to add. Every ContainsPlugin-false
         /// refusal should carry it — a bare not-found makes the reader re-derive a fact the tool already had.</summary>
         public string AbsenceClause(string pluginName) => _r.AbsenceClause(pluginName);
+
+        /// <summary>As above, also handing back the CAUSE (null when the clause is a did-you-mean) — see
+        /// <see cref="LoadOrderResolver.AbsenceClause(string, out string?)"/>. The half a refusal needs when the
+        /// presence of a real cause changes the sentence AROUND the clause, without paying for the explainer twice.</summary>
+        public string AbsenceClause(string pluginName, out string? cause) => _r.AbsenceClause(pluginName, out cause);
+
+        /// <summary>Is this plugin LIGHT — ESL-flagged in its header, or a <c>.esl</c> — in THIS build? The same
+        /// per-plugin flag <see cref="LoadOrderResolver.RuntimeAddressFor"/> composes runtime addresses from, so a
+        /// refusal that wants to talk about ESL compaction asks the index rather than inferring it from a FormID:
+        /// 0x800 is also where a plain Mutagen-authored master's records start. False for a plugin not in the
+        /// order.</summary>
+        public bool IsLightFlagged(string pluginName)
+            => _r._nameToIdx.TryGetValue(pluginName, out int i) && _s.Light[i];
 
         /// <summary>Only the injected CAUSE (null when there is none) — see
         /// <see cref="LoadOrderResolver.ExplainAbsence"/>; pair with <see cref="NameSuggestion"/> to rebuild the full

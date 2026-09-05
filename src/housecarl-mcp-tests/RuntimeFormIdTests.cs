@@ -66,6 +66,31 @@ public sealed class RuntimeFormIdTests
         Served(Read(w, World.FullRuntime(1, w.FullWeapon)), "HcRtFullWeapon", World.FullName);
     }
 
+    /// <summary>The ESL half of the unresolved-FormID sentence (#460): where the index says the defining plugin IS
+    /// light-flagged, compaction into 0x800+ is a real cause of a FormID taken from another edition, and the
+    /// sentence states it. The unflagged half — where it must NOT be stated — is driven in
+    /// RecordsRemedyRepairTests, whose fixture master is a plain full master.</summary>
+    [Fact]
+    public void AMissingRecordInAnEslFlaggedPluginIsToldAboutCompaction()
+    {
+        using var w = new World();
+        var r = Read(w, "000FFF:" + World.LightName);
+        Assert.Contains($"Plugin '{World.LightName}' IS in the load order", r);
+        Assert.Contains("IS ESL-flagged", r);
+        Assert.Contains("0x800+", r);
+    }
+
+    /// <summary>The same ghost in the FULL plugin beside it gets the plugin-is-there sentence with no compaction
+    /// claim: the clause is gated on the index's light flag, not on the shape of the FormID.</summary>
+    [Fact]
+    public void AndTheFullPluginBesideItIsNotAccusedOfCompacting()
+    {
+        using var w = new World();
+        var r = Read(w, "000FFF:" + World.FullName);
+        Assert.Contains($"Plugin '{World.FullName}' IS in the load order", r);
+        Assert.DoesNotContain("ESL", r);
+    }
+
     [Fact]
     public void ALightIndexNoActivePluginOccupiesIsRefused()
     {
