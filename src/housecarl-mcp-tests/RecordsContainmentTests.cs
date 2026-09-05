@@ -100,7 +100,7 @@ public sealed class RecordsContainmentTests : IClassFixture<OwnedChildFixture>
     /// <summary>Worldspace.TopCell — the second, singular worldspace child property.</summary>
     [Fact]
     public void WorldspaceTopCell_TheIndexKnowsTheWorldspaceATopCellBelongsTo() =>
-        Assert.Equal(_w.Worldspace, Svc.CaptureView().ParentOf(_w.TopCell));
+        Assert.Equal(_w.TopCellWorldspace, Svc.CaptureView().ParentOf(_w.TopCell));
 
     // ---- the later-wins merge, both halves --------------------------------------------------------
 
@@ -174,9 +174,8 @@ public sealed class RecordsContainmentTests : IClassFixture<OwnedChildFixture>
     [Fact]
     public void AReadThroughTheHopCarriesTheContainingCellsOwnedChildNote()
     {
-        const string note = "their declarations for this field were not read";
-        Assert.Contains(note, Read(_w.CellA, "Temporary"));
-        Assert.Contains(note, Read(new FormKey(_w.CellA.ModKey, 0xC10), "*parent.Temporary"));
+        Assert.Contains(ReadSentences.UnionLabel, Read(_w.CellA, "Temporary"));
+        Assert.Contains(ReadSentences.UnionLabel, Read(new FormKey(_w.CellA.ModKey, 0xC10), "*parent.Temporary"));
     }
 
     // ---- every in-order read lane answers it ------------------------------------------------------
@@ -197,7 +196,7 @@ public sealed class RecordsContainmentTests : IClassFixture<OwnedChildFixture>
         var r = RecordsTools.Records(Svc, formids: new[] { OwnedChildWorld.Fid(_w.ReparentedRef) },
                                      source: form == "delta" ? Pole(_w.MidName) : null, versus: Pole(copy),
                                      project: new RecordsTools.RecordsProject { form = form, fields = new[] { "*parent.EditorID" } });
-        Assert.Contains("HcOcCellH", r);
+        Assert.Contains("HcOcCellJ", r);
         Assert.Contains("needs the load-order index", r);
     }
 
