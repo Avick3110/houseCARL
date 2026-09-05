@@ -526,8 +526,8 @@ static class Render
         // Same order as the groups below and the doc above: the most actionable verdict leads both.
         sb.Append("update check (file-level) — ").Append(results.Count).Append(" mod(s): ")
           .Append(removed).Append(" file-removed · ").Append(outdated).Append(" outdated · ")
-          .Append(current).Append(" current · ")
           .Append(fileGone).Append(" file-gone · ").Append(noFileId).Append(" no-fileid · ")
+          .Append(current).Append(" current · ")
           .Append(latest).Append(" latest-only · ").Append(notFound).Append(" not-found");
         if (errored > 0) sb.Append(" · ").Append(errored).Append(" error");
 

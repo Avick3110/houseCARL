@@ -151,6 +151,21 @@ internal static class NexusFileCheckProbe
         Check(kBoth.IndexOf(" file-removed ", StringComparison.Ordinal) < kBoth.IndexOf(" outdated ", StringComparison.Ordinal)
               && kBoth.IndexOf("FILE REMOVED —", StringComparison.Ordinal) < kBoth.IndexOf("OUTDATED —", StringComparison.Ordinal),
               "K: the summary leads with file-removed, like the groups below it");
+        // …and the whole sequence agrees, not just its head: one response carrying every verdict, with the counts read
+        // in the order the groups print. 'current' third in the counts and fifth in the groups is the shape this cell
+        // exists to catch.
+        var kAll = Render.Updates(new[] { kRemoved, b, c, e, a, f, g }, Array.Empty<string>());
+        var countTokens = new[] { " file-removed ", " outdated ", " file-gone ", " no-fileid ", " current ", " latest-only ", " not-found" };
+        var groupLabels = new[] { "FILE REMOVED —", "OUTDATED —", "FILE GONE —", "NO FILEID —", "current —", "latest version ", "not found on " };
+        bool countsRise = true, groupsRise = true;
+        for (int i = 1; i < countTokens.Length; i++)
+        {
+            if (kAll.IndexOf(countTokens[i], StringComparison.Ordinal) <= kAll.IndexOf(countTokens[i - 1], StringComparison.Ordinal)) countsRise = false;
+            if (kAll.IndexOf(groupLabels[i], StringComparison.Ordinal) <= kAll.IndexOf(groupLabels[i - 1], StringComparison.Ordinal)) groupsRise = false;
+        }
+        Check(countTokens.All(t => kAll.Contains(t, StringComparison.Ordinal)) && groupLabels.All(l => kAll.Contains(l, StringComparison.Ordinal))
+              && countsRise && groupsRise,
+              "K: every verdict's count reads in the same order as its group — the two halves never disagree");
         // …and DELETED is the same bucket, while a withdrawn file is never offered as the replacement for a retired
         // one: the same-name search now tests live, not merely not-retired.
         var deleted = new List<(int, string, string?, string, long)>
