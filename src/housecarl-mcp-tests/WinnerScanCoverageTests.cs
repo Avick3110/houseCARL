@@ -210,7 +210,7 @@ public sealed class WinnerScanCoverageTests
         using var world = new ScanWorld();
         using var hold = HeldOpen.Hold(world.HeldPath);
 
-        string text = Wire.RenderEffectChain(world.Svc.ResolveEffectChain(world.Mgef, null, 50), 40_000);
+        string text = Wire.RenderEffectChain(world.Svc.ResolveEffectChain(world.Mgef, null, 50), 40_000, "limit=");
 
         Assert.DoesNotContain("is applied by no SPEL/ENCH/ALCH/SCRL/INGR in the active order", text);
         Assert.Contains("could read", text);
