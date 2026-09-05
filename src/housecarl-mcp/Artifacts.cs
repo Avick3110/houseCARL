@@ -142,13 +142,15 @@ internal static class Artifacts
             schema = new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "source", "matches?", "fields" };
             sort = "load-order scan order (deterministic within one epoch)";
             var linkMemo = resolveNames ? new LoadOrderService.LinkMemo() : null;
+            var foldDepths = fold?.Read().Depths;   // the quantified paths' depth, and the caller's own for the rest
             for (int i = 0; i < q.Keys.Count; i++)
             {
                 var fk = q.Keys[i];
                 string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
                 var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, depth,
                                           resolveNames: resolveNames, linkMemo: linkMemo,
-                                          containerHint: (levers ?? LeverNames.Legacy).ContainerHint);   // an artifact row is read by the same caller
+                                          containerHint: (levers ?? LeverNames.Legacy).ContainerHint,
+                                          depths: foldDepths);   // an artifact row is read by the same caller
                 if (fold is not null) o = fold.Apply(o);   // an artifact row carries the same folded fields the render does
                 if (o.Error is null && o.OwnedChildFields is { } af)   // the rows' labels need their clause on line 1
                 {

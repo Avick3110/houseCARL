@@ -231,6 +231,32 @@ public sealed class RecordsFieldFoldTests : RecordsTestBase
         Assert.Equal(doc.GetProperty("rows").GetArrayLength(), doc.GetProperty("rows_rendered").GetInt32());
     }
 
+    // ---- what the read is actually asked for --------------------------------------------------------
+
+    /// <summary>Two columns quantifying ONE list are one read of it: ReadEngine.ReadFields does not de-duplicate
+    /// its targets and spends a single expansion budget across them, so a repeated path walks the list twice on
+    /// that one budget. The unquantified column rides along at the caller's own depth.</summary>
+    [Fact]
+    public void OneListQuantifiedTwiceIsReadOnceAndSiblingsAtTheCallersDepth()
+    {
+        var (plan, err) = FieldFolds.Parse(new[] { "Effects[*]", "Effects[*].Data.Magnitude", "EditorID" });
+        Assert.Null(err);
+        var (paths, depths) = (plan! with { Depth = 4 }).Read();
+        Assert.Equal(new[] { "Effects", "EditorID" }, paths);
+        Assert.Equal(new[] { 4, 1 }, depths);
+    }
+
+    /// <summary>An unquantified column beside a quantified one renders at the caller's own depth, so it is READ at
+    /// that depth too — expanding it to the token's depth spends the shared budget on lines the render throws
+    /// away, and says the read was cut when the caller's own column is one collapsed line.</summary>
+    [Fact]
+    public void AnUnquantifiedColumnIsReadAtTheCallersOwnDepth()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, project: Fields("Items", "Effects[*]"));
+        Served(r, "Items = ");
+        Assert.DoesNotContain("expansion truncated", r);
+    }
+
     // ---- one fold, every lane -----------------------------------------------------------------------
 
     /// <summary>The json document takes the body lane, not the dense render, so it is its own claim.</summary>

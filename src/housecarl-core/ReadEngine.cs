@@ -193,9 +193,14 @@ public static class ReadEngine
     /// one-level dump of every modeled field. Wraps the internal <see cref="ReadLeaf"/> the round-trip oracle drives,
     /// so the server's reads inherit the read-proof by construction. Per-leaf fault isolation: an unreadable field
     /// names itself in its <see cref="FieldValue.Note"/>, never throws out of the record read.</summary>
+    /// <param name="depths">One depth per entry of <paramref name="paths"/>, when the caller needs them to differ —
+    /// a projection that raises the depth for the paths a quantifier binds to must not expand the others deeper
+    /// than asked, since every path spends the same expansion budget. Null (the default) reads every path at
+    /// <paramref name="depth"/>, which still decides whether the read expands at all.</param>
     public static RecordFields ReadFields(IMajorRecordGetter record, IReadOnlyList<string>? paths = null, int depth = 1,
                                           string? containerHint = DepthExpandHint,
-                                          Func<IMajorRecordGetter, (IMajorRecordGetter? Parent, string? Why)>? parentOf = null)
+                                          Func<IMajorRecordGetter, (IMajorRecordGetter? Parent, string? Why)>? parentOf = null,
+                                          IReadOnlyList<int>? depths = null)
     {
         var typeName = RecordNaming.StripGetterInterface(WriteEngine.PrimaryGetter(record.GetType())?.Name ?? "I?Getter");
         var targets = paths is { Count: > 0 } ? (IEnumerable<string>)paths : ModeledFieldNames(typeName, record.GetType());
@@ -224,12 +229,18 @@ public static class ReadEngine
         else
         {
             int budget = MaxExpandNodes;
+            // Per-path depths only apply when they line up with the paths the caller named; anything else reads at
+            // the one depth, so a mismatched array can never quietly read a path at the wrong depth.
+            var perPath = paths is { Count: > 0 } && depths is not null && depths.Count == paths.Count ? depths : null;
+            int at = 0;
             foreach (var p in targets)
             {
+                int d = perPath is not null ? perPath[at] : depth;
+                at++;
                 var seg = p.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                 var (on, tail, hopNote) = HopToParent(record, seg, parentOf);
                 if (hopNote is not null) { fields.Add(new FieldValue(p, false, null, hopNote, null, Present: false, Count: null, Readable: false)); continue; }
-                EmitWithDepth(on, string.Join(".", tail), depth, fields, ref budget, p);
+                EmitWithDepth(on, string.Join(".", tail), d, fields, ref budget, p);
             }
         }
         return new RecordFields(typeName, record.FormKey.ToString(), record.EditorID, fields);

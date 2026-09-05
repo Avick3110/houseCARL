@@ -1248,6 +1248,7 @@ static class JsonWire
                 w.WriteEndArray();
 
                 var linkMemo = resolveNames && detail ? new LoadOrderService.LinkMemo() : null;
+                var foldDepths = fold?.Read().Depths;   // the quantified paths' depth, and the caller's own for the rest
                 List<(string Formid, string Error)>? errors = null;
                 int rendered = 0; bool rowsTruncated = false;
                 var childFields = new SortedSet<string>(StringComparer.Ordinal);   // the clause once, over the cells the rows carried
@@ -1264,7 +1265,8 @@ static class JsonWire
                     if (detail)
                     {
                         var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, fold?.Depth ?? 1,
-                                                  resolveNames: resolveNames, linkMemo: linkMemo, containerHint: (levers ?? LeverNames.Legacy).DenseContainerHint);   // dense refuses depth>1 unless a quantifier asks for it; pinned to the scan's build
+                                                  resolveNames: resolveNames, linkMemo: linkMemo, containerHint: (levers ?? LeverNames.Legacy).DenseContainerHint,
+                                                  depths: foldDepths);   // dense refuses depth>1 unless a quantifier asks for it; pinned to the scan's build
                         if (o.Error is not null) { (errors ??= new()).Add((fk.ToString(), o.Error)); rendered++; continue; }
                         var r = o.Record!;
                         if (fold is not null)

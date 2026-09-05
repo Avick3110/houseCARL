@@ -22,8 +22,28 @@ sealed record FieldFold(string Requested, string Root, string[] Tail, PathFold F
 /// so a token means one thing on both surfaces. What differs is which folds each side accepts: a set is not a
 /// boolean and a boolean is not a row, so each surface refuses the other's folds by name.</para>
 /// </summary>
-sealed record FoldPlan(IReadOnlyList<string> Requested, string[] ReadPaths, FieldFold?[] Folds, int Depth, int CallerDepth = 1)
+sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFold?[] Folds, int Depth, int CallerDepth = 1)
 {
+    /// <summary>What the READ is asked for: each distinct path once, with the depth that path's own column needs
+    /// beside it. Distinct because ReadEngine.ReadFields does not de-duplicate its targets and spends ONE expansion
+    /// budget across them, so two columns quantifying the same list would walk it twice and halve what either can
+    /// show. Per-depth because the token raises the depth only for the paths that need it: an unquantified column
+    /// beside a quantified one renders at the caller's own depth, and reading it deeper spends that same budget on
+    /// lines the render then throws away.</summary>
+    internal (string[] Paths, int[] Depths) Read()
+    {
+        var at = new Dictionary<string, int>(StringComparer.Ordinal);
+        var paths = new List<string>(Paths.Length);
+        var depths = new List<int>(Paths.Length);
+        for (int i = 0; i < Paths.Length; i++)
+        {
+            int d = Folds[i] is { Fold: PathFold.Set } ? Depth : CallerDepth;
+            if (at.TryGetValue(Paths[i], out int j)) { depths[j] = Math.Max(depths[j], d); continue; }
+            at[Paths[i]] = paths.Count; paths.Add(Paths[i]); depths.Add(d);
+        }
+        return (paths.ToArray(), depths.ToArray());
+    }
+
     /// <summary>Does any path render per-element rows — the reading that needs the list opened.</summary>
     internal bool RendersElements => Folds.Any(f => f is { Fold: PathFold.Set });
 
@@ -48,10 +68,10 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] ReadPaths, Fiel
         // under form='rows' are the same row, never two renderings of one idea.
         var rows = setRoots.Count > 0 ? RowProjection.Fold(rec.Fields, setRoots, Depth) : rec.Fields;
 
-        var cols = new IReadOnlyList<FieldValue>[ReadPaths.Length];
-        for (int i = 0; i < ReadPaths.Length; i++)
+        var cols = new IReadOnlyList<FieldValue>[Paths.Length];
+        for (int i = 0; i < Paths.Length; i++)
         {
-            if (Folds[i] is not { } fold) { cols[i] = Lines(rec.Fields, ReadPaths[i], CallerDepth); continue; }
+            if (Folds[i] is not { } fold) { cols[i] = Lines(rec.Fields, Paths[i], CallerDepth); continue; }
             var head = rec.Fields.FirstOrDefault(f => f.Path == fold.Root);
             // An absent or unreadable list is the READ's answer, not a misuse of the token: it carries out under
             // the caller's own spelling. Only a root that is not a list at all is a misuse, and that fails the
@@ -79,7 +99,7 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] ReadPaths, Fiel
         // What no column claims and no requested path covers: the read's own truncation note, restated by the
         // rows fold when one ran. It rides out beside the columns rather than being dropped with them.
         var carried = (setRoots.Count > 0 ? rows : rec.Fields)
-            .Where(f => !claimed.Contains(f.Path) && !ReadPaths.Any(p => f.Path == p || RowProjection.IsUnder(f.Path, p)))
+            .Where(f => !claimed.Contains(f.Path) && !Paths.Any(p => f.Path == p || RowProjection.IsUnder(f.Path, p)))
             .ToList();
         return (cols, carried, null);
     }

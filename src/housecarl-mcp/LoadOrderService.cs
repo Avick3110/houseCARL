@@ -2286,12 +2286,13 @@ public sealed class LoadOrderService : IDisposable
     /// never a silent empty result.</summary>
     public ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
                                    bool resolveNames = false, LinkMemo? linkMemo = null,
-                                   string? containerHint = ReadEngine.DepthExpandHint)
+                                   string? containerHint = ReadEngine.DepthExpandHint,
+                                   IReadOnlyList<int>? depths = null)
     {
         var resolver = Resolver;
         var view = resolver.Capture();
         return ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint,
-                           new ChildUnionMemo())   // one named record: the union lane
+                           new ChildUnionMemo(), depths: depths)   // one named record: the union lane
                with { Stamp = view.Stamp, Pin = new ViewPin(resolver, view) };   // stamped and pinned here, off the view actually read
     }
 
@@ -2327,7 +2328,8 @@ public sealed class LoadOrderService : IDisposable
                             bool resolveNames = false, LinkMemo? linkMemo = null,
                             string? containerHint = ReadEngine.DepthExpandHint,
                             ChildUnionMemo? unionMemo = null,
-                            LoadOrderResolver.OverlaySession? batchSession = null)
+                            LoadOrderResolver.OverlaySession? batchSession = null,
+                            IReadOnlyList<int>? depths = null)
     {
         // An explicitly-requested plugin excluded this session (unparseable or unopenable) is said so, rather than
         // falling through to a misleading "does not define this record".
@@ -2390,7 +2392,7 @@ public sealed class LoadOrderService : IDisposable
         // materialise while the session (overlay) is open; the *parent hop climbs the index's containment map and
         // fetches the containing record's winner body through the same session
         var hop = ContainmentIndex.ReadHop(view, session);
-        var record = ReadEngine.ReadFields(rec, fields, depth, containerHint, hop);
+        var record = ReadEngine.ReadFields(rec, fields, depth, containerHint, hop, depths);
         record = AnnotateOwnedChildContent(record, rec, view, session, fk, source, unionMemo, out var childFields, hop);   // the additive union (or the index-only note), display-only
         if (resolveNames) record = AnnotateLinks(record, view, session, linkMemo ?? new());   // identity of every FormLink token, display-only, on the same open session
         var touching = conflictTree ? view.TouchingPlugins(fk) : null;
@@ -2645,11 +2647,12 @@ public sealed class LoadOrderService : IDisposable
     internal ReadOutcome ResolveReadOn(CrossQueryOutcome q, FormKey fk, string? plugin, IReadOnlyList<string>? fields,
                                        bool conflictTree, int depth = 1, bool resolveNames = false,
                                        LinkMemo? linkMemo = null,
-                                       string? containerHint = ReadEngine.DepthExpandHint)
+                                       string? containerHint = ReadEngine.DepthExpandHint,
+                                       IReadOnlyList<int>? depths = null)
         => q.Pin is { } p
-            ? ResolveRead(p.Resolver, p.View, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint)
+            ? ResolveRead(p.Resolver, p.View, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, depths: depths)
               with { Stamp = p.View.Stamp, Pin = p }
-            : ResolveRead(fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint);
+            : ResolveRead(fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, depths);
 
     /// <summary>The summary twin of <see cref="ResolveReadOn"/> — the conflicts-only lazy fill, pinned to the scan's
     /// build when the outcome carries one.</summary>
@@ -2848,8 +2851,9 @@ public sealed class LoadOrderService : IDisposable
     /// own per-item error.</summary>
     public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
                                                    bool resolveNames = false, string? plugin = null,
-                                                   string? containerHint = ReadEngine.DepthExpandHint)
-        => ResolveBatch(formids, fields, conflictTree, depth, resolveNames, plugin, null, out _, out _, containerHint);
+                                                   string? containerHint = ReadEngine.DepthExpandHint,
+                                                   IReadOnlyList<int>? depths = null)
+        => ResolveBatch(formids, fields, conflictTree, depth, resolveNames, plugin, null, out _, out _, containerHint, depths);
 
     /// <summary>The artifact-aware overload: <paramref name="artifactDemand"/> (a formids=@artifact input) is checked
     /// against THIS capture's epoch — the same build that would answer — and a mismatch hands back
@@ -2858,7 +2862,8 @@ public sealed class LoadOrderService : IDisposable
     public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth,
                                                    bool resolveNames, string? plugin, ArtifactDemand? artifactDemand,
                                                    out string? artifactRefusal, out OrderStamp? refusalEpoch,
-                                                   string? containerHint = ReadEngine.DepthExpandHint)
+                                                   string? containerHint = ReadEngine.DepthExpandHint,
+                                                   IReadOnlyList<int>? depths = null)
     {
         artifactRefusal = null; refusalEpoch = null;
         var resolver = Resolver;                // build/refresh once for the batch
@@ -2882,7 +2887,7 @@ public sealed class LoadOrderService : IDisposable
             FormKey fk;
             try { fk = view.ParseFormId(raw); }
             catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
-            outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession)
+            outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths)
                          with { Stamp = view.Stamp, Pin = pin });   // the batch's one build, stamped and pinned per item
         }
         return outcomes;
@@ -2985,7 +2990,8 @@ public sealed class LoadOrderService : IDisposable
         IReadOnlyList<string>? fields, int depth, bool resolveNames,
         ArtifactDemand? artifactDemand,
         out PoleInfo? pole, out string? refusal, out OrderStamp? refusalEpoch,
-        string? containerHint = ReadEngine.DepthExpandHint)
+        string? containerHint = ReadEngine.DepthExpandHint,
+        IReadOnlyList<int>? depths = null)
     {
         pole = null; refusal = null; refusalEpoch = null;
         var resolver = Resolver;
@@ -3021,7 +3027,7 @@ public sealed class LoadOrderService : IDisposable
                 FormKey fk;
                 try { fk = view.ParseFormId(raw); }
                 catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
-                outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession)
+                outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths)
                              with { Stamp = view.Stamp, Pin = pin });
             }
             return outcomes;
@@ -3095,7 +3101,7 @@ public sealed class LoadOrderService : IDisposable
                         with { Stamp = view.Stamp, Pin = pin };
                     continue;
                 }
-                var record = ReadEngine.ReadFields(rec, fields, depth, containerHint);          // materialise while the overlay is open
+                var record = ReadEngine.ReadFields(rec, fields, depth, containerHint, depths: depths);   // materialise while the overlay is open
                 if (resolveNames) record = AnnotateLinks(record, view, session!, linkMemo!);
                 var winner = view.ResolveWinner(fk);                             // winner CONTEXT where the record also lives in the order
                 results[index] = new ReadOutcome(fk, record, plugin, winner?.WinnerPlugin,
@@ -3490,7 +3496,8 @@ public sealed class LoadOrderService : IDisposable
     public IReadOnlyList<ReadOutcome> OverlayPostBatch(
         IReadOnlyList<string> formids, IReadOnlyList<string>? fields, int depth, bool resolveNames,
         ArtifactDemand? demand, out string? refusal, out OrderStamp? refusalEpoch, out OrderStamp? epoch,
-        string? containerHint = ReadEngine.DepthExpandHint)
+        string? containerHint = ReadEngine.DepthExpandHint,
+        IReadOnlyList<int>? depths = null)
     {
         refusal = null; refusalEpoch = null;
         var resolver = Resolver;
@@ -3558,7 +3565,7 @@ public sealed class LoadOrderService : IDisposable
                     continue;
                 }
             }
-            var record = ReadEngine.ReadFields(bodyToRead!, fields, depth, containerHint, ContainmentIndex.ReadHop(view, session));
+            var record = ReadEngine.ReadFields(bodyToRead!, fields, depth, containerHint, ContainmentIndex.ReadHop(view, session), depths);
             if (resolveNames) record = AnnotateLinks(record, view, session, overlayLinkMemo ??= new LinkMemo());
             var ok = (new ReadOutcome(fk, record, winner.Value.WinnerPlugin, winner.Value.WinnerPlugin,
                                       winner.Value.OverrideDepth, null, null)
