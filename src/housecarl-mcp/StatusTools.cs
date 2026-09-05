@@ -20,7 +20,8 @@ public static class StatusTools
          "each call when the profile changed — no restart needed (a 'refresh still pending' note appears only in the rare " +
          "case MO2 was mid-write). Pass lookup= a mod folder name (e.g. 'Requiem " +
          "Lite 2') or a plugin filename (e.g. 'Requiem.esp') to ask whether houseCARL sees that one as enabled/disabled " +
-         "(mod) or active/inactive/implicit (plugin). Also reports the resolved Papyrus script-log and SKSE crash-log " +
+         "(mod) or active/inactive/implicit (plugin) — a plugin lookup also reports its LOCALIZED header flag, which is " +
+         "what an in-place write to it would be refused over. Also reports the resolved Papyrus script-log and SKSE crash-log " +
          "FOLDERS — where to Read logs for triage/diagnosis (auto-detected, or as set via " + ToolNames.SetToolPath + "). " +
          "Also reports the RUNNING SERVER's build version (the binary's informational version — the release version, " +
          "then '+' and the full commit sha, e.g. '1.9.5-dev+e942910...'), so an installed-build-vs-source check never " +
@@ -46,7 +47,9 @@ public static class StatusTools
         var data = svc.StatusData();
         var logs = StatusWire.LogFolders(tools);                 // resolved Papyrus/crash log dirs (pure — no persist)
         var profiles = svc.NamedProfileComposition(profile);     // available-profile discovery + inactive-profile inspection: text parse only, no index build, no switch
-        return StatusWire.Render(data, logs, profiles, lookup, max_chars > 0 ? max_chars : 80_000);
+        // Read only for a lookup: the flag is a per-plugin header read, and the whole-profile summary asks about none.
+        var localized = lookup is { Length: > 0 } ? svc.PluginLocalizedFlag(lookup.Trim()) : null;
+        return StatusWire.Render(data, logs, profiles, lookup, localized, max_chars > 0 ? max_chars : 80_000);
     });
 }
 
@@ -59,7 +62,8 @@ static class StatusWire
     /// Public because the unconfigured answer returns before <see cref="Render"/> runs and prints this itself.</summary>
     public static string ServerLine => "server:   " + ServerBuild.Line + "\n";
 
-    public static string Render(LoadOrderStatusData d, IReadOnlyList<LogFolderView> logs, NamedProfileResult profiles, string? lookup, int cap)
+    public static string Render(LoadOrderStatusData d, IReadOnlyList<LogFolderView> logs, NamedProfileResult profiles,
+                                string? lookup, HousecarlCore.LocalizedFlagRead? localized, int cap)
     {
         var c = d.Composition;
         int checkedActive = c.ActivePluginNames.Count;
@@ -91,7 +95,7 @@ static class StatusWire
 
         if (lookup is { Length: > 0 })
         {
-            AppendLookup(sb, c, d.ExcludedPlugins, lookup.Trim());
+            AppendLookup(sb, c, d.ExcludedPlugins, lookup.Trim(), localized);
             return sb.ToString().TrimEnd('\n');
         }
 
@@ -237,7 +241,8 @@ static class StatusWire
     }
 
     static void AppendLookup(StringBuilder sb, HousecarlCore.Mo2Composition c,
-                             IReadOnlyDictionary<string, string> excluded, string name)
+                             IReadOnlyDictionary<string, string> excluded, string name,
+                             HousecarlCore.LocalizedFlagRead? localized = null)
     {
         sb.Append("\nlookup '").Append(name).Append("':\n");
 
@@ -271,6 +276,22 @@ static class StatusWire
         // "ACTIVE ... houseCARL reads/writes it" line above must not be taken as the whole truth.
         if (excluded.TryGetValue(name, out var why))
             sb.Append("  [!] EXCLUDED this session: ").Append(why).Append("\n      → houseCARL does NOT read this plugin (every other plugin is unaffected).\n");
+
+        // The LOCALIZED header flag (#376): a localized plugin's text lives in .STRINGS files rather than in the
+        // plugin, and that is what the in-place write lanes refuse on — so the refusal is visible here, before a job
+        // meets it halfway through. Three answers, never a bool: an unreadable header asserts nothing either way.
+        // Rendered only when the name resolved to a plugin file; an inactive plugin has no resolved path, and the
+        // plugin verdict above already said so.
+        if (localized is { } flag)
+            sb.Append("  localized:   ").Append(flag switch
+            {
+                HousecarlCore.LocalizedFlagRead.Localized =>
+                    "YES (header flag set) — its text lives in separate .STRINGS files, not in the plugin. An IN-PLACE " +
+                    "write to it is refused; write to a new plugin instead.",
+                HousecarlCore.LocalizedFlagRead.NotLocalized =>
+                    "no (header flag clear) — its text is inside the plugin.",
+                _ => "UNKNOWN — houseCARL could not read this plugin's header, so neither answer is established.",
+            }).Append('\n');
     }
 
     static bool Contains(IReadOnlyList<string> list, string name)
