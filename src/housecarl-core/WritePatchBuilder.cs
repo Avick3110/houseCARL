@@ -1294,6 +1294,8 @@ public static class WritePatchBuilder
                 $"present-check passed but Remove threw — a real engine inconsistency, surfaced not swallowed (Q3): "
                 + $"{ex.GetType().Name}: {ex.Message}");
         }
+        if (DetachOwnedChildren(patchMod, toRemove) is { } detachFailed)
+            return RemovalOutcome.Fail(detachFailed + $" '{fileName}' is UNTOUCHED.");
         if (RemoveSurvivors(patchMod, toRemove) is { } survived)
             return RemovalOutcome.Fail(survived + $" '{fileName}' is UNTOUCHED.");
 
@@ -1331,6 +1333,31 @@ public static class WritePatchBuilder
     /// effect and only the post-write verify catches it. Checking the mutable mod first keeps a no-op loud with the
     /// file UNTOUCHED. Null ⇒ all targets gone; else the refusal text (the caller appends its lane's file-untouched
     /// suffix).</summary>
+    /// <summary>Drop the targets the typed <c>Remove</c> could not reach, by DETACHING them from the parent slot
+    /// that holds them. Shared by both remove lanes, run between the typed remove and the survivor check.
+    ///
+    /// <para>Mutagen's typed <c>Remove(FormKey, Type)</c> routes by GROUP, and a singular owned child is in none: a
+    /// cell's <c>Landscape</c> and a worldspace's <c>TopCell</c> are properties on their parent, so the routing
+    /// finds nothing and returns without throwing. The record is reachable — the present-check enumerates it, which
+    /// is why the caller believes it is there — but only its parent can let go of it.</para>
+    ///
+    /// <para>Run over the SURVIVORS rather than over every target, so the typed remove stays the one path for
+    /// everything it does handle and this reaches only what it left behind. Null ⇒ nothing left to do, or it was
+    /// done; else the refusal, with the file still untouched.</para></summary>
+    static string? DetachOwnedChildren(SkyrimMod mod, IReadOnlyList<RemovedRecord> toRemove)
+    {
+        var stillHere = new HashSet<FormKey>(toRemove.Select(rr => rr.Target));
+        stillHere.IntersectWith(mod.EnumerateMajorRecords().Select(r => r.FormKey));
+        foreach (var fk in stillHere)
+        {
+            // Not found in a slot is NOT an error here: it means this survivor is something else, and the survivor
+            // check below is the one that refuses for it. Reporting it here would name the wrong cause.
+            if (!OwnedChildLifecycle.TryFindSlot(mod, fk, out var slot)) continue;
+            if (OwnedChildLifecycle.Detach(slot) is { } err) return err;
+        }
+        return null;
+    }
+
     static string? RemoveSurvivors(SkyrimMod mod, IReadOnlyList<RemovedRecord> toRemove)
     {
         var mustBeGone = toRemove.Select(rr => rr.Target).ToHashSet();
@@ -1455,6 +1482,8 @@ public static class WritePatchBuilder
                 $"present-check passed but Remove threw — a real engine inconsistency, surfaced not swallowed (Q3): "
                 + $"{ex.GetType().Name}: {ex.Message}");
         }
+        if (DetachOwnedChildren(targetMod, toRemove) is { } detachFailed)
+            return RemovalOutcome.Fail(detachFailed + $" Your original '{fileName}' is UNTOUCHED.");
         if (RemoveSurvivors(targetMod, toRemove) is { } survived)
             return RemovalOutcome.Fail(survived + $" Your original '{fileName}' is UNTOUCHED.");
 

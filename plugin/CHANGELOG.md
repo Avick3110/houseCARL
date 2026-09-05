@@ -45,6 +45,16 @@ saying it sets an expectation their install may contradict. Say what is known, a
   quotes, a character a Windows folder or file name cannot contain, with `(loose)` / `(BSA)` outside them. A mod
   called `Face Extras (SE)` now reads back whole, and the printed token is the token `housecarl_place_asset`'s
   `source_provider=` accepts.
+- **A record that owns exactly one child can now be given one, and an owned child can be deleted.** A cell's
+  terrain (`Landscape`) and a worldspace's top cell are single owned child records, and neither end of their life
+  worked: a cell that carried no terrain could not be given any, because `housecarl_create`'s `parent=` only
+  reached child *collections*; and `housecarl_remove` on such a record silently dropped nothing, because Mutagen's
+  removal routes by group and a single owned child sits in none. Both now work on the record axis, with no new
+  tool: `housecarl_create` with `parent=` and `collection=` the slot's name authors one where the parent has none,
+  and `housecarl_remove` with the child's own FormID deletes one. A slot that already holds a child refuses rather
+  than overwriting the record that is there. A cell under a worldspace has two routes — its single top cell, or an
+  exterior cell in the block tree — so that one asks which you meant instead of guessing. The field-level refusals
+  that used to end at "this is an open gap" now name these calls.
 - **Two refusals about a collection element now name the call that works.** Editing one element of a polymorphic
   collection — an AI package's `Data`, a record's conditions, a script's VMAD properties — used to take several
   tries, because each refusal was correct about what was wrong and silent about what to do instead. Reaching
