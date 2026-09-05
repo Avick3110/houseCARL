@@ -2882,7 +2882,18 @@ public static class WriteSurfaceGuardProbe
         var stripped = new List<StripEntry> { new("Factions[0]", new FormKey(src, 0x802).ToString()) };
         // The single source carries a mod FOLDER, so the folder arm of the source line is rendered here rather than
         // only in the multi-source arm below.
-        var sources = new[] { new SourceArmRef("CopySrc.esp", "TheDonorMod") };
+        var sources = new[] { new SourceArmRef("CopySrc.esp", SourceArmKind.File, "TheDonorMod") };
+        // The multi-source arm, carrying every way one source can resolve: a mod folder, the ACTIVE order, the two
+        // layers that are not mod folders, and a file on disk outside all of them. They are different sentences, so
+        // one array reaches them all rather than four samples reaching one each.
+        var manySources = new[]
+        {
+            new SourceArmRef("Override.esp", SourceArmKind.File, "TheOverhaulMod"),
+            new SourceArmRef("Active.esp", SourceArmKind.ActiveOrder, null),
+            new SourceArmRef("Dropped.esp", SourceArmKind.File, "overwrite"),
+            new SourceArmRef("Unticked.esp", SourceArmKind.File, "Data"),
+            new SourceArmRef(Path.Combine(Path.GetTempPath(), "backup", "CopySrc.esp"), SourceArmKind.File, null),
+        };
 
         ClosureCopyOutcome Make(bool mastered, string? warning, IReadOnlyList<StripEntry> strips,
                                IReadOnlyList<StripEntry>? attach = null, IReadOnlyList<WalkBoundary>? kept = null,
@@ -2914,18 +2925,18 @@ public static class WriteSurfaceGuardProbe
                 attach: new List<StripEntry> { new("HeadParts", "2 link(s)"), new("WornArmor", "cleared", Cleared: true) },
                 kept: keptBoth,
                 assets: new[] { @"meshes\actors\character\facegendata\facegeom\CopySrc.esp\00000800.nif" },
-                srcs: new[] { new SourceArmRef("Override.esp", "TheOverhaulMod"), new SourceArmRef("CopySrc.esp", null) })),
+                srcs: manySources)),
             // …and the two REFUSAL sentences that were method-form and outside the content net entirely.
             CopyTools.Render(ClosureCopyOutcome.Fail(
                 walk: new WalkRefusal(WalkRefusalKind.SourceMiss, new FormKey(src, 0x820), "Npc.HeadParts",
                     Array.Empty<FormKey>(), "", Miss: null),
-                sources: new[] { new SourceArmRef("Override.esp", "TheOverhaulMod"), new SourceArmRef("CopySrc.esp", null) })),
+                sources: manySources)),
             CopyTools.Render(ClosureCopyOutcome.Fail(
                 walk: new WalkRefusal(WalkRefusalKind.SourceFault, new FormKey(src, 0x821), "Npc.HeadParts",
                     Array.Empty<FormKey>(), "the record could not be parsed",
                     Fault: new SourceFault(new FormKey(src, 0x821), "Npc.HeadParts", 0,
                         new SourceArm("CopySrc.esp", SourceArmKind.File, "on disk", _ => null), "the record could not be parsed")),
-                sources: new[] { new SourceArmRef("Override.esp", "TheOverhaulMod"), new SourceArmRef("CopySrc.esp", null) })),
+                sources: manySources)),
             // The two shape-ruling refusals. Both are reachable end to end (copy-parser-guard drives them through
             // the wire), but they are rendered here too so the sentence-reach net owns them the same way it owns
             // every other outer-class sentence — the net is about wiring, and a sentence only one probe can reach

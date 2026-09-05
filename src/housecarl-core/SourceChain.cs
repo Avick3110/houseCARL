@@ -64,16 +64,17 @@ public sealed record SourceArm(
     Func<FormKey, IMajorRecordGetter?> Fetch,
     string? Provider = null);
 
-/// <summary>One arm as a READBACK names it: the caller's own spelling and the mod folder behind it, with the fetch
-/// left off. Carried into an outcome so a response can name where each source resolved from after the chain and its
-/// overlays are gone.</summary>
-public sealed record SourceArmRef(string Spelling, string? Provider)
+/// <summary>One arm as a READBACK names it: the caller's own spelling, how it resolved, and the layer behind it,
+/// with the fetch left off. Carried into an outcome so a response can name where each source resolved from after the
+/// chain and its overlays are gone.
+/// <para><paramref name="Kind"/> travels because a null <paramref name="Provider"/> means two different things: an
+/// ACTIVE arm has no single folder behind it, while a FILE arm whose path is outside mods/overwrite/Data has a
+/// folder that simply cannot be named. Saying "from the active load order" about the second is a claim that the
+/// plugin is in the order when by construction it is not.</para></summary>
+public sealed record SourceArmRef(string Spelling, SourceArmKind Kind, string? Provider)
 {
     /// <summary>The arm, minus its fetch.</summary>
-    public static SourceArmRef Of(SourceArm arm) => new(arm.Spelling, arm.Provider);
-
-    /// <summary>A source named with no folder behind it — what a caller-side test or a synthetic outcome spells.</summary>
-    public static SourceArmRef Named(string spelling) => new(spelling, null);
+    public static SourceArmRef Of(SourceArm arm) => new(arm.Spelling, arm.Kind, arm.Provider);
 }
 
 /// <summary>A hit: the body, and WHICH arm produced it. The arm index is the provenance the readback is required

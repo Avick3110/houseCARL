@@ -222,11 +222,40 @@ internal static class WriteSentences
     [MustState("active load order")]
     internal const string CopyArmActive = "from the active load order";
 
-    /// <summary>One source arm as a caller acts on it: their own spelling, and where it actually resolved.</summary>
-    internal static string CopyArm(SourceArmRef arm) =>
-        arm.Provider is { } folder
-            ? $"{arm.Spelling} ({CopyArmFolderLead}'{folder}')"
-            : $"{arm.Spelling} ({CopyArmActive})";
+    /// <summary>The two layers that are not mod folders. A file arm can resolve into either — an unticked plugin in
+    /// the game's Data folder, or one dropped in MO2's overwrite — and the token stays what a following placement
+    /// passes, so the name is quoted the same way while the phrase stops calling it a mod.</summary>
+    [MustState("overwrite folder")]
+    internal const string CopyArmOverwriteLayer = "MO2's overwrite folder, ";
+
+    /// <summary>…and the game's own Data folder, the other reserved layer.</summary>
+    [MustState("game's Data folder")]
+    internal const string CopyArmDataLayer = "the game's Data folder, ";
+
+    /// <summary>A file arm whose path lies outside mods, overwrite and Data — an absolute path to a backup or
+    /// staging copy, a plugin sitting loose in the mods root, or a path reaching the instance through a junction.
+    /// It has no folder to name, and it is NOT in the active load order, so it gets its own sentence rather than
+    /// borrowing either of the two above.</summary>
+    [MustState("read straight off disk", "no MO2 mod folder", "source_provider=")]
+    internal const string CopyArmNoFolder =
+        "read straight off disk, outside your mods, overwrite and Data folders — no MO2 mod folder to pass as " +
+        "source_provider= for its files";
+
+    /// <summary>One source arm as a caller acts on it: their own spelling, and where it actually resolved.
+    /// <para>DOUBLE quotes around the layer name, the delimiter #340 settled on: a mod folder can hold an
+    /// apostrophe (<c>JK's Skyrim</c>) or parentheses (<c>SkyUI (SE)</c>), and this token is copied verbatim into
+    /// the next call's <c>source_provider=</c>, so the boundary has to be a character the name cannot contain.</para></summary>
+    internal static string CopyArm(SourceArmRef arm) => arm.Kind == SourceArmKind.ActiveOrder
+        ? $"{arm.Spelling} ({CopyArmActive})"
+        : arm.Provider is { } layer
+            ? $"{arm.Spelling} ({LayerPhrase(layer)}\"{layer}\")"
+            : $"{arm.Spelling} ({CopyArmNoFolder})";
+
+    /// <summary>What to call the layer a file arm resolved into — a mod folder, or one of the two that are not.</summary>
+    static string LayerPhrase(string layer) =>
+        string.Equals(layer, "overwrite", StringComparison.OrdinalIgnoreCase) ? CopyArmOverwriteLayer
+        : string.Equals(layer, "Data", StringComparison.OrdinalIgnoreCase) ? CopyArmDataLayer
+        : CopyArmFolderLead;
 
     /// <summary>One line per source consulted, in order. Rendered on success AND on a miss — a caller cannot judge
     /// "not found" without knowing where it was looked for.</summary>
