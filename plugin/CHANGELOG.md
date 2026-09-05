@@ -92,10 +92,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   that did not (the text footer's prose cannot ride a json document). `limit=`/`offset=` page the family's row list:
   the DLLs for `findings='inventory'` (with `filter=`, its DLL and config matches), the native-declaring classes for
   `'pairing'`, the config files for `'config'`. The census above the rows keeps stating the whole layer, and every
-  answer now ends on `total / rendered / skipped / capped / truncated / offset / remaining / notes`, so what a window
-  or a cap left out is a number rather than a silence. An unrecognized `format=` is refused naming the two the tool
+  answer now carries `total / rendered / skipped / capped / truncated / offset / remaining / notes`, so what a window
+  or a cap left out is a number rather than a silence. It closes the render: on the text lane the one-line family
+  footer still follows it, on the json lane the `accounting` object is the document's last member. An unrecognized
+  `format=` is refused naming the two the tool
   renders, and a negative `limit=`/`offset=` is refused naming both. Text output with neither knob passed is unchanged
-  apart from that closing accounting line. `max_chars` bounds the json document the way it bounds the text render:
+  apart from that accounting line. `max_chars` bounds the json document the way it bounds the text render:
   what it cuts from a list the accounting does not count — one config's references, the inventory's config folders,
   the pairing's unreadable `.pex` entries — is named on the spot as `references_truncated`,
   `config_folders_truncated` and `unreadable_pex_truncated`.

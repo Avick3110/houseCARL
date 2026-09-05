@@ -108,7 +108,8 @@ internal static class TransportAccounting
                                    Math.Max(w.Limit, DefaultPageLimit));
     }
 
-    /// <summary>The one machine-readable accounting line, always last: how many rows the selection named, how many
+    /// <summary>The one machine-readable accounting line, closing the render body — a surface that appends a footer of
+    /// its own (housecarl_skse's one-line family footer) writes it after this: how many rows the selection named, how many
     /// rendered, how many the paging window stepped over or left behind, and how many max_chars cut. A bulk consumer
     /// checks these numbers instead of counting prose it might miss. <paramref name="rowNoun"/> names what the
     /// counts count, e.g. "path(s)" or "DLL(s)".</summary>
