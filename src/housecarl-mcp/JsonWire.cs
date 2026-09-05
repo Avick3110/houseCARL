@@ -2715,6 +2715,9 @@ static class JsonWire
             if (!o.Success)
             {
                 w.WriteString("error", o.Error);
+                // The same three keys RenderError writes: a refusal from the outcome and a refusal from the tool
+                // layer are one shape, so a consumer reading doc["epoch"] on a refusal never throws on one of them.
+                WriteNullable(w, "epoch", null);
                 w.WriteEndObject();
                 w.Flush();          // INSIDE the using — an unflushed refusal renders EMPTY. See RenderPatchOutcome.
                 return Finish(ms);
@@ -2739,8 +2742,12 @@ static class JsonWire
             }
             w.WriteEndArray();
 
-            w.WriteNumber("total", o.Results.Count);
-            w.WriteNumber("rendered", rendered);
+            // The §2.1 counters ride under the same `accounting` object housecarl_asset_status writes, through the
+            // same composer, so a consumer reads doc.accounting.total on both S2 tools. This lane pages nothing, so
+            // the window is the whole list and only max_chars can omit a row. placed/failed are siblings, not
+            // members: that object is the eight shared counters and nothing else.
+            TransportAccounting.WriteJson(w, TransportAccounting.Tally(o.Results.Count, o.Results.Count, rendered,
+                                                                       RowWindow.All, 0));
             w.WriteNumber("placed", placed);
             w.WriteNumber("failed", o.Results.Count - placed);
             w.WriteBoolean("truncated", truncated);
@@ -2752,7 +2759,7 @@ static class JsonWire
             if (o.LeftoverFolder is not null)
                 w.WriteString("leftover_folder_note", PlaceWire.LeftoverNote(o.LeftoverFolder));
             WriteNullable(w, "leftover_folder", o.LeftoverFolder);
-            if (placed > 0) w.WriteString("next_step", PlaceWire.EnableAndSort(o, modFolder));
+            if (placed > 0) w.WriteString("next_step", PlaceWire.EnableAndSort(o, modFolder, rendered));
             w.WriteEndObject();
         }
         return Finish(ms);
