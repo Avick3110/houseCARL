@@ -2316,8 +2316,10 @@ public sealed class LoadOrderService : IDisposable
         // than whichever one the last seed happened to catch.
         var resolver = Resolver;
         var view = resolver.Capture();
+        // The seed door is pinned to that same view: a door of its own would capture a second build on the first
+        // runtime FormID, so the seeds could name records from a build other than the one the response stamps.
         return DialogueSweep.Run(fk => DialogueValidate.Run(resolver, Assets, fk, view),
-                                 OpenFormIdDoor().Parse, seeds, limit, countsOnly, view.Epoch);
+                                 FormIdDoor.On(view).Parse, seeds, limit, countsOnly, view.Epoch);
     }
 
     /// <summary>The read body, answered entirely off ONE captured view: the excluded-check, the winner and the
