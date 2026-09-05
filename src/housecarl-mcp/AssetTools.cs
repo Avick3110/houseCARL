@@ -58,7 +58,9 @@ public static class AssetTools
         if (ferr is not null) return ferr;
         if (svc.ConfigPromptOrNull() is { } prompt)
             return json ? JsonWire.RenderError(prompt, null) : prompt;
-        string Refuse(string message) => json ? JsonWire.RenderError(message, null) : "error: " + message;
+        // The read/write surface's one refusal shape, through its one owner: Wire.Refuse strips the prefix for the
+        // json document, so this shorthand only saves the two call sites below from repeating the transport flag.
+        string Refuse(string message) => Wire.Refuse(json, Wire.RefusalPrefix + message);
 
         if ((asset_paths is null || asset_paths.Length == 0) && (under is null || under.Length == 0))
             return Refuse("asset_paths and under are both empty. Pass Data-relative asset path(s) in asset_paths " +
