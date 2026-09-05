@@ -140,7 +140,7 @@ internal static class Artifacts
             identity = "formid";
             schema = new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "source", "matches?", "fields" };
             sort = "load-order scan order (deterministic within one epoch)";
-            var linkMemo = resolveNames ? new Dictionary<FormKey, ResolvedRef>() : null;
+            var linkMemo = resolveNames ? new LoadOrderService.LinkMemo() : null;
             for (int i = 0; i < q.Keys.Count; i++)
             {
                 var fk = q.Keys[i];

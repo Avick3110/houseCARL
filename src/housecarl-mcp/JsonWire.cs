@@ -994,7 +994,7 @@ static class JsonWire
                 if (q.Offset > 0) w.WriteNumber("offset", q.Offset);        // the window's start, in-band
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
                 WriteNotes(w, q, p5);
-                var linkMemo = resolveNames && detail ? new Dictionary<FormKey, ResolvedRef>() : null;
+                var linkMemo = resolveNames && detail ? new LoadOrderService.LinkMemo() : null;
                 w.WriteStartArray("matches");
                 int rendered = 0; bool rowsTruncated = false;
                 var childFields = new SortedSet<string>(StringComparer.Ordinal);   // the clause once, over the fields the rows carried
@@ -1107,7 +1107,7 @@ static class JsonWire
                 if (hasMatches) w.WriteStringValue("matches");
                 w.WriteEndArray();
 
-                var linkMemo = resolveNames && detail ? new Dictionary<FormKey, ResolvedRef>() : null;
+                var linkMemo = resolveNames && detail ? new LoadOrderService.LinkMemo() : null;
                 List<(string Formid, string Error)>? errors = null;
                 int rendered = 0; bool rowsTruncated = false;
                 var childFields = new SortedSet<string>(StringComparer.Ordinal);   // the clause once, over the cells the rows carried
