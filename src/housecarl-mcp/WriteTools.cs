@@ -324,7 +324,9 @@ public static class WriteTools
             // The per-op clause is the FILE's answer when the file gave one (LandedOnDisk), and is marked as the
             // applied edit's claim when it did not — the banner above says "re-read off the written file".
             var landed = ops.Where(op => op.Target == r.Target && (op.LandedOnDisk ?? op.Landed) is not null)
-                             .Select(op => $"{op.Label}: {op.LandedOnDisk ?? op.Landed}" + LandedProvenance(op) + ApplyNote(op))
+                             // No ApplyNote here: the op line above already carried it, and readback is FORCED on the
+                             // in-place lane, so appending it would print the same sentence twice for the same op.
+                             .Select(op => $"{op.Label}: {op.LandedOnDisk ?? op.Landed}" + LandedProvenance(op))
                              .ToList();
             if (landed.Count > 0) sb.Append("; ").Append(string.Join("; ", landed));
             sb.Append('\n');
