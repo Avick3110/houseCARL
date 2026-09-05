@@ -4072,8 +4072,11 @@ public sealed class LoadOrderService : IDisposable
             var universe = HousecarlCore.ReverseSelection.Universe(view, view.ReverseIndex!, references);
             var universeNote = HousecarlCore.ReverseSelection.UniverseNote(references, universe.Count);
             // The index's own line rides EVERY answer it serves, not only the call that paid the build: the
-            // freshness key and the unreadable-plugin disclosure are true of a cached answer too.
-            reverseNote = universeNote is null ? built.Note : built.Note + " " + universeNote;
+            // freshness key and the unreadable-plugin disclosure are true of a cached answer too. Which lane asked
+            // decides how an unreadable plugin reads — short for the positive question, over-inclusive for the
+            // sweep — so the note is told for the lane.
+            bool orphanSweep = references is not { Count: > 0 };
+            reverseNote = built.NoteFor(orphanSweep) + (universeNote is null ? "" : " " + universeNote);
             formidSet = universe;
             hasFormidSet = true;                                       // an empty universe is still the universe: 0 matches, not a refusal
             indexUniverse = true;
