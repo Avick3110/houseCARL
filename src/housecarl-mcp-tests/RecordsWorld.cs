@@ -119,7 +119,7 @@ public sealed class RecordsWorld : IDisposable
         // inside an element. Deliberately unlinked — a link here would join the reverse-carrier lanes.
         {
             var e = new Effect();
-            e.Data = new EffectData { Magnitude = 11 };
+            e.Data = new EffectData { Magnitude = 4 };
             e.Conditions.Add(new ConditionFloat
             {
                 CompareOperator = CompareOperator.EqualTo, ComparisonValue = 2f,
