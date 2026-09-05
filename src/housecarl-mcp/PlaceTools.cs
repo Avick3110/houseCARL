@@ -95,10 +95,10 @@ public static class PlaceTools
         return PlaceTargets(svc, assets, source_provider, kind, patch, into, max_chars, json);
     });
 
-    /// <summary>The write surface's one refusal shape, in the transport the caller asked for — the text lane's
-    /// "error: " prefix, or the json refusal document.</summary>
-    static string Refuse(bool json, string message)
-        => json ? JsonWire.RenderError(message, null) : "error: " + message;
+    /// <summary>The one refusal shape, through its one owner — <see cref="Wire.Refuse"/>, which owns the
+    /// <see cref="Wire.RefusalPrefix"/> the json document strips. A shorthand so the call sites below need not repeat
+    /// the prefix and the transport flag both, never a second definition of the shape.</summary>
+    static string Refuse(bool json, string message) => Wire.Refuse(json, Wire.RefusalPrefix + message);
 
     static string PlaceTargets(LoadOrderService svc, PlaceTarget[] assets, string? source_provider,
                                string? kind, string? patch, string? into, int max_chars, bool json)
