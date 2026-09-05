@@ -261,6 +261,12 @@ public sealed class LoadOrderResolver : IDisposable
     /// keeps results valid by holding the session open until it has materialised what it returns (the service reads
     /// fields off a fetched body before its session disposes; the write path keeps the source body + link cache valid
     /// through serialize).</summary>
+    /// <summary>How many overlay OPENS sessions have paid in this process, counted where one actually happens.
+    /// Whether a call opened a plugin once or once per row is invisible in every answer — the bytes are the same,
+    /// only the clock differs — so this is the one thing a test can hold a session-reuse claim to. Read-only to
+    /// everything but <see cref="OverlaySession.Overlay"/>.</summary>
+    internal static long SessionOverlayOpens;
+
     public sealed class OverlaySession : IDisposable
     {
         readonly LoadOrderResolver _r;
@@ -272,7 +278,10 @@ public sealed class LoadOrderResolver : IDisposable
         internal ISkyrimModGetter Overlay(int idx)
         {
             if (!_open.TryGetValue(idx, out var ov))
+            {
+                System.Threading.Interlocked.Increment(ref SessionOverlayOpens);
                 _open[idx] = ov = OpenOverlay(_r._paths[idx], _r._dataDir);
+            }
             return ov;
         }
 

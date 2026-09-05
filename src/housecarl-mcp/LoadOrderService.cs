@@ -1,4 +1,4 @@
-using Mutagen.Bethesda.Plugins;
+﻿using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Aspects;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
@@ -2317,7 +2317,8 @@ public sealed class LoadOrderService : IDisposable
                             FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth,
                             bool resolveNames = false, LinkMemo? linkMemo = null,
                             string? containerHint = ReadEngine.DepthExpandHint,
-                            ChildUnionMemo? unionMemo = null)
+                            ChildUnionMemo? unionMemo = null,
+                            LoadOrderResolver.OverlaySession? batchSession = null)
     {
         // An explicitly-requested plugin excluded this session (unparseable or unopenable) is said so, rather than
         // falling through to a misleading "does not define this record".
@@ -2357,7 +2358,11 @@ public sealed class LoadOrderService : IDisposable
         if (winner is null) return ReadOutcome.Fail(fk, UnresolvedFormId(view, fk));
 
         var source = plugin ?? winner.Value.WinnerPlugin;
-        using var session = resolver.OpenSession();                       // opens the source plugin; disposed at return
+        // A session is an overlay CACHE, and the union opens a body per touching plugin — so a batch that gave one
+        // in pays each plugin's mmap once for the whole call instead of once per record. Only what this call
+        // opened is disposed here: the batch's own session outlives the item and is closed by the batch.
+        using var ownSession = batchSession is null ? resolver.OpenSession() : null;
+        var session = batchSession ?? ownSession!;
         var rec = view.GetRecord(session, source, fk);                    // excluded-check pinned to the same view the winner came from
         if (rec is null)
         {
@@ -2800,13 +2805,17 @@ public sealed class LoadOrderService : IDisposable
         var pin = new ViewPin(resolver, view);
         var linkMemo = resolveNames ? new LinkMemo() : null;   // one link-resolution cache across the whole batch
         var unionMemo = new ChildUnionMemo();                  // the caller NAMED these records: the union lane, one assembly per record
+        // One overlay cache for the whole batch. The memo dedupes a repeated FORMID; this dedupes a repeated
+        // PLUGIN, which is the shape a batch actually has — 100 exterior cells share their touchers, and a session
+        // per record re-mmaps every one of them per row. Disposed with the call, like any other read's.
+        using var batchSession = resolver.OpenSession();
         var outcomes = new List<ReadOutcome>(formids.Count);
         foreach (var raw in formids)
         {
             FormKey fk;
             try { fk = view.ParseFormId(raw); }
             catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
-            outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, unionMemo)
+            outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession)
                          with { Epoch = view.Epoch, Pin = pin });   // the batch's one build, stamped and pinned per item
         }
         return outcomes;
@@ -2935,13 +2944,14 @@ public sealed class LoadOrderService : IDisposable
             // excluded-plugin and untouched-record refusals per item and the touchers named.
             var linkMemo = resolveNames ? new LinkMemo() : null;
             var unionMemo = new ChildUnionMemo();   // named records again: the union lane
+            using var batchSession = resolver.OpenSession();   // and one overlay cache for the batch, as ResolveBatch has
             var outcomes = new List<ReadOutcome>(formids.Count);
             foreach (var raw in formids)
             {
                 FormKey fk;
                 try { fk = view.ParseFormId(raw); }
                 catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
-                outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo, containerHint, unionMemo)
+                outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession)
                              with { Epoch = view.Epoch, Pin = pin });
             }
             return outcomes;

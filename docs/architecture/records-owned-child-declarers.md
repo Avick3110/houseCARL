@@ -71,6 +71,23 @@ body per toucher per named record and is what the caller asked for.
 Both numbers are from this synthetic, not from a real load order; the shapes a real order adds are more touchers
 per cell and bigger plugins, both of which the per-toucher cost scales with linearly.
 
+### One overlay cache per call, not per record
+
+A session is the cache that keeps a plugin's overlay open, and `ResolveRead` used to open its own per record —
+so a batch re-mmapped every toucher once per ROW. The `ChildUnionMemo` does not cover this: it dedupes a
+repeated FORMID, and a batch's rows are distinct records over the SAME plugins. So the batch lanes now open one
+session for the call and hand it down. On the synthetic above, the 200-cell `formids=` batch:
+
+| | overlay opens | wall |
+|---|---|---|
+| a session per record | 2,050 | 2.12 s |
+| one per call | 10 | 1.37 s |
+
+The remaining second is the per-toucher body walk itself, which is the thing the caller asked for. Opens scale
+with the ORDER's plugin count now instead of with rows, which is what makes the real-order shape — more
+touchers, bigger plugins — cost more only in the walk. `RecordsOwnedChildTests` pins the count via
+`LoadOrderResolver.SessionOverlayOpens`; nothing else reads it.
+
 ## The tree form still names WHICH
 
 `records project={"form":"tree"}` opens every provider's body to build its diff, so it states per-provider
