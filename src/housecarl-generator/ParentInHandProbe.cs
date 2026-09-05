@@ -317,14 +317,37 @@ static class ParentInHandProbe
         }
     }
 
-    /// <summary>Every record in the plugin that BEARS children — the three parent types, asked of the corpus rather
-    /// than named here: a type is a parent iff OwnedChildContent.Fields answers non-empty for it.</summary>
+    /// <summary>Every record in the plugin that BEARS children, off the SAME source the report's row set comes from —
+    /// so a Mutagen bump that adds a child-bearing type cannot leave the probe printing "no children in this order"
+    /// for a type it simply never enumerated.</summary>
     static IEnumerable<IMajorRecordGetter> ParentBodies(ISkyrimModGetter ov)
     {
-        foreach (var c in ov.EnumerateMajorRecords<ICellGetter>()) yield return c;
-        foreach (var d in ov.EnumerateMajorRecords<IDialogTopicGetter>()) yield return d;
-        foreach (var w in ov.EnumerateMajorRecords<IWorldspaceGetter>()) yield return w;
+        foreach (var getter in ChildBearingGetters())
+            foreach (var rec in ov.EnumerateMajorRecords(getter, throwIfUnknown: true))
+                yield return (IMajorRecordGetter)rec;
     }
+
+    /// <summary>The child-bearing concrete record types, each paired with the getter interface the overlay enumerates
+    /// by. One source, asked once: WriteEngine.ChildBearingProperties over WriteSurfaceGuardProbe.ConcreteRecordTypes.
+    /// A child-bearing type with no getter interface is a real coverage gap, so it is named rather than dropped.</summary>
+    static IReadOnlyList<Type> ChildBearingGetters() => _childBearingGetters ??= BuildChildBearingGetters();
+    static IReadOnlyList<Type>? _childBearingGetters;
+
+    static IReadOnlyList<Type> BuildChildBearingGetters()
+    {
+        var getters = new List<Type>();
+        foreach (var t in ChildBearingTypes())
+        {
+            var getter = WriteEngine.PrimaryGetter(t);
+            if (getter is null) Console.WriteLine($"   ! {t.Name} bears children but has no getter interface — not enumerated.");
+            else if (!getters.Contains(getter)) getters.Add(getter);
+        }
+        return getters;
+    }
+
+    /// <summary>Every concrete record type Mutagen models that has a child-bearing property.</summary>
+    static IEnumerable<Type> ChildBearingTypes() =>
+        WriteSurfaceGuardProbe.ConcreteRecordTypes().Where(t => WriteEngine.ChildBearingProperties(t).Count > 0);
 
     /// <summary>The DIRECT child records held by one child-bearing field's value — stopping at the first major
     /// record on each branch, so a worldspace's SubCells yields its CELLs and not their placed references. Same cut
@@ -503,12 +526,9 @@ static class ParentInHandProbe
     /// one, spelled Type.Property. This is the row set the report must cover.</summary>
     static IEnumerable<string> ChildBearingSurface()
     {
-        foreach (var t in typeof(ISkyrimMod).Assembly.GetTypes())
-        {
-            if (t.IsAbstract || !t.IsClass || !typeof(IMajorRecord).IsAssignableFrom(t)) continue;
+        foreach (var t in ChildBearingTypes())
             foreach (var p in WriteEngine.ChildBearingProperties(t))
                 yield return $"{Short(t)}.{p.Name}";
-        }
     }
 
     static string Short(Type t)
