@@ -49,8 +49,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   A quantified step composes with the `->` link step and with another quantified step, at the cost the tool
   description declares (per-candidate work times list length, and one winner fetch per element under `->`). The bare
   `[*]` is the element SET and is refused in `where=`, naming the three fold tokens; a quantifier pointed at a field
-  that is not a list — a scalar, a dict, a raw byte block — is named in the scan's accounting with what that step read
-  instead, never counted as a silent non-match. An absent list reads as EMPTY, and so does one whose parent substruct
+  that is not a list — a scalar, a dict, a raw byte block — refuses the call by naming the step's real cardinality
+  wherever `types=` says which record type it lands on, and where the scope cannot say (no `types=`, or a mixed one)
+  the scan's accounting names what that step read instead; either way, never a silent non-match. An absent list reads as EMPTY, and so does one whose parent substruct
   is absent, so `VirtualMachineAdapter.Scripts[*count] = 0` finds the records that carry no script at all; where an
   element cannot be judged, the fold reports no verdict rather than claiming one. Reaching a list with a dotted
   segment still refuses, and its remedy now offers the quantified spelling alongside the bracketed index.

@@ -56,6 +56,24 @@ public sealed class RecordsReferenceExclusionTests : RecordsTestBase
     }
 
     [Fact]
+    public void AQuantifierOnANonListStepIsRefusedFromTheSchemaWhenTheTypeIsNamed()
+    {
+        // The scan's refusal rides under the header line, so this is not the bare "error:" shape.
+        var r = RecordsTools.Records(Svc, types: new[] { "ARMO" },
+                                     where: new[] { "BodyTemplate[*any].FirstPersonFlags has Head" });
+        Assert.Contains("error:", r);
+        Assert.Contains("not a list", r);
+        Assert.Contains("substruct on Armor", r);
+    }
+
+    [Fact]
+    public void AQuantifierOnAListStepPassesTheSchemaCheck()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, where: new[] { "Effects[*count] > 0" });
+        Served(r, "HcRecSpellA");
+    }
+
+    [Fact]
     public void AFoldTokenInProjectFieldsIsRefused_ABooleanIsNotARow() =>
         Refused(RecordsTools.Records(Svc, types: new[] { "SPEL" },
                                      project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects[*any].Data.Magnitude" } }),
