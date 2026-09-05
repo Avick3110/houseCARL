@@ -163,16 +163,19 @@ public static class CheckTools
         }
 
         // Both swept families take the same plugins= list whole: each resolves a name the active order does not hold
-        // on disk and sweeps it off-order, so one list means the same scope in both sections.
+        // on disk and sweeps it off-order, so one list means the same scope in both sections. They share ONE memo of
+        // that split, so the default findings set does not read the MO2 composition and sweep every mod folder twice
+        // for an answer that is identical both times — and the two cannot disagree about which names resolved.
+        var offOrderMemo = new SweepOffOrderMemo();
         ErrorCheckResult? errors = null;
         ScriptCheckResult? scripts = null;
         if (selection.Ran.Contains(SweepFamily.Errors))
             errors = svc.CheckErrors(plugins, lim, formids, editorid_contains, type,
-                                     SweepFindings.Tokens(selection.ErrorClasses), counts_only, exclude);
+                                     SweepFindings.Tokens(selection.ErrorClasses), counts_only, exclude, offOrderMemo);
         if (selection.Ran.Contains(SweepFamily.Scripts))
             scripts = svc.ValidateScripts(plugins, lim, formids, editorid_contains,
                                           type, property_contains, SweepFindings.Tokens(selection.ScriptClasses),
-                                          counts_only, exclude);
+                                          counts_only, exclude, offOrderMemo);
         DialogueCheckResult? dialogue = null;
         if (selection.Ran.Contains(SweepFamily.Dialogue))
             // Its own scope, not the plugins= list: this family selects records, not plugins, so handing it

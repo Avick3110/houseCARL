@@ -48,6 +48,7 @@ public sealed class ScriptsOffOrderTests : IDisposable
     const int PendingUnverifiable = 3;
 
     readonly string _root;
+    readonly string _instance;
     readonly LoadOrderService _svc;
 
     public ScriptsOffOrderTests()
@@ -56,7 +57,7 @@ public sealed class ScriptsOffOrderTests : IDisposable
         var game = Path.Combine(_root, "game");
         Directory.CreateDirectory(Path.Combine(game, "Data"));
 
-        var instance = Path.Combine(_root, "inst");
+        var instance = _instance = Path.Combine(_root, "inst");
         var mods = Path.Combine(instance, "mods");
         var activeDir = Path.Combine(mods, "ActiveMod");
         var pendingDir = Path.Combine(mods, "PendingMod");
@@ -222,6 +223,38 @@ public sealed class ScriptsOffOrderTests : IDisposable
                      r.Reports.Sum(rep => rep.Unverifiable.Count(u => u.Script == "(unnamed)")));
         // …and each record is named, which is the whole point: the listing says which ones to open.
         Assert.Equal(NamelessRecords, r.Reports.Select(rep => rep.EditorId).Distinct().Count());
+    }
+
+    /// <summary>The merged surface hands the same plugins= list to both swept families, so the MO2 composition read
+    /// and the whole-install folder sweep behind the off-order lane happen ONCE between them. Proved by making a
+    /// fresh locate impossible after the first family has run: a second mod folder now provides the same filename,
+    /// so a family that resolved again would refuse as ambiguous.</summary>
+    [Fact]
+    public void TheTwoSweptFamiliesResolveTheOffOrderScopeOnceBetweenThem()
+    {
+        var plugins = new[] { PendingName };
+        var memo = new SweepOffOrderMemo();
+
+        var errors = _svc.CheckErrors(plugins, 1000, offOrderMemo: memo);
+        Assert.Null(errors.Error);
+
+        // A second DISABLED mod folder now provides HcOoPending.esp too. The active order is untouched, so the
+        // build's fingerprint is the same and only the locate can tell the difference.
+        var dupe = Path.Combine(_instance, "mods", "DupeMod");
+        Directory.CreateDirectory(dupe);
+        File.Copy(Path.Combine(_instance, "mods", "PendingMod", PendingName), Path.Combine(dupe, PendingName));
+        var modlist = Path.Combine(_instance, "profiles", "Default", "modlist.txt");
+        File.WriteAllText(modlist, "# header\r\n-DupeMod\r\n-PendingMod\r\n+ActiveMod\r\n");
+
+        // The control: a family resolving on its own now sees both copies and refuses.
+        var fresh = _svc.ValidateScripts(plugins, 1000);
+        Assert.Contains("ambiguous", fresh.Error);
+
+        // Handed the first family's memo, the second sweeps off the split already made — no second folder sweep.
+        var shared = _svc.ValidateScripts(plugins, 1000, offOrderMemo: memo);
+        Assert.Null(shared.Error);
+        Assert.Equal(new[] { PendingName }, shared.OffOrderScanned);
+        Assert.Equal(errors.OffOrderScanned, shared.OffOrderScanned);
     }
 
     [Fact]
