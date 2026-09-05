@@ -289,4 +289,27 @@ public sealed class CheckExcludeGrammarDescriptionTests
     [MemberData(nameof(AcceptedTokens))]
     public void TheExcludeDescriptionNamesEveryTokenTheParameterAccepts(string token) =>
         Assert.Contains(token, ExcludeDescription());
+
+    static string LimitDescription()
+    {
+        var param = typeof(CheckTools).GetMethod(nameof(CheckTools.CheckTool), BindingFlags.Public | BindingFlags.Static)?
+            .GetParameters().FirstOrDefault(x => x.Name == "limit");
+        Assert.NotNull(param);
+        var text = param!.GetCustomAttribute<DescriptionAttribute>()?.Description;
+        Assert.NotNull(text);
+        return text!;
+    }
+
+    /// <summary>An agent plans against the tool description, so the knob may not promise a listing the sweep no
+    /// longer produces: unverifiable notes are outside limit=, but repeats for one script class are collapsed.</summary>
+    [Fact]
+    public void TheLimitDescriptionStatesTheUnverifiableCollapseRatherThanAFullListing()
+    {
+        var text = LimitDescription();
+
+        Assert.Contains("collapsed", text);
+        Assert.Contains("script class", text);
+        // The claim the collapse made untrue must be gone, not merely qualified further down.
+        Assert.DoesNotContain("always listed in full", text);
+    }
 }
