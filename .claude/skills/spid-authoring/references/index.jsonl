@@ -3,7 +3,7 @@
 {"topic": "Item", "kind": "form-type", "sig": "ALCH, AMMO, ARMO, BOOK, INGR, KEYM, LVLI, MISC, SCRL, SLGM, WEAP", "file": "form-types.md", "aliases": ["weapon", "armor", "potion", "gear", "gold", "arrows", "count"]}
 {"topic": "Shout", "kind": "form-type", "sig": "SHOU", "file": "form-types.md"}
 {"topic": "Package", "kind": "form-type", "sig": "PACK, FLST", "file": "form-types.md", "aliases": ["AI package", "patrol", "travel", "package index", "package list"]}
-{"topic": "Keyword", "kind": "form-type", "sig": "KYWD", "file": "form-types.md", "note": "can be created dynamically", "aliases": ["dynamic keyword", "tag"]}
+{"topic": "Keyword", "kind": "form-type", "sig": "KYWD", "file": "form-types.md", "note": "can be created dynamically", "aliases": ["dynamic keyword", "tag", "GetKeyword", "no plugin FormID", "not in xEdit", "keyword array"]}
 {"topic": "Outfit", "kind": "form-type", "sig": "OTFT", "file": "form-types.md"}
 {"topic": "SleepOutfit", "kind": "form-type", "sig": "OTFT", "file": "form-types.md", "note": "cannot be inferred — name the type explicitly"}
 {"topic": "Faction", "kind": "form-type", "sig": "FACT", "file": "form-types.md"}
@@ -14,6 +14,7 @@
 {"topic": "Trait Filter", "kind": "filter", "section": 4, "file": "filters.md", "aliases": ["female", "male", "unique", "summonable", "child", "leveled", "teammate", "dead", "gender"]}
 {"topic": "line syntax", "kind": "grammar", "file": "grammar-core.md", "aliases": ["pipe sections", "FormType", "FormOrEditorID", "NONE", "blank section"]}
 {"topic": "file discovery & load order", "kind": "grammar", "file": "grammar-core.md", "aliases": ["_DISTR", "Data folder", "alphabetical", "comments", "semicolon"]}
+{"topic": "when distribution happens", "kind": "grammar", "file": "grammar-core.md", "aliases": ["lazy", "cell load", "once per launch", "restart", "from scratch", "existing save", "new game needed", "player excluded", "never the player", "verify"]}
 {"topic": "input normalization", "kind": "grammar", "file": "grammar-core.md", "aliases": ["whitespace", "xEdit paste", "space hyphen space", "leading zeros", "0x"]}
 {"topic": "referencing a form", "kind": "grammar", "file": "grammar-core.md", "aliases": ["FormID", "EditorID", "suffix tilde", "0x123~Plugin.esp"]}
 {"topic": "filter combination logic", "kind": "grammar", "file": "grammar-core.md", "aliases": ["AND", "OR", "exclusion", "multiple lines", "multiplicative", "additive"]}
