@@ -52,7 +52,14 @@ comment stripping are CSimpleIniA's, not SPID's own code.)
 ## 3. When distribution happens, and in what order
 
 **When:** distribution is **lazy** — it runs when NPCs are loaded into the world (typically on cell
-load), not all at once at game start.
+load), not all at once at game start. The configs themselves are read **once per game launch**, so an
+INI edited while the game is running takes effect only after a restart. **[source]**
+(`SPID/src/main.cpp` — configs are read at `kPostLoad` and forms looked up at `kDataLoaded`.)
+
+**Who — never the player.** Every distribution path is gated on
+`detail::should_process_NPC`, which is `!a_npc->IsPlayer() && !a_npc->IsDeleted()`, so the player
+character is not a distribution target and never receives a SPID form. **[source]**
+(`SPID/src/DistributeManager.cpp`.)
 
 **Order (per-type passes):** SPID processes each form type separately, in this fixed order:
 
