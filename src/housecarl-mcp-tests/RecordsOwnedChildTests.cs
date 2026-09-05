@@ -48,11 +48,44 @@ public sealed class OwnedChildWorld : IDisposable
     /// <summary>OVER THE MEMBER CAP — the base declares 101 references and the mid plugin overrides the cell
     /// declaring none, so the union is 101 against a json member cap of 100.</summary>
     public FormKey CellH { get; }
+    /// <summary>The child-KIND cell: the placed-NPC (ACHR), navmesh and deleted-reference children the other
+    /// cells don't carry, plus the reference Mid re-parents out of it. Its own declarers picture is deliberately
+    /// dull — the containment tests read it, the annotation tests don't.</summary>
+    public FormKey CellI { get; }
+    /// <summary>Declared only by Mid, and it steals base's <see cref="ReparentedRef"/> out of <see cref="CellI"/>.</summary>
+    public FormKey CellJ { get; }
     public FormKey Topic { get; }
     /// <summary>A 3-toucher record with no child-bearing field at all.</summary>
     public FormKey Weapon { get; }
     /// <summary>REACH — the base holds one block with 3 real cells; the winner holds 2 empty blocks.</summary>
     public FormKey Worldspace { get; }
+
+    /// <summary>ACHR under <see cref="CellI"/>.Persistent — the child type the issue title names and the fixture
+    /// otherwise had none of.</summary>
+    public FormKey PlacedNpc { get; }
+    /// <summary>NAVM under <see cref="CellI"/>.NavigationMeshes — the one child kind that also names its parent on
+    /// its own body, so the only place the index and the record body could disagree.</summary>
+    public FormKey Navmesh { get; }
+    /// <summary>A placed reference base DELETED — the patch-deleted crash-log case a *parent filter must still
+    /// answer, since the hop reads its FormKey and nothing else.</summary>
+    public FormKey DeletedRef { get; }
+    /// <summary>Base declares it under <see cref="CellI"/>; Mid declares the SAME FormKey under
+    /// <see cref="CellJ"/>. Later wins, so containment says CellJ.</summary>
+    public FormKey ReparentedRef { get; }
+    /// <summary>Base's persistent reference under <see cref="CellA"/> — the Cell.Persistent row.</summary>
+    public FormKey PersistentRef { get; }
+    /// <summary>Base's landscape under <see cref="CellA"/> — the Cell.Landscape row (a SINGULAR child).</summary>
+    public FormKey LandscapeRec { get; }
+    /// <summary>The worldspace's TopCell — the second Worldspace child property, and a singular one.</summary>
+    public FormKey TopCell { get; }
+    /// <summary>The first of the worldspace's sub-block cells (<c>Worldspace.SubCells</c>).</summary>
+    public FormKey WorldCell { get; }
+    /// <summary>A placed reference inside <see cref="WorldCell"/> — REFR → CELL → WRLD, the real two-hop chain
+    /// the crash-log case walks.</summary>
+    public FormKey WorldCellRef { get; }
+
+    /// <summary>The three plugins on disk, so a test can enumerate them the way the index build does.</summary>
+    public IReadOnlyList<string> PluginPaths { get; }
 
     public static string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
 
@@ -83,7 +116,13 @@ public sealed class OwnedChildWorld : IDisposable
         CellA = new FormKey(baseKey, 0xC01); CellB = new FormKey(baseKey, 0xC02); CellC = new FormKey(baseKey, 0xC03);
         CellD = new FormKey(baseKey, 0xC04); CellE = new FormKey(baseKey, 0xC05); CellF = new FormKey(baseKey, 0xC06);
         CellG = new FormKey(baseKey, 0xC07); CellH = new FormKey(baseKey, 0xC08);
+        CellI = new FormKey(baseKey, 0xC09); CellJ = new FormKey(midKey, 0xA09);
         Topic = new FormKey(baseKey, 0xD01); Weapon = new FormKey(baseKey, 0xE01); Worldspace = new FormKey(baseKey, 0xF01);
+        PlacedNpc = new FormKey(baseKey, 0xC80); Navmesh = new FormKey(baseKey, 0xC82);
+        DeletedRef = new FormKey(baseKey, 0xC83); ReparentedRef = new FormKey(baseKey, 0xC84);
+        PersistentRef = new FormKey(baseKey, 0xC1A); LandscapeRec = new FormKey(baseKey, 0xC1B);
+        TopCell = new FormKey(baseKey, 0xF20); WorldCell = new FormKey(baseKey, 0xF10);
+        WorldCellRef = new FormKey(baseKey, 0xF30);
 
         var baseDir = Path.Combine(mods, "BaseMod"); Directory.CreateDirectory(baseDir);
         var basePath = Path.Combine(baseDir, BaseName);
@@ -127,6 +166,21 @@ public sealed class OwnedChildWorld : IDisposable
                 h.Temporary.Add(new PlacedObject(new FormKey(baseKey, (uint)(0x1000 + i)), SkyrimRelease.SkyrimSE) { EditorID = $"HcOcHTemp{i}" });
             FileInterior(m, h);
 
+            // The child-KIND cell: an ACHR, a navmesh, a DELETED placed reference, and the reference Mid moves out.
+            var iCell = new Cell(CellI, SkyrimRelease.SkyrimSE) { EditorID = "HcOcCellI", Flags = Cell.Flag.IsInteriorCell };
+            iCell.Persistent.Add(new PlacedNpc(PlacedNpc, SkyrimRelease.SkyrimSE) { EditorID = "HcOcAchr" });
+            // The navmesh names its own cell at Data.Parent as well as sitting under it, so the index and the
+            // record body can be checked against each other — the only child kind where that is possible.
+            iCell.NavigationMeshes.Add(new NavigationMesh(Navmesh, SkyrimRelease.SkyrimSE)
+            {
+                EditorID = "HcOcNavm",
+                Data = new NavigationMeshData { Parent = new CellNavmeshParent { Parent = CellI.ToLink<ICellGetter>() } },
+            });
+            iCell.Temporary.Add(new PlacedObject(DeletedRef, SkyrimRelease.SkyrimSE) { EditorID = "HcOcGone", IsDeleted = true });
+            iCell.Temporary.Add(new PlacedObject(ReparentedRef, SkyrimRelease.SkyrimSE) { EditorID = "HcOcMoves" });
+            FileInterior(m, iCell);
+
+
             var t = new DialogTopic(Topic, SkyrimRelease.SkyrimSE) { EditorID = "HcOcTopic" };
             for (int i = 0; i < 2; i++)
             {
@@ -143,8 +197,14 @@ public sealed class OwnedChildWorld : IDisposable
             var blk = new WorldspaceBlock { BlockNumberX = 0, BlockNumberY = 0, GroupType = GroupTypeEnum.ExteriorCellBlock };
             var sub = new WorldspaceSubBlock { BlockNumberX = 0, BlockNumberY = 0, GroupType = GroupTypeEnum.ExteriorCellSubBlock };
             for (int i = 0; i < 3; i++)
-                sub.Items.Add(new Cell(new FormKey(baseKey, (uint)(0xF10 + i)), SkyrimRelease.SkyrimSE) { EditorID = $"HcOcWsCell{i}" });
+            {
+                var wc = new Cell(new FormKey(baseKey, (uint)(0xF10 + i)), SkyrimRelease.SkyrimSE) { EditorID = $"HcOcWsCell{i}" };
+                // A placed reference two containment steps under the worldspace: REFR -> CELL -> WRLD.
+                if (i == 0) wc.Temporary.Add(new PlacedObject(WorldCellRef, SkyrimRelease.SkyrimSE) { EditorID = "HcOcWsRef" });
+                sub.Items.Add(wc);
+            }
             blk.Items.Add(sub); ws.SubCells.Add(blk);
+            ws.TopCell = new Cell(TopCell, SkyrimRelease.SkyrimSE) { EditorID = "HcOcWsTop" };
             m.Worldspaces.Add(ws);
 
             m.BeginWrite.ToPath(basePath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
@@ -172,6 +232,14 @@ public sealed class OwnedChildWorld : IDisposable
             g.Temporary.Add(new PlacedObject(new FormKey(baseKey, 0xC70), SkyrimRelease.SkyrimSE) { EditorID = "HcOcGTemp0" });
             g.Temporary.Add(new PlacedObject(new FormKey(midKey, 0xA70), SkyrimRelease.SkyrimSE) { EditorID = "HcOcMidGTemp0" });
             FileInterior(m, g);
+
+            // The later-wins merge, both halves. Mid re-declares CellI carrying NOTHING — which must not erase
+            // base's edges for the children it declared there — and declares base's ReparentedRef under a cell of
+            // its own, which must move that one child and only that one.
+            FileInterior(m, new Cell(CellI, SkyrimRelease.SkyrimSE) { EditorID = "HcOcCellI", Flags = Cell.Flag.IsInteriorCell });
+            var jCell = new Cell(CellJ, SkyrimRelease.SkyrimSE) { EditorID = "HcOcCellJ", Flags = Cell.Flag.IsInteriorCell };
+            jCell.Temporary.Add(new PlacedObject(ReparentedRef, SkyrimRelease.SkyrimSE) { EditorID = "HcOcMoves" });
+            FileInterior(m, jCell);
 
             m.Weapons.GetOrAddAsOverride(baseOv.Weapons.First(w => w.FormKey == Weapon)).BasicStats!.Damage = 7;
             m.BeginWrite.ToPath(Path.Combine(midDir, MidName)).WithLoadOrder(new ISkyrimModGetter[] { baseOv }).Write();
@@ -217,6 +285,8 @@ public sealed class OwnedChildWorld : IDisposable
             m.Weapons.GetOrAddAsOverride(baseOv.Weapons.First(w => w.FormKey == Weapon)).BasicStats!.Damage = 9;
             m.BeginWrite.ToPath(Path.Combine(topDir, TopName)).WithLoadOrder(new ISkyrimModGetter[] { baseOv }).Write();
         }
+
+        PluginPaths = new[] { basePath, Path.Combine(midDir, MidName), Path.Combine(topDir, TopName) };
 
         File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + BaseName + "\r\n" + MidName + "\r\n" + TopName + "\r\n");
         File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + BaseName + "\r\n*" + MidName + "\r\n*" + TopName + "\r\n");

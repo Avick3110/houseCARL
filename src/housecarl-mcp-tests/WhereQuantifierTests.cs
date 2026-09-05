@@ -333,6 +333,31 @@ public sealed class WhereQuantifierTests
         Assert.Empty(hits);
         Assert.DoesNotContain("read FAULT", note);
     }
+    // ---- a quantifier on an identity term ----------------------------------------------------------
+    //
+    // The pseudo-path classification runs AFTER the fold split, which has already rewritten 'editorid[*any]' to
+    // the bare segment 'editorid'. Left to match on the segment alone it would classify as the identity term and
+    // return before the fold was ever read — the quantifier accepted and silently ignored, a different filter
+    // from the one the caller wrote. It refuses by name instead.
+
+    [Theory]
+    [InlineData("editorid[*any] = QSpellLow")]
+    [InlineData("winner[*all] = QuantWorld.esm")]
+    [InlineData("formid[*any] in [000800:QuantWorld.esm]")]
+    [InlineData("editorid[*count] > 2")]
+    public void AQuantifierOnAnIdentityTermRefusesByName_NeverSilentlyDropped(string clause)
+    {
+        var (set, err) = FieldPredicateSet.Parse(new[] { clause });
+        Assert.Null(set);
+        Assert.Contains("not a list", err ?? "");
+        Assert.Contains("takes no", err ?? "");
+    }
+
+    /// <summary>…and the unquantified spellings still classify as the identity terms they are — the gate is on
+    /// the fold, not on the name.</summary>
+    [Fact]
+    public void TheSameTermsWithoutAQuantifierAreStillTheIdentityTerms() =>
+        Assert.Equal(new[] { _spellLow }.ToHashSet(), Run("editorid = QSpellLow", _spells));
 
     // ---- composition: a quantified step inside another ---------------------------------------------
 
