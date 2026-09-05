@@ -2057,6 +2057,10 @@ public sealed class LoadOrderService : IDisposable
                 // The rebuild must carry the explainer too, or a profile change — the very act that creates an
                 // unticked plugin — would silently drop every refusal back to the flat not-found.
                 var rebuilt = LoadOrderResolver.Build(paths, ExplainPluginAbsence);
+                // The reverse-reference index is derived from plugin bytes, not from this snapshot, so it carries
+                // over: a tick in MO2 rebuilds the resolver, and dropping the index there would re-pay the whole
+                // whole-order walk for plugins whose (path, mtime) never changed.
+                rebuilt.AdoptReverseIndexFrom(_resolver);
                 _resolver.Dispose();
                 _resolver = rebuilt;
             }
@@ -4066,10 +4070,10 @@ public sealed class LoadOrderService : IDisposable
                 return CrossQueryOutcome.Fail("where=/editorid_contains= is a body scan and must be combined with types=, plugins=, or a formids= set to bound it (conflicts_only= alone is not enough — an unbounded body scan over the whole order is refused). Only references= is unbounded, off the reverse-reference index.");
             var built = view.EnsureReverseIndex();
             var universe = HousecarlCore.ReverseSelection.Universe(view, view.ReverseIndex!, references);
-            var wholeOrder = HousecarlCore.ReverseSelection.WholeOrderNote(references, universe.Count);
-            reverseNote = built.Note is null ? wholeOrder
-                        : wholeOrder is null ? built.Note
-                        : built.Note + " " + wholeOrder;
+            var universeNote = HousecarlCore.ReverseSelection.UniverseNote(references, universe.Count);
+            // The index's own line rides EVERY answer it serves, not only the call that paid the build: the
+            // freshness key and the unreadable-plugin disclosure are true of a cached answer too.
+            reverseNote = universeNote is null ? built.Note : built.Note + " " + universeNote;
             formidSet = universe;
             hasFormidSet = true;                                       // an empty universe is still the universe: 0 matches, not a refusal
             indexUniverse = true;
@@ -4188,8 +4192,9 @@ public sealed class LoadOrderService : IDisposable
         // than left to read as a clean whole-order scan.
         var unreadablePlugins = new List<PluginUnreadableException>();
 
-        // Only the type=/plugins= branches consult this, and neither can co-occur with an index-supplied universe —
-        // so the whole-order universe is never copied into a second set.
+        // Only the type=/plugins= branches consult this as a pre-filter, and neither can co-occur with an
+        // index-supplied universe — so building it for one would cost a copy of the universe that nothing reads.
+        // (The set-alone branch below still dedupes as it streams; this guard is about the unread pre-filter.)
         HashSet<FormKey>? setFilter = hasFormidSet && !indexUniverse ? new HashSet<FormKey>(formidSet!) : null;
         // The set-alone branch also owns conflicts_only combined with formidSet, via its in-loop touching-count
         // test: routing that pair to the index-only else-branch would drop every parsed body filter silently.

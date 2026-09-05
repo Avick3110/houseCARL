@@ -1309,6 +1309,17 @@ public sealed class LoadOrderResolver : IDisposable
     /// <summary>The current reverse index, or null when nothing has needed it yet.</summary>
     internal ReverseReferenceIndex? ReverseIndex { get { lock (_reverseGate) return _reverse; } }
 
+    /// <summary>Take over the reverse index of the resolver this one replaces. Ticking a plugin in MO2 rebuilds the
+    /// RESOLVER, not just the snapshot, so without this the index dies on the commonest touch there is and the next
+    /// unbounded call re-walks 3,800 unchanged plugins. The partitions are keyed on (path, mtime), so the next
+    /// refresh keeps every one whose file did not move and builds only the plugins this order added.</summary>
+    public void AdoptReverseIndexFrom(LoadOrderResolver previous)
+    {
+        var carried = previous.ReverseIndex;
+        if (carried is null) return;
+        lock (_reverseGate) _reverse ??= carried;
+    }
+
     /// <summary>The resolver holds NO plugin file handles at rest (only the pure-data index), so there is nothing to
     /// release — Dispose is a no-op, kept so the service can treat a resolver as a disposable resource it builds and
     /// swaps over its lifetime, and so `using var resolver = …` call sites stay valid.</summary>
