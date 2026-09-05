@@ -123,18 +123,19 @@ public sealed class RecordsReferenceExclusionTests : RecordsTestBase
                 "not a row");
 
     [Fact]
-    public void TheProjectionHalfOfTheQuantifiedStepIsRefusedAsUnbuilt_NeverSilentlyMisread() =>
-        Refused(RecordsTools.Records(Svc, types: new[] { "SPEL" },
-                                     project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects[*count]" } }),
-                "not built yet");
+    public void TheProjectionHalfOfTheQuantifiedStepAnswers() =>
+        // The count is a projection now, not a where=-only step; the fold's own behaviour is pinned in
+        // RecordsFieldFoldTests.
+        Served(RecordsTools.Records(Svc, types: new[] { "SPEL" },
+                                    project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects[*count]" } }),
+               "Effects[*count] = 1");
 
     [Fact]
-    public void ANonQuantifierTokenInProjectFieldsIsNamedATypo_NotAnUnbuiltCapability()
+    public void ANonQuantifierTokenInProjectFieldsIsNamedATypo()
     {
         var r = RecordsTools.Records(Svc, types: new[] { "SPEL" },
                                      project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects[*sum].Data.Magnitude" } });
         Assert.Contains("is not a quantifier", r);
-        Assert.DoesNotContain("not built yet", r);
     }
 
     [Fact]

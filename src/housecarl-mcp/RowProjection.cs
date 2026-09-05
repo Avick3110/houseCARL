@@ -132,14 +132,14 @@ static class RowProjection
     }
 
     /// <summary>Is <paramref name="path"/> a strict sub-field or element of <paramref name="owner"/>.</summary>
-    static bool IsUnder(string path, string owner) =>
+    internal static bool IsUnder(string path, string owner) =>
         path.Length > owner.Length && path.StartsWith(owner, StringComparison.Ordinal)
         && (path[owner.Length] == '.' || path[owner.Length] == '[');
 
     /// <summary>The element path a line belongs to — a requested root plus the first bracketed segment after it,
     /// or the root itself when the caller already indexed one element — or null when the line is the list's own
     /// summary, a non-list field, or the truncation note.</summary>
-    static string? RowKey(string path, IReadOnlyList<string> roots)
+    internal static string? RowKey(string path, IReadOnlyList<string> roots)
     {
         foreach (var r in roots)
         {

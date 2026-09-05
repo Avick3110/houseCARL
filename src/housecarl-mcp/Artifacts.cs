@@ -119,7 +119,7 @@ internal static class Artifacts
         LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields,
         bool resolveNames, bool winnerFields, int depth,
         string path, string reason, IReadOnlyList<KeyValuePair<string, string>> query,
-        LeverNames? levers = null, int rowCap = int.MaxValue)
+        LeverNames? levers = null, int rowCap = int.MaxValue, FoldPlan? fold = null)
     {
         using var writer = new ResultArtifact.Writer();
         string[] schema;
@@ -149,6 +149,7 @@ internal static class Artifacts
                 var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, depth,
                                           resolveNames: resolveNames, linkMemo: linkMemo,
                                           containerHint: (levers ?? LeverNames.Legacy).ContainerHint);   // an artifact row is read by the same caller
+                if (fold is not null) o = fold.Apply(o);   // an artifact row carries the same folded fields the render does
                 if (o.Error is null && o.OwnedChildFields is { } af)   // the rows' labels need their clause on line 1
                 {
                     foreach (var annotatedPath in af.Keys) annotated.Add(annotatedPath);
