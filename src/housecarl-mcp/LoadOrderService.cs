@@ -4203,30 +4203,28 @@ public sealed class LoadOrderService : IDisposable
                     }
                     : null);
             // where_source=winner needs one body per CANDIDATE, not per record in the order, and fetching them one
-            // at a time is a whole-overlay walk each (#251). The candidate keys are settled by the index-only
-            // filters below, so they are collected in a pre-pass that touches no body, and the winner bodies are
-            // then gathered by plugin — one enumeration per distinct winner plugin, so the whole fetch is bounded
-            // by the order rather than by the candidate count.
-            Dictionary<FormKey, IMajorRecordGetter>? winnerBodies = null;
+            // at a time is a whole-overlay walk each (#251). So the scan buffers a CHUNK of candidates off the one
+            // scoped stream, gathers that chunk's winner bodies a plugin at a time — one enumeration per distinct
+            // winner plugin in the chunk — and drains it before reading on. Gathering the whole candidate set first
+            // would instead hold a key and a pinned getter per candidate for the scan's length, which on a broad
+            // untyped scope is every record in the order; the chunk is the memory bound. A candidate the SCOPED
+            // plugin itself wins needs no gather at all — the streamed body IS the winner's — so on the shape this
+            // is for, a master audited against the order, the gather only touches the records something overrides.
+            const int WinnerGatherChunk = 10_000;
+            // The chunk's rows, filtered by everything that needs no body, each with the winner plugin already
+            // resolved. Held only until the chunk drains.
+            var pending = whereWinnerActive
+                ? new List<(FormKey fk, int depth, IMajorRecordGetter body, string source, string winner)>(WinnerGatherChunk)
+                : null;
+            var faultedWinners = whereWinnerActive ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) : null;
             try
             {
-                if (whereWinnerActive)
-                {
-                    var candidates = new HashSet<FormKey>();
-                    foreach (var (fk, depth, _, _) in view.RecordsIn(plugins!, types))
-                    {
-                        if (setFilter is not null && !setFilter.Contains(fk)) continue;
-                        if (conflictsOnly && depth <= 1) continue;
-                        if (definedIn && !scopedModKeys!.Contains(fk.ModKey)) continue;
-                        candidates.Add(fk);
-                    }
-                    winnerBodies = WinnerBodies.For(view, winnerSession!, candidates, types);
-                }
                 // Carry the source plugin per record so the render shows the body the scan filtered rather than the
                 // winner: plugins= gives the scoped plugin's filename, type= gives null, meaning the winner.
                 IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string? source)> stream =
                     hasPlugins ? view.RecordsIn(plugins!, types).Select(x => (fk: x.fk, depth: x.depth, body: x.body, source: (string?)x.source))  // the scoped plugin's own body
                                : view.WinnerRecordsOfType(types!, unreadablePlugins).Select(x => (fk: x.fk, depth: x.depth, body: x.body, source: (string?)null));    // the load-order winner's body
+                bool stopped = false;
                 foreach (var (fk, depth, body, source) in stream)
                 {
                     if (setFilter is not null && !setFilter.Contains(fk)) continue;   // the identity intersection, cheapest first
@@ -4234,30 +4232,67 @@ public sealed class LoadOrderService : IDisposable
                     // defined_in= keeps only records whose origin FormKey is a scoped plugin — a definition, not an
                     // override this plugin merely touches. A FormKey test needing no body, so it runs before the try.
                     if (definedIn && !scopedModKeys!.Contains(fk.ModKey)) continue;
+                    if (!whereWinnerActive)
+                    {
+                        if (!ScanRow(fk, depth, body, source)) { stopped = true; break; }
+                        continue;
+                    }
                     // where_source=winner de-dups up front: the winner verdict is FormKey-intrinsic, so any scoped
                     // copy gives the same answer, and the first scoped copy in stream order supplies the display
-                    // source. The scoped path instead de-dups AFTER the filters — a different rule, below.
-                    if (whereWinnerActive && !seen.Add(fk)) continue;
-                    // Per-record fault isolation: the body tests lazily parse subrecord content, so one record
-                    // Mutagen cannot parse would otherwise abort the whole call as an opaque transport error. Such a
-                    // record is excluded and accounted for in the response, never silently skipped and never guessed
-                    // as a match. The winner re-fetch below is inside the try too, so an unparseable winner is
-                    // accounted the same way.
+                    // source. The scoped path instead de-dups AFTER the filters — a different rule, in ScanRow.
+                    if (!seen.Add(fk)) continue;
+                    // A record the order gives no winner at all is a clean non-match, exactly as the per-record
+                    // fetch treated it — never an unscannable row naming a winner there is none of.
+                    if (view.ResolveWinner(fk) is not { } w) continue;
+                    pending!.Add((fk, depth, body, source!, w.WinnerPlugin));
+                    if (pending.Count == WinnerGatherChunk && !DrainChunk()) { stopped = true; break; }
+                }
+                if (!stopped && whereWinnerActive && pending!.Count > 0) DrainChunk();
+
+                // Fetch one chunk's winner bodies and scan its rows, in stream order. Returns false when the scan
+                // must stop.
+                bool DrainChunk()
+                {
+                    var needed = new List<FormKey>(pending!.Count);
+                    foreach (var p in pending)
+                        if (!string.Equals(p.winner, p.source, StringComparison.OrdinalIgnoreCase)) needed.Add(p.fk);
+                    var bodies = WinnerBodies.For(view, winnerSession!, needed, types, out var faults);
+                    // A winner plugin that would not open is a whole-plugin coverage gap, named once in the response
+                    // rather than only sampled three rows deep.
+                    foreach (var (plugin, fault) in faults)
+                        if (faultedWinners!.Add(plugin)) unreadablePlugins.Add(fault);
+                    bool go = true;
+                    foreach (var p in pending)
+                    {
+                        IMajorRecordGetter filterBody;
+                        if (string.Equals(p.winner, p.source, StringComparison.OrdinalIgnoreCase)) filterBody = p.body;
+                        else if (bodies.TryGetValue(p.fk, out var wb)) filterBody = wb;
+                        else
+                        {
+                            unscannable++;
+                            if (unscannableSamples.Count < 3)
+                                unscannableSamples.Add(faults.TryGetValue(p.winner, out var f)
+                                    ? $"{p.fk} — {f.Message}"
+                                    : $"{p.fk} — winner '{p.winner}' did not yield the record on winner-source re-fetch");
+                            continue;
+                        }
+                        if (!ScanRow(p.fk, p.depth, filterBody, p.source)) { go = false; break; }
+                    }
+                    pending.Clear();
+                    return go;
+                }
+
+                // One row's content filtering, on the body the FILTERS decide on: the live winner
+                // (where_source=winner) or the streamed body. Returns false when the scan must stop.
+                //
+                // Per-record fault isolation: the body tests lazily parse subrecord content, so one record
+                // Mutagen cannot parse would otherwise abort the whole call as an opaque transport error. Such a
+                // record is excluded and accounted for in the response, never silently skipped and never guessed
+                // as a match — including a winner body the gather handed over unparseable.
+                bool ScanRow(FormKey fk, int depth, IMajorRecordGetter filterBody, string? source)
+                {
                     try
                     {
-                        // The body the FILTERS decide on: the live winner (where_source=winner) or the streamed body.
-                        IMajorRecordGetter filterBody = body;
-                        if (whereWinnerActive)
-                        {
-                            if (!winnerBodies!.TryGetValue(fk, out var wb))
-                            {
-                                unscannable++;
-                                if (unscannableSamples.Count < 3)
-                                    unscannableSamples.Add($"{fk} — winner '{view.ResolveWinner(fk)?.WinnerPlugin ?? "?"}' did not yield the record on winner-source re-fetch");
-                                continue;
-                            }
-                            filterBody = wb;
-                        }
                         // Deleted records carry no body to scan (the rule lives in DeletedRecordRule, shared with the
                         // error check and the compact/merge scan): the content filters cannot match one, so it is
                         // excluded as a clean non-match before the scan touches its body — which on the references=
@@ -4267,33 +4302,33 @@ public sealed class LoadOrderService : IDisposable
                         // predicates actually READ body content: the header- and resolution-only terms must see
                         // deleted records exactly as editorid_contains= does.
                         if (DeletedRecordRule.HasNoLiveBody(filterBody)
-                            && (refSet is not null || predicate is { NeedsLiveBody: true })) continue;
+                            && (refSet is not null || predicate is { NeedsLiveBody: true })) return true;
                         if (!string.IsNullOrEmpty(editoridContains)
                             && (filterBody.EditorID is null || filterBody.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
-                            continue;
+                            return true;
                         // references= is a list with OR semantics: a record matches if it links to ANY target. One
                         // EnumerateFormLinks pass collects the intersection, so a multi-target lookup can be
                         // un-merged into which targets each row hit.
                         List<FormKey>? hitTargets = null;
                         if (refSet is not null)
                         {
-                            if (filterBody is not IFormLinkContainerGetter flc) continue;
+                            if (filterBody is not IFormLinkContainerGetter flc) return true;
                             var hitSet = new HashSet<FormKey>();
                             foreach (var l in flc.EnumerateFormLinks()) if (refSet.Contains(l.FormKey)) hitSet.Add(l.FormKey);
-                            if (hitSet.Count == 0) continue;
+                            if (hitSet.Count == 0) return true;
                             if (multiTarget && groups is null) hitTargets = references!.Where(hitSet.Contains).Distinct().ToList();   // in input order; only the match-line path consumes it
                         }
-                        if (refNone is not null && ExcludedByReference(filterBody, refNone)) continue;
+                        if (refNone is not null && ExcludedByReference(filterBody, refNone)) return true;
                         if (predicate is not null && !predicate.Matches(filterBody))    // value filter on the same in-hand body, no extra fetch
                         {
-                            if (predicate.FatalError is not null) break;          // e.g. a numeric op against a non-numeric field — abort and surface it
-                            continue;
+                            if (predicate.FatalError is not null) return false;   // e.g. a numeric op against a non-numeric field — abort and surface it
+                            return true;
                         }
                         // De-dup, since a key can recur across scoped plugins. On the scoped path this runs AFTER the
                         // filters, so the source recorded for a shared key is the first scoped plugin, in plugins=
                         // order, whose own body passed. Under where_source=winner the key was already de-duped up
                         // front, so this is a no-op there.
-                        if (!whereWinnerActive && !seen.Add(fk)) continue;
+                        if (!whereWinnerActive && !seen.Add(fk)) return true;
                         total++;
                         if (groups is not null)                                   // group_by=: aggregate over all matches, no keys or prefill, no limit cap
                         {
@@ -4321,6 +4356,7 @@ public sealed class LoadOrderService : IDisposable
                         if (unscannableSamples.Count < 3)
                             unscannableSamples.Add($"{fk}{(source is null ? "" : $" in {source}")} — {ex.GetType().Name}: {ex.Message}");
                     }
+                    return true;
                 }
             }
             catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); } // plugin not in order / unknown type
