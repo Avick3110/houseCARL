@@ -277,8 +277,9 @@ public sealed class NexusClient
                     foreach (var f in files)
                         if (IsLive(f.category) && string.Equals(f.name, hit.name, StringComparison.OrdinalIgnoreCase) && (rn is null || f.date > rd))
                             { rn = f.name; rv = f.version ?? "?"; rd = f.date; }
-                    var withdrawn = IsRemoved(hit.category) ? FileVerdict.Removed : FileVerdict.Superseded;
-                    detail.Add(new InstalledFileCurrency(fid, hit.name, hit.version, hit.category, withdrawn, rn, rv, rd));
+                    // This branch serves both buckets: withdrawn by the author, or merely retired to OLD/ARCHIVED.
+                    var fileVerdict = IsRemoved(hit.category) ? FileVerdict.Removed : FileVerdict.Superseded;
+                    detail.Add(new InstalledFileCurrency(fid, hit.name, hit.version, hit.category, fileVerdict, rn, rv, rd));
                 }
                 else detail.Add(new InstalledFileCurrency(fid, hit.name, hit.version, hit.category, FileVerdict.Live, null, null, 0));
             }
