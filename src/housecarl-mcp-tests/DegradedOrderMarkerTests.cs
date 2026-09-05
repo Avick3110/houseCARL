@@ -78,7 +78,13 @@ public sealed class DegradedOrderMarkerTests
         var root = JsonDocument.Parse(json).RootElement;
 
         AssertMarked(root);
-        AssertMarked(root.GetProperty("families").GetProperty("errors"));
+
+        // The family head says the flag and the COUNT, matching its text head; the sentence is the root's alone,
+        // so one document does not carry it three times.
+        var errors = root.GetProperty("families").GetProperty("errors");
+        Assert.True(errors.GetProperty("order_degraded").GetBoolean());
+        Assert.Equal(1, errors.GetProperty("order_degraded_plugins").GetInt32());
+        Assert.False(errors.TryGetProperty("order_degraded_note", out _));
     }
 
     [Fact]

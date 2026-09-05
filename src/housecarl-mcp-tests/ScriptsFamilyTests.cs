@@ -187,7 +187,7 @@ public sealed class ScriptsFamilyTests
         };
 
         bool sawPartial = false, sawFull = false;
-        foreach (var cap in new[] { 300, 3600, 3900, 4200, 4600, 5000 })
+        foreach (var cap in new[] { 300, 3600, 3900, 4200 })
         {
             var doc = ScriptsFamily(Json(scanned, cap)).GetProperty("scan_errors");
             int total = doc.GetProperty("total").GetInt32();

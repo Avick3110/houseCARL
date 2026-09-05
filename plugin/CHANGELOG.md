@@ -25,8 +25,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   which applies per plugin. It rides
   beside the epoch, never inside it, so two builds that differ only in health still compare as different builds.
   A healthy order carries nothing. The sentence names up to ten plugins and counts the rest —
-  `housecarl_load_order_status` lists them all. `housecarl_check` states it at the top of the response as well
-  as on each swept family, so a dialogue-only check — the one family that carries no epoch — says it too.
+  `housecarl_load_order_status` lists them all. `housecarl_check` states the sentence once, at the top of the
+  response, so a dialogue-only check — the one family that carries no epoch — says it too; each swept family
+  carries the flag and the plugin count beside its own `epoch`, the same fact its text head states.
 
 - **`housecarl_asset_status` and `housecarl_place` take `format='json'`.** Both answered text only, so a caller
   reading them from a script parsed prose. The json document carries the same data as the text render: for
