@@ -468,6 +468,36 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.Null(UnionKey(Read(_w.CellG, format: "json"), "Temporary", "nested"));
     }
 
+    // ---- what a batch of named records opens ------------------------------------------------------
+
+    /// <summary>The union opens a body per touching plugin, so a `formids=` batch used to re-mmap every toucher
+    /// once per row — the session that caches overlays died with each record, and the union memo dedupes a
+    /// repeated FormID, not a repeated plugin. One session for the call bounds the opens by the ORDER's size
+    /// instead of by the row count.</summary>
+    [Fact]
+    public void ABatchOpensEachPluginOnce_NotOncePerRecordItUnions()
+    {
+        var before = LoadOrderResolver.SessionOverlayOpens;
+        ReadBoth(_w.CellA, _w.CellF);           // two cells whose touchers overlap; three plugins in the order
+        var opens = LoadOrderResolver.SessionOverlayOpens - before;
+
+        Assert.True(opens <= 3, $"a two-record batch paid {opens} overlay opens over a three-plugin order — " +
+                                "the session is not shared across the batch's records");
+        // And the answers are the ones the per-record sessions gave: a shared overlay cache is a cost change.
+        Assert.Contains(ReadSentences.UnionLabel, FieldLine(ReadBoth(_w.CellA, _w.CellF), "Temporary"));
+    }
+
+    /// <summary>A single named record still opens its own session and closes it — the batch's cache is the
+    /// batch's, and nothing is held between calls.</summary>
+    [Fact]
+    public void ASingleReadStillPaysItsOwnOpens()
+    {
+        var before = LoadOrderResolver.SessionOverlayOpens;
+        Read(_w.CellF);
+        Assert.True(LoadOrderResolver.SessionOverlayOpens > before,
+                    "a read that unions three touchers opened no overlay at all");
+    }
+
     [Fact]
     public void AtDepthTwoTheContainersOwnSummaryLineStillCarriesTheAnnotation() =>
         Assert.Contains(ReadSentences.ChildContent,
