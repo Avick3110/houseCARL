@@ -114,6 +114,19 @@ public sealed class RecordsWorld : IDisposable
 
         var spellA = master.Spells.AddNew(); spellA.EditorID = "HcRecSpellA"; SpellA = spellA.FormKey;
         { var e = new Effect(); e.BaseEffect.SetTo(MgefA); e.Data = new EffectData { Magnitude = 5 }; spellA.Effects.Add(e); }
+        // A SECOND effect, so the general (non-condition) case exercises the multi-element fold: its Data is the
+        // absent optional, its BaseEffect the declared-but-null link, and its own Conditions the nested list
+        // inside an element. Deliberately unlinked — a link here would join the reverse-carrier lanes.
+        {
+            var e = new Effect();
+            e.Data = new EffectData { Magnitude = 11 };
+            e.Conditions.Add(new ConditionFloat
+            {
+                CompareOperator = CompareOperator.EqualTo, ComparisonValue = 2f,
+                Data = new GetRandomPercentConditionData(),
+            });
+            spellA.Effects.Add(e);
+        }
         var spellC = master.Spells.AddNew(); spellC.EditorID = "HcRecSpellC"; SpellC = spellC.FormKey;
         { var e = new Effect(); e.BaseEffect.SetTo(MgefA); e.Data = new EffectData { Magnitude = 9 }; spellC.Effects.Add(e); }
         var spellB = master.Spells.AddNew(); spellB.EditorID = "HcRecSpellB"; SpellB = spellB.FormKey;
@@ -140,6 +153,8 @@ public sealed class RecordsWorld : IDisposable
         var oldMod = new SkyrimMod(oldKey, SkyrimRelease.SkyrimSE);
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(oldMod, master.Weapons.First(w => w.FormKey == weapons[1])))
             .BasicStats = new WeaponBasicStats { Damage = 55, Weight = 1 };
+        // The off-order file carries a list too, so a read of one can be driven through the off-order arm.
+        WriteEngine.GenericGetOrAddAsOverride(oldMod, spellA);
 
         var midMod = new SkyrimMod(midKey, SkyrimRelease.SkyrimSE);
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(midMod, master.Weapons.First(w => w.FormKey == weapons[0])))
