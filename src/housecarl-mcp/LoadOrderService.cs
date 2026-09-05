@@ -2376,8 +2376,9 @@ public sealed class LoadOrderService : IDisposable
 
         // materialise while the session (overlay) is open; the *parent hop climbs the index's containment map and
         // fetches the containing record's winner body through the same session
-        var record = ReadEngine.ReadFields(rec, fields, depth, containerHint, ContainmentIndex.ReadHop(view, session));
-        record = AnnotateOwnedChildContent(record, rec, view, session, fk, source, unionMemo, out var childFields);   // the additive union (or the index-only note), display-only
+        var hop = ContainmentIndex.ReadHop(view, session);
+        var record = ReadEngine.ReadFields(rec, fields, depth, containerHint, hop);
+        record = AnnotateOwnedChildContent(record, rec, view, session, fk, source, unionMemo, out var childFields, hop);   // the additive union (or the index-only note), display-only
         if (resolveNames) record = AnnotateLinks(record, view, session, linkMemo ?? new());   // identity of every FormLink token, display-only, on the same open session
         var touching = conflictTree ? view.TouchingPlugins(fk) : null;
         return new ReadOutcome(fk, record, source, winner.Value.WinnerPlugin, winner.Value.OverrideDepth, touching, null)
@@ -2426,50 +2427,97 @@ public sealed class LoadOrderService : IDisposable
     /// <para>Display-only: it rides <see cref="FieldValue.Display"/>, never the round-trip
     /// <see cref="FieldValue.Token"/>, so it is invisible to the write surface, the read-proof oracle and the
     /// conflict diff, and reaches every render through that one carrier.</para></summary>
+    /// <param name="parentOf">The read's own <c>*parent</c> hop, so a row read off a CONTAINING record is judged
+    /// against that record. Without it, '<c>*parent.Temporary</c>' on a placed reference would report the winner
+    /// cell's contents unannotated while '<c>Temporary</c>' on the cell itself annotates them — two spellings of
+    /// one question disagreeing, which is the silently wrong answer this note exists to prevent.</param>
     static RecordFields AnnotateOwnedChildContent(RecordFields rf, IMajorRecordGetter body,
                                                   LoadOrderResolver.IndexView view,
                                                   LoadOrderResolver.OverlaySession session, FormKey fk, string source,
                                                   ChildUnionMemo? memo,
-                                                  out IReadOnlyDictionary<string, ChildUnion?>? annotated)
+                                                  out IReadOnlyDictionary<string, ChildUnion?>? annotated,
+                                                  Func<IMajorRecordGetter, (IMajorRecordGetter? Parent, string? Why)>? parentOf = null)
     {
         annotated = null;
-        // Empty for all but three record types, so this is where the overwhelming majority of reads leave, before
-        // any index lookup.
-        var owning = OwnedChildContent.Fields(body);
-        if (owning.Count == 0) return rf;
-
-        // Which of the lines THIS read produced are those fields. A depth>=2 read emits the same summary line at the
-        // bare field path before expanding its children, so the annotation lands in one place either way.
-        List<int>? hits = null;
+        // Group this read's rows by how many '*parent' hops their path opens with: each group is judged against the
+        // record its rows were actually read off. A hopless read is the whole of one group, which is every read but
+        // a containment one.
+        Dictionary<int, List<int>>? byHops = null;
         for (int i = 0; i < rf.Fields.Count; i++)
-            if (owning.ContainsKey(rf.Fields[i].Path)) (hits ??= new List<int>()).Add(i);
-        if (hits is null) return rf;
-
-        // Narrowed to the fields this read emitted: the union opens a body per touching plugin, and assembling a
-        // worldspace's cells for a read that asked for EditorID would be a cost nobody asked for.
-        var wanted = new Dictionary<string, OwnedChildShape>(hits.Count, StringComparer.Ordinal);
-        foreach (var i in hits) wanted[rf.Fields[i].Path] = owning[rf.Fields[i].Path];
-
-        IReadOnlyDictionary<string, ChildUnion>? unions = null;
-        if (memo is not null) unions = memo.Union(fk, () => OwnedChildUnion.Compute(view, session, fk, source, body, wanted));
-        else if (view.TouchingPlugins(fk) is not { Count: > 1 }) return rf;   // sole toucher: its own body IS the whole story
-        if (memo is not null && unions is null) return rf;                    // same, on the union lane
-        var others = unions is null ? view.TouchingPlugins(fk)!.Count - 1 : 0;
-
-        var rebuilt = new List<FieldValue>(rf.Fields);
-        // The ANNOTATED paths and their unions travel with the outcome, because the render decides its
-        // response-level clause off the fields it actually emitted — a path that never reaches the medium (a cap
-        // hit inside the field loop, a truncated json array, a manifest-only spill) must not earn a clause. A NULL
-        // value is the index-only tier: annotated, but by a lane that did not open the other bodies.
-        var map = new Dictionary<string, ChildUnion?>(hits.Count, StringComparer.Ordinal);
-        foreach (var i in hits)
         {
-            var u = unions?[rebuilt[i].Path];
-            // These fields are containers and owned records; the only other producer of Display is the flags
-            // decode, which fires on [Flags] enum leaves alone — so there is no annotation here to displace.
-            rebuilt[i] = rebuilt[i] with { Display = u is null ? ReadSentences.NotReadNote(others) : ReadSentences.UnionNote(u) };
-            map[rebuilt[i].Path] = u;
+            var segs = rf.Fields[i].Path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var (hops, err) = ContainmentIndex.SplitHops(segs, rf.Fields[i].Path);
+            if (err is not null) continue;   // a misspelled hop already carries its own refusal note
+            (byHops ??= new Dictionary<int, List<int>>()).TryGetValue(hops, out var g);
+            (byHops[hops] = g ?? new List<int>()).Add(i);
         }
+        if (byHops is null) return rf;
+
+        List<FieldValue>? rebuilt = null;
+        Dictionary<string, ChildUnion?>? map = null;
+        foreach (var (hops, rows) in byHops)
+        {
+            // Climb to the record this group's rows were read on. A hop that cannot be taken annotates nothing —
+            // the rows themselves already carry the reason.
+            var on = body; var onKey = fk;
+            bool reached = true;
+            for (int h = 0; h < hops && reached; h++)
+            {
+                var (parent, _) = parentOf?.Invoke(on) ?? (null, null);
+                if (parent is null) reached = false; else { on = parent; onKey = parent.FormKey; }
+            }
+            if (!reached) continue;
+
+            // Empty for all but three record types, so this is where the overwhelming majority of reads leave,
+            // before any index lookup.
+            var owning = OwnedChildContent.Fields(on);
+            if (owning.Count == 0) continue;
+
+            // Which of the lines THIS read produced are those fields — matched on the path BELOW the hops, since
+            // that is the part read on `on`. A depth>=2 read emits the same summary line at the bare field path
+            // before expanding its children, so the annotation lands in one place either way.
+            List<(int Row, string Field)>? hits = null;
+            foreach (var i in rows)
+            {
+                var below = hops == 0 ? rf.Fields[i].Path
+                          : string.Join(".", rf.Fields[i].Path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[hops..]);
+                if (owning.ContainsKey(below)) (hits ??= new List<(int, string)>()).Add((i, below));
+            }
+            if (hits is null) continue;
+
+            // Narrowed to the fields this read emitted: the union opens a body per touching plugin, and assembling a
+            // worldspace's cells for a read that asked for EditorID would be a cost nobody asked for.
+            var wanted = new Dictionary<string, OwnedChildShape>(hits.Count, StringComparer.Ordinal);
+            foreach (var (_, field) in hits) wanted[field] = owning[field];
+
+            // A hopped group was read off the CONTAINING record's winner body, so that is the subject the union is
+            // assembled against; a hopless group is the read's own source.
+            var onSource = hops == 0 ? source : view.ResolveWinner(onKey)?.WinnerPlugin;
+            if (onSource is null) continue;
+
+            IReadOnlyDictionary<string, ChildUnion>? unions = null;
+            if (memo is not null) unions = memo.Union(onKey, () => OwnedChildUnion.Compute(view, session, onKey, onSource, on, wanted));
+            else if (view.TouchingPlugins(onKey) is not { Count: > 1 }) continue;   // sole toucher: its own body IS the whole story
+            if (memo is not null && unions is null) continue;                       // same, on the union lane
+            var others = unions is null ? view.TouchingPlugins(onKey)!.Count - 1 : 0;
+
+            rebuilt ??= new List<FieldValue>(rf.Fields);
+            // The ANNOTATED paths and their unions travel with the outcome, because the render decides its
+            // response-level clause off the fields it actually emitted — a path that never reaches the medium (a cap
+            // hit inside the field loop, a truncated json array, a manifest-only spill) must not earn a clause. A NULL
+            // value is the index-only tier: annotated, but by a lane that did not open the other bodies. The key is
+            // the row's DISPLAY path, hops and all, because that is what the render matches against.
+            map ??= new Dictionary<string, ChildUnion?>(StringComparer.Ordinal);
+            foreach (var (i, field) in hits)
+            {
+                var u = unions?[field];
+                // These fields are containers and owned records; the only other producer of Display is the flags
+                // decode, which fires on [Flags] enum leaves alone — so there is no annotation here to displace.
+                rebuilt[i] = rebuilt[i] with { Display = u is null ? ReadSentences.NotReadNote(others) : ReadSentences.UnionNote(u) };
+                map[rebuilt[i].Path] = u;
+            }
+        }
+        if (rebuilt is null) return rf;
         annotated = map;
         return rf with { Fields = rebuilt };
     }
