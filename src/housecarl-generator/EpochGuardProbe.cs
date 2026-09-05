@@ -223,7 +223,7 @@ internal static class EpochGuardProbe
 
                 // effect_chain / sweeps (the pairwise-diff arms went with LoadOrderService.DiffRecord, #486)
                 var ec = svc.ResolveEffectChain(mgef.FormKey, null, 500);
-                Check(ec.Error is null && ec.Epoch == current && Wire.RenderEffectChain(ec, 0).Contains($"epoch={current}"),
+                Check(ec.Error is null && ec.Epoch == current && Wire.RenderEffectChain(ec, 0, "limit=").Contains($"epoch={current}"),
                       "effect_chain stamps + renders it");
                 // check_errors / validate_scripts sweep stamps, their refusal contracts (locate, the CORE
                 // sweep frame's excluded-plugin refusal, scripts' not-in-order refusal), and the off-order
@@ -240,7 +240,7 @@ internal static class EpochGuardProbe
                 // effect_chain's own refusal contract survives unmoved — Wire.RenderEffectChain is untouched.
                 var ecMiss = svc.ResolveEffectChain(FormKey.Factory("0ABC12:" + masterName), null, 500);
                 Check(ecMiss.Error is not null && ecMiss.Epoch == current, "effect_chain's not-in-order refusal is stamped");
-                Check(Wire.RenderEffectChain(ecMiss, 0).Contains($"epoch={current}"), "…and rendered");
+                Check(Wire.RenderEffectChain(ecMiss, 0, "limit=").Contains($"epoch={current}"), "…and rendered");
                 Check(svc.ResolveEffectChain(mgef.FormKey, new[] { "WEAP" }, 500).Epoch is null,
                       "…its PRE-capture type-narrow refusal stays null");
 

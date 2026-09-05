@@ -357,8 +357,10 @@ static class Wire
     /// use.</summary>
     /// <param name="carrierBound">How the CALLING tool spells the per-seed carrier bound this render may have hit.
     /// On housecarl_records that is walk.max_nodes — limit= there windows the SEEDS and raising it changes nothing
-    /// about a capped carrier list, so the sentence has to carry the caller's own knob.</param>
-    public static string RenderEffectChain(EffectChainResult r, int maxChars, string carrierBound = "limit=")
+    /// about a capped carrier list, so the sentence has to carry the caller's own knob. REQUIRED, with no default:
+    /// a default here is a lever name guessed on the caller's behalf, which is exactly the bug this parameter was
+    /// added to fix — a new caller must state its own spelling.</param>
+    public static string RenderEffectChain(EffectChainResult r, int maxChars, string carrierBound)
     {
         if (r.Error is not null) return "error: " + r.Error + (r.Epoch is not null ? $"\nepoch={r.Epoch}" : "");
         int cap = Cap(maxChars);
