@@ -99,8 +99,9 @@ public static class BulkPrimitivesWave2Probe
             var r2 = refs[2];
             Check("W3 → Weapon/hcw2Sword3/name 'Ebony Sword'", r2.Resolved && r2.Type == "Weapon" && r2.EditorId == "hcw2Sword3" && r2.Name == "Ebony Sword");
             var r3 = refs[3];
-            Check("a valid-but-absent FormID → Resolved=false with NO malformed-input error (named, not dropped — Q3)",
-                  !r3.Resolved && r3.Error is null && r3.Token == absentFid);
+            Check("a valid-but-absent FormID → Resolved=false, carrying the three-cause reason, not the malformed-input one (named, not dropped — Q3)",
+                  !r3.Resolved && r3.Token == absentFid
+                  && r3.Error is not null && !r3.Error.Contains("bad FormID", StringComparison.OrdinalIgnoreCase));
             var r4 = refs[4];
             Check("a malformed FormID → per-item error, the batch still returns the other 4 rows (Q3)",
                   !r4.Resolved && r4.Error is not null && r4.Error.Contains("bad FormID", StringComparison.OrdinalIgnoreCase));
@@ -121,7 +122,7 @@ public static class BulkPrimitivesWave2Probe
             Check("Player (000007:Skyrim.esm) → Resolved, Npc/Player, winner <engine>",
                   ei[1] is { Resolved: true, Type: "Npc", EditorId: "Player", Winner: "<engine>" });
             Check("a NON-implicit sub-0x800 form (000015:Skyrim.esm) is STILL unresolved — the exemption is the 2-form set, not the reserved range",
-                  ei[2] is { Resolved: false, Error: null });
+                  ei[2] is { Resolved: false });
 
             // ---- tool layer ----
             // The housecarl_resolve TOOL-LAYER arms stood here: the text and json renders of a bulk
