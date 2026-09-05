@@ -75,8 +75,10 @@ only — no code vendored. Files consulted (all `SPID/src/`): `LookupConfigs.cpp
 chain), `LookupConfigs.h` (`TraitsFilterComponentParser`, `ChanceComponentParser`,
 `LevelFiltersComponentParser`), `Defs.h` (`Traits` struct), `DistributeManager.cpp`
 (`detail::should_process_NPC`, the load hooks), `FormData.h` (`kCreateIfMissing`), `main.cpp`
-(config read and lookup timing). MIT (unlike SkyPatcher's unlicensed repo)
-would permit vendoring, but the corpus documents grammar, it doesn't embed source.
+(config read and lookup timing). The verification-behaviour files were read at commit
+`6e66908` (`master`, 2026-09-02); the earlier parsing files at `master` as of 2026-06-02. MIT (unlike
+SkyPatcher's unlicensed repo) would permit vendoring, but the corpus documents grammar, it doesn't
+embed source.
 
 ## Structure
 
