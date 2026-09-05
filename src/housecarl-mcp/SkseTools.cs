@@ -1422,7 +1422,10 @@ static class NativePairingWire
 
         var all = Classify(d.Classes, d.InstalledRuntime);
         var w = Classify(rows, d.InstalledRuntime);
-        var engine = all.Engine; var skseCore = all.SkseCore;
+        // Every section below the summary states the WINDOW, the accounted-for baseline included: it reconciles this
+        // page's rows against its findings, so a layer-wide engine count beside a windowed healthy count would put two
+        // different populations on adjacent lines. The whole-audit numbers are the summary's, above.
+        var engine = w.Engine; var skseCore = w.SkseCore;
         var unpaired = w.Unpaired; var dead = w.Dead; var verify = w.Verify;
         var debugBuilds = w.DebugBuilds; var healthy = w.Healthy;
         // A baseline class is accounted for by the engine / SKSE-core count line, not by a row of its own.
@@ -1486,14 +1489,16 @@ static class NativePairingWire
             AppendCapped(sb, d.Unreadable, cap, u => $"  - {u.RelPath}: {u.Reason}{(u.WinningProvider is { } p ? $"  [← {p}]" : "")}");
         }
 
-        // ── Accounted-for baseline: everything that is not a finding, so nothing is dropped. ──
+        // ── Accounted-for baseline: every row of THIS page that is not a finding, so nothing on it is dropped. ──
         sb.Append("\naccounted for: ").Append(engine.Count).Append(" engine class(es) (carried by an official archive — implemented by the game executable) · ")
           .Append(skseCore.Count).Append(" SKSE-core class(es) (skse64's script additions — implemented by the game-root loader)");
         // Tri-state: false means checked and genuinely absent, so the definite note; null means the check itself
         // failed, which must not render as a checked-and-absent verdict.
-        if (skseCore.Count > 0 && d.SkseLoaderSeen == false)
+        // The alarm is a build-level fact, not a row of the page, so it rides the whole audit's SKSE-core count — a
+        // window that happens to hold none of those classes must not silence it.
+        if (all.SkseCore.Count > 0 && d.SkseLoaderSeen == false)
             sb.Append("\n  [!] SKSE-core classes are present but no skse64 loader is visible (game root or enabled mods' Root\\ folders) — if SKSE isn't actually installed, every one of these is dead");
-        else if (skseCore.Count > 0 && d.SkseLoaderSeen is null)
+        else if (all.SkseCore.Count > 0 && d.SkseLoaderSeen is null)
             sb.Append("\n  (skse64 loader visibility could not be checked)");
         sb.Append("\npaired healthy (").Append(healthy.Count).Append(" class(es)) — implementing mod ← its classes:\n");
         foreach (var g in healthy.GroupBy(c => c.PairedMod ?? "(?)", StringComparer.OrdinalIgnoreCase)
