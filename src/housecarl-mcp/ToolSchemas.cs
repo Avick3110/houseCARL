@@ -45,6 +45,21 @@ internal static class ToolSchemas
         new(ToolNames.Place, "assets", typeof(PlaceTarget[])),
     };
 
+    /// <summary>One parameter typed <see cref="JsonElement"/> so it can BIND more than one wire shape, with the JSON
+    /// types it actually accepts. "null" is added by the rewrite — every one of these is optional.</summary>
+    internal readonly record struct ShapeUnionParam(string Tool, string Parameter, string[] Types);
+
+    /// <summary>The parameters whose published type is a union of JSON kinds. Without a row the SDK publishes such a
+    /// parameter untyped, and <see cref="ToolCallShim"/> — which judges off the published type — then lets every shape
+    /// through to the binder. With one, a shape the tool means to refuse reaches the tool and is refused in the tool's
+    /// own words rather than by the shim's generic type-mismatch sentence.</summary>
+    internal static readonly ShapeUnionParam[] ShapeUnionParams =
+    {
+        // housecarl_skse takes ONE family, and the tool says so itself; the array shape is the housecarl_check habit,
+        // so it must bind and be answered by the tool, not intercepted.
+        new(ToolNames.Skse, "findings", new[] { "string", "array" }),
+    };
+
     /// <summary>How many times one pointer may be inlined along a single nesting chain before
     /// <see cref="Terminator"/> closes it. Raising it deepens every recursive branch of every published schema.</summary>
     const int MaxSelfExpansions = 1;
@@ -63,6 +78,8 @@ internal static class ToolSchemas
                 if (JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) is not JsonObject root) continue;
                 var wanted = FileListParams.Where(p => p.Tool == tool.ProtocolTool.Name).ToList();
                 var changed = wanted.Count > 0 && RewriteFileListUnions(root, wanted);
+                var shapes = ShapeUnionParams.Where(p => p.Tool == tool.ProtocolTool.Name).ToList();
+                changed |= shapes.Count > 0 && RewriteShapeUnions(root, shapes);
                 changed |= FlattenRefs(root);
                 if (changed) tool.ProtocolTool.InputSchema = JsonSerializer.Deserialize<JsonElement>(root.ToJsonString());
             }
@@ -130,6 +147,26 @@ internal static class ToolSchemas
         }
 
         if (changed && defs is not null) root["$defs"] = defs;
+        return changed;
+    }
+
+    /// <summary>Stamp each listed parameter's published <c>type</c> with the JSON kinds it accepts, plus "null" for
+    /// being optional. Returns false — leaving the schema untouched — when the document is not the shape this
+    /// expects.</summary>
+    internal static bool RewriteShapeUnions(JsonObject root, IReadOnlyList<ShapeUnionParam> parameters)
+    {
+        if (root["properties"] is not JsonObject props) return false;
+
+        bool changed = false;
+        foreach (var p in parameters)
+        {
+            if (props[p.Parameter] is not JsonObject existing) continue;
+            var types = new JsonArray();
+            foreach (var t in p.Types) types.Add(t);
+            types.Add("null");
+            existing["type"] = types;
+            changed = true;
+        }
         return changed;
     }
 
