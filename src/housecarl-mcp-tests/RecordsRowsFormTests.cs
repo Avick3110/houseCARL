@@ -77,7 +77,7 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
             new HousecarlCore.FieldValue("Conditions[0]", false, null, "[ConditionFloat]", Present: true),
             new HousecarlCore.FieldValue("Conditions[0].Gone", false, null, "(absent)", Present: false),
             new HousecarlCore.FieldValue("Conditions[0].Broken", false, null, "(unreadable: boom)", Present: false, Readable: false),
-        }, new[] { "Conditions" });
+        }, new[] { "Conditions" }, RowProjection.DefaultDepth);
         Assert.Equal("[ConditionFloat] | Broken=(unreadable: boom)", Assert.Single(folded).Note);
     }
 
@@ -148,9 +148,37 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
             Fv("Effects[0].BaseEffect", "(null link)"),
             Fv("Effects[0].Conditions[0]", "[ConditionFloat]"),
             Fv("Effects[0].Flags", "0"),
-        }, new[] { "Effects[0].Conditions", "Effects" }.OrderByDescending(s => s.Length).ToList());
+        }, new[] { "Effects[0].Conditions", "Effects" }.OrderByDescending(s => s.Length).ToList(), RowProjection.DefaultDepth);
         Assert.Equal(new[] { "Effects[0]", "Effects[0].Conditions[0]" }, folded.Select(f => f.Path));
         Assert.Contains("Flags=0", folded[0].Note);
+    }
+
+    [Fact]
+    public void OverlappingRootsDoNotPrintACellTwice()
+    {
+        // The read walks each requested path on its own and never deduplicates, so a nested root's lines arrive
+        // once per root that covers them. A row keeps the first of each path — the second copy is the same read.
+        var folded = RowProjection.Fold(new[]
+        {
+            Fv("Effects[0]", "[Effect]"),
+            Fv("Effects[0].Conditions", "[list: 1 item(s)]"),
+            Fv("Effects[0].Conditions[0]", "[ConditionFloat]"),
+            Fv("Effects[0].Conditions[0].Data", "[GetIsID]"),
+            Fv("Effects[0].Conditions[0]", "[ConditionFloat]"),
+            Fv("Effects[0].Conditions[0].Data", "[GetIsID]"),
+        }, new[] { "Effects[0].Conditions", "Effects" }.OrderByDescending(s => s.Length).ToList(), RowProjection.DefaultDepth);
+        Assert.Equal(new[] { "Effects[0]", "Effects[0].Conditions[0]" }, folded.Select(f => f.Path));
+        Assert.Equal("[Effect] | Conditions=[list: 1 item(s)]", folded[0].Note);
+        Assert.Equal("[ConditionFloat] | Data=[GetIsID]", folded[1].Note);
+    }
+
+    [Fact]
+    public void ARowReadWithOverlappingRootsCarriesEachCellOnce()
+    {
+        var row = RowLine(RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) },
+                              project: Rows("Effects", "Effects[1].Conditions")), "Effects[1].Conditions[0]");
+        // One occurrence of the element's own type token, not one per root that reached it.
+        Assert.Equal(1, row.Split("[ConditionFloat]").Length - 1);
     }
 
     [Fact]
@@ -186,6 +214,18 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
         Assert.Contains("expansion truncated at", r);
         Assert.Contains("the fold runs AFTER the read", r);
         Assert.Contains("lower depth to 3", r);
+    }
+
+    [Fact]
+    public void TheTruncationRemedyDoesNotOfferADepthTheCallIsAlreadyBelow()
+    {
+        // At depth 2 "lower depth to 3" is an increase and at depth 3 it is a no-op: naming one element is the
+        // only remedy left, so the depth clause is dropped rather than printed untrue.
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) },
+                    project: new RecordsTools.RecordsProject { form = "rows", fields = new[] { "Items" }, depth = 2 });
+        Assert.Contains("expansion truncated at", r);
+        Assert.Contains("name one element to fold it alone", r);
+        Assert.DoesNotContain("lower depth", r);
     }
 
     [Fact]
@@ -256,6 +296,12 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
     public void TheFormNamesItsListField() =>
         Refused(RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefB) }, project: Form("rows")),
                 "project.fields", "Conditions");
+
+    [Fact]
+    public void AnEmptyFieldEntryIsRefusedAsBadInput() =>
+        // It used to throw out of the fold, and the crash wording then told the caller the arguments bound fine.
+        Refused(RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefB) }, project: Rows("Conditions", null!)),
+                "project.fields[1]", "field path");
 
     [Fact]
     public void DenseRefusesTheFormByName() =>

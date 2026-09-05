@@ -36,7 +36,7 @@ static class RowProjection
     /// <summary>Fold every outcome's field list. A failed read has no body and passes through; a root that
     /// resolved to something that is NOT a list fails that record loud, because the form's whole answer is rows
     /// and there are none to give.</summary>
-    internal static IReadOnlyList<ReadOutcome> Apply(IReadOnlyList<ReadOutcome> outcomes, IReadOnlyList<string> roots)
+    internal static IReadOnlyList<ReadOutcome> Apply(IReadOnlyList<ReadOutcome> outcomes, IReadOnlyList<string> roots, int depth)
     {
         var order = roots.OrderByDescending(r => r.Length).ToList();   // a root that prefixes another must not claim its rows
         var folded = new List<ReadOutcome>(outcomes.Count);
@@ -45,7 +45,7 @@ static class RowProjection
             if (o.Record is null) { folded.Add(o); continue; }
             var bad = NotAList(o.Record, roots);
             folded.Add(bad is null
-                ? o with { Record = o.Record with { Fields = Fold(o.Record.Fields, order) } }
+                ? o with { Record = o.Record with { Fields = Fold(o.Record.Fields, order, depth) } }
                 : o with { Record = null, Error = bad });
         }
         return folded;
@@ -72,25 +72,30 @@ static class RowProjection
     /// <summary>The fold itself, over the emitted lines in their emission order: lines under one element
     /// accumulate into that element's row, and anything that is not under an element passes through. A row is
     /// keyed by its PATH, not by contiguity, so an element whose lines are split by a nested list's rows (two
-    /// overlapping roots) comes back as one row and never as two entries sharing a path.</summary>
-    internal static IReadOnlyList<FieldValue> Fold(IReadOnlyList<FieldValue> fields, IReadOnlyList<string> roots)
+    /// overlapping roots) comes back as one row and never as two entries sharing a path. A cell is keyed by its
+    /// path too: the read walks each requested path on its own, so overlapping roots emit the nested lines once
+    /// per root, and a row keeps the first of each rather than printing the element's sub-fields twice.</summary>
+    internal static IReadOnlyList<FieldValue> Fold(IReadOnlyList<FieldValue> fields, IReadOnlyList<string> roots, int depth)
     {
         var outp = new List<FieldValue>(fields.Count);
         var slotOf = new Dictionary<string, int>(StringComparer.Ordinal);       // row path → its place in the output
         var cells = new Dictionary<string, List<FieldValue>>(StringComparer.Ordinal);
+        var seen = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);   // row path → the cell paths it holds
 
         foreach (var f in fields)
         {
             var key = RowKey(f.Path, roots);
-            if (key is null) { outp.Add(Passthrough(f)); continue; }
+            if (key is null) { outp.Add(Passthrough(f, depth)); continue; }
             if (!slotOf.TryGetValue(key, out int slot))
             {
                 slot = outp.Count; slotOf[key] = slot; cells[key] = new List<FieldValue>();
+                seen[key] = new HashSet<string>(StringComparer.Ordinal);
                 outp.Add(f);                                                    // placeholder, rewritten below
             }
             // The element's own line always leads the row — it names the arm type, and dropping it could leave a
             // row with nothing to render at all. A sub-field is dropped only when it is an ABSENT optional.
             bool isElement = f.Path.Length == key.Length;
+            if (!seen[key].Add(f.Path)) continue;
             if (isElement || f.Present || !f.Readable || f.Note != ReadEngine.AbsentNote) cells[key].Add(f);
         }
         foreach (var (key, slot) in slotOf) outp[slot] = Row(key, cells[key]);
@@ -112,15 +117,18 @@ static class RowProjection
 
     /// <summary>A line the fold does not own, as it should leave the form. The engine's expansion-truncation note
     /// offers a remedy written for the fields form; on this form it would send a caller to a depth that renders no
-    /// rows, so the remedy — and only the remedy — is restated.</summary>
-    static FieldValue Passthrough(FieldValue f)
+    /// rows, so the remedy — and only the remedy — is restated. Lowering the depth is offered only when the call
+    /// ran above the floor the form can still render: at depth 3 it is a no-op and at depth 2 it is an increase,
+    /// and naming one element is the only remedy left there.</summary>
+    static FieldValue Passthrough(FieldValue f, int depth)
     {
         if (f.Note is not { } n || !n.StartsWith("(expansion truncated", StringComparison.Ordinal)) return f;
         int dash = n.IndexOf('—');
         if (dash < 0) return f;
+        var lower = depth > 3 ? ", or lower depth to 3 (depth 2 leaves every element a bare type)" : "";
         return f with { Note = n[..(dash + 1)] + " the fold runs AFTER the read, so the elements past the cut are " +
-                               "missing from the rows: name one element to fold it alone (e.g. \"Conditions[0]\"), " +
-                               "or lower depth to 3 (depth 2 leaves every element a bare type))" };
+                               "missing from the rows: name one element to fold it alone (e.g. \"Conditions[0]\")" +
+                               lower + ")" };
     }
 
     /// <summary>Is <paramref name="path"/> a strict sub-field or element of <paramref name="owner"/>.</summary>
