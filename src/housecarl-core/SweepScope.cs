@@ -1,5 +1,6 @@
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
+using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlCore;
 
@@ -50,7 +51,8 @@ public sealed class SweepScope
     public bool IsEmpty => Formids is null && EditorIdContains is null && Types is null;
 
     /// <summary>Does this record fall inside the scope? <see cref="Types"/> is NOT re-tested here — it is applied at the
-    /// stream, so a body reaching this call is already of a scoped type.</summary>
+    /// stream, and every stream a sweep reads (<c>RecordsIn</c> and the off-order overlay alike) narrows through
+    /// <see cref="RecordArms"/>, which re-checks the arm. So a body reaching this call is already of a scoped type.</summary>
     public bool Matches(FormKey fk, IMajorRecordGetter body)
     {
         if (Formids is not null && !Formids.Contains(fk)) return false;
@@ -78,10 +80,12 @@ public sealed class SweepScope
 
     /// <summary>An OFF-ORDER file's record stream, type-scoped when the caller asked for one — the overlay
     /// counterpart of <c>RecordsIn</c>'s getter-type filter, so a <c>type=</c> scope costs nothing per skipped
-    /// record on that lane either. One home, because both sweep families walk an off-order file the same way.</summary>
-    public static IEnumerable<IMajorRecordGetter> RecordsFrom(IModGetter ov, SweepScope? scope)
+    /// record on that lane either. One home, because both sweep families walk an off-order file the same way.
+    /// Through <see cref="RecordArms"/>, the same arm re-check the in-order lanes go through: without it an arm scope
+    /// (<c>type='GlobalShort'</c>) would sweep and count the whole GRUP here.</summary>
+    public static IEnumerable<IMajorRecordGetter> RecordsFrom(ISkyrimModGetter ov, SweepScope? scope)
         => scope?.Types is { Count: > 0 } types
-            ? types.SelectMany(t => ov.EnumerateMajorRecords(t, throwIfUnknown: true)).Cast<IMajorRecordGetter>()
+            ? RecordArms.OfTypes(ov, types)
             : ov.EnumerateMajorRecords();
 }
 

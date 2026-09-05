@@ -60,6 +60,31 @@ public sealed class RecordsTypeArmTests
         Assert.DoesNotContain(TypeArmWorld.Float1, r, StringComparison.Ordinal);
     }
 
+    /// <summary>The errors sweep's off-order lane runs a third enumeration of its own, so it needs the same arm
+    /// re-check: without it a <c>type='GlobalShort'</c> sweep of a file holding no GlobalShort walks and counts the
+    /// whole GLOB group. <c>BaseMastersSwept</c> is what that lane's examined set reaches — a swept off-order base
+    /// master is listed there, one whose every record the scope filtered out is not.</summary>
+    [Fact]
+    public void AnArmTypeFilterOnTheOffOrderSweepExaminesThatArmAlone()
+    {
+        var swept = _w.Svc.CheckErrors(new[] { TypeArmWorld.OffOrderName }, 1000, type: "GlobalShort");
+
+        Assert.Null(swept.Error);
+        Assert.Contains(TypeArmWorld.OffOrderName, swept.OffOrderScanned!);   // the file WAS located and opened
+        Assert.Empty(swept.BaseMastersSwept!);                                // and nothing in it was examined
+    }
+
+    /// <summary>The control: the arm the file does hold IS examined, so the assertion above is a filter working
+    /// rather than the off-order lane failing to reach the records at all.</summary>
+    [Fact]
+    public void TheArmTheOffOrderFileHoldsIsExamined()
+    {
+        var swept = _w.Svc.CheckErrors(new[] { TypeArmWorld.OffOrderName }, 1000, type: "GlobalFloat");
+
+        Assert.Null(swept.Error);
+        Assert.Contains(TypeArmWorld.OffOrderName, swept.BaseMastersSwept!);
+    }
+
     /// <summary>The whole abstract group is still addressable by its own name — narrowing the arms must not narrow
     /// the group.</summary>
     [Fact]
