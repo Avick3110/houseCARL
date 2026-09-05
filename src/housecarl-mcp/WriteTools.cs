@@ -205,10 +205,10 @@ public static class WriteTools
 
     /// <summary>The epoch stamp: one thin adapter per outcome record over the single construction in
     /// <see cref="WriteSentences.Epoch"/>. The outcome types are independent shapes, so the sentence lives once.</summary>
-    static string Epoch(WritePatchBuilder.PatchOutcome o) => WriteSentences.Epoch(o.Epoch);
-    static string Epoch(WritePatchBuilder.CreateOutcome o) => WriteSentences.Epoch(o.Epoch);
-    static string Epoch(WritePatchBuilder.RemovalOutcome o) => WriteSentences.Epoch(o.Epoch);
-    static string Epoch(WritePatchBuilder.ForwardOutcome o) => WriteSentences.Epoch(o.Epoch);
+    static string Epoch(WritePatchBuilder.PatchOutcome o) => WriteSentences.Epoch(o.Stamp);
+    static string Epoch(WritePatchBuilder.CreateOutcome o) => WriteSentences.Epoch(o.Stamp);
+    static string Epoch(WritePatchBuilder.RemovalOutcome o) => WriteSentences.Epoch(o.Stamp);
+    static string Epoch(WritePatchBuilder.ForwardOutcome o) => WriteSentences.Epoch(o.Stamp);
 
     /// <summary>The "how to keep going on this plugin" line for a completed IN-PLACE write. One spelling because
     /// there is one lane: the write tools declare a single string <c>in_place="X.esp"</c>, and a response must never

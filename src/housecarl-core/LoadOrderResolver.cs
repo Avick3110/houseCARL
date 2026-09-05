@@ -162,6 +162,10 @@ public sealed class LoadOrderResolver : IDisposable
         public readonly Dictionary<string, string> ExcludedPlugins;           // excluded plugin name → reason
         public readonly int MaxDepth;
         public readonly string Epoch;                                         // this build's fingerprint — immutable with the snapshot
+
+        /// <summary>This build's fingerprint AND the plugins it lost to a load failure, as the single value every
+        /// response stamps itself with. Built once here, so no build can be stamped without its health.</summary>
+        public readonly OrderStamp Stamp;
         public readonly ContainmentIndex Containment;                         // child → parent, off the same one-pass walk
 
         /// <summary>Per plugin index: is it a LIGHT plugin? Read off the header while the build already had the
@@ -194,8 +198,8 @@ public sealed class LoadOrderResolver : IDisposable
             ExcludedPlugins = excludedPlugins; MaxDepth = maxDepth; Epoch = epoch; Light = light; Containment = containment;
             FirstUnknownKind = firstUnknownKind; FirstUnknownKindName = firstUnknownKindName;
             Slots = new Lazy<RuntimeSlots>(() => RuntimeSlots.Build(light));
-            // Every build passes through here, so no degraded one can reach a response unrecorded (#353).
-            OrderHealth.Record(epoch, excludedPlugins.Keys);
+            // The fingerprint and the plugins this build lost, as the one value every response stamps (#353).
+            Stamp = OrderStamp.For(epoch, excludedPlugins.Keys);
         }
     }
 
@@ -266,6 +270,10 @@ public sealed class LoadOrderResolver : IDisposable
     /// <summary>The CURRENT build's epoch fingerprint. Single-shot convenience — a multi-read operation should
     /// Capture() and use the view's <see cref="IndexView.Epoch"/> so the stamp names the build it actually read.</summary>
     public string Epoch => _snap.Epoch;
+
+    /// <summary>The CURRENT build's stamp — its epoch and the plugins it lost. The sibling of <see cref="Epoch"/> for
+    /// a caller that is about to stamp a response.</summary>
+    public OrderStamp Stamp => _snap.Stamp;
 
     /// <summary>Every plugin's filename, in priority order (pure data — no handles). The known-name list the write
     /// harnesses scan to decide which masters are in the order.</summary>
@@ -843,6 +851,11 @@ public sealed class LoadOrderResolver : IDisposable
         /// <summary>THIS captured build's epoch fingerprint — the stamp a bulk response computed off this view
         /// must carry. Immutable with the snapshot: a concurrent rebuild changes nothing here.</summary>
         public string Epoch => _s.Epoch;
+
+        /// <summary>THIS captured build's stamp: the epoch above plus the plugins the build lost to a load failure.
+        /// What a response stamps itself with, so the marker rides with the fingerprint rather than being looked up
+        /// from it.</summary>
+        public OrderStamp Stamp => _s.Stamp;
 
         /// <summary>The one FormID door: parse a caller's token into a FormKey. An eight-hex token with no colon is a
         /// RUNTIME FormID (<c>FExxxYYY</c> or <c>XX######</c>, with or without <c>0x</c>) and is resolved against this

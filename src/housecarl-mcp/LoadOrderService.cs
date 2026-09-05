@@ -2283,7 +2283,7 @@ public sealed class LoadOrderService : IDisposable
         var view = resolver.Capture();
         return ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint,
                            new ChildUnionMemo())   // one named record: the union lane
-               with { Epoch = view.Epoch, Pin = new ViewPin(resolver, view) };   // stamped and pinned here, off the view actually read
+               with { Stamp = view.Stamp, Pin = new ViewPin(resolver, view) };   // stamped and pinned here, off the view actually read
     }
 
     /// <summary>The on-demand whole-topic dialogue-graph validator: resolve <paramref name="fk"/> to its load-order
@@ -2639,7 +2639,7 @@ public sealed class LoadOrderService : IDisposable
                                        string? containerHint = ReadEngine.DepthExpandHint)
         => q.Pin is { } p
             ? ResolveRead(p.Resolver, p.View, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint)
-              with { Epoch = p.View.Epoch, Pin = p }
+              with { Stamp = p.View.Stamp, Pin = p }
             : ResolveRead(fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint);
 
     /// <summary>The summary twin of <see cref="ResolveReadOn"/> — the conflicts-only lazy fill, pinned to the scan's
@@ -2740,7 +2740,7 @@ public sealed class LoadOrderService : IDisposable
     /// without failing the whole batch. Deliberately minimal: no fields, depth or conflict tree.</summary>
     public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids) => ResolveRefs(formids, out _);
 
-    public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids, out string epoch)
+    public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids, out OrderStamp epoch)
         => ResolveRefs(formids, null, out epoch, out _);
 
     /// <summary>The artifact-epoch mismatch refusal — one wording for every consuming lane, naming both epochs and
@@ -2767,12 +2767,12 @@ public sealed class LoadOrderService : IDisposable
     /// capture's epoch — the same build that answers — and a mismatch hands back
     /// <paramref name="artifactRefusal"/> with no rows, stamped with <paramref name="epoch"/>.</para></summary>
     public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids, ArtifactDemand? artifactDemand,
-                                                  out string epoch, out string? artifactRefusal)
+                                                  out OrderStamp epoch, out string? artifactRefusal)
     {
         artifactRefusal = null;
         var resolver = Resolver;
         var view = resolver.Capture();                  // one build for the whole batch
-        epoch = view.Epoch;
+        epoch = view.Stamp;
         if (artifactDemand is not null && artifactDemand.Epoch != view.Epoch)
         {
             artifactRefusal = ArtifactEpochMismatch(artifactDemand, view.Epoch);
@@ -2848,7 +2848,7 @@ public sealed class LoadOrderService : IDisposable
     /// consulted a build renders stamped with it.</summary>
     public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth,
                                                    bool resolveNames, string? plugin, ArtifactDemand? artifactDemand,
-                                                   out string? artifactRefusal, out string? refusalEpoch,
+                                                   out string? artifactRefusal, out OrderStamp? refusalEpoch,
                                                    string? containerHint = ReadEngine.DepthExpandHint)
     {
         artifactRefusal = null; refusalEpoch = null;
@@ -2857,7 +2857,7 @@ public sealed class LoadOrderService : IDisposable
         if (artifactDemand is not null && artifactDemand.Epoch != view.Epoch)
         {
             artifactRefusal = ArtifactEpochMismatch(artifactDemand, view.Epoch);
-            refusalEpoch = view.Epoch;
+            refusalEpoch = view.Stamp;
             return Array.Empty<ReadOutcome>();
         }
         var pin = new ViewPin(resolver, view);
@@ -2874,7 +2874,7 @@ public sealed class LoadOrderService : IDisposable
             try { fk = view.ParseFormId(raw); }
             catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
             outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession)
-                         with { Epoch = view.Epoch, Pin = pin });   // the batch's one build, stamped and pinned per item
+                         with { Stamp = view.Stamp, Pin = pin });   // the batch's one build, stamped and pinned per item
         }
         return outcomes;
     }
@@ -2898,7 +2898,10 @@ public sealed class LoadOrderService : IDisposable
         /// <summary>The epoch of the build the arm was judged against. The caller compares it against its dispatch's
         /// own stamp, so a load-order change between probe and dispatch surfaces as a loud retry refusal instead of
         /// an arm statement about a different build.</summary>
-        public string? Epoch { get; init; }
+        public OrderStamp? Stamp { get; init; }
+
+        /// <summary>That build's fingerprint, read through the stamp.</summary>
+        public string? Epoch => Stamp?.Epoch;
     }
 
     /// <summary>Resolve a `records` source= pole against ONE captured view: active in the order, else located on disk
@@ -2959,7 +2962,7 @@ public sealed class LoadOrderService : IDisposable
         var view = Resolver.Capture();
         var (pole, err) = ResolvePoleArm(view, plugin, mod);
         error = err;
-        return pole is null ? null : pole with { Epoch = view.Epoch };
+        return pole is null ? null : pole with { Stamp = view.Stamp };
     }
 
     /// <summary>The list-driven `records` read under a named source pole: resolve the pole once — active in the
@@ -2972,7 +2975,7 @@ public sealed class LoadOrderService : IDisposable
         IReadOnlyList<string> formids, string plugin, string? mod,
         IReadOnlyList<string>? fields, int depth, bool resolveNames,
         ArtifactDemand? artifactDemand,
-        out PoleInfo? pole, out string? refusal, out string? refusalEpoch,
+        out PoleInfo? pole, out string? refusal, out OrderStamp? refusalEpoch,
         string? containerHint = ReadEngine.DepthExpandHint)
     {
         pole = null; refusal = null; refusalEpoch = null;
@@ -2981,7 +2984,7 @@ public sealed class LoadOrderService : IDisposable
         if (artifactDemand is not null && artifactDemand.Epoch != view.Epoch)
         {
             refusal = ArtifactEpochMismatch(artifactDemand, view.Epoch);
-            refusalEpoch = view.Epoch;
+            refusalEpoch = view.Stamp;
             return Array.Empty<ReadOutcome>();
         }
         var pin = new ViewPin(resolver, view);
@@ -2990,7 +2993,7 @@ public sealed class LoadOrderService : IDisposable
         if (armErr is not null)
         {
             refusal = armErr;
-            refusalEpoch = view.Epoch;
+            refusalEpoch = view.Stamp;
             return Array.Empty<ReadOutcome>();
         }
         pole = arm;
@@ -3010,7 +3013,7 @@ public sealed class LoadOrderService : IDisposable
                 try { fk = view.ParseFormId(raw); }
                 catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
                 outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession)
-                             with { Epoch = view.Epoch, Pin = pin });
+                             with { Stamp = view.Stamp, Pin = pin });
             }
             return outcomes;
         }
@@ -3022,7 +3025,7 @@ public sealed class LoadOrderService : IDisposable
         catch (Exception ex)
         {
             refusal = $"the MO2 roots couldn't be derived to open '{plugin}': {ex.Message}";
-            refusalEpoch = view.Epoch;
+            refusalEpoch = view.Stamp;
             return Array.Empty<ReadOutcome>();
         }
         var poleWhere = arm.Where;
@@ -3041,7 +3044,7 @@ public sealed class LoadOrderService : IDisposable
         catch (Exception ex)
         {
             refusal = $"could not open '{arm.Path}' as a Skyrim plugin: {ex.Message}";
-            refusalEpoch = view.Epoch;
+            refusalEpoch = view.Stamp;
             return Array.Empty<ReadOutcome>();
         }
         try
@@ -3060,7 +3063,7 @@ public sealed class LoadOrderService : IDisposable
             catch (Exception ex)
             {
                 refusal = $"file '{plugin}' could not be fully read — a record Mutagen cannot parse: {ex.Message}";
-                refusalEpoch = view.Epoch;
+                refusalEpoch = view.Stamp;
                 return Array.Empty<ReadOutcome>();
             }
 
@@ -3080,7 +3083,7 @@ public sealed class LoadOrderService : IDisposable
                         (touchers.Count > 0
                             ? $"Touched by (active order, winner last): {string.Join(", ", touchers)}."
                             : "No active plugin touches it either."))
-                        with { Epoch = view.Epoch, Pin = pin };
+                        with { Stamp = view.Stamp, Pin = pin };
                     continue;
                 }
                 var record = ReadEngine.ReadFields(rec, fields, depth, containerHint);          // materialise while the overlay is open
@@ -3088,7 +3091,7 @@ public sealed class LoadOrderService : IDisposable
                 var winner = view.ResolveWinner(fk);                             // winner CONTEXT where the record also lives in the order
                 results[index] = new ReadOutcome(fk, record, plugin, winner?.WinnerPlugin,
                                                  winner?.OverrideDepth ?? 0, null, null)
-                                 with { Epoch = view.Epoch, Pin = pin };
+                                 with { Stamp = view.Stamp, Pin = pin };
             }
             return results.Select(r => r!).ToList();
         }
@@ -3134,12 +3137,12 @@ public sealed class LoadOrderService : IDisposable
         IReadOnlyList<string> formids, PoleSpec subject, PoleSpec reference, IReadOnlyList<string>? fields,
         ArtifactDemand? demand,
         out string? subjectArm, out string? referenceArm, out bool epochCoversAll,
-        out string? refusal, out string? epoch)
+        out string? refusal, out OrderStamp? epoch)
     {
         subjectArm = null; referenceArm = null; epochCoversAll = true; refusal = null;
         var resolver = Resolver;
         var view = resolver.Capture();          // one build for every pole of every record
-        epoch = view.Epoch;
+        epoch = view.Stamp;
         if (demand is not null && demand.Epoch != view.Epoch)
         {
             refusal = ArtifactEpochMismatch(demand, view.Epoch);
@@ -3477,17 +3480,17 @@ public sealed class LoadOrderService : IDisposable
     /// content sits outside the epoch fingerprint, which the caller also declares on the envelope.</summary>
     public IReadOnlyList<ReadOutcome> OverlayPostBatch(
         IReadOnlyList<string> formids, IReadOnlyList<string>? fields, int depth, bool resolveNames,
-        ArtifactDemand? demand, out string? refusal, out string? refusalEpoch, out string? epoch,
+        ArtifactDemand? demand, out string? refusal, out OrderStamp? refusalEpoch, out OrderStamp? epoch,
         string? containerHint = ReadEngine.DepthExpandHint)
     {
         refusal = null; refusalEpoch = null;
         var resolver = Resolver;
         var view = resolver.Capture();
-        epoch = view.Epoch;
+        epoch = view.Stamp;
         if (demand is not null && demand.Epoch != view.Epoch)
         {
             refusal = ArtifactEpochMismatch(demand, view.Epoch);
-            refusalEpoch = view.Epoch;
+            refusalEpoch = view.Stamp;
             return Array.Empty<ReadOutcome>();
         }
         var pin = new ViewPin(resolver, view);
@@ -3508,7 +3511,7 @@ public sealed class LoadOrderService : IDisposable
         catch (Exception ex)
         {
             refusal = $"the SkyPatcher layer could not be discovered for the overlay source: {ex.Message}";
-            refusalEpoch = view.Epoch;
+            refusalEpoch = view.Stamp;
             return Array.Empty<ReadOutcome>();
         }
         var linesCache = new Dictionary<string, IReadOnlyList<SkyPatcherOverlay.OrderedLine>>(StringComparer.OrdinalIgnoreCase);
@@ -3529,7 +3532,7 @@ public sealed class LoadOrderService : IDisposable
             if (winner is null)
             {
                 var miss = ReadOutcome.Fail(fk, UnresolvedFormId(view, fk))
-                           with { Epoch = view.Epoch, Pin = pin };
+                           with { Stamp = view.Stamp, Pin = pin };
                 replayMemo[fk] = miss; outcomes.Add(miss);
                 continue;
             }
@@ -3541,7 +3544,7 @@ public sealed class LoadOrderService : IDisposable
                     bodyToRead = view.GetRecord(session, winner.Value.WinnerPlugin, fk);   // post IS pre for an unpatchable type
                 if (bodyToRead is null)
                 {
-                    var fail = ReadOutcome.Fail(fk, r.Error) with { Epoch = view.Epoch, Pin = pin };
+                    var fail = ReadOutcome.Fail(fk, r.Error) with { Stamp = view.Stamp, Pin = pin };
                     replayMemo[fk] = fail; outcomes.Add(fail);
                     continue;
                 }
@@ -3550,7 +3553,7 @@ public sealed class LoadOrderService : IDisposable
             if (resolveNames) record = AnnotateLinks(record, view, session, overlayLinkMemo ??= new LinkMemo());
             var ok = (new ReadOutcome(fk, record, winner.Value.WinnerPlugin, winner.Value.WinnerPlugin,
                                       winner.Value.OverrideDepth, null, null)
-                      with { Epoch = view.Epoch, Pin = pin }).WithRuntime(view.RuntimeAddressOf(fk));
+                      with { Stamp = view.Stamp, Pin = pin }).WithRuntime(view.RuntimeAddressOf(fk));
             replayMemo[fk] = ok; outcomes.Add(ok);
         }
         return outcomes;
@@ -3580,12 +3583,12 @@ public sealed class LoadOrderService : IDisposable
     public IReadOnlyList<TreeRow> TreeBatch(
         IReadOnlyList<string> formids, PoleSpec reference, IReadOnlyList<string>? fields,
         ArtifactDemand? demand,
-        out string? referenceArm, out bool epochCoversAll, out string? refusal, out string? epoch)
+        out string? referenceArm, out bool epochCoversAll, out string? refusal, out OrderStamp? epoch)
     {
         referenceArm = null; epochCoversAll = true; refusal = null;
         var resolver = Resolver;
         var view = resolver.Capture();
-        epoch = view.Epoch;
+        epoch = view.Stamp;
         if (demand is not null && demand.Epoch != view.Epoch)
         {
             refusal = ArtifactEpochMismatch(demand, view.Epoch);
@@ -3712,12 +3715,12 @@ public sealed class LoadOrderService : IDisposable
     public IReadOnlyList<WalkSeedResult> WalkForwardBatch(
         IReadOnlyList<string> seeds, IReadOnlyList<string>? seedPaths, string? follow,
         int depth, int maxNodes, IReadOnlyList<(string Match, bool Refuse)> exclusions,
-        ArtifactDemand? demand, out string? refusal, out string? epoch)
+        ArtifactDemand? demand, out string? refusal, out OrderStamp? epoch)
     {
         refusal = null;
         var resolver = Resolver;
         var view = resolver.Capture();
-        epoch = view.Epoch;
+        epoch = view.Stamp;
         if (demand is not null && demand.Epoch != view.Epoch)
         {
             refusal = ArtifactEpochMismatch(demand, view.Epoch);
@@ -3941,12 +3944,12 @@ public sealed class LoadOrderService : IDisposable
     /// refusal: a quest's topics are selected by composition (types=["DIAL"] where=["Quest = &lt;quest formid&gt;"])
     /// rather than by silently fanning out here.</summary>
     public IReadOnlyList<InfoOrderRow> InfoOrderBatch(IReadOnlyList<string> formids, ArtifactDemand? demand,
-                                                      out string? refusal, out string? epoch)
+                                                      out string? refusal, out OrderStamp? epoch)
     {
         refusal = null;
         var resolver = Resolver;
         var view = resolver.Capture();
-        epoch = view.Epoch;
+        epoch = view.Stamp;
         if (demand is not null && demand.Epoch != view.Epoch)
         {
             refusal = ArtifactEpochMismatch(demand, view.Epoch);
@@ -4158,7 +4161,7 @@ public sealed class LoadOrderService : IDisposable
         foreach (var demand in (artifactDemands ?? Array.Empty<ArtifactDemand>()).Concat(
                      predicate?.ArtifactDemands ?? (IReadOnlyList<ArtifactDemand>)Array.Empty<ArtifactDemand>()))
             if (demand.Epoch != view.Epoch)
-                return CrossQueryOutcome.Fail(ArtifactEpochMismatch(demand, view.Epoch)) with { Epoch = view.Epoch };
+                return CrossQueryOutcome.Fail(ArtifactEpochMismatch(demand, view.Epoch)) with { Stamp = view.Stamp };
 
         IReadOnlyList<Type>? types;
         try
@@ -4176,7 +4179,7 @@ public sealed class LoadOrderService : IDisposable
         catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }   // unknown type
 
         if (predicate is not null && hasType && QuantifierShapeRefusal(typeSet!, predicate) is { } qerr)
-            return CrossQueryOutcome.Fail(qerr) with { Epoch = view.Epoch };
+            return CrossQueryOutcome.Fail(qerr) with { Stamp = view.Stamp };
 
         var keys = new List<FormKey>();
         var sources = new List<string?>();                                    // parallel to keys: the plugin whose body matched (null ⇒ winner), so the render displays the SAME body it filtered
@@ -4528,7 +4531,7 @@ public sealed class LoadOrderService : IDisposable
                                      predicate?.AccountingNote(), sources, scanNote,
                                      matched, groupRows, groupBy, definedIn ? string.Join(", ", plugins!) : null, offset,
                                      whereWinner, whereSourceNote)
-               { Epoch = view.Epoch, Pin = new ViewPin(resolver, view),
+               { Stamp = view.Stamp, Pin = new ViewPin(resolver, view),
                  ReverseIndexNote = reverseNote,
                  UnreadPlugins = unreadablePlugins.Select(u => u.PluginName).ToList() };
     }
@@ -4627,12 +4630,12 @@ public sealed class LoadOrderService : IDisposable
                     $"'{ContainmentIndex.ParentToken}' reads the containment map built from the ACTIVE load order, and this scan streams an " +
                     $"out-of-load-order FILE whose own containment was never indexed — the answer would come from a different file's " +
                     $"edges. Drop source= to filter on containment in the active order, or filter this file on its own body instead.")
-                    with { Epoch = view.Epoch };
+                    with { Stamp = view.Stamp };
         }
         foreach (var demand in (artifactDemands ?? Array.Empty<ArtifactDemand>()).Concat(
                      predicate?.ArtifactDemands ?? (IReadOnlyList<ArtifactDemand>)Array.Empty<ArtifactDemand>()))
             if (demand.Epoch != view.Epoch)
-                return CrossQueryOutcome.Fail(ArtifactEpochMismatch(demand, view.Epoch)) with { Epoch = view.Epoch };
+                return CrossQueryOutcome.Fail(ArtifactEpochMismatch(demand, view.Epoch)) with { Stamp = view.Stamp };
 
         IReadOnlyList<Type>? types;
         try
@@ -4650,7 +4653,7 @@ public sealed class LoadOrderService : IDisposable
         catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }
 
         if (predicate is not null && typeSet is { Count: > 0 } && QuantifierShapeRefusal(typeSet, predicate) is { } qerr)
-            return CrossQueryOutcome.Fail(qerr) with { Epoch = view.Epoch };
+            return CrossQueryOutcome.Fail(qerr) with { Stamp = view.Stamp };
 
         var scopeSet = scopePlugins is { Count: > 0 }
             ? new HashSet<string>(scopePlugins.Select(p => p.Trim()), StringComparer.OrdinalIgnoreCase)
@@ -4658,7 +4661,7 @@ public sealed class LoadOrderService : IDisposable
         if (scopeSet is not null)
             foreach (var p in scopeSet)
                 if (!view.ContainsPlugin(p))
-                    return CrossQueryOutcome.Fail($"plugins= scope '{p}' is not in the active load order — over an out-of-load-order file the scope keeps the file's records that ACTIVE plugins also touch, so the scope names active plugins.") with { Epoch = view.Epoch };
+                    return CrossQueryOutcome.Fail($"plugins= scope '{p}' is not in the active load order — over an out-of-load-order file the scope keeps the file's records that ACTIVE plugins also touch, so the scope names active plugins.") with { Stamp = view.Stamp };
 
         ModKey fileKey;
         try { fileKey = ModKey.FromFileName(pole.Plugin); }
@@ -4666,10 +4669,10 @@ public sealed class LoadOrderService : IDisposable
 
         string dataDir;
         try { lock (_gate) { EnsurePathsDerived(); dataDir = _dataDir; } }
-        catch (Exception ex) { return CrossQueryOutcome.Fail($"the MO2 roots couldn't be derived to open '{pole.Plugin}': {ex.Message}") with { Epoch = view.Epoch }; }
+        catch (Exception ex) { return CrossQueryOutcome.Fail($"the MO2 roots couldn't be derived to open '{pole.Plugin}': {ex.Message}") with { Stamp = view.Stamp }; }
         ISkyrimModGetter ov;
         try { ov = LoadOrderResolver.OpenOverlay(pole.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
-        catch (Exception ex) { return CrossQueryOutcome.Fail($"could not open '{pole.Path}' as a Skyrim plugin: {ex.Message}") with { Epoch = view.Epoch }; }
+        catch (Exception ex) { return CrossQueryOutcome.Fail($"could not open '{pole.Path}' as a Skyrim plugin: {ex.Message}") with { Stamp = view.Stamp }; }
 
         var refSet = references is { Count: > 0 } ? new HashSet<FormKey>(references) : null;
         var refNone = referencesNone is { Count: > 0 } ? new HashSet<FormKey>(referencesNone) : null;
@@ -4766,9 +4769,9 @@ public sealed class LoadOrderService : IDisposable
                 }
             }
         }
-        catch (Exception ex) { return CrossQueryOutcome.Fail($"file '{pole.Plugin}' could not be fully read — {ex.GetType().Name}: {ex.Message}") with { Epoch = view.Epoch }; }
+        catch (Exception ex) { return CrossQueryOutcome.Fail($"file '{pole.Plugin}' could not be fully read — {ex.GetType().Name}: {ex.Message}") with { Stamp = view.Stamp }; }
         finally { session?.Dispose(); (ov as IDisposable)?.Dispose(); }
-        if (predicate?.FatalError is not null) return CrossQueryOutcome.Fail(predicate.FatalError) with { Epoch = view.Epoch };
+        if (predicate?.FatalError is not null) return CrossQueryOutcome.Fail(predicate.FatalError) with { Stamp = view.Stamp };
 
         string? scanNote = unscannable == 0 ? null
             : $"note: {unscannable} record(s) in '{pole.Plugin}' could not be scanned and were skipped where the failure occurred: "
@@ -4779,7 +4782,7 @@ public sealed class LoadOrderService : IDisposable
         return new CrossQueryOutcome(keys, prefilled, total, groups is null && total > offset + keys.Count, null,
                                      predicate?.AccountingNote(), sources, scanNote, matched, groupRows, groupBy,
                                      definedIn ? pole.Plugin : null, offset, false, null)
-               { Epoch = view.Epoch, Pin = new ViewPin(resolver, view) };
+               { Stamp = view.Stamp, Pin = new ViewPin(resolver, view) };
     }
 
     // ---- effect-chain resolver -------------------------------------------------------------------------
@@ -5095,7 +5098,7 @@ public sealed class LoadOrderService : IDisposable
                 if (ipError is not null)
                 {
                     if (ipOverlays is not null) foreach (var d in ipOverlays) d.Dispose();
-                    return WritePatchBuilder.PatchOutcome.Fail(ipError) with { Epoch = ipEpoch };
+                    return WritePatchBuilder.PatchOutcome.Fail(ipError) with { Stamp = ipEpoch };
                 }
                 try { return ApplyEditsInPlace(resolver, rulebook, edits, target!.Trim(), acknowledge, dryRun, ipSources); }
                 finally { if (ipOverlays is not null) foreach (var d in ipOverlays) d.Dispose(); }
@@ -5119,7 +5122,7 @@ public sealed class LoadOrderService : IDisposable
             {
                 if (offOrderOverlays is not null) foreach (var d in offOrderOverlays) d.Dispose();
                 if (created) RemoveFolderCreatedThisCall(outPath);   // a refused write leaves no orphan folder
-                return WritePatchBuilder.PatchOutcome.Fail(cfError) with { Epoch = cfEpoch };
+                return WritePatchBuilder.PatchOutcome.Fail(cfError) with { Stamp = cfEpoch };
             }
             try
             {
@@ -5148,14 +5151,14 @@ public sealed class LoadOrderService : IDisposable
     /// which is what makes one rewrite reach both.</para></summary>
     string? PrepareCopyFromSources(LoadOrderResolver resolver, IList<WritePatchBuilder.PatchEdit> edits,
         ref Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? sources, ref List<IDisposable>? overlays,
-        out string? epoch)
+        out OrderStamp? epoch)
     {
         // This helper takes its OWN capture, so its refusals are decided after a build was consulted and are stamped
         // like every other post-capture outcome. Null only when no CopyFrom op exists, when nothing consults a build.
         epoch = null;
         if (!edits.Any(e => string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal))) return null;   // no CopyFrom → no source work
         var view = resolver.Capture();
-        epoch = view.Epoch;
+        epoch = view.Stamp;
         RespellActiveCopySourcePaths(view, edits);   // before the predicate, and before any edit is used as a key
         string modsDir = "", dataDir = "", overwriteDir = "", profileDir = "";
         Mo2Composition? comp = null;
@@ -5248,11 +5251,11 @@ public sealed class LoadOrderService : IDisposable
     /// lane, and so does a path to an excluded plugin.</para></summary>
     WritePatchBuilder.OffOrderForwardSource? ResolveOffOrderForwardSource(
         LoadOrderResolver resolver, string fromPlugin, IReadOnlyList<WritePatchBuilder.ForwardSpec> specs,
-        out IDisposable? overlay, out string? epoch, out string? error, out string sourceName)
+        out IDisposable? overlay, out OrderStamp? epoch, out string? error, out string sourceName)
     {
         overlay = null; error = null; sourceName = fromPlugin;
         var view = resolver.Capture();
-        epoch = view.Epoch;
+        epoch = view.Stamp;
         if (view.ContainsPlugin(fromPlugin)) return null;      // active — the engine resolves it off the shared build
         // The same LooksLikePath check the other pole-resolving sites use. Harmless without it — a bare filename
         // already failed ContainsPlugin above — but kept so the convention has no exception.
@@ -5665,7 +5668,7 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.PatchOutcome.Fail(
                 $"in-place target '{target}' is not an active plugin in the load order — name a plugin enabled in MO2, by its " +
                 "plugin filename (e.g. 'CoolWeapons.esp'). in-place edits the file the game actually loads. Nothing was written.")
-                with { Epoch = view.Epoch };
+                with { Stamp = view.Stamp };
 
         // A localized target is refused BEFORE the dry-run branch below. houseCARL cannot re-serialize a localized
         // plugin without scrambling its text, and the write's own backstop cannot serve here for two reasons: a dry
@@ -5673,7 +5676,7 @@ public sealed class LoadOrderService : IDisposable
         // landing; and the backstop's sentence names no lane, while a caller refused here needs this lane's remedy.
         if (LocalizedStrings.RefusalFor(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } locRefusal)
             return WritePatchBuilder.PatchOutcome.Fail(locRefusal)
-                with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
+                with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
 
         // The consent axis: a persistent, server-enforced first-touch handshake keyed off the resolved path. It is
         // not a sticky mode — each in-place write still names its own target=, so this only stops re-explaining the
@@ -5697,7 +5700,7 @@ public sealed class LoadOrderService : IDisposable
                 // resolved the target, and it is the most common in-place response shape, so an unstamped one would
                 // break the "every write response carries an epoch" contract where callers meet it most.
                 return WritePatchBuilder.PatchOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath))
-                    with { Epoch = view.Epoch };
+                    with { Stamp = view.Stamp };
             owesConsent = !already && acknowledge;
         }
 
@@ -5705,7 +5708,7 @@ public sealed class LoadOrderService : IDisposable
         // so a read-only or locked parent is caught up front with a clear message before any work. Kept in the dry
         // run too, since an unwritable parent is exactly what the real write would refuse on.
         if (InPlaceParentUnwritable(targetPath, out var why))
-            return WritePatchBuilder.PatchOutcome.Fail(why) with { Epoch = view.Epoch };
+            return WritePatchBuilder.PatchOutcome.Fail(why) with { Stamp = view.Stamp };
 
         // The write, with the touched-record verify forced on.
         var outcome = WritePatchBuilder.ApplyInPlace(resolver, rulebook, edits, targetPath, targetName, fullReadback: true, dryRun, copyFromSources);
@@ -6024,14 +6027,14 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.RemovalOutcome.Fail(
                 $"in-place target '{target}' is not an active plugin in the load order — name a plugin enabled in MO2, by its " +
                 "plugin filename (e.g. 'CoolWeapons.esp'). in-place removes from the file the game actually loads. Nothing was written.")
-                with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
+                with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
 
         // A localized target is predicted here rather than met at the write: houseCARL cannot re-serialize a
         // localized plugin without scrambling its text, and the write's own backstop names no lane, while a caller
         // refused here needs this lane's remedy clause.
         if (LocalizedStrings.RefusalFor(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemoveNoEquivalent) is { } locRefusal)
             return WritePatchBuilder.RemovalOutcome.Fail(locRefusal)
-                with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
+                with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
 
         // The consent axis: the persistent first-touch handshake keyed off the resolved path, shared with the edit
         // and create lanes because it is the same "touch your original" trade-off. The check gates entry here; the
@@ -6040,12 +6043,12 @@ public sealed class LoadOrderService : IDisposable
         if (!already && !acknowledge)
             // Stamped for the reason the edit lane's twin states: the most common in-place response shape.
             return WritePatchBuilder.RemovalOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath))
-                with { Epoch = view.Epoch };
+                with { Stamp = view.Stamp };
         bool owesConsent = !already && acknowledge;
 
         // Writable-parent pre-flight — refuse rather than degrade; the swap stages a sibling temp here.
         if (InPlaceParentUnwritable(targetPath, out var why))
-            return WritePatchBuilder.RemovalOutcome.Fail(why) with { Epoch = view.Epoch };
+            return WritePatchBuilder.RemovalOutcome.Fail(why) with { Stamp = view.Stamp };
 
         // The write, with the absence verify forced on.
         var outcome = WritePatchBuilder.RemoveRecordsInPlace(resolver, keys, targetPath, targetName);
@@ -6126,7 +6129,7 @@ public sealed class LoadOrderService : IDisposable
             // the write, so it is disposed in the finally below.
             var offOrder = ResolveOffOrderForwardSource(resolver, fp, specs, out var offOverlay, out var offEpoch, out var offError, out var sourceName);
             if (offError is not null)
-                return WritePatchBuilder.ForwardOutcome.Fail(offError) with { Epoch = offEpoch };
+                return WritePatchBuilder.ForwardOutcome.Fail(offError) with { Stamp = offEpoch };
             // A path that named the ACTIVE copy resolves as that plugin, so re-spell every spec's source and the
             // engine can look it up in the index — a path is not a key there. That is also what makes the winner
             // comparison, the self-forward name check and the report's "copied from" speak the order's vocabulary.
@@ -6169,7 +6172,7 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.ForwardOutcome.Fail(
                 $"in-place target '{target}' is not an active plugin in the load order — name a plugin enabled in MO2, by its " +
                 "plugin filename (e.g. 'CoolWeapons.esp'). in-place forwards into the file the game actually loads. Nothing was written.")
-                with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
+                with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
 
         // A localized target is refused BEFORE the dry-run branch below. houseCARL cannot re-serialize a localized
         // plugin without scrambling its text, and the write's own backstop cannot serve here for two reasons: a dry
@@ -6177,7 +6180,7 @@ public sealed class LoadOrderService : IDisposable
         // landing; and the backstop's sentence names no lane, while a caller refused here needs this lane's remedy.
         if (LocalizedStrings.RefusalFor(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } locRefusal)
             return WritePatchBuilder.ForwardOutcome.Fail(locRefusal)
-                with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
+                with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
 
         // The consent axis: the persistent first-touch handshake keyed off the resolved path, shared with the other
         // in-place lanes because it is the same "touch your original" trade-off. A dry run bypasses the handshake and
@@ -6197,14 +6200,14 @@ public sealed class LoadOrderService : IDisposable
             if (!already && !acknowledge)
                 // Stamped for the reason the edit lane's twin states (the most common in-place response shape).
                 return WritePatchBuilder.ForwardOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath))
-                    with { Epoch = view.Epoch };
+                    with { Stamp = view.Stamp };
             owesConsent = !already && acknowledge;
         }
 
         // Writable-parent pre-flight — refuse rather than degrade. Kept in the dry run, which predicts exactly what
         // the real write would refuse on.
         if (InPlaceParentUnwritable(targetPath, out var why))
-            return WritePatchBuilder.ForwardOutcome.Fail(why) with { Epoch = view.Epoch };
+            return WritePatchBuilder.ForwardOutcome.Fail(why) with { Stamp = view.Stamp };
 
         // The write, with the touched-record verify forced on.
         var outcome = WritePatchBuilder.ForwardRecordsInPlace(resolver, specs, targetPath, targetName, fullReadback: true, dryRun, sourceParam, offOrder);
@@ -7475,14 +7478,14 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.CreateOutcome.Fail(
                 $"in-place target '{target}' is not an active plugin in the load order — name a plugin enabled in MO2, by its " +
                 "plugin filename (e.g. 'CoolWeapons.esp'). in-place creates into the file the game actually loads. Nothing was written.")
-                with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
+                with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
 
         // A localized target is predicted here rather than met at the write: houseCARL cannot re-serialize a
         // localized plugin without scrambling its text, and the write's own backstop names no lane, while a caller
         // refused here needs this lane's remedy clause.
         if (LocalizedStrings.RefusalFor(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } locRefusal)
             return WritePatchBuilder.CreateOutcome.Fail(locRefusal)
-                with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
+                with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
 
         // The consent axis: the persistent first-touch handshake keyed off the resolved path, shared with the edit
         // lane because acknowledging a plugin once covers both editing and creating into it — the same "touch your
@@ -7493,12 +7496,12 @@ public sealed class LoadOrderService : IDisposable
             // Stamped for the reason the edit lane's twin states: this branch is reached only after the view above
             // resolved the target, and it is the most common in-place response shape.
             return WritePatchBuilder.CreateOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath))
-                with { Epoch = view.Epoch };
+                with { Stamp = view.Stamp };
         bool owesConsent = !already && acknowledge;
 
         // Writable-parent pre-flight — refuse rather than degrade; the swap stages a sibling temp here.
         if (InPlaceParentUnwritable(targetPath, out var why))
-            return WritePatchBuilder.CreateOutcome.Fail(why) with { Epoch = view.Epoch };
+            return WritePatchBuilder.CreateOutcome.Fail(why) with { Stamp = view.Stamp };
 
         // The write, with the created-record verify forced on.
         var outcome = WritePatchBuilder.CreateRecordsInPlace(resolver, rulebook, specs, targetPath, targetName, fullReadback: true);
@@ -9179,7 +9182,11 @@ public sealed record ReadOutcome(
     /// <summary>The captured build this outcome was answered from, stamped at the capture boundary so refusals carry
     /// it too: a "not present" is an answer ABOUT a build. Null only where no view was ever consulted, such as a
     /// malformed-FormID parse failure.</summary>
-    public string? Epoch { get; init; }
+    public OrderStamp? Stamp { get; init; }
+
+    /// <summary>That build's fingerprint. Reads through the stamp, so an outcome cannot carry an epoch without the
+    /// health of the build it names.</summary>
+    public string? Epoch => Stamp?.Epoch;
 
     /// <summary>The RUNTIME FormID of this record in the build that answered — the eight-hex form the game, the
     /// console, Papyrus logs and crash logs print. Rendered beside the FormKey so a reader can carry the record
@@ -9237,7 +9244,11 @@ public sealed record CrossQueryOutcome(
 {
     /// <summary>The captured build the scan ran over. The render stamps it into the in-band accounting so paged
     /// windows are checkably from the same build. Null on the pre-scan refusals.</summary>
-    public string? Epoch { get; init; }
+    public OrderStamp? Stamp { get; init; }
+
+    /// <summary>That build's fingerprint. Reads through the stamp, so an outcome cannot carry an epoch without the
+    /// health of the build it names.</summary>
+    public string? Epoch => Stamp?.Epoch;
 
     /// <summary>The reverse-reference index's accounting for this call: what a build it triggered cost, the index's
     /// own per-plugin freshness key, and the whole-order universe declaration. Null when the call did not use it.</summary>

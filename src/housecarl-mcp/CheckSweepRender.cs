@@ -23,7 +23,8 @@ internal sealed record CheckSweep(
     ErrorCheckResult? Errors = null,
     ScriptCheckResult? Scripts = null,
     DialogueCheckResult? Dialogue = null,
-    string? SharedInputError = null)
+    string? SharedInputError = null,
+    OrderStamp? Order = null)
 {
     /// <summary>This family's own ground for producing no result — the refusal its result carries. Whether that
     /// ground is the whole call's answer or one section's is <see cref="CheckOutcome"/>'s question.</summary>
@@ -38,6 +39,13 @@ internal sealed record CheckSweep(
     /// <summary>The epoch any family stamped, for a refusal render. Both sweep families capture the same build.
     /// </summary>
     internal string? Epoch => Errors?.Epoch ?? Scripts?.Epoch;
+
+    /// <summary>The plugins the order this call answered from had LOST to a load failure, captured once before any
+    /// family was dispatched. A response-level fact, not a family's: the dialogue family carries no epoch by design
+    /// (see <see cref="DialogueCheckResult"/>), so a dialogue-only call has no family stamp to hang it off and would
+    /// otherwise be silent about an order missing plugins (#353). Empty on a healthy order and on a call refused
+    /// before the order was read.</summary>
+    internal IReadOnlyList<string> OrderExcluded => Order?.ExcludedPlugins ?? Array.Empty<string>();
 
     /// <summary>Does this family have a result to render?</summary>
     internal bool Ran(SweepFamily f) => f switch

@@ -125,7 +125,11 @@ public static class WritePatchBuilder
         /// field names the build the reported outcome came from, NOT a claim that exactly one capture occurred. They
         /// can only differ if the load order changed mid-call (mtime freshness), which shows as an epoch that does not
         /// match a read taken either side of it — detectable rather than papered over.</para></summary>
-        public string? Epoch { get; init; }
+        public OrderStamp? Stamp { get; init; }
+
+        /// <summary>That build's fingerprint. Reads through the stamp, so an outcome cannot carry an epoch without the
+        /// health of the build it names.</summary>
+        public string? Epoch => Stamp?.Epoch;
 
         /// <summary>True ⇒ this outcome came from the IN-PLACE lane (<see cref="Apply"/>'s sibling
         /// <see cref="ApplyInPlace"/>) — the edits landed in the USER's own file at <see cref="OutputPath"/>, not a new
@@ -178,7 +182,11 @@ public static class WritePatchBuilder
         /// a refusal taken before any build was consulted). A removal reads the index for the re-serialize's master
         /// context, and its report's "re-sort if dropping this override changed a winner" advice is only meaningful
         /// against a named build.</summary>
-        public string? Epoch { get; init; }
+        public OrderStamp? Stamp { get; init; }
+
+        /// <summary>That build's fingerprint. Reads through the stamp, so an outcome cannot carry an epoch without the
+        /// health of the build it names.</summary>
+        public string? Epoch => Stamp?.Epoch;
 
         /// <summary>True ⇒ this outcome came from the IN-PLACE remove lane (<see cref="RemoveRecords"/>'s sibling
         /// <see cref="RemoveRecordsInPlace"/>) — the records were dropped from the USER's own file at
@@ -278,7 +286,11 @@ public static class WritePatchBuilder
         /// <summary>The fingerprint of the index build THIS OUTCOME was decided from, on the same contract as
         /// <see cref="PatchOutcome.Epoch"/>. A create resolves parents, link VALUES and the master context through
         /// the captured build, so the new record's wiring is only as current as the build named here.</summary>
-        public string? Epoch { get; init; }
+        public OrderStamp? Stamp { get; init; }
+
+        /// <summary>That build's fingerprint. Reads through the stamp, so an outcome cannot carry an epoch without the
+        /// health of the build it names.</summary>
+        public string? Epoch => Stamp?.Epoch;
 
         /// <summary>True ⇒ this outcome came from the IN-PLACE create lane (<see cref="CreateRecords"/>'s sibling
         /// <see cref="CreateRecordsInPlace"/>) — the new records were allocated into the USER's own file at
@@ -366,9 +378,9 @@ public static class WritePatchBuilder
         IReadOnlyList<PatchEdit> edits, string outPath, bool extend, bool fullReadback = false,
         IReadOnlyDictionary<PatchEdit, IMajorRecordGetter>? copyFromSources = null, bool dryRun = false)
     {
-        string? epoch = null;
+        OrderStamp? epoch = null;
         var outcome = ApplyCore(resolver, rulebook, edits, outPath, extend, fullReadback, copyFromSources, dryRun, ref epoch);
-        return epoch is null ? outcome : outcome with { Epoch = epoch };
+        return epoch is null ? outcome : outcome with { Stamp = epoch };
     }
 
     /// <summary>The body of <see cref="Apply"/>. Split only so the ONE captured build's fingerprint stamps EVERY
@@ -378,7 +390,7 @@ public static class WritePatchBuilder
     static PatchOutcome ApplyCore(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
         IReadOnlyList<PatchEdit> edits, string outPath, bool extend, bool fullReadback,
-        IReadOnlyDictionary<PatchEdit, IMajorRecordGetter>? copyFromSources, bool dryRun, ref string? epoch)
+        IReadOnlyDictionary<PatchEdit, IMajorRecordGetter>? copyFromSources, bool dryRun, ref OrderStamp? epoch)
     {
         if (edits.Count == 0) return PatchOutcome.Fail("no edits supplied.");
 
@@ -422,7 +434,7 @@ public static class WritePatchBuilder
         //     edits it directly, no override) — this consults ONLY the named output artifact of the current authoring
         //     session, never an arbitrary un-enabled plugin, so no winner-confusion hazard arises. ---
         var view = resolver.Capture();
-        epoch = view.Epoch;                                               // stamped on every outcome from here down
+        epoch = view.Stamp;                                               // stamped on every outcome from here down
         var resolved = new List<(PatchEdit edit, IMajorRecordGetter? body, string? winnerPlugin, IMajorRecord? patchLocal, WriteRequest req, string label, IMajorRecordGetter? srcBody)>(edits.Count);
         var problems = new List<string>();
         // Records the extended patch DEFINES (FormKey in the patch's own master space — created by a prior into=
@@ -780,9 +792,9 @@ public static class WritePatchBuilder
         IReadOnlyList<PatchEdit> edits, string targetPath, string targetName, bool fullReadback = true,
         bool dryRun = false, IReadOnlyDictionary<PatchEdit, IMajorRecordGetter>? copyFromSources = null)
     {
-        string? epoch = null;
+        OrderStamp? epoch = null;
         var outcome = ApplyInPlaceCore(resolver, rulebook, edits, targetPath, targetName, fullReadback, dryRun, copyFromSources, ref epoch);
-        return epoch is null ? outcome : outcome with { Epoch = epoch };
+        return epoch is null ? outcome : outcome with { Stamp = epoch };
     }
 
     /// <summary>The body of <see cref="ApplyInPlace"/> — split for the same single-point epoch stamp as
@@ -790,7 +802,7 @@ public static class WritePatchBuilder
     static PatchOutcome ApplyInPlaceCore(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
         IReadOnlyList<PatchEdit> edits, string targetPath, string targetName, bool fullReadback,
-        bool dryRun, IReadOnlyDictionary<PatchEdit, IMajorRecordGetter>? copyFromSources, ref string? epoch)
+        bool dryRun, IReadOnlyDictionary<PatchEdit, IMajorRecordGetter>? copyFromSources, ref OrderStamp? epoch)
     {
         if (edits.Count == 0) return PatchOutcome.Fail("no edits supplied.");
 
@@ -802,7 +814,7 @@ public static class WritePatchBuilder
         // --- Phase 1: resolve each edit's body FROM THE TARGET (not the winner) + derive type + pre-flight — the
         //     content-source guard. ONE captured view answers every edit, so no rebuild can mix two builds. ---
         var view = resolver.Capture();
-        epoch = view.Epoch;                                               // stamped on every outcome from here down
+        epoch = view.Stamp;                                               // stamped on every outcome from here down
         if (!view.ContainsPlugin(targetName))
             return PatchOutcome.Fail($"in-place target '{targetName}' is not an active plugin in the load order.{view.AbsenceClause(targetName)}");
         if (view.ExcludedPlugins.TryGetValue(targetName, out var excluded))
@@ -1250,15 +1262,15 @@ public static class WritePatchBuilder
     /// </summary>
     public static RemovalOutcome RemoveRecords(LoadOrderResolver resolver, IReadOnlyList<FormKey> targets, string outPath)
     {
-        string? epoch = null;
+        OrderStamp? epoch = null;
         var outcome = RemoveRecordsCore(resolver, targets, outPath, ref epoch);
-        return epoch is null ? outcome : outcome with { Epoch = epoch };
+        return epoch is null ? outcome : outcome with { Stamp = epoch };
     }
 
     /// <summary>The body of <see cref="RemoveRecords"/> — split for the same single-point epoch stamp as
     /// <see cref="ApplyCore"/>.</summary>
     static RemovalOutcome RemoveRecordsCore(
-        LoadOrderResolver resolver, IReadOnlyList<FormKey> targets, string outPath, ref string? epoch)
+        LoadOrderResolver resolver, IReadOnlyList<FormKey> targets, string outPath, ref OrderStamp? epoch)
     {
         if (targets.Count == 0) return RemovalOutcome.Fail("no records to remove supplied.");
 
@@ -1269,7 +1281,7 @@ public static class WritePatchBuilder
         // build-free: the master context this removal re-serializes against is the session's, off the resolver's
         // current build. Naming that build is what makes the report's "re-sort if this changed a winner" advice
         // checkable, so the stamp is taken here rather than left null (which would claim no index was consulted).
-        epoch = resolver.Capture().Epoch;
+        epoch = resolver.Capture().Stamp;
 
         var fileName = Path.GetFileName(outPath);
         if (!File.Exists(outPath))
@@ -1442,16 +1454,16 @@ public static class WritePatchBuilder
     public static RemovalOutcome RemoveRecordsInPlace(
         LoadOrderResolver resolver, IReadOnlyList<FormKey> targets, string targetPath, string targetName)
     {
-        string? epoch = null;
+        OrderStamp? epoch = null;
         var outcome = RemoveRecordsInPlaceCore(resolver, targets, targetPath, targetName, ref epoch);
-        return epoch is null ? outcome : outcome with { Epoch = epoch };
+        return epoch is null ? outcome : outcome with { Stamp = epoch };
     }
 
     /// <summary>The body of <see cref="RemoveRecordsInPlace"/> — split for the same single-point epoch stamp as
     /// <see cref="ApplyCore"/>.</summary>
     static RemovalOutcome RemoveRecordsInPlaceCore(
         LoadOrderResolver resolver, IReadOnlyList<FormKey> targets, string targetPath, string targetName,
-        ref string? epoch)
+        ref OrderStamp? epoch)
     {
         if (targets.Count == 0) return RemovalOutcome.Fail("no records to remove supplied.");
 
@@ -1463,7 +1475,7 @@ public static class WritePatchBuilder
         // --- Phase 1: the target must be an active, FULLY-PARSEABLE plugin (the ApplyInPlace guard — never re-serialize
         //     a plugin Mutagen excluded, which would risk dropping the record it couldn't read on the rewrite). ---
         var view = resolver.Capture();
-        epoch = view.Epoch;                                               // stamped on every outcome from here down
+        epoch = view.Stamp;                                               // stamped on every outcome from here down
         if (!view.ContainsPlugin(targetName))
             return RemovalOutcome.Fail($"in-place target '{targetName}' is not an active plugin in the load order.{view.AbsenceClause(targetName)}");
         if (view.ExcludedPlugins.TryGetValue(targetName, out var excluded))
@@ -1739,11 +1751,11 @@ public static class WritePatchBuilder
         bool fullReadback = true, bool dryRun = false, string sourceParam = "from_plugin",
         OffOrderForwardSource? offOrder = null)
     {
-        string? epoch = null;
+        OrderStamp? epoch = null;
         bool usedOffOrder = false;
         var outcome = ForwardRecordsInPlaceCore(resolver, specs, targetPath, targetName, fullReadback, dryRun, sourceParam, offOrder, ref epoch, ref usedOffOrder);
         outcome = StampOffOrderSource(outcome, offOrder, usedOffOrder);
-        return epoch is null ? outcome : outcome with { Epoch = epoch };
+        return epoch is null ? outcome : outcome with { Stamp = epoch };
     }
 
     /// <summary>What each forward lane left alone, SUBSTITUTED into a child-group refusal rather than appended after
@@ -1756,7 +1768,7 @@ public static class WritePatchBuilder
     /// <see cref="ApplyCore"/>.</summary>
     static ForwardOutcome ForwardRecordsInPlaceCore(
         LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string targetPath, string targetName,
-        bool fullReadback, bool dryRun, string sourceParam, OffOrderForwardSource? offOrder, ref string? epoch, ref bool usedOffOrder)
+        bool fullReadback, bool dryRun, string sourceParam, OffOrderForwardSource? offOrder, ref OrderStamp? epoch, ref bool usedOffOrder)
     {
         if (specs.Count == 0) return ForwardOutcome.Fail("no records to forward supplied.");
 
@@ -1767,7 +1779,7 @@ public static class WritePatchBuilder
         // --- Phase 1: target guards (the ApplyInPlace posture — never re-serialize a plugin Mutagen can't fully
         //     parse) + source resolution off ONE captured view. ---
         var view = resolver.Capture();
-        epoch = view.Epoch;                                               // stamped on every outcome from here down
+        epoch = view.Stamp;                                               // stamped on every outcome from here down
         if (!view.ContainsPlugin(targetName))
             return ForwardOutcome.Fail($"in-place target '{targetName}' is not an active plugin in the load order.{view.AbsenceClause(targetName)}");
         if (view.ExcludedPlugins.TryGetValue(targetName, out var excluded))
@@ -2059,7 +2071,11 @@ public static class WritePatchBuilder
         /// out-ranked winners are still resolved from this build, but the BODIES came from a file the build does not
         /// index, so the stamp says nothing about their content. That is reported rather than the stamp being
         /// re-defined — the same split the read surface spells <c>epoch_covers_all_inputs</c>.</para></summary>
-        public string? Epoch { get; init; }
+        public OrderStamp? Stamp { get; init; }
+
+        /// <summary>That build's fingerprint. Reads through the stamp, so an outcome cannot carry an epoch without the
+        /// health of the build it names.</summary>
+        public string? Epoch => Stamp?.Epoch;
 
         /// <summary>True ⇒ the forwards were written INTO the target's own file (<see cref="ForwardRecordsInPlace"/> —
         /// the in-place write lane), not a houseCARL patch folder. Mirrors <see cref="PatchOutcome"/>.</summary>
@@ -2214,11 +2230,11 @@ public static class WritePatchBuilder
         LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string outPath, bool extend, bool fullReadback = false,
         bool dryRun = false, string sourceParam = "from_plugin", OffOrderForwardSource? offOrder = null)
     {
-        string? epoch = null;
+        OrderStamp? epoch = null;
         bool usedOffOrder = false;
         var outcome = ForwardRecordsCore(resolver, specs, outPath, extend, fullReadback, dryRun, sourceParam, offOrder, ref epoch, ref usedOffOrder);
         outcome = StampOffOrderSource(outcome, offOrder, usedOffOrder);
-        return epoch is null ? outcome : outcome with { Epoch = epoch };
+        return epoch is null ? outcome : outcome with { Stamp = epoch };
     }
 
     /// <summary>Stamp WHICH off-order copy a SUCCESSFUL forward read (including a dry run, which resolves every body for
@@ -2234,7 +2250,7 @@ public static class WritePatchBuilder
     /// <see cref="ApplyCore"/>.</summary>
     static ForwardOutcome ForwardRecordsCore(
         LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string outPath, bool extend, bool fullReadback,
-        bool dryRun, string sourceParam, OffOrderForwardSource? offOrder, ref string? epoch, ref bool usedOffOrder)
+        bool dryRun, string sourceParam, OffOrderForwardSource? offOrder, ref OrderStamp? epoch, ref bool usedOffOrder)
     {
         if (specs.Count == 0) return ForwardOutcome.Fail("no records to forward supplied.");
 
@@ -2252,7 +2268,7 @@ public static class WritePatchBuilder
         //     keyed by from_plugin (group specs by source, enumerate the overlay once collecting all wanted
         //     FormKeys) — deferred until measured. ---
         var view = resolver.Capture();
-        epoch = view.Epoch;                                               // stamped on every outcome from here down
+        epoch = view.Stamp;                                               // stamped on every outcome from here down
         var resolved = ResolveForwardSources(session, view, specs, outPath, selfIsTarget: false, sourceParam, out var refusal, offOrder);
         if (refusal is not null) return ForwardOutcome.Fail(refusal);
         usedOffOrder = resolved.Any(r => r.offOrderBody);   // the arm ACTUALLY taken, not the one the caller planned
@@ -2792,9 +2808,9 @@ public static class WritePatchBuilder
         LoadOrderResolver resolver, CorpusRulebook rulebook,
         IReadOnlyList<CreateSpec> specs, string outPath, bool extend, bool fullReadback = false, string? inPlaceTarget = null)
     {
-        string? epoch = null;
+        OrderStamp? epoch = null;
         var outcome = CreateRecordsCore(resolver, rulebook, specs, outPath, extend, fullReadback, inPlaceTarget, ref epoch);
-        return epoch is null ? outcome : outcome with { Epoch = epoch };
+        return epoch is null ? outcome : outcome with { Stamp = epoch };
     }
 
     /// <summary>The body of <see cref="CreateRecords"/> — split for the same single-point epoch stamp as
@@ -2804,7 +2820,7 @@ public static class WritePatchBuilder
     static CreateOutcome CreateRecordsCore(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
         IReadOnlyList<CreateSpec> specs, string outPath, bool extend, bool fullReadback, string? inPlaceTarget,
-        ref string? epoch)
+        ref OrderStamp? epoch)
     {
         if (specs.Count == 0) return CreateOutcome.Fail("no records to create supplied.");
         bool inPlace = inPlaceTarget is not null;
@@ -2814,7 +2830,7 @@ public static class WritePatchBuilder
         // the patch lane uses it identically in Phase 1).
         using var session = resolver.OpenSession();
         var view = resolver.Capture();
-        epoch = view.Epoch;                                               // stamped on every outcome from here down
+        epoch = view.Stamp;                                               // stamped on every outcome from here down
 
         // --- Phase 0: open the destination FIRST — moved AHEAD of pre-flight so a FormKey parent can resolve from it (a
         //     parent created in a PRIOR into= call, or — in place — a parent the target itself owns). CreateFromBinary reads

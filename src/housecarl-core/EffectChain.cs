@@ -88,7 +88,7 @@ public static class EffectChain
         // Post-capture refusals are STAMPED: "not in the load order" / "not an MGEF" are answers ABOUT this build,
         // the same refusal contract read_record's stamped refusals follow. Only the service's pre-capture
         // type-narrow gate refuses without an epoch.
-        EffectChainResult FailStamped(string msg) => EffectChainResult.Fail(msg) with { Epoch = view.Epoch };
+        EffectChainResult FailStamped(string msg) => EffectChainResult.Fail(msg) with { Stamp = view.Stamp };
 
         // --- typed-match gate: the target must be an MGEF. Cheap — one winner-body fetch off this view. ---
         var w = view.ResolveWinner(mgef);
@@ -160,7 +160,7 @@ public static class EffectChain
                  : coverageNote is null ? scanNote
                  : scanNote + " " + coverageNote;
 
-        return new EffectChainResult(mgef, mgefEid, rows, total, total > rows.Count, null, scanNote, view.Epoch)
+        return new EffectChainResult(mgef, mgefEid, rows, total, total > rows.Count, null, scanNote, view.Stamp)
             { UnreadPlugins = unreadable.Select(u => u.PluginName).ToList() };
     }
 }
@@ -178,8 +178,12 @@ public sealed record EffectChainRow(
 public sealed record EffectChainResult(
     FormKey Mgef, string MgefEditorId, IReadOnlyList<EffectChainRow> Rows,
     int Total, bool Capped, string? Error, string? ScanNote,
-    string? Epoch = null)   // the build's fingerprint — set on success and on every post-capture refusal; null only on the service's pre-capture type-narrow gate
+    OrderStamp? Stamp = null)   // the build this answered from: its fingerprint and the plugins it lost to a load failure — set on success and on every post-capture refusal; null only on the service's pre-capture type-narrow gate
 {
+    /// <summary>That build's fingerprint. Reads through the stamp, so the result cannot carry an epoch without the
+    /// health of the build it names.</summary>
+    public string? Epoch => Stamp?.Epoch;
+
     /// <summary>Plugins the carrier scan could not open, by filename. The scan covered the rest of the order, so a
     /// zero here is a real "nothing carries it" and a non-empty one bounds the answer — the render may not state a
     /// whole-order negative over it.</summary>

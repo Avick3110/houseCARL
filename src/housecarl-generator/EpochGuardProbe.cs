@@ -232,7 +232,7 @@ internal static class EpochGuardProbe
 
                 // resolve — the out-epoch overload feeds both renders
                 var rows = svc.ResolveRefs(new[] { Fid(weapons[0]), Fid(mgef.FormKey) }, out var resolveEpoch);
-                Check(resolveEpoch == current, "resolve hands back the batch's epoch");
+                Check(resolveEpoch.Epoch == current, "resolve hands back the batch's epoch");
                 Check(Wire.RenderResolve(rows, 0, resolveEpoch).Contains($"epoch={current}"), "…text render carries it");
                 Check(JsonWire.RenderResolve(rows, 0, resolveEpoch).Contains($"\"epoch\": \"{current}\""), "…json render carries it");
 

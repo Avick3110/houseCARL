@@ -1971,7 +1971,7 @@ public static class WriteSurfaceGuardProbe
             true, null, @"C:\mods\W2Rep\W2Rep.esp", false,
             new[] { new WritePatchBuilder.CreatedRecord(default, "DialogResponses", "W2RepL1", Array.Empty<WritePatchBuilder.OpResult>()) },
             Array.Empty<string>(), 512)
-            { Epoch = "deadbeefdeadbeef", Voice = new VoiceReport(voiced, Array.Empty<VoiceUndetermined>()) };
+            { Stamp = new OrderStamp("deadbeefdeadbeef", Array.Empty<string>()), Voice = new VoiceReport(voiced, Array.Empty<VoiceUndetermined>()) };
 
         var reportFull = JsonWire.RenderCreateOutcome(synthetic, 0, false, "patch");
         Check("json create: the voice-coverage report is emitted in full when the budget allows (truncated:false)",
@@ -2467,7 +2467,7 @@ public static class WriteSurfaceGuardProbe
             new[] { new WritePatchBuilder.CreatedRecord(default, "DialogResponses", "W2TwinL1", Array.Empty<WritePatchBuilder.OpResult>()) },
             Array.Empty<string>(), 512)
             {
-                Epoch = "deadbeefdeadbeef",
+                Stamp = new OrderStamp("deadbeefdeadbeef", Array.Empty<string>()),
                 Voice = new VoiceReport(lines, Array.Empty<VoiceUndetermined>()),
                 ScriptBinding = new ScriptBindingReport(findings),
                 CellShell = new CellShellReport(shells),
@@ -2483,13 +2483,13 @@ public static class WriteSurfaceGuardProbe
             true, null, @"C:\mods\W2TwinIP\W2TwinIP.esp", false,
             new[] { new WritePatchBuilder.CreatedRecord(default, "Keyword", "W2TwinIPKw", Array.Empty<WritePatchBuilder.OpResult>()) },
             Array.Empty<string>(), 512)
-            { Epoch = "deadbeefdeadbeef", InPlace = true };
+            { Stamp = new OrderStamp("deadbeefdeadbeef", Array.Empty<string>()), InPlace = true };
         Observe(WriteTools.RenderCreate(inPlaceCreate), JsonWire.RenderCreateOutcome(inPlaceCreate, 0, false, "in_place"));
 
         var inPlaceDryApply = new WritePatchBuilder.PatchOutcome(
             true, null, @"C:\mods\W2TwinIP\W2TwinIP.esp", false,
             Array.Empty<string>(), Array.Empty<WritePatchBuilder.OpResult>(), 512)
-            { Epoch = "deadbeefdeadbeef", InPlace = true, DryRun = true };
+            { Stamp = new OrderStamp("deadbeefdeadbeef", Array.Empty<string>()), InPlace = true, DryRun = true };
         Observe(WriteTools.Render(inPlaceDryApply), JsonWire.RenderPatchOutcome(inPlaceDryApply, 0, false, "in_place"));
 
         // ---- write_seq -------------------------------------------------------------------------------

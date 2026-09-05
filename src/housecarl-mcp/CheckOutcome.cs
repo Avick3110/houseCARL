@@ -103,6 +103,11 @@ internal sealed class CheckOutcome
     /// <summary>The build any family stamped, for a refusal render.</summary>
     internal string? Epoch => _s.Epoch;
 
+    /// <summary>The plugins the order this call answered from had lost to a load failure — see
+    /// <see cref="CheckSweep.OrderExcluded"/>. Stated at the response root, so every lane of a check says it,
+    /// including a dialogue-only one that carries no epoch.</summary>
+    internal IReadOnlyList<string> OrderExcluded => _s.OrderExcluded;
+
     /// <summary><c>findings=</c> was omitted, so <see cref="Ran"/> is the default rather than a caller's choice.
     /// The one selection fact a response still states, read through here so it has one spelling.</summary>
     internal bool Defaulted => _s.Selection.Defaulted;
