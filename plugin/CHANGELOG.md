@@ -139,6 +139,22 @@ saying it sets an expectation their install may contradict. Say what is known, a
   None-property diagnostics read it), and the list's own header keeps its true count. Under `format='json'` a row
   is one entry carrying its folded leaves as `cells`, each with its own value, `link` and count — the values are
   never handed over as a sentence to parse.
+- **Reading a cell's `Persistent`/`Temporary` — or a topic's `Responses`, or a worldspace's `SubCells` — now
+  states the additive union the game assembles, not just the read body's own list.** These children are declared
+  per plugin and the engine assembles a parent's from every plugin that declares any, so a cell whose winner is
+  an occlusion or lighting patch used to read as empty when the game fills it with hundreds of references. The
+  field's value is unchanged — it is still that body's own list, in its own order, which is what a write
+  addresses by index — and the union sits beside it: how many distinct children the order declares, which
+  plugins contribute how many, and how much of it this body carries. A child two plugins both declare counts
+  once. In json the union also carries the member FormIDs, so they can be read straight back through
+  `formids=`. A field whose child is SINGULAR (`Cell.Landscape`, `Worldspace.TopCell`) is not a union — those
+  declarers override one record — so it says which plugin's copy is live instead. A plugin whose body could not
+  be read is named beside the union, never absorbed into it. `project={"form":"tree"}` still names which
+  provider declares what.
+- **A record body is now fetched from a named plugin by a typed group seek rather than a scan of the whole
+  plugin.** Finding one cell no longer steps over every placed reference in the plugin, which is what makes the
+  union above affordable on every read; the conflict tree takes the same path. Measured on a synthetic order of
+  one 20k-record master and nine 2k plugins, ten touchers of one cell: 80 ms of body fetches became 4 ms.
 - **`housecarl_load_order_status` now names the running server's build in its header** — a `server:` line carrying
   the informational version the binary embeds (the release version `build-plugin.ps1` stamps from `plugin.json`,
   then `+` and the full commit sha: `1.9.5-dev+e942910…`), so checking that the installed houseCARL is the build you expect no longer means
