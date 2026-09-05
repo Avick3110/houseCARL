@@ -257,7 +257,7 @@ static class JsonWire
             var f = r.Fields[i];
             w.WriteStartObject();
             WriteLeaf(w, f);
-            if (annotated is not null && annotated.TryGetValue(f.Path, out var union) && union is not null) WriteChildUnion(w, union);
+            if (annotated is not null && annotated.TryGetValue(f.Path, out var union) && union is not null) WriteChildUnion(w, union, ms, cap);
             if (f.Cells is { } cells)
             {
                 // A folded row (the 'rows' form): the line's own text is prose, so the leaves it folded ride here
@@ -300,13 +300,16 @@ static class JsonWire
     /// the same <c>formids=</c> door it came in by. <c>members</c> is capped at
     /// <see cref="ChildUnionMemberCap"/> with <c>members_omitted</c> naming the rest, because a worldspace's union
     /// runs to tens of thousands and a field annotation is not a listing surface.</summary>
-    static void WriteChildUnion(Utf8JsonWriter w, ChildUnion u)
+    static void WriteChildUnion(Utf8JsonWriter w, ChildUnion u, MemoryStream ms, int cap)
     {
         w.WriteStartObject("owned_child_union");
         w.WriteString("shape", u.Shape.ToString());
         w.WriteNumber("total", u.Total);
         w.WriteNumber("own", u.OwnCount);
-        WriteNullable(w, "live_plugin", u.LivePlugin);
+        // A SINGULAR field's declarers override one record, so one of them IS live. A COLLECTION is additive —
+        // every declarer's children are live — so naming one plugin there would be the #342 misreading this exists
+        // to remove; it is named as what it is, the highest plugin that declares anything.
+        WriteNullable(w, u.Shape == OwnedChildShape.Singular ? "live_plugin" : "highest_declarer", u.LivePlugin);
         w.WriteStartArray("declarers");
         foreach (var d in u.Declarers)
         {
@@ -322,12 +325,23 @@ static class JsonWire
             foreach (var p in u.Unreadable) w.WriteStringValue(p);
             w.WriteEndArray();
         }
+        // The member array is the one part of a field object that can run to kilobytes, so it is bounded by BOTH
+        // the flat cap and what is left of max_chars: a field object that silently doubled the response would be
+        // invisible to the `truncated` flag the auto-spill trigger reads. Whatever is not listed is counted.
+        w.Flush();
+        int room = (int)Math.Max(0, cap - ms.Length) / ChildUnionMemberBytes;
+        int listed = Math.Min(u.Members.Count, Math.Min(ChildUnionMemberCap, room));
         w.WriteStartArray("members");
-        for (int i = 0; i < u.Members.Count && i < ChildUnionMemberCap; i++) w.WriteStringValue(u.Members[i].ToString());
+        for (int i = 0; i < listed; i++) w.WriteStringValue(u.Members[i].ToString());
         w.WriteEndArray();
-        if (u.Members.Count > ChildUnionMemberCap) w.WriteNumber("members_omitted", u.Members.Count - ChildUnionMemberCap);
+        if (u.Members.Count > listed) w.WriteNumber("members_omitted", u.Members.Count - listed);
         w.WriteEndObject();
     }
+
+    /// <summary>The budget one listed member costs — a FormKey string, its quotes, its comma and the writer's
+    /// indentation. Deliberately generous: it decides how many members fit in what is LEFT of max_chars, and
+    /// under-counting is what lets a field object overrun the cap.</summary>
+    const int ChildUnionMemberBytes = 40;
 
     /// <summary>How many union members one field object lists. A cell's union is hundreds and a worldspace's is
     /// tens of thousands, so the array is a sample with its remainder counted, never the whole set.</summary>
