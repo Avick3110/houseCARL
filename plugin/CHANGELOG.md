@@ -78,7 +78,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   same note on every record that attaches it, and those notes sit outside `limit=`; a mod whose whole `Scripts/`
   folder is out of the VFS could therefore fill the listing with one sentence and push the unbound findings past
   `max_chars`. The first record carrying a class's note lists it, the repeats are counted, and the head says how
-  many were collapsed. The unverifiable total still counts every one of them.
+  many were collapsed. The unverifiable total still counts every one of them. A note that names no script class —
+  an attachment whose adapter carries no class name at all — is never collapsed: the record is the only identity
+  that defect has, so every record carrying one is listed.
 
 - **A `plugins=` name found neither in the active order nor on disk keeps its did-you-mean.** The refusal that says
   both halves now ends with the near-miss suggestion, so a typo or a guessed `.esp`/`.esl` extension names the
