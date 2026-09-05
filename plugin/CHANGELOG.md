@@ -70,7 +70,8 @@ saying it sets an expectation their install may contradict. Say what is known, a
   group and its own count in the summary: the row says the file is no longer offered and to read the page for why
   before installing anything in its place. Where a live file with that exact name is still on the page it is named
   as a lead, not as the replacement — and a withdrawn file is never offered as the replacement for a retired one.
-  An unfamiliar category is still treated as live and printed as-is, unchanged.
+  An unfamiliar category is still treated as live and printed as-is, unchanged. The summary counts now read in the
+  order the groups print — most actionable first — so the two halves of a report never disagree about what to look at.
 
 - **A plugin edit that leaves the file's timestamp alone is no longer invisible.** The read cache's freshness key was
   the last-write time alone, so an edit landing inside the filesystem's timestamp granularity — or one whose tool
