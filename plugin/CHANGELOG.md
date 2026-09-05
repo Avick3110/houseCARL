@@ -37,8 +37,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   rides this lane exactly as it rides `references=`. The reached set is verified against the body the walk
   judges — the load-order winner — so a record whose winner dropped the link is not reported and not expanded,
   and the walk and `references=` answer the same question the same way; the response says how many index
-  candidates that check dropped. A hop the `walk.max_nodes` budget ended is marked as cut rather than reading
-  as a hop that reached nothing.
+  candidates that check dropped, and names each cause with its own count — a winner that does not carry the
+  link, a winning plugin that could not be read (a coverage gap, not a verdict), a deleted winner, or no
+  resolvable winner — counting each record once however many hops name it. One record that cannot be read
+  costs that record, never the walk. A hop the `walk.max_nodes` budget ended is marked as cut rather than
+  reading as a hop that reached nothing, and a walk that stopped because it reached `walk.depth` with records
+  still to expand says so instead of reading as a complete answer.
 - **`walk.follow` is legal on `direction='reverse'`, and it is what picks the reverse walk.** `follow` names
   the edges a walk crosses, backwards as well as forwards: unset or `"*"` is the transitive walk over every
   link, `follow="Effects[].BaseEffect"` is the typed MGEF carrier walk (per-carrier magnitude/area/duration,
@@ -49,7 +53,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   both follows the index can serve, and says that `chain` has no per-seed path to draw for the transitive
   walk; `form='chain'` with `follow="*"` refuses as before. A reverse `chain` call — including the one the
   retired `housecarl_effect_chain` redirect teaches — therefore says `follow="Effects[].BaseEffect"`. Any
-  other `follow` on reverse refuses naming the two the index can serve. `walk.max_nodes` says which reading it spends: per seed on the carrier
+  other `follow` on reverse refuses naming the two the index can serve. A seed the carrier walk could not read
+  is named under a reading form too, not only under `chain`, so an answer covering some of the seeds never
+  reads as one covering all of them. `walk.max_nodes` says which reading it spends: per seed on the carrier
   walk, one shared budget across every seed and hop on the transitive walk.
 
 - **`housecarl_asset_status` and `housecarl_place` take `format='json'`.** Both answered text only, so a caller
