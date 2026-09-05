@@ -90,8 +90,8 @@ public static class WritePatchBuilder
         public bool VerifyAttempted { get; init; }
 
         /// <summary>What the write DID that the written file cannot say afterwards — today only the list Add's
-        /// membership answer (<see cref="WriteEngine.ApplyVerb"/>'s return): the list already carried the element, or
-        /// its elements could not be compared. Deliberately NOT folded into <see cref="Landed"/>, which is compared against
+        /// membership answer (<see cref="WriteEngine.ApplyVerb"/>'s return): the list already carried the element, or a
+        /// composed batch repeated one of its own. Deliberately NOT folded into <see cref="Landed"/>, which is compared against
         /// <see cref="LandedOnDisk"/> — the file re-read cannot reproduce a note about what was there BEFORE, and
         /// folding it in would report every duplicate Add as not landed.</summary>
         public string? ApplyNote { get; init; }
@@ -405,6 +405,13 @@ public static class WritePatchBuilder
         if (!string.Equals(patchMod.ModKey.FileName.String, fileName, StringComparison.OrdinalIgnoreCase))
             return PatchOutcome.Fail($"patch ModKey '{patchMod.ModKey.FileName}' must match output filename '{fileName}'.");
 
+        // An EXTEND opens a file the caller already enabled and sorted, so it owes the same re-sort note the in-place
+        // and create lanes emit: an edit's FormLink into a plugin the patch did not master grows the header, and the
+        // file will not load until the order is re-sorted. A fresh patch has no before-state and needs none.
+        var mastersBefore = extend
+            ? patchMod.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : null;
+
         // --- Phase 1: resolve winner + derive RecordType + pre-flight EVERY edit. Collect ALL problems (so the caller
         //     sees every fix at once), then refuse the whole call if any — never a silently-partial patch.
         //     ONE captured view answers EVERY edit: a per-edit fresh capture lets a freshness rebuild landing mid-loop
@@ -582,7 +589,11 @@ public static class WritePatchBuilder
                 return PatchOutcome.Fail(dryErr);
             IReadOnlyList<FullReadback>? dryBack = fullReadback
                 ? ReadBackInFull(patchMod, resolved.Select(r => r.edit.Target), inMemory: true) : null;
-            return new PatchOutcome(true, null, outPath, extend, wouldMasters, ops, 0) { DryRun = true, ReadBack = dryBack };
+            return new PatchOutcome(true, null, outPath, extend, wouldMasters, ops, 0)
+            {
+                DryRun = true, ReadBack = dryBack,
+                Note = mastersBefore is null ? null : MasterGrowWouldNote(fileName, mastersBefore, wouldMasters),
+            };
         }
 
         // --- Phase 4: serialize ONCE with the FULL known-master set (multi-master). Mutagen keeps the header lean
@@ -615,7 +626,8 @@ public static class WritePatchBuilder
             { return PatchOutcome.Fail($"patch written but could not be re-opened to confirm masters: {ex.Message}"); }
         finally { (back as IDisposable)?.Dispose(); }
 
-        return new PatchOutcome(true, null, outPath, extend, masters, ops, bytes) { ReadBack = readBack };
+        return new PatchOutcome(true, null, outPath, extend, masters, ops, bytes)
+            { ReadBack = readBack, Note = mastersBefore is null ? null : MasterGrowNote(fileName, mastersBefore, masters) };
     }
 
     /// <summary>The "source plugin doesn't carry the record to copy" refusal, worded for the lane that hit it: a
@@ -968,15 +980,12 @@ public static class WritePatchBuilder
         {
             if (DryRunMastersPreview(targetMod, resolver, patchLane: false, out var wouldMasters) is { } dryErr)
                 return PatchOutcome.Fail(dryErr);
-            var wouldGrow = wouldMasters.Where(m => !mastersBefore.Contains(m)).ToList();
             IReadOnlyList<FullReadback>? dryBack = fullReadback
                 ? ReadBackInFull(targetMod, resolved.Select(r => r.edit.Target), inMemory: true) : null;
             return new PatchOutcome(true, null, targetPath, false, wouldMasters, ops, 0)
             {
                 DryRun = true, InPlace = true, ReadBack = dryBack,
-                Note = wouldGrow.Count == 0 ? null :
-                    $"the real write would ADD {string.Join(", ", wouldGrow)} as master(s) of '{fileName}' — a plugin " +
-                    "loads only if its masters load BEFORE it, so re-sort your load order (LOOT / MO2) after the real write.",
+                Note = MasterGrowWouldNote(fileName, mastersBefore, wouldMasters),
             };
         }
 
@@ -1059,6 +1068,17 @@ public static class WritePatchBuilder
         if (grown.Count == 0) return null;
         return $"{string.Join(", ", grown)} {(grown.Count == 1 ? "was" : "were")} added as a master of '{fileName}' — " +
                "a plugin loads only if its masters load BEFORE it, so re-sort your load order (LOOT / MO2) before playing.";
+    }
+
+    /// <summary>The predictive twin of <see cref="MasterGrowNote"/>, for a dry run: nothing was added yet, so the
+    /// sentence says what the real write would do. One copy, because every lane that opens an existing file — in
+    /// place, and an <c>into=</c> extend — owes the same sentence.</summary>
+    static string? MasterGrowWouldNote(string fileName, HashSet<string> mastersBefore, IReadOnlyList<string> wouldMasters)
+    {
+        var grown = wouldMasters.Where(m => !mastersBefore.Contains(m)).ToList();
+        if (grown.Count == 0) return null;
+        return $"the real write would ADD {string.Join(", ", grown)} as master(s) of '{fileName}' — a plugin " +
+               "loads only if its masters load BEFORE it, so re-sort your load order (LOOT / MO2) after the real write.";
     }
 
     /// <summary>The dry run's pre-serialize reference-resolution check + expected-master preview, run INSTEAD of
@@ -1822,15 +1842,12 @@ public static class WritePatchBuilder
         {
             if (DryRunMastersPreview(targetMod, resolver, patchLane: false, out var wouldMasters) is { } dryErr)
                 return ForwardOutcome.Fail(dryErr);
-            var wouldGrow = wouldMasters.Where(m => !mastersBefore.Contains(m)).ToList();
             IReadOnlyList<FullReadback>? dryBack = fullReadback
                 ? ReadBackInFull(targetMod, resolved.Select(r => r.spec.Target), inMemory: true) : null;
             return new ForwardOutcome(true, null, targetPath, false, forwarded, wouldMasters, 0)
             {
                 DryRun = true, InPlace = true, ReadBack = dryBack,
-                Note = wouldGrow.Count == 0 ? null :
-                    $"the real write would ADD {string.Join(", ", wouldGrow)} as master(s) of '{fileName}' — a plugin " +
-                    "loads only if its masters load BEFORE it, so re-sort your load order (LOOT / MO2) after the real write.",
+                Note = MasterGrowWouldNote(fileName, mastersBefore, wouldMasters),
             };
         }
 
@@ -2256,6 +2273,12 @@ public static class WritePatchBuilder
         if (!string.Equals(patchMod.ModKey.FileName.String, fileName, StringComparison.OrdinalIgnoreCase))
             return ForwardOutcome.Fail($"patch ModKey '{patchMod.ModKey.FileName}' must match output filename '{fileName}'.");
 
+        // Same before-state, same reason as Apply's extend lane: a forwarded body's references can grow the header of
+        // a patch the caller already enabled and sorted.
+        var mastersBefore = extend
+            ? patchMod.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : null;
+
         // --- Phase 3: deep-copy each source body INTO the patch as an override. NO ApplyVerb — the copy IS the forward
         //     (GenericGetOrAddAsOverride duplicates the source's whole content; a nested record gets the source overlay's
         //     link cache on demand, the SAME session.LinkCacheFor path Apply uses). A FormKey the patch ALREADY carries
@@ -2317,7 +2340,11 @@ public static class WritePatchBuilder
                 return ForwardOutcome.Fail(dryErr);
             IReadOnlyList<FullReadback>? dryBack = fullReadback
                 ? ReadBackInFull(patchMod, resolved.Select(r => r.spec.Target), inMemory: true) : null;
-            return new ForwardOutcome(true, null, outPath, extend, forwarded, wouldMasters, 0) { DryRun = true, ReadBack = dryBack };
+            return new ForwardOutcome(true, null, outPath, extend, forwarded, wouldMasters, 0)
+            {
+                DryRun = true, ReadBack = dryBack,
+                Note = mastersBefore is null ? null : MasterGrowWouldNote(fileName, mastersBefore, wouldMasters),
+            };
         }
 
         // --- Phase 4: serialize ONCE with the FULL known-master set (identical to Apply Phase 4 — release any overlay
@@ -2358,7 +2385,8 @@ public static class WritePatchBuilder
             { return ForwardOutcome.Fail($"patch written but could not be re-opened to confirm masters: {ex.Message}"); }
         finally { (back as IDisposable)?.Dispose(); }
 
-        return new ForwardOutcome(true, null, outPath, extend, forwarded, masters, bytes) { ReadBack = readBack };
+        return new ForwardOutcome(true, null, outPath, extend, forwarded, masters, bytes)
+            { ReadBack = readBack, Note = mastersBefore is null ? null : MasterGrowNote(fileName, mastersBefore, masters) };
     }
 
     /// <summary>
