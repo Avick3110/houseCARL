@@ -48,6 +48,12 @@ public static class PluginNameSuggest
             .ToList();
     }
 
+    /// <summary>Case-insensitive edit distance between two names' extension-stripped stems, always answered. This is the
+    /// total order a caller falls back to for the names <see cref="Nearest"/> vouches for none of: it never refuses, so a
+    /// list ordered by it is nearest-first everywhere, where Nearest alone leaves the unranked tail in input order.</summary>
+    public static int StemDistance(string a, string b)
+        => Levenshtein(StripExt((a ?? "").Trim()), StripExt((b ?? "").Trim()), int.MaxValue);
+
     /// <summary>The ready-to-append clause — e.g. " Did you mean 'Sanguine's Trade - An Economy Mod.esp'?" — or "" when
     /// there is no near match. Leads with a space so callers can append it straight onto an existing message.</summary>
     public static string DidYouMean(string query, IEnumerable<string> candidates, int max = 3)

@@ -8505,7 +8505,7 @@ public sealed class LoadOrderService : IDisposable
                     OwnedPatchCandidates(needEsp, stem),
                     riderNaming is { } fr
                         ? $"{fr.Param}= a name no mod folder already uses for a fresh folder"
-                          + (fr.Caveat is null ? "" : $" ({fr.Caveat.TrimEnd('.')})")
+                          + (fr.Caveat is null ? "" : $" ({AsClause(fr.Caveat)})")
                         : freshPatch switch
                         {
                             FreshPatchRemedy.NamedByPatchParam => "patch= a name no mod folder already uses for a fresh patch",
@@ -8539,7 +8539,7 @@ public sealed class LoadOrderService : IDisposable
             OwnedPatchCandidates(needEsp, stem),
             riderNaming is { } rn
                 ? $"{rn.Param}=\"{stem}\" for a fresh folder (auto-suffixed if that name is taken"
-                  + (rn.Caveat is null ? ")" : $"; {rn.Caveat.TrimEnd('.')})")
+                  + (rn.Caveat is null ? ")" : $"; {AsClause(rn.Caveat)})")
                 : freshPatch switch
                 {
                     FreshPatchRemedy.NamedByPatchParam => $"patch=\"{stem}\" for a fresh patch (auto-suffixed if that name is taken)",
@@ -8549,9 +8549,10 @@ public sealed class LoadOrderService : IDisposable
     }
 
     /// <summary>The owned patches this refusal may offer: the <c>into=</c> spellings it will name, nearest first and
-    /// capped, plus how many owned patches no single spelling reaches (the count is what the sentence says when
-    /// there is nothing to name, since "houseCARL owns none" would send the caller off to mint a duplicate).</summary>
-    readonly record struct PatchCandidates(IReadOnlyList<string> Tokens, int Unreachable, bool NeedEsp);
+    /// capped, how many further spellings the cap dropped, plus how many owned patches no single spelling reaches (the
+    /// count is what the sentence says when there is nothing to name, since "houseCARL owns none" would send the caller
+    /// off to mint a duplicate).</summary>
+    readonly record struct PatchCandidates(IReadOnlyList<string> Tokens, int BeyondCap, int Unreachable, bool NeedEsp);
 
     /// <summary>One extend refusal, composed: what went wrong, then what to try, in ONE sentence with the nearest
     /// owned patches named inside it (Aaron, 2026-09-06). <paramref name="noFreshRule"/> is a lane's own statement
@@ -8560,22 +8561,45 @@ public sealed class LoadOrderService : IDisposable
     /// tool that declares it.</summary>
     static string ExtendRefusal(string wentWrong, string? noFreshRule, PatchCandidates candidates, string? fresh)
     {
+        var nothingOwned = candidates.Tokens.Count == 0 && candidates.Unreachable == 0;
+
         var tries = new List<string>();
         if (candidates.Tokens.Count > 0)
         {
             var t = candidates.Tokens;
-            tries.Add(t.Count == 1 ? t[0] : string.Join(", ", t.Take(t.Count - 1)) + " or " + t[^1]);
+            // The cap's drops are counted, so three names out of forty never read as the whole inventory.
+            tries.Add((t.Count == 1 ? t[0] : string.Join(", ", t.Take(t.Count - 1)) + " or " + t[^1])
+                    + (candidates.BeyondCap > 0 ? $" (+{candidates.BeyondCap} more)" : ""));
         }
         else if (candidates.Unreachable > 0)
             tries.Add($"renaming one of the {candidates.Unreachable} patch{(candidates.Unreachable == 1 ? "" : "es")} houseCARL owns "
                     + "in MO2, since no single into= spelling reaches any of them (their folder and plugin names collide)");
         if (fresh is not null) tries.Add(fresh);
+        // A lane with no fresh route, on an install owning nothing yet, otherwise stops dead — the likeliest first-time
+        // path, and the dead end #359/#380 are about. There is nothing to extend, but there is something to say: the
+        // patch has to exist before this lane can touch it, and only a writing lane can make one.
+        if (tries.Count == 0 && noFreshRule is not null && nothingOwned)
+            tries.Add("making the patch first with a write that creates one (housecarl_apply, housecarl_create_record "
+                    + "or housecarl_forward_record), then naming it here");
 
-        var nothingOwned = candidates.Tokens.Count == 0 && candidates.Unreachable == 0
-            ? ", and houseCARL owns no patch " + (candidates.NeedEsp ? "holding a plugin yet" : "folder yet")
-            : "";
-        return "cannot extend: " + wentWrong + (noFreshRule is null ? "" : ", and " + noFreshRule) + nothingOwned
-             + (tries.Count == 0 ? "." : "; try " + string.Join(", or ", tries) + ".");
+        // Each fact is its own clause and only the LAST takes "and", so two of them cannot stack into ", and … , and …".
+        var facts = new List<string> { wentWrong };
+        if (noFreshRule is not null) facts.Add(noFreshRule);
+        if (nothingOwned) facts.Add("houseCARL owns no patch " + (candidates.NeedEsp ? "holding a plugin yet" : "folder yet"));
+        var said = facts.Count == 1 ? facts[0]
+                 : string.Join(", ", facts.Take(facts.Count - 1)) + ", and " + facts[^1];
+        return "cannot extend: " + said + (tries.Count == 0 ? "." : "; try " + string.Join(", or ", tries) + ".");
+    }
+
+    /// <summary>A standalone sentence spliced into the middle of a refusal, made a clause: its leading capital is
+    /// lowered (an acronym, whose second letter is a capital too, is left alone) and its terminating period dropped, so
+    /// the one-sentence rule survives the splice.</summary>
+    static string AsClause(string sentence)
+    {
+        var s = sentence.TrimEnd().TrimEnd('.');
+        return s.Length == 0 || !char.IsUpper(s[0]) || (s.Length > 1 && char.IsUpper(s[1]))
+            ? s
+            : char.ToLowerInvariant(s[0]) + s.Substring(1);
     }
 
     /// <summary>houseCARL-owned mod folders under ModsDir holding a plugin file named <paramref name="espFileName"/>
@@ -8604,10 +8628,12 @@ public sealed class LoadOrderService : IDisposable
     /// folders read here, and on the record lane it must also land on a definite plugin, so a caller who takes one
     /// literally never meets a second refusal. A patch no token reaches is counted instead, and the sentence says so
     /// when there is nothing to name. Nearest <paramref name="stem"/> first — the caller who reached this refusal
-    /// typed something close to what they meant — ranked by the shared name-suggester, and capped at three so the
-    /// refusal stays one readable sentence. <paramref name="needEsp"/> drops the folders holding no plugin, which the
-    /// record lane could not extend anyway. Best-effort: an unreadable ModsDir yields no candidates rather than
-    /// failing the refusal.</summary>
+    /// typed something close to what they meant — ranked by the shared name-suggester and then, for the names it
+    /// vouches for none of, by an edit distance that always answers, so the order is nearest on every path rather than
+    /// the alphabet wherever the suggester declines. Capped at three so the refusal stays one readable sentence, with
+    /// the drops counted so the named few never read as the whole inventory. <paramref name="needEsp"/> drops the
+    /// folders holding no plugin, which the record lane could not extend anyway. Best-effort: an unreadable ModsDir
+    /// yields no candidates — not a partial set, which could name a spelling the next call refuses.</summary>
     PatchCandidates OwnedPatchCandidates(bool needEsp, string stem)
     {
         const int cap = 3;
@@ -8623,12 +8649,17 @@ public sealed class LoadOrderService : IDisposable
                 owned.Add(new OwnedPatch(dir, Path.GetFileName(dir), plugins));
             }
         }
-        catch (IOException) { } catch (UnauthorizedAccessException) { }
+        // A throw partway through leaves a PARTIAL set, and reachability is decided by counting how many OTHER owned
+        // folders hold the same plugin — so a dropped folder can make an ambiguous token look unambiguous and print a
+        // spelling the next call refuses. No candidates is the documented degradation; half of them is a wrong answer.
+        catch (IOException) { owned.Clear(); } catch (UnauthorizedAccessException) { owned.Clear(); }
 
         // Near-stem first (#380 asks for candidates near what the caller typed, not the alphabet's first eight).
         // Ranked by the same suggester the missed-plugin lookups use, over both the folder names and the plugin
-        // names, so a typo'd folder and a typo'd plugin both float. Anything it does not rank keeps its alphabetical
-        // place behind them.
+        // names, so a typo'd folder and a typo'd plugin both float. The suggester answers EMPTY when nothing clears
+        // its relevance bar, which left every folder tied and the list falling back to the alphabet while still being
+        // called nearest — so the tie is broken by an edit distance that always answers, and the order is nearest
+        // everywhere rather than only where the suggester vouches.
         var near = PluginNameSuggest.Nearest(stem, owned.SelectMany(o => o.Plugins.Prepend(o.Name)), max: 32);
         int NearRank(string name)
         {
@@ -8636,24 +8667,28 @@ public sealed class LoadOrderService : IDisposable
                 if (near[i].Equals(name, StringComparison.OrdinalIgnoreCase)) return i;
             return int.MaxValue;
         }
+        int Distance(string name) => PluginNameSuggest.StemDistance(stem, name);
         int Rank(OwnedPatch o) => o.Plugins.Prepend(o.Name).Select(NearRank).Min();
+        int Near(OwnedPatch o) => o.Plugins.Prepend(o.Name).Select(Distance).Min();
 
         var rows = new List<string>();
+        var beyondCap = 0;
         var unreachable = 0;
-        foreach (var o in owned.OrderBy(Rank))
+        foreach (var o in owned.OrderBy(Rank).ThenBy(Near))
         {
             if (needEsp && o.Plugins.Count == 0) continue;
             var tokens = ReachingTokens(owned, o, needEsp);
             if (tokens.Count == 0) { unreachable++; continue; }             // no spelling reaches it — never offer a false one
             // Nearest first inside a folder too: a folder reached only by its plugins offers several spellings, and
             // the cap means the one nearest what the caller typed is the one that has to survive.
-            foreach (var t in tokens.OrderBy(NearRank))
-                if (rows.Count < cap) rows.Add($"into=\"{t}\"");
+            foreach (var t in tokens.OrderBy(NearRank).ThenBy(Distance))
+                if (rows.Count < cap) rows.Add($"into=\"{t}\""); else beyondCap++;
         }
         // Two different facts reach an empty list, and only one of them is "there is nothing to extend". When every
         // owned patch was dropped because no single into= spelling reaches it, saying houseCARL owns none sends the
         // caller off to mint a fresh patch beside patches they could have extended — so the count is carried out.
-        return new PatchCandidates(rows, unreachable, needEsp);
+        // The cap's own drops are counted too, so a named list never reads as the whole inventory.
+        return new PatchCandidates(rows, beyondCap, unreachable, needEsp);
     }
 
     /// <summary>The <c>into=</c> spellings for one owned patch that this resolver actually routes back to it. The
