@@ -37,6 +37,11 @@ internal static class NifSourceLaneProbe
     // A second mesh, present ONLY inside the unticked mod's own archive.
     const string OffRel = @"meshes\actors\character\facegendata\facegeom\Test.esp\00000002.nif";
 
+    // #545's own fixture: a mesh whose ONLY copy is loose inside a mod MO2 is not loading, so nothing active
+    // provides the path and a successful mod= write lands with no current winner.
+    const string SoleMod = "Sole Donor";
+    const string SoleRel = @"meshes\hcprobe\sole-donor.nif";
+
     [CiProbe("nif-source-lane-guard")]
     public static int RunGuard(string[] args)
     {
@@ -156,6 +161,63 @@ internal static class NifSourceLaneProbe
             var badNpc = HousecarlMcp.NifTools.NifInspect(svc, null, npc: new[] { "not-a-formid" });
             Check(badNpc.StartsWith("error:") && badNpc.Contains("not-a-formid"),
                   $"a malformed npc FormID is refused by name — {badNpc}");
+
+            // ---- #545: the caveats a mod= answer must not suppress, and the sole-provider write ----
+            // Its own instance: a build with an unreadable archive puts the word "ABSENT" in the batch-level
+            // read-failure alarm, which the arms above assert the absence of.
+            Console.WriteLine();
+            Console.WriteLine("--- #545: an incomplete scan still hedges under mod=, and a sole provider has no winner ---");
+            {
+                var inst2 = Path.Combine(root, "inst-545");
+                var (mods2, _, prof2) = NifSetGuardProbe.MakeInstance(inst2);
+
+                // An ENABLED mod whose archive is bound to an active plugin and will not read: this is what makes
+                // the build's scan incomplete, so an "ABSENT" anywhere below is an unknown rather than an answer.
+                var broken = Path.Combine(mods2, "Broken Archive");
+                Directory.CreateDirectory(broken);
+                File.WriteAllText(Path.Combine(broken, "Broken.esp"), "x");
+                File.WriteAllBytes(Path.Combine(broken, "Broken.bsa"), Enumerable.Repeat((byte)0xFF, 64).ToArray());
+
+                // The only copy of SoleRel, in a mod MO2 is not loading — so nothing active provides that path.
+                var sole = Path.Combine(mods2, SoleMod);
+                NifSetGuardProbe.WriteLoose(sole, SoleRel, seBytes);
+
+                NifSetGuardProbe.WriteProfile(prof2, new[] { "Broken.esp" }, new[] { "*Broken.esp" },
+                                              new[] { "+Broken Archive", "-" + SoleMod });
+                NifSetGuardProbe.WriteSkyrimIni(prof2);
+                using var svc2 = HousecarlMcp.LoadOrderService.WithInstance(inst2, 0, new UserConfigStore(Path.Combine(root, "u545.json")));
+
+                // The fixture's premise, measured: the build really did fail to read an archive, and the no-mod=
+                // ABSENT already hedges on it. Without this the arm below could pass for the wrong reason.
+                var plain = HousecarlMcp.NifTools.NifInspect(svc2, new[] { SoleRel });
+                Check(plain.Contains("could NOT be read this build") && plain.Contains("may be incomplete"),
+                      $"the fixture's scan really is incomplete, and a plain ABSENT hedges on it — {Line(plain, "may be incomplete") ?? "(no hedge — fixture BUG)"}");
+
+                // The bug: mod='*winner' over an empty universe is the SAME absence, and the hedge is keyed on the
+                // per-mesh Absent flag, which the mod= error path never set.
+                var poleAbsent = HousecarlMcp.NifTools.NifInspect(svc2, new[] { SoleRel },
+                                                                  mod: HousecarlCore.AssetSourceChoice.WinnerToken);
+                Check(poleAbsent.Contains("ABSENT — no active mod or BSA provides"),
+                      $"the winner pole over an empty universe is still an ABSENT — {Line(poleAbsent, "no active mod or BSA provides")}");
+                Check(poleAbsent.Contains("may be incomplete"),
+                      $"…and it carries the same scan-incomplete hedge the plain ABSENT does  [RED arm] — {Line(poleAbsent, "may be incomplete") ?? "(no hedge — the caveat was suppressed)"}");
+
+                // A NAMED miss is not an ABSENT: it says which mod, and carries its own inline scan caveat instead.
+                var namedMiss = HousecarlMcp.NifTools.NifInspect(svc2, new[] { SoleRel }, mod: "NoSuchMod545");
+                Check(!namedMiss.Contains("no active mod or BSA provides") && namedMiss.Contains("does not supply"),
+                      $"…while a named miss stays a named miss, not an ABSENT — {Line(namedMiss, "does not supply")}");
+
+                // Finding 4: mod= is answered ahead of the ABSENT return, so a successful write can land with NO
+                // current winner at all. The render must not then tell the caller to sort above one.
+                var soleSet = HousecarlMcp.NifTools.NifSet(svc2, mesh_path: SoleRel, op: "set_flags", target: "GuardShape",
+                                                           flags: "0x800000E", mod: SoleMod, patch_name: "NifSole");
+                Check(soleSet.Contains("wrote the verified mesh into a new mod folder"),
+                      $"nif_set writes a sole off-order provider's copy — {Line(soleSet, "wrote the verified") ?? Line(soleSet, "error") ?? "(no write line)"}");
+                Check(!soleSet.Contains("the current winner"),
+                      $"…and does NOT tell the caller to sort above a winner that does not exist  [RED arm] — {Line(soleSet, "TO MAKE IT WIN")}");
+                Check(soleSet.Contains("nothing else provides this path") && soleSet.Contains("NifSole"),
+                      $"…it says what place_asset says instead, naming the folder to enable — {Line(soleSet, "TO MAKE IT WIN")}");
+            }
 
             Console.WriteLine();
             Console.WriteLine(fail == 0 ? "================ ALL PASS ================" : $"================ {fail} FAILED ================");
