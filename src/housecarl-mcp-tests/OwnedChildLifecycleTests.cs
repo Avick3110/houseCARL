@@ -164,28 +164,78 @@ public sealed class OwnedChildLifecycleTests
         Assert.False(OwnedChildLifecycle.TryFindSlot(mod, weapon.FormKey, out _));
     }
 
-    /// <summary>The slot set is DERIVED, not listed: every child-bearing property the engine's reflected walk finds
-    /// classifies as one of the two shapes, over every record type Mutagen models. A bump that adds a property is
-    /// covered here without an edit — and an empty answer is this test's subject, not a reason to pass.</summary>
+    /// <summary>The slot set is DERIVED, not listed — and the walk this asserts through is the one CREATE calls,
+    /// not the reflected set beside it. For every child-bearing property Mutagen models, the create resolver must
+    /// either accept the property BY NAME for the record it holds (a slot a caller can name), or, when the property
+    /// only reaches records through containers, refuse and name the coordinate route instead. Those are the two
+    /// answers the lane has; a third would be a shape the lifecycle cannot speak for.</summary>
     [Fact]
-    public void EveryChildBearingPropertyClassifiesAsOneOfTheTwoShapes()
+    public void EveryChildBearingPropertyIsASlotCreateCanNameOrACoordinateRouteItNames()
     {
-        int seen = 0;
+        int slots = 0, coordinateRoutes = 0;
         foreach (var t in typeof(Weapon).Assembly.GetTypes())
         {
             if (!t.IsClass || t.IsAbstract || !typeof(IMajorRecord).IsAssignableFrom(t)) continue;
             if (t.Name.EndsWith("BinaryOverlay", StringComparison.Ordinal)) continue;
             foreach (var p in WriteEngine.ChildBearingProperties(t))
             {
-                seen++;
-                var singular = typeof(IMajorRecordGetter).IsAssignableFrom(p.PropertyType);
-                // Whichever half it is, the create resolver must be able to name it: a singular slot by its own
-                // type, a collection slot by its element type. A property that is neither would be a shape the
-                // lifecycle cannot speak for.
-                Assert.True(singular || typeof(System.Collections.IEnumerable).IsAssignableFrom(p.PropertyType),
-                    $"{t.Name}.{p.Name} is child-bearing but neither one record nor a collection.");
+                var held = HeldRecordType(p.PropertyType);
+                if (held is not null)
+                {
+                    slots++;
+                    Assert.True(WriteEngine.CanCreateNested(held.Name, t, p.Name, out var why),
+                        $"{t.Name}.{p.Name} holds a {held.Name} but create cannot name it: {why}");
+                    continue;
+                }
+                // A container route: no record to name the property by, so create must refuse the NAME and, asked
+                // for the record the tree eventually holds, say how it is really addressed.
+                foreach (var leaf in LeafRecordTypesUnder(p.PropertyType, new HashSet<Type>(), 0))
+                {
+                    coordinateRoutes++;
+                    Assert.False(WriteEngine.CanCreateNested(leaf.Name, t, p.Name, out _),
+                        $"{t.Name}.{p.Name} is a container tree, not a slot create can add into by name.");
+                    Assert.False(WriteEngine.CanCreateNested(leaf.Name, t, null, out var why));
+                    Assert.Contains("grid=", why!);
+                }
             }
         }
-        Assert.True(seen > 0, "ChildBearingProperties answering nothing is this test's subject, not a reason to pass.");
+        Assert.True(slots > 0 && coordinateRoutes > 0,
+            "both halves answering nothing is this test's subject, not a reason to pass.");
+    }
+
+    /// <summary>The record a property holds DIRECTLY — itself, or as its list's element type — else null (it only
+    /// reaches records through containers).</summary>
+    static Type? HeldRecordType(Type t)
+    {
+        if (typeof(IMajorRecordGetter).IsAssignableFrom(t)) return t;
+        var elem = t.GetInterfaces().Append(t)
+            .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IList<>))
+            ?.GetGenericArguments()[0];
+        return elem is not null && typeof(IMajorRecordGetter).IsAssignableFrom(elem) ? elem : null;
+    }
+
+    /// <summary>The concrete record types a container tree eventually holds — the test's own walk, deliberately
+    /// independent of the engine's, so the two agreeing is a measurement rather than a tautology.</summary>
+    static IEnumerable<Type> LeafRecordTypesUnder(Type t, HashSet<Type> seen, int depth)
+    {
+        if (depth > 6 || !seen.Add(t)) yield break;
+        if (typeof(Mutagen.Bethesda.Plugins.IFormLinkGetter).IsAssignableFrom(t)) yield break;
+        if (typeof(IMajorRecordGetter).IsAssignableFrom(t))
+        {
+            if (t.IsClass && !t.IsAbstract) yield return t;
+            yield break;
+        }
+        var elem = t.GetInterfaces().Append(t)
+            .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+            ?.GetGenericArguments()[0];
+        if (elem is not null)
+        {
+            foreach (var leaf in LeafRecordTypesUnder(elem, seen, depth + 1)) yield return leaf;
+            yield break;
+        }
+        if (!t.IsClass || t.Namespace?.StartsWith("Mutagen", StringComparison.Ordinal) != true) yield break;
+        foreach (var p in t.GetProperties())
+            foreach (var leaf in LeafRecordTypesUnder(p.PropertyType, seen, depth + 1))
+                yield return leaf;
     }
 }

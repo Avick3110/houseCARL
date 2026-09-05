@@ -222,7 +222,8 @@ public sealed class OwnedChildWorld : IDisposable
         File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + BaseName + "\r\n*" + MidName + "\r\n*" + TopName + "\r\n");
         File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+TopMod\r\n+MidMod\r\n+BaseMod\r\n");
 
-        // The scan lanes validate against the corpus rulebook, so this world generates one like the others.
+        // The scan lanes validate against the corpus rulebook and the write lanes resolve a record_type
+        // through it, so this world generates one — the same by-construction catalog the other worlds build.
         var genDir = Path.Combine(Root, "corpus-gen");
         CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
         CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
