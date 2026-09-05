@@ -199,6 +199,16 @@ public sealed class RecordsReverseIndexTests : RecordsTestBase
         Assert.DoesNotContain("HcRecListHop", r);
     }
 
+    /// <summary>A failed seed is said on the reading form too: one good seed must not make a half answer read as a
+    /// whole one.</summary>
+    [Fact]
+    public void TheCarrierReadingFormSaysASeedFailed()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop), Fid(W.SpellHop) },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" });
+        Served(r, "HcRecSpellHop", "1 seed(s) failed and contributed no carriers");
+    }
+
     /// <summary>A follow the reverse index cannot serve refuses naming the two it can, rather than being ignored
     /// and answering a different question.</summary>
     [Fact]
