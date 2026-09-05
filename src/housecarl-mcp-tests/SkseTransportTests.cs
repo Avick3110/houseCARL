@@ -27,14 +27,18 @@ public sealed class SkseTransportTests
                                                 new[] { "kernel32.dll" }),
             null);
 
-    static SkseFileEntry Config(int i) =>
-        new($"SKSE/Plugins/Group/c{i}.ini", $"c{i}.ini", "Group", new[] { Mod($"Mod{i}") }, null, null);
+    static SkseFileEntry Config(int i, string group = "Group") =>
+        new($"SKSE/Plugins/{group}/c{i}.ini", $"c{i}.ini", group, new[] { Mod($"Mod{i}") }, null, null);
 
-    static SkseInventoryData Inventory(int dlls, int configs = 0) =>
+    /// <summary>A caveat block big enough to be visible against a tight max_chars — what a reserve has to hold room
+    /// for, and what an unreserved tail overshoots the cap by.</summary>
+    static string[] Warnings(int n) => Enumerable.Range(1, n).Select(i => $"warning {i}: " + new string('w', 180)).ToArray();
+
+    static SkseInventoryData Inventory(int dlls, int configs = 0, int folders = 1, string[]? warnings = null) =>
         new(Enumerable.Range(1, dlls).Select(Dll).ToList(),
-            Enumerable.Range(1, configs).Select(Config).ToList(),
+            Enumerable.Range(1, configs).Select(i => Config(i, $"Group{i % folders}")).ToList(),
             OtherFileCount: 0, InstalledRuntime: "1.6.1170.0", BsaFailures: Array.Empty<string>(),
-            ReadIncomplete: false, Warnings: Array.Empty<string>(), ProfileName: "Default");
+            ReadIncomplete: false, Warnings: warnings ?? Array.Empty<string>(), ProfileName: "Default");
 
     static NativeClassEntry Cls(int i) =>
         new($"scripts/k{i}.pex", $"Klass{i}", new[] { "Fn" }, new[] { Mod($"Mod{i}") },
@@ -43,21 +47,25 @@ public sealed class SkseTransportTests
                                         new SksePluginReader.SksePluginInfo($"p{i}.dll", SksePluginReader.SksePluginKind.Modern, true, Version($"Plugin {i}"), null,
                                                                             new[] { "kernel32.dll" }), null) });
 
-    static NativePairingAuditData Pairing(int classes) =>
+    static NativePairingAuditData Pairing(int classes, int unreadable = 0, string[]? warnings = null) =>
         new(Enumerable.Range(1, classes).Select(Cls).ToList(), PexScanned: classes,
-            Unreadable: Array.Empty<NativeUnreadablePex>(), SkseLoaderSeen: true, InstalledRuntime: "1.6.1170.0",
-            BsaFailures: Array.Empty<string>(), ReadIncomplete: false, Warnings: Array.Empty<string>(), ProfileName: "Default");
+            Unreadable: Enumerable.Range(1, unreadable)
+                .Select(i => new NativeUnreadablePex($"scripts/bad{i}.pex", $"Mod{i}", "not a valid .pex header")).ToList(),
+            SkseLoaderSeen: true, InstalledRuntime: "1.6.1170.0",
+            BsaFailures: Array.Empty<string>(), ReadIncomplete: false, Warnings: warnings ?? Array.Empty<string>(), ProfileName: "Default");
 
-    static SkseConfigFileAudit ConfigFile(int i) =>
+    static SkseAuditedRef Ref(int i, int n) =>
+        new(new HousecarlCore.SkseConfigRef($"0x{0x800 + n:X6}|Ghost{i}.esp", HousecarlCore.SkseRefShape.FormToken,
+                                            $"Ghost{i}.esp", 0x800u + (uint)n, $"0x{0x800 + n:X6}", n, null),
+            SkseRefVerdict.PluginMissing, $"Ghost{i}.esp is not in the active load order");
+
+    static SkseConfigFileAudit ConfigFile(int i, int refs = 1) =>
         new($"SKSE/Plugins/Group/f{i}.ini", $"f{i}.ini", "Group", $"Mod{i}", 1, new[] { Mod($"Mod{i}") },
-            new[] { new SkseAuditedRef(new HousecarlCore.SkseConfigRef($"0x00080{i}|Ghost.esp",
-                                                                       HousecarlCore.SkseRefShape.FormToken, "Ghost.esp", 0x800u + (uint)i, "0x00080" + i, 3, null),
-                                       SkseRefVerdict.PluginMissing, "Ghost.esp is not in the active load order") },
-            ReadError: null);
+            Enumerable.Range(1, refs).Select(n => Ref(i, n)).ToList(), ReadError: null);
 
-    static SkseConfigAuditData ConfigAudit(int files) =>
-        new(Enumerable.Range(1, files).Select(ConfigFile).ToList(), ConfigCount: files,
-            BsaFailures: Array.Empty<string>(), ReadIncomplete: false, Warnings: Array.Empty<string>(), ProfileName: "Default");
+    static SkseConfigAuditData ConfigAudit(int files, int refs = 1, string[]? warnings = null) =>
+        new(Enumerable.Range(1, files).Select(i => ConfigFile(i, refs)).ToList(), ConfigCount: files,
+            BsaFailures: Array.Empty<string>(), ReadIncomplete: false, Warnings: warnings ?? Array.Empty<string>(), ProfileName: "Default");
 
     static string Text(string family, int rows, RowWindow window = default, string? filter = null) => family switch
     {
@@ -255,4 +263,61 @@ public sealed class SkseTransportTests
         Assert.True(a.GetProperty("rendered").GetInt32() < 40, "the cap should have dropped rows");
         Assert.Equal(40 - a.GetProperty("rendered").GetInt32(), a.GetProperty("truncated").GetInt32());
     }
+
+    // ---- a window over two concatenated populations ----------------------------------------------
+
+    /// <summary>A limit the FIRST population spends leaves nothing for the second. The inventory filter's row list is
+    /// its DLL matches then its config matches, so a limit=2 that the two DLL matches use up must render no config —
+    /// a spent budget is not "no budget", and an accounting that says the window was honoured while every config
+    /// rendered is the silently wrong answer.</summary>
+    [Fact]
+    public void ALimitTheFirstPopulationSpendsLeavesNothingForTheSecond()
+    {
+        var text = SkseInventoryWire.Render(Inventory(2, 30), "Mod", 80_000, new RowWindow(0, 2));
+
+        Assert.Contains("2 DLL + 30 config match(es)", text);           // the census still states the whole match set
+        Assert.Contains("[accounting] total=32 rendered=2 skipped=0 capped=30 truncated=0", text);
+        Assert.DoesNotContain("matching configs (", text);
+        Assert.Contains("re-call with limit=2 offset=2 for the next page.", text);
+    }
+
+    /// <summary>The json twin windows the two populations the same way — the two lanes may differ only in
+    /// formatting.</summary>
+    [Fact]
+    public void TheJsonTwinAlsoLeavesNothingForTheSecondPopulationOnASpentLimit()
+    {
+        using var doc = JsonDocument.Parse(SkseInventoryWire.RenderJson(Inventory(2, 30), "Mod", 200_000, new RowWindow(0, 2)));
+
+        Assert.Equal(2, doc.RootElement.GetProperty("dlls").GetArrayLength());
+        Assert.Equal(0, doc.RootElement.GetProperty("configs").GetArrayLength());
+        Assert.Equal(2, doc.RootElement.GetProperty("accounting").GetProperty("rendered").GetInt32());
+        Assert.Equal(30, doc.RootElement.GetProperty("accounting").GetProperty("capped").GetInt32());
+    }
+
+    /// <summary>A limit the first population only PARTLY spends still continues into the second — the fix for the
+    /// spent budget must not turn every continuation into an empty one.</summary>
+    [Fact]
+    public void ALimitTheFirstPopulationOnlyPartlySpendsContinuesIntoTheSecond()
+    {
+        using var doc = JsonDocument.Parse(SkseInventoryWire.RenderJson(Inventory(2, 30), "Mod", 200_000, new RowWindow(0, 5)));
+
+        Assert.Equal(2, doc.RootElement.GetProperty("dlls").GetArrayLength());
+        Assert.Equal(3, doc.RootElement.GetProperty("configs").GetArrayLength());
+        Assert.Equal(5, doc.RootElement.GetProperty("accounting").GetProperty("rendered").GetInt32());
+    }
+
+    /// <summary>An offset that lands INSIDE the second population still renders it — the continuation window's offset
+    /// arithmetic is untouched by the spent-limit marker.</summary>
+    [Fact]
+    public void AnOffsetLandingInsideTheSecondPopulationStillRendersIt()
+    {
+        using var doc = JsonDocument.Parse(SkseInventoryWire.RenderJson(Inventory(2, 30), "Mod", 200_000, new RowWindow(4, 3)));
+
+        Assert.Equal(0, doc.RootElement.GetProperty("dlls").GetArrayLength());
+        Assert.Equal(3, doc.RootElement.GetProperty("configs").GetArrayLength());
+        Assert.Equal(new[] { "c3.ini", "c4.ini", "c5.ini" },
+                     doc.RootElement.GetProperty("configs").EnumerateArray()
+                        .Select(c => c.GetProperty("file_name").GetString()).ToArray());
+    }
+
 }
