@@ -15,10 +15,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 - **`spid-authoring` now covers checking that a distribution reached a live actor.** A parsed
   `_DISTR.ini` and a clean SPID log show what SPID looked up, not what an NPC received. The skill's new
-  "Verifying a distribution actually happened" section says what to assert instead: the player is never
-  a distribution target, a rule added mid-session needs a game restart because the INIs are read once
-  per launch, and a keyword SPID creates at runtime has no plugin FormID but is still found by name from
-  a script. The reference corpus carries the same facts with their source. Reported and drafted by
+  "Verifying a distribution actually happened" section says what to assert instead: SPID does not
+  distribute to the player, a rule added mid-session needs a game restart because the INIs are read once
+  per launch, a `Chance` below 100 or a Level Filter can skip a sampled actor by design, and a keyword
+  SPID creates at runtime has no plugin FormID but is still found by name from a script. The reference corpus carries the same facts with their source. Reported and drafted by
   juggernaunt46-star (#384).
 
 - **A response answered off an order that lost plugins to a load failure says so.** When a plugin cannot be
