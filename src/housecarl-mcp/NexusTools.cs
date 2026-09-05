@@ -147,7 +147,9 @@ public static class NexusTools
          "mod as 'id#fileid' — the fileid MO2 recorded for what you installed, which " + ToolNames.UpdateStatus + " prints per " +
          "row as a 'verify:' token (several files installed from one page → 'id#fileid1#fileid2'). houseCARL resolves each " +
          "installed file to its live status and reports per mod: CURRENT (your file is still a live file on the page), " +
-         "OUTDATED (your file was RETIRED to OLD_VERSION/ARCHIVED — it names the newest same-name file to grab), FILE-GONE " +
+         "OUTDATED (your file was RETIRED to OLD_VERSION/ARCHIVED — it names the newest same-name file to grab), " +
+         "FILE-REMOVED (the author WITHDREW your file, REMOVED/DELETED — read the page for why before replacing it; a " +
+         "same-name live file is named as a lead, not as the fix), FILE-GONE " +
          "(your file is no longer on the page — hidden/deleted, a loud unknown), or not-found (wrong id / LE/other-game). " +
          "If you pass only 'id=version' with NO fileid (a FOMOD/manual install), it degrades LOUDLY to a best-effort " +
          "'no-fileid' note — never a confident verdict, because the mod-level compare lies for multi-file pages. Batched " +
@@ -505,13 +507,15 @@ static class Render
     }
 
     /// <summary>Render a batch file-level update check: a one-line summary, then the mods grouped by verdict with the
-    /// actionable ones first — outdated, file-gone, no-fileid, current, latest-only, not-found, error. Each row lists
-    /// its installed files with the live, retired or missing verdict, and a retired file names its same-name
-    /// replacement. Unreadable input tokens are listed back at the end.</summary>
+    /// actionable ones first — file-removed, outdated, file-gone, no-fileid, current, latest-only, not-found, error.
+    /// Each row lists its installed files with the live, retired, withdrawn or missing verdict; a retired file names
+    /// its same-name replacement, and a withdrawn one says to read the page first. Unreadable input tokens are listed
+    /// back at the end.</summary>
     public static string Updates(IReadOnlyList<NexusUpdateStatus> results, IReadOnlyList<string> unreadable)
     {
         var sb = new StringBuilder();
         int outdated = results.Count(r => r.Verdict == UpdateVerdict.Outdated);
+        int removed = results.Count(r => r.Verdict == UpdateVerdict.FileRemoved);
         int current = results.Count(r => r.Verdict == UpdateVerdict.Current);
         int fileGone = results.Count(r => r.Verdict == UpdateVerdict.FileGone);
         int noFileId = results.Count(r => r.Verdict == UpdateVerdict.NoFileId);
@@ -520,11 +524,13 @@ static class Render
         int errored = results.Count(r => r.Verdict == UpdateVerdict.Error);
 
         sb.Append("update check (file-level) — ").Append(results.Count).Append(" mod(s): ")
-          .Append(outdated).Append(" outdated · ").Append(current).Append(" current · ")
+          .Append(outdated).Append(" outdated · ").Append(removed).Append(" file-removed · ")
+          .Append(current).Append(" current · ")
           .Append(fileGone).Append(" file-gone · ").Append(noFileId).Append(" no-fileid · ")
           .Append(latest).Append(" latest-only · ").Append(notFound).Append(" not-found");
         if (errored > 0) sb.Append(" · ").Append(errored).Append(" error");
 
+        AppendUpdateGroup(sb, "FILE REMOVED — the author WITHDREW an installed file (REMOVED/DELETED) — read the page for why before replacing it", results, UpdateVerdict.FileRemoved);
         AppendUpdateGroup(sb, "OUTDATED — an installed file was RETIRED to OLD/ARCHIVED (grab the newest same-name file)", results, UpdateVerdict.Outdated);
         AppendUpdateGroup(sb, "FILE GONE — your installed file is no longer on the page (hidden/deleted) — verify by hand, don't assume", results, UpdateVerdict.FileGone);
         AppendUpdateGroup(sb, "NO FILEID — couldn't verify at file level (FOMOD/manual install); best-effort only, not a verdict", results, UpdateVerdict.NoFileId);
@@ -549,6 +555,7 @@ static class Render
             switch (r.Verdict)
             {
                 case UpdateVerdict.Outdated:
+                case UpdateVerdict.FileRemoved:
                 case UpdateVerdict.FileGone:
                 case UpdateVerdict.Current:
                     foreach (var f in r.Files) AppendFileCurrency(sb, f);
@@ -591,16 +598,28 @@ static class Render
             return;
         }
         sb.Append(" '").Append(f.Name ?? "?").Append("' v").Append(f.Version ?? "?").Append(" [").Append(f.Category ?? "?").Append(']');
-        if (f.Verdict == FileVerdict.Live) sb.Append(" — current");
-        else
+        if (f.Verdict == FileVerdict.Live) { sb.Append(" — current"); return; }
+        if (f.Verdict == FileVerdict.Removed)
         {
-            sb.Append(" — RETIRED");
+            // A withdrawn file is not a retired one: the author pulled it, and the reason — a broken build, a
+            // permissions dispute, a security issue — is on the page. Never call it current, and never hand over a
+            // same-name file as though taking it were the fix.
+            sb.Append(" — REMOVED by the author; the file you have is no longer offered. Read the page (description, "
+                    + "posts, changelog) for why before installing anything in its place");
             if (f.NewestSameName is not null)
-                sb.Append("; newest '").Append(f.NewestSameName).Append("' v").Append(f.NewestSameVersion ?? "?")
+                sb.Append("; a live file with that exact name is there: '").Append(f.NewestSameName).Append("' v")
+                  .Append(f.NewestSameVersion ?? "?")
                   .Append(f.NewestSameDate > 0 ? " (" + Day(f.NewestSameDate) + ")" : "");
             else
-                sb.Append("; no current file with that exact name — open the page to pick the replacement");
+                sb.Append("; no live file with that exact name is left on the page");
+            return;
         }
+        sb.Append(" — RETIRED");
+        if (f.NewestSameName is not null)
+            sb.Append("; newest '").Append(f.NewestSameName).Append("' v").Append(f.NewestSameVersion ?? "?")
+              .Append(f.NewestSameDate > 0 ? " (" + Day(f.NewestSameDate) + ")" : "");
+        else
+            sb.Append("; no current file with that exact name — open the page to pick the replacement");
     }
 
     /// <summary>The per-version changelog, newest release first. A release's changelog can sit on any of its files — a

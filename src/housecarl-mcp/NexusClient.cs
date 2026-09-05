@@ -225,6 +225,15 @@ public sealed class NexusClient
     /// carried into the output so an unfamiliar one is visible rather than mis-bucketed.</summary>
     static bool IsSuperseded(string category) => category is "OLD_VERSION" or "ARCHIVED";
 
+    /// <summary>Whether a file category is one of Nexus's two withdrawal buckets, REMOVED or DELETED — a closed set,
+    /// separate from the retirement ones. A withdrawn file was pulled from the page rather than superseded by a
+    /// newer upload, so it is not an update the caller can simply take.</summary>
+    static bool IsRemoved(string category) => category is "REMOVED" or "DELETED";
+
+    /// <summary>Whether a category means the file is still offered — neither retired nor withdrawn. The one test a
+    /// replacement search uses, so a withdrawn file can never be offered as the answer to a retired one.</summary>
+    static bool IsLive(string category) => !IsSuperseded(category) && !IsRemoved(category);
+
     /// <summary>Resolve one mod's file-level currency from its installed file ids and its full file list; see
     /// <see cref="CheckUpdatesAsync"/> for what each verdict means. A mod absent from the mods() search
     /// (<paramref name="found"/> false) but whose direct modFiles lookup returned files — the manager-only (nxm) class
@@ -256,21 +265,25 @@ public sealed class NexusClient
                 int idx = files.FindIndex(f => f.fileId == fid);
                 if (idx < 0) { detail.Add(new InstalledFileCurrency(fid, null, null, null, FileVerdict.Missing, null, null, 0)); continue; }
                 var hit = files[idx];
-                if (IsSuperseded(hit.category))
+                if (IsSuperseded(hit.category) || IsRemoved(hit.category))
                 {
                     // Point to the newest live file with the same name — the variant line's replacement. Left null if
                     // the author renamed or dropped the variant, rather than guessing the wrong file.
                     string? rn = null, rv = null; long rd = 0;
                     foreach (var f in files)
-                        if (!IsSuperseded(f.category) && string.Equals(f.name, hit.name, StringComparison.OrdinalIgnoreCase) && (rn is null || f.date > rd))
+                        if (IsLive(f.category) && string.Equals(f.name, hit.name, StringComparison.OrdinalIgnoreCase) && (rn is null || f.date > rd))
                             { rn = f.name; rv = f.version ?? "?"; rd = f.date; }
-                    detail.Add(new InstalledFileCurrency(fid, hit.name, hit.version, hit.category, FileVerdict.Superseded, rn, rv, rd));
+                    var withdrawn = IsRemoved(hit.category) ? FileVerdict.Removed : FileVerdict.Superseded;
+                    detail.Add(new InstalledFileCurrency(fid, hit.name, hit.version, hit.category, withdrawn, rn, rv, rd));
                 }
                 else detail.Add(new InstalledFileCurrency(fid, hit.name, hit.version, hit.category, FileVerdict.Live, null, null, 0));
             }
-            var verdict = detail.Any(d => d.Verdict == FileVerdict.Superseded) ? UpdateVerdict.Outdated
-                        : detail.Any(d => d.Verdict == FileVerdict.Missing)    ? UpdateVerdict.FileGone
-                        :                                                        UpdateVerdict.Current;
+            // A withdrawn file outranks a retired one: taking the newest same-name file answers the retirement, and
+            // does NOT answer a file the author pulled — that one wants the page read before anything is installed.
+            var verdict = detail.Any(d => d.Verdict == FileVerdict.Removed)     ? UpdateVerdict.FileRemoved
+                        : detail.Any(d => d.Verdict == FileVerdict.Superseded)  ? UpdateVerdict.Outdated
+                        : detail.Any(d => d.Verdict == FileVerdict.Missing)     ? UpdateVerdict.FileGone
+                        :                                                         UpdateVerdict.Current;
             return new NexusUpdateStatus(modId, true, name, header, installed, verdict, detail, mainVer, mainDate, mainCount);
         }
 
@@ -463,11 +476,12 @@ public sealed record NexusModDetail(
 /// <summary>Whether one installed file is still live on its mod's page, has been superseded (moved to OLD_VERSION or
 /// ARCHIVED), or is missing entirely (hidden or deleted, so undeterminable). Nexus itself retires a file, so its
 /// category answers "is my exact file current" where a mod-level version compare cannot.</summary>
-public enum FileVerdict { Live, Superseded, Missing }
+public enum FileVerdict { Live, Superseded, Missing, Removed }
 
 /// <summary>One installed file's currency: the file resolved from its id and its verdict, plus — when
-/// <see cref="Verdict"/> is <see cref="FileVerdict.Superseded"/> — the newest live file with the same name to update
-/// to, null when the author renamed or dropped that variant. <see cref="Name"/>, <see cref="Version"/> and
+/// <see cref="Verdict"/> is <see cref="FileVerdict.Superseded"/> or <see cref="FileVerdict.Removed"/> — the newest
+/// live file with the same name, null when the author renamed or dropped that variant. For a removed file that name
+/// is a lead, not a replacement: the author pulled the file, and why is on the page. <see cref="Name"/>, <see cref="Version"/> and
 /// <see cref="Category"/> are null only for a <see cref="FileVerdict.Missing"/> file, which is not on the page to
 /// resolve.</summary>
 public sealed record InstalledFileCurrency(
@@ -475,13 +489,15 @@ public sealed record InstalledFileCurrency(
     string? NewestSameName, string? NewestSameVersion, long NewestSameDate);
 
 /// <summary>The verdict for one mod in a batch file-level update check. <see cref="Current"/>: every installed file is
-/// still live. <see cref="Outdated"/>: at least one was retired to OLD_VERSION or ARCHIVED, and the per-file detail
-/// points to its same-name replacement. <see cref="FileGone"/>: an installed file id is no longer on the page.
+/// still live. <see cref="FileRemoved"/>: at least one was withdrawn by the author (REMOVED or DELETED) — read the
+/// page before installing anything in its place. <see cref="Outdated"/>: at least one was retired to OLD_VERSION or
+/// ARCHIVED, and the per-file detail points to its same-name replacement.
+/// <see cref="FileGone"/>: an installed file id is no longer on the page.
 /// <see cref="NoFileId"/>: no file id was available (a FOMOD or manual install), so a file-level check cannot run.
 /// <see cref="LatestOnly"/>: only a mod id was given, so the newest is listed with no verdict.
 /// <see cref="NotFound"/> and <see cref="Error"/> mean the check could not decide, and are never folded into
 /// Current.</summary>
-public enum UpdateVerdict { Current, Outdated, FileGone, NoFileId, LatestOnly, NotFound, Error }
+public enum UpdateVerdict { Current, Outdated, FileGone, NoFileId, LatestOnly, NotFound, Error, FileRemoved }
 
 /// <summary>One mod's batch update-check result. <paramref name="Files"/> carries the per-installed-file currency
 /// detail for the file-level verdicts and is empty otherwise. <paramref name="LatestMainVersion"/>,
