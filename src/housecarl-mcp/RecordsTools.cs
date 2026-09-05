@@ -227,9 +227,16 @@ public static class RecordsTools
         if (project?.fields is { Length: > 0 } pf)
             foreach (var path in pf)
                 if (QuantifierToken(path) is { } qt)
-                    return Wire.Refuse(json, qt.ToLowerInvariant() is "[*any]" or "[*all]" or "[*none]"
+                {
+                    var qtl = qt.ToLowerInvariant();
+                    // A token outside the vocabulary is a typo, not a capability that is coming — say so in the
+                    // parser's own words, so where= and project.fields judge the same token the same way.
+                    if (qtl is not ("[*]" or "[*count]" or "[*any]" or "[*all]" or "[*none]"))
+                        return Wire.Refuse(json, $"error: project.fields path '{path}': '{qt}' is not a quantifier — the tokens are [*], [*count], [*any], [*all] and [*none] (the last three fold to a boolean and belong in where=).");
+                    return Wire.Refuse(json, qtl is "[*any]" or "[*all]" or "[*none]"
                         ? $"error: project.fields path '{path}' folds the elements into a boolean, and a boolean is not a row — use {qt} in where= to SELECT the records, and name a concrete element ('Effects[0].Data.Magnitude') or the list itself to read one."
                         : $"error: project.fields path '{path}' uses '{qt}', which is a where= step today — the projection half of the quantified step (a row per element, and the element count as a cell) is not built yet. Name a concrete element ('Effects[0].Data.Magnitude') or the list itself, which renders as a summary with project.depth.");
+                }
         if (project?.depth is { } dv)
         {
             // Any explicit depth is form-scoped — the rule must not depend on the value, or depth:1 is accepted

@@ -86,6 +86,15 @@ public sealed class RecordsReferenceExclusionTests : RecordsTestBase
                 "not built yet");
 
     [Fact]
+    public void ANonQuantifierTokenInProjectFieldsIsNamedATypo_NotAnUnbuiltCapability()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "SPEL" },
+                                     project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects[*sum].Data.Magnitude" } });
+        Assert.Contains("is not a quantifier", r);
+        Assert.DoesNotContain("not built yet", r);
+    }
+
+    [Fact]
     public void TheBareStarIsRefusedThroughTheToolNamingTheFoldTokens()
     {
         // The scan's parse refusal rides under the header line, so this is not the bare "error:" shape.
