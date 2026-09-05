@@ -1,4 +1,4 @@
-﻿using HousecarlMcp;
+using HousecarlMcp;
 using Xunit;
 
 namespace HousecarlMcpTests;
