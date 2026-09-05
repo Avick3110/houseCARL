@@ -303,6 +303,25 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         Assert.Empty(dotted.SelectorNotes ?? Array.Empty<string>());
     }
 
+    /// <summary>One answer spells one folder one way. The loose walk echoes back the caller's own casing and the
+    /// archive tables their author's, so an upper-cased selector used to return loose rows and BSA rows in two
+    /// different spellings of the same directory.</summary>
+    [Fact]
+    public void AnUpperCasedSelectorAnswersInOneSpellingAcrossLooseAndArchiveRows()
+    {
+        var shouted = AssetSelectWorld.FaceGeomDir.ToUpperInvariant();
+
+        var d = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { shouted });
+
+        Assert.Equal(AssetSelectWorld.FaceGeomFiles, d.Selected);
+        Assert.Contains(Paths(d), p => Leaf(p) == "0005.nif");        // the archive-only file is in the sweep
+        Assert.All(Paths(d), p => Assert.StartsWith(shouted + "\\", p, StringComparison.Ordinal));
+        // Typing does not change WHICH files come back, only how the prefix is spelt.
+        Assert.Equal(Paths(_w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir }))
+                        .Select(Leaf).OrderBy(p => p),
+                     Paths(d).Select(Leaf).OrderBy(p => p));
+    }
+
     /// <summary>A refusal reads as one plain sentence — no ".NET" exception furniture trailing off the end of it.</summary>
     [Fact]
     public void ARefusedSelectorReadsAsOnePlainSentenceWithNoParameterSuffix()
