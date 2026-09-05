@@ -282,10 +282,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   owned patches as `into=` spellings, nearest what you typed first, and every spelling printed is one that resolves
   back to the patch it is printed for — a folder holding two plugins is listed by each plugin, not by a folder name
   the next call would refuse. The list is capped, and says so when it is; the record lane leaves out folders holding
-  no plugin, which it could not extend. Naming a mod folder houseCARL does **not** own is still refused with the
-  originals untouched, but that refusal now names the calling tool's own fresh-patch parameter and, where that
-  folder holds a plugin your load order actually has active, the `in_place=` lane for that plugin by name — the
-  other reading of a name that landed on someone else's folder. It does not hand back the name you passed: a patch
+  no plugin, which it could not extend. Where houseCARL owns patches but no single `into=` spelling reaches any of
+  them, the refusal says how many there are instead of saying it owns none. Naming a mod folder houseCARL does
+  **not** own is still refused with the originals untouched, but that refusal now names the calling tool's own
+  fresh-patch parameter and, where the plugin your load order resolves to that folder is one that folder holds, the
+  `in_place=` lane for that plugin by name — the other reading of a name that landed on someone else's folder. A
+  folder shipping a copy of a plugin some other mod wins gets no such sentence, since the lane would open the other
+  mod's file. That lane reads last on both refusals, behind the candidates you can take without touching anyone
+  else's plugin, and names a few plugins with a count rather than every plugin in a large folder. It does not hand
+  back the name you passed: a patch
   minted under that stem would sit beside the foreign plugin of the same name. houseCARL does not check the name you
   pass `patch=` next against inactive plugins in other people's mod folders, so that collision is still yours to
   avoid.
