@@ -62,13 +62,17 @@ public sealed class ReverseReferenceIndex
         public List<ModKey> IdxToMod = new();
         public string Key = "";
 
-        Lazy<HashSet<ulong>>? _referenced;
+        // Built in the constructor, not on first ask: a `??=` on a shared field is a check-then-assign, so two
+        // concurrent sweeps could each construct one and each hold a ~1.6M-entry set at once.
+        readonly Lazy<HashSet<ulong>> _referenced;
+
+        public Generation() =>
+            _referenced = new Lazy<HashSet<ulong>>(BuildReferenced, LazyThreadSafetyMode.ExecutionAndPublication);
 
         /// <summary>Every target something in the order links, as one set — the orphan question answered in a
         /// lookup rather than a scan over every partition. Built on first ask and thrown away with the
         /// generation.</summary>
-        public HashSet<ulong> Referenced =>
-            (_referenced ??= new Lazy<HashSet<ulong>>(BuildReferenced, LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+        public HashSet<ulong> Referenced => _referenced.Value;
 
         HashSet<ulong> BuildReferenced()
         {
@@ -111,6 +115,21 @@ public sealed class ReverseReferenceIndex
         return g.TryPack(target, out var pt) && g.Referenced.Contains(pt);
     }
 
+    /// <summary>Which of these records nothing in the order links — the orphan sweep. The generation is taken ONCE
+    /// for the whole pass: asked key by key, a refresh landing mid-sweep would judge the early keys against the old
+    /// edges and the late ones against the new, and the freshness key the response cites would name neither
+    /// answer. It also keeps the memoised referenced-set for the whole run instead of rebuilding it at the
+    /// crossing.</summary>
+    public IReadOnlyList<FormKey> Orphans(IEnumerable<FormKey> candidates)
+    {
+        var g = _gen;
+        var referenced = g.Referenced;
+        var outp = new List<FormKey>();
+        foreach (var k in candidates)
+            if (!g.TryPack(k, out var pt) || !referenced.Contains(pt)) outp.Add(k);
+        return outp;
+    }
+
     /// <summary>Every record that links to ANY of these targets, deduped, in load order then plugin-enumeration
     /// order — deterministic for an unchanged order, which is what lets a caller's offset/limit windows tile. The
     /// answer is a CANDIDATE set: the index says some plugin's copy of the record carries the link, and the caller
@@ -139,26 +158,33 @@ public sealed class ReverseReferenceIndex
                                    long ApproxBytes, IReadOnlyList<string> Unreadable, int UnscannableRecords,
                                    string Key)
     {
-        /// <summary>The one accounting line. The BUILD clause is only true of the call that paid it; the freshness
-        /// key and the coverage disclosures are true of every answer the index serves, so they are unconditional —
-        /// a cached call that dropped them would read as complete when it is short.</summary>
-        public string Note
+        /// <summary>The one accounting line, for the question that asks who references a target. The BUILD clause
+        /// is only true of the call that paid it; the freshness key and the coverage disclosures are true of every
+        /// answer the index serves, so they are unconditional — a cached call that dropped them would read as
+        /// complete when it is short.</summary>
+        public string Note => NoteFor(orphanSweep: false);
+
+        /// <summary>The same line, told for the lane that asked. A missing plugin's edges cut BOTH ways and the
+        /// two readings are opposites: the positive question loses referencers, so its answer is short; the orphan
+        /// sweep loses the very edges that would disqualify an orphan, so its answer is over-inclusive — a record
+        /// only the unreadable plugin links is listed as referenced by nothing. Saying "short" there would tell a
+        /// caller the confirmed orphans are confirmed.</summary>
+        public string NoteFor(bool orphanSweep)
         {
-            get
-            {
-                var sb = new StringBuilder("reverse-reference index: ");
-                sb.Append(Rebuilt > 0 ? $"built {Rebuilt} plugin partition(s) in {ElapsedMs} ms"
-                                      : $"unchanged, {Partitions} plugin partition(s) held");
-                sb.Append($" ({Pairs} target→referencer pairs over {TargetSlots} target slots, ~{ApproxBytes / (1024 * 1024)} MB held), ");
-                sb.Append($"key={Key} (per plugin, path+mtime — beside the order-wide epoch, not riding it).");
-                if (Unreadable.Count > 0)
-                    sb.Append($" {Unreadable.Count} plugin(s) contributed nothing because the walk could not read them: ")
-                      .Append(string.Join(", ", Unreadable))
-                      .Append(" — the answer is short by whatever they reference.");
-                if (UnscannableRecords > 0)
-                    sb.Append($" {UnscannableRecords} record(s) Mutagen could not parse were excluded from the walk.");
-                return sb.ToString();
-            }
+            var sb = new StringBuilder("reverse-reference index: ");
+            sb.Append(Rebuilt > 0 ? $"built {Rebuilt} plugin partition(s) in {ElapsedMs} ms"
+                                  : $"unchanged, {Partitions} plugin partition(s) held");
+            sb.Append($" ({Pairs} target→referencer pairs over {TargetSlots} target slots, ~{ApproxBytes / (1024 * 1024)} MB held), ");
+            sb.Append($"key={Key} (per plugin, path+mtime — beside the order-wide epoch, not riding it).");
+            if (Unreadable.Count > 0)
+                sb.Append($" {Unreadable.Count} plugin(s) contributed nothing because the walk could not read them: ")
+                  .Append(string.Join(", ", Unreadable))
+                  .Append(orphanSweep
+                      ? " — the sweep is OVER-inclusive by whatever they reference: a record only they link is listed here as an orphan."
+                      : " — the answer is short by whatever they reference.");
+            if (UnscannableRecords > 0)
+                sb.Append($" {UnscannableRecords} record(s) Mutagen could not parse were excluded from the walk.");
+            return sb.ToString();
         }
     }
 
@@ -307,10 +333,7 @@ public static class ReverseSelection
                                                   IReadOnlyList<FormKey>? references)
     {
         if (references is { Count: > 0 }) return index.ReferencersOf(references);
-        var orphans = new List<FormKey>();
-        foreach (var k in view.RecordKeys())
-            if (!index.HasAnyReferencer(k)) orphans.Add(k);
-        return orphans;
+        return index.Orphans(view.RecordKeys());
     }
 
     /// <summary>The sentence a caller gets for the negated-only unbounded form: its universe is the orphan set, not
