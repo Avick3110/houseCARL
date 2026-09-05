@@ -72,6 +72,18 @@ saying it sets an expectation their install may contradict. Say what is known, a
   collection whose elements are owned child records (`Cell.Persistent`) is sent to the record axis rather than handed
   a container call no verb takes. Inside
   a `compose=`'s nested `sets`, the path is named in the `path` slot it belongs to rather than `field_path`.
+- **`references=` no longer needs a bounding `types=`/`plugins=` scope.** "Who references X" over the whole order
+  was refused, so the answer had to be assembled from a scope guess per plugin. It is now one call:
+  `records references=["0006BBD3:Skyrim.esm"]`. The first such call builds a reverse-reference index — one
+  whole-order link-walk, the same walk the dangling sweep runs (measured on a 3,801-plugin order: 24.4 s, 14.7M
+  target→referencer pairs, ~200 MB held) — and the response says what that build cost and carries the index's own
+  freshness key. The index is kept per plugin and keyed on that plugin's path and last-write time, so a plugin you
+  change rebuilds only its own slice (an unchanged order re-checks in milliseconds), and it is never answered from
+  bodies it was not computed from. Nothing else is unbounded: a `where=` or `editorid_contains=` with no scope is
+  still refused, naming the bound. A bounded `references=` is unchanged and still cheaper — it builds no index. The
+  negated spelling `references=["!XXXXXX:Plugin.esp"]` is unbounded too, and keeps its meaning of "does not
+  reference that target", so with no scope its universe is the whole order; the response says so.
+
 - **A path can now step to the record that CONTAINS this one, with `*parent`.** DIAL→INFO, CELL→REFR/ACHR and
   WRLD→CELL ownership is group nesting rather than a form link, so `references=` correctly returns nothing for it
   and the child's own body names no owner — there was no way back from an INFO to its topic, or from a crash log's

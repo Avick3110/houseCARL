@@ -56,8 +56,12 @@ public sealed class RecordsReferenceExclusionTests : RecordsTestBase
     }
 
     [Fact]
-    public void ANegatedReferenceStillNeedsABoundingScope() =>
-        Refused(RecordsTools.Records(Svc, references: new[] { "!" + Fid(W.MgefA) }), "types=");
+    public void ABoundedNegatedReferenceIsStillTheCheaperCall()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, references: new[] { "!" + Fid(W.MgefA) });
+        Served(r, "HcRecSpellB");
+        Assert.DoesNotContain("reverse-reference index", r);   // a bounded scan never builds it
+    }
 
     [Fact]
     public void ABareBangNamesNoTargetAndIsRefused() =>

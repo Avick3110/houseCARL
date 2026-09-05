@@ -145,16 +145,15 @@ public sealed class RecordsRetiredNameRemedyTests : IDisposable
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
     }
 
-    /// <summary>Why the sentence says "with types= or plugins=" rather than just naming <c>references=</c>:
-    /// unbounded, the same call is refused. Without this the clause could be dropped and nothing would
-    /// notice.</summary>
+    /// <summary>The other half of the same sentence: unbounded, the call is served off the reverse-reference
+    /// index and says what that build cost.</summary>
     [Fact]
-    public void TheSameRemedyUnbounded_IsRefused_SoTheBoundingClauseIsLoadBearing()
+    public void TheSameRemedyUnbounded_IsServedOffTheIndex()
     {
         var r = RecordsTools.Records(_w.Svc, references: new[] { Weapon });
 
-        Assert.StartsWith("error:", r);
-        Assert.Contains("must be combined with", r);
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
+        Assert.Contains("reverse-reference index", r);
     }
 
     /// <summary>The unscannable-record note sends the caller to <c>records formids=[the FormID]</c>. Made, and
