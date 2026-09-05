@@ -8,8 +8,8 @@ namespace HousecarlMcp;
 
 /// <summary>
 /// housecarl_records — the read surface. One tool: SELECT (which records), SOURCE (whose version), PROJECT (what
-/// shape) and TRANSPORT compose in a single call, over the same engine lanes the older read tools drove. Nine
-/// project forms — identity, summary, fields, everything, aggregate, delta, tree, chain, info_order — each
+/// shape) and TRANSPORT compose in a single call, over the same engine lanes the older read tools drove. Ten
+/// project forms — identity, summary, fields, rows, everything, aggregate, delta, tree, chain, info_order — each
 /// form-scoped, so a sub-parameter exists only inside the form that carries it.
 /// </summary>
 [McpServerToolType]
@@ -31,19 +31,19 @@ public static class RecordsTools
     /// them, so there is no flat spelling for an illegal pairing.</summary>
     public sealed class RecordsProject
     {
-        [Description("The form: 'identity' (FormID -> type/editorid/name/winner — the labeling form; needs formids=) | 'summary' (identity plus winner/override-depth header facts — the default) | 'fields' (named field values; takes fields= and depth=) | 'everything' (the full record body; takes depth=) | 'aggregate' (a counted table; takes group_by=) | 'delta' (subject vs reference, differences only — source= is the subject, versus= the reference; takes fields= to narrow) | 'tree' (every provider of each record in priority order, winner last, each diffed against the reference pole — default the winner; takes fields=. On a record type that OWNS child records — a cell's placed references, a topic's INFO lines, a worldspace's cells — it also states, per such field, which providers DECLARE children there (a COLLECTION field) or how many do (a SINGULAR one, e.g. Cell.Landscape), and says so when none do) | 'info_order' (DIAL topics only: the effective MERGED INFO sequence across every touching plugin — the order the game walks, with MOVED annotations; the 'why does the wrong line play' diagnostic) | 'chain' (a walk's own paths, endpoints and cycles rather than the records it reached; needs walk=, and carries the NPC-template inheritance report and the reverse MGEF carrier rows).")]
+        [Description("The form: 'identity' (FormID -> type/editorid/name/winner — the labeling form; needs formids=) | 'summary' (identity plus winner/override-depth header facts — the default) | 'fields' (named field values; takes fields= and depth=) | 'rows' (a LIST field folded to ONE LINE PER ELEMENT — the compact per-row view: takes fields= naming the list, and depth= (default 4). Each line is the element's own summary plus every sub-field that is THERE; absent optionals and null links are omitted, which is what turns a 40-row condition stack from ~1,000 lines into 40) | 'everything' (the full record body; takes depth=) | 'aggregate' (a counted table; takes group_by=) | 'delta' (subject vs reference, differences only — source= is the subject, versus= the reference; takes fields= to narrow) | 'tree' (every provider of each record in priority order, winner last, each diffed against the reference pole — default the winner; takes fields=. On a record type that OWNS child records — a cell's placed references, a topic's INFO lines, a worldspace's cells — it also states, per such field, which providers DECLARE children there (a COLLECTION field) or how many do (a SINGULAR one, e.g. Cell.Landscape), and says so when none do) | 'info_order' (DIAL topics only: the effective MERGED INFO sequence across every touching plugin — the order the game walks, with MOVED annotations; the 'why does the wrong line play' diagnostic) | 'chain' (a walk's own paths, endpoints and cycles rather than the records it reached; needs walk=, and carries the NPC-template inheritance report and the reverse MGEF carrier rows).")]
         public string? form { get; set; }
 
-        [Description("fields form only: dotted field paths to read, e.g. [\"BasicStats.Damage\", \"Keywords\", \"Effects\"]. Index a list/dict element with BRACKETS ('Effects[0].Data.Magnitude'). where='s quantifier tokens are not read here: [*any]/[*all]/[*none] fold to a boolean, which is not a row, and [*] / [*count] as a PROJECTION are not built yet — both are refused by name.")]
+        [Description("fields/rows forms: dotted field paths to read, e.g. [\"BasicStats.Damage\", \"Keywords\", \"Effects\"]. Index a list/dict element with BRACKETS ('Effects[0].Data.Magnitude'). On the rows form these name the LIST(S) to fold, one line per element. where='s quantifier tokens are not read here: [*any]/[*all]/[*none] fold to a boolean, which is not a row, and [*] / [*count] as a PROJECTION are not built yet — both are refused by name.")]
         public string[]? fields { get; set; }
 
-        [Description("fields/everything forms: expansion depth for list/dict/substruct CONTENTS (default 1 = a container shown as a count). THIS is the expansion knob: fields=[\"Effects\"], depth=4 reaches every effect's Magnitude/Area/Duration — no hand-written index guessing.")]
+        [Description("fields/rows/everything forms: expansion depth for list/dict/substruct CONTENTS (default 1, or 4 on the rows form, where a shallower read renders every element as a bare type). THIS is the expansion knob: fields=[\"Effects\"], depth=4 reaches every effect's Magnitude/Area/Duration — no hand-written index guessing.")]
         public int? depth { get; set; }
 
         [Description("aggregate form only: the count key — 'winner' (by winning plugin), 'type' (by record type; needs types= or plugins=), or 'defined_in' (by defining plugin).")]
         public string? group_by { get; set; }
 
-        [Description("fields/everything forms: annotate every FormLink value with its target's identity (-> editorid \"Name\"). Display-only — the token itself still round-trips to a write.")]
+        [Description("fields/rows/everything forms: annotate every FormLink value with its target's identity (-> editorid \"Name\"). Display-only — the token itself still round-trips to a write.")]
         public bool resolve_names { get; set; }
     }
 
@@ -131,9 +131,12 @@ public static class RecordsTools
          "versus= is the comparison REFERENCE pole (delta/tree); {\"overlay\": \"skypatcher\", \"state\": " +
          "\"pre\"|\"post\"} reads around the SkyPatcher INI layer; \"previous_provider\" (a versus= value) is the " +
          "plugin immediately below the SUBJECT in the record's touching stack.\n\n" +
-         "PROJECT is a single form (see project=): identity | summary (default) | fields | everything | aggregate | " +
-         "delta | tree | chain | info_order. Sub-parameters live INSIDE the form that uses them (depth belongs to fields/everything, " +
-         "group_by to aggregate, fields to fields/delta/tree) — there is no flat spelling for an illegal pairing. " +
+         "PROJECT is a single form (see project=): identity | summary (default) | fields | rows | everything | aggregate | " +
+         "delta | tree | chain | info_order. Sub-parameters live INSIDE the form that uses them (depth belongs to fields/rows/everything, " +
+         "group_by to aggregate, fields to fields/rows/delta/tree) — there is no flat spelling for an illegal pairing. " +
+         "form='rows' is the compact per-row view of a LIST field: project.fields names the list and every element folds to ONE " +
+         "line — the element's own summary plus each sub-field that is there, absent optionals and null links omitted. Auditing a " +
+         "40-row condition stack (project.fields=[\"Conditions\"]) is one call, not an index probe per row. " +
          "COMPARISONS (form='delta'/'tree'): a delta reads the SUBJECT (source=) and a REFERENCE (versus=) and " +
          "returns only what differs — each delta line shows the subject's value with the reference's labeled by its " +
          "plugin; versus=\"previous_provider\" answers 'what did this plugin change relative to what sat beneath " +
@@ -212,17 +215,20 @@ public static class RecordsTools
         var form = project?.form?.Trim().ToLowerInvariant() ?? "summary";
         switch (form)
         {
-            case "identity" or "summary" or "fields" or "everything" or "aggregate" or "delta" or "tree" or "info_order" or "chain": break;
+            case "identity" or "summary" or "fields" or "rows" or "everything" or "aggregate" or "delta" or "tree" or "info_order" or "chain": break;
             default:
-                return Wire.Refuse(json, $"error: project.form='{project?.form}' is not a form — use identity | summary | fields | everything | aggregate | delta | tree | chain | info_order.");
+                return Wire.Refuse(json, $"error: project.form='{project?.form}' is not a form — use identity | summary | fields | rows | everything | aggregate | delta | tree | chain | info_order.");
         }
         bool comparisonForm = form is "delta" or "tree";
+        bool bodyFields = form is "fields" or "rows";   // the two forms that read the caller's own field paths
         // Sub-parameters exist only inside their forms; a stray one is refused by name, so the caller learns the
         // form-scoping rule instead of getting a silently ignored knob.
-        if (project?.fields is { Length: > 0 } && form != "fields" && !comparisonForm)
-            return Wire.Refuse(json, $"error: project.fields belongs to the 'fields'/'delta'/'tree' forms (got form='{form}'). Set project.form, or drop fields.");
+        if (project?.fields is { Length: > 0 } && !bodyFields && !comparisonForm)
+            return Wire.Refuse(json, $"error: project.fields belongs to the 'fields'/'rows'/'delta'/'tree' forms (got form='{form}'). Set project.form, or drop fields.");
         if (form == "fields" && project?.fields is not { Length: > 0 })
             return Wire.Refuse(json, "error: the 'fields' form names its field paths — pass project.fields=[\"<path>\", …] (or use form='everything' for the full body).");
+        if (form == "rows" && project?.fields is not { Length: > 0 })
+            return Wire.Refuse(json, "error: the 'rows' form folds a LIST field to one line per element and names that field — pass project.fields=[\"Conditions\"] (or any list path).");
         // The quantifier tokens are where='s, not a projection's — refused by name here so a caller who tries one
         // gets the rule rather than an unreadable-field note from the read walk.
         if (project?.fields is { Length: > 0 } pf)
@@ -242,12 +248,15 @@ public static class RecordsTools
         {
             // Any explicit depth is form-scoped — the rule must not depend on the value, or depth:1 is accepted
             // and dropped where depth:2 refuses — and 0 or negative is refused rather than silently becoming 1.
-            if (form is not ("fields" or "everything"))
+            if (form is not ("fields" or "rows" or "everything"))
                 return Wire.Refuse(json, comparisonForm
-                    ? $"error: project.depth belongs to the 'fields'/'everything' forms — the '{form}' comparison always deep-reads BOTH sides at the diff engine's fixed depth so line sets correspond (narrow with {LeverNames.Records.Fields} instead)."
-                    : $"error: project.depth expands field contents and belongs to the 'fields'/'everything' forms (got form='{form}').");
+                    ? $"error: project.depth belongs to the 'fields'/'rows'/'everything' forms — the '{form}' comparison always deep-reads BOTH sides at the diff engine's fixed depth so line sets correspond (narrow with {LeverNames.Records.Fields} instead)."
+                    : $"error: project.depth expands field contents and belongs to the 'fields'/'rows'/'everything' forms (got form='{form}').");
             if (dv < 1)
                 return Wire.Refuse(json, $"error: project.depth={dv} — depth must be >= 1 (1 shows a container as a collapsed summary; higher opens it).");
+            // depth=1 collapses the list to a count, so the rows form would answer with no rows at all.
+            if (dv == 1 && form == "rows")
+                return Wire.Refuse(json, "error: project.depth=1 collapses a list to a count, and the 'rows' form renders its elements — pass depth >= 2 (2 shows each element's type, the default 4 reaches its sub-fields), or use form='fields' for the collapsed line.");
         }
         if (project?.group_by is not null && form != "aggregate")
             return Wire.Refuse(json, $"error: project.group_by belongs to the 'aggregate' form only (got form='{form}'). Set project.form='aggregate', or drop group_by.");
@@ -265,14 +274,20 @@ public static class RecordsTools
             // imposes no such precondition — pre-refusing it would state a false reason. The lane is not known
             // until the source pole is probed, so the check lives with the probe rather than here.
         }
-        if (project is { resolve_names: true } && form is not ("fields" or "everything"))
-            return Wire.Refuse(json, $"error: project.resolve_names annotates field values and belongs to the 'fields'/'everything' forms (got form='{form}').");
-        int depth = project?.depth is { } d && d > 0 ? d : 1;
-        var projFields = form is "fields" or "delta" or "tree" ? project?.fields : null;
+        if (project is { resolve_names: true } && form is not ("fields" or "rows" or "everything"))
+            return Wire.Refuse(json, $"error: project.resolve_names annotates field values and belongs to the 'fields'/'rows'/'everything' forms (got form='{form}').");
+        // The rows form's default is its own: at depth 1 every element renders as a bare arm type, which is the
+        // gap the form exists to close. Its cost is per-row TEXT, not per-row lines — the fold is one line either way.
+        int depth = project?.depth is { } d && d > 0 ? d : (form == "rows" ? RowProjection.DefaultDepth : 1);
+        var projFields = bodyFields || comparisonForm ? project?.fields : null;
         bool resolveNames = project?.resolve_names ?? false;
         // The lever vocabulary is a function of (tool, FORM), not of the tool alone: the 'everything' form refuses
         // project.fields= by name, so a truncation notice there must not offer it as the way to narrow.
         var formLevers = form == "everything" ? LeverNames.Records.WithoutFieldSelector() : LeverNames.Records;
+        // The rows form IS the fields form plus this fold, applied wherever a lane produces bodies — so the
+        // render, the artifact and the json document all see the same folded rows.
+        IReadOnlyList<ReadOutcome> FoldRows(IReadOnlyList<ReadOutcome> read)
+            => form == "rows" ? RowProjection.Apply(read, projFields!) : read;
 
         // ---- SOURCE: the pole grammar (source = the subject; versus = the comparison reference) ----
         // ParsePole has no transport in scope, so its refusals take their shape here.
@@ -386,6 +401,8 @@ public static class RecordsTools
         // fixed column set refuses by name rather than quietly falling back to another transport.
         if (dense && form == "everything")
             return Wire.Refuse(json, "error: format='dense' renders positional columnar cells 1:1 with requested field paths, and the 'everything' form has no fixed column set — use format='text' or 'json', or name the paths via form='fields'.");
+        if (dense && form == "rows")
+            return Wire.Refuse(json, "error: format='dense' renders positional columnar cells 1:1 with requested field paths, and the 'rows' form folds a list's elements into one variable-length line each — use format='text' or 'json'.");
         if (dense && form == "aggregate")
             return Wire.Refuse(json, "error: format='dense' is the per-row columnar transport, and the 'aggregate' form is a count table — its json render IS the compact form; use format='json'.");
         // The same rule at the depth knob: depth expansion is inexpressible in dense, so an explicit
@@ -548,7 +565,7 @@ public static class RecordsTools
             // paths; everything passes null to dump the modeled fields.
             IReadOnlyList<string>? readFields = form switch
             {
-                "fields" => projFields,
+                "fields" or "rows" => projFields,
                 "summary" or "aggregate" => new[] { "EditorID" },   // cheapest leaf — headers carry the summary facts
                 _ => null,                                          // everything — the full dump
             };
@@ -592,6 +609,7 @@ public static class RecordsTools
                     headerLine += "\n(the off-order file's content is OUTSIDE the epoch fingerprint — an edit to it changes answers without changing the epoch)";
                 }
             }
+            outcomes = FoldRows(outcomes);
             var epoch2 = outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch;
             if (SeamTear(epoch2) is { } seamTear)
                 return json ? JsonWire.RenderError(seamTear, epoch2) : "error: " + seamTear;
@@ -1181,13 +1199,15 @@ public static class RecordsTools
 
             // ---- form=everything on a scan: selection here, bodies via the batch lane, window-bounded.
             // counts_only skips the body lane entirely — its census is the scan render below. ----
-            if ((form == "everything" || (form == "fields" && scopePlusPole)) && !counts_only && outcome.Error is null && outcome.Groups is null)
+            // The rows form always takes this lane: its fold is over a body read, and the scan render fills
+            // detail rows of its own that never pass through it.
+            if ((form == "everything" || form == "rows" || (form == "fields" && scopePlusPole)) && !counts_only && outcome.Error is null && outcome.Groups is null)
             {
                 var keys = outcome.Keys.Select(k => k.ToString()).ToList();
                 IReadOnlyList<ReadOutcome> bodies;
                 if (srcName is not null)
                 {
-                    bodies = svc.ResolveBatchFromPole(keys, srcName, srcMod, form == "fields" ? projFields : null, depth, resolveNames, null,
+                    bodies = svc.ResolveBatchFromPole(keys, srcName, srcMod, bodyFields ? projFields : null, depth, resolveNames, null,
                                                       out _, out var bref, out var brefEpoch, LeverNames.Records.ContainerHint);
                     // A refusal is judged on the named cause, never on row count: a zero-match scan is an honest
                     // empty result, not a failure.
@@ -1203,7 +1223,7 @@ public static class RecordsTools
                     // fields_source="winner" retargets display to the winner as it does on the fields form.
                     var srcs = outcome.Sources;
                     if (winnerFields || srcs is null || srcs.Take(keys.Count).All(s => s is null))
-                        bodies = svc.ResolveBatch(keys, null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint);
+                        bodies = svc.ResolveBatch(keys, bodyFields ? projFields : null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint);
                     else
                     {
                         var byIndex = new ReadOutcome[keys.Count];
@@ -1218,17 +1238,18 @@ public static class RecordsTools
                         }
                         if (winnerIdx.Count > 0)
                         {
-                            var res = svc.ResolveBatch(winnerIdx.Select(i => keys[i]).ToList(), null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint);
+                            var res = svc.ResolveBatch(winnerIdx.Select(i => keys[i]).ToList(), bodyFields ? projFields : null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint);
                             for (int i = 0; i < winnerIdx.Count; i++) byIndex[winnerIdx[i]] = res[i];
                         }
                         foreach (var kv in bySource)
                         {
-                            var res = svc.ResolveBatch(kv.Value.Select(i => keys[i]).ToList(), null, false, depth, resolveNames, kv.Key, LeverNames.Records.ContainerHint);
+                            var res = svc.ResolveBatch(kv.Value.Select(i => keys[i]).ToList(), bodyFields ? projFields : null, false, depth, resolveNames, kv.Key, LeverNames.Records.ContainerHint);
                             for (int i = 0; i < kv.Value.Count; i++) byIndex[kv.Value[i]] = res[i];
                         }
                         bodies = byIndex;
                     }
                 }
+                bodies = FoldRows(bodies);
                 // Rows the pole does not touch come back as per-item refusals naming the touchers, and the
                 // accounting carries the explicit count so a quiet omission is impossible.
                 if (scopePlusPole)
@@ -1442,12 +1463,13 @@ public static class RecordsTools
             }
 
             // fields/everything over the file's matches: bodies via the one-pole batch (it reads the FILE).
-            if (form is ("fields" or "everything") && !counts_only && outcome.Error is null && outcome.Groups is null)
+            if (form is ("fields" or "rows" or "everything") && !counts_only && outcome.Error is null && outcome.Groups is null)
             {
                 var keys = outcome.Keys.Select(k => k.ToString()).ToList();
-                var bodies = svc.ResolveBatchFromPole(keys, pole.Plugin, srcMod, form == "fields" ? projFields : null,
+                var bodies = svc.ResolveBatchFromPole(keys, pole.Plugin, srcMod, bodyFields ? projFields : null,
                                                       depth, resolveNames, null, out _, out var bref, out var brefEpoch,
                                                       LeverNames.Records.ContainerHint);
+                bodies = FoldRows(bodies);
                 if (bref is not null)
                     return json ? JsonWire.RenderError(bref, brefEpoch)
                                 : "error: " + bref + (brefEpoch is not null ? $"\nepoch={brefEpoch}" : "");
