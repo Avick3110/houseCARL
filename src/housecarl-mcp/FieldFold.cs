@@ -4,7 +4,13 @@ namespace HousecarlMcp;
 
 /// <summary>One project.fields path's quantified step: the LIST path the read actually runs, the sub-path after
 /// the quantifier (empty when the token ends the path), and the fold the caller spelled.</summary>
-sealed record FieldFold(string Requested, string Root, string[] Tail, PathFold Fold);
+sealed record FieldFold(string Requested, string Root, string[] Tail, PathFold Fold)
+{
+    /// <summary>How many expansion levels the sub-path adds below one element. A dotted step is one level and a
+    /// bracketed index inside a step is another, because <c>ReadEngine.Expand</c> spends one level on each — so
+    /// 'Conditions[0].Data' is three, not two, and counting segments alone stops the read a level short.</summary>
+    internal int TailLevels => Tail.Sum(s => 1 + s.Count(c => c == '['));
+}
 
 /// <summary>
 /// The PROJECT half of the quantified path step. <c>[*count]</c> on a project.fields path yields ONE number per
@@ -188,11 +194,12 @@ static class FieldFolds
         }
         if (!any) return (null, null);
         // The depth the TOKENS require: an element lives one level under its list, and each sub-path step after
-        // the token is one more. A [*count]-only plan needs no expansion at all — the list's own line carries the
-        // count. The caller's own depth is folded in above this, where it can still be deeper.
+        // the token is one more — a bracketed index in that sub-path being a step of its own. A [*count]-only plan
+        // needs no expansion at all — the list's own line carries the count. The caller's own depth is folded in
+        // above this, where it can still be deeper.
         int need = 1;
         foreach (var f in folds)
-            if (f is { Fold: PathFold.Set }) need = Math.Max(need, 2 + f.Tail.Length);
+            if (f is { Fold: PathFold.Set }) need = Math.Max(need, 2 + f.TailLevels);
         return (new FoldPlan(fields, readPaths, folds, need), null);
     }
 }

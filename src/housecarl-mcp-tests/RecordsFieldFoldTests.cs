@@ -66,6 +66,26 @@ public sealed class RecordsFieldFoldTests : RecordsTestBase
         Served(r, "Effects[0].Data.Magnitude = 5", "Effects[1].Data.Magnitude = 4");
     }
 
+    /// <summary>A bracketed index inside the sub-path costs an expansion level of its own, so a depth counted per
+    /// dotted SEGMENT stops the read one level short and the record answers "no element carries it" — a confident
+    /// wrong answer about a field that is right there.</summary>
+    [Fact]
+    public void AnIndexedSubPathIsReadDeepEnoughToReachIt()
+    {
+        Served(Spell("Effects[*].Conditions[0].Data"), "Effects[1].Conditions[0].Data = ");
+        Assert.DoesNotContain("no element of", Spell("Effects[*].Conditions[0].Data"));
+    }
+
+    /// <summary>The same need, at a depth the caller named: the default of 4 covers the shallower spelling, so the
+    /// claim only bites once the caller asks for less than the token needs.</summary>
+    [Fact]
+    public void TheTokensOwnDepthWinsOverALowerOneTheCallerNamed()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) },
+                    project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects[*].Conditions[0]" }, depth = 2 });
+        Served(r, "Effects[1].Conditions[0] = ");
+    }
+
     [Fact]
     public void DenseCarriesTheExtraRowsWithTheIdentityColumnsRepeated()
     {
