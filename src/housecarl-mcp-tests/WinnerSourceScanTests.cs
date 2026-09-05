@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
 using HousecarlGenerator;
@@ -15,7 +16,7 @@ namespace HousecarlMcpTests;
 /// a scan that fetched the wrong plugin's body — or the first declarer's — matches a different set.</summary>
 public sealed class WinnerSourceWorld : IDisposable
 {
-    public const int Weapons = 30;
+    public const int Weapons = 30, Armors = 3;
     public const ushort MasterDamage = 5, LowDamage = 20, MidDamage = 30;
 
     public string Root { get; }
@@ -23,7 +24,13 @@ public sealed class WinnerSourceWorld : IDisposable
     public string MasterName { get; }
     public string LowName { get; }
     public string MidName { get; }
+    public string MasterPath { get; }
+    public string LowPath { get; }
+    public string MidPath { get; }
     public IReadOnlyList<FormKey> Keys { get; }
+    /// <summary>Records of a SECOND type in the same master, so a typed gather can be handed a type that does not
+    /// cover every wanted key.</summary>
+    public IReadOnlyList<FormKey> ArmorKeys { get; }
 
     readonly string _priorCorpusPath;
 
@@ -58,12 +65,25 @@ public sealed class WinnerSourceWorld : IDisposable
             });
         }
         Keys = keys;
-        var masterPath = Path.Combine(masterDir, MasterName);
-        master.BeginWrite.ToPath(masterPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-        var masterOv = SkyrimMod.CreateFromBinaryOverlay(masterPath, SkyrimRelease.SkyrimSE);
-
-        Write(mods, "LowMod", lowKey, masterOv, 0, 10, LowDamage);
-        Write(mods, "MidMod", midKey, masterOv, 5, 15, MidDamage);
+        var armorKeys = new List<FormKey>();
+        for (int i = 0; i < Armors; i++)
+        {
+            var fk = new FormKey(masterKey, (uint)(0xB00 + i));
+            armorKeys.Add(fk);
+            master.Armors.Add(new Armor(fk, SkyrimRelease.SkyrimSE) { EditorID = "HcWsrcArmo" + i });
+        }
+        ArmorKeys = armorKeys;
+        MasterPath = Path.Combine(masterDir, MasterName);
+        master.BeginWrite.ToPath(MasterPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        // Disposed before the fixture leaves the constructor: it is a memory-mapped overlay, and a live handle on the
+        // master would make the temp tree undeletable on Windows, leaking a whole instance per run.
+        var masterOv = SkyrimMod.CreateFromBinaryOverlay(MasterPath, SkyrimRelease.SkyrimSE);
+        try
+        {
+            LowPath = Write(mods, "LowMod", lowKey, masterOv, 0, 10, LowDamage);
+            MidPath = Write(mods, "MidMod", midKey, masterOv, 5, 15, MidDamage);
+        }
+        finally { (masterOv as IDisposable)?.Dispose(); }
 
         var order = new[] { MasterName, LowName, MidName };
         File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", order) + "\r\n");
@@ -78,7 +98,7 @@ public sealed class WinnerSourceWorld : IDisposable
         Svc.Stats();
     }
 
-    void Write(string mods, string folder, ModKey key, ISkyrimModGetter masterOv, int from, int to, ushort damage)
+    string Write(string mods, string folder, ModKey key, ISkyrimModGetter masterOv, int from, int to, ushort damage)
     {
         var dir = Path.Combine(mods, folder); Directory.CreateDirectory(dir);
         var m = new SkyrimMod(key, SkyrimRelease.SkyrimSE);
@@ -87,7 +107,9 @@ public sealed class WinnerSourceWorld : IDisposable
             var w = m.Weapons.GetOrAddAsOverride(masterOv.Weapons.First(x => x.FormKey == Keys[i]));
             w.BasicStats!.Damage = damage;
         }
-        m.BeginWrite.ToPath(Path.Combine(dir, key.FileName.String)).WithLoadOrder(new[] { masterOv }).Write();
+        var path = Path.Combine(dir, key.FileName.String);
+        m.BeginWrite.ToPath(path).WithLoadOrder(new[] { masterOv }).Write();
+        return path;
     }
 
     public void Dispose()
@@ -106,9 +128,10 @@ public sealed class WinnerSourceFixture : IDisposable
 
 /// <summary>
 /// <c>where_source=winner</c> over a scope whose records win in three different plugins (#251). The winner bodies
-/// are gathered by PLUGIN — one enumeration per distinct winner plugin — instead of one whole-overlay walk per
-/// candidate, so these pin that the batched gather answers with the same set the per-record fetch did: the true
-/// winner's body for every candidate, including the ones the scoped plugin itself wins.
+/// are gathered a chunk of candidates at a time, by PLUGIN — one enumeration per distinct winner plugin in the
+/// chunk — instead of one whole-overlay walk per candidate, so these pin that the batched gather answers with the
+/// same set the per-record fetch did: the true winner's body for every candidate, including the ones the scoped
+/// plugin itself wins, which it takes from the streamed body rather than re-reading.
 /// </summary>
 [Trait("tier", "integration")]
 public sealed class WinnerSourceScanTests : IClassFixture<WinnerSourceFixture>
@@ -118,18 +141,23 @@ public sealed class WinnerSourceScanTests : IClassFixture<WinnerSourceFixture>
 
     const string DamagePath = "BasicStats.Damage";
 
-    string[] Matched(ushort damage, string[]? scope = null)
+    string[] Matched(string comparison, string[]? scope = null, string[]? types = null)
     {
-        var json = RecordsTools.Records(_w.Svc,
-            plugins: new RecordsTools.RecordsScope { names = scope ?? new[] { _w.MasterName } },
-            where: new[] { $"{DamagePath} = {damage}" }, where_source: "winner",
-            project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "EditorID" } },
-            format: "json", max_chars: 200000, limit: 1000);
+        var json = Scan(comparison, scope, types);
         using var doc = JsonDocument.Parse(json);
         Assert.False(doc.RootElement.TryGetProperty("error", out _), json);
         return doc.RootElement.GetProperty("matches").EnumerateArray()
                   .Select(m => m.GetProperty("formid").GetString()!).OrderBy(x => x, StringComparer.Ordinal).ToArray();
     }
+
+    string[] Matched(ushort damage, string[]? scope = null, string[]? types = null) => Matched($"= {damage}", scope, types);
+
+    string Scan(string comparison, string[]? scope = null, string[]? types = null) =>
+        RecordsTools.Records(_w.Svc, types: types,
+            plugins: new RecordsTools.RecordsScope { names = scope ?? new[] { _w.MasterName } },
+            where: new[] { $"{DamagePath} {comparison}" }, where_source: "winner",
+            project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "EditorID" } },
+            format: "json", max_chars: 200000, limit: 1000);
 
     string[] Expected(int from, int to) =>
         Enumerable.Range(from, to - from).Select(i => _w.Keys[i])
@@ -173,33 +201,47 @@ public sealed class WinnerSourceScanTests : IClassFixture<WinnerSourceFixture>
 
     /// <summary>The same answer with a type scope, which narrows each winner plugin's walk to that type's GRUP.</summary>
     [Fact]
-    public void ATypeScopedWinnerSourceScanAnswersTheSameSet()
+    public void ATypeScopedWinnerSourceScanAnswersTheSameSet() =>
+        Assert.Equal(Expected(5, 15), Matched(WinnerSourceWorld.MidDamage, types: new[] { "WEAP" }));
+
+    /// <summary>The gather under the tool: every candidate is judged on its WINNER's body. The scoped master's own
+    /// copy declares the same damage on all thirty, so a filter above it can only match through the gather — the
+    /// fifteen some plugin raises — and no candidate may go unscannable on the way.</summary>
+    [Fact]
+    public void EveryCandidateIsJudgedOnItsWinnersBody_NotTheScopedPluginsCopy()
     {
-        var json = RecordsTools.Records(_w.Svc, types: new[] { "WEAP" },
-            plugins: new RecordsTools.RecordsScope { names = new[] { _w.MasterName } },
-            where: new[] { $"{DamagePath} = {WinnerSourceWorld.MidDamage}" }, where_source: "winner",
-            project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "EditorID" } },
-            format: "json", max_chars: 200000, limit: 1000);
-        using var doc = JsonDocument.Parse(json);
-        Assert.Equal(Expected(5, 15),
-                     doc.RootElement.GetProperty("matches").EnumerateArray()
-                        .Select(m => m.GetProperty("formid").GetString()!).OrderBy(x => x, StringComparer.Ordinal).ToArray());
+        Assert.Equal(Expected(0, 15), Matched($"> {WinnerSourceWorld.MasterDamage}"));
+        Assert.DoesNotContain("did not yield the record", Scan($"> {WinnerSourceWorld.MasterDamage}"));
     }
 
-    /// <summary>The gather itself, under the tool: every candidate's winner body, in one enumeration per winner
-    /// plugin. Its answer must be the winner's body — the damage each record's winner declares — for all thirty.</summary>
+    /// <summary>A winner plugin another program is holding open says THAT, with the underlying cause, rather than
+    /// reporting the index as stale — the two are different problems and only one of them the user can act on.</summary>
     [Fact]
-    public void EveryCandidateGetsItsOwnWinnersBody_NotSomeOtherPluginsCopy()
+    public void AWinnerPluginHeldOpenNamesTheHeldFile_NotAStaleIndex()
     {
-        for (int i = 0; i < WinnerSourceWorld.Weapons; i++)
-        {
-            ushort expected = i < 5 ? WinnerSourceWorld.LowDamage
-                            : i < 15 ? WinnerSourceWorld.MidDamage
-                            : WinnerSourceWorld.MasterDamage;
-            var one = RecordsTools.Records(_w.Svc, formids: new[] { _w.Keys[i].ToString() },
-                                           project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { DamagePath } },
-                                           max_chars: 20000);
-            Assert.Contains($"{DamagePath} = {expected}", one);
-        }
+        using var hold = new FileStream(_w.MidPath, FileMode.Open, FileAccess.Read, FileShare.None);
+        var json = Scan($"= {WinnerSourceWorld.MidDamage}");
+        using var doc = JsonDocument.Parse(json);
+        var notes = string.Join(" ", doc.RootElement.GetProperty("notes").EnumerateArray().Select(n => n.GetString()));
+        Assert.Contains($"could not read '{_w.MidName}'", notes);
+        Assert.Contains("being used by another process", notes);
+        Assert.DoesNotContain("did not yield the record on winner-source re-fetch", notes);
+    }
+
+    /// <summary>The typed gather decides its flat fallback per KEY, not per plugin. Handed a type that covers only
+    /// some of the wanted keys, it must still answer with the rest: Mutagen's typed enumeration routes nothing at
+    /// all for a type it does not model, so "the typed walk found something, therefore what it missed is not here"
+    /// turns a record the plugin holds into a silent absence.</summary>
+    [Fact]
+    public void ATypedGatherFallsThroughForAWantedKeyThatTypeDoesNotCover()
+    {
+        using var resolver = LoadOrderResolver.Build(new[] { _w.MasterPath, _w.LowPath, _w.MidPath });
+        var view = resolver.Capture();
+        using var session = resolver.OpenSession();
+        var sink = new Dictionary<FormKey, IMajorRecordGetter>();
+        view.CollectRecords(session, _w.MasterName,
+                            new[] { _w.Keys[20], _w.ArmorKeys[0] }, new[] { typeof(IWeaponGetter) }, sink);
+        Assert.Contains(_w.Keys[20], sink.Keys);
+        Assert.Contains(_w.ArmorKeys[0], sink.Keys);
     }
 }
