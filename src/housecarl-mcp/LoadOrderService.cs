@@ -2318,10 +2318,14 @@ public sealed class LoadOrderService : IDisposable
             // validated against the same build, so the stamp names the build the response was actually answered from
             // rather than whichever one the last seed happened to catch.
             var resolver = Resolver;
+            // The asset resolver is taken once here for the same reason, and where the scripts family takes it: the
+            // property re-gates on every read and can rebuild outright, so reading it per seed would let one
+            // response's .fuz and .pex verdicts come off two different asset builds under one tally and one stamp.
+            var assets = Assets;
             var view = resolver.Capture();
             // The seed door is pinned to that same view: a door of its own would capture a second build on the first
             // runtime FormID, so the seeds could name records from a build other than the one the response stamps.
-            return new DialogueSweep.Binding(fk => DialogueValidate.Run(resolver, Assets, fk, view),
+            return new DialogueSweep.Binding(fk => DialogueValidate.Run(resolver, assets, fk, view),
                                              FormIdDoor.On(view).Parse, view.Epoch);
         }, seeds, limit, countsOnly);
 
