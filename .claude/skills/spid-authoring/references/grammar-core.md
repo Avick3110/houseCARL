@@ -57,13 +57,14 @@ INI edited while the game is running takes effect only after a restart. **[sourc
 (`SPID/src/main.cpp` — configs are read at `kPostLoad` and forms looked up at `kDataLoaded`.)
 
 **Every launch, from scratch.** SPID "distributes everything from scratch each time you launch the
-game" and "doesn't have effect on either loaded plugins nor on save" — nothing it distributes is
-written into the save, so a rule added to a `_DISTR.ini` after a save was made applies to that save's
-actors on the next launch, when they next load in. The "already handled this NPC" marker is a runtime
-`SPID_Processed` keyword created fresh at each launch, so it carries nothing across sessions.
-**[source]** (`SPID/src/DistributeManager.cpp` — `Setup()` creates the keyword via `IFormFactory`;
-`distribute_on_load` skips an NPC that already has it.) The practical limit is the once-per-launch
-config read above: no restart, no new rule.
+game" and "doesn't have effect on either loaded plugins nor on save" — article 6617, § General
+Distribution Info, quoted verbatim. Nothing it distributes is written into the save, so a rule added
+to a `_DISTR.ini` after a save was made applies to that save's actors on the next launch, when they
+next load in. The "already handled this NPC" marker is a runtime `SPID_Processed` keyword created
+fresh at each launch, so it carries nothing across sessions. **[source]**
+(`SPID/src/DistributeManager.cpp` — `Setup()` creates the keyword via `IFormFactory`;
+`distribute_on_load` skips an NPC that already has it; declared in `DistributeManager.h`.) The
+practical limit is the once-per-launch config read above: no restart, no new rule.
 
 **Who — never the player.** Every distribution path is gated on
 `detail::should_process_NPC`, which is `!a_npc->IsPlayer() && !a_npc->IsDeleted()`, so the player
