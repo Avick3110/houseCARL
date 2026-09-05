@@ -3891,9 +3891,10 @@ public sealed class LoadOrderService : IDisposable
     public CrossQueryOutcome CrossQuery(string? type, IReadOnlyList<FormKey>? references, string? editoridContains,
                                         bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
                                         bool definedIn = false, string? groupBy = null, int offset = 0, string? whereSource = null,
-                                        IReadOnlyList<ArtifactDemand>? artifactDemands = null)
+                                        IReadOnlyList<ArtifactDemand>? artifactDemands = null,
+                                        IReadOnlyList<FormKey>? referencesNone = null)
         => CrossQuery(type is null ? null : new[] { type }, references, editoridContains, conflictsOnly, plugins, where,
-                      limit, definedIn, groupBy, offset, whereSource, artifactDemands);
+                      limit, definedIn, groupBy, offset, whereSource, artifactDemands, referencesNone: referencesNone);
 
     /// <summary>The formids-by-scan composition: <paramref name="formidSet"/> intersects the selection with an
     /// explicit identity set, inline or artifact-fed. With a body-bearing scope it is a cheap pre-filter on the
@@ -3908,7 +3909,8 @@ public sealed class LoadOrderService : IDisposable
                                         bool definedIn = false, string? groupBy = null, int offset = 0, string? whereSource = null,
                                         IReadOnlyList<ArtifactDemand>? artifactDemands = null,
                                         IReadOnlyList<FormKey>? formidSet = null,
-                                        LoadOrderResolver.IndexView? pinnedView = null)
+                                        LoadOrderResolver.IndexView? pinnedView = null,
+                                        IReadOnlyList<FormKey>? referencesNone = null)
     {
         var resolver = Resolver;
         // The caller's own build when its FormID door already captured one, so the tokens it parsed and the
@@ -3918,7 +3920,10 @@ public sealed class LoadOrderService : IDisposable
         bool hasType = typeSet is { Count: > 0 };
         bool hasWhere = where is { Count: > 0 };
         bool hasReferences = references is { Count: > 0 };
-        bool bodyFilter = hasReferences || !string.IsNullOrEmpty(editoridContains) || hasWhere;
+        // The negated half of references=: a record is kept only when it links to NONE of these. Same one-step
+        // reverse question, inverted, so it is the same body scan and takes the same bound.
+        var refNone = referencesNone is { Count: > 0 } ? new HashSet<FormKey>(referencesNone) : null;
+        bool bodyFilter = hasReferences || refNone is not null || !string.IsNullOrEmpty(editoridContains) || hasWhere;
         bool hasFormidSet = formidSet is { Count: > 0 };
 
         if (!hasType && !conflictsOnly && !hasPlugins && !bodyFilter && !hasFormidSet)
@@ -4075,7 +4080,7 @@ public sealed class LoadOrderService : IDisposable
                         }
                         if (conflictsOnly && (view.TouchingPlugins(fk)?.Count ?? 0) <= 1) continue;
                         if (DeletedRecordRule.HasNoLiveBody(body)
-                            && (refSet is not null || predicate is { NeedsLiveBody: true })) continue;
+                            && (refSet is not null || refNone is not null || predicate is { NeedsLiveBody: true })) continue;
                         if (!string.IsNullOrEmpty(editoridContains)
                             && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
                             continue;
@@ -4088,6 +4093,7 @@ public sealed class LoadOrderService : IDisposable
                             if (hitSet.Count == 0) continue;
                             if (multiTarget && groups is null) hitTargets = references!.Where(hitSet.Contains).Distinct().ToList();
                         }
+                        if (refNone is not null && ExcludedByReference(body, refNone)) continue;
                         if (predicate is not null && !predicate.Matches(body))
                         {
                             if (predicate.FatalError is not null) break;
@@ -4196,7 +4202,7 @@ public sealed class LoadOrderService : IDisposable
                         // predicates actually READ body content: the header- and resolution-only terms must see
                         // deleted records exactly as editorid_contains= does.
                         if (DeletedRecordRule.HasNoLiveBody(filterBody)
-                            && (refSet is not null || predicate is { NeedsLiveBody: true })) continue;
+                            && (refSet is not null || refNone is not null || predicate is { NeedsLiveBody: true })) continue;
                         if (!string.IsNullOrEmpty(editoridContains)
                             && (filterBody.EditorID is null || filterBody.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
                             continue;
@@ -4212,6 +4218,7 @@ public sealed class LoadOrderService : IDisposable
                             if (hitSet.Count == 0) continue;
                             if (multiTarget && groups is null) hitTargets = references!.Where(hitSet.Contains).Distinct().ToList();   // in input order; only the match-line path consumes it
                         }
+                        if (refNone is not null && ExcludedByReference(filterBody, refNone)) continue;
                         if (predicate is not null && !predicate.Matches(filterBody))    // value filter on the same in-hand body, no extra fetch
                         {
                             if (predicate.FatalError is not null) break;          // e.g. a numeric op against a non-numeric field — abort and surface it
@@ -4311,6 +4318,16 @@ public sealed class LoadOrderService : IDisposable
                  UnreadPlugins = unreadablePlugins.Select(u => u.PluginName).ToList() };
     }
 
+    /// <summary>The negated references= test: true when this body links to ANY excluded target, so the scan drops
+    /// it. A record that carries no links at all references nothing and is kept — that is the whole point of the
+    /// term.</summary>
+    static bool ExcludedByReference(IMajorRecordGetter body, HashSet<FormKey> excluded)
+    {
+        if (body is not IFormLinkContainerGetter flc) return false;
+        foreach (var l in flc.EnumerateFormLinks()) if (excluded.Contains(l.FormKey)) return true;
+        return false;
+    }
+
     // ---- the off-order scan ----------------------------------------------------------------------------
 
     /// <summary>The off-order scan: the file's own records are the universe, with the same filter grammar the
@@ -4324,7 +4341,8 @@ public sealed class LoadOrderService : IDisposable
         IReadOnlyList<FormKey>? references, string? editoridContains, IReadOnlyList<string>? scopePlugins,
         bool definedIn, IReadOnlyList<string>? where, int limit, string? groupBy, int offset,
         IReadOnlyList<FormKey>? formidSet, IReadOnlyList<ArtifactDemand>? artifactDemands,
-        LoadOrderResolver.IndexView? pinnedView = null)
+        LoadOrderResolver.IndexView? pinnedView = null,
+        IReadOnlyList<FormKey>? referencesNone = null)
     {
         var resolver = Resolver;
         var view = pinnedView ?? resolver.Capture();   // the caller's door build when it captured one — see CrossQuery
@@ -4387,6 +4405,7 @@ public sealed class LoadOrderService : IDisposable
         catch (Exception ex) { return CrossQueryOutcome.Fail($"could not open '{pole.Path}' as a Skyrim plugin: {ex.Message}") with { Epoch = view.Epoch }; }
 
         var refSet = references is { Count: > 0 } ? new HashSet<FormKey>(references) : null;
+        var refNone = referencesNone is { Count: > 0 } ? new HashSet<FormKey>(referencesNone) : null;
         bool multiTarget = references is { Count: >= 2 };
         var setFilter = formidSet is { Count: > 0 } ? new HashSet<FormKey>(formidSet) : null;
 
@@ -4433,7 +4452,7 @@ public sealed class LoadOrderService : IDisposable
                         if (touchers is null || !touchers.Any(scopeSet.Contains)) continue;
                     }
                     if (DeletedRecordRule.HasNoLiveBody(rec)
-                        && (refSet is not null || predicate is { NeedsLiveBody: true })) continue;
+                        && (refSet is not null || refNone is not null || predicate is { NeedsLiveBody: true })) continue;
                     if (!string.IsNullOrEmpty(editoridContains)
                         && (rec.EditorID is null || rec.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
                         continue;
@@ -4446,6 +4465,7 @@ public sealed class LoadOrderService : IDisposable
                         if (hitSet.Count == 0) continue;
                         if (multiTarget && groups is null) hitTargets = references!.Where(hitSet.Contains).Distinct().ToList();
                     }
+                    if (refNone is not null && ExcludedByReference(rec, refNone)) continue;
                     if (predicate is not null && !predicate.Matches(rec))
                     {
                         if (predicate.FatalError is not null) break;
