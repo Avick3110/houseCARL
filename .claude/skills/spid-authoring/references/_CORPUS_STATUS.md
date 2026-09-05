@@ -62,8 +62,10 @@ the per-record files.
   - **Configs are read once per game launch** (`main.cpp`, `kPostLoad`/`kDataLoaded`), so a rule added
     mid-session needs a restart. Not in the article.
   - **A dynamically created keyword has no plugin FormID but is pushed into the game's keyword array**
-    (`FormData.h`, `kCreateIfMissing`), which is why SKSE's `Keyword.GetKeyword` finds it by name. The
-    article documents dynamic creation but neither consequence.
+    (`FormData.h`, `kCreateIfMissing`). The other half — that SKSE's `Keyword.GetKeyword` resolves a
+    name against that same array — is read from SKSE's own source (`ianpatt/skse64`,
+    `skse64/PapyrusKeyword.cpp`), not inferred; its one-shot, never-invalidated cache is recorded as a
+    caveat in `form-types.md`. The article documents dynamic creation but neither consequence.
 - **One residual confidence caveat:** comment syntax. SPID parses configs via **CSimpleIniA**
   (source-confirmed); the **`;`** line-comment character is CSimpleIni's documented *library default*
   rather than a SPID line of code we read. Stated in the corpus as "standard INI `;` comments (via
