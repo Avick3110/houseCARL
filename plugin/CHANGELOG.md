@@ -30,7 +30,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   file outside all of them says it has no mod folder to pass on. The 1.x standalone-appearance tool is deleted: the same job is `housecarl_copy` for the
   records (`seed_paths=`, `exclude_types=["Race:refuse"]`, `from_source=` as an ordered list) and
   `housecarl_place` for the FaceGen pair, which is the shape the `npc-appearance-copy` skill teaches. Calling the
-  old name answers with that two-call shape rather than an unknown-tool error.
+  old name answers with that two-call shape rather than an unknown-tool error. The old tool's `new_name=` has no
+  successor parameter: a clone carries the donor's display name until you set it, which is an op on `Name` in the
+  same `housecarl_apply` call that copies the tint bundle.
 
 - **A response answered off an order that lost plugins to a load failure says so.** When a plugin cannot be
   opened or parsed it is excluded from the index build, and reads after that answer off the narrowed order —
