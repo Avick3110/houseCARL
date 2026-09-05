@@ -52,9 +52,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   removal routes by group and a single owned child sits in none. Both now work on the record axis, with no new
   tool: `housecarl_create` with `parent=` and `collection=` the slot's name authors one where the parent has none,
   and `housecarl_remove` with the child's own FormID deletes one. A slot that already holds a child refuses rather
-  than overwriting the record that is there. A cell under a worldspace has two routes — its single top cell, or an
-  exterior cell in the block tree — so that one asks which you meant instead of guessing. The field-level refusals
-  that used to end at "this is an open gap" now name these calls.
+  than overwriting the record that is there — decided from the parent's real record, not from the copy the patch is
+  building. A cell under a worldspace has two routes — its single top cell (`collection='TopCell'`), or an exterior
+  cell in the block tree (`grid=`) — so that one asks which you meant instead of guessing. Deleting a child that
+  carries records of its own refuses until you name those too, so the removal report accounts for every record it
+  drops. The field-level refusals that used to end at "this is an open gap" now name these calls.
 - **Two refusals about a collection element now name the call that works.** Editing one element of a polymorphic
   collection — an AI package's `Data`, a record's conditions, a script's VMAD properties — used to take several
   tries, because each refusal was correct about what was wrong and silent about what to do instead. Reaching

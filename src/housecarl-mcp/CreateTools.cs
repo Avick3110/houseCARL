@@ -46,8 +46,10 @@ public static class CreateTools
          "value:'@MyTopic'}, {field_path:'PreviousDialog', value:'@MyTopic_L1'}]). '@editorid' must name a record " +
          "declared EARLIER in the array or the record being created ITSELF (self-reference — e.g. a quest's VMAD " +
          "alias fragment whose Property.Object is the quest). Only on FormLink fields, including inside a compose " +
-         "spec. collection= names WHICH of the parent's child-lists to add into (e.g. a cell's " +
-         "'Persistent'/'Temporary') — needed only when more than one fits. grid= is the EXTERIOR cell's \"X,Y\" " +
+         "spec. collection= names WHICH of the parent's child slots to add into — a child LIST (e.g. a cell's " +
+         "'Persistent'/'Temporary') or a SINGLE-child slot (a cell's 'Landscape', a worldspace's 'TopCell', which " +
+         "hold exactly one and refuse rather than overwrite when occupied) — needed only when more than one fits. " +
+         "grid= is the EXTERIOR cell's \"X,Y\" " +
          "(record_type 'Cell' with parent= a Worldspace; houseCARL files it into the worldspace's block tree). A " +
          "'Cell' with NO parent and NO grid is an INTERIOR cell.\n\n" +
          "LANE — where the write lands. Default: a NEW patch named patch= (auto-suffixed if taken, so a prior patch " +

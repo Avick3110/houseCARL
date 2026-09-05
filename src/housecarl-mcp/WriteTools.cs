@@ -1215,7 +1215,7 @@ public sealed record CreateOp
     [JsonPropertyName("parent"), Description("Optional. For a NESTED record: the parent it nests under — an EXISTING parent's FormID 'XXXXXX:Plugin.esp', OR the editorid of a record declared EARLIER in this same records array (a same-call sibling). Omit for a flat top-level record.")]
     public string? Parent { get; init; }
 
-    [JsonPropertyName("collection"), Description("Optional. Which of the parent's child-collections to add into, BY NAME (e.g. a cell's 'Persistent') — needed only when more than one fits. Omit when unique or when parent is omitted.")]
+    [JsonPropertyName("collection"), Description("Optional. Which of the parent's child slots to add into, BY NAME — a child list (e.g. a cell's 'Persistent') or a single-child slot (a cell's 'Landscape', a worldspace's 'TopCell') — needed only when more than one fits. Omit when unique or when parent is omitted.")]
     public string? Collection { get; init; }
 
     [JsonPropertyName("grid"), Description("Optional. For an EXTERIOR cell only (record_type 'Cell' with parent= a Worldspace): the cell's grid as \"X,Y\" (e.g. \"5,-12\"). houseCARL files it into the worldspace's block tree by block=floor(grid/32), subblock=floor(grid/8). A 'Cell' with NO parent and NO grid is an INTERIOR cell (self-files by FormID). Ignored for non-Cell types.")]
