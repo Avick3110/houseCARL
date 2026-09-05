@@ -152,6 +152,10 @@ public static class RemapEngine
             if (!scannedNames.Add(plugin)) continue;                     // a duplicate name in the order — scan and list it once, never double-count
             bool pluginListed = false;
             bool pluginListedOverride = false;
+            // The header read faulted, so this plugin is already named in the unscannable accounting: the record walk
+            // below still runs, and whatever it finds is reported, but the plugin is neither counted as scanned
+            // through nor named a second time by the catches at the bottom.
+            bool headerFaulted = false;
 
             // The HEADER read, before the records: a plugin that merely LISTS a plugin in the transform set as a
             // master is a dependent no walk over links and identity can see, and it loses a master the moment the
@@ -176,10 +180,21 @@ public static class RemapEngine
                 {
                     // It opened and the master table would not parse. Closing programs does not fix that, so it
                     // takes the other cause, exactly as a record enumeration that throws part way does.
+                    //
+                    // The fault is recorded and the walk FALLS THROUGH to the records rather than skipping them: this
+                    // arm is reached only once the file has OPENED, and the record stream is a different read that
+                    // may well succeed. Continuing here made the one caller that opts in — merge — report "external
+                    // referencers: none" for a plugin whose records the pass could have walked.
+                    //
+                    // Measured on a corrupted TES4 master table (2026-09-05): Mutagen parses the master list while
+                    // OPENING the file, so that corruption never reaches this arm — the resolver excludes the plugin
+                    // at build and the pass skips it before either header branch, identically for both callers. What
+                    // is left for this arm is a fault the header read meets after a successful open.
                     unscannable++;
                     unscannablePlugins.Add(new UnscannablePlugin(plugin, UnscannableCause.EnumerationFault,
                                                                  $"master table unreadable: {ex.GetType().Name}: {ex.Message}"));
-                    continue;
+                    headerFaulted = true;
+                    declares = new List<string>();
                 }
                 if (declares.Count > 0) declarers.Add(new MasterDeclarer(plugin, declares));
             }
@@ -226,7 +241,7 @@ public static class RemapEngine
                         if (unscannableSamples.Count < 5) unscannableSamples.Add($"{plugin} {fk} — {ex.GetType().Name}: {ex.Message}");
                     }
                 }
-                scanned++;                                               // counted only once the whole plugin has been read through
+                if (!headerFaulted) scanned++;                           // counted only once the whole plugin has been read through, header included
             }
             // The file could not be OPENED at all — the held-open case. Split from the enumeration fault below
             // because the remedy differs: closing xEdit, MO2 or Skyrim fixes this one and nothing else.
@@ -234,6 +249,9 @@ public static class RemapEngine
             // renders write for themselves.
             catch (PluginUnreadableException ex)
             {
+                // A plugin whose header already faulted is named once, with the first fault's reason — a second entry
+                // would count one plugin twice and list it twice.
+                if (headerFaulted) continue;
                 unscannable++;
                 var inner = ex.InnerException ?? ex;
                 unscannablePlugins.Add(new UnscannablePlugin(plugin, UnscannableCause.Unopenable, $"{inner.GetType().Name}: {inner.Message}"));
@@ -244,6 +262,7 @@ public static class RemapEngine
             // never shares the per-record sample budget, so it can never be named without its reason.
             catch (Exception ex)
             {
+                if (headerFaulted) continue;                             // already named, for the fault that came first
                 unscannable++;
                 unscannablePlugins.Add(new UnscannablePlugin(plugin, UnscannableCause.EnumerationFault,
                                                              $"record enumeration aborted: {ex.GetType().Name}: {ex.Message}"));

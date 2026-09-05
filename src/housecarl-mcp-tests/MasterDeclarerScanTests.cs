@@ -113,6 +113,42 @@ public sealed class MasterDeclarerScanTests : IDisposable
         Assert.Equal(RemapEngine.UnscannableCause.Unopenable, bad.Cause);
     }
 
+    /// <summary>A plugin whose TES4 MASTER TABLE is corrupt: the two callers must agree about it. Merge reads headers
+    /// and compact does not, so a header fault that skipped the record walk would let merge report "external
+    /// referencers: none" for a plugin compact reports as a referencer.
+    ///
+    /// <para>What actually happens is measured here rather than assumed: Mutagen parses the master list while OPENING
+    /// the file, so a corrupt table takes the open down, the resolver excludes the plugin at build, and the pass skips
+    /// it before either header branch — the same answer with headers read and with them not. The referencer it
+    /// carries is NOT reported by either lane, and the exclusion is where the caller is told why.</para></summary>
+    [Fact]
+    public void ACorruptMasterTableReadsTheSameForBothCallers()
+    {
+        // The MAST subrecord claims a length that overruns the header record — the whole table is unparseable.
+        var bytes = File.ReadAllBytes(_referencerPath);
+        int mast = System.Text.Encoding.ASCII.GetString(bytes, 0, Math.Min(bytes.Length, 512)).IndexOf("MAST", StringComparison.Ordinal);
+        Assert.True(mast > 0, "fixture: the referencer declares a master, so its header holds a MAST subrecord");
+        bytes[mast + 4] = 0xFF; bytes[mast + 5] = 0x00;
+        var corruptPath = Path.Combine(_root, "HcDeclCorrupt.esp");
+        File.WriteAllBytes(corruptPath, bytes);
+
+        using var resolver = LoadOrderResolver.Build(new[] { _targetPath, corruptPath });
+        Assert.Contains("HcDeclCorrupt.esp", resolver.Capture().ExcludedPlugins.Keys, StringComparer.OrdinalIgnoreCase);
+
+        var withHeaders = Identify(resolver);
+        var withoutHeaders = RemapEngine.IdentifyExternalReferencers(
+            resolver, new HashSet<FormKey> { _weaponKey },
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { _targetKey.FileName.String },
+            readDeclaredMasters: false);
+
+        // The two lanes agree, which is the property that matters: the header read may not change what the record
+        // walk reports.
+        Assert.Equal(withoutHeaders.ExternalPlugins, withHeaders.ExternalPlugins);
+        Assert.Equal(withoutHeaders.UnscannablePlugins!.Count, withHeaders.UnscannablePlugins!.Count);
+        Assert.Equal(withoutHeaders.PluginsScanned, withHeaders.PluginsScanned);
+        Assert.Empty(withHeaders.MasterDeclarers!);
+    }
+
     /// <summary>Detection is only half of it: the merge report has to NAME the plugin and what it declares, because
     /// the remedy — remove the stale master, or include it in the merge — is per plugin.</summary>
     [Fact]
