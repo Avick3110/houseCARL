@@ -139,6 +139,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
   both halves now ends with the near-miss suggestion, so a typo or a guessed `.esp`/`.esl` extension names the
   plugin you meant.
 
+- **A `types=` filter naming one arm of an abstract record group — `GlobalShort`, `GlobalFloat`, `GameSettingInt` and
+  every other Mutagen arm — now answers over that arm alone.** It returned the whole group instead: the plugin
+  enumeration seeks the record group, which for these types holds every arm of it, and the load-order scan trusted
+  the seek. Nothing said the filter had widened, so a count taken over one arm was a count over all of them. Check an
+  answer you took before this by re-running the same call and comparing the totals; the group's own name (`GLOB`,
+  `GMST`) still returns every arm, as it always did.
+- **A `plugins=`-scoped `fields` scan written with `to_file=` now carries the scoped-vs-winner note in its manifest.**
+  The rows hold each match's scoped plugin's own field values, and the three inline transports all say so; the
+  artifact said nothing, so a value read back out of the file later — a defining esp's damage rather than the live
+  winner's — came with nothing attached naming which body it was. The note is the same sentence the inline renders
+  state, on line 1 of the file.
 - **`housecarl_skse` now carries the same transport every other tool has: `format='json'`, `limit=`/`offset=` paging,
   and an in-band accounting line on every answer.** `format='json'` returns the machine-readable twin of whichever
   family ran — the same census, the same rows, the same numbers, in named fields, plus the family that ran and the two
