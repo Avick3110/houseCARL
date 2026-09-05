@@ -126,6 +126,7 @@ internal static class Artifacts
         string? identity;
         string sort;
         var annotated = new SortedSet<string>(StringComparer.Ordinal);   // which fields the rows carry annotated
+        bool annotatedUnioned = false;                                   // and which TIER they stated
 
         if (q.Groups is not null)                                             // group_by= → count-table rows
         {
@@ -149,7 +150,10 @@ internal static class Artifacts
                                           resolveNames: resolveNames, linkMemo: linkMemo,
                                           containerHint: (levers ?? LeverNames.Legacy).ContainerHint);   // an artifact row is read by the same caller
                 if (o.Error is null && o.OwnedChildFields is { } af)   // the rows' labels need their clause on line 1
+                {
                     foreach (var annotatedPath in af.Keys) annotated.Add(annotatedPath);
+                    annotatedUnioned |= o.OwnedChildUnioned;
+                }
                 if (o.Error is not null)
                     writer.WriteRow((w, _) =>
                     {
@@ -180,16 +184,17 @@ internal static class Artifacts
         // The manifest stamps which tool wrote the artifact; see WriteResolve for why it names records.
         var (manifest, err) = writer.Save(path, ToolNames.Records, query, identity, schema, sort,
                                           q.Groups is not null ? q.Groups.Count : q.Total, q.Epoch ?? "",
-                                          OwnedChildNotes(annotated));
+                                          OwnedChildNotes(annotated, annotatedUnioned));
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
     }
 
-    /// <summary>The cheap tier's response-level statement that an artifact's annotated rows depend on. An artifact
-    /// is re-entered with no conversation attached, so a row's "not read" label must travel with the sentence
-    /// explaining it. The manifest is line 1 and the rows are lines 2..N, so this names the annotated fields
-    /// rather than pointing at a position. The precise tier's note is <see cref="PreciseChildNotes"/>.</summary>
-    static IReadOnlyList<string>? OwnedChildNotes(IReadOnlyCollection<string> annotatedFields) =>
-        annotatedFields.Count == 0 ? null : new[] { ReadSentences.UnionClause(annotatedFields) };
+    /// <summary>The response-level statement that an artifact's annotated rows depend on. An artifact is re-entered
+    /// with no conversation attached, so a row's union or "not read" label must travel with the sentence explaining
+    /// it. The manifest is line 1 and the rows are lines 2..N, so this names the annotated fields rather than
+    /// pointing at a position. <paramref name="unioned"/> picks the tier the rows actually stated. The precise
+    /// tier's note is <see cref="PreciseChildNotes"/>.</summary>
+    static IReadOnlyList<string>? OwnedChildNotes(IReadOnlyCollection<string> annotatedFields, bool unioned) =>
+        annotatedFields.Count == 0 ? null : new[] { ReadSentences.OwnedChildClause(annotatedFields, unioned) };
 
     /// <summary>The precise tier's response-level note for a tree artifact: <see cref="ReadSentences.DeclarersLead"/>
     /// stated once rather than per row, when any row's <c>child_declarers</c> reached the file.</summary>
@@ -229,7 +234,7 @@ internal static class Artifacts
         // The manifest's tool stamp; see WriteResolve.
         var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
                                           new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "source", "fields" },
-                                          "input order", outcomes.Count, epoch, OwnedChildNotes(AnnotatedFields(outcomes)));
+                                          "input order", outcomes.Count, epoch, OwnedChildNotes(AnnotatedFields(outcomes), outcomes.Any(o => o.OwnedChildUnioned)));
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
     }
 

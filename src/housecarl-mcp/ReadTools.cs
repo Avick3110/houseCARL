@@ -124,15 +124,17 @@ static class Wire
     {
         readonly SortedSet<string> _notRead = new(StringComparer.Ordinal);
         bool _mayNotRead;
+        bool _unioned;
 
         /// <summary>The clause this response may still state — reserved from here on.</summary>
         public void May() => _mayNotRead = true;
 
-        /// <summary>An annotated field line just went into the medium: the clause is now stated, over this
-        /// field.</summary>
-        public void Emitted(string field)
+        /// <summary>An annotated field line just went into the medium: the clause is now stated, over this field,
+        /// in the TIER that line was written in — a scan lane's index-only note must not earn a union clause.</summary>
+        public void Emitted(string field, bool unioned)
         {
             May();
+            _unioned |= unioned;
             _notRead.Add(field);
         }
 
@@ -140,6 +142,8 @@ static class Wire
         public int Reserve => ReadSentences.ClauseReserve(_mayNotRead);
 
         internal IReadOnlyCollection<string> Fields() => _notRead;
+
+        internal bool Unioned => _unioned;
     }
 
     /// <summary>The owned-child clause, stated once per response after the body — never per field, which costs
@@ -149,7 +153,7 @@ static class Wire
     {
         var fields = n.Fields();
         if (fields.Count == 0) return;
-        sb.Append('\n').Append(ReadSentences.UnionClause(fields)).Append('\n');
+        sb.Append('\n').Append(ReadSentences.OwnedChildClause(fields, n.Unioned)).Append('\n');
     }
 
     /// <summary>Render one record, keeping the cheap index-only annotation the service already put on the outcome.
@@ -965,8 +969,8 @@ static class Wire
             if (f.Link is not null) sb.Append("   (").Append(LinkText(f.Link)).Append(')');   // resolve_names target identity, DISPLAY-ONLY — never the round-trip token
             sb.Append('\n');
             // The clause is earned HERE, by a line that reached the caller, not where the annotation was decided.
-            if (notes is not null && o.OwnedChildFields is { } ann && ann.ContainsKey(f.Path))
-                notes.Emitted(f.Path);
+            if (notes is not null && o.OwnedChildFields is { } ann && ann.TryGetValue(f.Path, out var u))
+                notes.Emitted(f.Path, u is not null);
         }
     }
 
