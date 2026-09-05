@@ -469,7 +469,7 @@ public static class RecordsTools
         string? expectEpoch = null;
         string? SeamTear(OrderStamp? epoch) =>
             expectEpoch is not null && epoch is not null && epoch.Epoch != expectEpoch
-                ? $"the load order changed between deriving the selection (epoch={expectEpoch}) and reading it (epoch={epoch}) — the two halves would mix builds. Retry the call."
+                ? $"the load order changed between deriving the selection (epoch={expectEpoch}) and reading it (epoch={epoch.Epoch}) — the two halves would mix builds. Retry the call."
                 : null;
 
         // limit=/offset= window the list lane's RENDER only: the census, the aggregate and every artifact write
