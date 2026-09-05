@@ -261,6 +261,10 @@ public static class RecordsTools
                 return Wire.Refuse(json, form == "rows"
                     ? $"error: project.fields path '{foldPlan.First.Requested}' quantifies a step, and the 'rows' form already folds the list it names to one line per element — drop the token, or use form='fields' to mix quantified and ordinary paths."
                     : $"error: project.fields path '{foldPlan.First.Requested}' quantifies a step, and the '{form}' form lines its two sides up path for path — drop the token, or read the elements with form='fields'.");
+            // dense lays ONE row per element, and two different lists share no element to lay a row on: the text
+            // render names each cell's own path, dense does not, so a paired row would read as one element's.
+            if (foldPlan is not null && dense && foldPlan.SetRoots is { Count: > 1 } roots)
+                return Wire.Refuse(json, $"error: format='dense' lays one row per element, and '{roots[0]}' and '{roots[1]}' are different lists — one row cannot be an element of both. Quantify one of them and read the other as an ordinary path, or make one call per list.");
         }
         if (project?.depth is { } dv)
         {
@@ -303,7 +307,13 @@ public static class RecordsTools
         int depth = project?.depth is { } d && d > 0 ? d : (form == "rows" || foldsElements ? RowProjection.DefaultDepth : 1);
         // A sub-path after [*] names exactly what to read, so reaching it is the token's own requirement rather
         // than expansion the caller has to budget for.
-        if (foldPlan is not null) { depth = Math.Max(depth, foldPlan.Depth); foldPlan = foldPlan with { Depth = depth }; }
+        // CallerDepth is what an UNQUANTIFIED column beside a quantified one renders at: the token raises the
+        // read's depth for the paths that need it, and a sibling path must not expand deeper for that reason.
+        if (foldPlan is not null)
+        {
+            depth = Math.Max(depth, foldPlan.Depth);
+            foldPlan = foldPlan with { Depth = depth, CallerDepth = project?.depth is { } cd && cd > 0 ? cd : 1 };
+        }
         var projFields = bodyFields || comparisonForm ? project?.fields : null;
         // The read runs the LIST path a quantifier binds to; the fold puts the caller's own spelling back.
         var readPaths = foldPlan is null ? projFields : foldPlan.ReadPaths;
@@ -1289,9 +1299,12 @@ public static class RecordsTools
             // The reverse-reference index's accounting belongs to the response whatever consumes the scan. The two
             // CrossQuery renderers read it off the outcome themselves; every form BELOW renders its own pipeline's
             // response and would drop it, so it rides their header and envelope. One place, so no form forgets.
+            // The forms whose bodies the batch lane below renders: the note rides their envelope, so the gate
+            // and the lane read ONE condition and cannot drift on which forms those are.
+            bool bodyLaneForm = form == "everything" || form == "rows"
+                             || (form == "fields" && (scopePlusPole || (foldPlan is not null && !dense)));
             if (outcome.ReverseIndexNote is not null && outcome.Error is null && outcome.Groups is null
-                && (walk is not null || comparisonForm || form == "info_order"
-                    || ((form == "everything" || (form == "fields" && scopePlusPole)) && !counts_only)))
+                && (walk is not null || comparisonForm || form == "info_order" || (bodyLaneForm && !counts_only)))
             {
                 envelope.Add(new("reverse_index", outcome.ReverseIndexNote));
                 headerLine += "\n" + outcome.ReverseIndexNote;
@@ -1369,8 +1382,7 @@ public static class RecordsTools
             // The rows form always takes this lane: its fold is over a body read, and the scan render fills
             // detail rows of its own that never pass through it. A quantified fields path folds the same way, so
             // it takes the lane too — except under dense, whose own render carries the per-element rows.
-            if ((form == "everything" || form == "rows" || (form == "fields" && (scopePlusPole || (foldPlan is not null && !dense))))
-                && !counts_only && outcome.Error is null && outcome.Groups is null)
+            if (bodyLaneForm && !counts_only && outcome.Error is null && outcome.Groups is null)
             {
                 var keys = outcome.Keys.Select(k => k.ToString()).ToList();
                 IReadOnlyList<ReadOutcome> bodies;
@@ -1682,7 +1694,7 @@ public static class RecordsTools
             SpillState? spill = null;
             if (wantFile && outcome.Error is null)
             {
-                var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, toFile!, "to_file", Echo(), LeverNames.Records, fold: foldPlan);
+                var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, toFile!, "to_file", Echo(), LeverNames.Records);
                 if (aerr is not null)
                     return fmt is Wire.QueryFormat.Text ? "error: " + aerr : JsonWire.RenderError(aerr, outcome.Stamp);
                 spill = SpillState.Spilled(sp!, manifestOnly: true);
@@ -1699,7 +1711,7 @@ public static class RecordsTools
             if (spill is null && truncated && outcome.Error is null)
             {
                 var path = ResultsStore.NextPath(ToolNames.Records, outcome.Epoch ?? "none");
-                var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, path, "ceiling", Echo(), LeverNames.Records, fold: foldPlan);
+                var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, path, "ceiling", Echo(), LeverNames.Records);
                 if (aerr is not null) ResultsStore.Release(path);
                 rendered = Render(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
