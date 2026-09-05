@@ -125,9 +125,10 @@ SPID documentation.
 A parsed `_DISTR.ini` and a clean SPID log are **not** proof that an NPC got the thing. The log shows
 what SPID looked up; only a live actor shows what SPID applied.
 
-- **SPID does not distribute to the player.** Every distribution path is gated on a check that
-  excludes the player, so asserting on `Game.GetPlayer()` reports failure for a rule that is working
-  perfectly — sample NPCs instead (`references/grammar-core.md` §3).
+- **SPID does not distribute to the player.** The ordinary on-load path is gated on an explicit
+  `IsPlayer()` check, and the other paths into `Distribute()` exclude the player by their own guards,
+  so asserting on `Game.GetPlayer()` reports failure for a rule that is working perfectly — sample
+  NPCs instead (`references/grammar-core.md` §3).
 - **A newly added rule reaches old saves, but not mid-session.** SPID distributes from scratch each
   launch and writes nothing into the save, so actors in a pre-existing save do get a rule added
   afterwards (`references/grammar-core.md` §3). What bites is that the INIs are read **once per game

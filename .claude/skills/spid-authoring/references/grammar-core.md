@@ -66,10 +66,17 @@ fresh at each launch, so it carries nothing across sessions. **[source]**
 `distribute_on_load` skips an NPC that already has it; declared in `DistributeManager.h`.) The
 practical limit is the once-per-launch config read above: no restart, no new rule.
 
-**Who — never the player.** Every distribution path is gated on
-`detail::should_process_NPC`, which is `!a_npc->IsPlayer() && !a_npc->IsDeleted()`, so the player
-character is not a distribution target and never receives a SPID form. **[source]**
-(`SPID/src/DistributeManager.cpp`.)
+**Who — not the player.** The ordinary on-load path is gated on `detail::should_process_NPC`, which
+is `!a_npc->IsPlayer() && !a_npc->IsDeleted()`, so a normal distribution never reaches the player
+character. The other paths into `Distribute()` exclude the player their own way rather than through
+that function: the two PC-level-mult redistribution hooks run only for an NPC that already carries
+`SPID_Processed`, and only the on-load path ever adds it; on-death distribution guards its death-event
+handler with `!IsPlayerRef() && !IsSummoned()`. (Its other entry, the `ShouldBackgroundClone` hook,
+carries no explicit player check — the player is not background-cloned, but that is a game fact, not a
+SPID guard.) **[source]** (`SPID/src/DistributeManager.cpp`, `DistributePCLevelMult.cpp`,
+`DeathDistribution.cpp` — all `Distribute()` call sites read.)
+
+Practically: don't assert a SPID distribution on `Game.GetPlayer()`; sample NPCs.
 
 **Order (per-type passes):** SPID processes each form type separately, in this fixed order:
 
