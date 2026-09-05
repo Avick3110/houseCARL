@@ -1268,14 +1268,24 @@ public static class WriteEngine
     /// the model, not a hand-coded per-family list. Every false (no such containment, an ambiguous unnamed target, an
     /// unknown collection name) names what it checked.</summary>
     public static bool CanCreateNested(string childCatalogName, Type parentType, string? collectionName, out string? reason)
+        => TryResolveChildSlot(childCatalogName, parentType, collectionName, out _, out _, out reason);
+
+    /// <summary>The same question <see cref="CanCreateNested"/> asks, answering with WHICH slot resolved and what
+    /// SHAPE it has. Pre-flight needs both: a singular slot holds exactly one child, so whether the parent's real
+    /// body already fills it is knowable before anything is allocated.</summary>
+    public static bool TryResolveChildSlot(string childCatalogName, Type parentType, string? collectionName,
+        out string? slotName, out OwnedChildShape shape, out string? reason)
     {
+        slotName = null; shape = OwnedChildShape.None;
         var childType = ResolveConcreteRecordType(childCatalogName);
         if (childType is null)
         {
             reason = $"'{childCatalogName}' is absent from the Mutagen corpus — a real coverage gap to surface, not a value to guess.";
             return false;
         }
-        return TryFindNestedCollection(parentType, childType, collectionName, out _, out _, out reason);
+        if (!TryFindChildSlot(parentType, childType, collectionName, out var prop, out shape, out _, out reason)) return false;
+        slotName = prop!.Name;
+        return true;
     }
 
     /// <summary>Find the parent type's SETTABLE child-collection to allocate a <paramref name="childType"/> into — the
@@ -1330,13 +1340,20 @@ public static class WriteEngine
         }
         var parentName = parentType.Name;   // concrete class name, already clean (never an I…Getter here)
         var childName = childType.Name;
+        // A parent may ALSO file this child by COORDINATE, in a block tree no slot name reaches — the route
+        // AddExteriorCell serves. Derived by asking whether any child-bearing property reaches the child type
+        // through containers rather than holding it, so no record type is named and a Mutagen bump that nests
+        // another child that way is covered without an edit.
+        bool coordinateRoute = ReachesChildThroughContainers(parentType, childType);
         if (hits.Count == 0)
         {
             error = $"'{childName}' cannot be created under a '{parentName}' — that parent models no child slot that " +
                     "holds it (a real containment boundary, surfaced not guessed, Q3)." +
-                    (childType == typeof(Cell)
-                        ? " A Cell is coordinate-keyed, not collection-nested: create an EXTERIOR cell with parent=<Worldspace> + grid=<X,Y>, or an INTERIOR cell with no parent."
-                        : "");
+                    (coordinateRoute
+                        ? $" A {childName} is filed by coordinate under a {parentName}, not held in a slot: create it with parent=<{parentName}> + grid=<X,Y>."
+                        : childType == typeof(Cell)
+                            ? " A Cell is coordinate-keyed, not collection-nested: create an EXTERIOR cell with parent=<Worldspace> + grid=<X,Y>, or an INTERIOR cell with no parent."
+                            : "");
             return false;
         }
         if (collectionName is not null)
@@ -1344,40 +1361,55 @@ public static class WriteEngine
             var named = hits.Where(h => string.Equals(h.Prop.Name, collectionName, StringComparison.OrdinalIgnoreCase)).ToList();
             if (named.Count == 0)
             {
-                error = $"'{parentName}' has no child slot named '{collectionName}' that holds '{childName}'. Available: {string.Join(", ", matches)}.";
+                error = $"'{parentName}' has no child slot named '{collectionName}' that holds '{childName}'. Available: {string.Join(", ", matches)}"
+                      + (coordinateRoute ? " (or grid=<X,Y>, which files it by coordinate rather than in a slot)" : "") + ".";
                 return false;
             }
             (prop, shape) = named[0]; return true;
         }
-        // A CELL under a parent that also files cells by COORDINATE is ambiguous even at one hit, and the two
-        // routes are not interchangeable: a worldspace's TopCell is one record, its exterior cells are a block
-        // tree keyed by grid. Resolving the single slot silently would build the wrong one for the far commoner
-        // request (an exterior cell whose grid= was forgotten), so it is named rather than guessed — the same Q3
-        // rule the several-hits arm below applies, on a route the reflected slot set cannot see.
-        if (childType == typeof(Cell) && hits.Count == 1 && HasCoordinateKeyedCells(parentType))
+        // More than one route and no discriminator: name them all and refuse. The coordinate route counts as a
+        // route even when exactly one slot matches — a worldspace's TopCell is one record and its exterior cells
+        // are a grid-keyed block tree, so resolving the single slot silently would build the wrong thing for the
+        // far commoner request (an exterior cell whose grid= was forgotten). Q3, never a silent default.
+        if (hits.Count > 1 || coordinateRoute)
         {
-            error = $"'{childName}' can go under a '{parentName}' two different ways — as its single " +
-                    $"'{hits[0].Prop.Name}', or as an EXTERIOR cell in its block tree. Name which one: " +
-                    $"collection={hits[0].Prop.Name} for the single one, or grid=<X,Y> for an exterior cell. " +
-                    "(Q3 — never a silent default.)";
-            return false;
-        }
-        if (hits.Count > 1)
-        {
-            error = $"'{childName}' can be added to more than one child slot on '{parentName}' ({string.Join(", ", matches)}) — " +
-                    "name which one (the collection= discriminator). (Q3 — never a silent default.)";
+            var routes = matches.Select(m => $"collection={m}").ToList();
+            if (coordinateRoute) routes.Add("grid=<X,Y> for one filed by coordinate in its block tree");
+            error = $"'{childName}' can go under a '{parentName}' more than one way ({string.Join(", ", routes)}) — " +
+                    "name which one. (Q3 — never a silent default.)";
             return false;
         }
         (prop, shape) = hits[0]; return true;
     }
 
-    /// <summary>Does this parent file CELLS by coordinate, in a block tree the slot resolver cannot see? True when a
-    /// child-bearing property reaches a Cell through containers rather than holding one directly — the shape
-    /// <see cref="AddExteriorCell"/> serves. Derived from the same reflected child-bearing set as everything else,
-    /// so it is a question about the model rather than a named type.</summary>
-    static bool HasCoordinateKeyedCells(Type parentType) =>
+    /// <summary>Does this parent reach <paramref name="childType"/> through CONTAINERS rather than in a slot a
+    /// caller can name — the coordinate-keyed block tree <see cref="AddExteriorCell"/> serves? Asked of the same
+    /// reflected child-bearing set as everything else, so it is a question about the model and names no record
+    /// type. The walk stops at any record type: a child under a child belongs to that child, not to this parent.</summary>
+    static bool ReachesChildThroughContainers(Type parentType, Type childType) =>
         ChildBearingProperties(parentType).Any(p =>
-            ListElementType(p.PropertyType) is { } e && !typeof(IMajorRecordGetter).IsAssignableFrom(e));
+            !typeof(IMajorRecordGetter).IsAssignableFrom(p.PropertyType)      // a singular slot, not a container route
+            && ReachesRecordType(p.PropertyType, childType, new HashSet<Type>(), 0)
+            && !(ListElementType(p.PropertyType) is { } e && e.IsAssignableFrom(childType)));   // a nameable list slot
+
+    /// <summary>Can a value of <paramref name="t"/> hold a <paramref name="childType"/> record? The same walk and
+    /// bound as <see cref="ReachesOwnedRecord"/>, asked of ONE target type: links are cut, and a record type that
+    /// is not the target ends the branch rather than being descended into.</summary>
+    static bool ReachesRecordType(Type t, Type childType, HashSet<Type> seen, int depth)
+    {
+        if (depth > 6 || !seen.Add(t)) return false;
+        try
+        {
+            if (typeof(IFormLinkGetter).IsAssignableFrom(t)) return false;
+            if (typeof(IMajorRecordGetter).IsAssignableFrom(t)) return t.IsAssignableFrom(childType);
+            if (ElementTypeOf(t) is { } elem) return ReachesRecordType(elem, childType, seen, depth + 1);
+            if (!t.IsClass || t.Namespace?.StartsWith("Mutagen", StringComparison.Ordinal) != true) return false;
+            foreach (var p in t.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                if (ReachesRecordType(p.PropertyType, childType, seen, depth + 1)) return true;
+            return false;
+        }
+        finally { seen.Remove(t); }
+    }
 
     /// <summary>The element type of an <c>IList&lt;T&gt;</c>/<c>ExtendedList&lt;T&gt;</c>-shaped property, else null
     /// (a scalar, a string, a read-only sequence). Used to match a parent's child-collections to a child type.</summary>
@@ -1432,7 +1464,9 @@ public static class WriteEngine
         // A SINGULAR slot holds exactly one child, so an occupied one is not something create can resolve: appending
         // is not available and overwriting would drop the record already there — with its own FormKey, and
         // everything under it — as a side effect of a call that said "create". Refuse and name both real moves.
-        // Checked BEFORE anything is allocated, so a refusal costs no FormKey.
+        // Checked BEFORE anything is allocated, so a refusal costs no FormKey. This is the BACKSTOP: the pre-flight
+        // asks the same question of the parent's real body (WritePatchBuilder), which is the copy the caller is
+        // looking at; this one asks the copy about to be written, and catches a difference between the two.
         if (shape == OwnedChildShape.Singular && prop!.GetValue(parentInPatch) is IMajorRecordGetter occupant)
             throw new InvalidOperationException(
                 $"nested create: '{parentName}.{prop.Name}' already holds a {childType.Name} ({occupant.FormKey}" +
