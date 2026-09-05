@@ -58,7 +58,14 @@ housecarl_copy(
 from_source = ["TheOverhaul.esp", "<the plugin in the donor's own FormID>"]
 ```
 
-First hit wins, so records the overhaul carries come from the overhaul and everything else falls through to the defining plugin. You never have to discover the second name — it is the plugin half of the `from=` FormID. The readback names which source produced each record.
+First hit wins, so records the overhaul carries come from the overhaul and everything else falls through to the defining plugin. You never have to discover the second name — it is the plugin half of the `from=` FormID. The readback names which source produced each record, and beside each source the **MO2 mod folder it resolved from**:
+
+```
+sources (in order, first hit wins): TheOverhaul.esp (MO2 mod folder 'AnOverhaul') -> Donor.esp (MO2 mod folder 'TheDonorMod')
+the source record was read from TheOverhaul.esp (MO2 mod folder 'AnOverhaul').
+```
+
+**Carry that folder to Step 3.** Which mod holds the FaceGen is not the plugin filename in its path and not necessarily the mod the record came from: the FaceGen sits beside the plugin that *defines* the NPC, which is the second arm when you read the look through an override. Take the folder the readback names for that arm and pass it as `source_provider=`; nothing else on the surface knows which of two switched-off mods ships the file.
 
 **EditorIDs are preserved on the copies, deliberately.** The engine matches the shape names baked into a FaceGen mesh to head parts *by name*. Rename a copied head part and the mesh no longer matches the record, so the engine regenerates a vanilla head and drops the tint. There is no reason to rename them and a concrete cost if you do.
 
@@ -134,6 +141,8 @@ housecarl_place(assets = [
 ```
 
 The destination is computed from the new FormID and the source is the donor's own path, so source ≠ destination and the placement is a rename — which is exactly what a copied NPC needs, since its FaceGen filename tracks its FormID.
+
+**The folder name comes from Step 1's readback, not from a guess.** The `<the donor's mod>` above is the MO2 mod folder the copy named for the arm whose plugin appears in the FaceGen path — `facegeom\<Plugin>.esp\`. With one source there is one folder; with two, it is the arm the path names, which is usually the second.
 
 **Name the donor with `source_provider=`, do not take the VFS winner.** On a contested FaceGen path — a replacer out-sorting the base game's BSA — the winner and the donor are different bytes, and the winner's are the ones that can disagree with the head-part and tint records you just copied. The donor's are the ones the appearance you copied was baked from.
 
