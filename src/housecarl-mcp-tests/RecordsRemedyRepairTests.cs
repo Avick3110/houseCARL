@@ -151,10 +151,20 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
     {
         var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, where: new[] { "Effects.Data.Magnitude > 0" });
         Assert.Contains("'Effects'", r);
-        // The leaf IS a field on the element type, so the remedy is the fixed path, not a placeholder.
-        Assert.Contains("'Effects[0].Data'", r);
+        // The leaf IS a field on the element type, so the remedy is the WHOLE fixed path — a prefix would refuse
+        // again the moment the caller pasted it back.
+        Assert.Contains("'Effects[0].Data.Magnitude'", r);
         Assert.DoesNotContain("[0]. …", r);
         Assert.DoesNotContain("check the field name against the record's schema", r);
+    }
+
+    /// <summary>The did-you-mean arm carries the trailing segments too: a near miss mid-path names the whole
+    /// corrected spelling, not the corrected segment alone.</summary>
+    [Fact]
+    public void ANearMissMidPathNamesTheWholeCorrectedSpelling()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, where: new[] { "Effects.Dat.Magnitude > 0" });
+        Assert.Contains("did you mean 'Effects[0].Data.Magnitude'?", r);
     }
 
     /// <summary>The bracket is only half the diagnosis: a trailing segment that is not a field on the ELEMENT type
@@ -179,7 +189,7 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
     public void APresenceOperatorGetsTheSameDiagnosis_TheOperatorDoesNotDecideWhyThePathMissed()
     {
         var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, where: new[] { "Effects.Data.Magnitude exists" });
-        Assert.Contains("'Effects[0].Data'", r);
+        Assert.Contains("'Effects[0].Data.Magnitude'", r);
         Assert.DoesNotContain("check the field name against the record's schema", r);
     }
 
@@ -187,7 +197,7 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
     public void AMixedScanWhereOnlySomeTypesCarryTheListStillGetsTheBracketAdvice()
     {
         var r = RecordsTools.Records(Svc, types: new[] { "SPEL", "WEAP" }, where: new[] { "Effects.Data.Magnitude > 0" });
-        Assert.Contains("'Effects[0].Data'", r);
+        Assert.Contains("'Effects[0].Data.Magnitude'", r);
         Assert.Contains("on the rest the path is not a field at all", r);
     }
 

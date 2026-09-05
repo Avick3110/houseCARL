@@ -236,7 +236,7 @@ public static class ReadEngine
             {
                 var (segName, segKey) = WriteEngine.ParseSegment(path[i]);
                 var p = WriteEngine.ResolveProperty(current!.GetType(), segName);
-                if (p is null) return LeafRead.Unreadable(NoFieldNote(current, segName, i > 0 ? WriteEngine.ParseSegment(path[i - 1]).name : null));
+                if (p is null) return LeafRead.Unreadable(NoFieldNote(current, segName, i > 0 ? WriteEngine.ParseSegment(path[i - 1]).name : null, path[(i + 1)..]));
                 current = segKey is null
                     ? p.GetValue(current)                                  // descend a substruct (read-only)
                     : WriteEngine.StepIntoElement(current, p, segName, segKey); // collnav (handles IReadOnly*)
@@ -334,14 +334,14 @@ public static class ReadEngine
     /// indexing — the common <c>.0</c>-vs-<c>[0]</c> confusion (the read analog of the write pre-flight's
     /// bracket hint in <c>CorpusRulebook</c>). Brackets are how you step into a list/dict element mid-path;
     /// a bare dotted <c>.0</c> is parsed as a field name and dead-ends here.</summary>
-    static string NoFieldNote(object owner, string segName, string? precedingField)
+    static string NoFieldNote(object owner, string segName, string? precedingField, string[]? trailing = null)
     {
         bool ownerIsCollection = owner is System.Collections.IDictionary
             || (owner is System.Collections.IEnumerable && owner is not string);
         if (ownerIsCollection)
         {
             var pf = precedingField ?? "<field>";
-            return $"(no field '{segName}': '{pf}' is a list/dict — {ListHopRemedy(owner, segName, pf)})";
+            return $"(no field '{segName}': '{pf}' is a list/dict — {ListHopRemedy(owner, segName, pf, trailing)})";
         }
         return $"(no field {segName})";
     }
@@ -350,25 +350,29 @@ public static class ReadEngine
     /// type, never asserted. A missing bracket and a wrong leaf name look identical at the dead-end, and they need
     /// opposite next moves, so the segment is resolved against the collection's element type first: it exists, and
     /// the remedy is the exact bracketed spelling; it does not, and the remedy says so and offers the nearest real
-    /// field. Only where the element type cannot be determined does this fall back to the shape advice alone.</summary>
-    internal static string ListHopRemedy(object owner, string segName, string pf)
+    /// field. Only where the element type cannot be determined does this fall back to the shape advice alone.
+    /// <para><paramref name="trailing"/> is the rest of the path after the dead-end segment, so the remedy prints the
+    /// WHOLE fixed spelling: a caller pasting it back gets a path that reads, not a prefix that refuses again.</para></summary>
+    internal static string ListHopRemedy(object owner, string segName, string pf, string[]? trailing = null)
     {
+        var rest = trailing is { Length: > 0 } ? "." + string.Join(".", trailing) : "";
+
         // A numeric segment is the '.0'-vs-'[0]' confusion, not a field name: it is an INDEX, and no element type
         // check applies.
         if (segName.Length > 0 && segName.All(char.IsDigit))
-            return $"index an element with brackets, e.g. '{pf}[{segName}]', not '{pf}.{segName}'";
+            return $"index an element with brackets, e.g. '{pf}[{segName}]{rest}', not '{pf}.{segName}{rest}'";
 
         var et = ElementType(owner);
         if (et is null)
-            return $"index an element with brackets, e.g. '{pf}[0].{segName}', not '{pf}.{segName}'";
+            return $"index an element with brackets, e.g. '{pf}[0].{segName}{rest}', not '{pf}.{segName}{rest}'";
 
         var etName = RecordNaming.StripOverlay(et.Name);
         if (WriteEngine.ResolveProperty(et, segName) is not null)
-            return $"index an element with brackets: '{pf}[0].{segName}', not '{pf}.{segName}'";
+            return $"index an element with brackets: '{pf}[0].{segName}{rest}', not '{pf}.{segName}{rest}'";
 
         var near = PluginNameSuggest.Nearest(segName, ElementFieldNames(et), 1);
         return near.Count > 0
-            ? $"'{segName}' is not a field on its element type {etName} — did you mean '{pf}[0].{near[0]}'?"
+            ? $"'{segName}' is not a field on its element type {etName} — did you mean '{pf}[0].{near[0]}{rest}'?"
             : $"'{segName}' is not a field on its element type {etName}; index an element with brackets " +
               $"('{pf}[0].<field>') and name a field {etName} has";
     }
@@ -575,7 +579,7 @@ public static class ReadEngine
                 var (segName, segKey) = WriteEngine.ParseSegment(path[i]);
                 var p = WriteEngine.ResolveProperty(current.GetType(), segName);
                 if (p is null) return (false, null, typeof(object), current,
-                    NoFieldNote(current, segName, i > 0 ? WriteEngine.ParseSegment(path[i - 1]).name : null));
+                    NoFieldNote(current, segName, i > 0 ? WriteEngine.ParseSegment(path[i - 1]).name : null, path[(i + 1)..]));
                 var next = segKey is null ? p.GetValue(current) : WriteEngine.StepIntoElement(current, p, segName, segKey);
                 if (next is null) return (false, null, typeof(object), record, AbsentNote);
                 current = next;
