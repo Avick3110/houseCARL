@@ -201,8 +201,8 @@ public sealed class DialogueFamilyTests
         Assert.Equal(DialogueSweepRender.EpochUncovered,
                      fam.GetProperty("epoch_uncovered").EnumerateArray().Select(e => e.GetString()).ToArray());
 
-        // A refusal carries the BARE stamp, as the sibling families' refusals do (EpochCheckSweepTests.FactE5_6):
-        // the view is pinned before the seeds are read, so there is a build to name, and nothing was covered by it.
+        // A refusal reached AFTER the build was read carries the bare stamp, as the sibling families' post-capture
+        // refusals do (EpochCheckSweepTests.FactE5_6): there is a build to name, and nothing was covered by it.
         var refused = Svc.CheckDialogue(new[] { "not-a-formid" }, 1000);
         Assert.NotNull(refused.Error);
         Assert.Equal(result.Epoch, refused.Epoch);
@@ -211,6 +211,13 @@ public sealed class DialogueFamilyTests
         var refusedJson = JsonWire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: refused), 20000);
         Assert.Equal(refused.Epoch, JsonDocument.Parse(refusedJson).RootElement.GetProperty("epoch").GetString());
         Assert.DoesNotContain("epoch_covers_all_inputs", refusedJson);
+
+        // …and a refusal decided on the ARGUMENTS alone names no build, which is the split the siblings keep: it is
+        // answered without reading one, so there is nothing honest to stamp.
+        var unseeded = Svc.CheckDialogue(Array.Empty<string>(), 1000);
+        Assert.NotNull(unseeded.Error);
+        Assert.Null(unseeded.Epoch);
+        Assert.DoesNotContain("epoch=", Wire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: unseeded), 20000));
     }
 
     /// <summary>Everything AFTER the seed prefix the sweep echoes — the composed refusal itself. The sweep writes

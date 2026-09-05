@@ -9,24 +9,34 @@ namespace HousecarlMcp;
 /// <c>plugins=</c> and <c>exclude=</c> do not scope this family, and the response says so.</summary>
 internal static class DialogueSweep
 {
-    /// <summary>Validate each seed and tally the result.</summary>
-    /// <param name="validate">the per-seed validation — the service's own <c>ValidateDialogue</c>, passed in so this
+    /// <summary>What this sweep needs off the load order, pinned to one build: the per-seed validation, the seed
+    /// parse and the stamp that names that build. Taken together so the three cannot come off different builds.
+    /// </summary>
+    /// <param name="Validate">the per-seed validation — the service's own dialogue validation, passed in so this
     /// class needs nothing of the service but the one call it makes.</param>
+    /// <param name="ParseFormId">the seed parse, pinned to the same build.</param>
+    /// <param name="Epoch">that build's stamp.</param>
+    internal readonly record struct Binding(Func<FormKey, DialogueValidationReport> Validate,
+                                            Func<string?, FormKey> ParseFormId,
+                                            string Epoch);
+
+    /// <summary>Validate each seed and tally the result.</summary>
+    /// <param name="bind">pins the build and hands back what this sweep reads it through. Called only once the seed
+    /// list has been found non-empty, so a call refused on its arguments alone never builds the index — the rule
+    /// <see cref="SweepSharedInput"/> states, and the reason the no-seeds refusal names no build. Every refusal
+    /// reached after this ran carries the stamp, as the sibling families' post-capture refusals do.</param>
     /// <param name="seeds">the FormIDs the caller named. Null or empty refuses, never widens: an empty scope read as
     /// "the whole order" would run a whole-order dialogue sweep.</param>
     /// <param name="limit">how many seeds this call may expand. Over it, the extra seeds are not validated and the
     /// response states how many and which knob moves them.</param>
     /// <param name="countsOnly">carry the totals and the unreachable-seed roster, and no topic blocks.</param>
-    /// <param name="epoch">the record build every seed was validated against, stamped onto the result — and onto the
-    /// refusals too, as the sibling families stamp theirs: the caller pins the view before this runs, so a refusal
-    /// decided here still names the build it was decided against.</param>
-    internal static DialogueCheckResult Run(Func<FormKey, DialogueValidationReport> validate,
-                                            Func<string?, FormKey> parseFormId,
-                                            IReadOnlyList<string>? seeds, int limit, bool countsOnly = false,
-                                            string? epoch = null)
+    internal static DialogueCheckResult Run(Func<Binding> bind,
+                                            IReadOnlyList<string>? seeds, int limit, bool countsOnly = false)
     {
         var named = (seeds ?? Array.Empty<string>()).Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
-        if (named.Length == 0) return DialogueCheckResult.Fail(ReadSentences.DialogueNeedsSeeds, epoch);
+        if (named.Length == 0) return DialogueCheckResult.Fail(ReadSentences.DialogueNeedsSeeds);
+
+        var (validate, parseFormId, epoch) = bind();
 
         var results = new List<DialogueSeedResult>();
         int topics = 0, problems = 0;
