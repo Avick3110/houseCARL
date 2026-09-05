@@ -47,6 +47,18 @@ public sealed class SkseTransportTests
                                         new SksePluginReader.SksePluginInfo($"p{i}.dll", SksePluginReader.SksePluginKind.Modern, true, Version($"Plugin {i}"), null,
                                                                             new[] { "kernel32.dll" }), null) });
 
+    /// <summary>A class whose only candidate DLL is version-locked to a runtime that is not the installed one — the
+    /// PAIRED BUT DEAD finding.</summary>
+    static NativeClassEntry DeadCls(int i) =>
+        new($"scripts/d{i}.pex", $"Dead{i}", new[] { "Fn" }, new[] { Mod($"Other{i}") },
+            NativeProvenance.ThirdParty, NativePairingRung.SameMod, $"Other{i}",
+            new[] { new NativePairedDll($"SKSE/Plugins/d{i}.dll", $"d{i}.dll", "", $"Other{i}",
+                        new SksePluginReader.SksePluginInfo($"d{i}.dll", SksePluginReader.SksePluginKind.Modern, true,
+                            new SksePluginReader.SkseVersionInfo($"Dead {i}", "author", "", "1.0.0",
+                                UsesAddressLibrary: false, UsesSignatureScanning: false, UsesUpdatedStructs: false,
+                                DeclaresNoStructs: false, new[] { "1.5.97.0" }, null), null,
+                            new[] { "kernel32.dll" }), null) });
+
     /// <summary>A baseline class — carried by an official archive, implemented by the game executable. It is accounted
     /// for by a count on the "accounted for" line rather than by a section row of its own.</summary>
     static NativeClassEntry EngineCls(int i) =>
@@ -333,6 +345,86 @@ public sealed class SkseTransportTests
         Assert.Equal(new[] { "c3.ini", "c4.ini", "c5.ini" },
                      doc.RootElement.GetProperty("configs").EnumerateArray()
                         .Select(c => c.GetProperty("file_name").GetString()).ToArray());
+    }
+
+    // ---- the json census under filter= -----------------------------------------------------------
+
+    /// <summary>The config twin's <c>totals</c> under a filter counts the FILTER'S references, not the whole audit's.
+    /// A caller scoping to one folder and reading <c>totals.broken</c> was being told what the whole layer carries,
+    /// under a name that reads as the folder's — while <c>files</c> and <c>accounting</c> beside it named the
+    /// matches.</summary>
+    [Fact]
+    public void TheConfigTwinsCensusCountsTheFiltersReferencesNotTheWholeAudit()
+    {
+        using var doc = JsonDocument.Parse(SkseConfigAuditWire.RenderJson(ConfigAudit(5, refs: 2), "Mod3", 200_000));
+        var t = doc.RootElement.GetProperty("totals");
+
+        Assert.Equal(1, doc.RootElement.GetProperty("files").GetArrayLength());
+        Assert.Equal(1, doc.RootElement.GetProperty("accounting").GetProperty("total").GetInt32());
+        Assert.Equal(1, t.GetProperty("configs_scanned").GetInt32());
+        Assert.Equal(1, t.GetProperty("files_with_references").GetInt32());
+        Assert.Equal(2, t.GetProperty("references_checked").GetInt32());
+        Assert.Equal(2, t.GetProperty("inert").GetInt32());
+        Assert.Equal(0, t.GetProperty("read_errors").GetInt32());
+    }
+
+    /// <summary>The pairing twin's <c>totals</c> under a filter classifies the FILTER'S classes: a caller scoping to
+    /// one mod must not read other mods' dead pairings as its own. The scan counts that a filter cannot scope —
+    /// <c>pex_scanned</c>, <c>unreadable_pex</c> — are not stated rather than stated out of scope.</summary>
+    [Fact]
+    public void ThePairingTwinsCensusClassifiesTheFiltersClassesNotTheWholeAudit()
+    {
+        var d = Pairing(1) with
+        {
+            Classes = new[] { Cls(3) }.Concat(Enumerable.Range(1, 3).Select(DeadCls)).ToList(),
+            PexScanned = 4,
+        };
+
+        using var doc = JsonDocument.Parse(NativePairingWire.RenderJson(d, "Mod3", 200_000));
+        var t = doc.RootElement.GetProperty("totals");
+
+        Assert.Equal(1, doc.RootElement.GetProperty("classes").GetArrayLength());
+        Assert.Equal(1, t.GetProperty("classes").GetInt32());
+        Assert.Equal(1, t.GetProperty("healthy").GetInt32());
+        Assert.Equal(0, t.GetProperty("dead").GetInt32());          // the three dead ones belong to other mods
+        Assert.False(t.TryGetProperty("pex_scanned", out _));
+        Assert.False(t.TryGetProperty("unreadable_pex", out _));
+
+        // Unfiltered, the same audit states all four and both scan counts.
+        using var whole = JsonDocument.Parse(NativePairingWire.RenderJson(d, null, 200_000));
+        var w = whole.RootElement.GetProperty("totals");
+        Assert.Equal(4, w.GetProperty("classes").GetInt32());
+        Assert.Equal(3, w.GetProperty("dead").GetInt32());
+        Assert.Equal(4, w.GetProperty("pex_scanned").GetInt32());
+    }
+
+    /// <summary>The inventory twin's <c>totals</c> under a filter counts its matches, and the two members a filter
+    /// cannot scope are absent rather than layer-wide: <c>other_files</c> is counted-not-listed, and the folder table
+    /// is omitted instead of written empty — <c>[]</c> reads as "this layer has no config folders" rather than "this
+    /// view does not list them".</summary>
+    [Fact]
+    public void TheInventoryTwinsCensusCountsItsMatchesAndOmitsWhatAFilterCannotScope()
+    {
+        var layer = Inventory(5, configs: 3) with { OtherFileCount = 7 };
+
+        using var doc = JsonDocument.Parse(SkseInventoryWire.RenderJson(layer, "p3", 200_000));
+        var t = doc.RootElement.GetProperty("totals");
+
+        Assert.Equal(1, doc.RootElement.GetProperty("dlls").GetArrayLength());
+        Assert.Equal(1, t.GetProperty("dlls").GetInt32());
+        Assert.Equal(1, t.GetProperty("modern").GetInt32());
+        Assert.Equal(0, t.GetProperty("configs").GetInt32());
+        Assert.Equal(0, t.GetProperty("config_folders").GetInt32());
+        Assert.False(t.TryGetProperty("other_files", out _));
+        Assert.False(doc.RootElement.TryGetProperty("config_folders", out _));
+
+        // Unfiltered, the whole layer — including the folder table and the uncategorized-file count.
+        using var whole = JsonDocument.Parse(SkseInventoryWire.RenderJson(layer, null, 200_000));
+        var w = whole.RootElement.GetProperty("totals");
+        Assert.Equal(5, w.GetProperty("dlls").GetInt32());
+        Assert.Equal(3, w.GetProperty("configs").GetInt32());
+        Assert.Equal(7, w.GetProperty("other_files").GetInt32());
+        Assert.Equal(1, whole.RootElement.GetProperty("config_folders").GetArrayLength());
     }
 
     // ---- the pairing family's accounted-for baseline ---------------------------------------------
