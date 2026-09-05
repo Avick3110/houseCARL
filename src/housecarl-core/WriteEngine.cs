@@ -732,6 +732,19 @@ public static class WriteEngine
         return record.GetType();
     }
 
+    /// <summary>The Type to hand Mutagen's typed ENUMERATION when seeking a body of <paramref name="record"/>'s type:
+    /// the record's FLAT GROUP's getter interface when one matches, else the record's own primary getter. The
+    /// flat-group answer is here for the same reason <see cref="RemovalTypeFor"/> has it — an abstract-base group
+    /// (<c>SkyrimGroup&lt;Global&gt;</c>, <c>SkyrimGroup&lt;GameSetting&gt;</c>) holds concrete subclasses whose own
+    /// getter interface (<c>IGlobalShortGetter</c>) is not a type Mutagen's containment switch routes, so a typed walk
+    /// on it yields nothing and the caller pays an empty pass before falling back to the flat scan.</summary>
+    public static Type SeekTypeFor(IMajorRecordGetter record)
+    {
+        foreach (var (_, getterIface) in FlatGroupTypes)
+            if (getterIface.IsInstanceOfType(record)) return getterIface;
+        return PrimaryGetter(record.GetType()) ?? record.GetType();
+    }
+
     /// <summary>The flat groups' (T, getter-interface) pairs for <see cref="SkyrimMod"/>, MEMOIZED: pure reflection
     /// metadata, constant for the process lifetime — <see cref="RemovalTypeFor"/> runs per record when the remove
     /// lanes index a whole plugin, so a per-call property walk would be O(records × properties). Derived from the SAME

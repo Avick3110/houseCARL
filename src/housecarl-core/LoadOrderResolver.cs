@@ -944,7 +944,7 @@ public sealed class LoadOrderResolver : IDisposable
             int oi = overlayIdxs[n];
             var rec = FetchBody(session, oi, fk, getterType);
             recType ??= RecordNaming.StripOverlay(rec.GetType().Name);
-            getterType ??= WriteEngine.PrimaryGetter(rec.GetType());
+            getterType ??= WriteEngine.SeekTypeFor(rec);
             nodes[n] = new ConflictNode(_names[oi], rec);
         }
         return new ConflictTree(fk, recType ?? "?", nodes);
