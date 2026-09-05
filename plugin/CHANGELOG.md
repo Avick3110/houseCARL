@@ -29,6 +29,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
   quotes, a character a Windows folder or file name cannot contain, with `(loose)` / `(BSA)` outside them. A mod
   called `Face Extras (SE)` now reads back whole, and the printed token is the token `housecarl_place_asset`'s
   `source_provider=` accepts.
+- **Two refusals about a collection element now name the call that works.** Editing one element of a polymorphic
+  collection — an AI package's `Data`, a record's conditions, a script's VMAD properties — used to take several
+  tries, because each refusal was correct about what was wrong and silent about what to do instead. Reaching
+  through an element to a field whose arms disagree on shape (`Data[7].Data`) still refuses to guess the arm, but
+  it now prints the container call to make once you have read it: the field's own path, the key you typed, and the
+  verbs that collection takes. Bracketing an element at the end of a path (`Data[7]`) prints the same path and key.
+  Which verbs get named comes from the collection's own shape, so a dict caller is never offered `SetAtIndex`.
 - **`housecarl_load_order_status` now names the running server's build in its header** — a `server:` line carrying
   the informational version the binary embeds (the release version `build-plugin.ps1` stamps from `plugin.json`,
   then `+` and the full commit sha: `1.9.5-dev+e942910…`), so checking that the installed houseCARL is the build you expect no longer means

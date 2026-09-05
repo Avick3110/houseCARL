@@ -118,10 +118,16 @@ public sealed class CorpusRulebook
         // sit mid-path: the hops through it are where a verb acts on a record the call never named.
         FieldSchema? ownedChildHop = null;
         TypeSchema? ownedChildHopOwner = null;
+        // …and the bracketed hop that produced the type being walked RIGHT NOW, for the one refusal that cannot name
+        // the arm it needs (FindField's conflicting-shapes reject). Cleared on every plain hop, so it only ever
+        // describes the element the caller is standing in.
+        ElementHop? elementHop = null;
         for (int i = 0; i < req.Path.Length - 1; i++)
         {
             if (!TrySeg(req.Path[i], out var segName, out var segKey, out var segErr)) return segErr;
-            var field = FindField(current, segName, out _, out var polyErr);
+            var incoming = elementHop;
+            elementHop = null;
+            var field = FindField(current, segName, out _, out var polyErr, incoming);
             if (polyErr is not null) return polyErr;
             if (field is null) return FieldNotFound(current, segName);
             if (ownedChildHop is null && SchemaClassifier.IsOwnedChildRecord(field, _corpus))
@@ -204,6 +210,7 @@ public sealed class CorpusRulebook
                     && CheckValue(field.KeyType, segKey, $"dict key for '{segName}'", DictKeyType(field)?.AssemblyQualifiedName) is { } ke)
                     return ke;
                 current = elem;
+                elementHop = new ElementHop(PathTo(req.Path, i, segName), segKey, field);
             }
         }
 
@@ -225,12 +232,15 @@ public sealed class CorpusRulebook
             // caller is never handed index verbs nor a list caller key verbs. The verbless fallback is still reachable
             // — a bracketed typo ('Nope[0]') resolves no field — so it states the rule without naming verbs.
             var head = $"Path '{req.Path[^1]}' brackets a collection element at the LEAF; brackets navigate mid-path only. ";
+            // The remedy carries the caller's OWN key, not just the rule: the bracket they typed already says which
+            // element they meant, so the message can hand back the call that works rather than a shape to fill in.
             if (bracketed is not null && WriteVerbs.OfField(bracketed, _corpus) is { } bshape)
-                return head + $"Target the collection field '{leafName}' itself and address the element with the verb "
-                       + $"+ Key — {WriteVerbs.HowToAddress(bshape)}.";
+                return head + $"Target the collection field itself and address the element with the verb + Key: "
+                       + $"field_path='{PathTo(req.Path, req.Path.Length - 1, leafName)}', key='{leafKey}' — "
+                       + $"{WriteVerbs.HowToAddress(bshape)}.";
             return head + "Target the collection field itself and address the element with the verb + Key.";
         }
-        var leaf = FindField(current, leafName, out var leafOwner, out var leafPolyErr);
+        var leaf = FindField(current, leafName, out var leafOwner, out var leafPolyErr, elementHop);
         if (leafPolyErr is not null) return leafPolyErr;
         if (leaf is null) return FieldNotFound(current, leafName);
 
@@ -1108,6 +1118,27 @@ public sealed class CorpusRulebook
         catch (Exception ex) { name = segment; key = null; error = ex.Message; return false; }
     }
 
+    /// <summary>The bracketed hop that produced the type currently being walked: the collection field's own dotted
+    /// path, the key the caller indexed it with, and its schema. Held for the IMMEDIATELY preceding hop only, so a
+    /// refusal raised on the element's type can name the call that rewrites that element and nothing else.</summary>
+    readonly record struct ElementHop(string Path, string Key, FieldSchema Field);
+
+    /// <summary>The dotted field_path of the hop at <paramref name="index"/>, with its own bracket dropped —
+    /// earlier hops keep theirs, because they are still navigation.</summary>
+    static string PathTo(string[] path, int index, string name) =>
+        string.Join(".", path.Take(index).Append(name));
+
+    /// <summary>What to do about a field the over-arms search refused to pick an arm for. The refusal genuinely
+    /// cannot name the arm — that is what it is declining to guess — but when the caller is standing inside a
+    /// collection element the WORKING call is a corpus fact the walk already has, so it is named: the container's
+    /// path, the caller's own key, and the verbs that shape takes. Without a bracketed hop there is no container to
+    /// name, so it states the rule instead.</summary>
+    string ElementRemedy(ElementHop? elementHop) =>
+        elementHop is { } h && WriteVerbs.OfField(h.Field, _corpus) is { } shape
+            ? $"Read the element to learn its concrete arm, then write the whole element in one call, composing that " +
+              $"arm: field_path='{h.Path}', key='{h.Key}' — {WriteVerbs.HowToAddress(shape)}."
+            : "Read the element first to learn its concrete arm, then target a field whose shape is unambiguous.";
+
     string FieldNotFound(TypeSchema owner, string name)
     {
         var sample = owner.Fields.Select(f => f.Name).Take(12).ToList();
@@ -1128,7 +1159,8 @@ public sealed class CorpusRulebook
     /// turns out to be — the engine then resolves on the element's RUNTIME type and fails loud on a real mismatch);
     /// arms that DISAGREE reject by name, never guess. <paramref name="effectiveOwner"/> is the schema the found
     /// field belongs to (the arm for an arm-found field), so downstream messages name the real owner.</summary>
-    FieldSchema? FindField(TypeSchema owner, string name, out TypeSchema effectiveOwner, out string? error)
+    FieldSchema? FindField(TypeSchema owner, string name, out TypeSchema effectiveOwner, out string? error,
+        ElementHop? elementHop = null)
     {
         effectiveOwner = owner; error = null;
         if (owner.Fields.FirstOrDefault(f => f.Name == name) is { } direct) return direct;
@@ -1157,8 +1189,7 @@ public sealed class CorpusRulebook
             {
                 error = $"Field '{name}' exists on several arms of '{owner.Name}' with CONFLICTING shapes " +
                         $"('{firstArm.Name}': {firstField.Cardinality} {firstField.Type} vs '{arm.Name}': {f.Cardinality} {f.Type}) — " +
-                        "the validator cannot pick one statically. Read the element first to learn its concrete arm, " +
-                        "then target a field whose shape is unambiguous.";
+                        "the validator cannot pick one statically. " + ElementRemedy(elementHop);
                 return null;
             }
         effectiveOwner = firstArm;

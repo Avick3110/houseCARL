@@ -1827,7 +1827,8 @@ public static class WriteEngine
                        + "mid-path only; ";
             if (bracketProp is not null && WriteVerbs.OfRuntimeType(bracketProp.PropertyType) is { } bshape)
                 throw new InvalidOperationException(head
-                    + $"to operate on an element of '{leafName}', target the field itself and use the verb + Key — "
+                    + "to operate on that element, target the field itself and use the verb + Key: "
+                    + $"field_path='{string.Join(".", req.Path[..^1].Append(leafName))}', key='{leafKey}' — "
                     + $"{WriteVerbs.HowToAddress(bshape)}.");
             throw new InvalidOperationException(head
                 + "to operate on a collection element at the leaf, target the collection field and use the verb + Key.");
