@@ -22,10 +22,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   juggernaunt46-star (#384).
 - **`housecarl_copy` names the MO2 mod folder each source resolved from, and `housecarl_copy_npc_appearance` is
   gone.** The copy readback prints the folder beside each source's plugin filename — `Donor.esp (MO2 mod folder
-  'TheDonorMod')`, or `from the active load order` where the source resolved through the order — so the following
+  "TheDonorMod")`, in double quotes, the one delimiter a Windows folder name cannot contain — so the following
   `housecarl_place` can be given the folder that actually holds the FaceGen. It is the folder name, not a path, and
   it is the name `source_provider=` takes; a source read through an override lists both arms, and the file usually
-  sits beside the second. The 1.x standalone-appearance tool is deleted: the same job is `housecarl_copy` for the
+  sits beside the second. A source that resolved through the active load order says so instead; one that came out of
+  MO2's overwrite or the game's `Data` folder is named as that layer rather than as a mod; and a source read from a
+  file outside all of them says it has no mod folder to pass on. The 1.x standalone-appearance tool is deleted: the same job is `housecarl_copy` for the
   records (`seed_paths=`, `exclude_types=["Race:refuse"]`, `from_source=` as an ordered list) and
   `housecarl_place` for the FaceGen pair, which is the shape the `npc-appearance-copy` skill teaches. Calling the
   old name answers with that two-call shape rather than an unknown-tool error.

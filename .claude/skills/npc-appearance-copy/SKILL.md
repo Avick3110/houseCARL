@@ -61,11 +61,13 @@ from_source = ["TheOverhaul.esp", "<the plugin in the donor's own FormID>"]
 First hit wins, so records the overhaul carries come from the overhaul and everything else falls through to the defining plugin. You never have to discover the second name — it is the plugin half of the `from=` FormID. The readback names which source produced each record, and beside each source the **MO2 mod folder it resolved from**:
 
 ```
-sources (in order, first hit wins): TheOverhaul.esp (MO2 mod folder 'AnOverhaul') -> Donor.esp (MO2 mod folder 'TheDonorMod')
-the source record was read from TheOverhaul.esp (MO2 mod folder 'AnOverhaul').
+sources (in order, first hit wins): TheOverhaul.esp (MO2 mod folder "AnOverhaul") -> Donor.esp (MO2 mod folder "TheDonorMod")
+the source record was read from TheOverhaul.esp (MO2 mod folder "AnOverhaul").
 ```
 
-**Carry that folder to Step 3.** Which mod holds the FaceGen is not the plugin filename in its path and not necessarily the mod the record came from: the FaceGen sits beside the plugin that *defines* the NPC, which is the second arm when you read the look through an override. Take the folder the readback names for that arm and pass it as `source_provider=`; nothing else on the surface knows which of two switched-off mods ships the file.
+**Carry that folder to Step 3.** Which mod holds the FaceGen is not the plugin filename in its path and not necessarily the mod the record came from: the FaceGen sits beside the plugin that *defines* the NPC, which is the second arm when you read the look through an override. Take the folder the readback names for that arm — everything inside the double quotes, which is where the name ends even when it holds an apostrophe or a parenthesis — and pass it as `source_provider=`; nothing else on the surface knows which of two switched-off mods ships the file.
+
+Not every arm names a mod folder, and the sentence says which case it is: a source resolved through the **active load order** has no single folder behind it; one that came out of **MO2's overwrite** or the **game's `Data` folder** is named as that layer, and that word is still what `source_provider=` takes; a source read from a file **outside all of them** — an absolute path you gave, or a plugin sitting loose in the mods root — says outright that it has no mod folder to pass on, and the FaceGen then has to come from a mod you name yourself.
 
 **EditorIDs are preserved on the copies, deliberately.** The engine matches the shape names baked into a FaceGen mesh to head parts *by name*. Rename a copied head part and the mesh no longer matches the record, so the engine regenerates a vanilla head and drops the tint. There is no reason to rename them and a concrete cost if you do.
 
@@ -85,6 +87,12 @@ housecarl_apply(
 **Why the split, rather than just naming all six.** `CopyFrom` refuses an unset source — "nothing to copy; use Remove to clear the target" — and `housecarl_apply` is all-or-nothing, so one absent member refuses the whole call. The tempting fix is to drop the absent members from the bundle, and that is the wrong one: it leaves the *target's* own morphs and face parts in place underneath the donor's head parts, which is a face assembled from two different people. Clearing them is what makes the target's face the donor's face and nothing else. So: copy what the donor has, remove what it lacks.
 
 A bundle only names what it copies, so identity and everything outside the list are untouched by construction.
+
+**Name the clone here.** A clone minted with `new_editorid=` carries the **donor's** display `Name` — the EditorID is the record's, the in-game name is still the person you copied. Set it in this same call, or the follower answers to the donor's name in game:
+
+```
+ops = [{ formid: "<the new FormID>", field_path: "Name", op: "Set", value: "<the clone's name>" }]
+```
 
 `TextureLighting` earns its place: it is the QNAM colour, it defaults to a value that reads as dark skin, and a face copied without it renders with the wrong skin tone while every other field looks correct.
 
