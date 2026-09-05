@@ -5,8 +5,12 @@ namespace HousecarlMcp;
 
 /// <summary>The TRANSPORT paging window (SPEC §2.1): <c>offset=</c> steps over rows before the window,
 /// <c>limit=</c> bounds the window. <c>Limit = 0</c> is no limit, the shape every surface defaults to, so a call
-/// that passes neither renders exactly what it rendered before paging existed.</summary>
-internal readonly record struct RowWindow(int Offset, int Limit)
+/// that passes neither renders exactly what it rendered before paging existed.
+///
+/// <para><paramref name="Spent"/> is the third state the two numbers cannot express: a limit that WAS asked for and
+/// is now used up. Without it a continuation window whose budget ran out is spelled <c>Limit = 0</c>, which
+/// <see cref="Apply"/> reads as "no limit" and renders the whole second list.</para></summary>
+internal readonly record struct RowWindow(int Offset, int Limit, bool Spent = false)
 {
     /// <summary>The whole list — no offset, no limit.</summary>
     internal static readonly RowWindow All = new(0, 0);
@@ -14,6 +18,7 @@ internal readonly record struct RowWindow(int Offset, int Limit)
     /// <summary>The window of <paramref name="rows"/> this describes.</summary>
     internal IReadOnlyList<T> Apply<T>(IReadOnlyList<T> rows)
     {
+        if (Spent) return Array.Empty<T>();
         if (Offset <= 0 && Limit <= 0) return rows;
         var q = rows.Skip(Offset);
         if (Limit > 0) q = q.Take(Limit);
@@ -23,9 +28,11 @@ internal readonly record struct RowWindow(int Offset, int Limit)
     /// <summary>The window over a SECOND list that continues the first — the shape a family whose row list is two
     /// concatenated populations needs (SKSE inventory: DLLs then configs). <paramref name="consumed"/> is how many
     /// rows the first list held, so the offset lands where the first list stopped and the limit counts what the
-    /// first list already spent.</summary>
+    /// first list already spent. A limit the first list exhausted carries over as spent, not as no limit.</summary>
     internal RowWindow After(int consumed, int taken) =>
-        new(Math.Max(Offset - consumed, 0), Limit <= 0 ? 0 : Math.Max(Limit - taken, 0));
+        new(Math.Max(Offset - consumed, 0),
+            Limit <= 0 ? 0 : Math.Max(Limit - taken, 0),
+            Spent || (Limit > 0 && taken >= Limit));
 
     /// <summary>The window's own refusal, or null when both values are legal. One sentence naming both knobs,
     /// because a caller who got one wrong usually typed the other in the same call.</summary>
@@ -94,7 +101,7 @@ internal static class TransportAccounting
     /// <summary>The widest line this response could produce: every count at its largest (so every digit slot is at
     /// its real width) and, with <c>everySentence</c>, every optional sentence present. An upper bound, which is
     /// what a reserve has to be.</summary>
-    static TransportCounts Widest(int total, int windowed, RowWindow w, int notes)
+    internal static TransportCounts Widest(int total, int windowed, RowWindow w, int notes)
     {
         int most = Math.Max(total, windowed);
         return new TransportCounts(most, windowed, most, most, windowed, w.Offset, most, notes,
