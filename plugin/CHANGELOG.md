@@ -82,14 +82,19 @@ saying it sets an expectation their install may contradict. Say what is known, a
   bodies it was not computed from. Nothing else is unbounded: a `where=` or `editorid_contains=` with no scope is
   still refused, naming the bound. A bounded `references=` is unchanged and still cheaper — it builds no index.
   The index is kept for as long as the load order it was built from, including across a plugin being ticked or
-  re-sorted in MO2, so that walk is paid once and not once per touch.
+  re-sorted in MO2, so that walk is paid once and not once per touch. `project.group_by='type'` composes with it:
+  the index hands the scan a universe of records whose bodies are read, which is what names each match's type.
 
 - **The orphan sweep: `references=["!XXXXXX:Plugin.esp"]` with no scope now asks which records nothing in the
   order references.** A negated `references=` under a `types=`/`plugins=` scope is unchanged — records in that
   scope that do not link the target. With no scope at all the universe becomes every record nothing references,
   and the named target then excludes any of those that link it; the response states which question it answered.
   The sweep is refused in combination with `form='delta'`/`'tree'`/`'info_order'`, which would compare every one
-  of those records — run it as a plain scan with `to_file=` and re-enter the artifact instead.
+  of those records — run it as a plain scan with `to_file=` and re-enter the artifact instead; an in-order
+  `source=` plugin is a scope like any other, so a negated `references=` under one is that plugin's records and
+  those forms compose with it. Where a plugin cannot be read, the sweep says it is OVER-inclusive by whatever that
+  plugin references — a record only it links is listed as an orphan — which is the opposite of what an unreadable
+  plugin does to the positive question, and the response says which of the two it is telling you.
 
 - **A path can now step to the record that CONTAINS this one, with `*parent`.** DIAL→INFO, CELL→REFR/ACHR and
   WRLD→CELL ownership is group nesting rather than a form link, so `references=` correctly returns nothing for it
