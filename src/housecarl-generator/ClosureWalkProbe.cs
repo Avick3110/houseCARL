@@ -1,4 +1,4 @@
-using System.Linq;
+﻿using System.Linq;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
@@ -21,7 +21,7 @@ namespace HousecarlGenerator;
 ///   CAP (ACT)     — a breach REFUSES with the last pull AND its full chain, and yields nothing usable. The
 ///                   chain is asserted by CONTENT, not by presence — see the RED note below.
 ///   CYCLES        — a genuine cycle is RECORDED and reported; a DIAMOND (two paths to one record) is not. This
-///                   behavior has no ancestor in copy_npc_appearance, so this arm is its only evidence: the
+///                   behavior had no ancestor in the retired copy_npc_appearance, so this arm is its only evidence: the
 ///                   fixture carries both shapes at once and asserts the report tells them apart.
 ///   PROVENANCE    — per NODE, not per walk: each reached record names WHICH source arm produced its body, so a
 ///                   walk over an ordered universe can say this record came from the override and that one fell

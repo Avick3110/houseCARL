@@ -1,4 +1,4 @@
-using Mutagen.Bethesda;
+﻿using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
@@ -735,16 +735,8 @@ public static class BulkPrimitivesWave3Probe
                   !File.ReadAllText(doc).Contains(overclaim, StringComparison.Ordinal));
         }
 
-        // The third renderer named by the issue. Its bracket is gated on a flag the file lane sets UNCONDITIONALLY, so
-        // it asserted the overclaim even for a donor the game does load — armed here through the real render.
-        var npcRender = NpcCopyTools.Render(new NpcCopyOutcome(
-            true, null, "apply", wFk, "file 'X.esp' (mod 'M' (enabled))", /*DonorOutOfLoadOrder:*/ true, wFk,
-            "X.esp", false, Array.Empty<InternalizedRecord>(), Array.Empty<string>(), 0, Array.Empty<string>(),
-            Array.Empty<NpcAppearanceCopy.StripReport>(), Array.Empty<string>(), false, false,
-            Array.Empty<string>(), null, 0, null));
-        Check("#271 sweep: copy_npc_appearance's donor bracket states the READ, not a claim about the file",
-              !npcRender.Contains(overclaim, StringComparison.OrdinalIgnoreCase)
-              && npcRender.Contains("OUT-OF-LOAD-ORDER"));
+        // The issue's third renderer was copy_npc_appearance's donor bracket. That tool is gone, and with it the
+        // only render that asserted the overclaim outside a description — the sweeps above cover what is left.
 
         // FINDING 1: the fresh-patch refusal. houseCARL writes patches into an unlisted folder, so this is the refusal
         // a real session hits most, and the explainer now answers it — which is exactly why the "cause stated ⇒ drop

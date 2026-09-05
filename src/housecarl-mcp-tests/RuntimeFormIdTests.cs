@@ -1,4 +1,4 @@
-using Mutagen.Bethesda;
+﻿using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
@@ -265,23 +265,16 @@ public sealed class RuntimeFormIdTests
         RefusedNothingWritten(w, response);
     }
 
-    [Fact]
-    public void CopyNpcAppearanceRefusesARuntimeFormIdAndNamesThePluginForm()
-    {
-        using var w = new World();
-        var outcome = w.Svc.CopyNpcAppearance(Runtime(w), null, null, null, "HcRtNpcClone", null, null, null);
-        RefusedNothingWritten(w, outcome.Error);
-    }
-
     /// <summary>The same door parses the target too — a well-formed token there is declined in the refusal's own
-    /// words, not wrapped in the "bad target formid" sentence a malformed one gets.</summary>
+    /// words, not wrapped in the "bad target" sentence a malformed one gets.</summary>
     [Fact]
-    public void CopyNpcAppearanceRefusesARuntimeTargetFormIdAndNamesThePluginForm()
+    public void CopyRefusesARuntimeTargetFormIdAndNamesThePluginForm()
     {
         using var w = new World();
-        var outcome = w.Svc.CopyNpcAppearance(World.Fid(w.FullWeapon), null, null, Runtime(w), null, null, null, null);
-        RefusedNothingWritten(w, outcome.Error);
-        Assert.DoesNotContain("bad target formid", outcome.Error);
+        var response = CopyTools.Copy(w.Svc, from: World.Fid(w.FullWeapon),
+                                      seed_paths: new[] { "BasicStats" }, target: Runtime(w));
+        RefusedNothingWritten(w, response);
+        Assert.DoesNotContain("bad target", response);
     }
 
     [Fact]

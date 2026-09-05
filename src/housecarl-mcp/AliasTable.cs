@@ -247,6 +247,11 @@ internal static class AliasTable
         ("housecarl_bulk_place_asset",
          "absorbed into " + ToolNames.Place + ": assets= is unchanged in shape except asset_path= is path=, and source_provider=/kind= may now be given once for the whole set instead of per member. patch_name= is patch=; into= is unchanged."),
 
+        // The standalone NPC copy was one verb over two substrates, so its successor is two calls and the row says
+        // both — a row naming only the record half would leave the caller with a face and no FaceGen.
+        ("housecarl_copy_npc_appearance",
+         "split in two. The records are " + ToolNames.Copy + ": from= is source_formid=, seed_paths=[\"HeadParts\", \"HairColor\", \"HeadTexture\", \"WornArmor\"] walks the appearance, exclude_types=[\"Race:refuse\"] keeps the walk out of the race, and new_editorid=/target= are the same two destinations (source_plugin=+source_mod= is from_source=, an ORDERED list — name the override then the defining plugin). The FaceGen and textures are " + ToolNames.Place + ": the copy lists the asset paths and names, per source, the MO2 MOD FOLDER it read from — pass that folder as source_provider= and the files come out of it even when MO2 does not load that mod."),
+
         ("housecarl_forward_record",
          "absorbed into " + ToolNames.Forward + ": from_plugin= is source= (an ACTIVE plugin — whose version to copy). patch_name= is patch=, full_readback= is readback=, and the target=+in_place=true pair is in_place=\"X.esp\". formids=, dry_run= and the into= replace-on-collision semantics are unchanged."),
     };

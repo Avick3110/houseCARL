@@ -1,4 +1,4 @@
-using HousecarlGenerator;
+﻿using HousecarlGenerator;
 
 // houseCARL build-time schema generator.
 //
@@ -18,10 +18,6 @@ if (args.Length > 0 && args[0] == "ci-all") return CiAll.RunAll(args[1..]);
 // guard cannot be runnable locally yet missing from the CI run. Only the manual/exploratory probes below keep
 // their own explicit dispatch.
 if (args.Length > 0 && CiAll.TryDispatch(args[0], args[1..], out var ciRc)) return ciRc;
-
-// The old copy_npc_appearance verb against its 2.0 successor, over constructed MO2 instances. Deliberately NOT
-// in ci-all: it is evidence re-run on demand after a change to the copy path, not a standing guard.
-if (args.Length > 0 && args[0] == "copy-differential") return CopyDifferentialHarness.Run(args[1..]);
 
 // #459 measurement: is the containing parent in hand during the flat index walk, and what does a containment-aware
 // pass cost on a real order. Needs a live MO2 instance (or --plugin), so it is a manual harness, not a CI probe.

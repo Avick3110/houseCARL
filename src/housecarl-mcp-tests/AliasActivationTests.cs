@@ -183,7 +183,7 @@ public sealed class AliasActivationTests
 
         // A change here is either a real surface change (update the number; the listing above names the row)
         // or a row that went dead.
-        Assert.Equal(89, renames.Length);
+        Assert.Equal(88, renames.Length);
         Assert.Equal(23, hints.Length);
     }
 }

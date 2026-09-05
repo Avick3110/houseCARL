@@ -1,4 +1,4 @@
-namespace HousecarlCore;
+﻿namespace HousecarlCore;
 
 // ======================================================================
 //  OffOrderAssetSource — reading an asset out of a mod folder the ACTIVE profile does not
@@ -19,7 +19,7 @@ namespace HousecarlCore;
 //  the folder scan, and only after the universe has already failed to answer it.
 //
 //  Lane shape: loose file at the rel path first, then the folder's ROOT archives
-//  (NpcAppearanceAssets.DonorDisk). Root archives are the capability a path guess cannot supply —
+//  enumerated from the folder itself. Root archives are the capability a path guess cannot supply —
 //  it cannot enumerate them.
 // ======================================================================
 

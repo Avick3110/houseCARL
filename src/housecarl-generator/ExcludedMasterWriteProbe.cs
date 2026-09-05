@@ -286,8 +286,12 @@ public static class ExcludedMasterWriteProbe
         Directory.CreateDirectory(Path.GetDirectoryName(clnPath)!);
         var cln = new SkyrimMod(clnKey, SkyrimRelease.SkyrimSE);
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(cln, w)).BasicStats = new WeaponBasicStats { Damage = 20 };
-        var donor = cln.Npcs.AddNew();                 // the npc-copy lane's donor — it only has to reach the serialize
+        var donor = cln.Npcs.AddNew();                 // the closure-copy lane's donor — it only has to reach the serialize
         donor.EditorID = "BlDonor";
+        // …with one link on the seeded field, or the copy refuses for having nothing to walk and never reaches it.
+        var donorHair = cln.HeadParts.AddNew();
+        donorHair.EditorID = "BlDonorHair";
+        donor.HeadParts.Add(donorHair.FormKey);
         cln.BeginWrite.ToPath(clnPath).WithLoadOrder(new ISkyrimModGetter[] { sky }).Write();
 
         File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + skyKey.FileName + "\r\n" + clnKey.FileName + "\r\n");
@@ -331,12 +335,12 @@ public static class ExcludedMasterWriteProbe
             dry.StartsWith("error:") && dry.Contains(realBody, StringComparison.Ordinal),
             $"real=[{realBody}] dry=[{dry}]");
 
-        // copy_npc_appearance is the one write lane that renders through an INJECTED renderer rather than calling
+        // The closure copy is the one write lane that renders through an INJECTED renderer rather than calling
         // SerializeFailure directly, so it is the lane that silently kept the doubled tail and the wrong phase after
         // review 3 fixed every other one (PR #315 review 4). It had no arm; that is why nothing caught it.
-        var npc = NpcCopyTools.CopyNpcAppearance(svc, source_formid: $"{donor.FormKey.ID:X6}:{clnKey.FileName}",
-            new_editorid: "BlDonorClone", patch_name: "BlNpc");
-        Check("npc-copy renders the baseline refusal through the SAME substituting renderer as its sibling lanes",
+        var npc = CopyTools.Copy(svc, $"{donor.FormKey.ID:X6}:{clnKey.FileName}", null, new[] { "HeadParts" },
+            null, null, "BlDonorClone", "BlNpc", null);
+        Check("the closure copy renders the baseline refusal through the SAME substituting renderer as its sibling lanes",
             npc.StartsWith("error:")
             && npc.Contains("BASELINE master", StringComparison.Ordinal)
             // Pinned on the three things substitution actually guarantees. (An earlier draft counted the word

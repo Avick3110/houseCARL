@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Reflection;
 using HousecarlCore;
 using HousecarlMcp;
@@ -120,17 +120,6 @@ public sealed class SourcePoleRemedyTests : RecordsTestBase
         Assert.Contains(ToolNames.Records, text!);   // never a silent skip
         Assert.Contains("source=", text!);
         Assert.Contains(SelectTerms, t => text!.Contains(t, StringComparison.Ordinal));
-    }
-
-    /// <summary>The copy tool's standalone line, against the shipped source. It is rendered inside a write path
-    /// this test project has no fixture for, so the pin is on the text rather than on a render.</summary>
-    [Fact]
-    public void TheCopyToolsStandaloneLineStatesTheBoundAndPromisesNothing()
-    {
-        var src = File.ReadAllText(Path.Combine(HarnessPaths.RepoRoot, "src", "housecarl-mcp", "NpcCopyTools.cs"));
-
-        Assert.Contains("no houseCARL tool can list a plugin's masters", src);
-        Assert.DoesNotContain("that the donor is absent from the masters", src);
     }
 
     [Fact]
