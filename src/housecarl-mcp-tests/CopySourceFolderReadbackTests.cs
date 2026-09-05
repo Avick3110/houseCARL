@@ -16,7 +16,10 @@ namespace HousecarlMcpTests;
 public sealed class TwoDisabledDonorsWorld : IDisposable
 {
     public const string OverrideFolder = "DisabledA";
-    public const string DefiningFolder = "DisabledB";
+    /// <summary>An apostrophe and a parenthesis, both legal in a Windows folder name and both present in real mods
+    /// (`JK's Skyrim`, `SkyUI (SE)`) — so the readback's delimiter has to survive them or the name it prints cannot
+    /// be copied back into the placement.</summary>
+    public const string DefiningFolder = "Bijin's NPCs (SE)";
 
     public string Root { get; }
     public string ModsDir { get; }
@@ -105,10 +108,12 @@ public sealed class CopySourceFolderReadbackTests : IDisposable
         _w.Svc, _w.Fid(_w.DonorNpc), new[] { "Override.esp", "Donor.esp" }, Seeds,
         new[] { "Race:refuse" }, null, "HcTwoClone", patch, null);
 
-    /// <summary>The folder named for a given source arm, read out of the readback the way a caller reads it.</summary>
+    /// <summary>The folder named for a given source arm, read out of the readback the way a caller reads it. The
+    /// delimiter is the double quote a Windows folder name cannot contain, so a name holding an apostrophe or a
+    /// parenthesis still ends where the reader thinks it does.</summary>
     static string? FolderNamedFor(string readback, string spelling)
     {
-        var m = Regex.Match(readback, Regex.Escape(spelling) + @" \(MO2 mod folder '([^']+)'\)");
+        var m = Regex.Match(readback, Regex.Escape(spelling) + " \\(MO2 mod folder \"([^\"]+)\"\\)");
         return m.Success ? m.Groups[1].Value : null;
     }
 
