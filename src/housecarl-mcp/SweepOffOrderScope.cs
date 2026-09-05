@@ -9,7 +9,9 @@ namespace HousecarlMcp;
 /// <para>One home, because both swept families take the lane and a second spelling of it is how the two would come
 /// to disagree about which names resolve, which are ambiguous, and what the refusal says. The locate itself is
 /// <see cref="LoadOrderService.LocatePluginFileOnDisk"/>, the contract every other lane uses; the MO2 composition
-/// is read lazily, so a call whose every name is active pays for no folder sweep.</para>
+/// is read lazily, so a call whose every name is active pays for no folder sweep. A surface running both families
+/// over one list hands them one <see cref="SweepOffOrderMemo"/>, so the composition read and the folder sweep
+/// happen once and the two answer off the same split rather than off two runs of the same code.</para>
 /// </summary>
 internal static class SweepOffOrderScope
 {
@@ -20,10 +22,38 @@ internal static class SweepOffOrderScope
 
     /// <summary>Split <paramref name="plugins"/> against <paramref name="view"/>. Returns the refusal, or null on
     /// success with <paramref name="active"/> and <paramref name="offOrder"/> filled — a blank name, a name found
-    /// nowhere, and a name several mod folders provide each refuse before anything is swept.</summary>
+    /// nowhere, and a name several mod folders provide each refuse before anything is swept.
+    /// <para>An optional <paramref name="memo"/> makes the second family of one call reuse the first family's
+    /// answer instead of reading the composition and sweeping every mod folder again. It answers only when it was
+    /// filled against this same build and this same list; otherwise the split is recomputed and the memo refilled,
+    /// so a memo can never hand back a composition the caller's own build did not see.</para></summary>
     internal static Refusal? Split(LoadOrderResolver.IndexView view, IReadOnlyList<string> plugins,
                                    string modsDir, string dataDir, string overwriteDir, string profileDir,
-                                   out List<string> active, out List<(string Name, string Path)> offOrder)
+                                   out List<string> active, out List<(string Name, string Path)> offOrder,
+                                   SweepOffOrderMemo? memo = null)
+    {
+        if (memo is { Epoch: not null } m && m.Epoch == view.Epoch && ReferenceEquals(m.Plugins, plugins))
+        {
+            active = m.Active;
+            offOrder = m.OffOrder;
+            return m.Refusal;
+        }
+
+        var answer = Compute(view, plugins, modsDir, dataDir, overwriteDir, profileDir, out active, out offOrder);
+        if (memo is not null)
+        {
+            memo.Epoch = view.Epoch;
+            memo.Plugins = plugins;
+            memo.Refusal = answer;
+            memo.Active = active;
+            memo.OffOrder = offOrder;
+        }
+        return answer;
+    }
+
+    static Refusal? Compute(LoadOrderResolver.IndexView view, IReadOnlyList<string> plugins,
+                            string modsDir, string dataDir, string overwriteDir, string profileDir,
+                            out List<string> active, out List<(string Name, string Path)> offOrder)
     {
         active = new List<string>();
         offOrder = new List<(string Name, string Path)>();
@@ -49,4 +79,19 @@ internal static class SweepOffOrderScope
         }
         return null;
     }
+}
+
+/// <summary>ONE CALL's memo of the off-order split, so a surface that hands the same <c>plugins=</c> list to both
+/// swept families pays the MO2 composition read and the whole-install folder sweep once rather than twice — and
+/// cannot have the two families disagree about which names resolved.
+/// <para>It lives for that one call: nothing holds a locate between calls, so a mod folder that changed since the
+/// last sweep is still seen. It answers only for the build and the very list it was filled against; anything else
+/// recomputes. A family handed no memo resolves on its own, which is what each standalone tool does.</para></summary>
+public sealed class SweepOffOrderMemo
+{
+    internal string? Epoch;
+    internal IReadOnlyList<string>? Plugins;
+    internal SweepOffOrderScope.Refusal? Refusal;
+    internal List<string> Active = new();
+    internal List<(string Name, string Path)> OffOrder = new();
 }

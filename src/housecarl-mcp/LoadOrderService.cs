@@ -4609,7 +4609,8 @@ public sealed class LoadOrderService : IDisposable
     public ErrorCheckResult CheckErrors(IReadOnlyList<string>? plugins, int limit,
                                         IReadOnlyList<string>? formids = null, string? editoridContains = null,
                                         string? type = null, IReadOnlyList<string>? findings = null,
-                                        bool countsOnly = false, IReadOnlyList<string>? exclude = null)
+                                        bool countsOnly = false, IReadOnlyList<string>? exclude = null,
+                                        SweepOffOrderMemo? offOrderMemo = null)
     {
         var (recordScope, scopeErr) = BuildSweepScope(formids, editoridContains, type);
         if (scopeErr is not null) return ErrorCheckResult.Fail(scopeErr);
@@ -4642,7 +4643,7 @@ public sealed class LoadOrderService : IDisposable
             // Membership and locate refusals are decided against THIS captured build and its composition, so they
             // are stamped; a blank name consulted no build and stays unstamped.
             if (SweepOffOrderScope.Split(view, plugins, modsDir, dataDir, overwriteDir, profileDir,
-                                         out var active, out var offOrder) is { } splitErr)
+                                         out var active, out var offOrder, offOrderMemo) is { } splitErr)
                 return splitErr.Stamped
                     ? ErrorCheckResult.Fail(splitErr.Message) with { Epoch = view.Epoch }
                     : ErrorCheckResult.Fail(splitErr.Message);
@@ -4766,7 +4767,8 @@ public sealed class LoadOrderService : IDisposable
                                              IReadOnlyList<string>? formids = null, string? editoridContains = null,
                                              string? type = null, string? propertyContains = null,
                                              IReadOnlyList<string>? findings = null, bool countsOnly = false,
-                                             IReadOnlyList<string>? exclude = null)
+                                             IReadOnlyList<string>? exclude = null,
+                                             SweepOffOrderMemo? offOrderMemo = null)
     {
         var (recordScope, scopeErr) = BuildSweepScope(formids, editoridContains, type);
         if (scopeErr is not null) return ScriptCheckResult.Fail(scopeErr);
@@ -4791,7 +4793,7 @@ public sealed class LoadOrderService : IDisposable
             string modsDir, dataDir, overwriteDir, profileDir;
             lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; }
             if (SweepOffOrderScope.Split(view, plugins, modsDir, dataDir, overwriteDir, profileDir,
-                                         out var active, out var offOrder) is { } splitErr)
+                                         out var active, out var offOrder, offOrderMemo) is { } splitErr)
                 return splitErr.Stamped
                     ? ScriptCheckResult.Fail(splitErr.Message) with { Epoch = view.Epoch }
                     : ScriptCheckResult.Fail(splitErr.Message);
