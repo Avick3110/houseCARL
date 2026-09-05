@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Reflection;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
@@ -194,7 +194,8 @@ public static class ReadEngine
     /// so the server's reads inherit the read-proof by construction. Per-leaf fault isolation: an unreadable field
     /// names itself in its <see cref="FieldValue.Note"/>, never throws out of the record read.</summary>
     public static RecordFields ReadFields(IMajorRecordGetter record, IReadOnlyList<string>? paths = null, int depth = 1,
-                                          string? containerHint = DepthExpandHint)
+                                          string? containerHint = DepthExpandHint,
+                                          Func<IMajorRecordGetter, (IMajorRecordGetter? Parent, string? Why)>? parentOf = null)
     {
         var typeName = RecordNaming.StripGetterInterface(WriteEngine.PrimaryGetter(record.GetType())?.Name ?? "I?Getter");
         var targets = paths is { Count: > 0 } ? (IEnumerable<string>)paths : ModeledFieldNames(typeName, record.GetType());
@@ -206,7 +207,9 @@ public static class ReadEngine
             foreach (var p in targets)
             {
                 var seg = p.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                var r = ReadLeaf(record, seg);
+                var (on, tail, hopNote) = HopToParent(record, seg, parentOf);
+                if (hopNote is not null) { fields.Add(new FieldValue(p, false, null, hopNote, null, Present: false, Count: null, Readable: false)); continue; }
+                var r = ReadLeaf(on, tail);
                 string? note = r.HasValue ? null : r.Note;
                 // An UNEXPANDED container / substruct leaf self-documents the lever that opens it: at the depth-1
                 // default it renders as a count/summary ("[list: 2 item(s)]", "[BodyTemplate]"). No-value NOTES are
@@ -221,10 +224,42 @@ public static class ReadEngine
         else
         {
             int budget = MaxExpandNodes;
-            foreach (var p in targets) EmitWithDepth(record, p, depth, fields, ref budget);
+            foreach (var p in targets)
+            {
+                var seg = p.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var (on, tail, hopNote) = HopToParent(record, seg, parentOf);
+                if (hopNote is not null) { fields.Add(new FieldValue(p, false, null, hopNote, null, Present: false, Count: null, Readable: false)); continue; }
+                EmitWithDepth(on, string.Join(".", tail), depth, fields, ref budget, p);
+            }
         }
         return new RecordFields(typeName, record.FormKey.ToString(), record.EditorID, fields);
     }
+
+    /// <summary>The <c>*parent</c> containment step on a read path: strip the leading hops, climb to the record
+    /// that CONTAINS this one, and hand back what the rest of the path should be read on. The parent set is
+    /// Mutagen's own containment walk, captured at index build — never a per-record-type map here. Returns a note
+    /// instead when the hop cannot be taken: the record has no containing record, or this read surface carries no
+    /// load-order index to ask.</summary>
+    static (IMajorRecordGetter On, string[] Tail, string? Note) HopToParent(
+        IMajorRecordGetter record, string[] segs,
+        Func<IMajorRecordGetter, (IMajorRecordGetter? Parent, string? Why)>? parentOf)
+    {
+        int hops = 0;
+        while (hops < segs.Length && string.Equals(segs[hops], ContainmentIndex.ParentToken, StringComparison.OrdinalIgnoreCase)) hops++;
+        if (hops == 0) return (record, segs, null);
+        if (hops == segs.Length)
+            return (record, segs, $"('{ContainmentIndex.ParentToken}' names the containing record, not a value — follow it with a field, e.g. '{ContainmentIndex.ParentToken}.EditorID')");
+        if (parentOf is null)
+            return (record, segs, $"('{ContainmentIndex.ParentToken}' needs the load-order index, which this read does not carry — read the record through the load order instead)");
+        for (int i = 0; i < hops; i++)
+        {
+            var (parent, why) = parentOf(record);
+            if (parent is null) return (record, segs, $"({why ?? "no record contains this one"})");
+            record = parent;
+        }
+        return (record, segs[hops..], null);
+    }
+
 
     // ======================================================================
     //  THE READ PRIMITIVE — navigate a path read-only, emit the leaf token.
@@ -483,16 +518,19 @@ public static class ReadEngine
     /// this one target (an unparseable nested getter, an enumerator that faults mid-list, an ambiguous identity
     /// reflection) names itself "(unreadable …)" and never escapes the record read — so one bad field can't crash
     /// a whole-record depth dump. Lines already emitted before a mid-expansion fault are real reads and are kept.</summary>
-    static void EmitWithDepth(object record, string path, int depth, List<FieldValue> sink, ref int budget)
+    /// <summary><paramref name="display"/> is how the emitted rows spell the path when it differs from what is
+    /// navigated — a <c>*parent</c> hop reads on the parent but the caller asked for '*parent.Responses'.</summary>
+    static void EmitWithDepth(object record, string path, int depth, List<FieldValue> sink, ref int budget, string? display = null)
     {
+        var shown = display ?? path;
         try
         {
             var seg = path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             var nav = NavigateValue(record, seg);
-            if (!nav.ok) { Emit(sink, ref budget, new FieldValue(path, false, null, nav.note, Present: false)); return; }
-            Expand(nav.val, nav.type, nav.parent, path, depth, sink, ref budget);
+            if (!nav.ok) { Emit(sink, ref budget, new FieldValue(shown, false, null, nav.note, Present: false)); return; }
+            Expand(nav.val, nav.type, nav.parent, shown, depth, sink, ref budget);
         }
-        catch (Exception ex) { Emit(sink, ref budget, new FieldValue(path, false, null, $"(unreadable: {ex.Message})", Present: false)); }
+        catch (Exception ex) { Emit(sink, ref budget, new FieldValue(shown, false, null, $"(unreadable: {ex.Message})", Present: false)); }
     }
 
     /// <summary>Recursively emit <paramref name="val"/> at <paramref name="path"/>: a value leaf → its token;

@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using ModelContextProtocol.Server;
@@ -34,7 +34,7 @@ public static class RecordsTools
         [Description("The form: 'identity' (FormID -> type/editorid/name/winner — the labeling form; needs formids=) | 'summary' (identity plus winner/override-depth header facts — the default) | 'fields' (named field values; takes fields= and depth=) | 'rows' (a LIST field folded to ONE LINE PER ELEMENT — the compact per-row view: takes fields= naming the list (index one element, 'Conditions[0]', to fold just that one), and depth= (default 4). Each line is the element's own summary plus every sub-field the read FOUND; only ABSENT optionals are omitted, which is what turns a 40-row condition stack from ~1,000 lines into 40. A declared-but-null link is kept — an empty slot is a fact. A named field that is not a list fails loud) | 'everything' (the full record body; takes depth=) | 'aggregate' (a counted table; takes group_by=) | 'delta' (subject vs reference, differences only — source= is the subject, versus= the reference; takes fields= to narrow) | 'tree' (every provider of each record in priority order, winner last, each diffed against the reference pole — default the winner; takes fields=. On a record type that OWNS child records — a cell's placed references, a topic's INFO lines, a worldspace's cells — it also states, per such field, which providers DECLARE children there (a COLLECTION field) or how many do (a SINGULAR one, e.g. Cell.Landscape), and says so when none do) | 'info_order' (DIAL topics only: the effective MERGED INFO sequence across every touching plugin — the order the game walks, with MOVED annotations; the 'why does the wrong line play' diagnostic) | 'chain' (a walk's own paths, endpoints and cycles rather than the records it reached; needs walk=, and carries the NPC-template inheritance report and the reverse MGEF carrier rows).")]
         public string? form { get; set; }
 
-        [Description("fields/rows forms: dotted field paths to read, e.g. [\"BasicStats.Damage\", \"Keywords\", \"Effects\"]. Index a list/dict element with BRACKETS ('Effects[0].Data.Magnitude'). On the rows form these name the LIST(S) to fold, one line per element. where='s quantifier tokens are not read here: [*any]/[*all]/[*none] fold to a boolean, which is not a row, and [*] / [*count] as a PROJECTION are not built yet — both are refused by name.")]
+        [Description("fields/rows forms: dotted field paths to read, e.g. [\"BasicStats.Damage\", \"Keywords\", \"Effects\"]. Index a list/dict element with BRACKETS ('Effects[0].Data.Magnitude'). A path may LEAD with the containment step '*parent' — the record that CONTAINS this one, which group nesting makes invisible to references= ('*parent.EditorID' is an INFO's owning DIAL; '*parent.*parent.EditorID' a placed reference's worldspace) — and it chains. On the rows form these name the LIST(S) to fold, one line per element. where='s quantifier tokens are not read here: [*any]/[*all]/[*none] fold to a boolean, which is not a row, and [*] / [*count] as a PROJECTION are not built yet — both are refused by name.")]
         public string[]? fields { get; set; }
 
         [Description("fields/rows/everything forms: expansion depth for list/dict/substruct CONTENTS (default 1, or 4 on the rows form, where a shallower read renders every element as a bare type). THIS is the expansion knob: fields=[\"Effects\"], depth=4 reaches every effect's Magnitude/Area/Duration — no hand-written index guessing.")]
@@ -52,10 +52,10 @@ public static class RecordsTools
     /// call's own SELECT.</summary>
     public sealed class RecordsWalk
     {
-        [Description("Link-bearing field paths that start the walk from each seed, e.g. [\"HeadParts\", \"WornArmor\"]. Omit for every link on the seed.")]
+        [Description("Link-bearing field paths that start the walk from each seed, e.g. [\"HeadParts\", \"WornArmor\"]. '*parent' crosses the containment edge instead — the record that CONTAINS the seed (a REFR from a crash log to its CELL; '*parent.*parent' to the worldspace). Omit for every link on the seed.")]
         public string[]? seed_paths { get; set; }
 
-        [Description("The link path followed at every LATER hop. \"*\" (default) walks every link — full closure. A named path restricts to one chain, e.g. \"Template\" for NPC template inheritance.")]
+        [Description("The link path followed at every LATER hop. \"*\" (default) walks every link — full closure. A named path restricts to one chain, e.g. \"Template\" for NPC template inheritance, or \"*parent\" to climb containment.")]
         public string? follow { get; set; }
 
         [Description("'forward' (default) — what the seeds point AT (cheap: each hop is one link resolve). 'reverse' — what points AT the seeds; depth 1 only (reverse is a bounded scan; transitive reverse is refused naming the reverse-reference index as the future capability). The general reverse spelling on this surface IS references= (same construct); walk.direction='reverse' serves the typed MGEF lane — magic-effect seeds get per-carrier magnitude/area/duration (types= narrows the carrier types; walk.max_nodes bounds each seed's carrier rows; limit=/offset= window the SEEDS).")]
@@ -104,7 +104,11 @@ public static class RecordsTools
          "[*any]/[*all]/[*none] fold the elements into a boolean, [*count] into their number, and [*all] is " +
          "vacuously true on an empty list; a quantified step COSTS the list's length (per-candidate work times the " +
          "number of elements) and, where its sub-path carries '->', one winner fetch PER ELEMENT — " +
-         "'Temporary[*any]->…' on a dense cell is hundreds of fetches per candidate, presence 'VirtualMachineAdapter " +
+         "'Temporary[*any]->…' on a dense cell is hundreds of fetches per candidate; the CONTAINMENT step " +
+         "'*parent' — the record that CONTAINS this one, " +
+         "which group nesting makes invisible to references=: '*parent.EditorID = GreetingsTopic' is an INFO's " +
+         "owning DIAL, '*parent.*parent.EditorID = Tamriel' a placed reference's worldspace; it LEADS a path and " +
+         "chains, presence 'VirtualMachineAdapter " +
          "exists', membership 'formid not in @<file>' / 'Race in [XXXXXX:A.esm, YYYYYY:B.esm]' (list entries " +
          "separate on commas/newlines with brackets and quotes stripped — a value that itself contains a comma " +
          "or bracket is not expressible in a list; test it with '='), ONE '->' link step " +
