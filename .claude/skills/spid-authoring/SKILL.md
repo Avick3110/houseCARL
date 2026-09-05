@@ -139,6 +139,14 @@ what SPID looked up; only a live actor shows what SPID applied.
   it by name, which is what makes a no-ESP keyword distribution verifiable from script at all. For the
   signature, look it up in the `papyrus-reference` skill; the SPID side
   is in `references/form-types.md`.
+- **Chance and a Level Filter skip actors by design.** A `Chance` below 100 is *supposed* to miss some
+  NPCs, so two sampled actors without the form is an ordinary outcome for `|||||50`, not a broken
+  rule — and the roll is re-made each session unless `!` pins it per NPC (`!` makes re-sampling the
+  same actor repeatable; it does not make the form land). A Level Filter does the same
+  deterministically: the line moves to the Leveled Distribution pass and only auto-leveled NPCs whose
+  level/skills fall in the range receive it. Before calling a rule failed, set Chance to 100 and check
+  the actors you sampled pass the Level Filter (`references/grammar-core.md` §10,
+  `references/filters.md` §3).
 - **Sample somewhere NPCs must be** — testing practice, not a SPID rule. An interior cell with known
   occupants beats an exterior spawn marker: finding no NPC within scan range there is inconclusive
   rather than a failing distribution.
