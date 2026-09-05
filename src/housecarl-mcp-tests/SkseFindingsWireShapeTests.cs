@@ -19,6 +19,56 @@ public sealed class SkseFindingsWireShapeTests
     readonly ServerFixture _s;
     public SkseFindingsWireShapeTests(ServerFixture s) => _s = s;
 
+    /// <summary>The TRANSPORT axes SPEC §2.1 makes uniform are published on this tool too — a surface missing one
+    /// is the bug #539 named, so their absence from the schema has to fail here.</summary>
+    [Theory]
+    [InlineData("format", "string")]
+    [InlineData("limit", "integer")]
+    [InlineData("offset", "integer")]
+    [InlineData("max_chars", "integer")]
+    public void TheTransportAxesArePublishedOnTheTool(string name, string type)
+    {
+        var prop = _s.PublishedTools[ToolNames.Skse].GetProperty("inputSchema").GetProperty("properties").GetProperty(name);
+
+        Assert.Contains(type, prop.GetProperty("type").ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>An unrecognized format= is refused naming the two this tool renders — and, like the other argument
+    /// refusals, it outranks the config prompt: the value is wrong whether or not an instance is configured.</summary>
+    [Fact]
+    public void AnUnrecognizedFormatIsRefusedNamingTextAndJson()
+    {
+        var r = _s.Call(ToolNames.Skse, """{"format":"dense"}""");
+
+        Assert.StartsWith("error: ", r.Text, StringComparison.Ordinal);
+        Assert.Contains("'text'", r.Text, StringComparison.Ordinal);
+        Assert.Contains("'json'", r.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(ServerFixture.ConfigPrompt, r.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>A negative window is one refusal naming both knobs, before any scan is paid for.</summary>
+    [Fact]
+    public void ANegativeWindowIsRefusedNamingBothKnobs()
+    {
+        var r = _s.Call(ToolNames.Skse, """{"limit":-1}""");
+
+        Assert.StartsWith("error: ", r.Text, StringComparison.Ordinal);
+        Assert.Contains("limit=0 for no limit", r.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(ServerFixture.ConfigPrompt, r.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>With format='json' the tool's OWN refusals come back as json documents, not as a text sentence a
+    /// json consumer would have to sniff for — the json lane is never the degraded one.</summary>
+    [Fact]
+    public void AJsonCallsRefusalIsAJsonDocument()
+    {
+        var r = _s.Call(ToolNames.Skse, """{"findings":"errors","format":"json"}""");
+
+        using var doc = JsonDocument.Parse(r.Text);
+        Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Contains("is not a family on this tool", doc.RootElement.GetProperty("error").GetString());
+    }
+
     /// <summary>The published declaration the shim judges against: a string OR an array, plus null for optional.</summary>
     [Fact]
     public void FindingsIsPublishedAsAStringOrAnArray()

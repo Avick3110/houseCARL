@@ -127,9 +127,10 @@ public sealed class SkseFamilySelectionTests
     {
         public string? Called;
         public int Cap;
-        public string Inventory(string? filter, bool peek, int cap) { Called = "inventory"; Cap = cap; return "INVENTORY-BODY"; }
-        public string Pairing(string? filter, int cap) { Called = "pairing"; Cap = cap; return "PAIRING-BODY"; }
-        public string Config(string? filter, int cap) { Called = "config"; Cap = cap; return "CONFIG-BODY"; }
+        public SkseTools.FamilyCall Call;
+        public string Inventory(SkseTools.FamilyCall c) { Called = "inventory"; Cap = c.Cap; Call = c; return "INVENTORY-BODY"; }
+        public string Pairing(SkseTools.FamilyCall c) { Called = "pairing"; Cap = c.Cap; Call = c; return "PAIRING-BODY"; }
+        public string Config(SkseTools.FamilyCall c) { Called = "config"; Cap = c.Cap; Call = c; return "CONFIG-BODY"; }
     }
 
     /// <summary>Each findings= value runs its OWN family's render, and the answer ends on that family's footer. Without
