@@ -627,7 +627,7 @@ public sealed class LoadOrderResolver : IDisposable
     /// restart invalidates nothing; any content edit, reorder, set change, or exclusion change fingerprints
     /// differently. Stamped into every bulk response's in-band accounting so cross-page drift is detectable instead of
     /// silently incoherent, and checked on artifact re-entry (a mismatch refuses loud, naming both epochs).
-    /// Opaque to consumers — 16 hex chars of SHA-256, compared only for equality.
+    /// Opaque to consumers — a <see cref="EpochFormat"/> tag then 16 hex chars of SHA-256, compared only for equality.
     ///
     /// <para>Known approximations: an unstattable-but-openable file collapses to
     /// <see cref="SafeStamp"/>'s absent sentinel (distinct world-states, one stamp — vanishingly rare since
@@ -647,8 +647,21 @@ public sealed class LoadOrderResolver : IDisposable
         foreach (var name in excludedPlugins.Keys.OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
             sb.Append("excluded|").Append(name).Append('\n');
         var hash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
-        return Convert.ToHexString(hash.AsSpan(0, 8)).ToLowerInvariant();
+        return EpochFormat + "-" + Convert.ToHexString(hash.AsSpan(0, 8)).ToLowerInvariant();
     }
+
+    /// <summary>The epoch string's FORMAT tag, bumped whenever <see cref="ComputeEpoch"/>'s input changes shape. An
+    /// epoch is persisted in a result artifact's manifest and re-checked on every <c>@file</c> re-entry, so a formula
+    /// change makes every older artifact fingerprint differently over a completely unchanged load order. The tag is
+    /// what lets that be SAID: an epoch carrying another tag was written by a build that computed it differently, and
+    /// the two cannot be compared at all — which is a different sentence from "your load order changed".</summary>
+    internal const string EpochFormat = "e2";
+
+    /// <summary>Whether an epoch string was written in the format THIS build computes — i.e. whether comparing it
+    /// against a current epoch means anything. False for an epoch persisted by a houseCARL from before the format
+    /// changed.</summary>
+    public static bool IsCurrentEpochFormat(string epoch) =>
+        epoch.StartsWith(EpochFormat + "-", StringComparison.Ordinal);
 
     /// <summary>Record one plugin's exclusion from the index build: into the human-readable failure list, the
     /// fast-skip index set, and the name→reason map the server surfaces in load_order_status.</summary>
