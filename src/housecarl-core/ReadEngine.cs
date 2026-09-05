@@ -341,10 +341,69 @@ public static class ReadEngine
         if (ownerIsCollection)
         {
             var pf = precedingField ?? "<field>";
-            return $"(no field '{segName}': '{pf}' is a list/dict — index an element with brackets, " +
-                   $"e.g. '{pf}[{segName}]', not '{pf}.{segName}')";
+            return $"(no field '{segName}': '{pf}' is a list/dict — {ListHopRemedy(owner, segName, pf)})";
         }
         return $"(no field {segName})";
+    }
+
+    /// <summary>What to actually DO about a path that dotted THROUGH a list/dict — checked against the element
+    /// type, never asserted. A missing bracket and a wrong leaf name look identical at the dead-end, and they need
+    /// opposite next moves, so the segment is resolved against the collection's element type first: it exists, and
+    /// the remedy is the exact bracketed spelling; it does not, and the remedy says so and offers the nearest real
+    /// field. Only where the element type cannot be determined does this fall back to the shape advice alone.</summary>
+    internal static string ListHopRemedy(object owner, string segName, string pf)
+    {
+        // A numeric segment is the '.0'-vs-'[0]' confusion, not a field name: it is an INDEX, and no element type
+        // check applies.
+        if (segName.Length > 0 && segName.All(char.IsDigit))
+            return $"index an element with brackets, e.g. '{pf}[{segName}]', not '{pf}.{segName}'";
+
+        var et = ElementType(owner);
+        if (et is null)
+            return $"index an element with brackets, e.g. '{pf}[0].{segName}', not '{pf}.{segName}'";
+
+        var etName = RecordNaming.StripOverlay(et.Name);
+        if (WriteEngine.ResolveProperty(et, segName) is not null)
+            return $"index an element with brackets: '{pf}[0].{segName}', not '{pf}.{segName}'";
+
+        var near = PluginNameSuggest.Nearest(segName, ElementFieldNames(et), 1);
+        return near.Count > 0
+            ? $"'{segName}' is not a field on its element type {etName} — did you mean '{pf}[0].{near[0]}'?"
+            : $"'{segName}' is not a field on its element type {etName}; index an element with brackets " +
+              $"('{pf}[0].<field>') and name a field {etName} has";
+    }
+
+    /// <summary>The element type of a collection, from the strongly-typed <c>IEnumerable&lt;T&gt;</c> it implements
+    /// (a dictionary's values where it is a dictionary), falling back to the runtime type of its first element. Null
+    /// when the collection is untyped and empty — nothing can be said about its elements then.</summary>
+    static Type? ElementType(object owner)
+    {
+        foreach (var i in owner.GetType().GetInterfaces())
+        {
+            if (!i.IsGenericType) continue;
+            var d = i.GetGenericTypeDefinition();
+            if (d == typeof(IReadOnlyDictionary<,>) || d == typeof(IDictionary<,>)) return i.GetGenericArguments()[1];
+        }
+        foreach (var i in owner.GetType().GetInterfaces())
+            if (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+            {
+                var t = i.GetGenericArguments()[0];
+                if (t != typeof(object)) return t;
+            }
+        if (owner is System.Collections.IEnumerable e)
+            foreach (var first in e) { if (first is not null) return first.GetType(); break; }
+        return null;
+    }
+
+    /// <summary>Every public instance property name on an element type, across the interfaces the read walk resolves
+    /// through — the candidate set the nearest-name suggestion is drawn from, so a suggestion can only ever name a
+    /// field the caller could actually use.</summary>
+    static IEnumerable<string> ElementFieldNames(Type et)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var t in new[] { et }.Concat(et.GetInterfaces()))
+            foreach (var p in t.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+                if (p.GetIndexParameters().Length == 0 && seen.Add(p.Name)) yield return p.Name;
     }
 
     // ======================================================================
