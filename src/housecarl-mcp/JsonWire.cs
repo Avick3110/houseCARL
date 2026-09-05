@@ -29,6 +29,23 @@ static class JsonWire
         if (v is null) w.WriteNull(name); else w.WriteString(name, v);
     }
 
+    /// <summary>The ONE way a json document writes its epoch stamp, so the marker that rides beside it cannot be
+    /// remembered on one lane and forgotten on the next. <c>epoch</c> exactly as before, then — and only when the
+    /// build that answered had LOST plugins to a load failure — <c>order_degraded:true</c> and one sentence saying
+    /// how many, which ones, that this is a failure rather than a change the caller made, and where the reason is
+    /// (#353). Silent on a healthy order, so the normal case gains nothing.
+    ///
+    /// <para>A sibling of the stamp, never inside it: the epoch is opaque and compared only for equality, so folding
+    /// health into the string would leave two builds that differ only in health comparing as merely "different" —
+    /// today's ambiguity re-spelled.</para></summary>
+    static void WriteEpoch(Utf8JsonWriter w, string? epoch)
+    {
+        WriteNullable(w, "epoch", epoch);
+        if (OrderHealth.NoteFor(epoch) is not { } note) return;
+        w.WriteBoolean("order_degraded", true);
+        w.WriteString("order_degraded_note", note);
+    }
+
     /// <summary>A record's runtime address on the json lanes: <c>runtime_formid</c> always present (null when the
     /// order gives the record none), plus <c>runtime_formid_note</c> written ONLY when there is a reason to state —
     /// a consumer reading the form gets a token or a null, never a sentence where a FormID belongs.</summary>
@@ -98,7 +115,7 @@ static class JsonWire
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
             w.WriteNumber("count", rows.Count);
-            w.WriteString("epoch", epoch);   // the ONE captured build the whole batch resolved against
+            WriteEpoch(w, epoch);   // the ONE captured build the whole batch resolved against
             w.WriteStartArray("resolved");
             int rendered = 0; bool rowsTruncated = false;
             foreach (var r in rows)
@@ -163,7 +180,7 @@ static class JsonWire
         {
             w.WriteStartObject();
             WriteRefusal(w, error);
-            WriteNullable(w, "epoch", epoch);
+            WriteEpoch(w, epoch);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -392,7 +409,7 @@ static class JsonWire
     {
         var r = o.Record!;
         w.WriteStartObject();
-        if (epoch is not null) w.WriteString("epoch", epoch);   // single-read top level ONLY
+        if (epoch is not null) WriteEpoch(w, epoch);   // single-read top level ONLY
         w.WriteString("formid", r.FormKey);
         WriteRuntime(w, o.RuntimeFormId, o.RuntimeFormIdNote);
         w.WriteString("type", r.Type);
@@ -441,7 +458,7 @@ static class JsonWire
             w.WriteNumber("count", outcomes.Count);
             // The whole batch reads ONE captured build (ResolveBatch) — response-level accounting, first non-null
             // (a malformed-FormID row never consulted a view and carries none).
-            WriteNullable(w, "epoch", outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch);
+            WriteEpoch(w, outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch);
             w.WriteStartArray("records");
             int rendered = 0; bool rowsTruncated = false;
             var childFields = new SortedSet<string>(StringComparer.Ordinal);   // the annotated fields the rows RENDERED carried
@@ -486,7 +503,7 @@ static class JsonWire
             w.WriteNumber("count", count);
             w.WriteNumber("resolved", ok);
             w.WriteNumber("errors", errors);
-            WriteNullable(w, "epoch", epoch);
+            WriteEpoch(w, epoch);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -503,7 +520,7 @@ static class JsonWire
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
             foreach (var c in counts) w.WriteNumber(c.Key, c.Value);
-            WriteNullable(w, "epoch", epoch);
+            WriteEpoch(w, epoch);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -524,7 +541,7 @@ static class JsonWire
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
             w.WriteNumber("count", outcomes.Count);
-            WriteNullable(w, "epoch", outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch);
+            WriteEpoch(w, outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch);
             w.WriteStartArray("records");
             int rendered = 0; bool rowsTruncated = false;   // summary rows carry no fields, so no owned-child annotation
             foreach (var o in outcomes)
@@ -571,7 +588,7 @@ static class JsonWire
             w.WriteString("group_by", groupBy);
             w.WriteNumber("count", count);
             if (errors > 0) w.WriteNumber("errors", errors);
-            WriteNullable(w, "epoch", epoch);
+            WriteEpoch(w, epoch);
             w.WriteStartArray("groups");
             foreach (var (key, n) in rows.Select(r => (r.Key, r.Value)))
             {
@@ -646,7 +663,7 @@ static class JsonWire
             // The census covers the COMPLETE list: rows may be a WINDOW, so the caller computes the counters over
             // everything and hands them in. Recomputing here would report the window as the world.
             foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);
-            WriteNullable(w, "epoch", epoch);
+            WriteEpoch(w, epoch);
             w.WriteStartArray("rows");
             int rendered = 0; bool rowsTruncated = false;
             foreach (var row in rows)
@@ -764,7 +781,7 @@ static class JsonWire
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
             foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);   // the counters cover the complete list, not this window
-            WriteNullable(w, "epoch", epoch);
+            WriteEpoch(w, epoch);
             w.WriteStartArray("rows");
             int rendered = 0; bool rowsTruncated = false; bool anyDeclarers = false;
             foreach (var row in rows)
@@ -863,7 +880,7 @@ static class JsonWire
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
             foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);   // the counters cover the complete list, not this window
-            WriteNullable(w, "epoch", epoch);
+            WriteEpoch(w, epoch);
             w.WriteStartArray("rows");
             int rendered = 0; bool rowsTruncated = false;
             foreach (var row in rows)
@@ -900,7 +917,7 @@ static class JsonWire
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
             foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);   // the counters cover the complete list, not this window
-            WriteNullable(w, "epoch", epoch);
+            WriteEpoch(w, epoch);
             w.WriteStartArray("rows");
             bool truncated = false;
             foreach (var (seed, r) in results)
@@ -1013,7 +1030,7 @@ static class JsonWire
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
             foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);   // the counters cover the complete list, not this window
-            WriteNullable(w, "epoch", epoch);
+            WriteEpoch(w, epoch);
             w.WriteStartArray("rows");
             int rendered = 0; bool rowsTruncated = false;
             foreach (var row in rows)
@@ -1060,12 +1077,12 @@ static class JsonWire
             WriteEnvelope(w, envelope);
             // Post-capture refusals are epoch-stamped; pre-capture validation refusals carry null and render bare,
             // same as the text twin.
-            if (q.Error is not null) { WriteRefusal(w, q.Error); if (q.Epoch is not null) w.WriteString("epoch", q.Epoch); }
+            if (q.Error is not null) { WriteRefusal(w, q.Error); if (q.Epoch is not null) WriteEpoch(w, q.Epoch); }
             else if (q.Groups is not null)                                   // group_by= → count table
             {
                 WriteNullable(w, "group_by", q.GroupBy);
                 w.WriteNumber("total", q.Total);
-                WriteNullable(w, "epoch", q.Epoch);
+                WriteEpoch(w, q.Epoch);
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
                 WriteNotes(w, q);
                 w.WriteStartArray("groups");
@@ -1090,7 +1107,7 @@ static class JsonWire
                 string? p5 = anyScoped ? ScopedFieldsNote(winnerFields, q.WhereWinner, levers) : null;
                 w.WriteNumber("total", q.Total);
                 w.WriteBoolean("capped", q.Capped);
-                WriteNullable(w, "epoch", q.Epoch);                         // offset= windows tile ONLY within one epoch
+                WriteEpoch(w, q.Epoch);                         // offset= windows tile ONLY within one epoch
                 if (q.Offset > 0) w.WriteNumber("offset", q.Offset);        // the window's start, in-band
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
                 WriteNotes(w, q, p5);
@@ -1188,14 +1205,14 @@ static class JsonWire
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
             // Post-capture refusals are epoch-stamped; pre-capture validation refusals stay bare.
-            if (q.Error is not null) { WriteRefusal(w, q.Error); if (q.Epoch is not null) w.WriteString("epoch", q.Epoch); }
+            if (q.Error is not null) { WriteRefusal(w, q.Error); if (q.Epoch is not null) WriteEpoch(w, q.Epoch); }
             else
             {
                 bool detail = fields is { Count: > 0 };
                 bool anyScoped = AnyScopedFieldRow(q, fields);   // the shared test: any row read from a scoped body
                 w.WriteNumber("total", q.Total);
                 w.WriteBoolean("capped", q.Capped);
-                WriteNullable(w, "epoch", q.Epoch);                           // offset= windows tile ONLY within one epoch
+                WriteEpoch(w, q.Epoch);                           // offset= windows tile ONLY within one epoch
                 if (q.Offset > 0) w.WriteNumber("offset", q.Offset);
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
                 WriteNotes(w, q, anyScoped ? ScopedFieldsNote(winnerFields, q.WhereWinner, levers) : null);
@@ -1658,7 +1675,7 @@ static class JsonWire
     static void WriteSweepEpoch(Utf8JsonWriter w, string? epoch, IReadOnlyList<string>? offOrderScanned)
     {
         if (epoch is null) return;
-        w.WriteString("epoch", epoch);
+        WriteEpoch(w, epoch);
         w.WriteBoolean("epoch_covers_all_inputs", offOrderScanned is not { Count: > 0 });
     }
 
@@ -1706,7 +1723,7 @@ static class JsonWire
             {
                 ew.WriteStartObject();
                 WriteRefusal(ew, o.Error);
-                WriteNullable(ew, "epoch", o.Epoch);
+                WriteEpoch(ew, o.Epoch);
                 ew.WriteEndObject();
                 ew.Flush();
             }
@@ -2224,7 +2241,7 @@ static class JsonWire
             w.WriteBoolean("needs_acknowledge", o.NeedsAcknowledge);
             w.WriteBoolean("dry_run", o.DryRun);
             w.WriteString("lane", lane);
-            WriteNullable(w, "epoch", o.Epoch);
+            WriteEpoch(w, o.Epoch);
             if (!o.Success)
             {
                 // NeedsAcknowledge carries its prompt in Error — labelled as a prompt, never as an error string.
@@ -2325,7 +2342,7 @@ static class JsonWire
             w.WriteBoolean("ok", o.Success);
             w.WriteBoolean("needs_acknowledge", o.NeedsAcknowledge);
             w.WriteString("lane", lane);
-            WriteNullable(w, "epoch", o.Epoch);
+            WriteEpoch(w, o.Epoch);
             if (!o.Success)
             {
                 WriteNullable(w, o.NeedsAcknowledge ? "confirmation" : "error", o.Error);
@@ -2507,7 +2524,7 @@ static class JsonWire
             w.WriteBoolean("ok", o.Success);
             w.WriteBoolean("needs_acknowledge", o.NeedsAcknowledge);
             w.WriteString("lane", lane);
-            WriteNullable(w, "epoch", o.Epoch);
+            WriteEpoch(w, o.Epoch);
             if (!o.Success)
             {
                 WriteNullable(w, o.NeedsAcknowledge ? "confirmation" : "error", o.Error);
@@ -2570,7 +2587,7 @@ static class JsonWire
             w.WriteBoolean("needs_acknowledge", o.NeedsAcknowledge);
             w.WriteBoolean("dry_run", o.DryRun);
             w.WriteString("lane", lane);
-            WriteNullable(w, "epoch", o.Epoch);
+            WriteEpoch(w, o.Epoch);
             if (!o.Success)
             {
                 WriteNullable(w, o.NeedsAcknowledge ? "confirmation" : "error", o.Error);
@@ -2807,7 +2824,7 @@ static class JsonWire
                 w.WriteString("error", o.Error);
                 // The same three keys RenderError writes: a refusal from the outcome and a refusal from the tool
                 // layer are one shape, so a consumer reading doc["epoch"] on a refusal never throws on one of them.
-                WriteNullable(w, "epoch", null);
+                WriteEpoch(w, null);
                 w.WriteEndObject();
                 w.Flush();          // INSIDE the using — an unflushed refusal renders EMPTY. See RenderPatchOutcome.
                 return Finish(ms);

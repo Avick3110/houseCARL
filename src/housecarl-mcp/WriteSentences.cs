@@ -43,7 +43,7 @@ internal static class WriteSentences
     /// refusal, dry run, consent prompt — so a caller can tell whether the winner it edited is the winner a read
     /// reported a moment earlier. The read-back proves what landed in the FILE, never what wins in the ORDER.
     /// Empty when the outcome consulted no build.</summary>
-    internal static string Epoch(string? epoch) => epoch is null ? "" : $"\nepoch={epoch}";
+    internal static string Epoch(string? epoch) => epoch is null ? "" : $"\nepoch={epoch}{OrderHealth.ClauseFor(epoch)}";
 
     // ---- artifact headers (text lane; json states these as typed fields) -----------------------------
     /// <summary>The IN-PLACE hazard clause — the one sentence telling a caller their own file was rewritten with
