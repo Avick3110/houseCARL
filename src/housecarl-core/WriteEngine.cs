@@ -1918,9 +1918,9 @@ public static class WriteEngine
     /// can actually re-send; it mirrors the same parameter on <c>CorpusRulebook.ValidateFromType</c>.</para>
     /// </summary>
     /// <returns>An apply-time note about what the write DID that the written file cannot express afterwards — today
-    /// only the duplicate-Add note (a list Add that appended an element the list already carried; the file shows a
-    /// longer list either way). Null when there is nothing to say, which is the common case. Callers that render an
-    /// op line carry it there; the rest ignore it.</returns>
+    /// only the list Add's membership answer (it appended an element the list already carried, or it could not
+    /// compare the element at all; the file shows a longer list either way). Null when the check ran and found
+    /// nothing, which is the common case. Callers that render an op line carry it there; the rest ignore it.</returns>
     public static string? ApplyVerb(object record, WriteRequest req, string pathSlot = "field_path")
     {
         object current = record;
@@ -2630,7 +2630,8 @@ public static class WriteEngine
         }
     }
 
-    /// <returns>The apply-time note <see cref="ApplyVerb"/> hands back — non-null only for a duplicate Add.</returns>
+    /// <returns>The apply-time note <see cref="ApplyVerb"/> hands back — non-null only for an Add whose membership
+    /// test found the element already there, or could not be asked.</returns>
     static string? ApplyListVerb(object parent, PropertyInfo prop, Type listIface, WriteRequest req)
     {
         // ARRAY-backed collection (a C# T[], e.g. Weather.CloudTextures / Weather.Clouds — fixed-size game
@@ -2674,30 +2675,51 @@ public static class WriteEngine
                 // struct-element list (modeled-struct elements) → build the new element FROM PARTS; coercible-element
                 // list → coerce the plain value. composes= appends MANY built elements in ONE op (each pre-flighted
                 // by ComposesLegality).
+                // EVERY Add form reports whether the list ALREADY carried what it appended. Add still appends — the
+                // verb's meaning is unchanged and no verb is added — but a duplicating add and a clean one otherwise
+                // render identically (both print a longer list), so the caller cannot tell one from the other and
+                // repeats it across a bulk run. Composed elements are checked too: Mutagen's Loqui element classes
+                // (ContainerEntry, LeveledItemEntry, Condition, Effect, …) override Equals structurally, so Contains
+                // finds a freshly built identical element. A type that compares by reference only cannot be asked,
+                // and that is its own reported outcome — never a clean answer.
                 if (req.Structs is { } addSpecs)
                 {
                     var addM = AddMethod(lt, elem);
-                    foreach (var s in addSpecs) addM.Invoke(list, new[] { BuildStruct(s) });
-                    break;
+                    int dup = 0, unknown = 0;
+                    foreach (var s in addSpecs)
+                    {
+                        var built = BuildStruct(s);
+                        switch (ListCarries(elem, list, built))
+                        {
+                            case Carried.Yes: dup++; break;
+                            case Carried.Unknown: unknown++; break;
+                        }
+                        addM.Invoke(list, new[] { built });
+                    }
+                    return ComposedAddNote(prop.Name, addSpecs.Count, dup, unknown);
                 }
                 if (req.Struct is not null)
                 {
-                    AddMethod(lt, elem).Invoke(list, new[] { BuildStruct(req.Struct) });
-                    break;
+                    var built = BuildStruct(req.Struct);
+                    var carriedStruct = ListCarries(elem, list, built);
+                    AddMethod(lt, elem).Invoke(list, new[] { built });
+                    return ComposedAddNote(prop.Name, 1,
+                        carriedStruct == Carried.Yes ? 1 : 0, carriedStruct == Carried.Unknown ? 1 : 0);
                 }
-                // A PLAIN-VALUE Add reports whether the list ALREADY carried this element. Add still appends — the
-                // verb's meaning is unchanged and no verb is added — but a duplicating add and a clean one otherwise
-                // render identically (both print a longer list), so the caller cannot tell one from the other and
-                // repeats it across a bulk run. Only the plain-value form is checked: a BUILT struct element is a
-                // fresh instance whose equality is the modeled type's, so a membership test there would answer no on
-                // every real duplicate and say nothing useful.
                 var addValue = Coerce(req.Value!, elem);
-                bool already = ListCarries(elem, list, addValue);
+                var already = ListCarries(elem, list, addValue);
                 AddMethod(lt, elem).Invoke(list, new[] { addValue });
-                if (already)
-                    return $"duplicate: '{req.Value}' was already in '{prop.Name}' — Add appends, so the list now "
-                           + "carries it twice; Remove it by value if you meant the list to hold one.";
-                break;
+                // CONDITIONAL voice, and no count: the same string renders under the dry-run header, where nothing was
+                // written and "Remove it" would delete the record's only copy, and Contains answers presence, not
+                // multiplicity — a list that already held two now holds three.
+                return already switch
+                {
+                    Carried.Yes =>
+                        $"duplicate: '{req.Value}' is already in '{prop.Name}', and Add appends rather than replacing "
+                        + "— once this write lands the list carries another copy, so Remove it by value if it should hold one.",
+                    Carried.Unknown => UncomparableNote(prop.Name),
+                    _ => null,
+                };
             case "SetAtIndex":
             {
                 // EXPECTED apply rejection (live length): pre-flight gates the index SHAPE (parseable non-negative int)
@@ -2776,17 +2798,55 @@ public static class WriteEngine
         return null;
     }
 
+    /// <summary>The three answers a membership test really has. <c>Unknown</c> is never folded into <c>No</c>: a
+    /// caller reading a clean op line would otherwise see exactly what a verified-clean add looks like.</summary>
+    enum Carried { No, Yes, Unknown }
+
     /// <summary>Does the list already carry this element? Asked through <c>ICollection&lt;T&gt;.Contains</c> on the
-    /// CLOSED INTERFACE, so an explicit implementation still answers, and a failure to ask is answered NO — the
-    /// duplicate note is an extra sentence on a write that has to land either way, never a reason to fail one.</summary>
-    static bool ListCarries(Type elem, object list, object? value)
+    /// CLOSED INTERFACE, so an explicit implementation still answers. A test that cannot be asked answers
+    /// <see cref="Carried.Unknown"/> — never a reason to fail the write, which has to land either way.</summary>
+    static Carried ListCarries(Type elem, object list, object? value)
     {
+        // Reference-only equality cannot answer: a freshly built element is a new instance, so Contains would say no
+        // on a real duplicate. Asked of the VALUE's runtime type, not the list's element type — an element type that
+        // is an interface (IFormLinkGetter<T>) declares no Equals at all, while the value behind it does.
+        if (value is not null && !HasStructuralEquality(value.GetType())) return Carried.Unknown;
         try
         {
             var contains = typeof(ICollection<>).MakeGenericType(elem).GetMethod("Contains", new[] { elem });
-            return contains?.Invoke(list, new[] { value }) is true;
+            if (contains is null) return Carried.Unknown;
+            return contains.Invoke(list, new[] { value }) is true ? Carried.Yes : Carried.No;
         }
-        catch { return false; }
+        catch { return Carried.Unknown; }
+    }
+
+    /// <summary>Does this runtime type compare by VALUE? True when something other than <c>object</c> declares
+    /// <c>Equals(object)</c> — a Loqui element class's own override, or <c>ValueType</c>'s field-wise default.</summary>
+    static bool HasStructuralEquality(Type t) =>
+        t.GetMethod("Equals", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(object) }, null)
+            is { } m && m.DeclaringType != typeof(object);
+
+    /// <summary>What a membership test that could not be asked says on the op line — the third outcome, spelled out
+    /// rather than borrowing the clean reading.</summary>
+    static string UncomparableNote(string prop) =>
+        $"duplicate not checked: houseCARL cannot compare '{prop}' elements by value, so it cannot say whether this "
+        + "Add appends a copy the list already carried.";
+
+    /// <summary>The note a COMPOSED Add owes the caller. Counts, because <c>composes=</c> appends many built elements
+    /// in one op; the remedy is by INDEX, since Remove-by-value takes a plain value and a composed element has none.
+    /// Conditional voice for the same reason the plain-value note has it — this renders on a dry run too. A repeated
+    /// element is legitimate weighting in a leveled list, so this states what was found, not that it was a mistake.</summary>
+    static string? ComposedAddNote(string prop, int total, int dup, int unknown)
+    {
+        string? found = dup == 0 ? null
+            : $"duplicate: {(total == 1 ? "the composed element is" : $"{dup} of the {total} composed elements are")} "
+            + $"already in '{prop}', and Add appends rather than replacing — once this write lands the list carries "
+            + "another copy, so Remove by index if it should hold one of each.";
+        string? unasked = unknown == 0 ? null
+            : total == 1 ? UncomparableNote(prop)
+            : $"duplicate not checked: houseCARL cannot compare {unknown} of the {total} composed elements against "
+            + $"'{prop}' by value, so it cannot say whether they were already carried.";
+        return found is null ? unasked : unasked is null ? found : found + " " + unasked;
     }
 
     /// <summary>Element count of a (possibly Mutagen <c>ExtendedList&lt;T&gt;</c>) collection WITHOUT assuming the

@@ -89,9 +89,9 @@ public static class WritePatchBuilder
         /// reported as unanswered rather than unchecked.</summary>
         public bool VerifyAttempted { get; init; }
 
-        /// <summary>What the write DID that the written file cannot say afterwards — today only the duplicate-Add
-        /// note (<see cref="WriteEngine.ApplyVerb"/>'s return): the list already carried the element, so the appended
-        /// copy is a second one. Deliberately NOT folded into <see cref="Landed"/>, which is compared against
+        /// <summary>What the write DID that the written file cannot say afterwards — today only the list Add's
+        /// membership answer (<see cref="WriteEngine.ApplyVerb"/>'s return): the list already carried the element, or
+        /// its elements could not be compared. Deliberately NOT folded into <see cref="Landed"/>, which is compared against
         /// <see cref="LandedOnDisk"/> — the file re-read cannot reproduce a note about what was there BEFORE, and
         /// folding it in would report every duplicate Add as not landed.</summary>
         public string? ApplyNote { get; init; }
@@ -2824,11 +2824,12 @@ public static class WritePatchBuilder
         }
         if (!string.Equals(patchMod.ModKey.FileName.String, fileName, StringComparison.OrdinalIgnoreCase))
             return CreateOutcome.Fail($"{(inPlace ? "in-place" : "patch")} ModKey '{patchMod.ModKey.FileName}' must match {(inPlace ? "the target filename" : "output filename")} '{fileName}'.");
-        // IN PLACE ONLY: the author's DECLARED masters, captured before any mutation, so Phase 5 can diff the re-opened
-        // header and emit the SAME re-sort note the in-place edit and forward lanes emit (MasterGrowNote). A new record
-        // whose FormLink points into a plugin the target did not already master grows the header, and the file will not
-        // load until the order is re-sorted. The patch lanes have no before-state to diff: a fresh patch's whole header
-        // is new by construction, and an extend already tells the caller the patch grew.
+        // EVERY lane that OPENED AN EXISTING FILE: the author's DECLARED masters, captured before any mutation, so
+        // Phase 5 can diff the re-opened header and emit the SAME re-sort note the in-place edit and forward lanes
+        // emit (MasterGrowNote). A new record whose FormLink points into a plugin the file did not already master
+        // grows the header, and the file will not load until the order is re-sorted — true of an extended patch the
+        // caller already enabled and sorted, not only of an in-place target. A FRESH patch has no before-state and
+        // needs none: its whole header is new by construction and the render lists it in full.
         var mastersBefore = inPlace
             ? patchMod.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase)
             : null;
