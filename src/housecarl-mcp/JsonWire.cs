@@ -1688,7 +1688,18 @@ static class JsonWire
                                 IReadOnlyList<string>? offOrderScanned)
     {
         if (epoch is null) return;
-        WriteEpoch(w, epoch, excluded.Keys.ToArray());
+        WriteNullable(w, "epoch", epoch);
+        // The flag and the count, not the sentence: a family head only exists inside the merged check document,
+        // whose ROOT states the sentence once for the whole response over the same build (a call whose families
+        // read a different one refuses instead). Telling it again per family would put the same ~250 characters in
+        // one document three times, beside a roster that already names those plugins WITH their reasons — and the
+        // fixed part comes out of the budget the findings are listed from. The count is what the family's TEXT
+        // head says beside epoch=, so the two transports state the same thing here.
+        if (excluded.Count > 0)
+        {
+            w.WriteBoolean("order_degraded", true);
+            w.WriteNumber("order_degraded_plugins", excluded.Count);
+        }
         w.WriteBoolean("epoch_covers_all_inputs", offOrderScanned is not { Count: > 0 });
     }
 
