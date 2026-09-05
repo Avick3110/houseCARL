@@ -2830,7 +2830,7 @@ public static class WritePatchBuilder
         // grows the header, and the file will not load until the order is re-sorted — true of an extended patch the
         // caller already enabled and sorted, not only of an in-place target. A FRESH patch has no before-state and
         // needs none: its whole header is new by construction and the render lists it in full.
-        var mastersBefore = inPlace
+        var mastersBefore = inPlace || extend
             ? patchMod.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase)
             : null;
 
