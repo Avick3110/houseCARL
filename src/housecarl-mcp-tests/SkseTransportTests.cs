@@ -47,6 +47,21 @@ public sealed class SkseTransportTests
                                         new SksePluginReader.SksePluginInfo($"p{i}.dll", SksePluginReader.SksePluginKind.Modern, true, Version($"Plugin {i}"), null,
                                                                             new[] { "kernel32.dll" }), null) });
 
+    /// <summary>A baseline class — carried by an official archive, implemented by the game executable. It is accounted
+    /// for by a count on the "accounted for" line rather than by a section row of its own.</summary>
+    static NativeClassEntry EngineCls(int i) =>
+        new($"scripts/e{i}.pex", $"Engine{i}", new[] { "Fn" }, new[] { Mod("Skyrim.esm") },
+            NativeProvenance.Engine, null, null, Array.Empty<NativePairedDll>());
+
+    /// <summary>A layer whose first <paramref name="engine"/> classes are baseline and whose rest are healthy
+    /// third-party pairings — the two populations the "accounted for" block reconciles.</summary>
+    static NativePairingAuditData EngineThenThirdParty(int engine, int third) =>
+        new(Enumerable.Range(1, engine).Select(EngineCls)
+                .Concat(Enumerable.Range(1, third).Select(Cls)).ToList(),
+            PexScanned: engine + third, Unreadable: Array.Empty<NativeUnreadablePex>(),
+            SkseLoaderSeen: true, InstalledRuntime: "1.6.1170.0", BsaFailures: Array.Empty<string>(),
+            ReadIncomplete: false, Warnings: Array.Empty<string>(), ProfileName: "Default");
+
     static NativePairingAuditData Pairing(int classes, int unreadable = 0, string[]? warnings = null) =>
         new(Enumerable.Range(1, classes).Select(Cls).ToList(), PexScanned: classes,
             Unreadable: Enumerable.Range(1, unreadable)
@@ -318,6 +333,48 @@ public sealed class SkseTransportTests
         Assert.Equal(new[] { "c3.ini", "c4.ini", "c5.ini" },
                      doc.RootElement.GetProperty("configs").EnumerateArray()
                         .Select(c => c.GetProperty("file_name").GetString()).ToArray());
+    }
+
+    // ---- the pairing family's accounted-for baseline ---------------------------------------------
+
+    /// <summary>The "accounted for" block reconciles THIS PAGE: every row the window held that is not a finding. Its
+    /// engine and SKSE-core counts used to come from the whole audit while the healthy roster beside them came from
+    /// the window, so two different populations sat on adjacent lines with nothing saying which was which.</summary>
+    [Fact]
+    public void TheAccountedForBaselineCountsThePagesRowsNotTheWholeAudit()
+    {
+        var first = NativePairingWire.Render(EngineThenThirdParty(6, 4), null, 80_000, new RowWindow(0, 8));
+
+        Assert.Contains("accounted for: 6 engine class(es)", first);
+        Assert.Contains("paired healthy (2 class(es))", first);
+
+        // The sharp case: a page holding none of the baseline classes must not reprint their count as if it did.
+        var second = NativePairingWire.Render(EngineThenThirdParty(6, 4), null, 80_000, new RowWindow(6, 4));
+
+        Assert.Contains("accounted for: 0 engine class(es)", second);
+        Assert.Contains("paired healthy (4 class(es))", second);
+        // The summary above the sections still states the whole audit, which is where the layer's numbers live.
+        Assert.Contains("10 class(es) declare native functions", second);
+    }
+
+    /// <summary>The missing-loader alarm is a build-level fact, not a row: a window holding none of the SKSE-core
+    /// classes must not silence it.</summary>
+    [Fact]
+    public void TheMissingLoaderAlarmRidesTheWholeAuditNotTheWindow()
+    {
+        var d = EngineThenThirdParty(2, 4) with
+        {
+            Classes = new[] { new NativeClassEntry("scripts/su.pex", "StringUtil", new[] { "Fn" }, new[] { Mod("SKSE") },
+                                                   NativeProvenance.SkseCore, null, null, Array.Empty<NativePairedDll>()) }
+                .Concat(Enumerable.Range(1, 4).Select(Cls)).ToList(),
+            SkseLoaderSeen = false,
+        };
+
+        // The window starts past the one SKSE-core class, so the page carries none of them.
+        var text = NativePairingWire.Render(d, null, 80_000, new RowWindow(1, 4));
+
+        Assert.Contains("0 SKSE-core class(es)", text);   // the page holds none
+        Assert.Contains("no skse64 loader is visible", text);   // the audit does, so the alarm still rides
     }
 
     // ---- the json lane's own reserve --------------------------------------------------------------
