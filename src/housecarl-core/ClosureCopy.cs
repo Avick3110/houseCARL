@@ -472,7 +472,7 @@ public static class ClosureCopy
         Func<FormKey, bool> isBound, IReadOnlySet<ModKey> boundPlugins, bool nothingBound,
         Func<ModKey, bool> isOnOrder,
         Func<string, IReadOnlyList<ISkyrimModGetter>> mastersFor,
-        IReadOnlyList<string> consulted,
+        IReadOnlyList<SourceArmRef> consulted,
         Func<Exception, string>? serializeFailure = null)
     {
         var patchFileName = Path.GetFileName(outPath);
@@ -661,7 +661,7 @@ public static class ClosureCopy
             copy.Copied, reportedKept, walk.Cycles, attached, stripped, consulted,
             // The `from` record's own arm: every internalized record names the arm that produced it, and this is
             // the one body an ordered source list exists to disambiguate.
-            srcHit.Arm.Spelling, assetPaths,
+            SourceArmRef.Of(srcHit.Arm), assetPaths,
             masters, sourceAmong, nothingBound, bytes, warning);
     }
 
@@ -713,8 +713,9 @@ public static class ClosureCopy
 
 /// <summary>The whole closure-copy operation's outcome — data only, no prose; the render owns the words.
 /// Exactly one of the three refusal slots is set on a failure; all are null on success.
-/// <para><see cref="SourcesConsulted"/> is the ordered universe as the caller spelled it, carried so the readback
-/// can name which sources were in play even when nothing was found in any of them.</para></summary>
+/// <para><see cref="SourcesConsulted"/> is the ordered universe as the caller spelled it, each arm carrying the mod
+/// folder it resolved from, so the readback can name which sources were in play — and WHERE each one was read —
+/// even when nothing was found in any of them.</para></summary>
 public sealed record ClosureCopyOutcome(
     bool Success,
     WalkRefusal? WalkRefusal, CopyRefusal? CopyRefusal, string? EngineError,
@@ -726,8 +727,8 @@ public sealed record ClosureCopyOutcome(
     IReadOnlyList<WalkCycle> Cycles,
     IReadOnlyList<StripEntry> Attached,
     IReadOnlyList<StripEntry> Stripped,
-    IReadOnlyList<string> SourcesConsulted,
-    string FromArmSpelling,
+    IReadOnlyList<SourceArmRef> SourcesConsulted,
+    SourceArmRef? FromArm,
     IReadOnlyList<string> AssetPaths,
     IReadOnlyList<string> Masters, bool SourceAmongMasters, bool NothingBound,
     long Bytes, string? ReadBackWarning)
@@ -735,12 +736,13 @@ public sealed record ClosureCopyOutcome(
     static readonly IReadOnlyList<CopiedRecord> NoRecords = Array.Empty<CopiedRecord>();
     static readonly IReadOnlyList<StripEntry> NoEntries = Array.Empty<StripEntry>();
     static readonly IReadOnlyList<string> NoStrings = Array.Empty<string>();
+    static readonly IReadOnlyList<SourceArmRef> NoArms = Array.Empty<SourceArmRef>();
 
     public static ClosureCopyOutcome Fail(
         WalkRefusal? walk = null, CopyRefusal? copy = null, string? engine = null,
-        IReadOnlyList<string>? sources = null)
+        IReadOnlyList<SourceArmRef>? sources = null)
         => new(false, walk, copy, engine, "", default, default, null, false,
                NoRecords, Array.Empty<WalkBoundary>(), Array.Empty<WalkCycle>(),
-               NoEntries, NoEntries, sources ?? NoStrings, "", NoStrings,
+               NoEntries, NoEntries, sources ?? NoArms, null, NoStrings,
                NoStrings, false, false, 0, null);
 }

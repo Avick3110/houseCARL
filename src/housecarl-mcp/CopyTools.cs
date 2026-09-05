@@ -49,7 +49,9 @@ public static class CopyTools
          "resolves whether that plugin is active OR sitting on disk in a DISABLED mod. Naming several is how you " +
          "read a look from an override patch while its records come from the defining plugin: " +
          "from_source=['Override.esp','Donor.esp']. This is FALLBACK, never a merge — a record present in several " +
-         "sources comes from the FIRST, and the result names which source produced each record. A record no source " +
+         "sources comes from the FIRST, and the result names which source produced each record — and, for each " +
+         "source, the MO2 MOD FOLDER it was read from, which is the name to pass as the provider when you place " +
+         "that record's files (its FaceGen, say) with " + ToolNames.Place + ". A record no source " +
          "has is refused, naming every source consulted. ('winner' is the bare word: plugin names always carry an " +
          "extension, so the two can never collide. 'previous_provider' is refused here — it is relative to a " +
          "subject plugin, and a walk reaching records through links has no subject for it to be relative to.)\n\n" +
@@ -179,8 +181,8 @@ public static class CopyTools
         sb.Append(WriteSentences.CopySourcesConsulted(o.SourcesConsulted));
         // Which source produced the record the caller ASKED for. Needed in both modes: the source record is not
         // among the internalized rows in either, so nothing else names where its own body came from.
-        if (o.FromArmSpelling.Length > 0)
-            sb.Append(WriteSentences.CopyFromArmLead).Append(o.FromArmSpelling).Append(".\n");
+        if (o.FromArm is { } fromArm)
+            sb.Append(WriteSentences.CopyFromArmLead).Append(WriteSentences.CopyArm(fromArm)).Append(".\n");
         sb.Append(WriteSentences.NewOrExtendedArtifact(o.Extended, Path.GetFileName(o.OutPath!), o.Bytes,
             Path.GetFileName(Path.GetDirectoryName(o.OutPath!)!)));
 
@@ -239,11 +241,13 @@ public static class CopyTools
         return sb.ToString().TrimEnd();
     }
 
-    static string RenderWalkRefusal(WalkRefusal w, IReadOnlyList<string> sources) => w.Kind switch
+    static string RenderWalkRefusal(WalkRefusal w, IReadOnlyList<SourceArmRef> sources) => w.Kind switch
     {
         WalkRefusalKind.SourceMiss => WriteSentences.CopySourceMiss($"{w.Key} (reached via {w.PulledBy})", sources),
         WalkRefusalKind.SourceFault => WriteSentences.CopySourceFault(
-            $"{w.Key}", w.Fault?.Arm.Spelling ?? "a source", w.Detail),
+            $"{w.Key}",
+            w.Fault is { } f ? WriteSentences.CopyArm(SourceArmRef.Of(f.Arm)) : "a source",
+            w.Detail),
         WalkRefusalKind.UnknownSeedPath =>
             $"{w.Detail}. seed_paths must name link-bearing fields on the record being copied.",
         WalkRefusalKind.NoSeeds => WriteSentences.CopyNoSeeds,
