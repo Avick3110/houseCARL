@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Binary.Parameters;
