@@ -84,7 +84,7 @@ static class AssetWire
             {
                 BatchRender.AppendReadFailures(sb, d.BsaFailures, "an asset", cap);
                 BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, cap);
-                AppendSelectorNotes(sb, d.SelectorNotes);
+                AppendSelectorNotes(sb, d.SelectorNotes, cap);
             },
             (sb, r) => { rendered++; AppendPath(sb, r, d.ReadIncomplete, d.Warnings.Count > 0); },
             // The accounting block is priced INSIDE max_chars, the way the check sweep's footer is: it is written
@@ -96,13 +96,14 @@ static class AssetWire
     }
 
     /// <summary>What each under= selector had to say for itself — a selector that matched nothing, or was rejected.
-    /// Above the per-path list, with the other alarms, so a truncated sweep cannot cut it away. Uncapped, and bounded
-    /// by the call's own input: there is at most one note per selector the caller wrote.</summary>
-    static void AppendSelectorNotes(StringBuilder sb, IReadOnlyList<string>? notes)
+    /// Above the per-path list, with the other alarms, so a truncated sweep cannot cut it away. Capped like its two
+    /// sibling alarm blocks: one note per selector is bounded by the call's own input, but that input can be thousands
+    /// of selectors, which would write megabytes before the per-path loop ever checks the budget.</summary>
+    static void AppendSelectorNotes(StringBuilder sb, IReadOnlyList<string>? notes, int cap)
     {
         if (notes is not { Count: > 0 }) return;
         sb.Append("\n[!] under (").Append(notes.Count).Append("):\n");
-        foreach (var n in notes) sb.Append("  - ").Append(n).Append('\n');
+        BatchRender.AppendLines(sb, notes, "selector(s)", cap);
     }
 
     /// <summary>The numbers one accounting line states. A record so the real line and the widest-case line the reserve

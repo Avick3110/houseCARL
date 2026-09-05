@@ -337,6 +337,21 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         Assert.True(AssetWire.Render(d, 2_000).Length <= 2_000);
     }
 
+    /// <summary>The selector-notes block is capped like its two sibling alarm blocks. One note per selector is bounded
+    /// by the call's own input, but that input can be thousands of selectors, which would write megabytes before the
+    /// per-path loop ever checks the budget.</summary>
+    [Fact]
+    public void ThousandsOfBadSelectorsAreCutAtMaxCharsRatherThanWrittenWhole()
+    {
+        var many = Enumerable.Range(0, 2_000).Select(i => @"meshes\nosuchfolder" + i).ToArray();
+
+        var text = AssetWire.Render(_w.Svc.AssetStatus(Array.Empty<string>(), many), 2_000);
+
+        Assert.True(text.Length < 10_000, $"max_chars=2000 wrote {text.Length} chars of selector notes");
+        Assert.Contains("more selector(s) omitted at max_chars=2000", text);
+        Assert.Contains("notes=2000", text);                  // the count is still stated in full
+    }
+
     /// <summary>Both select forms empty is a refusal that names both, since either one alone is a legal call.</summary>
     [Fact]
     public void ACallThatSelectsNothingRefusesNamingBothSelectForms()
