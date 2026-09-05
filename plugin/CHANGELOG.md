@@ -72,6 +72,18 @@ saying it sets an expectation their install may contradict. Say what is known, a
   collection whose elements are owned child records (`Cell.Persistent`) is sent to the record axis rather than handed
   a container call no verb takes. Inside
   a `compose=`'s nested `sets`, the path is named in the `path` slot it belongs to rather than `field_path`.
+- **A path can now step to the record that CONTAINS this one, with `*parent`.** DIAL→INFO, CELL→REFR/ACHR and
+  WRLD→CELL ownership is group nesting rather than a form link, so `references=` correctly returns nothing for it
+  and the child's own body names no owner — there was no way back from an INFO to its topic, or from a crash log's
+  placed reference to its cell. `*parent` is one step on the paths that already exist: `where=["*parent.EditorID =
+  GreetingsTopic"]`, `project={"form":"fields","fields":["*parent.EditorID"]}`, and a walk's `seed_paths`/`follow`.
+  It leads a path and it chains, so `*parent.*parent` reaches a placed reference's worldspace, and everything below
+  the hop — `editorid`, `winner`, `formid` membership, leaves, quantified steps — reads the containing record with
+  no separate spelling. A `*parent` after a field step, carrying a quantifier, or with nothing after it refuses by
+  name; a record nothing contains is stated as such, naming the properties containment runs from, never returned as
+  an empty answer. The parent set is Mutagen's own containment walk, captured at index build, so a Mutagen version
+  that adds a child-bearing container grows `*parent`'s reach with no further change. Index build costs about 0.3 s
+  more over a 3,800-plugin order; check yours against the build time `housecarl_load_order_status` reports.
 - **A `where=` path step can now quantify a list, so "does ANY element match?" is one call.** Four tokens go in the
   step where the list binds: `Conditions[*any].Data.Function = IsGuard` (some element), `[*all]` (every one, and
   vacuously true on an empty list), `[*none]` (absence, proved — `Effects[*none].BaseEffect->editorid startswith REQ_`),
