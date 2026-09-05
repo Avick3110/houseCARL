@@ -2055,6 +2055,9 @@ public static class RecordsTools
         {
             int open = seg.IndexOf('[');
             if (open < 0 || !seg.EndsWith("]", StringComparison.Ordinal)) continue;
+            // A quantifier on the containment step is that grammar's mistake, not a projection one — leave it to
+            // the read walk's shared check, so where= and project.fields refuse it in the same sentence.
+            if (HousecarlCore.ContainmentIndex.IsParentStep(seg[..open])) continue;
             var key = seg[(open + 1)..^1];
             if (key.Length > 0 && key[0] == '*') return $"[{key}]";
         }
