@@ -795,7 +795,12 @@ static class SkseInventoryWire
         var dlls = window.Apply(allDlls);
         var cfgs = window.After(allDlls.Count, dlls.Count).Apply(allCfgs);
         int windowed = dlls.Count + cfgs.Count;
-        var all = Split(d.Dlls);
+        // The census states the population THIS document answers over — the filter's matches when there is a filter,
+        // the whole layer when there is not — so no number in it describes a wider set than the rows beside it. The
+        // text lane's filtered view publishes no census at all, and a filtered twin restating the layer's counts under
+        // the same names is the lane difference §2.1 exists to remove.
+        var all = Split(allDlls);
+        var censusCfgs = filtered ? allCfgs : d.Configs;
         int notes = NoteCount(d);
         int rendered = 0;
         int folderCount = d.Configs.Select(e => e.Group).Distinct(StringComparer.OrdinalIgnoreCase).Count();
@@ -811,9 +816,11 @@ static class SkseInventoryWire
             w.WriteStartObject("totals");
             w.WriteNumber("dlls", all.Loaded.Count);
             w.WriteNumber("subfolder_dlls", all.Subfolder.Count);
-            w.WriteNumber("configs", d.Configs.Count);
-            w.WriteNumber("config_folders", d.Configs.Select(e => e.Group).Distinct(StringComparer.OrdinalIgnoreCase).Count());
-            w.WriteNumber("other_files", d.OtherFileCount);
+            w.WriteNumber("configs", censusCfgs.Count);
+            w.WriteNumber("config_folders", censusCfgs.Select(e => e.Group).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+            // Uncategorized files are counted, never listed, so a filter has nothing to match them on: the number is
+            // the whole layer's, and a filtered document does not state it rather than stating it out of scope.
+            if (!filtered) w.WriteNumber("other_files", d.OtherFileCount);
             w.WriteNumber("modern", all.Modern.Count);
             w.WriteNumber("legacy_query", all.Legacy.Count);
             w.WriteNumber("non_plugin", all.NotPlugin.Count);
@@ -843,9 +850,12 @@ static class SkseInventoryWire
             w.WriteEndArray();
 
             // The whole-layer view groups configs by folder rather than listing them; the twin states the same table.
-            w.WriteStartArray("config_folders");
-            int folders = 0;
+            // A filtered document lists its matching configs individually above, so it omits the table rather than
+            // writing an empty one — [] would read as "this layer has no config folders".
             if (!filtered)
+            {
+                w.WriteStartArray("config_folders");
+                int folders = 0;
                 foreach (var g in d.Configs.GroupBy(e => e.Group, StringComparer.OrdinalIgnoreCase)
                              .Select(g => (Name: g.Key.Length == 0 ? "(top level)" : g.Key, Count: g.Count(),
                                            Providers: g.Select(e => e.WinningProvider).Where(x => x is not null).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
@@ -861,10 +871,11 @@ static class SkseInventoryWire
                     w.WriteEndObject();
                     folders++;
                 }
-            w.WriteEndArray();
-            // These are not row-list rows, so the accounting does not count them — the cut says so here instead, the
-            // way the text render's "showing N of M folders" notice does.
-            if (!filtered && folders < folderCount) w.WriteNumber("config_folders_truncated", folderCount - folders);
+                w.WriteEndArray();
+                // These are not row-list rows, so the accounting does not count them — the cut says so here instead,
+                // the way the text render's "showing N of M folders" notice does.
+                if (folders < folderCount) w.WriteNumber("config_folders_truncated", folderCount - folders);
+            }
 
             if (d.PeekRequested && allDlls.Count == 0)
                 w.WriteString("peek_note", PeekNoDllNote);
@@ -1190,7 +1201,10 @@ static class SkseConfigAuditWire
                      .OrderBy(x => x.Group, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.RelPath, StringComparer.OrdinalIgnoreCase).ToList()
             : d.Files.ToList();
         var files = window.Apply(allFiles);
-        var flatAll = d.Files.SelectMany(x => x.Refs).ToList();
+        // Every census number below is measured over the population this document answers over — the filter's matches
+        // when there is a filter. A verdict tally taken over the whole audit under filter= tells a caller scoping to
+        // one folder how many broken references the WHOLE layer carries, under a name that reads as the folder's.
+        var flatAll = allFiles.SelectMany(x => x.Refs).ToList();
         int notes = NoteCount(d);
         int rendered = 0;
         // The caveats and accounting tail is paid for inside max_chars rather than appended past it.
@@ -1201,8 +1215,8 @@ static class SkseConfigAuditWire
         {
             int Verdicts(SkseRefVerdict v) => flatAll.Count(r => r.Verdict == v);
             w.WriteStartObject("totals");
-            w.WriteNumber("configs_scanned", d.ConfigCount);
-            w.WriteNumber("files_with_references", d.Files.Count(x => x.Refs.Count > 0));
+            w.WriteNumber("configs_scanned", filtered ? allFiles.Count : d.ConfigCount);
+            w.WriteNumber("files_with_references", allFiles.Count(x => x.Refs.Count > 0));
             w.WriteNumber("references_checked", flatAll.Count);
             w.WriteNumber("ok", Verdicts(SkseRefVerdict.Ok));
             w.WriteNumber("dangling", Verdicts(SkseRefVerdict.Dangling));
@@ -1211,7 +1225,7 @@ static class SkseConfigAuditWire
             // BROKEN is what should resolve and does not; INERT is a reference to a plugin you simply do not have.
             w.WriteNumber("broken", Verdicts(SkseRefVerdict.Dangling) + Verdicts(SkseRefVerdict.Unparseable));
             w.WriteNumber("inert", Verdicts(SkseRefVerdict.PluginMissing));
-            w.WriteNumber("read_errors", d.Files.Count(x => x.ReadError is not null));
+            w.WriteNumber("read_errors", allFiles.Count(x => x.ReadError is not null));
             w.WriteEndObject();
 
             w.WriteStartArray("files");
@@ -1643,7 +1657,9 @@ static class NativePairingWire
                        .OrderBy(c => c.ClassName, StringComparer.OrdinalIgnoreCase).ToList()
             : d.Classes.ToList();
         var classes = window.Apply(allClasses);
-        var all = Classify(d.Classes, d.InstalledRuntime);
+        // Classified over the population this document answers over, so a caller scoping to one mod is not told about
+        // dead pairings that belong to other mods under a name that reads as its own.
+        var all = Classify(allClasses, d.InstalledRuntime);
         int notes = NoteCount(d);
         int rendered = 0;
         // The tail — the unreadable-pex cut marker, caveats, accounting — is paid for inside max_chars.
@@ -1657,8 +1673,12 @@ static class NativePairingWire
             // Tri-state: null is "the check itself failed", never a checked-and-absent verdict.
             if (d.SkseLoaderSeen is { } seen) w.WriteBoolean("skse_loader_seen", seen); else w.WriteNull("skse_loader_seen");
             w.WriteStartObject("totals");
-            w.WriteNumber("classes", d.Classes.Count);
-            w.WriteNumber("pex_scanned", d.PexScanned);
+            w.WriteNumber("classes", allClasses.Count);
+            // The .pex scan and the unparseable-.pex list are the SCAN, not the selection: an unreadable .pex has no
+            // class name, provider or paired mod for a filter to match on. A filtered document does not state them
+            // rather than stating them out of scope; the array below stays whole, since dropping it would hide the
+            // one caveat saying those files were NOT counted as native-free.
+            if (!filtered) w.WriteNumber("pex_scanned", d.PexScanned);
             w.WriteNumber("engine", all.Engine.Count);
             w.WriteNumber("skse_core", all.SkseCore.Count);
             w.WriteNumber("unpaired", all.Unpaired.Count);
@@ -1666,7 +1686,7 @@ static class NativePairingWire
             w.WriteNumber("verify", all.Verify.Count);
             w.WriteNumber("debug_build", all.DebugBuilds.Count);
             w.WriteNumber("healthy", all.Healthy.Count);
-            w.WriteNumber("unreadable_pex", d.Unreadable.Count);
+            if (!filtered) w.WriteNumber("unreadable_pex", d.Unreadable.Count);
             w.WriteEndObject();
 
             w.WriteStartArray("classes");

@@ -91,12 +91,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
   family ran — the same census, the same rows, the same numbers, in named fields, plus the family that ran and the two
   that did not (the text footer's prose cannot ride a json document). `limit=`/`offset=` page the family's row list:
   the DLLs for `findings='inventory'` (with `filter=`, its DLL and config matches), the native-declaring classes for
-  `'pairing'`, the config files for `'config'`. The census above the rows keeps stating the whole layer, and every
-  answer now carries `total / rendered / skipped / capped / truncated / offset / remaining / notes`, so what a window
-  or a cap left out is a number rather than a silence. It closes the render: on the text lane the one-line family
-  footer still follows it, on the json lane the `accounting` object is the document's last member. An unrecognized
-  `format=` is refused naming the two the tool
-  renders, and a negative `limit=`/`offset=` is refused naming both. Text output with neither knob passed is unchanged
+  `'pairing'`, the config files for `'config'`. The census above the rows states the whole population the answer is
+  about — the layer, or, under `filter=`, the filter's matches — while the rows below it are the window; a count a
+  filter cannot scope (the inventory's uncategorized-file total, the pairing's `.pex` scan) is left out of a filtered
+  answer rather than stated for the whole layer beside numbers that are not. Every answer now carries
+  `total / rendered / skipped / capped / truncated / offset / remaining / notes`, so what a window or a cap left out
+  is a number rather than a silence. It closes the render: on the text lane the one-line family footer still follows
+  it, on the json lane the `accounting` object is the document's last member. An unrecognized `format=` is refused
+  naming the two the tool renders, and a negative `limit=`/`offset=` is refused naming both. Text output with neither knob passed is unchanged
   apart from that accounting line. `max_chars` bounds the json document the way it bounds the text render:
   what it cuts from a list the accounting does not count — one config's references, the inventory's config folders,
   the pairing's unreadable `.pex` entries — is named on the spot as `references_truncated`,
