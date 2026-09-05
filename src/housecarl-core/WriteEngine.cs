@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Reflection;
 using System.Security.Cryptography;
 using Mutagen.Bethesda;
@@ -2726,6 +2726,13 @@ public static class WriteEngine
     /// </summary>
     internal static object StepIntoElement(object parent, PropertyInfo prop, string name, string key, bool materialize = false)
     {
+        // A '*' key is a quantifier token that reached a walk which indexes ONE concrete element — say that, whatever
+        // the field's shape, rather than reporting it as a malformed index or a missing dict key.
+        if (key.Length > 0 && key[0] == '*')
+            throw new InvalidOperationException(
+                $"'{name}[{key}]' cannot be indexed here — [*any], [*all] and [*none] fold a list into a boolean in " +
+                $"where=, and [*] and [*count] are project/walk path steps; index a concrete element ('{name}[0]') instead.");
+
         // Gendered field ([0]=male / [1]=female): a fixed two-slot pair (IGenderedItem<T>), NOT a list/dict, so it
         // never reaches the IList/IDictionary branches below. Its named arms (.Male/.Female) already navigate as
         // plain hops; [0]/[1] is the render-matching navigable alias. Handled by the same materialize-and-write-back
@@ -2764,12 +2771,6 @@ public static class WriteEngine
                      ?? ClosedInterface(prop.PropertyType, typeof(IReadOnlyList<>));
         if (listIface is not null)
         {
-            // A '*' key is a where= fold token that reached a walk which indexes one concrete element — say that,
-            // rather than reporting an unbuilt capability as a malformed index.
-            if (key.Length > 0 && key[0] == '*')
-                throw new InvalidOperationException(
-                    $"List '{name}' cannot take the quantifier token '[{key}]' here — the fold tokens [*any], [*all], [*none] " +
-                    $"and [*count] are where= path steps; index a concrete element ('{name}[0]') instead.");
             if (!int.TryParse(key, NumberStyles.Integer, CultureInfo.InvariantCulture, out var idx) || idx < 0)
                 throw new InvalidOperationException($"List '{name}' must be indexed by a non-negative integer; got '{key}'.");
             int j = 0;
