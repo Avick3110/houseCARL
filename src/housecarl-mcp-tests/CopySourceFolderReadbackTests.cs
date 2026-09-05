@@ -21,6 +21,10 @@ public sealed class TwoDisabledDonorsWorld : IDisposable
     /// be copied back into the placement.</summary>
     public const string DefiningFolder = "Bijin's NPCs (SE)";
 
+    /// <summary>A real mod folder whose NAME is one the placement surface reserves for a layer. Present only when
+    /// the world is asked for it, because it is a collision, not the ordinary shape.</summary>
+    public const string ReservedNameFolder = "Data";
+
     public string Root { get; }
     public string ModsDir { get; }
     public LoadOrderService Svc { get; }
@@ -30,7 +34,11 @@ public sealed class TwoDisabledDonorsWorld : IDisposable
     public string FaceRel { get; }
     public byte[] FaceBytes { get; } = Encoding.ASCII.GetBytes("FACEGEN-BESIDE-THE-DEFINING-PLUGIN");
 
-    public TwoDisabledDonorsWorld()
+    /// <param name="enableDefining">Tick the DEFINING mod and put its plugin in the active order — the enabled-donor
+    /// shape, where the source resolves through the active order and still lives in exactly one mod folder.</param>
+    /// <param name="reservedNameOverride">Also ship the override plugin from a second, disabled mod folder literally
+    /// named <c>Data</c>.</param>
+    public TwoDisabledDonorsWorld(bool enableDefining = false, bool reservedNameOverride = false)
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-two-donors-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(Root, "inst");
@@ -62,15 +70,33 @@ public sealed class TwoDisabledDonorsWorld : IDisposable
         ov.Npcs.GetOrAddAsOverride(npc);
         Write(ov, OverrideFolder, baseMod, donor);
 
+        // The collision: the same override, shipped from a mod folder whose name is one the placement lane reserves.
+        // Its own plugin filename, because two folders holding the same filename is a different refusal entirely.
+        if (reservedNameOverride)
+        {
+            var collide = new SkyrimMod(new ModKey("Collide", ModType.Plugin), SkyrimRelease.SkyrimSE);
+            collide.Npcs.GetOrAddAsOverride(npc);
+            Write(collide, ReservedNameFolder, baseMod, donor);
+            // A copy of the FaceGen inside that folder, so a placement handed the name "Data" and reaching the mod
+            // folder would SUCCEED. It must not: the name means the layer, and the failure is the proof.
+            var collideFace = Path.Combine(ModsDir, ReservedNameFolder, FaceGenPath.For(DonorNpc, FaceGenSlot.Mesh));
+            Directory.CreateDirectory(Path.GetDirectoryName(collideFace)!);
+            File.WriteAllBytes(collideFace, Encoding.ASCII.GetBytes("FACEGEN-IN-THE-RESERVED-NAME-FOLDER"));
+        }
+
         // The ONLY copy of the FaceGen, beside the DEFINING plugin — the second arm's folder.
         FaceRel = FaceGenPath.For(DonorNpc, FaceGenSlot.Mesh);
         var loose = Path.Combine(ModsDir, DefiningFolder, FaceRel);
         Directory.CreateDirectory(Path.GetDirectoryName(loose)!);
         File.WriteAllBytes(loose, FaceBytes);
 
-        File.WriteAllText(Path.Combine(prof, "modlist.txt"), $"+BaseMod\r\n-{OverrideFolder}\r\n-{DefiningFolder}\r\n");
-        File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "HcBase.esm\r\n");
-        File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*HcBase.esm\r\n");
+        var reservedLine = reservedNameOverride ? $"-{ReservedNameFolder}\r\n" : "";
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"),
+            $"+BaseMod\r\n{reservedLine}-{OverrideFolder}\r\n{(enableDefining ? "+" : "-")}{DefiningFolder}\r\n");
+        File.WriteAllText(Path.Combine(prof, "loadorder.txt"),
+            enableDefining ? "HcBase.esm\r\nDonor.esp\r\n" : "HcBase.esm\r\n");
+        File.WriteAllText(Path.Combine(prof, "plugins.txt"),
+            enableDefining ? "*HcBase.esm\r\n*Donor.esp\r\n" : "*HcBase.esm\r\n");
         File.WriteAllText(Path.Combine(prof, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "user.json")));
@@ -175,5 +201,102 @@ public sealed class CopySourceFolderReadbackTests : IDisposable
             return m.Npcs.First(n => string.Equals(n.EditorID, "HcTwoClone", StringComparison.OrdinalIgnoreCase)).FormKey;
         }
         finally { (m as IDisposable)?.Dispose(); }
+    }
+}
+
+/// <summary>The ENABLED donor: a named source that resolves through the active order still sits in exactly one mod
+/// folder, and the placement that carries its FaceGen needs that folder just as much as a disabled donor's. Only the
+/// bare 'winner' pole is the whole order and has no folder to name.</summary>
+[Trait("tier", "integration")]
+public sealed class CopyEnabledDonorFolderTests : IDisposable
+{
+    readonly TwoDisabledDonorsWorld _w = new(enableDefining: true);
+
+    public void Dispose() => _w.Dispose();
+
+    static readonly string[] Seeds = { "HeadParts", "HairColor", "HeadTexture", "WornArmor" };
+
+    string Copy(string source, string patch) => CopyTools.Copy(
+        _w.Svc, _w.Fid(_w.DonorNpc), new[] { source }, Seeds,
+        new[] { "Race:refuse" }, null, "HcEnabledClone", patch, null);
+
+    [Fact]
+    public void AnActivePluginSourceNamesTheModFolderItLivesIn()
+    {
+        var r = Copy("Donor.esp", "HcEnabledFolder");
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
+        Assert.Contains(
+            $"Donor.esp (from the active load order, MO2 mod folder \"{TwoDisabledDonorsWorld.DefiningFolder}\")", r);
+    }
+
+    /// <summary>…and the folder it names is the one that really holds that plugin's FaceGen — the same proof the
+    /// disabled shape gets, because an enabled mod's file can still be contested by a replacer above it.</summary>
+    [Fact]
+    public void TheFolderNamedForAnActiveArmHoldsThatPluginsFaceGen()
+    {
+        var r = Copy("Donor.esp", "HcEnabledCarry");
+        var m = Regex.Match(r, "Donor\\.esp \\(from the active load order, MO2 mod folder \"([^\"]+)\"\\)");
+
+        Assert.True(m.Success, r);
+        Assert.True(File.Exists(Path.Combine(_w.ModsDir, m.Groups[1].Value, _w.FaceRel)),
+                    $"the readback named '{m.Groups[1].Value}', which does not hold {_w.FaceRel}");
+    }
+
+    /// <summary>The pole that genuinely has no folder still says so, rather than borrowing the winning plugin's.
+    /// 'winner' is the whole order, and the record's winner can differ per key.</summary>
+    [Fact]
+    public void TheWinnerPoleStillNamesNoFolder()
+    {
+        var r = Copy("winner", "HcEnabledWinner");
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
+        Assert.Contains("winner (from the active load order)", r);
+        Assert.DoesNotContain("winner (from the active load order,", r);
+    }
+}
+
+/// <summary>A real mod folder whose name is one the placement surface reserves. The readback may not call it the
+/// layer it merely spells like, and may not hand the name back as a provider the placement would answer from the
+/// layer instead.</summary>
+[Trait("tier", "integration")]
+public sealed class CopyReservedFolderNameTests : IDisposable
+{
+    readonly TwoDisabledDonorsWorld _w = new(reservedNameOverride: true);
+
+    public void Dispose() => _w.Dispose();
+
+    static readonly string[] Seeds = { "HeadParts", "HairColor", "HeadTexture", "WornArmor" };
+
+    [Fact]
+    public void AModFolderNamedDataIsNotDescribedAsTheGamesDataFolder()
+    {
+        var r = CopyTools.Copy(
+            _w.Svc, _w.Fid(_w.DonorNpc), new[] { "Collide.esp", "Donor.esp" }, Seeds,
+            new[] { "Race:refuse" }, null, "HcReservedClone", "HcReservedFolder", null);
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
+        Assert.Contains($"Collide.esp (MO2 mod folder \"{TwoDisabledDonorsWorld.ReservedNameFolder}\"", r);
+        Assert.DoesNotContain("Collide.esp (the game's Data folder", r);
+        // …and the name is withdrawn in the same breath, because a placement handed it reads the layer.
+        Assert.Contains("RESERVED", r);
+        Assert.Contains("Rename that mod folder in MO2", r);
+    }
+
+    /// <summary>The claim behind the withdrawal, proven rather than asserted: that mod folder HOLDS the file, and
+    /// the placement still cannot get at it by name — the name means the layer, and the folder is never scanned.</summary>
+    [Fact]
+    public void ThePlacementLaneRefusesThatNameAsAProvider()
+    {
+        Assert.True(AssetResolver.IsReservedLayerName(TwoDisabledDonorsWorld.ReservedNameFolder));
+        Assert.True(File.Exists(Path.Combine(_w.ModsDir, TwoDisabledDonorsWorld.ReservedNameFolder, _w.FaceRel)));
+
+        var placed = PlaceTools.Place(_w.Svc, new[]
+        {
+            new PlaceTarget { Formid = _w.Fid(_w.DonorNpc), Kind = "mesh",
+                              Source = _w.FaceRel, SourceProvider = TwoDisabledDonorsWorld.ReservedNameFolder },
+        }, patch: "HcReservedPlace");
+
+        Assert.Contains("placed 0 of 1", placed);
     }
 }

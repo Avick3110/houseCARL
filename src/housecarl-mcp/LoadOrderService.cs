@@ -863,8 +863,15 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>The MO2 LAYER a physical file path belongs to — the mod folder behind a BSA provider name, and the
     /// same answer for a plugin file: mods\&lt;mod&gt;\X → that mod folder; the overwrite layer → "overwrite"; the
-    /// game Data folder → "Data"; anywhere else → null (no translation).</summary>
-    internal static string? LayerOfInstallPath(string archivePath, string modsDir, string overwriteDir, string dataDir)
+    /// game Data folder → "Data"; anywhere else → null (no translation).
+    /// <para>The NAME only. A caller that has to say which of the three answered — the name alone cannot tell it,
+    /// since a mod folder may be called "Data" — takes <see cref="InstallLayerOfPath"/> instead.</para></summary>
+    internal static string? LayerOfInstallPath(string archivePath, string modsDir, string overwriteDir, string dataDir) =>
+        InstallLayerOfPath(archivePath, modsDir, overwriteDir, dataDir)?.Name;
+
+    /// <summary>The MO2 layer a physical file path belongs to, as the BRANCH that answered plus the name it
+    /// produced. Null anywhere else, exactly as <see cref="LayerOfInstallPath"/>.</summary>
+    internal static SourceLayer? InstallLayerOfPath(string archivePath, string modsDir, string overwriteDir, string dataDir)
     {
         // Full-path-normalize both sides so forward slashes, '..' segments or a trailing-separator root from config
         // cannot make the under-root test disagree with the rest of the plumbing.
@@ -879,13 +886,16 @@ public sealed class LoadOrderService : IDisposable
             remainder = path.Substring(r.Length);
             return true;
         }
-        if (Under(archivePath, overwriteDir, out _)) return "overwrite";
+        if (Under(archivePath, overwriteDir, out _))
+            return new SourceLayer(SourceLayerKind.Overwrite, AssetResolver.OverwriteLayerName);
         if (Under(archivePath, modsDir, out var rest))
         {
             int slash = rest.IndexOfAny(new[] { '\\', '/' });
-            return slash > 0 ? rest[..slash] : null;   // a .bsa directly in mods\ belongs to no mod — no translation
+            // a .bsa directly in mods\ belongs to no mod — no translation
+            return slash > 0 ? new SourceLayer(SourceLayerKind.ModFolder, rest[..slash]) : null;
         }
-        if (Under(archivePath, dataDir, out _)) return "Data";
+        if (Under(archivePath, dataDir, out _))
+            return new SourceLayer(SourceLayerKind.GameData, AssetResolver.DataLayerName);
         return null;
     }
 
@@ -5427,6 +5437,19 @@ public sealed class LoadOrderService : IDisposable
             return message;
         }
 
+        // The MO2 layer an ACTIVE plugin's own file sits in — the folder the placement after a copy has to be given
+        // for an ENABLED donor, which is otherwise the one case the readback leaves the caller to guess. Best
+        // effort: roots that will not derive cost the caller the folder name, never the source.
+        SourceLayer? ActiveLayer(string pluginName)
+        {
+            try
+            {
+                lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; }
+                return view.PluginPath(pluginName) is { } p ? InstallLayerOfPath(p, modsDir, overwriteDir, dataDir) : null;
+            }
+            catch { return null; }
+        }
+
         // Every refusal path routes through Fail, but a THROW out of the loop bypassed all of them and leaked the
         // overlays opened so far — the caller's finally only disposes what reached `overlays`, which happens on the
         // last line. A leaked overlay holds a plugin file handle open, which is exactly what MO2 and xEdit must be
@@ -5474,7 +5497,7 @@ public sealed class LoadOrderService : IDisposable
             {
                 var active = spelling;
                 arms.Add(new SourceArm(spelling, SourceArmKind.ActiveOrder, $"'{active}' (active in the load order)",
-                    fk => view.GetRecord(session, active, fk)));
+                    fk => view.GetRecord(session, active, fk), ActiveLayer(active)));
                 continue;
             }
             // A path that names the order's own copy of an active plugin is that plugin, not an off-order file: a
@@ -5483,7 +5506,7 @@ public sealed class LoadOrderService : IDisposable
             if (LooksLikePath(spelling) && ActiveNameForPath(view, spelling) is { } activeName)
             {
                 arms.Add(new SourceArm(activeName, SourceArmKind.ActiveOrder, $"'{activeName}' (active in the load order; named by path)",
-                    fk => view.GetRecord(session, activeName, fk)));
+                    fk => view.GetRecord(session, activeName, fk), ActiveLayer(activeName)));
                 continue;
             }
 
@@ -5533,10 +5556,11 @@ public sealed class LoadOrderService : IDisposable
             var cache = ov.ToImmutableLinkCache();
             var where = $"file '{Path.GetFileName(loc.Path!)}' ({loc.Where}{(loc.WhyNotActive is { } why ? $"; NOT active — {why}" : "")})";
             // The layer this file physically sits in, read off the path by the shared rule rather than parsed back
-            // out of `where`: it is the name a following asset placement passes as its provider.
-            var provider = LayerOfInstallPath(loc.Path!, modsDir, overwriteDir, dataDir);
+            // out of `where`: a mod folder's name is what a following asset placement passes as its provider, and
+            // the BRANCH travels with it so the sentence never calls a mod folder the layer it merely spells like.
+            var layer = InstallLayerOfPath(loc.Path!, modsDir, overwriteDir, dataDir);
             arms.Add(new SourceArm(spelling, SourceArmKind.File, where,
-                fk => cache.TryResolve(fk, out var body) ? body : null, provider));
+                fk => cache.TryResolve(fk, out var body) ? body : null, layer));
         }
 
         overlays.AddRange(openedHere);

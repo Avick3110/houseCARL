@@ -2882,16 +2882,22 @@ public static class WriteSurfaceGuardProbe
         var stripped = new List<StripEntry> { new("Factions[0]", new FormKey(src, 0x802).ToString()) };
         // The single source carries a mod FOLDER, so the folder arm of the source line is rendered here rather than
         // only in the multi-source arm below.
-        var sources = new[] { new SourceArmRef("CopySrc.esp", SourceArmKind.File, "TheDonorMod") };
-        // The multi-source arm, carrying every way one source can resolve: a mod folder, the ACTIVE order, the two
-        // layers that are not mod folders, and a file on disk outside all of them. They are different sentences, so
-        // one array reaches them all rather than four samples reaching one each.
+        var sources = new[]
+        {
+            new SourceArmRef("CopySrc.esp", SourceArmKind.File, new SourceLayer(SourceLayerKind.ModFolder, "TheDonorMod")),
+        };
+        // The multi-source arm, carrying every way one source can resolve: a mod folder, the bare winner pole, an
+        // ACTIVE plugin that DOES sit in one folder, a mod folder whose name is reserved, the two layers that are
+        // not mod folders, and a file on disk outside all of them. They are different sentences, so one array
+        // reaches them all rather than one sample each.
         var manySources = new[]
         {
-            new SourceArmRef("Override.esp", SourceArmKind.File, "TheOverhaulMod"),
-            new SourceArmRef("Active.esp", SourceArmKind.ActiveOrder, null),
-            new SourceArmRef("Dropped.esp", SourceArmKind.File, "overwrite"),
-            new SourceArmRef("Unticked.esp", SourceArmKind.File, "Data"),
+            new SourceArmRef("Override.esp", SourceArmKind.File, new SourceLayer(SourceLayerKind.ModFolder, "TheOverhaulMod")),
+            new SourceArmRef("winner", SourceArmKind.ActiveOrder, null),
+            new SourceArmRef("Active.esp", SourceArmKind.ActiveOrder, new SourceLayer(SourceLayerKind.ModFolder, "AnEnabledMod")),
+            new SourceArmRef("Collide.esp", SourceArmKind.File, new SourceLayer(SourceLayerKind.ModFolder, "Data")),
+            new SourceArmRef("Dropped.esp", SourceArmKind.File, new SourceLayer(SourceLayerKind.Overwrite, "overwrite")),
+            new SourceArmRef("Unticked.esp", SourceArmKind.File, new SourceLayer(SourceLayerKind.GameData, "Data")),
             new SourceArmRef(Path.Combine(Path.GetTempPath(), "backup", "CopySrc.esp"), SourceArmKind.File, null),
         };
 
@@ -2935,7 +2941,8 @@ public static class WriteSurfaceGuardProbe
                 walk: new WalkRefusal(WalkRefusalKind.SourceFault, new FormKey(src, 0x821), "Npc.HeadParts",
                     Array.Empty<FormKey>(), "the record could not be parsed",
                     Fault: new SourceFault(new FormKey(src, 0x821), "Npc.HeadParts", 0,
-                        new SourceArm("CopySrc.esp", SourceArmKind.File, "on disk", _ => null), "the record could not be parsed")),
+                        new SourceArm("CopySrc.esp", SourceArmKind.File, "on disk", _ => null,
+                            new SourceLayer(SourceLayerKind.ModFolder, "TheDonorMod")), "the record could not be parsed")),
                 sources: manySources)),
             // The two shape-ruling refusals. Both are reachable end to end (copy-parser-guard drives them through
             // the wire), but they are rendered here too so the sentence-reach net owns them the same way it owns
