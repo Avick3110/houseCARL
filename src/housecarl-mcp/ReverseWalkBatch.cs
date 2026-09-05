@@ -59,8 +59,11 @@ public static class ReverseWalkBatch
             var w = view.ResolveWinner(candidate);
             if (w is null) { dropped++; return false; }
             IMajorRecordGetter? body;
+            // Any throw out of the lazy overlay seek — an unreadable plugin, a malformed subrecord — is a
+            // coverage gap on that one record, counted and skipped, never the end of the whole walk. The same
+            // rule references= keeps.
             try { body = view.GetRecord(session, w.Value.WinnerPlugin, candidate); }
-            catch (PluginUnreadableException) { dropped++; return false; }
+            catch (Exception) { dropped++; return false; }
             if (body is null || DeletedRecordRule.HasNoLiveBody(body) || body is not IFormLinkContainerGetter flc)
             {
                 dropped++;
