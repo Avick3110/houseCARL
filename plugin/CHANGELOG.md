@@ -79,7 +79,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   GreetingsTopic"]`, `project={"form":"fields","fields":["*parent.EditorID"]}`, and a walk's `seed_paths`/`follow`.
   It leads a path and it chains, so `*parent.*parent` reaches a placed reference's worldspace, and everything below
   the hop — `editorid`, `winner`, `formid` membership, leaves, quantified steps — reads the containing record with
-  no separate spelling. A record a patch DELETED still answers the question — the hop reads its identity, not its
+  no separate spelling. `fields=` takes it on every form that reads through the load order, the comparison forms
+  `delta` and `tree` included, so the same spelling works wherever `fields=` does bar the out-of-order arm named
+  below; and a child-bearing field reached through the hop carries the same "other plugins declare children here
+  and this read did not open them" note that reading it on the container directly does, so the two spellings of one
+  question cannot disagree. A record a patch DELETED still answers the question — the hop reads its identity, not its
   body — which is the crash-log case exactly, since patches delete placed references constantly. A `*parent` after
   a field step, carrying a quantifier, or with nothing after it refuses by name, in the same words on every surface
   that takes a path; a record nothing contains is stated as such, naming the properties containment runs from,
