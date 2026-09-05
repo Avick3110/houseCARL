@@ -15,7 +15,8 @@ namespace HousecarlGenerator;
 ///
 /// <para><b>The inventory.</b> Every subset of the three families, each in the LISTING and the <c>counts_only</c>
 /// lane, plus the states a family can be in that are not "ran": REFUSED (its own section is a refusal) and
-/// OFF-ORDER (a named plugin the scripts family has no lane for). Crossed with the excluded-plugin ROSTER, which is
+/// OFF-ORDER (a file swept from disk by both swept families, each naming it in its own section). Crossed with the
+/// excluded-plugin ROSTER, which is
 /// a response-level subject competing with every family in the response. Both transports and the cap band are swept
 /// INSIDE each property rather than being rows of the inventory — a property that holds in one transport and not
 /// the other is the drift the response layer's one-source rule exists to catch.</para>
@@ -113,14 +114,18 @@ internal static class CheckShapeMatrix
             new CheckSweep(Sel("errors", "scripts", "dialogue"),
                            e with { ExcludedPlugins = roster }, sc with { ExcludedPlugins = roster }, multi));
 
-        // ---- OFF-ORDER: a named plugin the scripts family has no lane for ---------------------------
+        // ---- OFF-ORDER: a file swept from disk, in each swept family's own section -------------------
+        // Both swept families have the lane, so both carry the roster, the coverage tail and the qualified epoch
+        // stamp — two more lines of fixed part than any shape above, plus a collapse line the scripts family adds
+        // when one script class's unverifiable note repeated. The fixed-part pass has to measure all of it.
+        var eOff = e with { OffOrderScanned = new[] { OffOrderFile } };
+        var scOff = sc with { OffOrderScanned = new[] { OffOrderFile }, TotalUnverifiable = 7, UnverifiableCollapsed = 5 };
         Add("errors+scripts, listing, off-order",
-            new CheckSweep(Sel("errors", "scripts"), e, sc));
-        // …and the same file named on a call where that family REFUSED. The off-order sentence is now written above
-        // whatever the family goes on to say, refusal included, so a refusal section carries a sentence no other
-        // shape puts in the fixed part — and the fixed-part pass has to measure it.
+            new CheckSweep(Sel("errors", "scripts"), eOff, scOff));
+        // …and the same file named on a call where the scripts family REFUSED: a refusal carries no roster of its
+        // own, so the errors family's has to still be there beside it.
         Add("errors+scripts, listing, off-order, scripts refused",
-            new CheckSweep(Sel("errors", "scripts"), e, refusedScripts));
+            new CheckSweep(Sel("errors", "scripts"), eOff, refusedScripts));
         // ---- NO FAMILY ANSWERED, on DISTINCT grounds ------------------------------------------------
         // The grounds-are-one rule's other side: two families refusing for different reasons render as two refusal
         // sections rather than collapsing to one error, and the scope sentence takes its no-family-answered arm —
@@ -130,10 +135,12 @@ internal static class CheckShapeMatrix
                            ErrorCheckResult.Fail("the errors family's own ground, which is not the scripts family's"),
                            refusedScripts));
         Add("all three, counts_only, off-order",
-            new CheckSweep(Sel("errors", "scripts", "dialogue"), eCounts, scCounts, dCounts));
+            new CheckSweep(Sel("errors", "scripts", "dialogue"),
+                           eCounts with { OffOrderScanned = new[] { OffOrderFile } },
+                           scCounts with { OffOrderScanned = new[] { OffOrderFile } }, dCounts));
         Add("all three, listing, off-order, roster",
             new CheckSweep(Sel("errors", "scripts", "dialogue"),
-                           e with { ExcludedPlugins = roster }, sc with { ExcludedPlugins = roster }, d));
+                           eOff with { ExcludedPlugins = roster }, scOff with { ExcludedPlugins = roster }, d));
 
         return shapes;
     }
@@ -142,6 +149,10 @@ internal static class CheckShapeMatrix
     /// real fraction of a tight cap's body budget — which is the condition A1 needed, and the condition under which
     /// the roster's share has to be governed rather than taken first.</summary>
     const int RosterRows = 40;
+
+    /// <summary>The file the off-order shapes were swept from disk — a name no other shape in the inventory prints,
+    /// so a roster that went missing cannot be satisfied by some other line.</summary>
+    const string OffOrderFile = "HcMxFresh.esp";
 
     static ErrorCheckResult TrimErrors(ErrorCheckResult r, int sections, int dangling)
         => r with
