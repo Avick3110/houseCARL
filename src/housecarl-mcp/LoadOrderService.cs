@@ -5877,8 +5877,11 @@ public sealed class LoadOrderService : IDisposable
             // the service cannot tell which one called it; null offers only the half true at every altitude.
             string outPath;
             try { outPath = ResolveOutputPath(patchName: null, into: patch, out _, out _,
-                                              laneClause: WriteSentences.RemoveNoFreshPatch
-                                                          + (inPlaceRemedy is null ? "" : " " + inPlaceRemedy + WriteSentences.InPlaceAnyFilename),
+                                              laneClause: WriteSentences.RemoveNoFreshPatch,
+                                              // The in-place half is handed in apart from the rule so it reads LAST,
+                                              // behind the owned-patch candidates — the un-owned arm's order (#380).
+                                              laneInPlace: inPlaceRemedy is null ? null
+                                                           : inPlaceRemedy + WriteSentences.InPlaceAnyFilename,
                                               // The un-owned arm states the same no-create rule, and names the plugin
                                               // the in-place lane can take there rather than the placeholder.
                                               unownedFresh: WriteSentences.RemoveNoFreshPatch,
@@ -7701,10 +7704,12 @@ public sealed class LoadOrderService : IDisposable
     /// remedy, so the calling operation states how its own fresh-write path works. Both default to claiming nothing,
     /// so a caller added later cannot inherit a sentence that is false for it. <paramref name="inPlaceLane"/> and
     /// <paramref name="unownedFresh"/> are the same for the un-owned-folder refusal: the caller's own spelling of the
-    /// in-place lane, and its fresh-lane statement where the enum cannot express one.</summary>
+    /// in-place lane, and its fresh-lane statement where the enum cannot express one.
+    /// <paramref name="laneInPlace"/> is the not-found arm's in-place sentence, kept apart from
+    /// <paramref name="laneClause"/> so it reads last, behind the candidates.</summary>
     string ResolveOutputPath(string? patchName, string? into, out bool extend, out bool createdFolder, bool create = true,
                              FreshPatchRemedy freshPatch = FreshPatchRemedy.None, string? laneClause = null,
-                             string? inPlaceLane = null, string? unownedFresh = null)
+                             string? inPlaceLane = null, string? unownedFresh = null, string? laneInPlace = null)
     {
         lock (_gate)
         {
@@ -7721,7 +7726,8 @@ public sealed class LoadOrderService : IDisposable
                 // then picked inside the resolved folder — the <stem>.esp it holds, or, where the folder and plugin
                 // names differ, the folder's single plugin, refusing if it holds none or several.
                 var folder = ResolveOwnedPatchFolder(into, needEsp: true, freshPatch, laneClause,
-                                                     inPlaceLane: inPlaceLane, unownedFresh: unownedFresh);
+                                                     inPlaceLane: inPlaceLane, unownedFresh: unownedFresh,
+                                                     laneInPlace: laneInPlace);
                 var direct = Path.Combine(folder, PatchStem(into) + ".esp");
                 if (File.Exists(direct)) return direct;
                 var sole = SoleEspInFolder(folder, out var why);
@@ -8348,12 +8354,15 @@ public sealed class LoadOrderService : IDisposable
     /// the other reading of a name that lands on a foreign folder; it rides that arm only, offered only when that
     /// folder holds a plugin the lane can actually take, and a caller that has no such lane passes nothing.
     /// <paramref name="unownedFresh"/> rides the same arm: a lane whose fresh-write statement the enum cannot
-    /// express (removal, which creates nothing) hands it in. Both refusals close with the owned patches, so neither
-    /// dead-ends (#359, #380).</summary>
+    /// express (removal, which creates nothing) hands it in. <paramref name="laneInPlace"/> is the not-found arm's
+    /// own in-place sentence, held apart from <paramref name="laneClause"/> so it can be appended LAST, behind the
+    /// candidates — the same order the un-owned arm uses, for the same reason (#380). Both refusals close with the
+    /// owned patches, so neither dead-ends (#359, #380).</summary>
     string ResolveOwnedPatchFolder(string into, bool needEsp,
                                    FreshPatchRemedy freshPatch = FreshPatchRemedy.None, string? laneClause = null,
                                    RiderNaming? riderNaming = null, string? riderDefaultStem = null,
-                                   string? inPlaceLane = null, string? unownedFresh = null)
+                                   string? inPlaceLane = null, string? unownedFresh = null,
+                                   string? laneInPlace = null)
     {
         var stem = PatchStem(into);                             // strips a trailing .esp/.esm/.esl; no directory parts (can't escape ModsDir)
         var espName = stem + ".esp";
@@ -8435,7 +8444,9 @@ public sealed class LoadOrderService : IDisposable
         // laneClause is the same statement one step further: a lane whose next step is its own hands the sentence in
         // rather than having it inferred from a semantic bit. It rides THIS arm only.
         // It is rendered BEFORE the fallback: the lane's own diagnosis is what makes the fallback the right thing
-        // left to do.
+        // left to do. Its in-place half is handed in separately and appended LAST, behind the candidates: it is the
+        // one clause here that rewrites a file the caller did not author, and both arms of this resolver read the
+        // same way about that (#380).
         // The sentence deliberately does not predict the resulting filename. UniqueStem takes a stem only when it is
         // free on both tests — no "houseCARL - <stem>" folder exists, and no active plugin is named "<stem>.esp" —
         // and suffixes it otherwise. Either trigger is ordinary, so the qualifier scopes both names the sentence
@@ -8458,7 +8469,8 @@ public sealed class LoadOrderService : IDisposable
                     + OwnedPatchCandidates(needEsp, stem),
                 FreshPatchRemedy.CreatedByOmittingInto => "Omit into= to create it fresh. " + OwnedPatchCandidates(needEsp, stem),
                 _ => OwnedPatchCandidates(needEsp, stem),
-            }));
+            })
+            + (laneInPlace is null ? "" : " " + laneInPlace));
     }
 
     /// <summary>houseCARL-owned mod folders under ModsDir holding a plugin file named <paramref name="espFileName"/>
@@ -8477,21 +8489,56 @@ public sealed class LoadOrderService : IDisposable
         return hits;
     }
 
-    /// <summary>The plugins in <paramref name="folder"/> that the in-place lane could actually take: in_place= names
-    /// a FILENAME and resolves it through the ACTIVE load order, so a plugin MO2 has not enabled is not reachable by
-    /// it. Empty when the folder holds no plugin or none of them is active — which is the whole point, since the
-    /// caller is then offered no in-place sentence at all rather than one that leads to a second refusal.</summary>
-    IReadOnlyList<string> ActiveInPlaceTargets(string folder)
+    /// <summary>Plugin filename → the on-disk path the ACTIVE load order actually resolves it to. Two mod folders may
+    /// ship the same plugin basename and only one of them wins, so a name-only check cannot say which copy a lane
+    /// naming that filename would open. Same best-effort composition as
+    /// <see cref="ActivePluginBasenames"/>: the built resolver if there is one, else the cheap profile read, and any
+    /// failure yields an empty map.</summary>
+    IReadOnlyDictionary<string, string> ActivePluginPaths()
     {
-        var active = ActivePluginBasenames();
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            return Directory.EnumerateFiles(folder).Select(f => Path.GetFileName(f)!)
-                .Where(n => PluginExts.Any(ext => n.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) && active.Contains(n))
+            var r = _resolver;
+            if (r is not null)
+            {
+                var view = r.Capture();
+                foreach (var n in r.PluginNames)
+                    if (view.PluginPath(n) is { } p) map[n] = p;
+            }
+            else
+                foreach (var p in Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir).OrderedPaths)
+                {
+                    var n = Path.GetFileName(p);
+                    if (!string.IsNullOrEmpty(n)) map[n] = p;
+                }
+        }
+        catch { /* unreadable or empty load order → no in-place lane is claimed */ }
+        return map;
+    }
+
+    /// <summary>The plugins in <paramref name="folder"/> that the in-place lane could actually take: in_place= names
+    /// a FILENAME and resolves it through the ACTIVE load order, so a plugin MO2 has not enabled is not reachable by
+    /// it. The match is on the resolved PATH, not the filename: a folder shipping a copy of a filename some
+    /// higher-priority mod also ships would otherwise be offered a lane that opens the OTHER folder's file — a
+    /// consent-gated write on a plugin the sentence never named. Empty when the folder holds no plugin, or none of
+    /// them is the copy the game loads — which is the whole point, since the caller is then offered no in-place
+    /// sentence at all rather than one that leads somewhere they did not ask for.</summary>
+    IReadOnlyList<string> ActiveInPlaceTargets(string folder)
+    {
+        var active = ActivePluginPaths();
+        try
+        {
+            return Directory.EnumerateFiles(folder)
+                .Where(f => PluginExts.Any(ext => f.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
+                            && active.TryGetValue(Path.GetFileName(f)!, out var winner)
+                            && string.Equals(Path.GetFullPath(winner), Path.GetFullPath(f), StringComparison.OrdinalIgnoreCase))
+                .Select(f => Path.GetFileName(f)!)
                 .OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
         }
         catch (IOException) { return Array.Empty<string>(); }
         catch (UnauthorizedAccessException) { return Array.Empty<string>(); }
+        catch (ArgumentException) { return Array.Empty<string>(); }
     }
 
     /// <summary>One owned patch folder as this refusal saw it: the plugins are read for EVERY owned folder, not just
@@ -8553,6 +8600,14 @@ public sealed class LoadOrderService : IDisposable
                 rows.Add(t);
             }
         }
+        // Two different facts reach an empty list, and only one of them is "there is nothing to extend". When every
+        // owned patch was dropped because no single into= spelling reaches it, saying houseCARL owns none sends the
+        // caller off to mint a fresh patch beside patches they could have extended — so the count says what happened.
+        if (rows.Count == 0 && more > 0)
+            // No remedy is appended: this tail closes every lane, and a create route is false on the ones that
+            // cannot create. Renaming is the one step true at every altitude.
+            return $"houseCARL owns {more} patch{(more == 1 ? "" : "es")}, none reachable by a single into= spelling " +
+                   "(their folder and plugin names collide) — rename one of them in MO2 to name it.";
         if (rows.Count == 0)
             return needEsp
                 ? "houseCARL owns no patch holding a plugin yet."
