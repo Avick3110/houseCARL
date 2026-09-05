@@ -3648,7 +3648,7 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
         LocalizedShape.NotLocalized
             or LocalizedShape.LooseComplete or LocalizedShape.LoosePartial or LocalizedShape.LooseWithGameDataDuplicate
             or LocalizedShape.BsaEmbedded or LocalizedShape.GameDataOnly or LocalizedShape.StringsFolderUnreadable
-            or LocalizedShape.Nowhere
+            or LocalizedShape.ModFolderUnreadable or LocalizedShape.Nowhere
             => WhereTheTextIs(a) + " " + WhyNotInPlace(a),
 
         // Enumerated above one by one, so a shape added later lands HERE and says nothing rather than inheriting
@@ -3741,6 +3741,14 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
             + "to see what is in there. Rewriting the plugin renumbers the indices its text is looked up by, and "
             + "houseCARL cannot tell whether the files written beside it would replace a set that is already there or "
             + "land next to one it never saw." + Settled,
+
+        // The same as the arm above, one level up: the folder holding the plugin would not list, so what is beside it
+        // — a loose set, an archive carrying its tables — was never established.
+        LocalizedShape.ModFolderUnreadable =>
+            "A localized plugin's text is not in the plugin, and houseCARL could not read the folder the plugin sits "
+            + "in to see what is beside it. Rewriting the plugin renumbers the indices its text is looked up by, and "
+            + "houseCARL cannot tell whether the files written beside it would replace a set that is already there, "
+            + "shadow one it never saw, or sit next to an archive it could not look in." + Settled,
 
         // houseCARL cannot see the source, so it cannot name a hazard it has verified. Saying which one it cannot
         // rule out is the honest form.
@@ -3846,6 +3854,13 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
                 "It is flagged LOCALIZED and there is a Strings folder beside it that houseCARL could not read, so "
                 + "whether its text is in there — and in which languages — is unknown" + AlsoLoose(a) + ".",
 
+            // The MOD folder is the one that would not list, so nothing beside the plugin was established — not a
+            // loose set, and not an archive there. It asserts no absence, which is the whole reason it is not Nowhere:
+            // that sentence says there is "no archive beside it", about a folder nothing could read.
+            LocalizedShape.ModFolderUnreadable =>
+                "It is flagged LOCALIZED and houseCARL could not read the folder the plugin sits in, so whether its "
+                + "text is beside it — loose, or inside an archive there — is unknown" + AlsoLoose(a) + ".",
+
             // Says what was SEARCHED and what was FOUND, never what exists. It asserts no absence: a Strings folder
             // beside the plugin may hold a neighbour's tables, or this plugin's in a language Mutagen does not model
             // (ptbr), and neither is "nothing is there". NothingMatched describes the folder as it is, and the only
@@ -3924,6 +3939,9 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
             "It is flagged LOCALIZED and houseCARL cannot find its .STRINGS files: " + NothingMatched(a) + ".",
         LocalizedShape.StringsFolderUnreadable =>
             "It is flagged LOCALIZED and houseCARL could not read the Strings folder beside it, so where its text "
+            + "lives is unknown.",
+        LocalizedShape.ModFolderUnreadable =>
+            "It is flagged LOCALIZED and houseCARL could not read the folder the plugin sits in, so where its text "
             + "lives is unknown.",
         LocalizedShape.Unreadable =>
             "houseCARL could not read it to see whether it is localized or where its text lives.",

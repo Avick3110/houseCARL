@@ -131,6 +131,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
   the pass line says what the scan does and does not read. `housecarl_compact_plugin` does not report them: its output
   keeps the source's basename, so a declarer's master is still there.
 
+- **A localized plugin in a mod folder houseCARL cannot list is no longer described as having no strings anywhere.**
+  The folder's "could not be listed" answer was read and then dropped, so a plugin whose tables sit in a `.bsa` in
+  that folder was refused with a sentence saying there is no archive beside it, and a remedy telling the modder to go
+  and find the tables. Such a plugin now classifies as its own shape: the refusal says the folder could not be read,
+  and the remedy names that folder — close whatever holds it open, or fix its permissions. The refusal itself is
+  unchanged in outcome; what changed is that it no longer claims an absence nothing checked.
+
 - **`housecarl_merge_plugins`'s `.esl` refusal no longer states a reason that is false for a light donor.** It said a
   merge keeps the donors' object ids in the full range; renaming an already-light plugin — a single-donor merge — has
   ids that are all inside the light window. The refusal now says what the merge does not do (it never renumbers into

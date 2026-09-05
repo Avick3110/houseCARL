@@ -6340,12 +6340,12 @@ public sealed class LoadOrderService : IDisposable
     /// at runtime, so a plugin's strings can sit in an archive in another mod folder that no path walked here can
     /// see.</para>
     ///
-    /// <para>Two shapes arrive here and the words differ per shape — what the read WILL be, and what to do about it.
-    /// Nothing found anywhere is fixed by putting the tables somewhere houseCARL can see; a Strings folder that is
-    /// there and would not list is fixed by freeing that folder, and telling its caller to place tables in it
-    /// describes a folder they already have.</para></summary>
+    /// <para>Three shapes arrive here and the words differ per shape — what the read WILL be, and what to do about it.
+    /// Nothing found anywhere is fixed by putting the tables somewhere houseCARL can see; a folder that is there and
+    /// would not list — the plugin's <c>Strings\</c> folder, or the mod folder itself — is fixed by freeing THAT
+    /// folder, and telling its caller to place tables in it describes a folder they already have.</para></summary>
     /// <param name="verb">The operation, as the report names it — "compact", "merge".</param>
-    static string UnresolvableStringsRefusal(string name, LocalizedAssessment a, string verb)
+    internal static string UnresolvableStringsRefusal(string name, LocalizedAssessment a, string verb)
     {
         // WHERE the text is comes from the one renderer that already gets it right for both shapes: it names what
         // the Strings folder beside the plugin actually holds rather than claiming it is empty, and it drops the
@@ -6354,16 +6354,21 @@ public sealed class LoadOrderService : IDisposable
         // What the READ will be is per shape, and neither claim may be made for the other: nothing resolves a
         // plugin whose text is nowhere, so its values are empty; a folder that could not be listed was never read,
         // so what comes back from it is unknown.
-        var consequence = a.Shape == LocalizedShape.StringsFolderUnreadable
+        var unlistable = a.Shape is LocalizedShape.StringsFolderUnreadable or LocalizedShape.ModFolderUnreadable;
+        var consequence = unlistable
             ? "houseCARL cannot tell what its text reads as, or an empty value from a real one"
             : "every name, description and message it carries reads back EMPTY";
 
         // And so is the REMEDY. "Put the tables where houseCARL can see them" is the answer when nothing was found
-        // anywhere; told to a plugin whose Strings folder is already sitting there unreadable, it sends the caller to
-        // fill the one folder nothing could open. That shape needs the folder freed, not populated.
-        var remedy = a.Shape == LocalizedShape.StringsFolderUnreadable
-            ? $"Let houseCARL read the Strings folder beside '{name}' — close whatever is holding it open, or fix its "
-              + "permissions — and run this again."
+        // anywhere; told to a plugin whose folder is already sitting there unreadable, it sends the caller to fill a
+        // folder nothing could open. Those shapes need the folder freed, not populated — and the sentence names WHICH
+        // folder, because the two are different places on disk and only one of them is the one to fix.
+        var folder = a.Shape == LocalizedShape.StringsFolderUnreadable
+            ? $"the Strings folder beside '{name}'"
+            : $"the folder '{name}' sits in";
+        var remedy = unlistable
+            ? $"Let houseCARL read {folder} — close whatever is holding it open, or fix its permissions — and run "
+              + "this again."
             : "Put this plugin's .STRINGS where houseCARL can see them — enable the mod that provides them, or place "
               + "them in a Strings folder beside the plugin — and run this again.";
         return $"refused — houseCARL did not {verb} '{name}'. "
@@ -6393,7 +6398,8 @@ public sealed class LoadOrderService : IDisposable
 
             LocalizedShape.LooseComplete or LocalizedShape.LoosePartial or LocalizedShape.LooseWithGameDataDuplicate
                 or LocalizedShape.BsaEmbedded or LocalizedShape.GameDataOnly
-                or LocalizedShape.StringsFolderUnreadable or LocalizedShape.Nowhere =>
+                or LocalizedShape.StringsFolderUnreadable or LocalizedShape.ModFolderUnreadable
+                or LocalizedShape.Nowhere =>
                 head + "A compaction does not re-serialize your plugin, it builds a NEW one and writes that over the "
                      + "original, and houseCARL will not replace a translated plugin's .STRINGS files on your own copy: "
                      + "it cannot swap the plugin and its tables as one operation, and the file the game loads would "
